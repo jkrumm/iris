@@ -554,40 +554,50 @@ fixture decode tests). Disjoint tracks where the files allow; the lead sequences
 ## Fleet backlog (for the long-running fleet: mother → lead → workers)
 
 Not waves of this chain. The fleet's mother turns these into active waves, one at a time,
-refining scope from TDD/PRD. Releases are named in PRD §Release plan. The owner reviewed the
-mockups on 2026-10-27: `docs/design/feedback-round-1.md` is binding for every UI item.
-**Ordering while the owner is away (no paired iPhone until he is home):** start with items that
-need no phone (0, 4, 6, 7). Items 1–3 and 5 need the device for their exit checks and wait for
-pairing. Build their simulator-testable parts earlier if the queue runs dry.
+refining scope from TDD/PRD. Releases are named in PRD §Release plan. **Design is binding:**
+`docs/design/feedback-round-1.md` and `docs/design/feedback-round-2.md` (round 2 wins where they conflict). No further
+design round; a genuinely new surface gets a render sent to the owner for async review, never a blocking round.
+**Ordering while the owner is away (no paired iPhone until he is home):** items that need no phone first (4b, 6, 7,
+then the simulator-testable parts of 2, 5, 8). Items 1, 3 and the device exit checks of 2 and 5 wait for pairing.
 
-0. **Design round 2:** apply `feedback-round-1.md` to the mockups:
-   - the memo detail waterfall (collapsed), the player with 10 s back, less shadow, no trace id;
-   - the Dynamic Island mic-swap icon, compact notification actions, Mac Reply;
-   - new surfaces: Chat mode, typed memo, History filters, Stats, the Threads view.
-   Render and upload like Wave 9. The owner reviews; until he answers, build the unchanged
-   surfaces.
+0. ~~Design round 2~~ — done (Wave 10); the owner's verdict is `feedback-round-2.md`.
 1. **Spikes S1–S3** on the iPhone (`docs/spikes/`). They need the owner's hands, pairing and
    (for S3) enrollment. Findings amend TDD.
 2. **R1 capture:** `IrisCapture` for real (session, routes, segment recorder, outbox),
    `StartMemoIntent` + Control + Live Activity (client phases recording/paused/uploading, Wave 7
-   carry-forward), the Record screen, `-IrisFakeCapture` UI tests, package wiring onto `IrisCore`,
-   `POST /v1/telemetry` on the server.
+   carry-forward), package wiring onto `IrisCore`. Round 2: **start recording from any screen**, the take continues as a
+   **compact top banner** while browsing and moves to the Live Activity on leaving the app; the **outbox queues whole
+   memos and chat messages** (not only segments) and Settings shows it as a queue; Dynamic Island icon controls (stop,
+   mic swap, pause) with **animated step progress** and several queued memos; the done card's checkmark aligned.
+   `-IrisFakeCapture` UI tests. (`POST /v1/telemetry` moved to Wave 12.)
 3. **R1 results:** APNs registration, notification categories + content extension, the result
    long-poll backstop, Live Activity remote updates. TestFlight pipeline (`make testflight`) once
    enrolled.
-4. **R2 routing (server):** prefix parser, `decide`, journal + herdr destinations, `needs_route`,
-   corrections, templated summaries, **Chat mode** (Hermes session with a no-side-effects system
-   message; confirm this reading with the owner when the item starts), typed memos (skip STT),
-   agw `caller` field (a small change in agent-gateway). Plus Wave 5's carry-forward (composition
-   dedupe, `MEMO_NEEDS_ROUTE`, `+faststart`).
+4. ~~R2 routing (server)~~ — done (Waves 10–11).
+4b. **R3 server completion** (no phone): memo flags for the swipe actions — **done**, **favorite**, **archived**, and
+   **delete** as a soft delete with an undo window, then purge — with list filters and quick-filter support (Favorites,
+   Chats, Needs route; archived/deleted hidden by default); **automatic retries** of transient step failures (two, with
+   exponential backoff; TDD §3 says they are not built, round 2 assumes they are) with the attempt count on the wire per
+   step; whatever Wave 12 left behind (threads from Iris's own memos, per-step-and-route baselines with n); a reply
+   stream for chat/thread views if the thread view needs live tokens (final answer only, smooth). Swift `IrisCore` follow-up.
 5. **R2 routing (iOS):** the mode picker incl. Chat, needs-route actions, [Play] via
-   `PlayReplyIntent`, per-route mic rules, spoken-replies setting, cost-on-Lock-Screen setting.
-6. **R3 history:** History + search + filters, memo detail per round 2, SSE live updates, Stats
-   (server aggregates + view), the typed-memo composer.
-7. **R3 threads:** the Threads view (Textual), reply by voice or text into a thread, Chat threads.
-8. **R4 Mac:** the menu-bar app, hotkey (configurable, default distinct from the owner's
-   dictation key), panel, capture on the Mac, SSE notifications with Reply.
+   `PlayReplyIntent`, per-route mic rules, spoken-replies setting. (The cost-on-Lock-Screen toggle is dropped by round 2.)
+6. **R3 history (iOS):** tabs **History · Stats · Settings** (no Threads tab). History is the one list of everything:
+   rows like round 1, **swipe actions** (right: done, further right: favorite; left: archive, further left: delete with
+   undo), **quick-filter chips** (Favorites, Chats, Needs route, …) next to search and the bottom-sheet filter, SSE live
+   updates. Memo detail per round 2: round 1's player (play/pause, scrub, one 10 s-back icon, no speed), the full-width
+   step waterfall with one `duration · cost` chip per step, faster/slower only where a baseline is meaningful, attempts
+   per step + [Retry from step], icon-only bottom actions. Stats view. Typed-memo composer. Settings with an obvious
+   Diagnostics row (copy the memo id, animated "Copied"). Motion explains state (steps advancing, copy, queue), subtle;
+   colour earns its place. Snapshot tests on the pinned simulator.
+7. **R3 conversations (iOS):** a Chat or multi-turn Hermes memo is a History row that opens the **thread view**; the
+   Chats quick filter lists them. Rendering: markdown, syntax-highlighted code, **Mermaid** (research the options with
+   `/research` first, incl. the Obsidian-related library the owner mentioned; native vs WebView is a TDD decision), SVG,
+   tables collapsing to cards on narrow widths; smooth final-answer streaming. Reply by voice or text into a thread; the
+   **iPhone reply flow** (new surface: render it and send it for async owner review while building).
+8. **R4 Mac:** the menu-bar app (its **history rows match mobile History**), hotkey (configurable, default distinct from
+   the owner's dictation key), panel, capture on the Mac, SSE notifications with Reply.
 9. **R5 polish:** on-device live preview (`SpeechTranscriber`, German checked at runtime),
    widgets, spoken-replies mode, `.xcstrings` catalogs, alerts + health probe (TDD §8 Later).
-10. **Housekeeping after R3's screens ship:** delete the round-1/2 mockup image objects (via `/img`),
-    `iumac:/tmp/iris-mockups.html` and `docs/design/renders/`.
+10. **Housekeeping after R3's screens ship:** delete the round-1/2 mockup image objects (via `/img`, incl. the stray
+    `r2-detail-light` test upload), `iumac:/tmp/iris-mockups.html` + `/tmp/iris-mockups/` and `docs/design/renders/`.

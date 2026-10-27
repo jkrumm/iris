@@ -87,10 +87,13 @@ acted on and notified through a Live Activity and APNs. There is one user, the o
 - Wave 11 done (`f5da34c` deployed): journal, herdr, typed memos, Chat (soft no-side-effects `system_message`; Hermes rewrites the
   `iris-chat` source to `api_server`, so `threads.kind` is the marker), agw `caller`. Backlog 4 / R2 server complete.
 - Wave 12 (R3 server: threads API, search + filters, stats, telemetry relay, housekeeping) active.
-- Open for the owner, not blocking: design round 2 review; optionally widening Hermes' source allow-list (third-party change).
+- Owner reviewed design round 2 (`docs/design/feedback-round-2.md`, binding, wins over round 1): folded into the backlog
+  (4b server flags + auto retries, 6 History, 7 conversations, 2 in-app recording banner + whole-memo outbox, 8 Mac rows).
+  No further design round. No Hermes upstream patch: Iris owns chat data. The w12 lead was steered: threads detail from
+  Iris's own memos, stats baselines per step+route with n.
 
 ## Next action
 
 Watch the active wave's lead (`iris-w<n>`), verdict its close-out, `rd close`, write the next wave from the backlog
-(after Wave 12: R3 iOS screens on the simulator from the round-2 mockups — History + filters + search, memo detail, SSE,
-typed composer, Threads, Stats — folding in the owner's round-2 answers if they arrived), spawn, loop.
+(after Wave 12: Wave 13 = backlog 4b (server flags, auto retries, Wave 12 leftovers) ∥ the start of backlog 6 (tabs,
+History list, swipe + quick filters); then 6 rest, 7, the simulator parts of 2/5/8), spawn, loop.
