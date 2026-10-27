@@ -40,23 +40,27 @@ alongside round 1 (where the two conflict, this file wins).
 **Mac**
 - **Menu-bar history:** match the mobile History rows (round 1's sharper look).
 
-**Chat and Threads rendering**
-- **Content:** render whatever Hermes streams: markdown, **syntax-highlighted code**, **Mermaid diagrams** and SVG.
-  **Tables** collapse to cards on narrow widths.
-- **Streaming:** smooth, final-answer only (Hermes is configured to skip thinking/chatter; Iris doesn't add any).
-- **Mermaid library:** the owner mentioned "a new library from Obsidian" for Mermaid rendering, name unclear. Research the
-  options (`/research`) before choosing; native vs a WebView renderer is a TDD decision.
+**Chat rendering and speech**
+- **Scope = what Hermes actually streams back.** Render Hermes's markdown faithfully: text, lists, links,
+  syntax-highlighted code, tables (cards on narrow widths) and Mermaid. Build no features Hermes never produces.
+- **Mermaid:** use **Pele** (`obsidianmd/pele`, MIT, TypeScript, synchronous, no runtime dependencies, every Mermaid 12.1
+  diagram type, colours through CSS variables). Default design: `iris-server` renders each Mermaid block with Pele when the
+  reply is stored, producing an SVG themed for light and dark plus rasterized PNGs for the native views. Tap opens a
+  zoomable full view. The fleet confirms the rasterizer choice when the item starts, and the TDD records it.
+- **Speech is a first-class output of every answer.** [Play] and spoken replies speak a **speech-ready variant**, not the
+  raw markdown: code, diagrams, tables and URLs are stripped or summarized. Long answers speak the `triage`
+  `spoken` summary plus "details on screen". The server produces it next to the rendered reply.
+- **Streaming:** smooth, final-answer only (Hermes is configured to skip thinking/chatter; Iris adds none).
 
-**History, Threads, filters**
+**History, filters (no Threads tab)**
 - **Filters:** the bottom sheet that collapses up from the bottom is good. Stats is good. Typed memo is good.
 - **Swipe actions on rows:**
   - swipe right: **done** (handled, moved out of the way); swipe further right: **favorite**;
   - swipe left: **archive**; swipe further left: **delete** (with undo).
 - **Quick filters:** chips above the list (Favorites, Chats, Needs route, …) next to search/filter.
-- **History vs Threads:** the owner couldn't tell them apart. **Decision (orchestrator's recommendation, adopted unless
-  the owner objects):** drop the separate Threads tab. History is the one list of everything. A conversation (a Chat or a
+- **History vs Threads:** **Decision (owner confirmed 2026-10-27):** drop the separate Threads tab. History is the one list of everything. A conversation (a Chat or a
   multi-turn Hermes thread) is a History row that opens the thread view, and the "Chats" quick filter shows only those.
-  Tabs become History · Stats · Settings.
+  Tabs become History · Stats · Settings. The freed slot is reserved for later surfaces (see PRD §Later), not filled now.
 
 **Recording inside the app**
 - **Start anywhere:** a recording can start from any screen.

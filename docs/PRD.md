@@ -163,6 +163,14 @@ the action was.
 | R5 — Polish | live on-device preview, widgets, spoken-replies mode | — |
 | R6 — Agent inbox | agents reach me through Iris, reply by voice | Mute Slack `#agents` |
 
+## Later (after R5, not scheduled)
+
+- **Claude subscription status and token usage** (the Max accounts' 5-hour and 7-day windows; usage-tracker / Argo data).
+- **A herdr / agent fleet overview:** running agents and their state, like the owner's Hermes fleet-status skill.
+- **R6 agent inbox** (see the Release plan).
+
+These get their own tab or screens in the slot freed by dropping Threads, and their own design round.
+
 ## Success
 
 - **Adoption:** after R2, Iris carries ≥ 90 % of my spoken input (Slack voice
