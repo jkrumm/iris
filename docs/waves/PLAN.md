@@ -411,6 +411,58 @@ The foundation chain (Waves 1–9) is complete. The fleet takes over: a mother (
 memory) turns the backlog below into Wave 10+ sections, one active at a time, each executed by a lead that fans out
 workers. The mother writes the next wave here.
 
+**Fleet gate (every wave):** each worker runs its cheap check; the lead runs `make check` at every merge (`rd merge`),
+`make e2e` for server changes, and `agw review` (CLI) on every non-docs diff with findings resolved. Server changes are
+pushed to master, the poller deploys, then `make verify` + `make smoke` on the mini. Apple changes gate on `apple.yml`.
+API changes run `make contracts` and update fixtures. TDD and AGENTS.md change in the same commit as the code they describe.
+
+## Wave 10 — Design round 2 ∥ R2 routing core (server)            <!-- status: active -->
+Backlog 0 and the first half of backlog 4. Two tracks on disjoint files, fanned out in parallel: **A** owns
+`docs/design/**` (plus the `mockups` Make target if it must change), **B** owns `server/**`, `contracts/**`, `scripts/**`.
+Inside B, B1 lands before B2/B3 are briefed (every new port wires through the composition B1 creates).
+- [ ] **A. Design round 2** (`docs/design/feedback-round-1.md` is binding). Changed surfaces: memo detail (less shadow;
+      scrubbable player with a 10 s back button; the step waterfall, each bar starting where the previous ended and marked
+      faster/slower than that step's median, collapsed by default with an expanded variant; cost collapsed; no trace id),
+      Settings → Diagnostics (trace id with copy, the hide-cost-on-Lock-Screen toggle), Dynamic Island (mic-swap icon button,
+      pause kept, two memos in a row), notification (smaller side-by-side actions), Mac notification with Reply, Record
+      (tab chip de-emphasized). New surfaces: Chat mode (mode choice + the answered thread), typed-memo composer, History
+      filters (route, state), Stats (volume per route per day/week, trends), Threads view (list, one thread rendered as
+      markdown, hold-to-talk). Light and dark where round 1 had both. Render with `make mockups`, upload private 7-day links via
+      `/img`, list them only in the untracked `docs/design/links.local.md`, rsync the gallery to
+      `iumac:/tmp/iris-mockups.html` and `ssh iumac open` it. `docs/design/README.md` gets a round-2 section and the open
+      questions. The owner's review is async: do not wait for it.
+- [ ] **B1. Composition dedupe + Wave 5 debt:** one composition used by both `index.ts` (production) and `compose-fakes.ts`
+      (`IRIS_FAKES=1`), so a new port is wired once; `+faststart` on the ffmpeg concat; clear the oxlint warnings.
+- [ ] **B2. Routing core** (TDD §3 Pipeline steps, step 3): a non-auto mode wins; the prefix parser ("journal|tagebuch",
+      "an hermes|hermes", "tab <name>", first 6 words, case- and diacritic-insensitive, prefix stripped from the transcript);
+      otherwise `decide` through agw behind a `Decider` port (adapter + fake), state = transcript (first 4k chars) + herd
+      summary; confidence ≥ 0.8 → `routed`, else `needs_route`. Only destinations with a registered `act` adapter are
+      choices; a prefix or mode naming an unregistered one (journal/herdr until Wave 11) parks at `needs_route` with the
+      reason. A `route_decisions` table (append-only migration) records every outcome: source (mode/prefix/decide/answer/
+      correction), destination, tab, confidence, model, cost.
+- [ ] **B3. Answers and corrections:** `POST /v1/memos/:id/route {destination, tab?}`: from `needs_route` it routes and
+      drives on; after `act` it records a correction only (no re-act). The `MEMO_NEEDS_ROUTE` alert category and the
+      needs-route Live Activity content state on the APNs notifier. Contracts, fixtures, manifest, SSE event coverage.
+- [ ] Deploy and prove it: `make verify` + `make smoke` on the mini after the poller deploys (the smoke memo must still
+      reach `notified`; pin `--mode hermes` in smoke if `decide` could route it elsewhere). TDD §3 (state machine, pipeline,
+      data model, HTTP API) and AGENTS.md amended to the shipped behaviour.
+**Left behind:**
+
+## Wave 11 — R2 destinations, Chat mode, typed memos (server)            <!-- status: pending -->
+The second half of backlog 4. Owner reading to confirm before the Chat step: Chat = a Hermes session (`source` marks it as
+chat) opened with a no-side-effects system message, its answer stored as the reply and threaded.
+- [ ] **Journal destination:** write `brain/Inbox/<YYYY-MM-DD>-<slug>.md` (TDD §3 act table) under the brain-sync lock,
+      commit and push per `brain/docs/brain-access.md`; templated summary (no model spend). Its smoke must not leave test
+      notes in the real brain (a fake brain dir in e2e; on the mini, a dedicated smoke path or a cleanup the lead defines).
+- [ ] **herdr destination:** `pane.send_text` + `send_keys Enter` on the resolved tab; a vanished tab → `needs_route`;
+      templated summary.
+- [ ] **Chat mode:** mode `chat` per the confirmed reading; thread upsert (the `threads` table if it is not there yet).
+- [ ] **Typed memos:** create a memo from text (skips `transcribe`), same modes and pipeline; contract + fixtures.
+- [ ] **agw `caller`:** agent-gateway accepts a `caller` field and attributes usage to it (its own commit in that repo);
+      iris sends `caller: iris` on decide/triage.
+- [ ] Deploy, `make verify` + `make smoke`, one real memo per new destination through production; TDD and AGENTS.md amended.
+**Left behind:**
+
 ## Fleet backlog (for the long-running fleet: mother → lead → workers)
 
 Not waves of this chain. The fleet's mother turns these into active waves, one at a time,
