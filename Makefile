@@ -115,3 +115,7 @@ logs: ## Bounded tail (last $(LINES) lines) of the production logs, then exits (
 .PHONY: smoke
 smoke: ## Send a real German recording end to end (IRIS_URL=https://iris.mini.<domain> AUDIO=<file>); needs the mini
 	@./scripts/smoke.sh
+
+.PHONY: e2e
+e2e: ## Pipeline end to end against a fake-booted server
+	bun scripts/e2e.ts

@@ -37,4 +37,6 @@ export interface DeviceStore {
   /** Replaces the memo's Live Activity push token (it can rotate mid-activity); false for an unknown memo. */
   setActivityToken(params: { memoId: string; token: string }): boolean;
   getActivityToken(memoId: string): string | null;
+  /** Drops the memo's Live Activity token (APNs said it is dead); a no-op without one. */
+  clearActivityToken(memoId: string): void;
 }

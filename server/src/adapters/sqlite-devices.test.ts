@@ -91,6 +91,15 @@ describe("activity tokens", () => {
     expect(devices.getActivityToken(id)).toBe("bb");
   });
 
+  it("clears the token and tolerates a second clear", () => {
+    const { devices, store } = setup();
+    const { id } = seedMemo(store);
+    devices.setActivityToken({ memoId: id, token: "aa" });
+    devices.clearActivityToken(id);
+    devices.clearActivityToken(id);
+    expect(devices.getActivityToken(id)).toBeNull();
+  });
+
   it("refuses an unknown memo", () => {
     const { devices } = setup();
     expect(devices.setActivityToken({ memoId: crypto.randomUUID(), token: "aa" })).toBe(false);

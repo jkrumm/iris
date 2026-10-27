@@ -1,4 +1,5 @@
 import type { Memo, Summary } from "../memo/memo.js";
+import type { ApnsResult, ApnsTransport } from "./apns.js";
 import type { AudioCombiner } from "./audio.js";
 import type { Delivery, Destination } from "./destination.js";
 import type { Herd, HerdTab } from "./herd.js";
@@ -56,15 +57,36 @@ export function fakeSummarizer(
   };
 }
 
+/** `calls` records `notify`, `phaseCalls` records `phase`; `failWith` fails `notify` only. */
 export function fakeNotifier(
   options: { failWith?: Error } = {},
-): Notifier & Calls<{ memo: Memo; summary: Summary }> {
+): Notifier & Calls<{ memo: Memo; summary: Summary }> & { phaseCalls: { memo: Memo }[] } {
   const calls: { memo: Memo; summary: Summary }[] = [];
+  const phaseCalls: { memo: Memo }[] = [];
   return {
     calls,
+    phaseCalls,
     async notify(params) {
       calls.push(params);
       if (options.failWith) throw options.failWith;
+    },
+    async phase(params) {
+      phaseCalls.push(params);
+    },
+  };
+}
+
+/** Records every send; `results` are consumed in order, then sends succeed. */
+export function fakeApnsTransport(
+  options: { results?: ApnsResult[] } = {},
+): ApnsTransport & Calls<Parameters<ApnsTransport["send"]>[0]> {
+  const calls: Parameters<ApnsTransport["send"]>[0][] = [];
+  const results = [...(options.results ?? [])];
+  return {
+    calls,
+    async send(params) {
+      calls.push(params);
+      return results.shift() ?? { ok: true };
     },
   };
 }

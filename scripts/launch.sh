@@ -8,6 +8,12 @@
 
 set -u
 
+# IRIS_FAKES swaps every downstream for in-memory fakes (make e2e only): production must never boot it.
+if [[ -n "${IRIS_FAKES:-}" ]]; then
+  print -u2 "iris: IRIS_FAKES is set in the environment — refusing to start production with fake downstreams. Unset it."
+  exit 78
+fi
+
 DIR="${0:A:h:h}"  # scripts/launch.sh -> repo root
 cd "$DIR/server" || { print -u2 "iris: cannot cd to $DIR/server"; exit 78; }
 

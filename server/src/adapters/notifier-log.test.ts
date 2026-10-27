@@ -28,4 +28,12 @@ describe("log notifier", () => {
       },
     ]);
   });
+
+  it("logs nothing for a phase change", async () => {
+    const { store } = testStore();
+    const lines: string[] = [];
+    const notifier = createLogNotifier({ logger: (event) => lines.push(event) });
+    await notifier.phase({ memo: seedMemo(store, "acted") });
+    expect(lines).toEqual([]);
+  });
 });

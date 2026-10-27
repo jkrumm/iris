@@ -13,5 +13,6 @@ export function createLogNotifier(opts: { logger?: typeof log } = {}): Notifier 
         detail: summary.detail,
       });
     },
+    async phase() {},
   };
 }

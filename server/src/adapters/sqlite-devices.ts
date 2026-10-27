@@ -92,5 +92,9 @@ export function createSqliteDeviceStore(params: { db: Database; clock: Clock }):
           .get(memoId)?.token ?? null
       );
     },
+
+    clearActivityToken(memoId) {
+      db.query("DELETE FROM activity_tokens WHERE memo_id = ?").run(memoId);
+    },
   };
 }

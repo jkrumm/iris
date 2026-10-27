@@ -20,10 +20,14 @@ come later under `apple/`.
 - `server/src/adapters/` — `sqlite.ts` (+ `sqlite-migrations.ts`, `PRAGMA user_version`), `sqlite-devices.ts`
   (`DeviceStore`, same db), `audio-fs.ts` (segments + `combined.m4a`), `speech-fs.ts` (`<id>.mp3` + `<id>.txt`),
   and the downstream adapters (audio-gateway transcriber + ffmpeg combiner, `audio-gateway-speaker.ts`, Hermes, agw,
-  `herdr.ts` over the unix socket, log notifier).
+  `herdr.ts` over the unix socket, log notifier), and the APNs pair: `notifier-apns.ts` (`Notifier` over an `ApnsTransport`)
+  and `apns-node.ts` (the transport on `@parse/node-apn`; `apns-test-support.ts` generates test keys and certs).
 - `server/src/ports/` — `audio.ts` (`AudioStore`, `AudioCombiner`, `Recording`), `clock.ts` (system, fixed and manual clocks),
   `transcriber.ts`, `speaker.ts` (+ `SpeechCache`), `devices.ts` (`DeviceStore`: devices, APNs tokens, Live Activity tokens),
-  `herd.ts`, `destination.ts`, `summarizer.ts`, `notifier.ts`, `fakes.ts` (in-memory fakes of the ports).
+  `herd.ts`, `destination.ts`, `summarizer.ts`, `notifier.ts` (`notify` + best-effort `phase`),
+  `apns.ts` (`ApnsTransport`), `fakes.ts` (in-memory fakes of the ports, incl. `fakeApnsTransport`).
+- `server/src/notify/` — `payloads.ts` (pure alert / Live Activity builders), `phases.ts` (`bindPhaseUpdates`: memo events →
+  `notifier.phase`), `select.ts` (`selectNotifier`: APNs or log).
 - `server/src/http/` — `auth.ts` (device-token guard), `memos.ts`, `devices.ts`, `media.ts` (audio + speech, `Range`),
   `herd.ts` and `events.ts` (route plugins), `schemas.ts` (every request/response shape as pure TypeBox, exported for the
   contracts), `errors.ts` (the one `MemoError` → status mapping), `serialize.ts` (the one wire-shape mapping, camelCase),
@@ -31,7 +35,8 @@ come later under `apple/`.
 - `server/src/telemetry/` — `otel.ts`, `otel-format.ts`, `log.ts`, copied from research-gateway
   (hand-rolled OTLP JSON, no SDK). The trace id is the memo UUID with dashes stripped.
 - `server/src/env.ts` — the only place `process.env` is parsed.
-- `scripts/` — `send-memo.ts` (e2e driver), `smoke.sh`, `launch.sh` (LaunchAgent entry), `mini-deploy.sh` (poller tick);
+- `server/src/compose-fakes.ts` — `composeFakes()`: every downstream port as an in-memory fake (`IRIS_FAKES=1`).
+- `scripts/` — `send-memo.ts` (driver), `e2e.ts` (`make e2e`), `smoke.sh`, `launch.sh` (LaunchAgent entry), `mini-deploy.sh` (poller tick);
   `launchd/` — plist templates; `fixtures/audio/` — the German smoke recording.
 
 ## HTTP API
@@ -62,7 +67,15 @@ with `failed(step)` as a side state.
 ## Validate
 
 `make check` — oxlint, `oxfmt --check`, `tsc --noEmit`, `bun test` (server). CI runs
-`make check-server` on `[self-hosted, vps]`. `make format` applies oxfmt.
+`make check-server` on `ubuntu-latest` (public repo, hosted runners). `make format` applies oxfmt.
+
+`make e2e` (`scripts/e2e.ts`, CI after `check-server`, needs ffmpeg) boots `server/src/index.ts` on a free port with
+`IRIS_FAKES=1` and a temp `IRIS_DATA`, runs `send-memo.ts` on the smoke recording (must reach `notified`), then probes
+`/devices/register`, `/activity-token`, `/audio` (Range 206), `/speech` (audio/mpeg) and `/herd`. The server is always killed.
+
+**`IRIS_FAKES=1`** (boolean-ish, empty = off) builds every port from `composeFakes()`, ignoring downstream env, and keeps the
+real ffmpeg combiner. `/health` is `degraded` with `"fakes"`, boot logs `server.fakes_mode`, and `scripts/launch.sh`
+refuses to start when `IRIS_FAKES` is set. Never set it in production.
 
 Tests are colocated `*.test.ts`. Ports and adapters: dependencies are injected, tests use
 in-memory SQLite and fake ports, no `mock.module` / `spyOn`, HTTP via `app.handle(new Request())`.
@@ -91,7 +104,7 @@ Push to master deploys. LaunchAgent `com.jkrumm.iris` (KeepAlive, `ExitTimeOut` 
   `launch.sh` refuses to start if a base ref does not resolve; a missing OTel overlay starts degraded.
   Device tokens, the audio-gateway URL and the OTLP endpoint live in `op://mini/iris/*` (listed in
   `dotfiles-private/headless.refs`). Rotate a token: edit the field, `make secrets-seed` from the
-  MacBook, `make launchd-restart`. `APNS_*` is unset, so the log notifier runs.
+  MacBook, `make launchd-restart`. `APNS_*` is unset (no `op://` ref yet, so not in `.env.mini.tpl`; add both at enrolment), so the log notifier runs.
 - `HERMES_URL` is composed in `launch.sh` from `HERMES_HOST` + `HERMES_PORT`.
 
 ## Verify & Monitor
@@ -152,6 +165,27 @@ Push to master deploys. LaunchAgent `com.jkrumm.iris` (KeepAlive, `ExitTimeOut` 
 - **Schemas** in `http/schemas.ts` are the contract source: routes use them for `body` / `query` / `params` / `response`,
   and `schemas.test.ts` fails if a Transform sneaks in (the two `t.Numeric` query params are the exception). Elysia's
   own `t.Integer` is a Transform, so integers are `t.Number({multipleOf: 1})`.
+- **APNs** (`APNS_KEY_P8` PEM with literal `\n` allowed, `APNS_KEY_ID`, `APNS_TEAM_ID`, `APNS_TOPIC` = bundle id): the
+  APNs notifier runs only when all four are set (else the log notifier), and that is deliberately not in `degraded` (the log
+  notifier is the intended state until enrolment; a degraded `/health` fails `make verify`). Boot logs `notifier.selected`.
+  Environment per push is `device.apnsEnv`, `sandbox` when null. `notify` sends the Live Activity `end` (if the memo has an
+  activity token) and the alert (if the device has an `apnsToken`); neither registered logs `notify.no_token` and succeeds.
+  A rejected token never fails the memo: `notify.apns_rejected` is logged, and BadDeviceToken / 410 Unregistered clear the
+  stored token (only if it is still the one we sent to); other 4xx (e.g. 403 InvalidProviderToken) are logged, tokens kept.
+  Transient failures (status 0, 408, 429, 5xx, 403 ExpiredProviderToken) throw, so notify fails and `POST /retry` re-drives
+  it (a retry re-sends both pushes). `phase` (Live Activity `update`, priority 5) is bound to memo events by
+  `bindPhaseUpdates`: not for `receiving` or `notified`, serialised per memo, latest state wins, errors logged only.
+- **APNs transport:** node-apn builds the ES256 JWT with `jsonwebtoken` and regenerates it when its `iat` is 3300 s (55 min)
+  old, checked per request (Apple: not <20, not >60 min); it retries 408/429/5xx and ExpiredProviderToken 3x. We cap in-flight
+  streams at 10 (Bun ignores `peerMaxConcurrentStreams`) and send the first request per environment alone (Apple allows one
+  stream until a valid token lands; a status-0 failure re-arms that). `config.port` (443) is passed to `http2.connect` and Bun
+  honours it over the URL, so a test server needs `address` and `port` both. Not verified: real Apple hosts and GOAWAY JSON.
+  node-apn emits a harmless `MaxListenersExceededWarning` (one `timeout` listener per stream on the session) above 10 streams.
+- **Live Activity contract (Swift side):** payload `aps` is `{timestamp, event, "content-state"}` (+ `dismissal-date` on `end`,
+  now + 15 min). `ContentState` is plain camelCase Codable: `phase` (`processing` | `needsRoute` | `done` | `failed`),
+  `routeChip?`, `headline?` (≤ 60), `hasReply`. `inputName` is never sent: the client keeps it device-side and must declare it
+  optional. Alerts carry the route chip + headline only (never transcript or reply), `category: MEMO_DONE`, `thread-id: memo`,
+  `mutable-content: 1` and a top-level `memo` id.
 - **Bookkeeping failures** (`completeStep` throws after a handler ran) log `runner.bookkeeping_failed`
   and propagate; the step row stays `running` and the memo keeps its state until the next `driveAll`.
 - A stored `summary_json` that fails the zod `Summary` schema reads as `null` with a `memo.summary_invalid` log.

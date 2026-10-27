@@ -20,6 +20,15 @@ const Env = z.object({
   HERMES_TOKEN: z.preprocess(emptyToUndefined, z.string().optional()),
   // herdr's unix socket (`~/.config/herdr/herdr.sock` on the mini); unset leaves `GET /v1/herd` at 503.
   HERDR_SOCKET: z.preprocess(emptyToUndefined, z.string().optional()),
+  // APNs credentials. The APNs notifier needs all four (else the log notifier runs, which is not
+  // `degraded`). `APNS_KEY_P8` is the .p8 PEM, literal `\n` escapes allowed; `APNS_TOPIC` the bundle id.
+  APNS_KEY_P8: z.preprocess(emptyToUndefined, z.string().optional()),
+  APNS_KEY_ID: z.preprocess(emptyToUndefined, z.string().optional()),
+  APNS_TEAM_ID: z.preprocess(emptyToUndefined, z.string().optional()),
+  APNS_TOPIC: z.preprocess(emptyToUndefined, z.string().optional()),
+  // Boots every downstream port from in-memory fakes (`make e2e`). Never set in production;
+  // scripts/launch.sh refuses to start with it. Empty = off.
+  IRIS_FAKES: z.preprocess(emptyToUndefined, z.stringbool().default(false)),
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   // Optional with no default: unset keeps local dev and every test console-only.
   OTEL_EXPORTER_OTLP_ENDPOINT: z.preprocess((v) => (v === "" ? undefined : v), z.url().optional()),
