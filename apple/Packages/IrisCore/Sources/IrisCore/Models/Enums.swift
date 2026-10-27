@@ -24,6 +24,7 @@ public enum MemoMode: String, Codable, Hashable, Sendable, CaseIterable {
   case journal
   case hermes
   case tab
+  case chat
 }
 
 /// A pipeline step, in execution order.
