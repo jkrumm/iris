@@ -9,8 +9,7 @@
     { "date": "2026-03-14", "route": "journal", "count": 1 }
   ],
   "perWeek": [
-    { "weekStart": "2026-03-02", "count": 4 },
-    { "weekStart": "2026-03-09", "count": 3 }
+    { "weekStart": "2026-03-09", "count": 7 }
   ],
   "stepMedians": [
     { "step": "transcribe", "route": "herdr", "medianMs": 3980, "samples": 2 },

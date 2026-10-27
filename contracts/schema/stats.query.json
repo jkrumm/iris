@@ -2,7 +2,9 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
     "days": {
-      "type": "number"
+      "maximum": 365,
+      "minimum": 1,
+      "type": "integer"
     }
   },
   "title": "stats.query",

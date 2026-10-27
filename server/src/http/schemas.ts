@@ -222,8 +222,10 @@ export const HerdResponse = t.Object({ tabs: t.Array(HerdTab) });
 
 // ── Stats ────────────────────────────────────────────────────────────────────
 
-/** `days` is checked in the handler (integer, 1..365, default 30): a 400 `bad_request`. Elysia coerces the query text. */
-export const StatsQuery = t.Object({ days: t.Optional(t.Number()) });
+/** `days` is an integer 1..365 (default 30 when absent); anything else is a 400 `bad_request`. Elysia coerces the query text. */
+export const StatsQuery = t.Object({
+  days: t.Optional(t.Number({ multipleOf: 1, minimum: 1, maximum: 365 })),
+});
 export const StatsResponse = t.Object({
   days: Int,
   /** First and last local day of the window (server time zone), `YYYY-MM-DD`, inclusive. */
