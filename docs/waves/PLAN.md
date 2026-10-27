@@ -449,8 +449,8 @@ Inside B, B1 lands before B2/B3 are briefed (every new port wires through the co
 **Left behind:**
 
 ## Wave 11 — R2 destinations, Chat mode, typed memos (server)            <!-- status: pending -->
-The second half of backlog 4. Owner reading to confirm before the Chat step: Chat = a Hermes session (`source` marks it as
-chat) opened with a no-side-effects system message, its answer stored as the reply and threaded.
+The second half of backlog 4. Chat reading **confirmed by the owner 2026-10-27**: Chat = a Hermes session (`source` marks it
+as chat) opened with a no-side-effects system message, its answer stored as the reply and threaded.
 - [ ] **Journal destination:** write `brain/Inbox/<YYYY-MM-DD>-<slug>.md` (TDD §3 act table) under the brain-sync lock,
       commit and push per `brain/docs/brain-access.md`; templated summary (no model spend). Its smoke must not leave test
       notes in the real brain (a fake brain dir in e2e; on the mini, a dedicated smoke path or a cleanup the lead defines).
