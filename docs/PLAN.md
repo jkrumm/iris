@@ -202,9 +202,9 @@ any later OpenCode router get judged on data.
     preferences.
   - `Telemetry`: see below.
   - `UI`: shared SwiftUI components.
-- **iOS:** the app target plus one extension target, `IrisWidgets`, holding
-  both the control and the Live Activity. That makes 2 App IDs, well inside the
-  free limit of 10 per 7 days.
+- **iOS:** the app target plus two extension targets: `IrisWidgets` (the
+  control + the Live Activity) and `IrisNotifications` (the rich content
+  extension).
   - An App Group (`group.com.jkrumm.iris`) shares the device token and recent
     results with the widget and notification extensions.
   - Screens: history (memo · route · state · one line), memo detail
