@@ -263,7 +263,11 @@ async function probeDecide(base: string) {
 
 /** A chat memo is a Hermes thread: it reaches notified and carries the thread id. */
 async function probeChat(base: string) {
-  const memo = await sendTyped(base, "Was ist der Unterschied zwischen Mutex und Semaphor?", "chat");
+  const memo = await sendTyped(
+    base,
+    "Was ist der Unterschied zwischen Mutex und Semaphor?",
+    "chat",
+  );
   assert(memo.mode === "chat", `chat memo keeps mode chat (got ${memo.mode})`);
   assert(memo.route === "hermes", `chat memo routes to hermes (got ${memo.route})`);
   assert(

@@ -67,8 +67,9 @@ const fakePorts = () => ({
   transcriber: fakeTranscriber(),
   // All three, so the fake decider has a real choice (it answers hermes unless a memo pins a mode).
   destinations: {
-    journal: fakeDestination(),
-    herdr: fakeDestination(),
+    journal: fakeDestination({ threads: false }),
+    herdr: fakeDestination({ threads: false }),
+    // Only Hermes keeps conversations: this fake reports a thread.
     hermes: fakeDestination(),
   } satisfies Destinations,
   decider: fakeDecider(),
