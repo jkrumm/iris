@@ -19,7 +19,7 @@ make format       # oxfmt
 
 1. Port in `server/src/ports/<name>.ts` (small interface, no vendor types), fake in `ports/fakes.ts`.
 2. Adapter in `server/src/adapters/<name>.ts`, tested against a fake HTTP/unix server, never the real downstream.
-3. Optional env var in `env.ts` (empty = unset); wire it in `index.ts` and its fake in `compose-fakes.ts`. A port that is left out means
+3. Optional env var in `env.ts` (empty = unset); choose it in `compose()` (`src/compose.ts`: real adapter, plus its fake in `fakePorts`) and pass it on from `index.ts`. A port that is left out means
    no handler: the memo parks and `/health` lists the step in `degraded`.
 
 ## Add or change a step

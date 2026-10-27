@@ -8,7 +8,7 @@ paths: ["server/**"]
 Generic TypeScript is `rules/typescript.md` (dotfiles); Elysia is `rules/elysia.md`. Design: `docs/TDD.md` §3.
 
 - **Ports and adapters.** A downstream is a port in `src/ports/` with an in-memory fake in `ports/fakes.ts`; the adapter lives in
-  `src/adapters/`. `app.ts` is a pure composition (no env, no fs); `index.ts` and `compose-fakes.ts` are the only composition roots.
+  `src/adapters/`. `app.ts` is a pure composition (no env, no fs); `compose.ts` is the only place a port is chosen (fake, real or absent), and `index.ts` wires its result into the process.
   `process.env` is read only in `env.ts`. Tests inject fakes and use in-memory SQLite, HTTP via `app.handle(new Request())`; no
   `mock.module`, no `spyOn`.
 - **The memo state machine is pure** (`memo/memo.ts`): states `receiving → received → transcribed → routed | needs_route → acted →
