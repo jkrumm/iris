@@ -17,7 +17,7 @@ const OtherBody = z.strictObject({
 const Body = z.union([JsonBody, OtherBody]);
 
 const Route = z.strictObject({
-  method: z.enum(["GET", "POST", "PUT"]),
+  method: z.enum(["GET", "POST", "PUT", "PATCH", "DELETE"]),
   /** Elysia's path syntax (`:id`), without a trailing slash. */
   path: z.string().startsWith("/"),
   auth: z.enum(["bearer", "none"]),

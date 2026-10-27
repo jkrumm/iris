@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import type { SpeechCache } from "../ports/speaker.js";
 import { writeAtomic } from "./fs-atomic.js";
@@ -26,6 +26,12 @@ export function createFsSpeechCache(dir: string): SpeechCache {
     async put({ memoId, text, bytes }) {
       await writeAtomic(fileOf(memoId, "mp3"), bytes);
       await writeAtomic(fileOf(memoId, "txt"), text);
+    },
+    async remove(memoId) {
+      await Promise.all([
+        rm(fileOf(memoId, "mp3"), { force: true }),
+        rm(fileOf(memoId, "txt"), { force: true }),
+      ]);
     },
   };
 }

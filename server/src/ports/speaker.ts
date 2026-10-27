@@ -15,4 +15,6 @@ export interface SpeechCache {
   /** Null when absent or cached for different text (the memo was retried). */
   get(params: { memoId: string; text: string }): Promise<Uint8Array | null>;
   put(params: { memoId: string; text: string; bytes: Uint8Array }): Promise<void>;
+  /** Drops the memo's entry. Unknown ids are a no-op. */
+  remove(memoId: string): Promise<void>;
 }

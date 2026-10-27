@@ -1,6 +1,7 @@
 import type { DestinationName } from "../ports/destination.js";
 import type {
   Memo,
+  MemoFlags,
   MemoMode,
   MemoPatch,
   MemoState,
@@ -67,8 +68,11 @@ export interface MemoStore extends ThreadStore {
    * History, newest first. `q` searches the transcript and the summary headline (case, umlaut and prefix
    * insensitive, terms ANDed), `route` and `state` filter exactly; all combine. `needs_route` memos never
    * appear in `memos` (so the cursor survives one leaving that state): without a `cursor` they come back in
-   * `pinned` instead, every one matching the filters, newest first, at most `PINNED_LIMIT`. `nextCursor` is
-   * null on the last page; cursors stay valid as memos are added.
+   * `pinned` instead, every one matching the filters, newest first, at most `PINNED_LIMIT`. A `done` `needs_route`
+   * memo is no open question: it is never pinned and appears in `memos` at its seq position. Soft-deleted memos
+   * never appear; archived ones only with `archived`, which then lists nothing else. `favorite` keeps the
+   * favorites, `kind` the memos whose thread has that kind. `nextCursor` is null on the last page; cursors stay
+   * valid as memos are added.
    */
   listMemos(params: {
     limit: number;
@@ -76,6 +80,9 @@ export interface MemoStore extends ThreadStore {
     q?: string | undefined;
     route?: DestinationName | undefined;
     state?: MemoState | undefined;
+    favorite?: boolean | undefined;
+    archived?: boolean | undefined;
+    kind?: ThreadKind | undefined;
   }): {
     memos: Memo[];
     pinned: Memo[];
@@ -130,6 +137,21 @@ export interface MemoStore extends ThreadStore {
   answerRoute(params: { id: string; decision: AnswerDecision }): boolean;
   /** Appends `decision` to the log without touching the memo; false when the memo has not reached `acted` yet (or is `failed`). */
   recordCorrection(params: { id: string; decision: RouteDecisionInput }): boolean;
+
+  /** Sets the given flags of a live memo (`archived` stamps or clears `archived_at`); false when the memo is unknown or soft-deleted. */
+  setFlags(params: { id: string } & MemoFlags): boolean;
+  /** Soft-deletes at `at`; a memo that is already deleted keeps its `deleted_at`. False when unknown. */
+  markDeleted(params: { id: string; at: string }): boolean;
+  /** Clears `deleted_at`; false when the memo is unknown or not deleted. */
+  restore(id: string): boolean;
+  /** Ids of the memos soft-deleted at or before `cutoff` (ISO), oldest deletion first. */
+  listPurgeable(cutoff: string): string[];
+  /**
+   * Removes a soft-deleted memo with its steps, segments, decisions and tokens (the search index follows by trigger).
+   * A thread whose `last_memo_id` was the memo points at its newest remaining memo; a thread left with no memos is
+   * deleted. False when the memo is unknown or not deleted.
+   */
+  purge(id: string): boolean;
 
   /** Memos the runner must resume after a restart: not receiving, notified, failed or needs_route. */
   listNonTerminal(): Memo[];

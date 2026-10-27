@@ -35,6 +35,16 @@ describe("fs SpeechCache", () => {
     expect([...((await cache.get({ memoId, text: "Second." })) ?? [])]).toEqual([2]);
   });
 
+  it("removes the entry's files, and an unknown id is a no-op", async () => {
+    const cache = createFsSpeechCache(dir);
+    await cache.put({ memoId, text: "Hello.", bytes: new Uint8Array([1]) });
+    await cache.remove(memoId);
+    expect(await readdir(dir)).toEqual([]);
+    expect(await cache.get({ memoId, text: "Hello." })).toBeNull();
+    await cache.remove(memoId);
+    await expect(cache.remove("../x")).rejects.toThrow("unsafe memo id");
+  });
+
   it("misses when the audio is gone and rejects unsafe ids", async () => {
     const cache = createFsSpeechCache(dir);
     await writeFile(join(dir, `${memoId}.txt`), "Hello.");

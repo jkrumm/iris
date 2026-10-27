@@ -1,7 +1,22 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
+    "archived": {
+      "const": "true",
+      "type": "string"
+    },
     "cursor": {
+      "type": "string"
+    },
+    "favorite": {
+      "const": "true",
+      "type": "string"
+    },
+    "kind": {
+      "enum": [
+        "chat",
+        "hermes"
+      ],
       "type": "string"
     },
     "limit": {

@@ -13,6 +13,9 @@
   "destinationRef": null,
   "replyText": null,
   "summary": null,
+  "done": false,
+  "favorite": false,
+  "archived": false,
   "createdAt": "2026-03-13T17:44:02.250Z",
   "updatedAt": "2026-03-13T17:44:31.640Z",
   "steps": [

@@ -108,8 +108,11 @@ All under `/v1`, `Authorization: Bearer <token>`. Errors: `{error: <code>, messa
 | `POST /memos/:id/complete` `{segmentCount}` | 202 memo (repeat too); 422 `missing_segments` + `missing: [...]` |
 | `POST /memos/:id/retry` `{from}` | 202 memo; 409 unless `failed` |
 | `POST /memos/:id/route` `{destination: hermes\|journal\|herdr, tab?}` | `needs_route`: 202 memo, routed and driven on (400 `<dest> not available` when unregistered; `tab` iff herdr); after `act` (`acted`/`summarized`/`notified`): 200 memo, a `correction` is only logged; other states and a second answer 409; 404 unknown |
-| `GET /memos?limit&cursor&q&route&state` | `{items, pinned, nextCursor}`, newest first; `q` = FTS5 over transcript + headline (prefix, case/umlaut-insensitive), `route` / `state` exact (unknown 400); `needs_route` memos are never in `items`, the first page pins them in `pinned` (≤ 50), later pages `[]` |
-| `GET /memos/:id` | memo + `steps` timeline + `segmentCount`; 404 unknown |
+| `GET /memos?limit&cursor&q&route&state&favorite&archived&kind` | `{items, pinned, nextCursor}`, newest first; `q` = FTS5 over transcript + headline (prefix, case/umlaut-insensitive), `route` / `state` exact, `favorite=true`, `archived=true` (only archived; hidden otherwise), `kind=chat\|hermes` (thread kind) (unknown 400); soft-deleted memos never listed; open `needs_route` memos (not `done`) are never in `items`, the first page pins them in `pinned` (≤ 50), later pages `[]`; a `done` one is paged in `items` |
+| `GET /memos/:id` | memo + `steps` timeline + `segmentCount`; 404 unknown. A soft-deleted memo is returned too (with `deletedAt` / `purgeAt`); 404 once purged |
+| `PATCH /memos/:id` `{done?, favorite?, archived?}` | 200 memo; ≥ 1 boolean, an empty body, unknown key or non-boolean 400; 409 `bad_state` on a soft-deleted memo; 404 unknown; publishes `memo.updated` |
+| `DELETE /memos/:id` | soft delete: 200 memo with `deletedAt` + `purgeAt` (10 min later); only `notified` / `failed` / `needs_route` else 409 `bad_state`; a repeat is idempotent; the purger then removes audio, speech and rows (`memo.purged`) |
+| `POST /memos/:id/restore` | 200 memo, `deletedAt` cleared; 409 when not deleted; 404 once purged |
 | `GET /memos/:id/result?wait=<s>` | 200 once result-ready, else 202 after the wait (0..600, default 0) |
 | `GET /threads?kind=chat\|hermes&limit&cursor` | `{items: Thread[], nextCursor}`, newest `updatedAt` first; `Thread = {id, kind, title, createdAt, updatedAt, lastMemoId}` |
 | `GET /threads/:id` | `{thread, memos (oldest first), messages: [{memoId, role: user\|assistant, content, createdAt}]}`: the conversation is built from the memos' transcripts and replies (Iris's own record, no Hermes read); 404 unknown |
@@ -120,7 +123,7 @@ All under `/v1`, `Authorization: Bearer <token>`. Errors: `{error: <code>, messa
 | `GET /memos/:id/speech` | `audio/mpeg` TTS of `summary.spoken`, else `replyText`, cached; 404; 409 with neither; 503 without audio-gateway |
 | `GET /herd` | `{tabs: [{id, repo, label, agentState, lastActivity}]}` from herdr; 503 without `HERDR_SOCKET` or when herdr is unreachable |
 | `GET /stats?days=<n>` | `{days, from, to, perDay, perWeek, stepMedians (per step and route, with n), costPerRoute}` over the last `n` local days (default 30, 1..365 else 400); read-only SQL/JS aggregates, `null` route = `unrouted` |
-| `GET /events` | SSE: `ready`, `memo.updated` per state change, plus `memo.done` when result-ready, `: keepalive` every 15 s |
+| `GET /events` | SSE: `ready`, `memo.updated` per state change (and per flag change, delete or restore, without `memo.done`), plus `memo.done` when result-ready, `: keepalive` every 15 s |
 
 Codes: not_found 404, conflict / bad_state 409, missing_segments 422, too_large 413, bad_request 400, unavailable 503.
 Wire JSON is camelCase.

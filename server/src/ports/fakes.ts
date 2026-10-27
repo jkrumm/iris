@@ -162,15 +162,19 @@ export function fakeSpeaker(
 }
 
 /** In-memory cache keyed by memo id; one entry per memo, replaced when the text changes. */
-export function fakeSpeechCache(): SpeechCache {
+export function fakeSpeechCache(): SpeechCache & { entries: Map<string, unknown> } {
   const entries = new Map<string, { text: string; bytes: Uint8Array }>();
   return {
+    entries,
     async get({ memoId, text }) {
       const entry = entries.get(memoId);
       return entry?.text === text ? entry.bytes : null;
     },
     async put({ memoId, text, bytes }) {
       entries.set(memoId, { text, bytes });
+    },
+    async remove(memoId) {
+      entries.delete(memoId);
     },
   };
 }

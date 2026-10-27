@@ -30,6 +30,19 @@ describe("bindPhaseUpdates", () => {
     expect(notifier.phaseCalls.map((c) => c.memo.state)).toEqual(["transcribed"]);
   });
 
+  it("sends no update for a flag change", async () => {
+    const { notifier, binding, events, store, memo, emit } = setup();
+    emit("transcribed", "transcribe");
+    await binding.idle();
+    notifier.phaseCalls.length = 0;
+    const clock = { now: () => new Date() };
+    events.publish(
+      memoEvent({ memo: store.getMemo(memo.id) as Memo, step: null, clock, flagChange: true }),
+    );
+    await binding.idle();
+    expect(notifier.phaseCalls).toEqual([]);
+  });
+
   it("skips memos without an activity token", async () => {
     const { notifier, binding, emit } = setup({ withToken: false });
     emit("transcribed", "transcribe");

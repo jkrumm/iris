@@ -1,6 +1,7 @@
 import type { MemoEvent } from "../memo/events.js";
 import {
   isTyped,
+  purgeAt,
   type Memo,
   type StepRecord,
   type Thread,
@@ -31,6 +32,10 @@ export const memoJson = (memo: Memo) => ({
   ...(isTyped(memo) && { typed: true as const }),
   ...(memo.routeReason !== undefined && { routeReason: memo.routeReason }),
   ...(memo.routeSuggestion !== undefined && { routeSuggestion: memo.routeSuggestion }),
+  done: memo.done,
+  favorite: memo.favorite,
+  archived: memo.archivedAt !== null,
+  ...(memo.deletedAt !== null && { deletedAt: memo.deletedAt, purgeAt: purgeAt(memo) as string }),
   createdAt: memo.createdAt,
   updatedAt: memo.updatedAt,
 });

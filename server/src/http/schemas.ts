@@ -67,6 +67,14 @@ const memoFields = {
   // Present only while the memo is `needs_route`: why it parked, and the model's guess on a low-confidence park.
   routeReason: t.Optional(t.String()),
   routeSuggestion: t.Optional(t.String()),
+  // User flags, always present. `archived` is derived from the archive time, which stays server-side.
+  done: t.Boolean(),
+  favorite: t.Boolean(),
+  archived: t.Boolean(),
+  // Present only while the memo is soft-deleted: when it was deleted and when the purger removes it (10 minutes later);
+  // `POST /memos/:id/restore` undoes the delete until then.
+  deletedAt: t.Optional(t.String()),
+  purgeAt: t.Optional(t.String()),
   createdAt: t.String(),
   updatedAt: t.String(),
 };
@@ -127,7 +135,9 @@ export const ThreadDetail = t.Object({
 /**
  * One page of history. `pinned` is every `needs_route` memo matching the filters (newest first, at most 50) on the
  * first page and `[]` on later ones; `items` never holds a `needs_route` memo. A memo answered after page 1 left
- * `needs_route` and appears in `items` at its seq position, so a later page can repeat a memo already in `pinned`.
+ * `needs_route` and appears in `items` at its seq position, so a later page can repeat a memo already in `pinned`. A
+ * `done` `needs_route` memo is no open question: it is never pinned and sits in `items` at its seq position. Soft-deleted
+ * memos appear in neither; archived ones only when the `archived` filter is on.
  */
 export const MemoList = t.Object({
   items: t.Array(Memo),
@@ -172,6 +182,16 @@ export const RouteBody = t.Object({
   tab: t.Optional(t.String({ minLength: 1 })),
 });
 
+/** `PATCH /memos/:id`: at least one flag, nothing else (400). */
+export const FlagsBody = t.Object(
+  {
+    done: t.Optional(t.Boolean()),
+    favorite: t.Optional(t.Boolean()),
+    archived: t.Optional(t.Boolean()),
+  },
+  { additionalProperties: false, minProperties: 1 },
+);
+
 export const ListQuery = t.Object({
   limit: t.Optional(t.Numeric()),
   cursor: t.Optional(t.String()),
@@ -180,6 +200,12 @@ export const ListQuery = t.Object({
   // `UnionEnum` defaults a missing value to its first member; an absent filter must stay absent.
   route: t.Optional(t.UnionEnum([...DESTINATION_NAMES], { default: undefined })),
   state: t.Optional(t.UnionEnum([...MEMO_STATES], { default: undefined })),
+  // `favorite=true` keeps the favorites. `archived=true` lists only the archived memos (without it they are hidden).
+  // Only `true` is a value; the filter is off by omitting it.
+  favorite: t.Optional(t.Literal("true")),
+  archived: t.Optional(t.Literal("true")),
+  // The Chats chip: memos whose thread has this kind.
+  kind: t.Optional(t.UnionEnum([...THREAD_KINDS], { default: undefined })),
 });
 export const ThreadIdParams = t.Object({ id: t.String() });
 // `default: undefined`: a missing `kind` must stay missing, not become the first member.

@@ -4,6 +4,9 @@
     "items": {
       "items": {
         "properties": {
+          "archived": {
+            "type": "boolean"
+          },
           "audioSeconds": {
             "anyOf": [
               {
@@ -15,6 +18,9 @@
             ]
           },
           "createdAt": {
+            "type": "string"
+          },
+          "deletedAt": {
             "type": "string"
           },
           "destinationRef": {
@@ -29,6 +35,9 @@
           },
           "device": {
             "type": "string"
+          },
+          "done": {
+            "type": "boolean"
           },
           "error": {
             "anyOf": [
@@ -58,6 +67,9 @@
               }
             ]
           },
+          "favorite": {
+            "type": "boolean"
+          },
           "id": {
             "type": "string"
           },
@@ -69,6 +81,9 @@
               "tab",
               "chat"
             ],
+            "type": "string"
+          },
+          "purgeAt": {
             "type": "string"
           },
           "replyText": {
@@ -186,6 +201,9 @@
           "destinationRef",
           "replyText",
           "summary",
+          "done",
+          "favorite",
+          "archived",
           "createdAt",
           "updatedAt"
         ],
@@ -207,6 +225,9 @@
       "description": "needs_route memos matching the filters, newest first, at most 50; [] with a cursor. Clients de-duplicate by memo id across pinned and pages: a memo answered after page 1 reappears in items on a later page.",
       "items": {
         "properties": {
+          "archived": {
+            "type": "boolean"
+          },
           "audioSeconds": {
             "anyOf": [
               {
@@ -218,6 +239,9 @@
             ]
           },
           "createdAt": {
+            "type": "string"
+          },
+          "deletedAt": {
             "type": "string"
           },
           "destinationRef": {
@@ -232,6 +256,9 @@
           },
           "device": {
             "type": "string"
+          },
+          "done": {
+            "type": "boolean"
           },
           "error": {
             "anyOf": [
@@ -261,6 +288,9 @@
               }
             ]
           },
+          "favorite": {
+            "type": "boolean"
+          },
           "id": {
             "type": "string"
           },
@@ -272,6 +302,9 @@
               "tab",
               "chat"
             ],
+            "type": "string"
+          },
+          "purgeAt": {
             "type": "string"
           },
           "replyText": {
@@ -389,6 +422,9 @@
           "destinationRef",
           "replyText",
           "summary",
+          "done",
+          "favorite",
+          "archived",
           "createdAt",
           "updatedAt"
         ],

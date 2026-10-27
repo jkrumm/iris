@@ -30,7 +30,7 @@ export function bindNeedsRouteAlerts(deps: {
   }
 
   const unsubscribe = events.subscribe((event: MemoEvent) => {
-    if (event.state !== "needs_route") return;
+    if (event.state !== "needs_route" || event.flagChange) return;
     const run = alert(event.id).finally(() => inflight.delete(run));
     inflight.add(run);
   });

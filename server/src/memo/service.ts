@@ -8,10 +8,12 @@ import { memoEvent, type MemoEvents, type MemoListener } from "./events.js";
 import {
   continuedThread,
   isCorrectable,
+  isDeletable,
   isResultReady,
   isTyped,
   MEMO_MODES,
   type Memo,
+  type MemoFlags,
   type MemoMode,
   type MemoState,
   type Step,
@@ -19,6 +21,7 @@ import {
   type Thread,
   type ThreadKind,
   type ThreadMessage,
+  purgeAt,
   threadMessages,
 } from "./memo.js";
 import type { Runner } from "./runner.js";
@@ -77,6 +80,19 @@ export interface MemoService {
     memo: Memo;
     accepted: boolean;
   };
+  /**
+   * Sets the given flags (at least one). `bad_state` on a soft-deleted memo. Publishes a flag-change `memo.updated`
+   * (`flagChange`: the pipeline did not move, so no `memo.done`, alert or Live Activity push goes with it).
+   */
+  setFlags(params: { id: string } & MemoFlags): Memo;
+  /**
+   * Soft delete: the memo stays readable and restorable until `purgeAt`, then the purger removes it. Only settled
+   * memos (`notified`, `failed`, `needs_route`) can be deleted, else `bad_state`. Repeatable: a second call returns
+   * the memo with its first `deletedAt` and publishes nothing.
+   */
+  delete(id: string): Memo;
+  /** Undo of `delete`: `bad_state` when the memo is not deleted, `not_found` once its undo window is over (purged or about to be). */
+  restore(id: string): Memo;
   get(id: string): MemoDetail;
   list(params: {
     limit?: number;
@@ -84,6 +100,9 @@ export interface MemoService {
     q?: string | undefined;
     route?: DestinationName | undefined;
     state?: MemoState | undefined;
+    favorite?: boolean | undefined;
+    archived?: boolean | undefined;
+    kind?: ThreadKind | undefined;
   }): {
     memos: Memo[];
     pinned: Memo[];
@@ -135,6 +154,11 @@ function assertSameSegment(params: {
   throw new MemoError("conflict", `segment ${index} of ${id} already holds other bytes`);
 }
 
+/** A soft-deleted memo takes no change: restore it first. */
+function assertLive(memo: Memo) {
+  if (memo.deletedAt !== null) throw new MemoError("bad_state", `memo ${memo.id} is deleted`);
+}
+
 /** A replay must name the thread the memo was created in (or none, for a memo that continues none). */
 function assertSameThread(memo: Memo, threadId: string | undefined) {
   if (continuedThread(memo) === (threadId ?? null)) return;
@@ -170,6 +194,9 @@ export function createMemoService(deps: {
     if (threadId === undefined || store.getMemo(id) || store.getThread(threadId)) return;
     throw new MemoError("not_found", `thread ${threadId} not found`);
   };
+
+  const publishFlagChange = (memo: Memo) =>
+    events.publish(memoEvent({ memo, step: null, clock, flagChange: true }));
 
   const drive = (id: string) =>
     runner
@@ -285,6 +312,8 @@ export function createMemoService(deps: {
     },
 
     retry(params) {
+      const existing = store.getMemo(params.id);
+      if (existing) assertLive(existing);
       // A typed memo has no audio to transcribe again: `transcribe` would clear its only text.
       if (params.from === "transcribe") {
         const memo = store.getMemo(params.id);
@@ -297,6 +326,7 @@ export function createMemoService(deps: {
 
     route({ id, destination, tab }) {
       const memo = mustGet(id);
+      assertLive(memo);
       const isAnswer = memo.state === "needs_route";
       if (!isAnswer && !isCorrectable(memo.state)) {
         throw new MemoError(
@@ -340,6 +370,48 @@ export function createMemoService(deps: {
       return { memo: mustGet(id), accepted: isAnswer };
     },
 
+    setFlags({ id, done, favorite, archived }) {
+      if (done === undefined && favorite === undefined && archived === undefined) {
+        throw new MemoError("bad_request", "set at least one of done, favorite, archived");
+      }
+      assertLive(mustGet(id));
+      if (!store.setFlags({ id, done, favorite, archived })) {
+        throw new MemoError("bad_state", `memo ${id} is deleted`);
+      }
+      const memo = mustGet(id);
+      publishFlagChange(memo);
+      return memo;
+    },
+
+    delete(id) {
+      const memo = mustGet(id);
+      if (memo.deletedAt !== null) return memo;
+      if (!isDeletable(memo.state)) {
+        throw new MemoError(
+          "bad_state",
+          `memo ${id} is ${memo.state}, only settled memos can be deleted`,
+        );
+      }
+      store.markDeleted({ id, at: clock.now().toISOString() });
+      const deleted = mustGet(id);
+      publishFlagChange(deleted);
+      return deleted;
+    },
+
+    restore(id) {
+      const memo = mustGet(id);
+      const until = purgeAt(memo);
+      if (until === null) throw new MemoError("bad_state", `memo ${id} is not deleted`);
+      // Past its window the memo is the sweeper's: the files may be going already.
+      if (until <= clock.now().toISOString()) {
+        throw new MemoError("not_found", `memo ${id} was purged`);
+      }
+      if (!store.restore(id)) throw new MemoError("bad_state", `memo ${id} is not deleted`);
+      const restored = mustGet(id);
+      publishFlagChange(restored);
+      return restored;
+    },
+
     get(id) {
       const memo = mustGet(id);
       return {
@@ -349,13 +421,16 @@ export function createMemoService(deps: {
       };
     },
 
-    list({ limit = DEFAULT_LIMIT, cursor, q, route, state }) {
+    list({ limit = DEFAULT_LIMIT, cursor, q, route, state, favorite, archived, kind }) {
       return store.listMemos({
         limit: Math.min(Math.max(Math.floor(limit), 1), MAX_LIMIT),
         cursor,
         q,
         route,
         state,
+        favorite,
+        archived,
+        kind,
       });
     },
 

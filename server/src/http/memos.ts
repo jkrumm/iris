@@ -7,6 +7,7 @@ import {
   CreateMemoBody,
   CreateTextMemoBody,
   ErrorBody,
+  FlagsBody,
   ListQuery,
   MemoDetail,
   MemoIdParams,
@@ -58,6 +59,28 @@ async function readBounded(request: Request, max: number): Promise<Uint8Array> {
 
 const clampWait = (wait: number | undefined) =>
   Math.min(Math.max(wait ?? DEFAULT_WAIT_SECONDS, 0), MAX_WAIT_SECONDS);
+
+/**
+ * Parses a JSON body and refuses keys outside `allowed` (400). Elysia drops unknown body keys before it validates, so
+ * a typo like `{"dnoe": true}` would pass as an empty change; this runs first and sees the raw object.
+ */
+const strictJson =
+  (allowed: readonly string[]) =>
+  async ({ request }: { request: Request }): Promise<unknown> => {
+    const body: unknown = await request.json().catch(() => {
+      throw new MemoError("bad_request", "body must be JSON");
+    });
+    if (typeof body === "object" && body !== null && !Array.isArray(body)) {
+      const unknown = Object.keys(body).filter((key) => !allowed.includes(key));
+      if (unknown.length > 0) {
+        throw new MemoError(
+          "bad_request",
+          `unknown ${unknown.length > 1 ? "keys" : "key"}: ${unknown.join(", ")}`,
+        );
+      }
+    }
+    return body;
+  };
 
 /** `/memos/*`. Takes the guard instance so handlers see the derived `device`. */
 export function memoRoutes(deps: { memos: MemoService; auth: ReturnType<typeof deviceAuth> }) {
@@ -182,6 +205,9 @@ export function memoRoutes(deps: { memos: MemoService; auth: ReturnType<typeof d
           q: query.q,
           route: query.route,
           state: query.state,
+          favorite: query.favorite === "true" ? true : undefined,
+          archived: query.archived === "true" ? true : undefined,
+          kind: query.kind,
         });
         return { items: items.map(memoJson), pinned: pinned.map(memoJson), nextCursor };
       },
@@ -190,6 +216,20 @@ export function memoRoutes(deps: { memos: MemoService; auth: ReturnType<typeof d
     .get("/:id", ({ params }) => detailJson(memos.get(params.id)), {
       params: MemoIdParams,
       response: { 200: MemoDetail, 404: ErrorBody },
+    })
+    .patch("/:id", ({ params, body }) => memoJson(memos.setFlags({ id: params.id, ...body })), {
+      parse: strictJson(["done", "favorite", "archived"]),
+      params: MemoIdParams,
+      body: FlagsBody,
+      response: { 200: Memo, 400: ErrorBody, 404: ErrorBody, 409: ErrorBody },
+    })
+    .delete("/:id", ({ params }) => memoJson(memos.delete(params.id)), {
+      params: MemoIdParams,
+      response: { 200: Memo, 404: ErrorBody, 409: ErrorBody },
+    })
+    .post("/:id/restore", ({ params }) => memoJson(memos.restore(params.id)), {
+      params: MemoIdParams,
+      response: { 200: Memo, 404: ErrorBody, 409: ErrorBody },
     })
     .get(
       "/:id/result",

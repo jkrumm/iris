@@ -238,6 +238,71 @@
       }
     },
     {
+      "method": "PATCH",
+      "path": "/v1/memos/:id",
+      "auth": "bearer",
+      "request": {
+        "mediaType": "application/json",
+        "schema": "memos.flags.request"
+      },
+      "responses": {
+        "200": {
+          "mediaType": "application/json",
+          "schema": "memos.flags.response"
+        },
+        "400": {
+          "mediaType": "application/json",
+          "schema": "error"
+        },
+        "404": {
+          "mediaType": "application/json",
+          "schema": "error"
+        },
+        "409": {
+          "mediaType": "application/json",
+          "schema": "error"
+        }
+      }
+    },
+    {
+      "method": "DELETE",
+      "path": "/v1/memos/:id",
+      "auth": "bearer",
+      "responses": {
+        "200": {
+          "mediaType": "application/json",
+          "schema": "memos.delete.response"
+        },
+        "404": {
+          "mediaType": "application/json",
+          "schema": "error"
+        },
+        "409": {
+          "mediaType": "application/json",
+          "schema": "error"
+        }
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/v1/memos/:id/restore",
+      "auth": "bearer",
+      "responses": {
+        "200": {
+          "mediaType": "application/json",
+          "schema": "memos.restore.response"
+        },
+        "404": {
+          "mediaType": "application/json",
+          "schema": "error"
+        },
+        "409": {
+          "mediaType": "application/json",
+          "schema": "error"
+        }
+      }
+    },
+    {
       "method": "GET",
       "path": "/v1/memos/:id/result",
       "auth": "bearer",

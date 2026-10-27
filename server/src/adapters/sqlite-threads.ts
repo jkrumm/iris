@@ -12,6 +12,20 @@ interface ThreadRow {
   last_memo_id: string | null;
 }
 
+/**
+ * A thread's columns with `last_memo_id` moved off a soft-deleted memo: it becomes the thread's newest live memo
+ * (null when none is left).
+ */
+const THREAD_SELECT = `threads.id, threads.kind, threads.title, threads.created_at, threads.updated_at,
+  CASE WHEN EXISTS (SELECT 1 FROM memos m WHERE m.id = threads.last_memo_id AND m.deleted_at IS NOT NULL)
+    THEN (SELECT m.id FROM memos m WHERE m.thread_id = threads.id AND m.deleted_at IS NULL ORDER BY m.seq DESC LIMIT 1)
+    ELSE threads.last_memo_id
+  END AS last_memo_id`;
+
+/** A thread whose memos are all soft-deleted is hidden from the list until one is restored. */
+const NOT_ALL_DELETED = `(EXISTS (SELECT 1 FROM memos m WHERE m.thread_id = threads.id AND m.deleted_at IS NULL)
+  OR NOT EXISTS (SELECT 1 FROM memos m WHERE m.thread_id = threads.id))`;
+
 const toThread = (row: ThreadRow): Thread => ({
   id: row.id,
   kind: row.kind as ThreadKind,
@@ -52,7 +66,9 @@ export function createSqliteThreadStore(params: {
   const { db, getMemo } = params;
   return {
     getThread(id) {
-      const row = db.query<ThreadRow, [string]>("SELECT * FROM threads WHERE id = ?").get(id);
+      const row = db
+        .query<ThreadRow, [string]>(`SELECT ${THREAD_SELECT} FROM threads WHERE id = ?`)
+        .get(id);
       return row ? toThread(row) : null;
     },
 
@@ -60,8 +76,8 @@ export function createSqliteThreadStore(params: {
       const after = cursor == null ? null : decodeCursor(cursor);
       const rows = db
         .query<ThreadRow, (string | number | null)[]>(
-          `SELECT * FROM threads
-           WHERE (? IS NULL OR kind = ?)
+          `SELECT ${THREAD_SELECT} FROM threads
+           WHERE ${NOT_ALL_DELETED} AND (? IS NULL OR kind = ?)
              AND (? IS NULL OR updated_at < ? OR (updated_at = ? AND id < ?))
            ORDER BY updated_at DESC, id DESC LIMIT ?`,
         )
@@ -84,7 +100,9 @@ export function createSqliteThreadStore(params: {
 
     listThreadMemos(id) {
       return db
-        .query<{ id: string }, [string]>("SELECT id FROM memos WHERE thread_id = ? ORDER BY seq")
+        .query<{ id: string }, [string]>(
+          "SELECT id FROM memos WHERE thread_id = ? AND deleted_at IS NULL ORDER BY seq",
+        )
         .all(id)
         .flatMap((row) => getMemo(row.id) ?? []);
     },

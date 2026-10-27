@@ -31,7 +31,14 @@ const fixture = (stem: string) => {
 };
 
 /** Schema properties that are omitted rather than null: a body or fixture may lack them. */
-const OPTIONAL_KEYS = ["routeReason", "routeSuggestion", "typed", "threadId"];
+const OPTIONAL_KEYS = [
+  "routeReason",
+  "routeSuggestion",
+  "typed",
+  "threadId",
+  "deletedAt",
+  "purgeAt",
+];
 
 /** Validates `value` against `schema` and compares its keys with each fixture (default: all of them). */
 function conforms(params: { schema: string; value: unknown; fixtures?: string[] }) {
@@ -316,6 +323,55 @@ describe("flows: every response conforms", () => {
     });
     const detail = await call(app, { path: `/v1/memos/${id}` });
     await conformingBody({ route: "GET /v1/memos/:id", res: detail });
+  });
+
+  it("flags, delete and restore answer the memo and the error shapes", async () => {
+    const { app } = testApp({ handlers: handlers() });
+    const id = await record(app);
+    const patch = (json: unknown, target = id) =>
+      call(app, { method: "PATCH", path: `/v1/memos/${target}`, json });
+
+    const flagged = await patch({ done: true, favorite: true, archived: true });
+    expect(flagged.status).toBe(200);
+    expect(await conformingBody({ route: "PATCH /v1/memos/:id", res: flagged })).toMatchObject({
+      done: true,
+      favorite: true,
+      archived: true,
+    });
+    for (const body of [{}, { done: "yes" }, { starred: true }]) {
+      const bad = await patch(body);
+      expect([body, bad.status]).toEqual([body, 400]);
+      await conformingBody({ route: "PATCH /v1/memos/:id", res: bad });
+    }
+    const unknown = await patch({ done: true }, crypto.randomUUID());
+    expect(unknown.status).toBe(404);
+    await conformingBody({ route: "PATCH /v1/memos/:id", res: unknown });
+
+    const deleted = await call(app, { method: "DELETE", path: `/v1/memos/${id}` });
+    expect(deleted.status).toBe(200);
+    expect(await conformingBody({ route: "DELETE /v1/memos/:id", res: deleted })).toHaveProperty(
+      "purgeAt",
+    );
+    const detail = await call(app, { path: `/v1/memos/${id}` });
+    await conformingBody({ route: "GET /v1/memos/:id", res: detail });
+    const locked = await patch({ done: false });
+    expect(locked.status).toBe(409);
+    await conformingBody({ route: "PATCH /v1/memos/:id", res: locked });
+
+    const restored = await call(app, { method: "POST", path: `/v1/memos/${id}/restore` });
+    expect(restored.status).toBe(200);
+    expect(
+      await conformingBody({ route: "POST /v1/memos/:id/restore", res: restored }),
+    ).not.toHaveProperty("deletedAt");
+    const again = await call(app, { method: "POST", path: `/v1/memos/${id}/restore` });
+    expect(again.status).toBe(409);
+    await conformingBody({ route: "POST /v1/memos/:id/restore", res: again });
+    const gone = await call(app, {
+      method: "DELETE",
+      path: `/v1/memos/${crypto.randomUUID()}`,
+    });
+    expect(gone.status).toBe(404);
+    await conformingBody({ route: "DELETE /v1/memos/:id", res: gone });
   });
 
   it("answer, correction and the route errors", async () => {
@@ -685,6 +741,15 @@ describe("request fixtures are accepted by the server", () => {
     }
     for (const f of fixturesOf("memos.result.query")) {
       const res = await call(app, { path: `/v1/memos/${toComplete}/result?${query(f.stem)}` });
+      expect([f.stem, res.status]).toEqual([f.stem, 200]);
+    }
+  });
+
+  it("flags accepts its request fixtures", async () => {
+    const { app } = testApp({ handlers: handlers() });
+    const id = await record(app);
+    for (const f of fixturesOf("memos.flags.request")) {
+      const res = await call(app, { method: "PATCH", path: `/v1/memos/${id}`, json: f.value });
       expect([f.stem, res.status]).toEqual([f.stem, 200]);
     }
   });

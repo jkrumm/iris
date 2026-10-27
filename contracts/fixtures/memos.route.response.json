@@ -13,6 +13,9 @@
   "destinationRef": null,
   "replyText": null,
   "summary": null,
+  "done": false,
+  "favorite": false,
+  "archived": false,
   "createdAt": "2026-03-14T08:02:10.301Z",
   "updatedAt": "2026-03-14T08:03:41.208Z"
 }

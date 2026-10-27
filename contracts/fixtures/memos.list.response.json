@@ -15,6 +15,9 @@
       "destinationRef": null,
       "replyText": null,
       "summary": null,
+      "done": false,
+      "favorite": false,
+      "archived": false,
       "createdAt": "2026-03-14T09:30:00.118Z",
       "updatedAt": "2026-03-14T09:30:31.402Z"
     },
@@ -37,6 +40,9 @@
         "detail": "Der Plan für die Woche steht: Montag Review der offenen Pull Requests, Mittwoch Feature-Freeze, Donnerstag Release. Offen bleibt nur die Migration der Datenbank.",
         "spoken": "Der Wochenplan steht. Release ist am Donnerstag, offen ist nur noch die Datenbankmigration."
       },
+      "done": false,
+      "favorite": false,
+      "archived": false,
       "createdAt": "2026-03-14T09:20:41.512Z",
       "updatedAt": "2026-03-14T09:21:19.870Z"
     },
@@ -55,6 +61,9 @@
       "destinationRef": null,
       "replyText": null,
       "summary": null,
+      "done": true,
+      "favorite": true,
+      "archived": false,
       "createdAt": "2026-03-13T17:44:02.250Z",
       "updatedAt": "2026-03-13T17:44:31.640Z"
     }
