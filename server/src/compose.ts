@@ -4,8 +4,9 @@ import { createAgwSummarizer } from "./adapters/agw.js";
 import { createAgwDecider } from "./adapters/agw-decider.js";
 import { createAudioGatewaySpeaker } from "./adapters/audio-gateway-speaker.js";
 import { createAudioGatewayTranscriber, ffmpegCombiner } from "./adapters/audio-gateway.js";
-import { createHerdrHerd } from "./adapters/herdr.js";
+import { createHerdrDestination, createHerdrHerd } from "./adapters/herdr.js";
 import { createHermesDestination } from "./adapters/hermes.js";
+import { createJournalDestination } from "./adapters/journal.js";
 import type { env as parsedEnv } from "./env.js";
 import { parseDeviceTokens } from "./http/auth.js";
 import { selectNotifier } from "./notify/select.js";
@@ -43,6 +44,7 @@ export type ComposeEnv = Partial<
     | "HERMES_URL"
     | "HERMES_TOKEN"
     | "HERDR_SOCKET"
+    | "BRAIN_DIR"
     | "APNS_KEY_P8"
     | "APNS_KEY_ID"
     | "APNS_TEAM_ID"
@@ -63,8 +65,12 @@ const TABS: HerdTab[] = [
 /** Every downstream port as a deterministic in-memory fake (`IRIS_FAKES=1`, see `make e2e`). */
 const fakePorts = () => ({
   transcriber: fakeTranscriber(),
-  // Hermes only: with one destination the route step never calls the decider.
-  destinations: { hermes: fakeDestination() } satisfies Destinations,
+  // All three, so the fake decider has a real choice (it answers hermes unless a memo pins a mode).
+  destinations: {
+    journal: fakeDestination(),
+    herdr: fakeDestination(),
+    hermes: fakeDestination(),
+  } satisfies Destinations,
   decider: fakeDecider(),
   summarizer: fakeSummarizer(),
   notifier: fakeNotifier(),
@@ -116,17 +122,23 @@ export function compose(deps: {
         ? createAudioGatewayTranscriber({ baseUrl: env.AUDIO_GATEWAY_URL })
         : undefined,
     ),
-    // Only destinations with an act adapter are routing choices. Journal and herdr join in Wave 11.
-    destinations: choose<Destinations>("act", fakes?.destinations, () =>
-      env.HERMES_URL && env.HERMES_TOKEN
-        ? {
-            hermes: createHermesDestination({
-              baseUrl: env.HERMES_URL,
-              token: env.HERMES_TOKEN,
-            }),
-          }
-        : undefined,
-    ),
+    // Only destinations with an act adapter are routing choices. Each is optional on its own; `act`
+    // is degraded only when none is registered.
+    destinations: choose<Destinations>("act", fakes?.destinations, () => {
+      const registered: Destinations = {
+        ...(env.BRAIN_DIR && {
+          journal: createJournalDestination({ brainDir: env.BRAIN_DIR, clock }),
+        }),
+        ...(env.HERDR_SOCKET && {
+          herdr: createHerdrDestination({ socketPath: env.HERDR_SOCKET }),
+        }),
+        ...(env.HERMES_URL &&
+          env.HERMES_TOKEN && {
+            hermes: createHermesDestination({ baseUrl: env.HERMES_URL, token: env.HERMES_TOKEN }),
+          }),
+      };
+      return registeredDestinations(registered).length > 0 ? registered : undefined;
+    }),
     summarizer: choose<Summarizer>("summarize", fakes?.summarizer, () =>
       env.AGW_URL ? createAgwSummarizer({ baseUrl: env.AGW_URL }) : undefined,
     ),

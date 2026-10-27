@@ -112,13 +112,13 @@ The server is a few deep modules behind ports, in email-gateway's style.
 | `notify/` | Payload building (alert, Live Activity), APNs transport | `Notifier` port |
 | `telemetry/` | `otel.ts`, `otel-format.ts`, `log.ts`, the client relay | `withRootSpan`, `withSpan`, `log`, `relay` |
 
-**Shipped through Wave 10 (B2):** `memo/`, `pipeline/` (`steps.ts`), `notify/`, `telemetry/`, `http/`, `adapters/`, `ports/`, `routing/`. The
-journal/herdr destinations are Wave 11; `devices/` is the `DeviceStore` port plus `adapters/sqlite-devices.ts`. The module and
+**Shipped through Wave 11:** `memo/`, `pipeline/` (`steps.ts`), `notify/`, `telemetry/`, `http/`, `adapters/`, `ports/`, `routing/`. The
+journal, herdr and hermes destinations are all registered in `compose()`; `devices/` is the `DeviceStore` port plus `adapters/sqlite-devices.ts`. The module and
 file map of the code is in `AGENTS.md` §Layout.
 
-Ports, each with a production adapter and an in-memory fake (shipped: `Transcriber`, `Speaker`, `Summarizer`, `Destination` (Hermes only),
+Ports, each with a production adapter and an in-memory fake (shipped: `Transcriber`, `Speaker`, `Summarizer`, `Destination` (hermes, journal, herdr),
 `Notifier`, `Herd`, `DeviceStore`, `AudioStore`, `AudioCombiner`, `Clock`, `Decider`; `Ids` is unused). `Destinations` is the registry
-of the registered act adapters (`Partial<Record<"hermes" | "journal" | "herdr", Destination>>`, today Hermes only):
+of the registered act adapters (`Partial<Record<"hermes" | "journal" | "herdr", Destination>>`; each is registered by its own env, see §Configuration):
 - `Transcriber`
 - `Speaker`
 - `Decider` (`decide`, adapter `adapters/agw-decider.ts`)
@@ -213,8 +213,8 @@ the exported JSON Schema matches `contracts/schema`.
 
 ### Pipeline steps
 
-Shipped as five runner steps: `transcribe` (includes the concat below), `route`, `act`, `summarize`, `notify`. The journal/herdr
-destinations ship in Wave 11 (adapters and step logic here; registration in `compose()` follows). The timeouts follow `agent-limits.md`
+Shipped as five runner steps: `transcribe` (includes the concat below), `route`, `act`, `summarize`, `notify`. The journal and herdr
+destinations are registered by `compose()` from `BRAIN_DIR` and `HERDR_SOCKET`. The timeouts follow `agent-limits.md`
 (idle watchdogs and 30-minute hang guards, not the budgets sketched earlier). Retention (audio deleted 30 days after `notified`) and automatic
 retries of transient errors are not built; recover with `POST /retry`.
 
@@ -300,8 +300,8 @@ retries of transient errors are not built; recover with `POST /retry`.
 | `AUDIO_GATEWAY_URL` | audio-gateway base URL |
 | `AGW_URL` | agent-gateway base URL |
 | `HERMES_URL`, `HERMES_TOKEN` | Hermes endpoint and bearer |
-| `HERDR_SOCKET` | Path to the herdr socket |
-| `BRAIN_DIR` | The brain checkout |
+| `HERDR_SOCKET` | Path to the herdr socket; registers the `herdr` destination and serves `GET /v1/herd` |
+| `BRAIN_DIR` | The brain checkout; registers the `journal` destination (notes in `Inbox/`, then `git push`). Optional: unset leaves journal unregistered, not degraded. `launch.sh` sets it on the mini when `~/SourceRoot/brain` exists |
 | `APNS_KEY_P8`, `APNS_KEY_ID`, `APNS_TEAM_ID`, `APNS_TOPIC` | APNs credentials |
 | `OTEL_*` | Telemetry export |
 
@@ -497,11 +497,10 @@ the `IrisCore` dependency when R1 wires them together.
 - **Cost:**
   - STT/TTS spend is recorded by audio-gateway (`raw.caller=iris` via
     `x-audio-source`);
-  - `decide`/`triage` spend goes into agw's NDJSON feed for usage-tracker;
+  - `decide`/`triage` spend goes into agw's NDJSON feed for usage-tracker, attributed to
+    `caller: "iris"` (top level of the job body, set by the agw adapters);
   - Iris posts no usage rows (they would double-count). It stores per-step
     `usage`/`cost_usd` for the memo detail.
-  - Gap: agw jobs have no `caller` field. Adding one is a small agw change,
-    queued in the Routing wave.
 - **Later (not R0–R3):** HyperDX alerts (`iris memo-failed ≥ 1/15m`,
   `iris-ios crash`) to Slack + warden, and a `probe_iris` in
   `devhost-health-check.sh`.

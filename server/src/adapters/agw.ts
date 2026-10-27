@@ -48,6 +48,9 @@ const JobResponse = z.object({
   }),
 });
 
+// Names iris as the submitter at the top level of the job body; an older agent-gateway ignores it.
+const CALLER = "iris";
+
 const TERMINAL = new Set(["done", "failed", "interrupted", "cancelled"]);
 
 export interface AgwClientOptions {
@@ -110,7 +113,7 @@ export function createAgwJobRunner(opts: AgwClientOptions) {
       const res = await request("/api/jobs", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ tool, params }),
+        body: JSON.stringify({ tool, params, caller: CALLER }),
       });
       span.setAttributes({ status: res.status });
       if (!res.ok) throw new Error(`agw submit failed: ${res.status} ${await failureBody(res)}`);
