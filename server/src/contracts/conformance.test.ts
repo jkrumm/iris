@@ -31,7 +31,7 @@ const fixture = (stem: string) => {
 };
 
 /** Schema properties that are omitted rather than null: a body or fixture may lack them. */
-const OPTIONAL_KEYS = ["routeReason", "routeSuggestion"];
+const OPTIONAL_KEYS = ["routeReason", "routeSuggestion", "typed"];
 
 /** Validates `value` against `schema` and compares its keys with each fixture (default: all of them). */
 function conforms(params: { schema: string; value: unknown; fixtures?: string[] }) {
@@ -144,6 +144,7 @@ describe("flows: every response conforms", () => {
     expect(memo).toMatchObject({
       state: "transcribed",
       segmentCount: null,
+      typed: true,
       transcript: "Hallo Welt",
     });
 
@@ -161,8 +162,18 @@ describe("flows: every response conforms", () => {
 
     await call(app, { path: `/v1/memos/${id}/result?wait=5` });
     const detail = await call(app, { path: `/v1/memos/${id}` });
-    const steps = ((await detail.json()) as { steps: { step: string }[] }).steps.map((s) => s.step);
-    expect(steps).toEqual(["route", "act", "summarize", "notify"]);
+    const typedDetail = await conformingBody({
+      route: "GET /v1/memos/:id",
+      res: detail,
+      fixtures: ["memos.detail.response.typed"],
+    });
+    expect(typedDetail).toMatchObject({ typed: true, segmentCount: 0 });
+    expect((typedDetail["steps"] as { step: string }[]).map((s) => s.step)).toEqual([
+      "route",
+      "act",
+      "summarize",
+      "notify",
+    ]);
   });
 
   it("create, upload, complete, result, detail, list, activity token and media on a notified memo", async () => {

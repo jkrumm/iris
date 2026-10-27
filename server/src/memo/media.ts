@@ -8,6 +8,7 @@ import {
 import type { Speaker, SpeechCache } from "../ports/speaker.js";
 import { log } from "../telemetry/log.js";
 import { MemoError } from "./errors.js";
+import { isTyped } from "./memo.js";
 import type { MemoStore } from "./store.js";
 
 /** What a memo can be played back as: its recording (for the scrubber) and its spoken result. */
@@ -53,7 +54,7 @@ export function createMemoMedia(deps: {
       if (memo.state === "receiving") {
         throw new MemoError("bad_state", `memo ${id} is still receiving segments`);
       }
-      if (memo.segmentCount === null) {
+      if (isTyped(memo)) {
         throw new MemoError("bad_state", `memo ${id} was typed, it has no recording`);
       }
       return once(`recording/${id}`, async () => {

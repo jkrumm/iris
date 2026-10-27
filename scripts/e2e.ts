@@ -176,10 +176,12 @@ async function probeTyped(base: string) {
     state: string;
     transcript: string | null;
     segmentCount: number;
+    typed?: boolean;
     steps: { step: string }[];
   };
   assert(detail.state === "notified", `typed memo is notified (got ${detail.state})`);
   assert(detail.transcript?.startsWith("Erinnere"), "typed memo keeps its text as transcript");
+  assert(detail.typed === true, `typed memo carries typed: true (got ${detail.typed})`);
   assert(detail.segmentCount === 0, `typed memo has no segments (got ${detail.segmentCount})`);
   const steps = detail.steps.map((step) => step.step).join(",");
   assert(steps === "route,act,summarize,notify", `no ingest/transcribe rows (got ${steps})`);

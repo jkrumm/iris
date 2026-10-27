@@ -13,9 +13,9 @@ public struct CreateMemoRequest: Codable, Hashable, Sendable {
 }
 
 /// Body of `POST /v1/memos/text`. The server trims `text` and answers 400 when it is empty or longer than
-/// `maxTextCharacters` once trimmed.
+/// `maxTextCharacters` Unicode code points (`unicodeScalars`, not Swift `Character`s) once trimmed.
 public struct CreateTextMemoRequest: Codable, Hashable, Sendable {
-  /// The server's limit on the trimmed text.
+  /// The server's limit on the trimmed text, in Unicode code points.
   public static let maxTextCharacters = 20_000
 
   public var id: String

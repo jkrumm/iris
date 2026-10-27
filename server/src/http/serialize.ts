@@ -1,5 +1,5 @@
 import type { MemoEvent } from "../memo/events.js";
-import type { Memo, StepRecord } from "../memo/memo.js";
+import { isTyped, type Memo, type StepRecord } from "../memo/memo.js";
 import type { MemoDetail } from "../memo/service.js";
 import type { Device } from "../ports/devices.js";
 
@@ -21,6 +21,7 @@ export const memoJson = (memo: Memo) => ({
   destinationRef: memo.destinationRef,
   replyText: memo.replyText,
   summary: memo.summary,
+  ...(isTyped(memo) && { typed: true as const }),
   ...(memo.routeReason !== undefined && { routeReason: memo.routeReason }),
   ...(memo.routeSuggestion !== undefined && { routeSuggestion: memo.routeSuggestion }),
   createdAt: memo.createdAt,

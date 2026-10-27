@@ -23,15 +23,16 @@ const POLL_SECONDS = 30;
 const UPLOAD_CONCURRENCY = 4;
 const PREVIEW_CHARS = 200;
 
-interface CommonOptions {
+/** What to send: a recording to upload, or typed text. */
+export type Source = { kind: "file"; path: string } | { kind: "text"; text: string };
+
+export interface Options {
+  source: Source;
   url: string;
   token: string;
   mode: Mode;
   waitSeconds: number;
 }
-
-/** Either a recording to upload (`file`) or typed text (`text`). */
-export type Options = CommonOptions & ({ file: string } | { text: string });
 
 const out = (text: string) => process.stdout.write(`${text}\n`);
 const err = (text: string) => process.stderr.write(`${text}\n`);
@@ -52,6 +53,18 @@ export const USAGE = `usage: IRIS_TOKEN=<token> bun scripts/send-memo.ts <audio-
   [--url <base>] [--token <token>] [--mode auto|journal|hermes|tab] [--wait <seconds>]
   env: IRIS_URL (default ${DEFAULT_URL}), IRIS_TOKEN (required)`;
 
+function parseSource(params: { text: string | undefined; positionals: string[] }): Source {
+  const { text, positionals } = params;
+  if (text !== undefined) {
+    if (positionals.length > 0) throw new UsageError("--text and an audio file are exclusive");
+    if (text.trim() === "") throw new UsageError("--text must not be empty");
+    return { kind: "text", text };
+  }
+  const [path, ...extra] = positionals;
+  if (!path || extra.length > 0) throw new UsageError("expected exactly one audio file");
+  return { kind: "file", path };
+}
+
 export function parseCliArgs(argv: string[], env: Record<string, string | undefined>): Options {
   let parsed;
   try {
@@ -71,14 +84,7 @@ export function parseCliArgs(argv: string[], env: Record<string, string | undefi
   }
   const { values, positionals } = parsed;
 
-  const [file, ...extra] = positionals;
-  const typed = values.text !== undefined;
-  if (typed && positionals.length > 0)
-    throw new UsageError("--text and an audio file are exclusive");
-  if (typed && values.text?.trim() === "") throw new UsageError("--text must not be empty");
-  if (!typed && (!file || extra.length > 0)) {
-    throw new UsageError("expected exactly one audio file");
-  }
+  const source = parseSource({ text: values.text, positionals });
 
   const token = values.token ?? env["IRIS_TOKEN"];
   if (!token) throw new UsageError("IRIS_TOKEN (or --token) is required");
@@ -93,10 +99,7 @@ export function parseCliArgs(argv: string[], env: Record<string, string | undefi
   }
 
   const url = (values.url ?? env["IRIS_URL"] ?? DEFAULT_URL).replace(/\/+$/, "");
-  const common = { url, token, mode: mode as Mode, waitSeconds };
-  return values.text !== undefined
-    ? { text: values.text, ...common }
-    : { file: file ?? "", ...common };
+  return { source, url, token, mode: mode as Mode, waitSeconds };
 }
 
 const segmentIndex = (name: string) => Number(/^seg(\d+)\.m4a$/.exec(name)?.[1] ?? Number.NaN);
@@ -316,8 +319,8 @@ async function fetchMemo(options: Options, id: string): Promise<MemoWire> {
 }
 
 /** Creates, uploads and completes a recording; returns the memo id. */
-async function submitRecording(options: Options & { file: string }, dir: string): Promise<string> {
-  const files = await splitAudio({ file: options.file, dir });
+async function submitRecording(options: Options, file: string, dir: string): Promise<string> {
+  const files = await splitAudio({ file, dir });
   const id = crypto.randomUUID();
   out(`memo ${id}: ${files.length} segment(s), mode ${options.mode}`);
 
@@ -332,14 +335,14 @@ async function submitRecording(options: Options & { file: string }, dir: string)
 }
 
 /** Creates a typed memo, which skips ingest and transcribe; returns the memo id. */
-async function submitText(options: Options & { text: string }): Promise<string> {
+async function submitText(options: Options, text: string): Promise<string> {
   const id = crypto.randomUUID();
   out(`memo ${id}: typed, mode ${options.mode}`);
   await postJson(options, "/memos/text", {
     id,
     mode: options.mode,
     startedAt: new Date().toISOString(),
-    text: options.text,
+    text,
   });
   return id;
 }
@@ -348,7 +351,11 @@ async function submitText(options: Options & { text: string }): Promise<string> 
 export async function sendMemo(options: Options): Promise<number> {
   const dir = await mkdtemp(join(tmpdir(), "iris-send-memo-"));
   try {
-    const id = "text" in options ? await submitText(options) : await submitRecording(options, dir);
+    const { source } = options;
+    const id =
+      source.kind === "text"
+        ? await submitText(options, source.text)
+        : await submitRecording(options, source.path, dir);
 
     const ready = await awaitResult(options, id);
     if (!ready) {
