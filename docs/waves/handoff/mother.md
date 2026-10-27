@@ -67,6 +67,9 @@ acted on and notified through a Live Activity and APNs. There is one user, the o
   finished tab open or a wave waiting.
 - `make run-sim` / `screenshot` leave the simulator booted, so run `xcrun simctl shutdown all` after.
 - `tap` via `scripts/mbm` needs `--post-delay 2` to navigate reliably.
+- (Wave 10) `rd merge` fails on a draft PR (`gh pr ready` first). The `agw review` CLI prints only the summary; findings are in
+  `GET /api/jobs/<id>` `.job.result`. A contract change must carry the Swift `IrisCore` follow-up in the same brief.
+- `wave-watch.sh` can time out silently: write its output to a file (`> /tmp/iris-wN-watch.txt`) and check `rd agents`.
 
 ## Carry-forward debt (assign it inside backlog items, don't let it rot)
 
@@ -77,13 +80,13 @@ acted on and notified through a Live Activity and APNs. There is one user, the o
 - TDD amendments whenever a backlog item changes a design decision. The TDD must stay true.
 - Housekeeping (backlog 10): delete the mockup images after R3.
 
+## Progress log
+
+- 2026-10-27: Wave 10 done (design round 2 + R2 routing core, deployed `cc19d4c`). Chat-mode reading confirmed by the owner via the
+  `ask-human` dialog (Run clicked). Design round 2 owner review pending (gallery on the MacBook, links in the untracked `links.local.md`).
+- Wave 11 (R2 destinations, Chat, typed memos, agw `caller`) active.
+
 ## Next action
 
-1. Read the files above. Write Wave 10 into PLAN.md for **backlog 0 (design round 2)** and **backlog 4 (R2 routing on
-   the server)** as parallel tracks if the lead can fan them out on disjoint files (`docs/design/**` vs `server/**`).
-   Otherwise do backlog 4 first and backlog 0 second.
-2. Commit + push PLAN.md, then spawn the lead with the prompt: `Read docs/waves/PLAN.md and
-   ~/.claude/skills/wave/roles/lead.md. You are the fleet lead for the active wave. Brief workers with rd fan, review,
-   merge with rd merge, close out the wave in PLAN.md, and stop; the mother spawns the next lead.`
-3. Watch it with `wave-watch.sh` in the background, and loop.
-4. At ~60% context, rewrite this file and ask for a fresh mother.
+Watch the active wave's lead (`iris-w<n>`), verdict its close-out, `rd close`, write the next wave from the backlog
+(after Wave 11: backlog 6 R3 history server parts + 7 threads, or the design-round-2 answers if the owner replied), spawn, loop.
