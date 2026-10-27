@@ -52,25 +52,43 @@ Downstream facts: `docs/TDD.md` §3 "Downstream facts". Secrets: use `secrets-ru
 mini endpoint is https; revisit in Wave 4). The Makefile has no deploy/verify/logs yet (Wave 4), and the lint config
 lives in `server/`.
 
-## Wave 2 — Memo domain + HTTP surface            <!-- status: active -->
-- [ ] `memo/`: the Memo state machine (`receiving → received → transcribed → routed |
+## Wave 2 — Memo domain + HTTP surface            <!-- status: done -->
+- [x] `memo/`: the Memo state machine (`receiving → received → transcribed → routed |
       needs_route → acted → summarized → notified`, with `failed(step)` as a side state),
       the `MemoStore` port, and a SQLite adapter with migrations. The memo id is
       client-supplied (UUID v4).
-- [ ] `POST /v1/memos` (idempotent create: mode, device, started_at),
+- [x] `POST /v1/memos` (idempotent create: mode, device, started_at),
       `PUT /v1/memos/:id/segments/:n` (raw bytes, idempotent by index, stored under
       `$IRIS_DATA/audio/<id>/`), and `POST /v1/memos/:id/complete {segment_count}`, which
       rejects with the list of missing indices if segments are absent.
-- [ ] `GET /v1/memos` (paged), `GET /v1/memos/:id` (with the step timeline),
+- [x] `GET /v1/memos` (paged), `GET /v1/memos/:id` (with the step timeline),
       `GET /v1/memos/:id/result?wait=<s>` (long-poll that resolves on a terminal state),
       and `GET /v1/events` (SSE of memo state changes).
-- [ ] An idempotent step runner: on startup and on each `complete`, drive every
+- [x] An idempotent step runner: on startup and on each `complete`, drive every
       non-terminal memo from its last finished step. A failed step records its error, and
       `POST /v1/memos/:id/retry {from}` re-drives it.
-**Left behind:**
+**Left behind:** Memo domain and HTTP surface are done; `make check` (141 tests) and `fallow audit` are green,
+`/review` blocker (same-index upload race) fixed. Layout: `memo/{memo,store,events,runner,service,errors}.ts`
+(pure state machine, `MemoStore` port, single-flight `Runner`, deep `MemoService`), `adapters/{sqlite,audio-fs}.ts`
+(migrations in `sqlite-migrations.ts`; `ports/{clock,audio}.ts`, so Wave 3 adds the other ports beside `Clock`),
+`http/{memos,events,errors,serialize}.ts`. `index.ts` is the production composition root and passes an EMPTY
+handler map: Wave 3 registers `Partial<Record<transcribe|route|act|summarize|notify, StepHandler>>` in `index.ts`
+(`StepHandler = ({memo}) => {outcome?, usage?, costUsd?}`; the runner already opens `withRootSpan("memo")` with a child
+span per step and stores `usage`/`costUsd` on `memo_steps`). Until then a completed memo parks at `received`.
+Wire format follows TDD §3, not the step lists above: camelCase JSON (`startedAt`, `segmentCount`), 422 for missing
+segments, segment PUT idempotent by sha256 (same sha 200, different 409), SSE `memo.updated` + `memo.done`.
+Trust model: all device tokens equal, ownership checked only on create (AGENTS.md Gotchas).
+Carry into Wave 3: (1) make handlers idempotent; `runStep` does `markStepDone` and `transition` as two writes, so put
+them in one `db.transaction` and keep handler errors apart from bookkeeping errors; (2) `driveAll()` starts every
+non-terminal memo at once, so bound it (2 to 4) before real backends are behind it; (3) shutdown does not drain the
+runner before `db.close()`, so add `runner.idle()` once handlers do real work; (4) `getActiveSpan` is unused
+(fallow warning) until a step enriches its span. Open owner question: memos stuck in `receiving` (uploads cut off)
+keep rows and files forever; Phase-1 retention (purge after N days vs. keep for resume) is undecided. A segment
+upload racing `complete` can leave one orphan file (harmless, no row). Untouched on purpose: the `http://` OTLP
+endpoint with an auth header (Wave 4).
 
-## Wave 3 — Pipeline            <!-- status: pending -->
-- [ ] `ports/` (Transcriber, Destination, Summarizer, Notifier, Clock) plus fakes for tests.
+## Wave 3 — Pipeline            <!-- status: active -->
+- [ ] `ports/` (Transcriber, Destination, Summarizer, Notifier; `Clock` and `AudioStore` already exist) plus fakes for tests.
 - [ ] Adapters:
   - `audio-gateway.ts`: concatenates with ffmpeg, then STT.
   - `hermes.ts`: the sessions API, collecting the final assistant text from the SSE.
