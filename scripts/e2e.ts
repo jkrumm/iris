@@ -18,14 +18,17 @@ const output: string[] = [];
 let server: Bun.Subprocess | undefined;
 let dataDir: string | undefined;
 
+const out = (line: string) => process.stdout.write(`${line}\n`);
+const err = (line: string) => process.stderr.write(`${line}\n`);
+
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(`assertion failed: ${message}`);
 }
 
 function freePort(): number {
-  const probe = Bun.serve({ port: 0, fetch: () => new Response() });
-  const port = probe.port;
-  void probe.stop(true);
+  const listener = Bun.serve({ port: 0, fetch: () => new Response() });
+  const port = listener.port;
+  void listener.stop(true);
   if (port === undefined) throw new Error("no free port");
   return port;
 }
@@ -89,7 +92,7 @@ async function probe(base: string) {
 
   const herd = (await (await call("/herd")).json()) as { tabs?: unknown[] };
   assert(herd.tabs && herd.tabs.length >= 2, "GET /herd returns tabs");
-  console.log(`e2e: R1 endpoints ok for memo ${id}`);
+  out(`e2e: R1 endpoints ok for memo ${id}`);
 }
 
 async function main() {
@@ -143,9 +146,9 @@ try {
 }
 
 if (failure) {
-  console.error(`e2e FAILED: ${failure instanceof Error ? failure.message : String(failure)}`);
-  console.error(`--- server output (last ${TAIL_LINES} lines) ---`);
-  console.error(output.join("").split("\n").slice(-TAIL_LINES).join("\n"));
+  err(`e2e FAILED: ${failure instanceof Error ? failure.message : String(failure)}`);
+  err(`--- server output (last ${TAIL_LINES} lines) ---`);
+  err(output.join("").split("\n").slice(-TAIL_LINES).join("\n"));
   process.exit(1);
 }
-console.log("e2e ok");
+out("e2e ok");
