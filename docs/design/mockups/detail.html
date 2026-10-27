@@ -2,128 +2,224 @@
 <html lang="en" data-default-v="done">
 <head>
 <meta charset="utf-8">
-<title>Iris — Memo detail</title>
+<title>Iris — Memo detail (round 2)</title>
 <link rel="stylesheet" href="tokens.css">
 <link rel="stylesheet" href="mock.css">
 <script src="mock.js"></script>
 <style>
+  /* Variants: done (steps + cost collapsed), steps (waterfall open), cost (cost open), failed (waterfall open, failure). */
   .scroll { position: absolute; inset: 0; overflow: hidden; padding: 58px 0 0; }
   .nav { position: absolute; z-index: 25; top: 54px; left: 14px; right: 14px; display: flex; justify-content: space-between; align-items: center; }
   .nav .circ { width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center; font-size: 20px; }
   .nav .back { height: 44px; padding: 0 16px 0 10px; border-radius: 99px; display: flex; align-items: center; gap: 2px; font-size: var(--text-lg); font-weight: 500; color: var(--accent); }
-  .body { padding: 60px 20px 120px; display: flex; flex-direction: column; gap: 16px; }
+  .body { padding: 60px 20px 120px; display: flex; flex-direction: column; gap: 14px; }
   .top .meta { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; color: var(--muted); font-size: var(--text-sm); }
   h1 { font-size: var(--text-h1); line-height: 1.18; font-weight: 700; letter-spacing: -.01em; text-wrap: balance; }
   .detail-txt { margin-top: 8px; font-size: var(--text-lg); color: var(--ink2); line-height: 1.4; text-wrap: pretty; }
   .card { background: var(--surface-panel); border-radius: var(--radius-card); box-shadow: inset 0 0 0 .5px var(--surface-border); }
-  .player { display: flex; align-items: center; gap: 12px; padding: 12px 14px; }
-  .player .btn { width: 38px; height: 38px; padding: 0; font-size: 16px; flex: none; }
-  .scrub { flex: 1; position: relative; height: 38px; display: flex; align-items: center; }
+
+  /* Player: scrubbable waveform with a draggable head, time left/remaining, 10 s back, play, speed. */
+  .player { padding: 12px 14px 12px; display: flex; flex-direction: column; gap: 8px; }
+  .scrub { position: relative; height: 40px; display: flex; align-items: center; }
   .scrub .wave { justify-content: flex-start; gap: 2px; width: 100%; }
   .scrub .wave b { width: 2px; background: var(--surface-border); }
-  .scrub .wave b:nth-child(-n+30) { background: var(--accent); }
-  .scrub .head { position: absolute; left: calc(30 * 4px - 1px); top: 1px; bottom: 1px; width: 2px; background: var(--ink); border-radius: 1px; }
-  .player .t { white-space: nowrap; font-size: var(--text-xs); color: var(--muted); }
+  .scrub .wave b:nth-child(-n+26) { background: var(--accent); }
+  .scrub .head { position: absolute; left: calc(26 * 4px - 1px); top: -1px; bottom: -1px; width: 2px; background: var(--ink); border-radius: 1px; }
+  .scrub .head::before { content: ""; position: absolute; left: -6px; top: -4px; width: 14px; height: 14px; border-radius: 50%; background: var(--ink); box-shadow: 0 0 0 2px var(--surface-panel); }
+  .times { display: flex; justify-content: space-between; font-size: var(--text-xs); color: var(--muted); margin-top: -2px; }
+  .pctl { display: flex; align-items: center; justify-content: center; gap: 22px; }
+  .pctl .b10 { width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center; font-size: 26px; color: var(--ink2); }
+  .pctl .pp { width: 54px; height: 54px; border-radius: 50%; display: grid; place-items: center; font-size: 22px; }
+  .pctl .spd { min-width: 44px; height: 32px; border-radius: 99px; display: grid; place-items: center; font-size: var(--text-sm); font-weight: 600; color: var(--ink2); }
+
   .sect > .label { margin-bottom: 8px; display: flex; justify-content: space-between; }
-  .sect .txt { padding: 13px 14px; font-size: var(--text-lg); line-height: 1.42; color: var(--ink); text-wrap: pretty; }
-  .sect .txt { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .sect .txt { padding: 13px 14px; font-size: var(--text-lg); line-height: 1.42; color: var(--ink); text-wrap: pretty; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
   .sect .txt.sm { font-size: var(--text-md); color: var(--ink2); }
-  .decision { display: flex; align-items: center; gap: 10px; padding: 12px 14px; font-size: var(--text-md); }
-  .decision .conf { margin-left: auto; font-size: var(--text-sm); color: var(--muted); }
 
-  /* Step timeline: one row per step, a duration bar scaled to the longest step, cost at the right. */
-  .tl { padding: 4px 14px; }
-  .step { display: grid; grid-template-columns: 22px 1fr auto; gap: 1px 10px; padding: 8px 0; position: relative; }
-  .step + .step::before { content: ""; position: absolute; top: 0; left: 32px; right: 0; height: .5px; background: var(--divider); }
-  .step .ic { grid-row: 1 / 3; width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; font-size: 13px; background: color-mix(in srgb, var(--status-good) 16%, transparent); color: var(--status-good); margin-top: 1px; }
-  .step .ic.fail { background: color-mix(in srgb, var(--status-bad) 16%, transparent); color: var(--status-bad); }
-  .step .ic.todo { background: var(--surface-subtle); color: var(--faint); box-shadow: inset 0 0 0 .5px var(--surface-border); }
-  .step .nm { font-size: var(--text-md); font-weight: 600; }
-  .step .cost { font-size: var(--text-sm); color: var(--muted); text-align: right; }
-  .step .bar { grid-column: 2 / 4; display: flex; align-items: center; gap: 8px; font-size: var(--text-xs); color: var(--muted); }
-  .step .bar i.b { display: block; height: 4px; border-radius: 2px; background: var(--accent); }
-  .step .bar i.b.fail { background: var(--status-bad); }
-  .step .err { grid-column: 2 / 4; margin-top: 4px; padding: 8px 10px; border-radius: var(--radius-ctrl); background: color-mix(in srgb, var(--status-bad) 10%, transparent); color: var(--status-bad); font-size: var(--text-xs); line-height: 1.4; }
-  .total { display: flex; justify-content: space-between; align-items: baseline; padding: 12px 14px; border-top: .5px solid var(--divider); font-size: var(--text-sm); color: var(--muted); }
-  .total b { font-size: var(--text-h2); color: var(--ink); font-weight: 700; }
+  /* Disclosure rows (steps, cost) */
+  .disc { display: flex; align-items: center; gap: 10px; padding: 12px 14px; font-size: var(--text-md); font-weight: 600; }
+  .disc .sum { margin-left: auto; display: flex; align-items: center; gap: 8px; font-weight: 400; font-size: var(--text-sm); color: var(--muted); }
+  .disc .sum i[data-i] { font-size: 15px; color: var(--faint); }
+  .disc .ok { width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; font-size: 13px; background: color-mix(in srgb, var(--status-good) 16%, transparent); color: var(--status-good); flex: none; }
+  .disc .ok.fail { background: color-mix(in srgb, var(--status-bad) 16%, transparent); color: var(--status-bad); }
+  .tag { display: inline-flex; align-items: center; gap: 4px; height: 22px; padding: 0 8px; border-radius: 99px; font-size: var(--text-xs); font-weight: 600; }
+  .tag.slow { background: color-mix(in srgb, var(--status-warn) 15%, transparent); color: var(--status-warn); }
+  .tag.fast { background: color-mix(in srgb, var(--status-good) 15%, transparent); color: var(--status-good); }
+  .tag.bad { background: color-mix(in srgb, var(--status-bad) 14%, transparent); color: var(--status-bad); }
+  .tag i[data-i] { font-size: 11px; }
+  .strip { position: relative; height: 8px; margin: 0 14px 14px; border-radius: 4px; background: var(--surface-subtle); box-shadow: inset 0 0 0 .5px var(--surface-border); overflow: hidden; }
+  .strip s { position: absolute; top: 0; bottom: 0; background: var(--accent); text-decoration: none; border-right: 1.5px solid var(--surface-panel); }
+  .strip s.slow { background: var(--status-warn); } .strip s.fast { background: var(--status-good); } .strip s.fail { background: var(--status-bad); }
+
+  /* Waterfall: one row per step. The track is the whole run; each bar starts where the previous one ended.
+     The dashed ghost is the step's median duration from the same start: shorter bar = faster, longer = slower. */
+  .wf { padding: 2px 14px 12px; }
+  .wrow { padding: 9px 0 2px; position: relative; }
+  .wrow + .wrow::before { content: ""; position: absolute; top: 0; left: 0; right: 0; height: .5px; background: var(--divider); }
+  .wrow .h { display: flex; align-items: center; gap: 8px; }
+  .wrow .nm { font-size: var(--text-md); font-weight: 600; white-space: nowrap; }
+  .wrow .tag { white-space: nowrap; }
+  .med-t { font-size: var(--text-xs); color: var(--faint); white-space: nowrap; }
+  .wrow .du { margin-left: auto; padding-left: 8px; font-size: var(--text-md); font-weight: 600; }
+  .wrow .track { position: relative; height: 12px; margin: 6px 0 4px; }
+  .wrow .track::before { content: ""; position: absolute; left: 0; right: 0; top: 5.5px; height: .5px; background: var(--divider); }
+  .wrow .med { position: absolute; top: 0; height: 12px; border-radius: 3px; border: 1px dashed var(--faint); opacity: .8; }
+  .wrow .bar { position: absolute; top: 3px; height: 6px; border-radius: 3px; background: var(--accent); min-width: 2px; }
+  .wrow .bar.slow { background: var(--status-warn); } .wrow .bar.fast { background: var(--status-good); } .wrow .bar.fail { background: var(--status-bad); }
+  .wrow .cmp { display: flex; align-items: center; gap: 6px; font-size: var(--text-xs); color: var(--muted); }
+  .wrow .cmp .tag { height: 20px; }
+  .wrow.todo .nm { color: var(--faint); }
+  .wrow .err { margin: 6px 0 4px; padding: 8px 10px; border-radius: var(--radius-ctrl); background: color-mix(in srgb, var(--status-bad) 10%, transparent); color: var(--status-bad); font-size: var(--text-xs); line-height: 1.4; }
+  .axis { display: flex; justify-content: space-between; padding: 6px 0 0; border-top: .5px solid var(--divider); font-size: var(--text-xs); color: var(--faint); }
+  .legend { display: flex; gap: 12px; align-items: center; padding-top: 8px; font-size: var(--text-xs); color: var(--muted); }
+  .legend .gh { display: inline-block; width: 16px; height: 8px; border: 1px dashed var(--faint); border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
+
+  /* Cost (collapsed by default) */
+  .crow { display: flex; justify-content: space-between; padding: 8px 14px; font-size: var(--text-md); color: var(--ink2); }
+  .crow + .crow { border-top: .5px solid var(--divider); }
+  .crow span:last-child { color: var(--muted); }
+  .crow.tot { font-weight: 700; color: var(--ink); } .crow.tot span:last-child { color: var(--ink); }
   .kv { display: flex; gap: 6px; flex-wrap: wrap; padding: 0 2px; font-size: var(--text-xs); color: var(--faint); }
-  .kv span { display: inline-flex; gap: 4px; }
 
+  html[data-v="steps"] .body { margin-top: -218px; }
+    .topfade { position: absolute; z-index: 22; top: 0; left: 0; right: 0; height: 112px; background: linear-gradient(to bottom, var(--surface-bg) 55%, transparent); pointer-events: none; }
   .actions { position: absolute; z-index: 20; left: 14px; right: 14px; bottom: 26px; display: flex; gap: 10px; }
   .actions .btn { flex: 1; height: 50px; font-size: var(--text-lg); }
   .actions .btn.secondary { flex: 0 0 auto; }
-  .fade { position: absolute; z-index: 10; left: 0; right: 0; bottom: 0; height: 120px; background: linear-gradient(to top, color-mix(in srgb, var(--surface-bg) 80%, transparent), transparent); pointer-events: none; }
 </style>
 </head>
 <body>
-<div class="screen">
+<div class="screen soft">
   <div class="statusbar"><span>9:41</span><span class="right"><svg viewBox="0 0 18 12"><path d="M1 8h2.5v3H1zM5.5 6h2.5v5H5.5zM10 3.5h2.5V11H10zM14.5 1H17v10h-2.5z"/></svg><svg viewBox="0 0 27 12"><rect x=".5" y=".5" width="22" height="11" rx="3.5" fill="none" stroke="currentColor" opacity=".4"/><rect x="2" y="2" width="17" height="8" rx="2"/></svg></span></div>
   <div class="island"></div>
 
+  <div class="topfade"></div>
   <div class="nav">
     <div class="back glass"><i data-i="back"></i>History</div>
-    <div class="circ glass"><i data-i="list"></i></div>
+    <div class="circ glass"><i data-i="more"></i></div>
   </div>
 
   <div class="scroll"><div class="body">
 
     <div class="top">
       <div class="meta">
-        <span class="chip glass" data-v="done"><span class="dot hermes"></span>Hermes</span>
+        <span class="chip glass" data-v="done steps cost"><span class="dot hermes"></span>Hermes</span>
         <span class="chip glass" data-v="failed"><span class="dot herdr"></span>dotfiles · factory-w1a</span>
-        <span data-v="done" class="num">9:20 · 38 s · Auto 0.94</span>
+        <span data-v="done steps cost" class="num">9:20 · 38 s · Auto 0.94</span>
         <span data-v="failed" class="num">9:31 · 14 s</span>
       </div>
-      <h1 data-v="done">Wochenplan abgestimmt, Release am Donnerstag</h1>
+      <h1 data-v="done steps cost">Wochenplan abgestimmt, Release am Donnerstag</h1>
       <h1 data-v="failed">Brewfile um xcodegen ergänzen, dann make check</h1>
-      <p class="detail-txt" data-v="done">Montag Review der offenen Pull Requests, Mittwoch Feature-Freeze, Donnerstag Release. Offen bleibt nur die Datenbankmigration.</p>
+      <p class="detail-txt" data-v="done steps cost">Montag Review der offenen Pull Requests, Mittwoch Feature-Freeze, Donnerstag Release. Offen bleibt nur die Datenbankmigration.</p>
       <p class="detail-txt" data-v="failed" style="color:var(--status-bad)">Summarize failed. The prompt reached the tab; only the one-line result is missing.</p>
     </div>
 
-    <div class="card player">
-      <div class="btn glass tint"><i data-i="play" class="fill"></i></div>
-      <div class="scrub"><div class="wave" data-bars="64" data-h="30" data-seed="11"></div><div class="head"></div></div>
-      <span class="t num">0:12</span>
-    </div>
-
-    <div class="sect">
-      <div class="label"><span>Steps</span><span class="num" style="text-transform:none;letter-spacing:0">trace 0b6d1f4e…</span></div>
-      <div class="card">
-        <div class="tl" data-v="done">
-          <div class="step"><span class="ic"><i data-i="check"></i></span><span class="nm">Transcribe</span><span class="cost num">$0.0038</span><div class="bar"><i class="b" style="width:75px"></i><span class="num">8.5 s</span></div></div>
-          <div class="step"><span class="ic"><i data-i="check"></i></span><span class="nm">Route</span><span class="cost num">—</span><div class="bar"><i class="b" style="width:3px"></i><span class="num">12 ms</span></div></div>
-          <div class="step"><span class="ic"><i data-i="check"></i></span><span class="nm">Act · Hermes</span><span class="cost num">$0.0412</span><div class="bar"><i class="b" style="width:100px"></i><span class="num">11.4 s</span></div></div>
-          <div class="step"><span class="ic"><i data-i="check"></i></span><span class="nm">Summarize</span><span class="cost num">$0.0021</span><div class="bar"><i class="b" style="width:50px"></i><span class="num">5.7 s</span></div></div>
-          <div class="step"><span class="ic"><i data-i="check"></i></span><span class="nm">Notify</span><span class="cost num">—</span><div class="bar"><i class="b" style="width:16px"></i><span class="num">1.9 s</span></div></div>
-        </div>
-        <div class="tl" data-v="failed">
-          <div class="step"><span class="ic"><i data-i="check"></i></span><span class="nm">Transcribe</span><span class="cost num">$0.0012</span><div class="bar"><i class="b" style="width:30px"></i><span class="num">3.1 s</span></div></div>
-          <div class="step"><span class="ic"><i data-i="check"></i></span><span class="nm">Route</span><span class="cost num">—</span><div class="bar"><i class="b" style="width:3px"></i><span class="num">9 ms</span></div></div>
-          <div class="step"><span class="ic"><i data-i="check"></i></span><span class="nm">Act · dotfiles</span><span class="cost num">—</span><div class="bar"><i class="b" style="width:22px"></i><span class="num">2.2 s</span></div></div>
-          <div class="step"><span class="ic fail"><i data-i="x"></i></span><span class="nm">Summarize</span><span class="cost num">—</span><div class="bar"><i class="b fail" style="width:70px"></i><span class="num">7.0 s</span></div><div class="err mono">agw job failed: upstream 503</div></div>
-          <div class="step"><span class="ic todo"><i data-i="clock"></i></span><span class="nm" style="color:var(--faint)">Notify</span><span class="cost num"></span><div class="bar"><span>waiting</span></div></div>
-        </div>
-        <div class="total"><span>Total cost · <span class="num" data-v="done">29.4 s</span><span class="num" data-v="failed">12.3 s so far</span></span><b class="num" data-v="done">$0.0471</b><b class="num" data-v="failed">$0.0012</b></div>
+    <div class="card player" data-v="done steps cost">
+      <div class="scrub"><div class="wave" data-bars="83" data-h="34" data-seed="11"></div><div class="head"></div></div>
+      <div class="times num"><span>0:12</span><span>−0:26</span></div>
+      <div class="pctl">
+        <div class="b10 glass"><i data-i="back10"></i></div>
+        <div class="pp glass tint"><i data-i="pause" class="fill"></i></div>
+        <div class="spd glass">1×</div>
       </div>
     </div>
 
-    <div class="sect">
-      <div class="label"><span>Transcript</span><span class="mono" style="text-transform:none;letter-spacing:0">de</span></div>
-      <div class="card txt" data-v="done">Erinnere mich bitte daran, am Montag die offenen Pull Requests durchzugehen, am Mittwoch den Feature-Freeze zu machen und am Donnerstag das Release zu bauen. Die Datenbankmigration ist noch offen.</div>
-      <div class="card txt" data-v="failed">An Tab dotfiles: ergänze bitte xcodegen im Brewfile und lass danach make check laufen.</div>
+    <!-- STEPS: collapsed -->
+    <div class="sect" data-v="done cost">
+      <div class="label"><span>Steps</span></div>
+      <div class="card">
+        <div class="disc"><span class="ok"><i data-i="check"></i></span>5 steps<span class="sum"><span class="tag slow"><i data-i="warn"></i>Act slower</span><span class="num">27.5 s</span><i data-i="chev"></i></span></div>
+        <div class="strip"><s style="left:0;width:30.9%"></s><s style="left:30.9%;width:.4%"></s><s class="slow" style="left:31%;width:41.5%"></s><s class="fast" style="left:72.5%;width:20.8%"></s><s style="left:93.2%;width:6.8%"></s></div>
+      </div>
     </div>
 
-    <div class="sect" data-v="done">
+    <!-- STEPS: expanded waterfall (done) -->
+    <div class="sect" data-v="steps">
+      <div class="label"><span>Steps</span><span class="num" style="text-transform:none;letter-spacing:0">vs median of 30 memos</span></div>
+      <div class="card">
+        <div class="disc" style="padding-bottom:6px"><span class="ok"><i data-i="check"></i></span>5 steps<span class="sum"><span class="num">27.5 s</span><i data-i="down"></i></span></div>
+        <div class="wf">
+          <div class="wrow"><div class="h"><span class="nm">Transcribe</span><span class="tag" style="color:var(--muted);background:var(--surface-subtle)">typical</span><span class="med-t num">med. 7.9 s</span><span class="du num">8.5 s</span></div>
+            <div class="track"><span class="med" style="left:0;width:28.7%"></span><span class="bar" style="left:0;width:30.9%"></span></div>
+            </div>
+          <div class="wrow"><div class="h"><span class="nm">Route</span><span class="tag" style="color:var(--muted);background:var(--surface-subtle)">typical</span><span class="med-t num">med. 11 ms</span><span class="du num">12 ms</span></div>
+            <div class="track"><span class="med" style="left:30.9%;width:.1%"></span><span class="bar" style="left:30.9%;width:.1%"></span></div>
+            </div>
+          <div class="wrow"><div class="h"><span class="nm">Act · Hermes</span><span class="tag slow"><i data-i="warn"></i>+39 % slower</span><span class="med-t num">med. 8.2 s</span><span class="du num">11.4 s</span></div>
+            <div class="track"><span class="med" style="left:31%;width:29.8%"></span><span class="bar slow" style="left:31%;width:41.5%"></span></div>
+            </div>
+          <div class="wrow"><div class="h"><span class="nm">Summarize</span><span class="tag fast"><i data-i="flash"></i>−17 % faster</span><span class="med-t num">med. 6.9 s</span><span class="du num">5.7 s</span></div>
+            <div class="track"><span class="med" style="left:72.5%;width:25.1%"></span><span class="bar fast" style="left:72.5%;width:20.8%"></span></div>
+            </div>
+          <div class="wrow"><div class="h"><span class="nm">Notify</span><span class="tag" style="color:var(--muted);background:var(--surface-subtle)">typical</span><span class="med-t num">med. 2.1 s</span><span class="du num">1.9 s</span></div>
+            <div class="track"><span class="med" style="left:93.2%;width:6.8%"></span><span class="bar" style="left:93.2%;width:6.8%"></span></div>
+            </div>
+          <div class="axis num"><span>0 s</span><span>10 s</span><span>20 s</span><span>27.5 s</span></div>
+          <div class="legend"><span><i class="gh"></i>median duration</span><span>Faster / slower: more than 15 % off</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- STEPS: expanded waterfall (failed) -->
+    <div class="sect" data-v="failed">
+      <div class="label"><span>Steps</span><span class="num" style="text-transform:none;letter-spacing:0">vs median of 30 memos</span></div>
+      <div class="card">
+        <div class="disc" style="padding-bottom:6px"><span class="ok fail"><i data-i="x"></i></span>Failed at summarize<span class="sum"><span class="num">12.3 s</span><i data-i="down"></i></span></div>
+        <div class="wf">
+          <div class="wrow"><div class="h"><span class="nm">Transcribe</span><span class="tag" style="color:var(--muted);background:var(--surface-subtle)">typical</span><span class="med-t num">med. 3.4 s</span><span class="du num">3.1 s</span></div>
+            <div class="track"><span class="med" style="left:0;width:27.6%"></span><span class="bar" style="left:0;width:25.2%"></span></div>
+            </div>
+          <div class="wrow"><div class="h"><span class="nm">Route</span><span class="tag" style="color:var(--muted);background:var(--surface-subtle)">typical</span><span class="med-t num">med. 11 ms</span><span class="du num">9 ms</span></div>
+            <div class="track"><span class="med" style="left:25.2%;width:.1%"></span><span class="bar" style="left:25.2%;width:.1%"></span></div>
+            </div>
+          <div class="wrow"><div class="h"><span class="nm">Act · dotfiles</span><span class="tag" style="color:var(--muted);background:var(--surface-subtle)">typical</span><span class="med-t num">med. 2.4 s</span><span class="du num">2.2 s</span></div>
+            <div class="track"><span class="med" style="left:25.3%;width:19.5%"></span><span class="bar" style="left:25.3%;width:17.9%"></span></div>
+            </div>
+          <div class="wrow"><div class="h"><span class="nm" style="color:var(--status-bad)">Summarize</span><span class="tag bad"><i data-i="x"></i>failed</span><span class="med-t num">med. 6.8 s</span><span class="du num">7.0 s</span></div>
+            <div class="track"><span class="med" style="left:43.2%;width:55.3%"></span><span class="bar fail" style="left:43.2%;width:56.8%"></span></div>
+            
+            <div class="err mono">agw job failed: upstream 503</div></div>
+          <div class="wrow todo"><div class="h"><span class="nm">Notify</span><span class="du num" style="font-weight:400;color:var(--faint)">waiting</span></div></div>
+          <div class="axis num"><span>0 s</span><span>5 s</span><span>10 s</span><span>12.3 s</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- COST: collapsed row (default), open on demand -->
+    <div class="sect" data-v="done steps failed">
+      <div class="card"><div class="disc"><i data-i="cost" style="font-size:20px;color:var(--faint)"></i>Cost<span class="sum"><span class="num" data-v="done steps">$0.047</span><span class="num" data-v="failed">$0.0012 so far</span><i data-i="chev"></i></span></div></div>
+    </div>
+    <div class="sect" data-v="cost">
+      <div class="card">
+        <div class="disc" style="padding-bottom:4px"><i data-i="cost" style="font-size:20px;color:var(--faint)"></i>Cost<span class="sum"><i data-i="down"></i></span></div>
+        <div class="crow num"><span>Transcribe</span><span>$0.0038</span></div>
+        <div class="crow num"><span>Act · Hermes</span><span>$0.0412</span></div>
+        <div class="crow num"><span>Summarize</span><span>$0.0021</span></div>
+        <div class="crow num"><span>Route, Notify</span><span>—</span></div>
+        <div class="crow tot num"><span>Total</span><span>$0.0471</span></div>
+      </div>
+    </div>
+
+    <div class="sect" data-v="done steps cost">
+      <div class="label"><span>Transcript</span><span class="mono" style="text-transform:none;letter-spacing:0">de</span></div>
+      <div class="card txt">Erinnere mich bitte daran, am Montag die offenen Pull Requests durchzugehen, am Mittwoch den Feature-Freeze zu machen und am Donnerstag das Release zu bauen. Die Datenbankmigration ist noch offen.</div>
+    </div>
+    <div class="sect" data-v="failed">
+      <div class="label"><span>Transcript</span><span class="mono" style="text-transform:none;letter-spacing:0">de</span></div>
+      <div class="card txt">An Tab dotfiles: ergänze bitte xcodegen im Brewfile und lass danach make check laufen.</div>
+    </div>
+
+    <div class="sect" data-v="done cost">
       <div class="label">Reply</div>
       <div class="card txt sm">Alles notiert. Montag: Pull Requests prüfen. Mittwoch: Feature-Freeze. Donnerstag: Release. Die Datenbankmigration bleibt als offener Punkt.</div>
     </div>
 
-    <div class="kv"><span>iphone</span>·<span>4 segments</span>·<span>m4a 16 kHz</span>·<span class="mono">0b6d1f4e-3a52-4c1d</span></div>
+    <div class="kv"><span>iphone</span>·<span>4 segments</span>·<span>m4a 16 kHz</span></div>
   </div></div>
 
   <div class="fade"></div>
-  <div class="actions" data-v="done">
-    <div class="btn glass tint lg"><i data-i="play" class="fill"></i>Play reply</div>
+  <div class="actions" data-v="done steps cost">
+    <div class="btn glass tint lg"><i data-i="speaker"></i>Play reply</div>
     <div class="btn glass lg secondary"><i data-i="retry"></i>Retry from…</div>
   </div>
   <div class="actions" data-v="failed">

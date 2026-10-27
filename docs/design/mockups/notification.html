@@ -2,7 +2,7 @@
 <html lang="en" data-default-v="done">
 <head>
 <meta charset="utf-8">
-<title>Iris — Notification card</title>
+<title>Iris — Notification card (round 2)</title>
 <link rel="stylesheet" href="tokens.css">
 <link rel="stylesheet" href="mock.css">
 <script src="mock.js"></script>
@@ -33,14 +33,13 @@
   .player .wave { flex: 1; justify-content: flex-start; gap: 2px; } .player .wave b { width: 2px; background: currentColor; opacity: .35; }
   .player .wave b:nth-child(-n+0) { opacity: .9; }
   .player .t { font-size: var(--text-xs); opacity: .7; }
-  .acts { display: flex; flex-direction: column; border-radius: 26px; overflow: hidden; color: #fff; }
+  /* Round 2: actions are small, side by side, one row (feedback R1). */
+  .acts { display: flex; gap: 8px; padding: 6px; border-radius: 99px; color: #fff; }
   [data-scheme="light"] .acts { color: #14161c; }
-  .act { display: flex; align-items: center; gap: 12px; padding: 0 20px; height: 52px; font-size: var(--text-lg); font-weight: 500; }
-  .act + .act { border-top: .5px solid rgb(255 255 255 / .18); }
-  [data-scheme="light"] .act + .act { border-top-color: rgb(0 0 0 / .1); }
-  .act i[data-i] { font-size: 20px; color: #a2c3f0; }
-  [data-scheme="light"] .act i[data-i] { color: var(--accent); }
-  .act small { margin-left: auto; opacity: .6; font-size: var(--text-sm); font-weight: 400; }
+  .act { flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px; height: 38px; border-radius: 99px; font-size: var(--text-md); font-weight: 600; white-space: nowrap; background: rgb(255 255 255 / .12); }
+  [data-scheme="light"] .act { background: rgb(0 0 0 / .05); }
+  .act.go { background: var(--accent-fill); color: #fff; }
+  .act i[data-i] { font-size: 16px; }
 </style>
 </head>
 <body>
@@ -67,9 +66,9 @@
       <div class="player"><span class="pb"><i data-i="play" class="fill"></i></span><div class="wave" data-bars="34" data-h="20" data-seed="4"></div><span class="t num">0:11</span></div>
     </div>
     <div class="acts glass" data-v="done">
-      <div class="act"><i data-i="play" class="fill"></i>Play</div>
-      <div class="act"><i data-i="mic"></i>Reply by voice</div>
-      <div class="act"><i data-i="open"></i>Open in Iris</div>
+      <div class="act go"><i data-i="play" class="fill"></i>Play</div>
+      <div class="act"><i data-i="reply"></i>Reply</div>
+      <div class="act"><i data-i="open"></i>Open</div>
     </div>
 
     <!-- MEMO_NEEDS_ROUTE -->
@@ -81,9 +80,9 @@
       <div class="md" style="font-size:var(--text-md);opacity:.75">Nothing was sent. Pick a destination to act on it.</div>
     </div>
     <div class="acts glass" data-v="needs-route">
-      <div class="act"><i data-i="book"></i>Journal<small>brain inbox</small></div>
-      <div class="act"><i data-i="bubble"></i>Hermes<small>assistant</small></div>
-      <div class="act"><i data-i="term"></i>dotfiles<small>factory-w1a</small></div>
+      <div class="act"><i data-i="book"></i>Journal</div>
+      <div class="act"><i data-i="bubble"></i>Hermes</div>
+      <div class="act"><i data-i="term"></i>dotfiles</div>
     </div>
   </div>
   <div class="home-indicator"></div>

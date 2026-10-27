@@ -2,7 +2,7 @@
 <html lang="en" data-default-v="panel">
 <head>
 <meta charset="utf-8">
-<title>Iris — Mac</title>
+<title>Iris — Mac (round 2)</title>
 <link rel="stylesheet" href="tokens.css">
 <link rel="stylesheet" href="mock.css">
 <script src="mock.js"></script>
@@ -57,6 +57,10 @@
   .banner .tx { flex: 1; min-width: 0; }
   .banner .r { display: flex; justify-content: space-between; font-size: var(--text-md); font-weight: 600; } .banner .r span:last-child { font-weight: 400; color: var(--faint); font-size: var(--text-sm); }
   .banner p { font-size: var(--text-md); color: var(--ink2); margin-top: 1px; line-height: 1.3; }
+  .banner .reply { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
+  .banner .reply .field { flex: 1; height: 32px; display: flex; align-items: center; padding: 0 12px; border-radius: 99px; background: color-mix(in srgb, var(--ink) 7%, transparent); box-shadow: inset 0 0 0 .5px var(--surface-border); font-size: var(--text-sm); color: var(--ink); white-space: nowrap; overflow: hidden; }
+  .banner .reply .caret { width: 1.5px; height: 15px; margin-left: 1px; background: var(--accent); }
+  .banner .reply .mic, .banner .reply .send { width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; font-size: 16px; flex: none; }
   .banner .ac { display: flex; gap: 8px; margin-top: 10px; } .banner .btn { height: 28px; padding: 0 12px; font-size: var(--text-sm); }
 </style>
 </head>
@@ -68,7 +72,7 @@
     <div class="r">
       <span class="extra rec" data-v="panel"><i data-i="wave"></i></span>
       <span class="extra on" data-v="menu"><i data-i="wave"></i></span>
-      <span class="extra" data-v="notify"><i data-i="wave"></i></span>
+      <span class="extra" data-v="notify notify-reply"><i data-i="wave"></i></span>
       <i data-i="sig"></i><i data-i="search"></i><span class="num">Tue 27 Oct&nbsp;&nbsp;9:41</span>
     </div>
   </div>
@@ -87,7 +91,7 @@
   </div>
 
   <div class="panel glass strong" data-v="panel">
-    <div class="hd"><span class="dot live"></span>Recording<span class="sp"></span><span class="kb">⌥ Space to stop</span></div>
+    <div class="hd"><span class="dot live"></span>Recording<span class="sp"></span><span class="kb">⌃⌥ I to stop</span></div>
     <div class="tm num">03:12<small>min</small></div>
     <div class="lvl"><div class="wave" data-bars="56" data-h="34" data-seed="21" data-live></div></div>
     <div class="ft">
@@ -99,7 +103,7 @@
   </div>
 
   <div class="menu glass strong" data-v="menu">
-    <div class="top"><b>Iris</b><span class="btn glass tint sm"><i data-i="mic"></i>Record&nbsp;&nbsp;<span style="opacity:.7;font-weight:500">⌥ Space</span></span></div>
+    <div class="top"><b>Iris</b><span class="btn glass tint sm"><i data-i="mic"></i>Record&nbsp;&nbsp;<span style="opacity:.7;font-weight:500">⌃⌥ I</span></span></div>
     <div class="m hl"><div><b>Where does “Router bestellen…” go?</b></div><span class="t num">9:48</span><div class="s"><span class="dot wait"></span>Needs route</div></div>
     <div class="m"><div><b>Which Postgres index fits the herd snapshot query?</b></div><span class="t num">9:46</span><div class="s"><span class="dot hermes"></span>Hermes · acting</div></div>
     <div class="m"><div><b>Wochenplan abgestimmt, Release am Donnerstag</b></div><span class="t num">9:21</span><div class="s"><span class="dot hermes"></span>Hermes · 38 s · $0.047</div></div>
@@ -113,9 +117,21 @@
   <div class="banner glass strong" data-v="notify">
     <span class="app"><i data-i="wave"></i></span>
     <div class="tx">
-      <div class="r"><span>Hermes</span><span>now</span></div>
+      <div class="r"><span>Iris · Hermes</span><span>now</span></div>
       <p>Wochenplan abgestimmt, Release am Donnerstag</p>
-      <div class="ac"><span class="btn glass tint sm"><i data-i="play" class="fill"></i>Play</span><span class="btn glass sm"><i data-i="open"></i>Open</span></div>
+      <div class="ac"><span class="btn glass tint sm"><i data-i="play" class="fill"></i>Play</span><span class="btn glass sm"><i data-i="reply"></i>Reply</span><span class="btn glass sm"><i data-i="open"></i>Open</span></div>
+    </div>
+  </div>
+
+  <!-- Reply expanded: macOS text-input action. Enter sends as a text turn into the same Hermes session. -->
+  <div class="banner glass strong" data-v="notify-reply">
+    <span class="app"><i data-i="wave"></i></span>
+    <div class="tx">
+      <div class="r"><span>Iris · Hermes</span><span>now</span></div>
+      <p>Wochenplan abgestimmt, Release am Donnerstag</p>
+      <p style="color:var(--muted);font-size:var(--text-sm);margin-top:6px">Alles notiert. Montag: Pull Requests prüfen. Mittwoch: Feature-Freeze. Donnerstag: Release. Offen: Datenbankmigration.</p>
+      <div class="reply"><span class="field">Und die Migration?<i class="caret"></i></span><span class="mic glass" title="Reply by voice"><i data-i="mic"></i></span><span class="send glass tint"><i data-i="send"></i></span></div>
+      <div class="ac" style="margin-top:8px"><span class="btn glass sm"><i data-i="play" class="fill"></i>Play</span><span class="btn glass sm"><i data-i="open"></i>Open</span></div>
     </div>
   </div>
 </div>

@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en" data-default-v="day">
+<head>
+<meta charset="utf-8">
+<title>Iris — Stats (round 2)</title>
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="mock.css">
+<script src="mock.js"></script>
+<style>
+  /* Series colors: fixed order Hermes, Journal, Chat, Tabs. Checked with the dataviz validator (light and dark): all pass. */
+  :root { --s1: #3b78c4; --s2: #2e9e6b; --s3: #8a62c2; --s4: #c9672c; }
+  [data-scheme="dark"] { --s1: #3f7fd0; --s2: #2fa070; --s3: #8a6fd8; --s4: #d0682a; }
+  .col { position: absolute; inset: 0; padding: 62px 0 0; overflow: hidden; display: flex; flex-direction: column; gap: 10px; }
+  h1 { font-size: var(--text-display); font-weight: 700; letter-spacing: -.01em; padding: 18px 20px 0; }
+  .seg { margin: 0 20px; display: flex; gap: 2px; padding: 2px; border-radius: 99px; background: var(--surface-subtle); box-shadow: inset 0 0 0 .5px var(--surface-border); }
+  .seg span { flex: 1; text-align: center; height: 30px; line-height: 30px; border-radius: 99px; font-size: var(--text-sm); font-weight: 600; color: var(--muted); }
+  .seg span.on { background: var(--surface-elevated); color: var(--ink); box-shadow: 0 1px 2px rgb(0 0 0 / .12), inset 0 0 0 .5px var(--surface-border); }
+  .range { padding: 0 20px; font-size: var(--text-sm); color: var(--muted); display: flex; justify-content: space-between; }
+  .kpis { display: flex; gap: 8px; padding: 0 20px; }
+  .kpi { flex: 1; padding: 11px 12px; }
+  .kpi .l { font-size: var(--text-xs); color: var(--muted); }
+  .kpi .v { font-size: 20px; white-space: nowrap; font-weight: 700; margin-top: 2px; letter-spacing: -.01em; }
+  .kpi .d { font-size: var(--text-xs); margin-top: 2px; color: var(--muted); display: flex; align-items: center; gap: 3px; }
+  .kpi .d.up { color: var(--status-good); }
+  .chart { margin: 0 20px; padding: 14px 14px 10px; }
+  .chart h2 { font-size: var(--text-md); font-weight: 650; }
+  .chart .sub { font-size: var(--text-xs); color: var(--muted); margin-top: 1px; }
+  .legend { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 8px; font-size: var(--text-xs); color: var(--ink2); }
+  .legend span { display: inline-flex; align-items: center; gap: 5px; }
+  .legend i { width: 9px; height: 9px; border-radius: 3px; display: inline-block; }
+  .legend b { font-weight: 600; } .legend em { font-style: normal; color: var(--muted); }
+  svg.plot { display: block; width: 100%; margin-top: 6px; overflow: visible; }
+  svg.plot text { font-family: -apple-system, "SF Pro Text", sans-serif; fill: var(--muted); font-size: 11px; }
+  svg.plot .grid { stroke: var(--divider); stroke-width: 1; }
+  svg.plot .sel { fill: color-mix(in srgb, var(--ink) 6%, transparent); }
+  .tip { margin-top: 8px; padding: 7px 10px; border-radius: 8px; font-size: var(--text-xs); color: var(--ink2); background: var(--surface-subtle); box-shadow: inset 0 0 0 .5px var(--surface-border); display: flex; gap: 10px; align-items: center; }
+  .tip b { font-size: var(--text-sm); color: var(--ink); }
+  .tip i { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 4px; }
+  .tr { margin: 0 20px; }
+  .trow { display: grid; grid-template-columns: 78px 1fr auto auto; gap: 10px; align-items: center; padding: 9px 14px; font-size: var(--text-md); }
+  .trow + .trow { border-top: .5px solid var(--divider); }
+  .trow .nm { display: flex; align-items: center; gap: 7px; font-weight: 600; }
+  .trow .nm i { width: 9px; height: 9px; border-radius: 3px; }
+  .trow .n { font-weight: 700; min-width: 22px; text-align: right; }
+  .trow .dl { font-size: var(--text-sm); min-width: 64px; text-align: right; color: var(--muted); }
+  .trow .dl.up { color: var(--status-good); } .trow .dl.dn { color: var(--status-warn); }
+  .trow svg { width: 100%; height: 26px; display: block; }
+</style>
+</head>
+<body>
+<div class="screen">
+  <div class="statusbar"><span>9:41</span><span class="right"><svg viewBox="0 0 18 12"><path d="M1 8h2.5v3H1zM5.5 6h2.5v5H5.5zM10 3.5h2.5V11H10zM14.5 1H17v10h-2.5z"/></svg><svg viewBox="0 0 27 12"><rect x=".5" y=".5" width="22" height="11" rx="3.5" fill="none" stroke="currentColor" opacity=".4"/><rect x="2" y="2" width="17" height="8" rx="2"/></svg></span></div>
+  <div class="island"></div>
+
+  <div class="col">
+    <h1>Stats</h1>
+    <div class="seg"><span data-v="day" class="on">Days</span><span data-v="week" class="on">Weeks</span><span data-v="day">Weeks</span><span data-v="week">Days</span></div>
+    <div class="range num"><span data-v="day">Last 7 days · 21–27 Oct</span><span data-v="week">Last 8 weeks · W37–W44</span><span id="rt"></span></div>
+
+    <div class="kpis">
+      <div class="pnl kpi"><div class="l">Memos</div><div class="v num" id="k1"></div><div class="d num" id="k1d"></div></div>
+      <div class="pnl kpi"><div class="l">Audio</div><div class="v num" id="k2"></div><div class="d num" id="k2d"></div></div>
+      <div class="pnl kpi"><div class="l">Cost</div><div class="v num" id="k3"></div><div class="d num" id="k3d"></div></div>
+    </div>
+
+    <div class="pnl chart" style="position:relative">
+      <h2>Memos per route</h2>
+      <div class="sub" id="csub"></div>
+      <div class="tip" id="tip"></div>
+      <svg class="plot" id="plot" viewBox="0 0 330 170"></svg>
+      <div class="legend" id="legend"></div>
+    </div>
+
+    <div class="pnl tr" id="trends"></div>
+    <div style="padding:0 24px;font-size:var(--text-xs);color:var(--faint);margin-top:-6px"><span data-v="day">Change against the 7 days before.</span><span data-v="week">Average per week over 8 weeks.</span></div>
+  </div>
+
+  <div class="dock" data-dock="stats"></div>
+  <div class="home-indicator"></div>
+</div>
+<script>
+  // Fixed series order and colors (CSS vars): Hermes, Journal, Chat, Tabs.
+  const SER = [["Hermes", "--s1"], ["Journal", "--s2"], ["Chat", "--s3"], ["Tabs", "--s4"]];
+  const DATA = {
+    day: { labels: ["W", "T", "F", "S", "S", "M", "T"], names: ["Wed 21", "Thu 22", "Fri 23", "Sat 24", "Sun 25", "Mon 26", "Tue 27"],
+      rows: [[3,2,1,1],[2,3,0,2],[1,1,2,0],[0,2,1,0],[1,0,1,0],[4,2,2,1],[3,1,1,1]], max: 10, ticks: [0,5,10], sel: 6,
+      sub: "Stacked by route, per day. Today is partial.", prev: [10,13,2,5], k: ["38", "+27 % vs prior", "84 min", "+9 min vs prior", "$1.62", "+$0.31 vs prior"], rt: "" },
+    week: { labels: ["37","38","39","40","41","42","43","44"], names: ["W37","W38","W39","W40","W41","W42","W43","W44"],
+      rows: [[6,12,0,3],[8,10,0,4],[9,14,1,2],[7,13,2,5],[11,11,3,4],[12,15,2,6],[10,13,6,5],[7,3,3,2]], max: 40, ticks: [0,20,40], sel: 7,
+      sub: "Stacked by route, per week. W44 is partial. Chat started in W39.", prev: [10,13,2,5], k: ["209", "avg 26 / wk", "9 h 12 m", "avg 69 min / wk", "$8.94", "avg $1.12 / wk"], rt: "" },
+  };
+  document.addEventListener("DOMContentLoaded", () => {
+    const v = document.documentElement.dataset.v === "week" ? "week" : "day";
+    const d = DATA[v];
+    const css = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+    const set = (id, t) => (document.getElementById(id).textContent = t);
+    set("k1", d.k[0]); document.getElementById("k1d").classList.toggle("up", v === "day"); const ar = v === "day" ? "▲ " : ""; set("k1d", ar + d.k[1]); set("k2", d.k[2]); set("k2d", d.k[3]); set("k3", d.k[4]); set("k3d", d.k[5]); set("csub", d.sub);
+
+    // Plot: 330 x 170, y axis 28 px left, baseline at 146, bars 2 px gap between stacked segments, 4 px top radius.
+    const W = 330, H = 170, L = 28, B = 146, T = 10, n = d.rows.length, slot = (W - L) / n, bw = Math.min(26, slot * 0.58);
+    const y = (val) => B - (val / d.max) * (B - T);
+    let s = d.ticks.map((t) => `<line class="grid" x1="${L}" x2="${W}" y1="${y(t)}" y2="${y(t)}"/><text x="${L - 6}" y="${y(t) + 4}" text-anchor="end">${t}</text>`).join("");
+    const cx = (i) => L + slot * i + slot / 2;
+    s += `<rect class="sel" x="${cx(d.sel) - slot / 2 + 2}" y="${T - 4}" width="${slot - 4}" height="${B - T + 4}" rx="6"/>`;
+    d.rows.forEach((row, i) => {
+      let acc = 0; const top = row.map((c, k) => (c > 0 ? k : -1)).filter((k) => k >= 0).pop();
+      row.forEach((c, k) => {
+        if (!c) return;
+        const y1 = y(acc + c), y0 = y(acc) - (acc === 0 ? 0 : 2), h = y0 - y1; acc += c;
+        const x = cx(i) - bw / 2, r = k === top ? Math.min(4, h) : 0;
+        s += `<path fill="var(${SER[k][1]})" d="M${x},${y0} V${y1 + r} Q${x},${y1} ${x + r},${y1} H${x + bw - r} Q${x + bw},${y1} ${x + bw},${y1 + r} V${y0} Z"/>`;
+      });
+      s += `<text x="${cx(i)}" y="${B + 16}" text-anchor="middle" ${i === d.sel ? 'style="fill:var(--ink);font-weight:700"' : ""}>${d.labels[i]}</text>`;
+    });
+    document.getElementById("plot").innerHTML = s;
+
+    const totals = SER.map((_, k) => d.rows.reduce((a, r) => a + r[k], 0));
+    document.getElementById("legend").innerHTML = SER.map(([nm, c], k) => `<span><i style="background:var(${c})"></i><b>${nm}</b> <em class="num">${totals[k]}</em></span>`).join("");
+
+    // Tooltip on the selected (latest) bar
+    const tip = document.getElementById("tip"), row = d.rows[d.sel];
+    tip.innerHTML = `<b class="num">${d.names[d.sel]} · ${row.reduce((a, c) => a + c, 0)}${v === "week" ? " (partial)" : ""}</b>` + SER.map(([nm, c], k) => `<span class="num"><i style="background:var(${c})"></i>${row[k]}</span>`).join("");
+
+    // Trends: per-route sparkline over the periods, total and delta vs the period before.
+    const spark = (k, color) => {
+      const pts = d.rows.map((r) => r[k]), mx = Math.max(...pts, 1), w = 100, h = 26;
+      const p = pts.map((val, i) => `${(i / (pts.length - 1)) * w},${h - 3 - (val / mx) * (h - 8)}`).join(" ");
+      const last = p.split(" ").pop().split(",");
+      return `<svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none"><polyline fill="none" stroke="var(${color})" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" vector-effect="non-scaling-stroke" points="${p}"/></svg>`;
+    };
+    document.getElementById("trends").innerHTML = SER.map(([nm, c], k) => {
+      const delta = totals[k] - d.prev[k];
+      const cls = v === "week" ? "" : delta > 0 ? "up" : delta < 0 ? "dn" : "";
+      const txt = v === "week" ? `${(totals[k] / 8).toFixed(1)} / wk` : delta > 0 ? `▲ +${delta}` : delta < 0 ? `▼ −${-delta}` : "▬ 0";
+      const shown = totals[k];
+      return `<div class="trow"><span class="nm"><i style="background:var(${c})"></i>${nm}</span>${spark(k, c)}<span class="n num">${shown}</span><span class="dl ${cls} num">${txt}</span></div>`;
+    }).join("");
+  });
+</script>
+</body>
+</html>

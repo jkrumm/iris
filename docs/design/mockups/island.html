@@ -1,8 +1,8 @@
 <!doctype html>
-<html lang="en" data-default-v="">
+<html lang="en" data-default-v="single">
 <head>
 <meta charset="utf-8">
-<title>Iris — Dynamic Island</title>
+<title>Iris — Dynamic Island (round 2)</title>
 <link rel="stylesheet" href="tokens.css">
 <link rel="stylesheet" href="mock.css">
 <link rel="stylesheet" href="la.css">
@@ -20,7 +20,15 @@
   .exp .time { font-size: 38px; font-weight: 300; line-height: 1; }
   .exp .wave { flex: 1; justify-content: flex-end; gap: 3px; } .exp .wave b { width: 3px; background: #a2c3f0; }
   .exp .btns { display: flex; gap: 8px; } .exp .btn { flex: 1; height: 36px; font-size: var(--text-md); color: #fff; background: rgb(255 255 255 / .16); white-space: nowrap; padding: 0 8px; }
-  .exp .btn.stop { background: var(--status-bad); } .exp .btn.go { background: var(--accent-fill); } .exp .btn.icon { flex: 0 0 52px; }
+  .exp .btn.stop { background: var(--status-bad); } .exp .btn.go { background: var(--accent-fill); } .exp .btn.icon { flex: 0 0 56px; }
+  .exp .btn.icon i[data-i] { font-size: 21px; }
+  .exp .btn.stop { flex: 1; }
+  .gap { display: flex; gap: 8px; justify-content: center; align-items: center; }
+  .gap .pill { margin: 0; width: 196px; }
+  .orb { width: 37px; height: 37px; border-radius: 50%; background: #000; display: grid; place-items: center; }
+  .other { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 18px; background: rgb(255 255 255 / .09); font-size: var(--text-sm); }
+  .other .nm { font-weight: 600; } .other .sp { flex: 1; } .other .mut { opacity: .65; }
+  .note { margin: 6px 16px 0; font-size: var(--text-xs); color: rgb(255 255 255 / .55); line-height: 1.35; }
   .ttl { font-size: var(--text-xl); font-weight: 600; line-height: 1.25; } .sb { font-size: var(--text-sm); opacity: .7; margin-top: 2px; }
   .glyph { color: #fff; }
   .rdot { width: 9px; height: 9px; border-radius: 50%; background: var(--status-bad); animation: pulse 1.6s infinite; }
@@ -33,6 +41,7 @@
 <body>
 <div class="board">
   <div class="wall"></div>
+<div data-v="single">
 
   <!-- Recording -->
   <div class="blk" style="top:0">
@@ -42,7 +51,7 @@
     <div class="exp">
       <div class="top"><span class="chip"><span class="dot live"></span>iPhone Microphone</span><span class="num" style="font-size:var(--text-sm);opacity:.7">Auto</span></div>
       <div style="display:flex;align-items:center;gap:14px"><div class="time num">12:48</div><div class="wave" data-bars="22" data-h="28" data-seed="9" data-live></div></div>
-      <div class="btns"><div class="btn stop"><i data-i="stop" class="fill"></i>Stop</div><div class="btn"><i data-i="mic"></i>Switch mic</div><div class="btn icon"><i data-i="pause" class="fill"></i></div></div>
+      <div class="btns"><div class="btn stop"><i data-i="stop" class="fill"></i>Stop</div><div class="btn icon" title="Switch microphone"><i data-i="micswap"></i></div><div class="btn icon" title="Pause"><i data-i="pause" class="fill"></i></div></div>
     </div>
   </div>
 
@@ -81,6 +90,44 @@
       <div class="btns"><div class="btn"><i data-i="book"></i>Journal</div><div class="btn"><i data-i="bubble"></i>Hermes</div><div class="btn"><i data-i="term"></i>dotfiles</div></div>
     </div>
   </div>
+</div>
+
+<div data-v="two">
+  <!-- 1: memo 2 recording, memo 1 processing: the system splits the island -->
+  <div class="blk" style="top:0">
+    <div class="gap"><div class="pill"><span class="l"><span class="rdot"></span></span><span class="r num">0:41</span></div><div class="orb"><span class="spin"></span></div></div>
+    <div class="cap"><em>Two memos</em> · compact: recording + previous memo working</div>
+    <div class="note">The system shows the most recent activity in the pill and the other as a small circle (spinner, tick or ? by phase). Tapping either expands it.</div>
+  </div>
+
+  <!-- 2: expanded recording, with the previous memo's status inside our own content -->
+  <div class="blk">
+    <div class="pill"><span class="l"><span class="rdot"></span></span><span class="r num">0:41</span></div>
+    <div class="cap"><em>Recording</em> · expanded, previous memo still working</div>
+    <div class="exp">
+      <div class="top"><span class="chip"><span class="dot live"></span>iPhone Microphone</span><span class="num" style="font-size:var(--text-sm);opacity:.7">Auto</span></div>
+      <div style="display:flex;align-items:center;gap:14px"><div class="time num">0:41</div><div class="wave" data-bars="22" data-h="28" data-seed="3" data-live></div></div>
+      <div class="btns"><div class="btn stop"><i data-i="stop" class="fill"></i>Stop</div><div class="btn icon"><i data-i="micswap"></i></div><div class="btn icon"><i data-i="pause" class="fill"></i></div></div>
+      <div class="other"><span class="spin"></span><span class="nm">Previous memo</span><span class="mut">Hermes · step 3 of 4</span><span class="sp"></span><span class="mut num">0:19</span></div>
+    </div>
+  </div>
+
+  <!-- 3: previous memo done while memo 2 still records -->
+  <div class="blk">
+    <div class="gap"><div class="pill"><span class="l"><span class="rdot"></span></span><span class="r num">1:08</span></div><div class="orb"><i data-i="check" class="tick"></i></div></div>
+    <div class="cap"><em>Two memos</em> · compact: recording + previous memo done</div>
+  </div>
+  <div class="blk">
+    <div class="pill"><span class="l"><i data-i="check" class="tick"></i></span><span class="r"><span class="dot hermes"></span>Hermes</span></div>
+    <div class="cap"><em>Done</em> · expanded, next memo still recording</div>
+    <div class="exp">
+      <div class="top"><span class="chip"><span class="dot hermes"></span>Hermes</span><span class="num" style="font-size:var(--text-sm);opacity:.7">now</span></div>
+      <div><div class="ttl">Wochenplan abgestimmt, Release am Donnerstag</div><div class="sb">38 s · $0.047</div></div>
+      <div class="btns"><div class="btn go"><i data-i="play" class="fill"></i>Play</div><div class="btn"><i data-i="reply"></i>Reply</div><div class="btn"><i data-i="open"></i>Open</div></div>
+      <div class="other"><span class="rdot"></span><span class="nm">Recording</span><span class="mut">next memo</span><span class="sp"></span><span class="num">1:08</span></div>
+    </div>
+  </div>
+</div>
 </div>
 </body>
 </html>
