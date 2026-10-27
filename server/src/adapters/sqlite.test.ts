@@ -13,6 +13,26 @@ const input = (id: string) => ({
   startedAt: "2026-01-01T00:00:00.000Z",
 });
 
+describe("createTextMemo", () => {
+  it("creates in transcribed with the transcript, idempotently, without segments", () => {
+    const { store } = testStore();
+    const id = crypto.randomUUID();
+    const first = store.createTextMemo({ ...input(id), text: "kauf Milch" });
+    const second = store.createTextMemo({ ...input(id), text: "anderer Text" });
+    expect(first.created).toBe(true);
+    expect(first.memo).toMatchObject({
+      state: "transcribed",
+      transcript: "kauf Milch",
+      segmentCount: null,
+      audioSeconds: null,
+    });
+    expect(second.created).toBe(false);
+    expect(second.memo).toEqual(first.memo);
+    expect(store.listSegmentIndices(id)).toEqual([]);
+    expect(store.listStepRecords(id)).toEqual([]);
+  });
+});
+
 describe("createMemo", () => {
   it("is idempotent and keeps the first row", () => {
     const { store, clock } = testStore();

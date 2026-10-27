@@ -3,6 +3,7 @@ import {
   ActivityTokenBody,
   CompleteBody,
   CreateMemoBody,
+  CreateTextMemoBody,
   Device,
   ErrorBody,
   HealthResponse,
@@ -30,6 +31,8 @@ import { AlertPayload, ContentState } from "../notify/payloads.js";
 export const CONTRACT_SCHEMAS: Record<string, TSchema> = {
   "memos.create.request": CreateMemoBody,
   "memos.create.response": Memo,
+  "memos.text.request": CreateTextMemoBody,
+  "memos.text.response": Memo,
   "memos.complete.request": CompleteBody,
   "memos.complete.response": Memo,
   "memos.retry.request": RetryBody,

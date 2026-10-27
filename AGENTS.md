@@ -101,6 +101,7 @@ All under `/v1`, `Authorization: Bearer <token>`. Errors: `{error: <code>, messa
 | Route | Result |
 |-|-|
 | `POST /memos` `{id, mode, startedAt}` | 201 memo; 200 if it exists for this device; 409 other device |
+| `POST /memos/text` `{id, mode, startedAt, text}` | 202 memo created in `transcribed` (`transcript` = trimmed text, driven from `route`; a replay too); 400 empty or over 20 000 chars; 409 another body, device or a recorded memo with that id |
 | `PUT /memos/:id/segments/:n` raw `audio/mp4` bytes | 200, idempotent by sha256 (same sha no-op, different sha 409); 413 over `IRIS_MAX_SEGMENT_BYTES`; 409 after `complete` |
 | `POST /memos/:id/complete` `{segmentCount}` | 202 memo (repeat too); 422 `missing_segments` + `missing: [...]` |
 | `POST /memos/:id/retry` `{from}` | 202 memo; 409 unless `failed` |

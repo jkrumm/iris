@@ -95,6 +95,13 @@ export const CreateMemoBody = t.Object({
   mode: t.UnionEnum([...MEMO_MODES]),
   startedAt: t.String(),
 });
+/** `text` is trimmed server-side; empty after trimming or longer than 20 000 characters is a 400. */
+export const CreateTextMemoBody = t.Object({
+  id: t.String(),
+  mode: t.UnionEnum([...MEMO_MODES]),
+  startedAt: t.String(),
+  text: t.String(),
+});
 export const CompleteBody = t.Object({ segmentCount: Int });
 // `UnionEnum` defaults a missing value to its first member; a missing `from` must be a 400, not "ingest".
 export const RetryBody = t.Object({ from: t.UnionEnum([...STEPS], { default: undefined }) });

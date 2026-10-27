@@ -56,6 +56,29 @@
       }
     },
     {
+      "method": "POST",
+      "path": "/v1/memos/text",
+      "auth": "bearer",
+      "request": {
+        "mediaType": "application/json",
+        "schema": "memos.text.request"
+      },
+      "responses": {
+        "202": {
+          "mediaType": "application/json",
+          "schema": "memos.text.response"
+        },
+        "400": {
+          "mediaType": "application/json",
+          "schema": "error"
+        },
+        "409": {
+          "mediaType": "application/json",
+          "schema": "error"
+        }
+      }
+    },
+    {
       "method": "PUT",
       "path": "/v1/memos/:id/segments/:n",
       "auth": "bearer",

@@ -9,6 +9,7 @@ public actor FakeAPIClient: APIClient {
     case health
     case whoami
     case createMemo(CreateMemoRequest)
+    case createTextMemo(CreateTextMemoRequest)
     case uploadSegment(memoID: String, index: Int, byteCount: Int)
     case completeMemo(id: String, request: CompleteMemoRequest)
     case retryMemo(id: String, request: RetryMemoRequest)
@@ -23,7 +24,8 @@ public actor FakeAPIClient: APIClient {
 
   /// The endpoints a failure can be scripted for.
   public enum Endpoint: Hashable, Sendable {
-    case health, whoami, createMemo, uploadSegment, completeMemo, retryMemo, routeMemo, listMemos, memo, result
+    case health, whoami, createMemo, createTextMemo, uploadSegment, completeMemo, retryMemo, routeMemo
+    case listMemos, memo, result
     case registerDevice, setActivityToken, herd
   }
 
@@ -100,6 +102,32 @@ public actor FakeAPIClient: APIClient {
     let memo = Memo(
       id: request.id, mode: request.mode, device: deviceID, startedAt: request.startedAt, state: .receiving,
       createdAt: timestamp, updatedAt: timestamp)
+    memos[request.id] = MemoDetail(memo: memo, steps: [])
+    return memo
+  }
+
+  /// Mirrors the server's rules without a runner: the memo is created `transcribed` and stays there.
+  public func createTextMemo(_ request: CreateTextMemoRequest) async throws -> Memo {
+    calls.append(.createTextMemo(request))
+    try failIfScripted(.createTextMemo)
+    let text = request.text.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !text.isEmpty, text.count <= CreateTextMemoRequest.maxTextCharacters else {
+      throw APIError.server(
+        status: 400, body: ErrorBody(error: .badRequest, message: "text must be 1-20000 characters"))
+    }
+    if let existing = memos[request.id]?.memo {
+      guard existing.mode == request.mode, existing.startedAt == request.startedAt, existing.transcript == text,
+        existing.isTyped
+      else {
+        throw APIError.server(
+          status: 409, body: ErrorBody(error: .conflict, message: "memo already exists with another body"))
+      }
+      return existing
+    }
+    let timestamp = now()
+    let memo = Memo(
+      id: request.id, mode: request.mode, device: deviceID, startedAt: request.startedAt, state: .transcribed,
+      transcript: text, createdAt: timestamp, updatedAt: timestamp)
     memos[request.id] = MemoDetail(memo: memo, steps: [])
     return memo
   }

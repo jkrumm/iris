@@ -148,6 +148,44 @@ async function probeRoute(base: string) {
   out(`e2e: route answer and correction ok for memo ${id}`);
 }
 
+/** A typed memo skips transcribe: it reaches notified with no ingest or transcribe rows. */
+async function probeTyped(base: string) {
+  const send = Bun.spawn(
+    [
+      "bun",
+      "scripts/send-memo.ts",
+      "--text",
+      "Erinnere mich morgen an den Zahnarzt.",
+      "--url",
+      base,
+      "--token",
+      TOKEN,
+      "--mode",
+      "hermes",
+    ],
+    { cwd: ROOT, stdout: "ignore", stderr: "ignore" },
+  );
+  assert((await send.exited) === 0, "send-memo --text reached notified (exit 0)");
+
+  const call = (path: string) =>
+    fetch(`${base}/v1${path}`, { headers: { authorization: `Bearer ${TOKEN}` } });
+  const list = (await (await call("/memos?limit=1")).json()) as { items: { id: string }[] };
+  const id = list.items[0]?.id;
+  assert(id, "GET /memos?limit=1 returns the typed memo");
+  const detail = (await (await call(`/memos/${id}`)).json()) as {
+    state: string;
+    transcript: string | null;
+    segmentCount: number;
+    steps: { step: string }[];
+  };
+  assert(detail.state === "notified", `typed memo is notified (got ${detail.state})`);
+  assert(detail.transcript?.startsWith("Erinnere"), "typed memo keeps its text as transcript");
+  assert(detail.segmentCount === 0, `typed memo has no segments (got ${detail.segmentCount})`);
+  const steps = detail.steps.map((step) => step.step).join(",");
+  assert(steps === "route,act,summarize,notify", `no ingest/transcribe rows (got ${steps})`);
+  out(`e2e: typed memo ok for memo ${id}`);
+}
+
 async function main() {
   dataDir = await mkdtemp(join(tmpdir(), "iris-e2e-"));
   const port = freePort();
@@ -178,6 +216,7 @@ async function main() {
   assert((await send.exited) === 0, "send-memo reached notified (exit 0)");
   await probe(base);
   await probeRoute(base);
+  await probeTyped(base);
 }
 
 async function cleanup() {

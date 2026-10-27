@@ -100,6 +100,102 @@ describe("createMemo", () => {
   });
 });
 
+const typed = (id: string = crypto.randomUUID(), text = "  kauf Milch \n") => ({
+  ...input(id),
+  text,
+});
+
+describe("createTextMemo", () => {
+  it("creates a transcribed memo with the trimmed text, publishes once and drives from route", async () => {
+    const seen: string[] = [];
+    const { service, events, runner } = setup({
+      route: async () => {
+        seen.push("route");
+        return {};
+      },
+    });
+    const published: MemoEvent[] = [];
+    events.subscribe((e) => published.push(e));
+    const params = typed();
+    const { memo, created } = service.createTextMemo(params);
+    expect(created).toBe(true);
+    expect(memo).toMatchObject({ state: "transcribed", transcript: "kauf Milch" });
+    expect(published[0]).toMatchObject({ state: "transcribed", step: null });
+    await runner.idle();
+    expect(seen).toEqual(["route"]);
+    expect(service.get(params.id).steps.map((s) => s.step)).toEqual(["route"]);
+    expect(service.get(params.id).segmentCount).toBe(0);
+  });
+
+  it("is idempotent for the same body, conflicts for another body, mode, time or device", () => {
+    const { service } = setup();
+    const params = typed();
+    expect(service.createTextMemo(params).created).toBe(true);
+    expect(service.createTextMemo({ ...params, text: "kauf Milch" }).created).toBe(false);
+    for (const other of [
+      { text: "etwas anderes" },
+      { mode: "hermes" as const },
+      { startedAt: "2026-01-02T00:00:00.000Z" },
+      { device: "macbook" },
+    ]) {
+      expect(() => service.createTextMemo({ ...params, ...other })).toThrow(MemoError);
+    }
+  });
+
+  it("conflicts with a recorded memo of the same id", () => {
+    const { service } = setup();
+    const params = input();
+    service.createMemo(params);
+    expect(() => service.createTextMemo({ ...params, text: "hallo" })).toThrow(MemoError);
+  });
+
+  it("rejects empty, whitespace-only and oversized text, bad ids, modes and timestamps", async () => {
+    const { service } = setup();
+    expect(await codeOf(() => service.createTextMemo(typed(undefined, "")))).toBe("bad_request");
+    expect(await codeOf(() => service.createTextMemo(typed(undefined, " \n\t ")))).toBe(
+      "bad_request",
+    );
+    expect(await codeOf(() => service.createTextMemo(typed(undefined, "x".repeat(20_001))))).toBe(
+      "bad_request",
+    );
+    expect(
+      await codeOf(() => service.createTextMemo(typed(undefined, `  ${"x".repeat(20_000)}  `))),
+    ).toBe("none");
+    expect(await codeOf(() => service.createTextMemo(typed("../x")))).toBe("bad_request");
+    expect(await codeOf(() => service.createTextMemo({ ...typed(), mode: "nope" as never }))).toBe(
+      "bad_request",
+    );
+    expect(await codeOf(() => service.createTextMemo({ ...typed(), startedAt: "gestern" }))).toBe(
+      "bad_request",
+    );
+  });
+
+  it("retries a failed typed memo from route, and refuses transcribe: there is no audio", async () => {
+    let fail = true;
+    const { service, runner } = setup({
+      route: async () => {
+        if (fail) throw new Error("boom");
+        return {};
+      },
+    });
+    const params = typed();
+    service.createTextMemo(params);
+    await runner.idle();
+    expect(service.get(params.id).memo.state).toBe("failed");
+    expect(await codeOf(() => service.retry({ id: params.id, from: "transcribe" }))).toBe(
+      "bad_request",
+    );
+    expect(service.get(params.id).memo).toMatchObject({
+      state: "failed",
+      transcript: "kauf Milch",
+    });
+    fail = false;
+    expect(service.retry({ id: params.id, from: "route" }).state).toBe("transcribed");
+    await runner.idle();
+    expect(service.get(params.id).memo.transcript).toBe("kauf Milch");
+  });
+});
+
 describe("putSegment", () => {
   it("stores audio and records the segment with its sha256", async () => {
     const { service, audio, store } = setup();

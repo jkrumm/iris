@@ -68,6 +68,23 @@ struct URLSessionAPIClientTests {
     #expect(try jsonValue(request.body) == jsonValue(fixture))
   }
 
+  @Test("createTextMemo: POST the text fixture to /v1/memos/text and decode the 202 memo")
+  func createTextMemo() async throws {
+    let server = StubServer { _ in try .json(202, fixture: "memos.text.response") }
+    let body = try IrisJSON.makeDecoder().decode(
+      CreateTextMemoRequest.self, from: Contracts.fixtureData("memos.text.request"))
+
+    let memo = try await server.makeClient().createTextMemo(body)
+
+    #expect(memo.state == .transcribed)
+    #expect(memo.transcript == "Remind me to book the dentist for next week.")
+    let request = try #require(server.request)
+    #expect(request.method == "POST")
+    #expect(request.url.path == "/v1/memos/text")
+    #expect(request.header("Content-Type") == "application/json")
+    #expect(try jsonValue(request.body) == jsonValue(Contracts.fixtureData("memos.text.request")))
+  }
+
   @Test("uploadSegment: PUT raw bytes to /v1/memos/:id/segments/:n")
   func uploadSegment() async throws {
     let server = StubServer { _ in .empty(200) }

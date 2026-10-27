@@ -172,6 +172,8 @@ Shipped (Waves 5 and 10). Step results are columns on `memos`, not a separate ta
 | `activity_tokens` | `memo_id` (PK, cascades), `token`, `updated_at` |
 | `route_decisions` | `id` (autoincrement), `memo_id` (cascades), `created_at`, `source` (mode/prefix/decide/default/answer/correction), `destination` (nullable), `tab`, `confidence`, `model`, `cost_usd`, `reason`, `outcome` (routed/needs_route). One row per route outcome, written in the transaction of the step's `completeStep`; read with `listRouteDecisions(memoId)`. `answer` (written with the `needs_route` → `routed` move, `memos.route` set in the same transaction) and `correction` (logged after `act`, the memo is untouched) rows come from `POST /v1/memos/:id/route` |
 
+A typed memo (Wave 11) needs no column: it is a `memos` row created in `transcribed` with `transcript` set and `segment_count` NULL, and has no `segments` or ingest/transcribe `memo_steps` rows.
+
 Planned for R3, not built: `threads`, `memos.target_tab` / `thread_id` / `language` / `route_source`,
 and a transcript FTS index. Device tokens are not stored: the token map lives in `IRIS_DEVICE_TOKENS`.
 
@@ -183,6 +185,7 @@ Shipped; the authoritative list is `contracts/manifest.json` and the table in `A
 |-|-|
 | `POST /v1/devices/register` | `{name, platform, apnsToken?, apnsEnv?, pushToStartToken?}`; upsert by the authenticated device |
 | `POST /v1/memos` | `{id, mode, startedAt}`, idempotent |
+| `POST /v1/memos/text` | `{id, mode, startedAt, text}`: a typed memo. `text` is trimmed, 1 to 20 000 characters (else 400). Created directly in `transcribed` with `transcript = text` and driven from `route`: 202 + memo, on a replay too. Idempotent by id: the same body returns the memo, another body, another device or a recorded memo with that id is 409 `conflict` |
 | `PUT /v1/memos/:id/segments/:n` | Raw m4a bytes, idempotent by `n` (same sha → 200, different → 409) |
 | `POST /v1/memos/:id/complete` | `{segmentCount}`. A 422 lists the missing indices |
 | `PUT /v1/memos/:id/activity-token` | The Live Activity push token for this memo (204) |
@@ -195,6 +198,8 @@ Shipped; the authoritative list is `contracts/manifest.json` and the table in `A
 | `GET /v1/memos/:id/speech` | TTS of `summary.spoken` (or `replyText`), cached as an mp3 |
 | `GET /v1/events` | SSE: `ready`, `memo.updated`, `memo.done` (for the Mac and the foreground iOS app) |
 | `GET /v1/herd` | herdr tabs `{id, repo, label, agentState, lastActivity}` (snapshot; `lastActivity` is always null) |
+
+A separate route rather than a `text` field on `POST /v1/memos`: that route answers 201/200 for a memo that is still `receiving` and waits for segments, a typed memo is complete on arrival and its replay must compare a body, so sharing the handler would branch every line of it. A typed memo has no ingest or transcribe row in its timeline. A client tells it apart by `segmentCount`: `null` in a memo (`GET /memos/:id` reports 0) once it is past `receiving`, which only a typed memo is. `POST /retry` from `transcribe` on a typed memo is 400: the text is its only transcript.
 
 While a memo is `needs_route`, the memo shape carries `routeReason` (the latest decision's reason) and, on a low-confidence park, `routeSuggestion` (the model's best guess); both are omitted, never null, in every other state.
 

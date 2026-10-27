@@ -128,6 +128,43 @@ const park = (reason: string, destination: string | null) => ({
 });
 
 describe("flows: every response conforms", () => {
+  it("a typed memo: create answers 202 and reaches notified, a replay and a different body conform", async () => {
+    const { app } = testApp({ handlers: handlers() });
+    const id = crypto.randomUUID();
+    const body = { id, mode: "hermes", startedAt: "2026-03-14T09:45:12.000Z", text: "Hallo Welt" };
+    const text = (json: unknown) => call(app, { method: "POST", path: "/v1/memos/text", json });
+
+    const created = await text(body);
+    expect(created.status).toBe(202);
+    const memo = await conformingBody({
+      route: "POST /v1/memos/text",
+      res: created,
+      fixtures: ["memos.text.response"],
+    });
+    expect(memo).toMatchObject({
+      state: "transcribed",
+      segmentCount: null,
+      transcript: "Hallo Welt",
+    });
+
+    const replay = await text(body);
+    expect(replay.status).toBe(202);
+    await conformingBody({ route: "POST /v1/memos/text", res: replay });
+
+    const conflict = await text({ ...body, text: "Anderer Text" });
+    expect(conflict.status).toBe(409);
+    await conformingBody({ route: "POST /v1/memos/text", res: conflict });
+
+    const empty = await text({ ...body, id: crypto.randomUUID(), text: "   " });
+    expect(empty.status).toBe(400);
+    await conformingBody({ route: "POST /v1/memos/text", res: empty });
+
+    await call(app, { path: `/v1/memos/${id}/result?wait=5` });
+    const detail = await call(app, { path: `/v1/memos/${id}` });
+    const steps = ((await detail.json()) as { steps: { step: string }[] }).steps.map((s) => s.step);
+    expect(steps).toEqual(["route", "act", "summarize", "notify"]);
+  });
+
   it("create, upload, complete, result, detail, list, activity token and media on a notified memo", async () => {
     const { app } = testApp({ handlers: handlers(), maxSegmentBytes: 1024 });
     const id = crypto.randomUUID();
@@ -523,6 +560,11 @@ describe("request fixtures are accepted by the server", () => {
     for (const f of fixturesOf("memos.create.request")) {
       const res = await call(app, { method: "POST", path: "/v1/memos", json: f.value });
       expect([f.stem, res.status < 300]).toEqual([f.stem, true]);
+    }
+
+    for (const f of fixturesOf("memos.text.request")) {
+      const res = await call(app, { method: "POST", path: "/v1/memos/text", json: f.value });
+      expect([f.stem, res.status]).toEqual([f.stem, 202]);
     }
 
     const toComplete = crypto.randomUUID();

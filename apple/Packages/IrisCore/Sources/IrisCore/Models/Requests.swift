@@ -12,6 +12,25 @@ public struct CreateMemoRequest: Codable, Hashable, Sendable {
   }
 }
 
+/// Body of `POST /v1/memos/text`. The server trims `text` and answers 400 when it is empty or longer than
+/// `maxTextCharacters` once trimmed.
+public struct CreateTextMemoRequest: Codable, Hashable, Sendable {
+  /// The server's limit on the trimmed text.
+  public static let maxTextCharacters = 20_000
+
+  public var id: String
+  public var mode: MemoMode
+  public var startedAt: Date
+  public var text: String
+
+  public init(id: String, mode: MemoMode, startedAt: Date, text: String) {
+    self.id = id
+    self.mode = mode
+    self.startedAt = startedAt
+    self.text = text
+  }
+}
+
 public struct CompleteMemoRequest: Codable, Hashable, Sendable {
   public var segmentCount: Int
 

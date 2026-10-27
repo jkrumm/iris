@@ -29,6 +29,10 @@ public struct URLSessionAPIClient: APIClient {
     try await decode(Memo.self, from: makeJSONRequest("POST", ["v1", "memos"], body: body))
   }
 
+  public func createTextMemo(_ body: CreateTextMemoRequest) async throws -> Memo {
+    try await decode(Memo.self, from: makeJSONRequest("POST", ["v1", "memos", "text"], body: body))
+  }
+
   public func uploadSegment(memoID: String, index: Int, data: Data) async throws {
     var request = try makeRequest("PUT", ["v1", "memos", memoID, "segments", String(index)])
     request.setValue("audio/mp4", forHTTPHeaderField: "Content-Type")

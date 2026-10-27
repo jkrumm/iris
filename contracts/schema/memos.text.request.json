@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "id": {
+      "type": "string"
+    },
+    "mode": {
+      "enum": [
+        "auto",
+        "journal",
+        "hermes",
+        "tab"
+      ],
+      "type": "string"
+    },
+    "startedAt": {
+      "type": "string"
+    },
+    "text": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "mode",
+    "startedAt",
+    "text"
+  ],
+  "title": "memos.text.request",
+  "type": "object"
+}

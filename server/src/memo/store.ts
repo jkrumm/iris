@@ -20,6 +20,17 @@ export interface MemoStore {
     memo: Memo;
     created: boolean;
   };
+  /**
+   * A memo typed instead of spoken: created directly in `transcribed` with `transcript` set, no
+   * segments, no ingest or transcribe step. Idempotent on `id` like `createMemo`.
+   */
+  createTextMemo(params: {
+    id: string;
+    mode: MemoMode;
+    device: string;
+    startedAt: string;
+    text: string;
+  }): { memo: Memo; created: boolean };
   getMemo(id: string): Memo | null;
   /** Newest first. `nextCursor` is null on the last page; cursors stay valid as memos are added. */
   listMemos(params: { limit: number; cursor?: string | null | undefined }): {
