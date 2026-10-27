@@ -16,6 +16,7 @@ import {
   RegisterDeviceBody,
   ResultQuery,
   RetryBody,
+  RouteBody,
   TooLargeError,
   WhoamiResponse,
 } from "../http/schemas.js";
@@ -33,6 +34,8 @@ export const CONTRACT_SCHEMAS: Record<string, TSchema> = {
   "memos.complete.response": Memo,
   "memos.retry.request": RetryBody,
   "memos.retry.response": Memo,
+  "memos.route.request": RouteBody,
+  "memos.route.response": Memo,
   "memos.list.query": ListQuery,
   "memos.list.response": MemoList,
   "memos.detail.response": MemoDetail,

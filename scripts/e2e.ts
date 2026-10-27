@@ -95,6 +95,59 @@ async function probe(base: string) {
   out(`e2e: R1 endpoints ok for memo ${id}`);
 }
 
+/** Parks a memo (journal has no adapter yet), answers it with hermes, then corrects it after act. */
+async function probeRoute(base: string) {
+  const call = (path: string, init: RequestInit = {}) =>
+    fetch(`${base}/v1${path}`, {
+      ...init,
+      headers: { authorization: `Bearer ${TOKEN}`, "content-type": "application/json" },
+    });
+  const route = (id: string, destination: string) =>
+    call(`/memos/${id}/route`, { method: "POST", body: JSON.stringify({ destination }) });
+
+  const park = Bun.spawn(
+    [
+      "bun",
+      "scripts/send-memo.ts",
+      "fixtures/audio/de-90s.m4a",
+      "--url",
+      base,
+      "--token",
+      TOKEN,
+      "--mode",
+      "journal",
+    ],
+    { cwd: ROOT, stdout: "ignore", stderr: "ignore" },
+  );
+  assert((await park.exited) === 2, "send-memo --mode journal parks at needs_route (exit 2)");
+
+  const list = (await (await call("/memos?limit=1")).json()) as { items: { id: string }[] };
+  const id = list.items[0]?.id;
+  assert(id, "GET /memos?limit=1 returns the parked memo");
+  const parked = (await (await call(`/memos/${id}`)).json()) as {
+    state: string;
+    routeReason?: string;
+  };
+  assert(parked.state === "needs_route", `memo parks at needs_route (got ${parked.state})`);
+  assert(
+    parked.routeReason === "journal not available",
+    `routeReason explains the park (got ${parked.routeReason})`,
+  );
+
+  const unavailable = await route(id, "journal");
+  assert(unavailable.status === 400, `answering journal 400 (got ${unavailable.status})`);
+
+  const answer = await route(id, "hermes");
+  assert(answer.status === 202, `answering hermes 202 (got ${answer.status})`);
+  const done = await call(`/memos/${id}/result?wait=30`);
+  const result = (await done.json()) as { state: string };
+  assert(result.state === "notified", `answered memo reaches notified (got ${result.state})`);
+
+  const again = await route(id, "hermes");
+  assert(again.status === 200, `correction after act 200 (got ${again.status})`);
+  out(`e2e: route answer and correction ok for memo ${id}`);
+}
+
 async function main() {
   dataDir = await mkdtemp(join(tmpdir(), "iris-e2e-"));
   const port = freePort();
@@ -124,6 +177,7 @@ async function main() {
   );
   assert((await send.exited) === 0, "send-memo reached notified (exit 0)");
   await probe(base);
+  await probeRoute(base);
 }
 
 async function cleanup() {

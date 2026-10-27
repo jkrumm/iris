@@ -11,9 +11,11 @@ import { createMemoMedia } from "./memo/media.js";
 import { createRunner } from "./memo/runner.js";
 import { createMemoService } from "./memo/service.js";
 import { createNotifyLifecycle } from "./notify/lifecycle.js";
+import { bindNeedsRouteAlerts } from "./notify/needs-route.js";
 import { bindPhaseUpdates } from "./notify/phases.js";
 import { createStepHandlers } from "./pipeline/steps.js";
 import { systemClock } from "./ports/clock.js";
+import { registeredDestinations } from "./ports/destination.js";
 import { log } from "./telemetry/log.js";
 import { flushOtel } from "./telemetry/otel.js";
 
@@ -48,6 +50,7 @@ log("runner.handlers_registered", { steps: Object.keys(handlers) });
 const runner = createRunner({ store, handlers, events, clock });
 const notifyLifecycle = createNotifyLifecycle({
   phases: bindPhaseUpdates({ events, store, devices, notifier }),
+  alerts: bindNeedsRouteAlerts({ events, store, notifier }),
   closeTransport,
 });
 const memos = createMemoService({
@@ -57,6 +60,7 @@ const memos = createMemoService({
   audio,
   clock,
   maxSegmentBytes: env.IRIS_MAX_SEGMENT_BYTES,
+  destinations: registeredDestinations(ports.destinations ?? {}),
 });
 
 const media = createMemoMedia({

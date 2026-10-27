@@ -133,7 +133,7 @@ of the registered act adapters (`Partial<Record<"hermes" | "journal" | "herdr", 
 
 ```
 receiving ──complete──> received ──> transcribed ──> routed ──> acted ──> summarized ──> notified (terminal)
-                                          └──> needs_route ──(device answers)──> routed
+                                          └──> needs_route ──POST /route (answer)──> routed
 any step ──error──> failed(step)   ──retry(from)──> <step>
 ```
 
@@ -165,7 +165,7 @@ Shipped (Waves 5 and 10). Step results are columns on `memos`, not a separate ta
 | `memo_steps` | `memo_id`, `step`, `status`, `started_at`, `finished_at`, `error`, `usage_json`, `cost_usd`: PK (`memo_id`, `step`), no `attempt` (a retry resets the row) |
 | `devices` | `device` (PK, the token-map name), `name` (display label), `platform` (ios/macos), `apns_token`, `apns_env` (sandbox/production), `push_to_start_token`, `last_seen_at`, `updated_at` |
 | `activity_tokens` | `memo_id` (PK, cascades), `token`, `updated_at` |
-| `route_decisions` | `id` (autoincrement), `memo_id` (cascades), `created_at`, `source` (mode/prefix/decide/default/answer/correction), `destination` (nullable), `tab`, `confidence`, `model`, `cost_usd`, `reason`, `outcome` (routed/needs_route). One row per route outcome, written in the transaction of the step's `completeStep`; read with `listRouteDecisions(memoId)`. `answer` and `correction` rows come with the answer endpoint (B3) |
+| `route_decisions` | `id` (autoincrement), `memo_id` (cascades), `created_at`, `source` (mode/prefix/decide/default/answer/correction), `destination` (nullable), `tab`, `confidence`, `model`, `cost_usd`, `reason`, `outcome` (routed/needs_route). One row per route outcome, written in the transaction of the step's `completeStep`; read with `listRouteDecisions(memoId)`. `answer` (written with the `needs_route` → `routed` move, `memos.route` set in the same transaction) and `correction` (logged after `act`, the memo is untouched) rows come from `POST /v1/memos/:id/route` |
 
 Planned for R3, not built: `threads`, `memos.target_tab` / `thread_id` / `language` / `route_source`,
 and a transcript FTS index. Device tokens are not stored: the token map lives in `IRIS_DEVICE_TOKENS`.
@@ -182,6 +182,7 @@ Shipped; the authoritative list is `contracts/manifest.json` and the table in `A
 | `POST /v1/memos/:id/complete` | `{segmentCount}`. A 422 lists the missing indices |
 | `PUT /v1/memos/:id/activity-token` | The Live Activity push token for this memo (204) |
 | `POST /v1/memos/:id/retry` | `{from: Step}`, only for a `failed` memo |
+| `POST /v1/memos/:id/route` | `{destination: hermes\|journal\|herdr, tab?}` (`tab` iff herdr). `needs_route`: the destination must be registered (else 400 "<dest> not available"); writes an `answer` decision, moves the memo to `routed` (compare-and-set) and drives it on: 202 + memo. After `act` (`acted`/`summarized`/`notified`): records a `correction` decision, no re-act, memo unchanged: 200. Any other state 409 `bad_state`, so a second answer while the first drives is a 409 |
 | `GET /v1/memos?limit&cursor` | History, paged, newest first |
 | `GET /v1/memos/:id` | Memo + step timeline |
 | `GET /v1/memos/:id/result?wait=<s>` | Long-poll until result-ready (≤ 600 s) |
@@ -190,7 +191,9 @@ Shipped; the authoritative list is `contracts/manifest.json` and the table in `A
 | `GET /v1/events` | SSE: `ready`, `memo.updated`, `memo.done` (for the Mac and the foreground iOS app) |
 | `GET /v1/herd` | herdr tabs `{id, repo, label, agentState, lastActivity}` (snapshot; `lastActivity` is always null) |
 
-**Planned, not built:** `POST /v1/memos/:id/route` (answer `needs_route`, R2), `GET /v1/threads` and `/threads/:id` (R3), `POST /v1/telemetry`
+While a memo is `needs_route`, the memo shape carries `routeReason` (the latest decision's reason) and, on a low-confidence park, `routeSuggestion` (the model's best guess); both are omitted, never null, in every other state.
+
+**Planned, not built:** `GET /v1/threads` and `/threads/:id` (R3), `POST /v1/telemetry`
 (client span/log relay, §8; the Swift `TelemetryBatch` shape is a proposal), `?q` transcript search, and the `targetTab` / `threadId` / `language`
 fields of `POST /v1/memos`.
 
@@ -245,7 +248,10 @@ retries of transient errors are not built; recover with `POST /retry`.
    - a Live Activity `update` (priority 5) for each phase change, plus a final
      `end` with the result content state and `dismissal-date` = now + 15 min;
    - one alert (priority 10, `mutable-content: 1`, `category: MEMO_DONE` or
-     `MEMO_NEEDS_ROUTE`, `thread-id: memo`, a `memo` id in the custom payload);
+     `MEMO_NEEDS_ROUTE`, `thread-id: memo`, a `memo` id in the custom payload). `MEMO_NEEDS_ROUTE` ships: sent
+     best-effort when a memo enters `needs_route` (generic title plus the park reason, never transcript or reply),
+     alert only, since the Live Activity `needsRoute` update comes from the phase binding. Both alerts share the
+     collapse id (the memo id), so the done alert replaces the needs-route banner;
    - SSE `memo.done`;
    - a `log` stand-in when APNs is not configured.
 

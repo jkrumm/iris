@@ -46,6 +46,12 @@ export interface Memo {
   destinationRef: string | null;
   replyText: string | null;
   summary: Summary | null;
+  /**
+   * Derived from the decision log, not a column: while the memo is `needs_route`, why it parked and
+   * (low-confidence parks) the model's best guess. Absent in every other state.
+   */
+  routeReason?: string;
+  routeSuggestion?: string;
   createdAt: string;
   updatedAt: string;
 }

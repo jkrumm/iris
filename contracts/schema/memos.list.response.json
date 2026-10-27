@@ -90,6 +90,12 @@
               }
             ]
           },
+          "routeReason": {
+            "type": "string"
+          },
+          "routeSuggestion": {
+            "type": "string"
+          },
           "segmentCount": {
             "anyOf": [
               {

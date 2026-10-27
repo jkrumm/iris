@@ -4,7 +4,12 @@ import { join } from "node:path";
 import { call, MAC, PHONE, testApp } from "../http/test-support.js";
 import type { StepHandler } from "../memo/runner.js";
 import type { HandlerStep } from "../memo/memo.js";
-import { buildAlert, buildLiveActivityEnd, buildLiveActivityUpdate } from "../notify/payloads.js";
+import {
+  buildAlert,
+  buildLiveActivityEnd,
+  buildLiveActivityUpdate,
+  buildNeedsRouteAlert,
+} from "../notify/payloads.js";
 import { fakeHerd } from "../ports/fakes.js";
 import { loadContracts, MANIFEST_FILE, violations } from "./check.js";
 import { keyDifferences, sseFrames } from "./conformance-support.js";
@@ -25,6 +30,9 @@ const fixture = (stem: string) => {
   return found;
 };
 
+/** Schema properties that are omitted rather than null: a body or fixture may lack them. */
+const OPTIONAL_KEYS = ["routeReason", "routeSuggestion"];
+
 /** Validates `value` against `schema` and compares its keys with each fixture (default: all of them). */
 function conforms(params: { schema: string; value: unknown; fixtures?: string[] }) {
   const { schema, value } = params;
@@ -34,7 +42,10 @@ function conforms(params: { schema: string; value: unknown; fixtures?: string[] 
   const against = params.fixtures?.map(fixture) ?? fixturesOf(schema);
   expect(against.length).toBeGreaterThan(0);
   for (const f of against) {
-    expect([f.stem, ...keyDifferences({ live: value, fixture: f.value })]).toEqual([f.stem]);
+    expect([
+      f.stem,
+      ...keyDifferences({ live: value, fixture: f.value, optionalKeys: OPTIONAL_KEYS }),
+    ]).toEqual([f.stem]);
   }
   return value;
 }
@@ -99,6 +110,22 @@ async function record(app: App, segments = 2) {
   await call(app, { path: `/v1/memos/${id}/result?wait=5` });
   return id;
 }
+
+const park = (reason: string, destination: string | null) => ({
+  outcome: "needs_route" as const,
+  patch: {
+    routeDecision: {
+      source: "decide" as const,
+      destination,
+      tab: null,
+      confidence: null,
+      model: null,
+      costUsd: null,
+      reason,
+      outcome: "needs_route" as const,
+    },
+  },
+});
 
 describe("flows: every response conforms", () => {
   it("create, upload, complete, result, detail, list, activity token and media on a notified memo", async () => {
@@ -195,9 +222,9 @@ describe("flows: every response conforms", () => {
     await conformingBody({ route: "POST /v1/memos/:id/retry", res: retry });
   });
 
-  it("a memo parked in needs_route is a ready result", async () => {
+  it("a memo parked in needs_route is a ready result and carries why", async () => {
     const { app } = testApp({
-      handlers: handlers({ route: async () => ({ outcome: "needs_route" }) }),
+      handlers: handlers({ route: async () => park("low confidence (0.62)", "hermes") }),
     });
     const id = await record(app);
     const result = await call(app, { path: `/v1/memos/${id}/result` });
@@ -205,7 +232,62 @@ describe("flows: every response conforms", () => {
     expect(await conformingBody({ route: "GET /v1/memos/:id/result", res: result })).toMatchObject({
       state: "needs_route",
       route: null,
+      routeReason: "low confidence (0.62)",
+      routeSuggestion: "hermes",
     });
+    const detail = await call(app, { path: `/v1/memos/${id}` });
+    await conformingBody({ route: "GET /v1/memos/:id", res: detail });
+  });
+
+  it("answer, correction and the route errors", async () => {
+    const parks = handlers({
+      route: async () => ({
+        outcome: "needs_route",
+        patch: {
+          routeDecision: {
+            source: "mode",
+            destination: null,
+            tab: null,
+            confidence: null,
+            model: null,
+            costUsd: null,
+            reason: "journal not available",
+            outcome: "needs_route",
+          },
+        },
+      }),
+    });
+    const { app } = testApp({ handlers: parks });
+    const id = await record(app);
+    const path = `/v1/memos/${id}/route`;
+    const post = (json: unknown) => call(app, { method: "POST", path, json });
+
+    const unavailable = await post(fixture("memos.route.request.herdr").value);
+    expect(unavailable.status).toBe(400);
+    await conformingBody({ route: "POST /v1/memos/:id/route", res: unavailable });
+    const missing = await call(app, {
+      method: "POST",
+      path: `/v1/memos/${crypto.randomUUID()}/route`,
+      json: fixture("memos.route.request").value,
+    });
+    expect(missing.status).toBe(404);
+    await conformingBody({ route: "POST /v1/memos/:id/route", res: missing });
+
+    const answered = await post(fixture("memos.route.request").value);
+    expect(answered.status).toBe(202);
+    expect(
+      await conformingBody({
+        route: "POST /v1/memos/:id/route",
+        res: answered,
+        fixtures: ["memos.route.response"],
+      }),
+    ).toMatchObject({ state: "routed", route: "hermes" });
+
+    // The fake route handler parks again on the next pass only after a retry; here the memo runs on to notified.
+    await call(app, { path: `/v1/memos/${id}/result?wait=5` });
+    const second = await post(fixture("memos.route.request").value);
+    expect(second.status).toBe(200);
+    await conformingBody({ route: "POST /v1/memos/:id/route", res: second });
   });
 
   it("devices, herd, health and whoami", async () => {
@@ -400,6 +482,18 @@ describe("push payloads", () => {
     }
   });
 
+  it("builds the needs-route alert that matches its fixture", () => {
+    conforms({
+      schema: "push.alert",
+      value: buildNeedsRouteAlert({
+        topic: "t",
+        memo: memo({}) as never,
+        reason: "journal not available",
+      }).payload,
+      fixtures: ["push.alert.needs-route"],
+    });
+  });
+
   it("builds alerts that match the alert fixtures", () => {
     const base = memo({});
     const summary = (base as { summary: never }).summary;
@@ -463,6 +557,22 @@ describe("request fixtures are accepted by the server", () => {
       const { app } = testApp({ handlers: failsAtNotify });
       const id = await record(app);
       const res = await call(app, { method: "POST", path: `/v1/memos/${id}/retry`, json: f.value });
+      expect([f.stem, res.status]).toEqual([f.stem, 202]);
+    }
+  });
+
+  it("route accepts its request fixtures", async () => {
+    for (const f of fixturesOf("memos.route.request")) {
+      const { app } = testApp({
+        destinations: ["hermes", "herdr"],
+        handlers: handlers({ route: async () => ({ outcome: "needs_route" }) }),
+      });
+      const id = await record(app);
+      const res = await call(app, {
+        method: "POST",
+        path: `/v1/memos/${id}/route`,
+        json: f.value,
+      });
       expect([f.stem, res.status]).toEqual([f.stem, 202]);
     }
   });

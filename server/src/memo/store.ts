@@ -3,6 +3,7 @@ import type {
   MemoMode,
   MemoPatch,
   MemoState,
+  RouteDecisionInput,
   RouteDecisionRecord,
   Step,
   StepRecord,
@@ -62,6 +63,14 @@ export interface MemoStore {
   listStepRecords(id: string): StepRecord[];
   /** The routing decision log of one memo, oldest first; the last row carries the reason of a `needs_route` park. */
   listRouteDecisions(id: string): RouteDecisionRecord[];
+
+  /**
+   * The user's answer to a parked memo, atomically: `needs_route` → `routed`, `memos.route` set to
+   * `decision.destination`, `decision` appended to the log. False (nothing written) when the memo is no longer `needs_route`.
+   */
+  answerRoute(params: { id: string; decision: RouteDecisionInput }): boolean;
+  /** Appends `decision` to the log without touching the memo; false when the memo has not reached `acted` yet (or is `failed`). */
+  recordCorrection(params: { id: string; decision: RouteDecisionInput }): boolean;
 
   /** Memos the runner must resume after a restart: not receiving, notified, failed or needs_route. */
   listNonTerminal(): Memo[];

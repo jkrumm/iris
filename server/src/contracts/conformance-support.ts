@@ -1,20 +1,28 @@
 /**
  * Key-set differences between a live body and a fixture, as `path: message` lines. Values are
  * free: a `null` on either side ends the comparison there (a nullable object is absent in one
- * and present in the other), arrays compare their first elements, and `freeKeys` (a schema's
- * `unknown` fields) are not entered.
+ * and present in the other), arrays compare their first elements, `freeKeys` (a schema's
+ * `unknown` fields) are not entered, and `optionalKeys` (a schema's optional properties) may be
+ * absent on either side.
  */
 export function keyDifferences(params: {
   live: unknown;
   fixture: unknown;
   freeKeys?: readonly string[];
+  optionalKeys?: readonly string[];
   path?: string;
 }): string[] {
-  const { live, fixture, freeKeys = ["usage"], path = "$" } = params;
+  const { live, fixture, freeKeys = ["usage"], optionalKeys = [], path = "$" } = params;
   if (live === null || fixture === null) return [];
   if (Array.isArray(live) && Array.isArray(fixture)) {
     if (live.length === 0 || fixture.length === 0) return [];
-    return keyDifferences({ live: live[0], fixture: fixture[0], freeKeys, path: `${path}[0]` });
+    return keyDifferences({
+      live: live[0],
+      fixture: fixture[0],
+      freeKeys,
+      optionalKeys,
+      path: `${path}[0]`,
+    });
   }
   const liveObject = typeof live === "object" && !Array.isArray(live);
   const fixtureObject = typeof fixture === "object" && !Array.isArray(fixture);
@@ -23,8 +31,12 @@ export function keyDifferences(params: {
   }
   if (!liveObject) return [];
 
-  const liveKeys = Object.keys(live as object).toSorted();
-  const fixtureKeys = Object.keys(fixture as object).toSorted();
+  const required = (object: object) =>
+    Object.keys(object)
+      .filter((k) => !optionalKeys.includes(k))
+      .toSorted();
+  const liveKeys = required(live as object);
+  const fixtureKeys = required(fixture as object);
   const problems = [
     ...liveKeys
       .filter((k) => !fixtureKeys.includes(k))
@@ -39,6 +51,7 @@ export function keyDifferences(params: {
         live: (live as Record<string, unknown>)[key],
         fixture: (fixture as Record<string, unknown>)[key],
         freeKeys,
+        optionalKeys,
         path: `${path}.${key}`,
       }),
     );

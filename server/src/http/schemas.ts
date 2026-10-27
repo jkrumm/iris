@@ -2,6 +2,7 @@ import { t } from "elysia";
 import { MEMO_ERROR_CODES } from "../memo/errors.js";
 import { MEMO_MODES, MEMO_STATES, STEPS } from "../memo/memo.js";
 import { APNS_ENVS, PLATFORMS } from "../ports/devices.js";
+import { DESTINATION_NAMES } from "../ports/destination.js";
 import { AGENT_STATES } from "../ports/herd.js";
 
 // Every request and response shape on the wire, in one file. Pure TypeBox (no Transform or custom
@@ -55,6 +56,9 @@ const memoFields = {
   destinationRef: Nullable(t.String()),
   replyText: Nullable(t.String()),
   summary: Nullable(Summary),
+  // Present only while the memo is `needs_route`: why it parked, and the model's guess on a low-confidence park.
+  routeReason: t.Optional(t.String()),
+  routeSuggestion: t.Optional(t.String()),
   createdAt: t.String(),
   updatedAt: t.String(),
 };
@@ -93,6 +97,12 @@ export const CreateMemoBody = t.Object({
 });
 export const CompleteBody = t.Object({ segmentCount: Int });
 export const RetryBody = t.Object({ from: Step });
+/** `tab` is required for `herdr` and rejected for the others (400 `bad_request`). */
+export const RouteBody = t.Object({
+  // `UnionEnum` defaults a missing value to its first member; a missing destination must be a 400, not "hermes".
+  destination: t.UnionEnum([...DESTINATION_NAMES], { default: undefined }),
+  tab: t.Optional(t.String({ minLength: 1 })),
+});
 
 export const ListQuery = t.Object({
   limit: t.Optional(t.Numeric()),

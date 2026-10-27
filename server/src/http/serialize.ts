@@ -21,6 +21,8 @@ export const memoJson = (memo: Memo) => ({
   destinationRef: memo.destinationRef,
   replyText: memo.replyText,
   summary: memo.summary,
+  ...(memo.routeReason !== undefined && { routeReason: memo.routeReason }),
+  ...(memo.routeSuggestion !== undefined && { routeSuggestion: memo.routeSuggestion }),
   createdAt: memo.createdAt,
   updatedAt: memo.updatedAt,
 });

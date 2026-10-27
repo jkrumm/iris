@@ -145,6 +145,37 @@
       }
     },
     {
+      "method": "POST",
+      "path": "/v1/memos/:id/route",
+      "auth": "bearer",
+      "request": {
+        "mediaType": "application/json",
+        "schema": "memos.route.request"
+      },
+      "responses": {
+        "202": {
+          "mediaType": "application/json",
+          "schema": "memos.route.response"
+        },
+        "200": {
+          "mediaType": "application/json",
+          "schema": "memos.route.response"
+        },
+        "400": {
+          "mediaType": "application/json",
+          "schema": "error"
+        },
+        "404": {
+          "mediaType": "application/json",
+          "schema": "error"
+        },
+        "409": {
+          "mediaType": "application/json",
+          "schema": "error"
+        }
+      }
+    },
+    {
       "method": "GET",
       "path": "/v1/memos",
       "auth": "bearer",
@@ -349,7 +380,7 @@
     {
       "name": "push.alert",
       "schema": "push.alert",
-      "notes": "The whole alert body. The custom memo key is the memo id the app opens on tap."
+      "notes": "The whole alert body. The custom memo key is the memo id the app opens on tap. category is MEMO_DONE for a finished memo and MEMO_NEEDS_ROUTE for one parked awaiting a destination (generic title, the park reason as body, never transcript or reply text); both share the collapse id (the memo id), so the done alert replaces the needs-route banner."
     }
   ]
 }
