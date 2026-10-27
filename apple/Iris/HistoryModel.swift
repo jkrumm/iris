@@ -18,7 +18,9 @@ final class HistoryModel {
   func load() async {
     do {
       let page = try await client.listMemos(ListMemosQuery(limit: 50))
-      memos = page.pinned + page.items
+      // A memo answered after the first page can repeat across pinned and items: pinned first, then the new ids.
+      let pinnedIDs = Set(page.pinned.map(\.id))
+      memos = page.pinned + page.items.filter { !pinnedIDs.contains($0.id) }
       loadFailed = false
     } catch is CancellationError {
       return
