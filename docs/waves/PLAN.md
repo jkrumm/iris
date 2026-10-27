@@ -416,11 +416,11 @@ workers. The mother writes the next wave here.
 pushed to master, the poller deploys, then `make verify` + `make smoke` on the mini. Apple changes gate on `apple.yml`.
 API changes run `make contracts` and update fixtures. TDD and AGENTS.md change in the same commit as the code they describe.
 
-## Wave 10 — Design round 2 ∥ R2 routing core (server)            <!-- status: active -->
+## Wave 10 — Design round 2 ∥ R2 routing core (server)            <!-- status: done -->
 Backlog 0 and the first half of backlog 4. Two tracks on disjoint files, fanned out in parallel: **A** owns
 `docs/design/**` (plus the `mockups` Make target if it must change), **B** owns `server/**`, `contracts/**`, `scripts/**`.
 Inside B, B1 lands before B2/B3 are briefed (every new port wires through the composition B1 creates).
-- [ ] **A. Design round 2** (`docs/design/feedback-round-1.md` is binding). Changed surfaces: memo detail (less shadow;
+- [x] **A. Design round 2** (`docs/design/feedback-round-1.md` is binding). Changed surfaces: memo detail (less shadow;
       scrubbable player with a 10 s back button; the step waterfall, each bar starting where the previous ended and marked
       faster/slower than that step's median, collapsed by default with an expanded variant; cost collapsed; no trace id),
       Settings → Diagnostics (trace id with copy, the hide-cost-on-Lock-Screen toggle), Dynamic Island (mic-swap icon button,
@@ -431,24 +431,52 @@ Inside B, B1 lands before B2/B3 are briefed (every new port wires through the co
       `/img`, list them only in the untracked `docs/design/links.local.md`, rsync the gallery to
       `iumac:/tmp/iris-mockups.html` and `ssh iumac open` it. `docs/design/README.md` gets a round-2 section and the open
       questions. The owner's review is async: do not wait for it.
-- [ ] **B1. Composition dedupe + Wave 5 debt:** one composition used by both `index.ts` (production) and `compose-fakes.ts`
+- [x] **B1. Composition dedupe + Wave 5 debt:** one composition used by both `index.ts` (production) and `compose-fakes.ts`
       (`IRIS_FAKES=1`), so a new port is wired once; `+faststart` on the ffmpeg concat; clear the oxlint warnings.
-- [ ] **B2. Routing core** (TDD §3 Pipeline steps, step 3): a non-auto mode wins; the prefix parser ("journal|tagebuch",
+- [x] **B2. Routing core** (TDD §3 Pipeline steps, step 3): a non-auto mode wins; the prefix parser ("journal|tagebuch",
       "an hermes|hermes", "tab <name>", first 6 words, case- and diacritic-insensitive, prefix stripped from the transcript);
       otherwise `decide` through agw behind a `Decider` port (adapter + fake), state = transcript (first 4k chars) + herd
       summary; confidence ≥ 0.8 → `routed`, else `needs_route`. Only destinations with a registered `act` adapter are
       choices; a prefix or mode naming an unregistered one (journal/herdr until Wave 11) parks at `needs_route` with the
       reason. A `route_decisions` table (append-only migration) records every outcome: source (mode/prefix/decide/answer/
       correction), destination, tab, confidence, model, cost.
-- [ ] **B3. Answers and corrections:** `POST /v1/memos/:id/route {destination, tab?}`: from `needs_route` it routes and
+- [x] **B3. Answers and corrections:** `POST /v1/memos/:id/route {destination, tab?}`: from `needs_route` it routes and
       drives on; after `act` it records a correction only (no re-act). The `MEMO_NEEDS_ROUTE` alert category and the
       needs-route Live Activity content state on the APNs notifier. Contracts, fixtures, manifest, SSE event coverage.
-- [ ] Deploy and prove it: `make verify` + `make smoke` on the mini after the poller deploys (the smoke memo must still
+- [x] Deploy and prove it: `make verify` + `make smoke` on the mini after the poller deploys (the smoke memo must still
       reach `notified`; pin `--mode hermes` in smoke if `decide` could route it elsewhere). TDD §3 (state machine, pipeline,
       data model, HTTP API) and AGENTS.md amended to the shipped behaviour.
-**Left behind:**
+**Left behind:** All five steps shipped as PRs #1–#4 (+ #3 design), each merged by the train after a green full `make check`; `agw review`
+(CLI) on #1, #2 and #4 with findings resolved (#3 is docs/static HTML, no review). Deployed `cc19d4c`: `make verify` healthy, `make smoke` `notified`
+(~11 s, route `default`). CI `check` green on `cc19d4c`; `apple.yml` was still running at close-out.
+**A (design round 2, #3):** 41 `r2-*` renders (both schemes where round 1 had both) of every changed and new surface; 7-day private links (expire
+2026-11-03) only in the untracked `docs/design/links.local.md`; gallery at `iumac:/tmp/iris-mockups.html` (+ `/tmp/iris-mockups/`), opened on the
+MacBook. `docs/design/gallery.ts` builds it. README "Round 2" lists every feedback item and the open questions for the owner (Mac hotkey placeholder,
+cost toggle placement — the worker suggests a Settings group, side-by-side notification actions need a device check, Stats colour for tab memos,
+waterfall 15 % threshold / last-30 median). One stray private image object from a test upload (r2-detail-light) remains; delete it with backlog 10.
+Owner review is async and pending.
+**B1 (#1):** `server/src/compose.ts` (`compose()` + `fakePorts`) is the only place a port is chosen; `compose-fakes.ts` is gone; `index.ts` is
+process concerns only. `+faststart` on the concat. oxlint is at 0 warnings over `server/src` and `scripts`.
+**B2 (#2):** `server/src/routing/` (prefix parser, `route()`), `Decider` port + `adapters/agw-decider.ts` (shares the agw job runner with triage),
+destination registry (`Destinations`, `isDestinationName`, `hasChoice`), act dispatches on `memo.route`, `route_decisions` (migration 5). Deviations from
+the brief, all deliberate: decide uses the 30 min agw hang guard, not 30 s (the agent-limits rule; TDD timeout row amended); a decide infrastructure
+failure FAILS the route step (retry recovers it) and only refusal / unknown destination / herdr without a live tab / low confidence / no decider park;
+`memos.transcript` stays raw and `deliveredTranscript` strips a spoken prefix for act and summarize (retry-safe); with fewer than two registered
+destinations the router routes to the only one (source `default`, no spend), so production is hermes-only until Wave 11; with no destination
+registered neither route nor act has a handler (memo waits at `transcribed`). Known production effect until Wave 11: an auto memo opening with
+"journal"/"tagebuch"/"tab X" in its first six words parks at `needs_route` ("journal not available").
+**B3 (#4):** `POST /v1/memos/:id/route` (answer from `needs_route` → 202 + drive; after act → correction only, 200; else 409; unregistered → 400;
+`tab` iff herdr), memo wire gains optional `routeReason` / `routeSuggestion` (derived from the latest decision, no migration), `MEMO_NEEDS_ROUTE`
+alert via `Notifier.needsRoute` (the Live Activity part already came from `bindPhaseUpdates`), `isCorrectable()` in `memo.ts`, contracts + fixtures +
+manifest, e2e probe (answer + correction). Found and fixed on the way: Elysia `t.UnionEnum` defaults a missing value to its first member, so
+`POST /retry {}` used to retry from `ingest`; `RetryBody` and `RouteBody` now set `default: undefined` (400). The train caught the Swift side
+lagging the contract: `IrisCore` now has `RouteRequest`, `RouteDestination`, `routeMemo`, `Memo.routeReason/routeSuggestion`.
+**For Wave 11:** resolve spoken tab names (prefix `tab <name>`, mode `tab`) against the live herd before act (today they are stored unchecked; the
+decide path stores herd ids); `herdr` and `journal` join the registry in `compose()`, which turns `decide` on (two or more destinations). Lead
+lessons: `rd merge` fails on a draft PR (`gh pr ready` first); `agw review` CLI prints only the summary — the findings are in
+`GET /api/jobs/<id>` `.job.result`; a contract change must include the Swift `IrisCore` follow-up in the same brief.
 
-## Wave 11 — R2 destinations, Chat mode, typed memos (server)            <!-- status: pending -->
+## Wave 11 — R2 destinations, Chat mode, typed memos (server)            <!-- status: active -->
 The second half of backlog 4. Chat reading **confirmed by the owner 2026-10-27**: Chat = a Hermes session (`source` marks it
 as chat) opened with a no-side-effects system message, its answer stored as the reply and threaded.
 - [ ] **Journal destination:** write `brain/Inbox/<YYYY-MM-DD>-<slug>.md` (TDD §3 act table) under the brain-sync lock,
