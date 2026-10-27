@@ -19,10 +19,11 @@ import {
   type Summary,
   type ThreadUpsert,
 } from "../memo/memo.js";
-import type { AnswerDecision, MemoStore } from "../memo/store.js";
+import type { AnswerDecision, MemoStore, ThreadStore } from "../memo/store.js";
 import type { Clock } from "../ports/clock.js";
 import { log } from "../telemetry/log.js";
 import { MIGRATIONS } from "./sqlite-migrations.js";
+import { createSqliteThreadStore } from "./sqlite-threads.js";
 
 /** Opens the data file with WAL and foreign keys on. Tests pass `:memory:`. */
 export function openDatabase(path: string): Database {
@@ -167,7 +168,7 @@ const PATCH_COLUMNS = {
 const STEP_COLUMNS: Partial<Record<Step, (keyof MemoColumnPatch)[]>> = {
   transcribe: ["audioSeconds", "transcript"],
   route: ["route"],
-  act: ["destinationRef", "replyText", "threadId"],
+  act: ["destinationRef", "replyText"],
   summarize: ["summary"],
 };
 
@@ -215,6 +216,10 @@ export function createSqliteMemoStore(params: { db: Database; clock: Clock }): M
       db.query(`UPDATE memos SET ${columns.map((c) => `${c} = NULL`).join(", ")} WHERE id = ?`).run(
         id,
       );
+    }
+    // `act` set the memo's own session; a memo created to continue a thread keeps its thread (its `thread_id` is never its id).
+    if (cleared.includes("act")) {
+      db.query("UPDATE memos SET thread_id = NULL WHERE id = ? AND thread_id = id").run(id);
     }
     db.query(
       `DELETE FROM memo_steps WHERE memo_id = ? AND step IN (${cleared.map(() => "?").join(",")})`,
@@ -305,28 +310,28 @@ export function createSqliteMemoStore(params: { db: Database; clock: Clock }): M
     },
   );
 
-  return {
-    createMemo({ id, mode, device, startedAt }) {
+  const memoStore: Omit<MemoStore, keyof ThreadStore> = {
+    createMemo({ id, mode, device, startedAt, threadId }) {
       const at = stamp();
       const inserted = db
         .query(
-          `INSERT INTO memos (id, mode, device, started_at, state, created_at, updated_at)
-           VALUES (?, ?, ?, ?, 'receiving', ?, ?) ON CONFLICT (id) DO NOTHING`,
+          `INSERT INTO memos (id, mode, device, started_at, state, thread_id, created_at, updated_at)
+           VALUES (?, ?, ?, ?, 'receiving', ?, ?, ?) ON CONFLICT (id) DO NOTHING`,
         )
-        .run(id, mode, device, startedAt, at, at);
+        .run(id, mode, device, startedAt, threadId ?? null, at, at);
       const row = memoById(id);
       if (!row) throw new Error(`memo ${id} vanished after insert`);
       return { memo: toMemo(row), created: inserted.changes === 1 };
     },
 
-    createTextMemo({ id, mode, device, startedAt, text }) {
+    createTextMemo({ id, mode, device, startedAt, text, threadId }) {
       const at = stamp();
       const inserted = db
         .query(
-          `INSERT INTO memos (id, mode, device, started_at, state, transcript, created_at, updated_at)
-           VALUES (?, ?, ?, ?, 'transcribed', ?, ?, ?) ON CONFLICT (id) DO NOTHING`,
+          `INSERT INTO memos (id, mode, device, started_at, state, transcript, thread_id, created_at, updated_at)
+           VALUES (?, ?, ?, ?, 'transcribed', ?, ?, ?, ?) ON CONFLICT (id) DO NOTHING`,
         )
-        .run(id, mode, device, startedAt, text, at, at);
+        .run(id, mode, device, startedAt, text, threadId ?? null, at, at);
       const row = memoById(id);
       if (!row) throw new Error(`memo ${id} vanished after insert`);
       return { memo: toMemo(row), created: inserted.changes === 1 };
@@ -466,4 +471,6 @@ export function createSqliteMemoStore(params: { db: Database; clock: Clock }): M
         .map(toMemo);
     },
   };
+
+  return { ...memoStore, ...createSqliteThreadStore({ db, getMemo: memoStore.getMemo }) };
 }

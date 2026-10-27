@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "cursor": {
+      "type": "string"
+    },
+    "kind": {
+      "enum": [
+        "chat",
+        "hermes"
+      ],
+      "type": "string"
+    },
+    "limit": {
+      "type": "number"
+    }
+  },
+  "title": "threads.list.query",
+  "type": "object"
+}

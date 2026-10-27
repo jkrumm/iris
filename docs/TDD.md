@@ -165,17 +165,17 @@ Shipped (Waves 5 and 10). Step results are columns on `memos`, not a separate ta
 
 | Table | Columns (key ones) |
 |-|-|
-| `memos` | `seq` (autoincrement), `id` (uuid, client-minted), `mode` (auto/journal/hermes/tab/chat), `device` (authenticated device name), `state`, `failed_step`, `error`, `started_at`, `segment_count`, `audio_seconds`, `transcript`, `route`, `destination_ref`, `reply_text`, `summary_json`, `thread_id` (the Hermes session `act` ran in, NULL until then), `created_at`, `updated_at` |
+| `memos` | `seq` (autoincrement), `id` (uuid, client-minted), `mode` (auto/journal/hermes/tab/chat), `device` (authenticated device name), `state`, `failed_step`, `error`, `started_at`, `segment_count`, `audio_seconds`, `transcript`, `route`, `destination_ref`, `reply_text`, `summary_json`, `thread_id` (the Hermes session the memo belongs to: set by `act`, or at creation for a memo that continues a thread; NULL before then), `created_at`, `updated_at` |
 | `segments` | `memo_id`, `idx`, `bytes`, `sha256`, `received_at`: PK (`memo_id`, `idx`) |
 | `memo_steps` | `memo_id`, `step`, `status`, `started_at`, `finished_at`, `error`, `usage_json`, `cost_usd`: PK (`memo_id`, `step`), no `attempt` (a retry resets the row) |
 | `devices` | `device` (PK, the token-map name), `name` (display label), `platform` (ios/macos), `apns_token`, `apns_env` (sandbox/production), `push_to_start_token`, `last_seen_at`, `updated_at` |
 | `activity_tokens` | `memo_id` (PK, cascades), `token`, `updated_at` |
-| `threads` | `id` (PK, the Hermes session id), `kind` (chat/hermes), `title` (the first ~60 characters of the first transcript, whitespace collapsed), `created_at`, `updated_at`, `last_memo_id`. The destination names the thread in its `Delivery` (`thread: {id, kind, title}`; Hermes: the session id, `chat` or `hermes`, the first ~60 characters of the transcript); `act` persists what it gets, upserting the row and setting `memos.thread_id` in the transaction of `completeStep` (`patch.thread`; `thread_id` is an `act`-owned column). An existing thread keeps its kind and title and moves `updated_at` / `last_memo_id`. A retry from `act` clears `thread_id` until the re-run sets it again; the thread row stays. The migration backfilled one `hermes` thread per distinct `destination_ref` of an existing hermes memo. No HTTP endpoints yet (R3) |
+| `threads` | `id` (PK, the Hermes session id), `kind` (chat/hermes), `title` (the first ~60 characters of the first transcript, whitespace collapsed), `created_at`, `updated_at`, `last_memo_id`. The destination names the thread in its `Delivery` (`thread: {id, kind, title}`; Hermes: the session id, `chat` or `hermes`, the first ~60 characters of the transcript); `act` persists what it gets, upserting the row and setting `memos.thread_id` in the transaction of `completeStep` (`patch.thread`; `thread_id` is an `act`-owned column). An existing thread keeps its kind and title and moves `updated_at` / `last_memo_id`. A retry from `act` clears `thread_id` when it is the memo's own session (equal to the memo id) until the re-run sets it again, and keeps it for a memo created to continue a thread (its `thread_id` is never its own id: `continuedThread` in `memo.ts`); the thread row stays. The migration backfilled one `hermes` thread per distinct `destination_ref` of an existing hermes memo. `GET /v1/threads` and `/v1/threads/:id` read it (§HTTP API); the queries sit behind the `ThreadStore` port (`adapters/sqlite-threads.ts`, composed into the memo store) |
 | `route_decisions` | `id` (autoincrement), `memo_id` (cascades), `created_at`, `source` (mode/prefix/decide/default/answer/correction), `destination` (nullable), `tab`, `confidence`, `model`, `cost_usd`, `reason`, `outcome` (routed/needs_route). One row per route outcome, written in the transaction of the step's `completeStep`; read with `listRouteDecisions(memoId)`. `answer` (written with the `needs_route` → `routed` move, `memos.route` set in the same transaction) and `correction` (logged after `act`, the memo is untouched) rows come from `POST /v1/memos/:id/route` |
 
 A typed memo (Wave 11) needs no column: it is a `memos` row created in `transcribed` with `transcript` set and `segment_count` NULL, and has no `segments` or ingest/transcribe `memo_steps` rows.
 
-Planned for R3, not built: `memos.target_tab` / `language` / `route_source`, the threads endpoints,
+Planned for R3, not built: `memos.target_tab` / `language` / `route_source`,
 and a transcript FTS index. Device tokens are not stored: the token map lives in `IRIS_DEVICE_TOKENS`.
 
 ### HTTP API (`/v1`, bearer = device token; `/health` is public)
@@ -186,8 +186,8 @@ Shipped; the authoritative list is `contracts/manifest.json` and the table in `A
 |-|-|
 | `POST /v1/devices/register` | `{name, platform, apnsToken?, apnsEnv?, pushToStartToken?}`; upsert by the authenticated device |
 | `POST /v1/telemetry` | The client span/log relay (§8): `{resource: {serviceName: iris-ios\|iris-macos, deviceName, appVersion}, spans, logs, dropped}`. 202 `{accepted: {spans, logs}}`; 413 over 256 KiB; 400 for a schema violation, a timestamp that is not a date, or more than 500 spans and logs together; 503 when the relay is not wired. The records are exported in the background, so an unreachable collector never changes the answer |
-| `POST /v1/memos` | `{id, mode, startedAt}`, idempotent |
-| `POST /v1/memos/text` | `{id, mode, startedAt, text}`: a typed memo. `text` is trimmed, 1 to 20 000 characters, counted as Unicode code points (else 400). A missing or unknown `mode` is 400. Created directly in `transcribed` with `transcript = text` and driven from `route`: 202 + memo, on a replay too. Idempotent by id: the same body returns the memo, another body, another device or a recorded memo with that id is 409 `conflict` |
+| `POST /v1/memos` | `{id, mode, startedAt, threadId?}`, idempotent. `threadId` continues that thread (404 when unknown; see Threads below); a replay naming another thread is 409 |
+| `POST /v1/memos/text` | `{id, mode, startedAt, text, threadId?}`: a typed memo. `text` is trimmed, 1 to 20 000 characters, counted as Unicode code points (else 400). A missing or unknown `mode` is 400. Created directly in `transcribed` with `transcript = text` and driven from `route`: 202 + memo, on a replay too. Idempotent by id: the same body returns the memo, another body (a different `threadId` included), another device or a recorded memo with that id is 409 `conflict`; an unknown `threadId` is 404 |
 | `PUT /v1/memos/:id/segments/:n` | Raw m4a bytes, idempotent by `n` (same sha → 200, different → 409) |
 | `POST /v1/memos/:id/complete` | `{segmentCount}`. A 422 lists the missing indices |
 | `PUT /v1/memos/:id/activity-token` | The Live Activity push token for this memo (204) |
@@ -196,6 +196,8 @@ Shipped; the authoritative list is `contracts/manifest.json` and the table in `A
 | `GET /v1/memos?limit&cursor` | History, paged, newest first |
 | `GET /v1/memos/:id` | Memo + step timeline |
 | `GET /v1/memos/:id/result?wait=<s>` | Long-poll until result-ready (≤ 600 s) |
+| `GET /v1/threads?kind=chat\|hermes&limit&cursor` | `{items: Thread[], nextCursor}`, newest `updatedAt` first; `Thread = {id, kind, title, createdAt, updatedAt, lastMemoId}`. The cursor is the last row's `(updated_at, id)`, so it stays valid as threads are added or updated. A malformed cursor or unknown `kind` is 400 |
+| `GET /v1/threads/:id` | `{thread, memos, messages}`: the memos that ran in the thread (oldest first) and the conversation built from them, `messages: [{memoId, role: user\|assistant, content (markdown), createdAt}]`: per memo its `transcript` (`user`, dated by the memo's `createdAt`) and its `reply_text` (`assistant`, dated by the end of its `act` step; omitted while empty). Iris's own record: Hermes is not consulted, so the response never depends on it. Unknown thread 404 |
 | `GET /v1/memos/:id/audio` | The concatenated audio for the scrubber (`Range`) |
 | `GET /v1/memos/:id/speech` | TTS of `summary.spoken` (or `replyText`), cached as an mp3 |
 | `GET /v1/events` | SSE: `ready`, `memo.updated`, `memo.done` (for the Mac and the foreground iOS app) |
@@ -205,7 +207,9 @@ A separate route rather than a `text` field on `POST /v1/memos`: that route answ
 
 While a memo is `needs_route`, the memo shape carries `routeReason` (the latest decision's reason) and, on a low-confidence park, `routeSuggestion` (the model's best guess); both are omitted, never null, in every other state.
 
-**Planned, not built:** `GET /v1/threads` and `/threads/:id` (R3), `?q` transcript search, and the `targetTab` / `threadId` / `language`
+**Threads.** A thread is a Hermes session (`threads` row, `kind` `chat` for a chat, else `hermes`). `threadId` on either create route continues one: the service answers 404 for an unknown thread and 409 for a replay whose `threadId` differs (`continuedThread`: a memo's own session, equal to its id, is not a continuation). The memo is stored with that `thread_id`. The route step forces it to `hermes` (decision source `mode`, no decider call, whatever the mode or a spoken prefix says; a failure if Hermes is not registered), and `act` delivers into the thread's session (`Destination.deliver({threadId})`: the Hermes adapter skips the session create) with `chat` taken from the thread's kind, not the memo's mode, so every turn of a chat thread re-sends the no-side-effects `system_message`. The upsert moves the thread's `updated_at` and `last_memo_id` as for any `act`. The conversation is Iris's own data (`threadMessages` in `memo.ts`, built from the thread's memos in `seq` order); Hermes keeps its session but its transcript is never read, and a chat is tagged by `threads.kind`, not by Hermes's `source`.
+
+**Planned, not built:** `?q` transcript search, and the `targetTab` / `language`
 fields of `POST /v1/memos`.
 
 Every request and response body has a schema and a fixture in `contracts/`.
@@ -265,7 +269,7 @@ retries of transient errors are not built; recover with `POST /retry`.
 
    **Hermes rewrites unknown session sources.** `_normalize_session_source` in Hermes' `api_server` keeps only its own allow-list (`api_server`, `browser`, `cli`, `telegram`, `discord`, `slack`, `desktop`, `dashboard`) and maps anything else to `api_server`. Both `iris` and `iris-chat` are therefore stored as `api_server` on the Hermes side: a chat is not visible there. `threads.kind` in Iris's own database is the marker. The values are still sent, which works unchanged if Hermes widens its list.
 
-   **R3, not built:** continuing an existing thread (a reply by voice or text into it). It needs a caller that supplies the session id to `Destination.deliver` and the Hermes adapter to open that session instead of the memo's own; the port carries no `threadId` until then.
+   **Continuing a thread** (shipped, see Threads under the HTTP API): `Destination.deliver` takes `threadId`; the Hermes adapter then uses that session as it is (no `POST /api/sessions`) and goes straight to `chat/stream`.
 5. **summarize:** agw `triage` with the schema
    `{headline (≤60), detail (≤240), spoken (≤2 sentences)}` over the
    destination, transcript excerpt and reply. Journal and herdr skip the model

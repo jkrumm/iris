@@ -6,6 +6,7 @@ import { log } from "../telemetry/log.js";
 import { MemoError } from "./errors.js";
 import { memoEvent, type MemoEvents, type MemoListener } from "./events.js";
 import {
+  continuedThread,
   isCorrectable,
   isResultReady,
   isTyped,
@@ -14,6 +15,10 @@ import {
   type MemoMode,
   type Step,
   type StepRecord,
+  type Thread,
+  type ThreadKind,
+  type ThreadMessage,
+  threadMessages,
 } from "./memo.js";
 import type { Runner } from "./runner.js";
 import type { AnswerDecision, MemoStore } from "./store.js";
@@ -25,10 +30,25 @@ export interface MemoDetail {
   segmentCount: number;
 }
 
+export interface ThreadDetail {
+  thread: Thread;
+  /** The memos that ran in the thread, oldest first. */
+  memos: Memo[];
+  /** The conversation built from those memos' transcripts and replies. */
+  messages: ThreadMessage[];
+}
+
 export interface MemoService {
   /** The per-segment byte cap; the HTTP layer enforces it while streaming the body in. */
   readonly maxSegmentBytes: number;
-  createMemo(params: { id: string; mode: MemoMode; device: string; startedAt: string }): {
+  createMemo(params: {
+    id: string;
+    mode: MemoMode;
+    device: string;
+    startedAt: string;
+    /** Continues this thread (404 when unknown): the memo is delivered into its Hermes session. */
+    threadId?: string | undefined;
+  }): {
     memo: Memo;
     created: boolean;
   };
@@ -42,6 +62,7 @@ export interface MemoService {
     device: string;
     startedAt: string;
     text: string;
+    threadId?: string | undefined;
   }): { memo: Memo; created: boolean };
   putSegment(params: { id: string; index: number; bytes: Uint8Array }): Promise<void>;
   complete(params: { id: string; segmentCount: number }): Memo;
@@ -60,6 +81,14 @@ export interface MemoService {
     memos: Memo[];
     nextCursor: string | null;
   };
+  /** Newest `updated_at` first; the same limit and cursor rules as `list`. */
+  listThreads(params: {
+    kind?: ThreadKind | undefined;
+    limit?: number;
+    cursor?: string | null | undefined;
+  }): { threads: Thread[]; nextCursor: string | null };
+  /** The thread, its memos and the conversation they make up (Iris's own record, no downstream read); 404 when unknown. */
+  getThread(id: string): ThreadDetail;
   /** `ready: false` means the wait timed out or was aborted; `memo` is then the current state. */
   waitForResult(params: {
     id: string;
@@ -98,6 +127,12 @@ function assertSameSegment(params: {
   throw new MemoError("conflict", `segment ${index} of ${id} already holds other bytes`);
 }
 
+/** A replay must name the thread the memo was created in (or none, for a memo that continues none). */
+function assertSameThread(memo: Memo, threadId: string | undefined) {
+  if (continuedThread(memo) === (threadId ?? null)) return;
+  throw new MemoError("conflict", `memo ${memo.id} already exists with another thread`);
+}
+
 export function createMemoService(deps: {
   store: MemoStore;
   runner: Runner;
@@ -121,6 +156,13 @@ export function createMemoService(deps: {
     }
   };
 
+  /** A thread to continue must exist. A replay of an existing memo is judged by its stored thread instead (`assertSameThread`). */
+  const assertThreadExists = (params: { id: string; threadId: string | undefined }) => {
+    const { id, threadId } = params;
+    if (threadId === undefined || store.getMemo(id) || store.getThread(threadId)) return;
+    throw new MemoError("not_found", `thread ${threadId} not found`);
+  };
+
   const drive = (id: string) =>
     runner
       .drive(id)
@@ -135,24 +177,26 @@ export function createMemoService(deps: {
   return {
     maxSegmentBytes,
 
-    createMemo({ id, mode, device, startedAt }) {
+    createMemo({ id, mode, device, startedAt, threadId }) {
       if (!UUID.test(id)) throw new MemoError("bad_request", "id must be a UUID");
       if (!MEMO_MODES.includes(mode)) throw new MemoError("bad_request", `unknown mode ${mode}`);
       if (Number.isNaN(Date.parse(startedAt))) {
         throw new MemoError("bad_request", "startedAt must be an ISO timestamp");
       }
-      const result = store.createMemo({ id, mode, device, startedAt });
+      assertThreadExists({ id, threadId });
+      const result = store.createMemo({ id, mode, device, startedAt, threadId });
       if (!result.created) {
         if (result.memo.device !== device) {
           throw new MemoError("conflict", `memo ${id} belongs to another device`);
         }
+        assertSameThread(result.memo, threadId);
         return result;
       }
       events.publish(memoEvent({ memo: result.memo, step: null, clock }));
       return result;
     },
 
-    createTextMemo({ id, mode, device, startedAt, text }) {
+    createTextMemo({ id, mode, device, startedAt, text, threadId }) {
       if (!UUID.test(id)) throw new MemoError("bad_request", "id must be a UUID");
       if (!MEMO_MODES.includes(mode)) throw new MemoError("bad_request", `unknown mode ${mode}`);
       if (Number.isNaN(Date.parse(startedAt))) {
@@ -163,7 +207,8 @@ export function createMemoService(deps: {
       if ([...trimmed].length > MAX_TEXT_CHARS) {
         throw new MemoError("bad_request", `text exceeds ${MAX_TEXT_CHARS} characters`);
       }
-      const result = store.createTextMemo({ id, mode, device, startedAt, text: trimmed });
+      assertThreadExists({ id, threadId });
+      const result = store.createTextMemo({ id, mode, device, startedAt, text: trimmed, threadId });
       if (!result.created) {
         const { memo } = result;
         if (memo.device !== device) {
@@ -173,7 +218,8 @@ export function createMemoService(deps: {
           isTyped(memo) &&
           memo.mode === mode &&
           memo.startedAt === startedAt &&
-          memo.transcript === trimmed;
+          memo.transcript === trimmed &&
+          continuedThread(memo) === (threadId ?? null);
         if (!same) throw new MemoError("conflict", `memo ${id} already exists with another body`);
         return result;
       }
@@ -300,6 +346,29 @@ export function createMemoService(deps: {
         limit: Math.min(Math.max(Math.floor(limit), 1), MAX_LIMIT),
         cursor,
       });
+    },
+
+    listThreads({ kind, limit = DEFAULT_LIMIT, cursor }) {
+      return store.listThreads({
+        kind,
+        limit: Math.min(Math.max(Math.floor(limit), 1), MAX_LIMIT),
+        cursor,
+      });
+    },
+
+    getThread(id) {
+      const thread = store.getThread(id);
+      if (!thread) throw new MemoError("not_found", `thread ${id} not found`);
+      const memos = store.listThreadMemos(id);
+      const messages = threadMessages(
+        memos.map((memo) => ({
+          memo,
+          repliedAt:
+            store.listStepRecords(memo.id).find((r) => r.step === "act" && r.status === "done")
+              ?.finishedAt ?? null,
+        })),
+      );
+      return { thread, memos, messages };
     },
 
     waitForResult({ id, waitSeconds, signal }) {

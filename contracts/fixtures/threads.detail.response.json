@@ -1,0 +1,85 @@
+{
+  "thread": {
+    "id": "9d4f2b68-1e73-4a85-b0c6-5f8a3e7d2c10",
+    "kind": "chat",
+    "title": "Was ist der Unterschied zwischen einem Mutex und…",
+    "createdAt": "2026-03-14T09:21:12.190Z",
+    "updatedAt": "2026-03-14T10:07:44.310Z",
+    "lastMemoId": "5a3c8e21-7b94-4f06-a1d8-2e6b9c4f0a73"
+  },
+  "memos": [
+    {
+      "id": "9d4f2b68-1e73-4a85-b0c6-5f8a3e7d2c10",
+      "mode": "chat",
+      "device": "iphone",
+      "startedAt": "2026-03-14T09:20:41.000Z",
+      "state": "notified",
+      "failedStep": null,
+      "error": null,
+      "segmentCount": 4,
+      "audioSeconds": 38.4,
+      "transcript": "Was ist der Unterschied zwischen einem Mutex und einem Semaphor?",
+      "route": "hermes",
+      "destinationRef": "9d4f2b68-1e73-4a85-b0c6-5f8a3e7d2c10",
+      "replyText": "Ein **Mutex** schützt eine Ressource für genau einen Halter.\n\nEin **Semaphor** zählt freie Plätze und lässt mehrere gleichzeitig hinein.",
+      "summary": {
+        "headline": "Mutex gegen Semaphor erklärt",
+        "detail": "Ein Mutex schützt eine Ressource für genau einen Halter, ein Semaphor zählt freie Plätze und lässt mehrere gle",
+        "spoken": "Ein Mutex hat einen Halter, ein Semaphor zählt freie Plätze."
+      },
+      "threadId": "9d4f2b68-1e73-4a85-b0c6-5f8a3e7d2c10",
+      "createdAt": "2026-03-14T09:20:41.000Z",
+      "updatedAt": "2026-03-14T09:21:19.870Z"
+    },
+    {
+      "id": "5a3c8e21-7b94-4f06-a1d8-2e6b9c4f0a73",
+      "mode": "chat",
+      "device": "iphone",
+      "startedAt": "2026-03-14T10:07:20.000Z",
+      "state": "notified",
+      "failedStep": null,
+      "error": null,
+      "segmentCount": null,
+      "audioSeconds": null,
+      "transcript": "Und wann nehme ich welchen?",
+      "route": "hermes",
+      "destinationRef": "9d4f2b68-1e73-4a85-b0c6-5f8a3e7d2c10",
+      "replyText": "Ein Mutex für gegenseitigen Ausschluss, ein Semaphor, wenn du die Zahl gleichzeitiger Zugriffe begrenzen willst.",
+      "summary": {
+        "headline": "Mutex gegen Semaphor erklärt",
+        "detail": "Ein Mutex für gegenseitigen Ausschluss, ein Semaphor, wenn du die Zahl gleichzeitiger Zugriffe begrenzen wills",
+        "spoken": "Ein Mutex hat einen Halter, ein Semaphor zählt freie Plätze."
+      },
+      "threadId": "9d4f2b68-1e73-4a85-b0c6-5f8a3e7d2c10",
+      "typed": true,
+      "createdAt": "2026-03-14T10:07:20.000Z",
+      "updatedAt": "2026-03-14T10:07:44.310Z"
+    }
+  ],
+  "messages": [
+    {
+      "memoId": "9d4f2b68-1e73-4a85-b0c6-5f8a3e7d2c10",
+      "role": "user",
+      "content": "Was ist der Unterschied zwischen einem Mutex und einem Semaphor?",
+      "createdAt": "2026-03-14T09:20:41.000Z"
+    },
+    {
+      "memoId": "9d4f2b68-1e73-4a85-b0c6-5f8a3e7d2c10",
+      "role": "assistant",
+      "content": "Ein **Mutex** schützt eine Ressource für genau einen Halter.\n\nEin **Semaphor** zählt freie Plätze und lässt mehrere gleichzeitig hinein.",
+      "createdAt": "2026-03-14T09:21:12.190Z"
+    },
+    {
+      "memoId": "5a3c8e21-7b94-4f06-a1d8-2e6b9c4f0a73",
+      "role": "user",
+      "content": "Und wann nehme ich welchen?",
+      "createdAt": "2026-03-14T10:07:20.000Z"
+    },
+    {
+      "memoId": "5a3c8e21-7b94-4f06-a1d8-2e6b9c4f0a73",
+      "role": "assistant",
+      "content": "Ein Mutex für gegenseitigen Ausschluss, ein Semaphor, wenn du die Zahl gleichzeitiger Zugriffe begrenzen willst.",
+      "createdAt": "2026-03-14T10:07:44.100Z"
+    }
+  ]
+}

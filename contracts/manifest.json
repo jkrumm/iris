@@ -49,6 +49,10 @@
           "mediaType": "application/json",
           "schema": "error"
         },
+        "404": {
+          "mediaType": "application/json",
+          "schema": "error"
+        },
         "409": {
           "mediaType": "application/json",
           "schema": "error"
@@ -69,6 +73,10 @@
           "schema": "memos.text.response"
         },
         "400": {
+          "mediaType": "application/json",
+          "schema": "error"
+        },
+        "404": {
           "mediaType": "application/json",
           "schema": "error"
         },
@@ -242,6 +250,37 @@
         "202": {
           "mediaType": "application/json",
           "schema": "memos.result.response"
+        },
+        "404": {
+          "mediaType": "application/json",
+          "schema": "error"
+        }
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/v1/threads",
+      "auth": "bearer",
+      "query": "threads.list.query",
+      "responses": {
+        "200": {
+          "mediaType": "application/json",
+          "schema": "threads.list.response"
+        },
+        "400": {
+          "mediaType": "application/json",
+          "schema": "error"
+        }
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/v1/threads/:id",
+      "auth": "bearer",
+      "responses": {
+        "200": {
+          "mediaType": "application/json",
+          "schema": "threads.detail.response"
         },
         "404": {
           "mediaType": "application/json",

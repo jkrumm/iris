@@ -48,6 +48,9 @@ let fixtureTypes: [String: RoundTrip] = [
   "memos.route.request": roundTrip(RouteRequest.self),
   "memos.route.response": roundTrip(Memo.self),
   "push.alert": roundTrip(PushAlert.self),
+  "threads.detail.response": roundTrip(ThreadDetail.self),
+  "threads.list.query": roundTrip(ListThreadsQuery.self),
+  "threads.list.response": roundTrip(ThreadPage.self),
   "whoami.response": roundTrip(Whoami.self),
 ]
 
@@ -162,6 +165,35 @@ struct FixtureConformanceTests {
     #expect(plain.threadId == nil)
     let encoded = String(decoding: try IrisJSON.makeEncoder().encode(plain), as: UTF8.self)
     #expect(!encoded.contains("threadId"))
+  }
+
+  @Test("`threadId` on a create request continues a thread; the thread detail is the conversation of its memos")
+  func threads() throws {
+    let decoder = IrisJSON.makeDecoder()
+    let create = try decoder.decode(CreateMemoRequest.self, from: Contracts.fixtureData("memos.create.request.thread"))
+    #expect(create.threadId == "9d4f2b68-1e73-4a85-b0c6-5f8a3e7d2c10")
+    let text = try decoder.decode(CreateTextMemoRequest.self, from: Contracts.fixtureData("memos.text.request.thread"))
+    #expect(text.threadId == create.threadId)
+    let plain = try decoder.decode(CreateMemoRequest.self, from: Contracts.fixtureData("memos.create.request"))
+    #expect(plain.threadId == nil)
+    let encoded = String(decoding: try IrisJSON.makeEncoder().encode(plain), as: UTF8.self)
+    #expect(!encoded.contains("threadId"))
+
+    let detail = try decoder.decode(ThreadDetail.self, from: Contracts.fixtureData("threads.detail.response"))
+    #expect(detail.thread.kind == .chat)
+    #expect(detail.memos.map(\.threadId) == [detail.id, detail.id])
+    #expect(detail.messages.map(\.role) == [.user, .assistant, .user, .assistant])
+    #expect(detail.messages.map(\.memoId) == detail.memos.flatMap { [$0.id, $0.id] })
+  }
+
+  @Test("A thread kind this build does not know decodes with .unknown and keeps the rest of the page")
+  func unknownThreadKind() throws {
+    let original = String(decoding: try Contracts.fixtureData("threads.list.response"), as: UTF8.self)
+    let patched = original.replacingOccurrences(of: "\"kind\": \"chat\"", with: "\"kind\": \"voice\"")
+    #expect(patched != original)
+    let page = try IrisJSON.makeDecoder().decode(ThreadPage.self, from: Data(patched.utf8))
+    #expect(page.items.map(\.kind) == [.unknown, .hermes])
+    #expect(!ThreadKind.allCases.contains(.unknown))
   }
 
   @Test("A memo with a mode this build does not know decodes with .unknown and keeps the rest of the page")

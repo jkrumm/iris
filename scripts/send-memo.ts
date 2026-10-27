@@ -3,6 +3,7 @@
  * End-to-end harness: splits an audio file into 10 s m4a segments and drives the /v1 HTTP API
  * exactly like the phone does (create, upload segments, complete, long-poll the result).
  * `--text "<text>"` sends a typed memo instead (POST /v1/memos/text, no audio file).
+ * `--thread <id>` continues that thread (a Hermes session) instead of starting one.
  *
  *   IRIS_TOKEN=<device-token> bun scripts/send-memo.ts <audio-file> [--url ..] [--mode auto]
  *   IRIS_TOKEN=<device-token> bun scripts/send-memo.ts --text "kauf Milch" [--url ..] [--mode auto]
@@ -32,6 +33,7 @@ export interface Options {
   token: string;
   mode: Mode;
   waitSeconds: number;
+  threadId?: string;
 }
 
 const out = (text: string) => process.stdout.write(`${text}\n`);
@@ -50,7 +52,7 @@ class ApiError extends Error {
 }
 
 export const USAGE = `usage: IRIS_TOKEN=<token> bun scripts/send-memo.ts <audio-file> | --text "<text>"
-  [--url <base>] [--token <token>] [--mode auto|journal|hermes|tab|chat] [--wait <seconds>]
+  [--url <base>] [--token <token>] [--mode auto|journal|hermes|tab|chat] [--wait <seconds>] [--thread <id>]
   env: IRIS_URL (default ${DEFAULT_URL}), IRIS_TOKEN (required)`;
 
 function parseSource(params: { text: string | undefined; positionals: string[] }): Source {
@@ -77,6 +79,7 @@ export function parseCliArgs(argv: string[], env: Record<string, string | undefi
         mode: { type: "string" },
         wait: { type: "string" },
         text: { type: "string" },
+        thread: { type: "string" },
       },
     });
   } catch (error) {
@@ -99,7 +102,17 @@ export function parseCliArgs(argv: string[], env: Record<string, string | undefi
   }
 
   const url = (values.url ?? env["IRIS_URL"] ?? DEFAULT_URL).replace(/\/+$/, "");
-  return { source, url, token, mode: mode as Mode, waitSeconds };
+  if (values.thread !== undefined && values.thread === "") {
+    throw new UsageError("--thread must not be empty");
+  }
+  return {
+    source,
+    url,
+    token,
+    mode: mode as Mode,
+    waitSeconds,
+    ...(values.thread !== undefined && { threadId: values.thread }),
+  };
 }
 
 const segmentIndex = (name: string) => Number(/^seg(\d+)\.m4a$/.exec(name)?.[1] ?? Number.NaN);
@@ -328,6 +341,7 @@ async function submitRecording(options: Options, file: string, dir: string): Pro
     id,
     mode: options.mode,
     startedAt: new Date().toISOString(),
+    ...(options.threadId !== undefined && { threadId: options.threadId }),
   });
   await uploadSegments({ options, id, files, indices: files.map((_, n) => n) });
   await complete({ options, id, files });
@@ -343,6 +357,7 @@ async function submitText(options: Options, text: string): Promise<string> {
     mode: options.mode,
     startedAt: new Date().toISOString(),
     text,
+    ...(options.threadId !== undefined && { threadId: options.threadId }),
   });
   return id;
 }

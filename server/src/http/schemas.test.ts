@@ -3,7 +3,7 @@ import * as schemas from "./schemas.js";
 
 // The next worker exports these to JSON Schema, so no node may carry a Transform or a codec.
 // `t.Numeric` (query strings) is the one deliberate exception, listed here.
-const QUERY_SCHEMAS = new Set(["ListQuery", "ResultQuery"]);
+const QUERY_SCHEMAS = new Set(["ListQuery", "ResultQuery", "ThreadListQuery"]);
 
 function transformPaths(node: unknown, path: string): string[] {
   if (node === null || typeof node !== "object") return [];
@@ -32,6 +32,10 @@ describe("schemas", () => {
       "RegisterDeviceBody",
       "Device",
       "ActivityTokenBody",
+      "Thread",
+      "ThreadList",
+      "ThreadDetail",
+      "ThreadListQuery",
       "HerdResponse",
       "ErrorBody",
       "MissingSegmentsError",

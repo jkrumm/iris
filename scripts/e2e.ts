@@ -189,6 +189,7 @@ async function probeTyped(base: string) {
 }
 
 interface TypedMemo {
+  id: string;
   mode: string;
   state: string;
   route: string | null;
@@ -198,7 +199,12 @@ interface TypedMemo {
 }
 
 /** Sends `text` as a typed memo in `mode`, requires `notified`, and returns the memo it created. */
-async function sendTyped(base: string, text: string, mode: string): Promise<TypedMemo> {
+async function sendTyped(
+  base: string,
+  text: string,
+  mode: string,
+  threadId?: string,
+): Promise<TypedMemo> {
   const send = Bun.spawn(
     [
       "bun",
@@ -211,6 +217,7 @@ async function sendTyped(base: string, text: string, mode: string): Promise<Type
       TOKEN,
       "--mode",
       mode,
+      ...(threadId ? ["--thread", threadId] : []),
     ],
     { cwd: ROOT, stdout: "ignore", stderr: "ignore" },
   );
@@ -270,11 +277,82 @@ async function probeChat(base: string) {
   );
   assert(memo.mode === "chat", `chat memo keeps mode chat (got ${memo.mode})`);
   assert(memo.route === "hermes", `chat memo routes to hermes (got ${memo.route})`);
+  const { threadId } = memo;
   assert(
-    typeof memo.threadId === "string" && memo.threadId !== "",
-    `chat memo carries a threadId (got ${memo.threadId})`,
+    typeof threadId === "string" && threadId !== "",
+    `chat memo carries a threadId (got ${threadId})`,
   );
   out("e2e: chat memo ok");
+  await probeThreads(base, threadId);
+}
+
+interface ThreadWire {
+  id: string;
+  kind: string;
+  lastMemoId: string | null;
+}
+
+/** Continues the chat memo's thread, then lists the threads and reads this one back with the conversation Iris recorded. */
+async function probeThreads(base: string, threadId: string) {
+  const continued = await sendTyped(base, "Und wann nehme ich welchen?", "chat", threadId);
+  assert(
+    continued.threadId === threadId,
+    `the reply stays in the thread (got ${continued.threadId})`,
+  );
+  assert(continued.route === "hermes", `a thread reply routes to hermes (got ${continued.route})`);
+
+  const call = (path: string) =>
+    fetch(`${base}/v1${path}`, { headers: { authorization: `Bearer ${TOKEN}` } });
+  const list = (await (await call("/threads?kind=chat")).json()) as {
+    items: ThreadWire[];
+    nextCursor: string | null;
+  };
+  const listed = list.items.find((t) => t.id === threadId);
+  assert(listed, `GET /threads?kind=chat lists the thread (got ${JSON.stringify(list.items)})`);
+  assert(listed.kind === "chat", `the thread is a chat (got ${listed.kind})`);
+  assert(list.items[0]?.id === threadId, "the continued thread is the newest update");
+
+  const lastMemo = (await (await call("/memos?limit=1")).json()) as { items: { id: string }[] };
+  assert(
+    listed.lastMemoId === lastMemo.items[0]?.id,
+    `the thread's last memo is the reply (got ${listed.lastMemoId})`,
+  );
+
+  const detailRes = await call(`/threads/${threadId}`);
+  assert(detailRes.status === 200, `GET /threads/:id is 200 (got ${detailRes.status})`);
+  const detail = (await detailRes.json()) as {
+    thread: ThreadWire;
+    memos: { id: string; threadId: string }[];
+    messages: { memoId: string; role: string; content: string; createdAt: string }[];
+  };
+  assert(detail.memos.length === 2, `two memos ran in the thread (got ${detail.memos.length})`);
+  assert(
+    detail.memos.every((m) => m.threadId === threadId),
+    "every memo carries the thread id",
+  );
+  const roles = detail.messages.map((m) => m.role).join(",");
+  assert(
+    roles === "user,assistant,user,assistant",
+    `the conversation has both turns (got ${roles})`,
+  );
+  assert(
+    detail.messages[2]?.content === "Und wann nehme ich welchen?",
+    "the reply is the third message",
+  );
+  assert(detail.messages[3]?.content === "done", "the reply carries the assistant's answer");
+  assert(
+    detail.messages.map((m) => m.memoId).join() ===
+      [threadId, threadId, continued.id, continued.id].join(),
+    "each message names its memo",
+  );
+  assert(
+    detail.messages.every((m) => m.createdAt),
+    "each message is dated",
+  );
+
+  const missing = await call("/threads/does-not-exist");
+  assert(missing.status === 404, `an unknown thread is 404 (got ${missing.status})`);
+  out("e2e: threads ok");
 }
 
 async function main() {

@@ -286,3 +286,37 @@ describe("hermes destination", () => {
     await expect(deliver(destination)).rejects.toThrow("hermes did not respond within 30 ms");
   });
 });
+
+describe("hermes destination, continuing a thread", () => {
+  const THREAD = "b6d2e8a4-3f91-4c07-9a52-7e1d0c4f8b63";
+
+  it("chats into the thread's session without creating one", async () => {
+    const { calls, destination } = fakeHermes({ chat: () => sseResponse([completed("ok"), done]) });
+    const delivery = await destination.deliver({
+      memoId: MEMO_ID,
+      transcript: "and then?",
+      threadId: THREAD,
+    });
+    expect(calls.map((c) => c.url)).toEqual([
+      `http://127.0.0.1:1234/api/sessions/${THREAD}/chat/stream`,
+    ]);
+    expect(JSON.parse(String(calls[0]?.init.body))).toEqual({ message: "and then?" });
+    expect(delivery).toMatchObject({ ref: THREAD, thread: { id: THREAD, kind: "hermes" } });
+  });
+
+  it("sends the no-side-effects instruction again on every turn of a chat thread", async () => {
+    const { calls, destination } = fakeHermes({ chat: () => sseResponse([completed("ok"), done]) });
+    const delivery = await destination.deliver({
+      memoId: MEMO_ID,
+      transcript: "and then?",
+      chat: true,
+      threadId: THREAD,
+    });
+    expect(calls).toHaveLength(1);
+    expect(JSON.parse(String(calls[0]?.init.body))).toEqual({
+      message: "and then?",
+      system_message: CHAT_SYSTEM_MESSAGE,
+    });
+    expect(delivery.thread?.kind).toBe("chat");
+  });
+});

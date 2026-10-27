@@ -1,0 +1,276 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "memos": {
+      "items": {
+        "properties": {
+          "audioSeconds": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "destinationRef": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "device": {
+            "type": "string"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "failedStep": {
+            "anyOf": [
+              {
+                "enum": [
+                  "ingest",
+                  "transcribe",
+                  "route",
+                  "act",
+                  "summarize",
+                  "notify"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "mode": {
+            "enum": [
+              "auto",
+              "journal",
+              "hermes",
+              "tab",
+              "chat"
+            ],
+            "type": "string"
+          },
+          "replyText": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "route": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "routeReason": {
+            "type": "string"
+          },
+          "routeSuggestion": {
+            "type": "string"
+          },
+          "segmentCount": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "startedAt": {
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "receiving",
+              "received",
+              "transcribed",
+              "routed",
+              "needs_route",
+              "acted",
+              "summarized",
+              "notified",
+              "failed"
+            ],
+            "type": "string"
+          },
+          "summary": {
+            "anyOf": [
+              {
+                "properties": {
+                  "detail": {
+                    "type": "string"
+                  },
+                  "headline": {
+                    "type": "string"
+                  },
+                  "spoken": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "headline",
+                  "detail",
+                  "spoken"
+                ],
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "threadId": {
+            "type": "string"
+          },
+          "transcript": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "typed": {
+            "const": true,
+            "type": "boolean"
+          },
+          "updatedAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "mode",
+          "device",
+          "startedAt",
+          "state",
+          "failedStep",
+          "error",
+          "segmentCount",
+          "audioSeconds",
+          "transcript",
+          "route",
+          "destinationRef",
+          "replyText",
+          "summary",
+          "createdAt",
+          "updatedAt"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "messages": {
+      "items": {
+        "properties": {
+          "content": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "memoId": {
+            "type": "string"
+          },
+          "role": {
+            "enum": [
+              "user",
+              "assistant"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "memoId",
+          "role",
+          "content",
+          "createdAt"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "thread": {
+      "properties": {
+        "createdAt": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "chat",
+            "hermes"
+          ],
+          "type": "string"
+        },
+        "lastMemoId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "title": {
+          "type": "string"
+        },
+        "updatedAt": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "title",
+        "createdAt",
+        "updatedAt",
+        "lastMemoId"
+      ],
+      "type": "object"
+    }
+  },
+  "required": [
+    "thread",
+    "memos",
+    "messages"
+  ],
+  "title": "threads.detail.response",
+  "type": "object"
+}

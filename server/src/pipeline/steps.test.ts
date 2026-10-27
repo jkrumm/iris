@@ -26,7 +26,7 @@ function setup(
     notifier?: ReturnType<typeof fakeNotifier>;
   } = {},
 ) {
-  const { store, clock } = testStore();
+  const { store, clock, db } = testStore();
   const audio = fakeAudio();
   const transcriber = options.transcriber ?? fakeTranscriber({ result: { costUsd: 0.02 } });
   const destination =
@@ -48,7 +48,18 @@ function setup(
   });
   const events = createMemoEvents();
   const runner = createRunner({ store, handlers, events, clock });
-  return { store, audio, handlers, runner, events, transcriber, destination, summarizer, notifier };
+  return {
+    store,
+    db,
+    audio,
+    handlers,
+    runner,
+    events,
+    transcriber,
+    destination,
+    summarizer,
+    notifier,
+  };
 }
 
 function seedWithSegments(store: ReturnType<typeof testStore>["store"], indices: number[]) {
@@ -838,5 +849,84 @@ describe("herdr act", () => {
     const { id } = seedWithSegments(store, [0]);
     await runner.drive(id);
     expect(store.getMemo(id)).toMatchObject({ state: "failed", failedStep: "act" });
+  });
+});
+
+describe("a memo that continues a thread", () => {
+  const THREAD = "0b1f6c52-4a7d-4e90-8c13-9d2a5e7f1b34";
+
+  /** A text memo created in `thread`, with the thread row the earlier turn left behind. */
+  function continuing(
+    kind: "chat" | "hermes",
+    overrides: { mode?: "chat" | "auto"; setup?: Parameters<typeof setup>[0] } = {},
+  ) {
+    const ctx = setup(overrides.setup);
+    ctx.db
+      .query(
+        "INSERT INTO threads (id, kind, title, created_at, updated_at) VALUES (?, ?, 'earlier', 'c', 'u')",
+      )
+      .run(THREAD, kind);
+    const { memo } = ctx.store.createTextMemo({
+      id: crypto.randomUUID(),
+      mode: overrides.mode ?? "auto",
+      device: "iphone",
+      startedAt: "2026-01-01T00:00:00.000Z",
+      text: "and then?",
+      threadId: THREAD,
+    });
+    return { ...ctx, memo: { ...memo, route: "hermes" } };
+  }
+
+  it("routes to hermes without asking the decider, whatever the mode", async () => {
+    const decider = fakeDecider();
+    const { handlers, memo } = continuing("hermes", { setup: { decider } });
+    const result = await handlers.route?.({ memo });
+    expect(result?.outcome).toBeUndefined();
+    expect(result?.patch).toMatchObject({
+      route: "hermes",
+      routeDecision: { source: "mode", destination: "hermes", outcome: "routed" },
+    });
+    expect(decider.calls).toEqual([]);
+  });
+
+  it("fails the route when hermes is not registered", async () => {
+    const journal = fakeDestination({ threads: false });
+    const { handlers, memo } = continuing("hermes", { setup: { destinations: { journal } } });
+    await expect(handlers.route?.({ memo })).rejects.toThrow("not registered");
+  });
+
+  it("delivers into the thread's session and sends the chat instruction again in a chat thread", async () => {
+    const { handlers, destination, memo } = continuing("chat");
+    const result = await handlers.act?.({ memo });
+    expect(destination.calls).toEqual([
+      { memoId: memo.id, transcript: "and then?", chat: true, threadId: THREAD },
+    ]);
+    expect(result?.patch).toMatchObject({
+      destinationRef: THREAD,
+      thread: { id: THREAD, kind: "chat" },
+    });
+  });
+
+  it("is no chat in a hermes thread, even when the memo's mode says chat", async () => {
+    const { handlers, destination, memo } = continuing("hermes", { mode: "chat" });
+    await handlers.act?.({ memo });
+    expect(destination.calls).toEqual([
+      { memoId: memo.id, transcript: "and then?", threadId: THREAD },
+    ]);
+  });
+
+  it("does not send the thread to a destination that keeps none", async () => {
+    const journal = fakeDestination({ threads: false, result: { ref: "note.md", replyText: "" } });
+    const ctx = setup({ destinations: { hermes: fakeDestination(), journal } });
+    const { memo } = ctx.store.createTextMemo({
+      id: crypto.randomUUID(),
+      mode: "auto",
+      device: "iphone",
+      startedAt: "2026-01-01T00:00:00.000Z",
+      text: "heute",
+      threadId: THREAD,
+    });
+    await ctx.handlers.act?.({ memo: { ...memo, route: "journal" } });
+    expect(journal.calls).toEqual([{ memoId: memo.id, transcript: "heute" }]);
   });
 });

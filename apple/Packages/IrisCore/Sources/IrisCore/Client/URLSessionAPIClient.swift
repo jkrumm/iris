@@ -59,6 +59,14 @@ public struct URLSessionAPIClient: APIClient {
     try await decode(MemoDetail.self, from: makeRequest("GET", ["v1", "memos", id]))
   }
 
+  public func listThreads(_ query: ListThreadsQuery) async throws -> ThreadPage {
+    try await decode(ThreadPage.self, from: makeRequest("GET", ["v1", "threads"], query: query.queryItems))
+  }
+
+  public func thread(id: String) async throws -> ThreadDetail {
+    try await decode(ThreadDetail.self, from: makeRequest("GET", ["v1", "threads", id]))
+  }
+
   public func result(id: String, query: MemoResultQuery) async throws -> MemoResult {
     var request = try makeRequest("GET", ["v1", "memos", id, "result"], query: query.queryItems)
     // The server holds the request for up to `wait` seconds; the idle timeout must outlast that.

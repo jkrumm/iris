@@ -62,6 +62,72 @@ struct FakeAPIClientTests {
     }
   }
 
+  private func seededThread(_ fake: FakeAPIClient, id: String = "t1", kind: ThreadKind = .chat) async -> MemoThread {
+    let thread = MemoThread(id: id, kind: kind, title: "earlier", createdAt: started, updatedAt: started)
+    await fake.seed(ThreadDetail(thread: thread, memos: [], messages: []))
+    return thread
+  }
+
+  @Test("A memo that continues a thread files itself there and moves the thread; an unknown thread is a 404")
+  func continuesThread() async throws {
+    let fake = FakeAPIClient(now: { Date(timeIntervalSince1970: 1_773_480_100) })
+    await #expect(throws: APIError.self) {
+      try await fake.createTextMemo(
+        CreateTextMemoRequest(id: "m1", mode: .chat, startedAt: started, text: "hi", threadId: "nope"))
+    }
+    #expect(await fake.memos["m1"] == nil)
+
+    _ = await seededThread(fake)
+    let memo = try await fake.createTextMemo(
+      CreateTextMemoRequest(id: "m1", mode: .chat, startedAt: started, text: "hi", threadId: "t1"))
+    #expect(memo.threadId == "t1")
+    let detail = try await fake.thread(id: "t1")
+    #expect(detail.memos.map(\.id) == ["m1"])
+    #expect(detail.messages.map(\.memoId) == ["m1"])
+    #expect(detail.messages.map(\.content) == ["hi"])
+    #expect(detail.thread.lastMemoId == "m1")
+    #expect(detail.thread.updatedAt == Date(timeIntervalSince1970: 1_773_480_100))
+
+    let recorded = try await fake.createMemo(
+      CreateMemoRequest(id: "m2", mode: .chat, startedAt: started, threadId: "t1"))
+    #expect(recorded.threadId == "t1")
+    #expect(try await fake.thread(id: "t1").memos.map(\.id) == ["m1", "m2"])
+  }
+
+  @Test("A replay with another thread is a 409")
+  func replayWithAnotherThread() async throws {
+    let fake = FakeAPIClient()
+    _ = await seededThread(fake)
+    _ = await seededThread(fake, id: "t2")
+    let request = CreateMemoRequest(id: "m1", mode: .chat, startedAt: started, threadId: "t1")
+    let first = try await fake.createMemo(request)
+    #expect(try await fake.createMemo(request) == first)
+
+    var other = request
+    other.threadId = "t2"
+    await #expect(throws: APIError.self) { try await fake.createMemo(other) }
+    other.threadId = nil
+    await #expect(throws: APIError.self) { try await fake.createMemo(other) }
+  }
+
+  @Test("listThreads pages newest update first and filters by kind; an unknown thread is a 404")
+  func threadList() async throws {
+    let fake = FakeAPIClient()
+    for (index, kind) in [ThreadKind.chat, .hermes, .chat].enumerated() {
+      var thread = await seededThread(fake, id: "t\(index)", kind: kind)
+      thread.updatedAt = Date(timeIntervalSince1970: 1_773_480_000 + Double(index))
+      await fake.seed(ThreadDetail(thread: thread, memos: [], messages: []))
+    }
+    let first = try await fake.listThreads(ListThreadsQuery(limit: 2))
+    #expect(first.items.map(\.id) == ["t2", "t1"])
+    let second = try await fake.listThreads(ListThreadsQuery(limit: 2, cursor: first.nextCursor))
+    #expect(second.items.map(\.id) == ["t0"])
+    #expect(second.nextCursor == nil)
+    #expect(try await fake.listThreads(ListThreadsQuery(kind: .chat)).items.map(\.id) == ["t2", "t0"])
+    await #expect(throws: APIError.self) { try await fake.thread(id: "nope") }
+    #expect(await fake.calls.last == .thread(id: "nope"))
+  }
+
   @Test("complete reports missing segments, then succeeds once they are uploaded")
   func completeFlow() async throws {
     let fake = FakeAPIClient()

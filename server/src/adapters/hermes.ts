@@ -73,7 +73,8 @@ function parseData(frame: SseFrame): unknown {
 /**
  * Delivers a transcript to Hermes: a fresh session named after the memo, one chat turn over
  * the named-event SSE stream, and the final assistant text as the reply. A chat turn also carries
- * `CHAT_SYSTEM_MESSAGE` and opens its session with `source: "iris-chat"`. Note: the Hermes API server maps a `source` it does
+ * `CHAT_SYSTEM_MESSAGE` and opens its session with `source: "iris-chat"`; a delivery with a `threadId` continues that session
+ * (no session create) and, for a chat, sends `CHAT_SYSTEM_MESSAGE` again because Hermes does not persist it. Note: the Hermes API server maps a `source` it does
  * not know (today everything but its own platform names) to `api_server`, so the thread's kind is Iris's own record (`threads.kind`), not Hermes's.
  * The delivery names the thread (the session id, its kind and title); `act` only persists it.
  */
@@ -86,22 +87,27 @@ export function createHermesDestination(opts: HermesDestinationOptions): Destina
   };
 
   return {
-    async deliver({ memoId, transcript, chat = false }): Promise<Delivery> {
-      const sessionId = memoId;
+    async deliver({ memoId, transcript, chat = false, threadId }): Promise<Delivery> {
+      // A continuation talks into its thread's session, which already exists; a fresh memo gets a session named after it.
+      const sessionId = threadId ?? memoId;
       const attrs = { memo_id: memoId, downstream: "hermes" };
 
-      await withSpan("hermes.create_session", attrs, async (span) => {
-        const res = await doFetch(new URL("/api/sessions", opts.baseUrl).toString(), {
-          method: "POST",
-          headers,
-          body: JSON.stringify({ id: sessionId, source: chat ? SOURCE_CHAT : SOURCE_MEMO }),
-          signal: AbortSignal.timeout(SESSION_TIMEOUT_MS),
+      if (threadId === undefined) {
+        await withSpan("hermes.create_session", attrs, async (span) => {
+          const res = await doFetch(new URL("/api/sessions", opts.baseUrl).toString(), {
+            method: "POST",
+            headers,
+            body: JSON.stringify({ id: sessionId, source: chat ? SOURCE_CHAT : SOURCE_MEMO }),
+            signal: AbortSignal.timeout(SESSION_TIMEOUT_MS),
+          });
+          span.setAttributes({ status: res.status });
+          // 409 session_exists is fine: a retried memo reuses its session.
+          if (res.status === 201 || res.status === 409) return;
+          throw new Error(
+            `hermes session create failed: ${res.status} ${await failureMessage(res)}`,
+          );
         });
-        span.setAttributes({ status: res.status });
-        // 409 session_exists is fine: a retried memo reuses its session.
-        if (res.status === 201 || res.status === 409) return;
-        throw new Error(`hermes session create failed: ${res.status} ${await failureMessage(res)}`);
-      });
+      }
 
       const url = new URL(
         `/api/sessions/${encodeURIComponent(sessionId)}/chat/stream`,

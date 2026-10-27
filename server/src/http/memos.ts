@@ -73,13 +73,14 @@ export function memoRoutes(deps: { memos: MemoService; auth: ReturnType<typeof d
           mode: body.mode,
           device: device as string,
           startedAt: body.startedAt,
+          threadId: body.threadId,
         });
         set.status = created ? 201 : 200;
         return memoJson(memo);
       },
       {
         body: CreateMemoBody,
-        response: { 200: Memo, 201: Memo, 400: ErrorBody, 409: ErrorBody },
+        response: { 200: Memo, 201: Memo, 400: ErrorBody, 404: ErrorBody, 409: ErrorBody },
       },
     )
     .post(
@@ -91,13 +92,14 @@ export function memoRoutes(deps: { memos: MemoService; auth: ReturnType<typeof d
           device: device as string,
           startedAt: body.startedAt,
           text: body.text,
+          threadId: body.threadId,
         });
         set.status = 202;
         return memoJson(memo);
       },
       {
         body: CreateTextMemoBody,
-        response: { 202: Memo, 400: ErrorBody, 409: ErrorBody },
+        response: { 202: Memo, 400: ErrorBody, 404: ErrorBody, 409: ErrorBody },
       },
     )
     .put(

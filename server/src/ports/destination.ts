@@ -15,13 +15,15 @@ export interface Destination {
   /**
    * Hands the transcript to the destination and waits for its reply. `tab` is the resolved herdr tab id
    * and only set for `herdr`. Throws `TabGoneError` when that tab no longer exists. `chat` (Hermes only) opens a
-   * side-effect-free conversation instead of a task.
+   * side-effect-free conversation instead of a task, and is set on every turn of a chat thread. `threadId` (Hermes only)
+   * delivers into that existing session instead of creating one.
    */
   deliver(params: {
     memoId: string;
     transcript: string;
     tab?: string;
     chat?: boolean;
+    threadId?: string;
   }): Promise<Delivery>;
 }
 

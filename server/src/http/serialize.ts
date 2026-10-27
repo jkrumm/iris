@@ -1,6 +1,12 @@
 import type { MemoEvent } from "../memo/events.js";
-import { isTyped, type Memo, type StepRecord } from "../memo/memo.js";
-import type { MemoDetail } from "../memo/service.js";
+import {
+  isTyped,
+  type Memo,
+  type StepRecord,
+  type Thread,
+  type ThreadMessage,
+} from "../memo/memo.js";
+import type { MemoDetail, ThreadDetail } from "../memo/service.js";
 import type { Device } from "../ports/devices.js";
 
 // The wire format is camelCase (docs/TDD.md §3). Every response shape is spelled out here, in
@@ -43,6 +49,28 @@ export const detailJson = ({ memo, steps, segmentCount }: MemoDetail) => ({
   ...memoJson(memo),
   segmentCount,
   steps: steps.map(stepJson),
+});
+
+export const threadJson = (thread: Thread) => ({
+  id: thread.id,
+  kind: thread.kind,
+  title: thread.title,
+  createdAt: thread.createdAt,
+  updatedAt: thread.updatedAt,
+  lastMemoId: thread.lastMemoId,
+});
+
+const messageJson = (message: ThreadMessage) => ({
+  memoId: message.memoId,
+  role: message.role,
+  content: message.content,
+  createdAt: message.createdAt,
+});
+
+export const threadDetailJson = ({ thread, memos, messages }: ThreadDetail) => ({
+  thread: threadJson(thread),
+  memos: memos.map(memoJson),
+  messages: messages.map(messageJson),
 });
 
 export const eventJson = (event: MemoEvent) => ({

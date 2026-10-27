@@ -1,6 +1,6 @@
 import { t } from "elysia";
 import { MEMO_ERROR_CODES } from "../memo/errors.js";
-import { MEMO_MODES, MEMO_STATES, STEPS } from "../memo/memo.js";
+import { MEMO_MODES, MEMO_STATES, STEPS, THREAD_KINDS } from "../memo/memo.js";
 import { APNS_ENVS, PLATFORMS } from "../ports/devices.js";
 import { DESTINATION_NAMES } from "../ports/destination.js";
 import { AGENT_STATES } from "../ports/herd.js";
@@ -59,7 +59,8 @@ const memoFields = {
   destinationRef: Nullable(t.String()),
   replyText: Nullable(t.String()),
   summary: Nullable(Summary),
-  // Present only once `act` ran in a Hermes session (chat or not): that session's id; omitted, never null, otherwise.
+  // Present once the memo belongs to a Hermes session (chat or not): set when `act` ran in it, or at creation for a memo that
+  // continues a thread; omitted, never null, otherwise.
   threadId: t.Optional(t.String()),
   // Present (and `true`) only for a typed memo, one created from text; omitted for a recording.
   typed: t.Optional(t.Literal(true)),
@@ -89,6 +90,40 @@ export const MemoDetail = t.Object({
   steps: t.Array(StepRecord),
 });
 
+// ── Threads ──────────────────────────────────────────────────────────────────
+
+const ThreadKind = t.UnionEnum([...THREAD_KINDS]);
+
+/** A Hermes session that memos ran in; `kind` `chat` marks a side-effect-free conversation. */
+export const Thread = t.Object({
+  id: t.String(),
+  kind: ThreadKind,
+  title: t.String(),
+  createdAt: t.String(),
+  updatedAt: t.String(),
+  lastMemoId: Nullable(t.String()),
+});
+
+export const ThreadList = t.Object({ items: t.Array(Thread), nextCursor: Nullable(t.String()) });
+
+/** One turn of the conversation, from the thread's own memos: a memo's transcript (`user`) or its reply (`assistant`, markdown). */
+export const ThreadMessage = t.Object({
+  memoId: t.String(),
+  role: t.UnionEnum(["user", "assistant"]),
+  content: t.String(),
+  createdAt: t.String(),
+});
+
+/**
+ * The thread, the memos that ran in it (oldest first) and the conversation they make up. Iris owns this data: nothing is read
+ * from Hermes, so the response never depends on it.
+ */
+export const ThreadDetail = t.Object({
+  thread: Thread,
+  memos: t.Array(Memo),
+  messages: t.Array(ThreadMessage),
+});
+
 export const MemoList = t.Object({ items: t.Array(Memo), nextCursor: Nullable(t.String()) });
 
 export const MemoIdParams = t.Object({ id: t.String() });
@@ -97,15 +132,18 @@ export const SegmentParams = t.Object({
   n: t.String({ pattern: "^[0-9]{1,7}$" }),
 });
 
+// `threadId` continues that thread: the memo is delivered into its Hermes session (404 for an unknown thread).
 export const CreateMemoBody = t.Object({
   id: t.String(),
   mode: RequestMode,
   startedAt: t.String(),
+  threadId: t.Optional(t.String({ minLength: 1 })),
 });
 export const CreateTextMemoBody = t.Object({
   id: t.String(),
   mode: RequestMode,
   startedAt: t.String(),
+  threadId: t.Optional(t.String({ minLength: 1 })),
   // No minLength/maxLength: the rule applies to the trimmed text, counted in Unicode code points, which a
   // schema length on the raw string cannot express. The service answers 400 for 0 or more than 20 000.
   text: t.String({
@@ -123,6 +161,13 @@ export const RouteBody = t.Object({
 });
 
 export const ListQuery = t.Object({
+  limit: t.Optional(t.Numeric()),
+  cursor: t.Optional(t.String()),
+});
+export const ThreadIdParams = t.Object({ id: t.String() });
+// `default: undefined`: a missing `kind` must stay missing, not become the first member.
+export const ThreadListQuery = t.Object({
+  kind: t.Optional(t.UnionEnum([...THREAD_KINDS], { default: undefined })),
   limit: t.Optional(t.Numeric()),
   cursor: t.Optional(t.String()),
 });

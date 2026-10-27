@@ -8,15 +8,42 @@ import type {
   RouteDecisionRecord,
   Step,
   StepRecord,
+  Thread,
+  ThreadKind,
 } from "./memo.js";
 
 /** An answer always names a destination, so a routed memo never has `route` NULL. */
 export type AnswerDecision = RouteDecisionInput & { destination: DestinationName };
 
+/** The read side of threads; the rows are written by `act` (`MemoPatch.thread`). */
+export interface ThreadStore {
+  getThread(id: string): Thread | null;
+  /**
+   * Newest `updated_at` first, ties by id. `nextCursor` is null on the last page; the cursor is the last row's
+   * (`updated_at`, id), so it stays valid as threads are added or updated. A malformed cursor is `bad_request`.
+   */
+  listThreads(params: {
+    kind?: ThreadKind | undefined;
+    limit: number;
+    cursor?: string | null | undefined;
+  }): { threads: Thread[]; nextCursor: string | null };
+  /** The memos whose `thread_id` is `id`, oldest first. */
+  listThreadMemos(id: string): Memo[];
+}
+
 /** Synchronous on purpose: the one adapter is bun:sqlite, and every method is a single statement or transaction. */
-export interface MemoStore {
-  /** Idempotent on `id`: an existing memo is returned untouched with `created: false`. */
-  createMemo(params: { id: string; mode: MemoMode; device: string; startedAt: string }): {
+export interface MemoStore extends ThreadStore {
+  /**
+   * Idempotent on `id`: an existing memo is returned untouched with `created: false`. `threadId` names the thread the new
+   * memo continues (the service has checked it exists); it is ignored for an existing memo.
+   */
+  createMemo(params: {
+    id: string;
+    mode: MemoMode;
+    device: string;
+    startedAt: string;
+    threadId?: string | undefined;
+  }): {
     memo: Memo;
     created: boolean;
   };
@@ -30,6 +57,7 @@ export interface MemoStore {
     device: string;
     startedAt: string;
     text: string;
+    threadId?: string | undefined;
   }): { memo: Memo; created: boolean };
   getMemo(id: string): Memo | null;
   /** Newest first. `nextCursor` is null on the last page; cursors stay valid as memos are added. */
