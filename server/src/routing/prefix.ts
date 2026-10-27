@@ -71,3 +71,17 @@ export function parsePrefix(transcript: string): Prefix | null {
   }
   return null;
 }
+
+/**
+ * The text the destination and the summarizer get. `transcript` stays the raw speech-to-text; when a
+ * spoken prefix routed the memo (any `prefix` decision row, so a later answer does not bring the word
+ * back) the prefix is cut again, deterministically, so a retry from `route` sees the same input.
+ */
+export function deliveredTranscript(params: {
+  transcript: string;
+  decisions: readonly { source: string }[];
+}): string {
+  const { transcript, decisions } = params;
+  if (!decisions.some((d) => d.source === "prefix")) return transcript;
+  return parsePrefix(transcript)?.stripped ?? transcript;
+}

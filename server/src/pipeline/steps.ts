@@ -8,7 +8,7 @@ import type { Herd } from "../ports/herd.js";
 import type { Notifier } from "../ports/notifier.js";
 import type { Summarizer } from "../ports/summarizer.js";
 import type { Transcriber } from "../ports/transcriber.js";
-import { route } from "../routing/index.js";
+import { deliveredTranscript, route } from "../routing/index.js";
 import { log } from "../telemetry/log.js";
 import { getActiveSpan } from "../telemetry/otel.js";
 
@@ -41,6 +41,12 @@ export function createStepHandlers(deps: {
     summarizer,
     notifier,
   } = deps;
+  /** The raw transcript, minus a spoken routing prefix when one routed the memo. */
+  const delivered = (memo: Memo, step: HandlerStep) =>
+    deliveredTranscript({
+      transcript: required(memo.transcript, "transcript", step),
+      decisions: store.listRouteDecisions(memo.id),
+    });
   const registered = (Object.keys(destinations) as DestinationName[]).filter(
     (name) => destinations[name],
   );
@@ -94,12 +100,11 @@ export function createStepHandlers(deps: {
         outcome: decision.outcome,
         reason: decision.reason,
       });
-      const { transcript: routedTranscript, usage, ...row } = decision;
+      const { usage, ...row } = decision;
       return {
         ...(!routed && { outcome: "needs_route" as const }),
         patch: {
           ...(routed && { route: decision.destination }),
-          ...(routedTranscript !== transcript && { transcript: routedTranscript }),
           routeDecision: row,
         },
         ...(usage !== undefined && { usage }),
@@ -108,7 +113,7 @@ export function createStepHandlers(deps: {
     };
 
     handlers.act = async ({ memo }) => {
-      const transcript = required(memo.transcript, "transcript", "act");
+      const transcript = delivered(memo, "act");
       const name = required(memo.route, "route", "act");
       const destination = destinations[name as DestinationName];
       if (!destination) throw new Error(`act: no destination registered for route "${name}"`);
@@ -130,7 +135,7 @@ export function createStepHandlers(deps: {
       const result = await summarizer.summarize({
         memoId: memo.id,
         route: required(memo.route, "route", "summarize"),
-        transcript: required(memo.transcript, "transcript", "summarize"),
+        transcript: delivered(memo, "summarize"),
         replyText: memo.replyText,
       });
       getActiveSpan().setAttributes({

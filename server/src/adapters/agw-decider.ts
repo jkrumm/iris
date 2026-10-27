@@ -2,8 +2,8 @@ import { z } from "zod";
 import type { Decider, Choice, Decision } from "../ports/decider.js";
 import { createAgwJobRunner, type AgwClientOptions } from "./agw.js";
 
-// The decide step's budget (TDD: decide 30 s). A timeout parks the memo at needs_route, it never fails it.
-const DEFAULT_TIMEOUT_MS = 30_000;
+// Polling is the only tuning: the timeout is the job runner's hang guard (agent-limits), like triage.
+// A failed decide parks the memo at needs_route, it never fails the step.
 const DEFAULT_POLL_INTERVAL_MS = 500;
 
 const DESTINATION_INSTRUCTIONS =
@@ -37,7 +37,6 @@ export type AgwDeciderOptions = AgwClientOptions;
 /** `Decider` on the agent-gateway `decide` tool: one decision-model call, no text generation. */
 export function createAgwDecider(opts: AgwDeciderOptions): Decider {
   const run = createAgwJobRunner({
-    timeoutMs: DEFAULT_TIMEOUT_MS,
     pollIntervalMs: DEFAULT_POLL_INTERVAL_MS,
     ...opts,
   });

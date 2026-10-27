@@ -145,9 +145,9 @@ any step ──error──> failed(step)   ──retry(from)──> <step>
   | Step | Timeout |
   |-|-|
   | STT | 300 s |
-  | decide | 30 s |
+  | decide | hang guard (30 min) |
   | Hermes | 180 s |
-  | triage | 30 s |
+  | triage | hang guard (30 min) |
   | APNs | 10 s |
 
 - **Retries:** two automatic retries with backoff on transient errors (5xx,
@@ -216,11 +216,12 @@ retries of transient errors are not built; recover with `POST /retry`.
 3. **route:** only destinations with a registered act adapter are choices (`Destinations`; today Hermes only).
    - If the memo's mode is not auto, it wins (`journal` → journal, `hermes` → hermes, `tab` → herdr). Source `mode`.
    - Otherwise the prefix parser matches "journal|tagebuch", "an hermes|hermes", "tab <name>", case- and diacritic-insensitive, with the
-     phrase starting within the first 6 words. Everything up to and including the phrase, plus trailing punctuation, is stripped and the
-     stripped text becomes the stored transcript (kept whole when nothing else was said). Source `prefix`; the tab is the spoken name.
+     phrase starting within the first 6 words. Everything up to and including the phrase, plus trailing punctuation, is
+     cut from the text `act` and `summarize` receive (`deliveredTranscript`, derived from the raw transcript whenever a `prefix` decision exists;
+     kept whole when nothing else was said). `memos.transcript` stays the raw speech-to-text, so a retry from `route` routes the same way. Source `prefix`; the tab is the spoken name.
    - A mode or prefix that names an unregistered destination parks at `needs_route` with the reason "<destination> not available".
    - With fewer than two registered destinations the step stops here: it routes to the only one (source `default`, confidence 1, no spend).
-   - Otherwise call `decide` through the `Decider` port (agw `decide` job, 30 s budget) with state = transcript (first 4k chars) + one line
+   - Otherwise call `decide` through the `Decider` port (agw `decide` job, hang guard like `triage`) with state = transcript (first 4k chars) + one line
      per live tab, and questions `destination: choice[<registered>]`, plus `tab: choice[...]` when herdr is registered and there are live
      tabs. A failing `Herd` call omits the tab lines and the question. Source `decide`.
    - At confidence ≥ 0.8 → `routed` (for herdr the weaker of destination and tab confidence, and a live tab is required); otherwise

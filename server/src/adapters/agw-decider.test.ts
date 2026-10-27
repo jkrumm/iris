@@ -116,7 +116,7 @@ describe("agw decider", () => {
     expect("costUsd" in out).toBe(false);
   });
 
-  it("polls every 500 ms and gives up after 30 s by default, cancelling the job", async () => {
+  it("polls every 500 ms and cancels the job at the timeout", async () => {
     const { calls, sleeps, decider } = setup([{ status: "running" }], 1500);
     await expect(decider.decide(request)).rejects.toThrow("agw decide timed out after 1500 ms");
     expect(sleeps).toEqual([500, 500, 500]);

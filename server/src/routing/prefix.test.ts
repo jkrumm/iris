@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { parsePrefix } from "./prefix.js";
+import { deliveredTranscript, parsePrefix } from "./prefix.js";
 
 describe("parsePrefix", () => {
   it.each([
@@ -59,5 +59,33 @@ describe("parsePrefix", () => {
 
   it("keeps the original transcript when the prefix is all there is", () => {
     expect(parsePrefix("Tagebuch.")).toEqual({ destination: "journal", stripped: "Tagebuch." });
+  });
+});
+
+describe("deliveredTranscript", () => {
+  const raw = "Tagebuch: heute war gut";
+
+  it("cuts the prefix when a prefix decision exists, also behind a later answer", () => {
+    expect(deliveredTranscript({ transcript: raw, decisions: [{ source: "prefix" }] })).toBe(
+      "heute war gut",
+    );
+    expect(
+      deliveredTranscript({
+        transcript: raw,
+        decisions: [{ source: "prefix" }, { source: "answer" }],
+      }),
+    ).toBe("heute war gut");
+  });
+
+  it("leaves the raw text for every other source and for no decision", () => {
+    expect(deliveredTranscript({ transcript: raw, decisions: [] })).toBe(raw);
+    expect(deliveredTranscript({ transcript: raw, decisions: [{ source: "mode" }] })).toBe(raw);
+    expect(deliveredTranscript({ transcript: raw, decisions: [{ source: "decide" }] })).toBe(raw);
+  });
+
+  it("returns the raw text when the transcript no longer has a prefix", () => {
+    expect(
+      deliveredTranscript({ transcript: "kauf Milch", decisions: [{ source: "prefix" }] }),
+    ).toBe("kauf Milch");
   });
 });

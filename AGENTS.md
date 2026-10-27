@@ -227,14 +227,14 @@ Push to master deploys. LaunchAgent `com.jkrumm.iris` (KeepAlive, `ExitTimeOut` 
   `summarize` / `act` / `speech` / `herd` in `degraded`; the first three park memos before that step, the last two
   answer 503 `unavailable`.
 - **Routing** (`routing/`, TDD §3 step 3), in order: a mode other than `auto` wins (source `mode`); a spoken prefix within the first 6 words
-  (`journal|tagebuch`, `an hermes|hermes`, `tab <name>`; case and diacritics folded) routes and is stripped from the stored transcript (`prefix`);
+  (`journal|tagebuch`, `an hermes|hermes`, `tab <name>`; case and diacritics folded) routes (`prefix`); `memo.transcript` stays the raw speech-to-text and `act` / `summarize` cut the prefix again via `deliveredTranscript`;
   with fewer than two registered destinations the only one wins (`default`, confidence 1, no spend; this is production until Wave 11, and what
-  `IRIS_FAKES` and `make smoke` rely on); otherwise `Decider` (agw `decide`, 30 s): confidence ≥ 0.8 routes, else `needs_route`. A mode or prefix
+  `IRIS_FAKES` and `make smoke` rely on); otherwise `Decider` (agw `decide`, the job runner's hang guard): confidence ≥ 0.8 routes, else `needs_route`. A mode or prefix
   naming an unregistered destination (journal and herdr until Wave 11), a refusal, a failed or timed-out decide and a missing decider (`decide`
   in `/health` `degraded`, only with ≥ 2 destinations) all park at `needs_route`; none fails the step. With no destination at all neither `route`
   nor `act` is registered and the memo waits at `transcribed`. Every outcome is one `route_decisions` row written by `completeStep` with the step
   (`patch.routeDecision`); the park reason is the latest row's `reason` (`store.listRouteDecisions`), a low-confidence park keeps the model's guess
-  in `destination`. The stripped prefix is gone for good: a retry from `route` re-decides on the stripped text.
+  in `destination`. Because the transcript is never rewritten, a retry from `route` routes by the same prefix again.
 - **`act` is at-least-once:** a crash or restart mid-`act` replays the step, which posts a second turn
   into the same Hermes session. Shutdown keeps the window small: `app.stop(true)`, `runner.stop()` (the
   running step finishes, no further step or queued memo starts), `notifyLifecycle.stop()`, `await runner.idle()` + the in-flight

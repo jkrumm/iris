@@ -25,8 +25,6 @@ const MODE_DESTINATION: Record<Exclude<MemoMode, "auto">, DestinationName> = {
 };
 
 export interface RouteDecision extends RouteDecisionInput {
-  /** The transcript to store: the original, or with a spoken prefix stripped. */
-  transcript: string;
   usage?: unknown;
 }
 
@@ -45,11 +43,9 @@ const errorMessage = (err: unknown) => (err instanceof Error ? err.message : Str
 const clip = (text: string) => (text.length > REASON_MAX ? `${text.slice(0, REASON_MAX)}…` : text);
 
 function decision(
-  transcript: string,
   fields: Partial<RouteDecisionInput> & Pick<RouteDecisionInput, "source" | "outcome">,
 ): RouteDecision {
   return {
-    transcript,
     destination: null,
     tab: null,
     confidence: null,
@@ -65,18 +61,17 @@ function named(params: {
   source: "mode" | "prefix";
   destination: DestinationName;
   tab: string | null;
-  transcript: string;
   registered: readonly DestinationName[];
 }): RouteDecision {
-  const { source, destination, tab, transcript, registered } = params;
+  const { source, destination, tab, registered } = params;
   if (!registered.includes(destination)) {
-    return decision(transcript, {
+    return decision({
       source,
       outcome: "needs_route",
       reason: `${destination} not available`,
     });
   }
-  return decision(transcript, { source, outcome: "routed", destination, tab, confidence: 1 });
+  return decision({ source, outcome: "routed", destination, tab, confidence: 1 });
 }
 
 const herdLine = (tab: HerdTab) => `- ${tab.id}: ${tab.repo} / ${tab.label} (${tab.agentState})`;
@@ -114,7 +109,7 @@ async function decide(input: RouteInput & { decider: Decider }): Promise<RouteDe
     });
   } catch (err) {
     log("route.decide_failed", { memo: memoId, error: errorMessage(err) });
-    return decision(transcript, {
+    return decision({
       source: "decide",
       outcome: "needs_route",
       reason: clip(`decide failed: ${errorMessage(err)}`),
@@ -128,7 +123,7 @@ async function decide(input: RouteInput & { decider: Decider }): Promise<RouteDe
     ...(answer.usage !== undefined && { usage: answer.usage }),
   };
   const park = (reason: string, rest: Partial<RouteDecisionInput> = {}) =>
-    decision(transcript, { ...billed, outcome: "needs_route", reason, ...rest });
+    decision({ ...billed, outcome: "needs_route", reason, ...rest });
 
   const picked = answer.destination;
   if (!picked) return park("decide refused");
@@ -148,7 +143,7 @@ async function decide(input: RouteInput & { decider: Decider }): Promise<RouteDe
   if (confidence < CONFIDENCE_THRESHOLD) {
     return park(`low confidence (${confidence.toFixed(2)})`, { destination, tab, confidence });
   }
-  return decision(transcript, { ...billed, outcome: "routed", destination, tab, confidence });
+  return decision({ ...billed, outcome: "routed", destination, tab, confidence });
 }
 
 /**
@@ -162,7 +157,6 @@ export async function route(input: RouteInput): Promise<RouteDecision> {
       source: "mode",
       destination: MODE_DESTINATION[mode],
       tab: null,
-      transcript,
       registered: destinations,
     });
   }
@@ -173,14 +167,13 @@ export async function route(input: RouteInput): Promise<RouteDecision> {
       source: "prefix",
       destination: prefix.destination,
       tab: prefix.tab ?? null,
-      transcript: prefix.stripped,
       registered: destinations,
     });
   }
 
   const [only, second] = destinations;
   if (only && !second) {
-    return decision(transcript, {
+    return decision({
       source: "default",
       outcome: "routed",
       destination: only,
@@ -188,7 +181,7 @@ export async function route(input: RouteInput): Promise<RouteDecision> {
     });
   }
   if (!input.decider) {
-    return decision(transcript, {
+    return decision({
       source: "decide",
       outcome: "needs_route",
       reason: "decide unavailable",

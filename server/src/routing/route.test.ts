@@ -34,10 +34,9 @@ describe("route: mode", () => {
     expect(decider.calls).toEqual([]);
   });
 
-  it("wins over a spoken prefix and leaves the transcript alone", async () => {
+  it("wins over a spoken prefix", async () => {
     const decision = await route(input({ mode: "hermes", transcript: "Tagebuch heute war gut" }));
     expect(decision).toMatchObject({ source: "mode", destination: "hermes" });
-    expect(decision.transcript).toBe("Tagebuch heute war gut");
   });
 
   it("parks with a reason when the destination is not registered", async () => {
@@ -53,7 +52,7 @@ describe("route: mode", () => {
 });
 
 describe("route: prefix", () => {
-  it("routes by the spoken prefix and stores the stripped transcript", async () => {
+  it("routes by the spoken prefix", async () => {
     const decider = fakeDecider();
     const decision = await route(input({ transcript: "Tagebuch: heute war gut", decider }));
     expect(decision).toMatchObject({
@@ -61,7 +60,6 @@ describe("route: prefix", () => {
       outcome: "routed",
       destination: "journal",
       confidence: 1,
-      transcript: "heute war gut",
     });
     expect(decider.calls).toEqual([]);
   });
@@ -74,7 +72,6 @@ describe("route: prefix", () => {
       source: "prefix",
       destination: "herdr",
       tab: "server",
-      transcript: "mach weiter",
     });
   });
 
@@ -85,11 +82,10 @@ describe("route: prefix", () => {
     expect(decision).toMatchObject({
       source: "prefix",
       destination: "hermes",
-      transcript: "mach das",
     });
   });
 
-  it("parks on an unregistered prefix destination, still stripping the prefix", async () => {
+  it("parks on an unregistered prefix destination", async () => {
     const decision = await route(
       input({ transcript: "Tagebuch: heute war gut", destinations: ["hermes"] }),
     );
@@ -98,7 +94,6 @@ describe("route: prefix", () => {
       outcome: "needs_route",
       destination: null,
       reason: "journal not available",
-      transcript: "heute war gut",
     });
   });
 });
@@ -149,7 +144,6 @@ describe("route: decide", () => {
       usage: { inputTokens: 90 },
       reason: null,
     });
-    expect(decision.transcript).toBe("kauf bitte Milch");
   });
 
   it("offers the registered destinations only and no tab question without herdr", async () => {
@@ -196,12 +190,12 @@ describe("route: decide", () => {
   });
 
   it("parks, never throws, when the decider fails", async () => {
-    const decider = fakeDecider({ failWith: new Error("agw decide timed out after 30000 ms") });
+    const decider = fakeDecider({ failWith: new Error("agw decide timed out after 1800000 ms") });
     const { result, lines } = await captureLogs(() => route(input({ decider })));
     expect(result).toMatchObject({
       source: "decide",
       outcome: "needs_route",
-      reason: "decide failed: agw decide timed out after 30000 ms",
+      reason: "decide failed: agw decide timed out after 1800000 ms",
     });
     expect(lines.map((l) => l["event"])).toEqual(["route.decide_failed"]);
   });
