@@ -414,7 +414,8 @@ workers. The mother writes the next wave here.
 **Fleet gate (every wave):** each worker runs its cheap check; the lead runs `make check` at every merge (`rd merge`),
 `make e2e` for server changes, and `agw review` (CLI) on every non-docs diff with findings resolved. Server changes are
 pushed to master, the poller deploys, then `make verify` + `make smoke` on the mini. Apple changes gate on `apple.yml`.
-API changes run `make contracts` and update fixtures. TDD and AGENTS.md change in the same commit as the code they describe.
+API changes run `make contracts` and update fixtures, and the same brief carries the Swift `IrisCore` follow-up (models + client
+call) so `apple.yml` stays green. TDD and AGENTS.md change in the same commit as the code they describe.
 
 ## Wave 10 — Design round 2 ∥ R2 routing core (server)            <!-- status: done -->
 Backlog 0 and the first half of backlog 4. Two tracks on disjoint files, fanned out in parallel: **A** owns
@@ -483,12 +484,16 @@ as chat) opened with a no-side-effects system message, its answer stored as the 
       commit and push per `brain/docs/brain-access.md`; templated summary (no model spend). Its smoke must not leave test
       notes in the real brain (a fake brain dir in e2e; on the mini, a dedicated smoke path or a cleanup the lead defines).
 - [ ] **herdr destination:** `pane.send_text` + `send_keys Enter` on the resolved tab; a vanished tab → `needs_route`;
-      templated summary.
+      templated summary. Spoken tab names (prefix `tab <name>`, mode `tab`) are resolved against the live herd in `route`
+      (Wave 10 stores them unchecked); no match → `needs_route` with the reason.
 - [ ] **Chat mode:** mode `chat` per the confirmed reading; thread upsert (the `threads` table if it is not there yet).
 - [ ] **Typed memos:** create a memo from text (skips `transcribe`), same modes and pipeline; contract + fixtures.
 - [ ] **agw `caller`:** agent-gateway accepts a `caller` field and attributes usage to it (its own commit in that repo);
       iris sends `caller: iris` on decide/triage.
 - [ ] Deploy, `make verify` + `make smoke`, one real memo per new destination through production; TDD and AGENTS.md amended.
+      Registering journal + herdr in `compose()` turns `decide` on, so `make smoke` pins `--mode hermes` (an auto smoke memo
+      must never land in the real brain or a live tab). The agent-gateway change: check `rd agents` for a live agent in that
+      checkout first and work in a worktree if one is there.
 **Left behind:**
 
 ## Fleet backlog (for the long-running fleet: mother → lead → workers)
