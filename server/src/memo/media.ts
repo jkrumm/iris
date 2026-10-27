@@ -42,9 +42,11 @@ export function createMemoMedia(deps: {
   const { store, audio, combiner, speaker, speechCache } = deps;
   const once = createSingleFlight();
 
+  /** Like the other live-only routes, a soft-deleted memo is `bad_state`: its files are on their way out. */
   const mustGet = (id: string) => {
     const memo = store.getMemo(id);
     if (!memo) throw new MemoError("not_found", `memo ${id} not found`);
+    if (memo.deletedAt !== null) throw new MemoError("bad_state", `memo ${id} is deleted`);
     return memo;
   };
 

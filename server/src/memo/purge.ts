@@ -21,7 +21,8 @@ export interface Purger {
 /**
  * Removes a memo's audio (segments and the combined recording) and speech files first and its rows only once the
  * files are gone, so a failed removal leaves the memo to the next pass instead of orphaning files nothing points at.
- * A failure is logged and never stops the rest of the sweep.
+ * A failure per memo is logged (`memo.purge_failed`) and never stops the rest of the sweep; a pass that cannot even list
+ * the memos rejects `sweep()`, and the timer logs it as `memo.sweep_failed`.
  */
 export function createPurger(deps: {
   store: MemoStore;
@@ -58,7 +59,9 @@ export function createPurger(deps: {
     });
     return running;
   };
-  const quietSweep = () => void sweep().catch(() => undefined);
+  // The timer has no caller to reject to: a failed pass (the listing itself threw) is logged and the next tick tries again.
+  const quietSweep = () =>
+    void sweep().catch((err: unknown) => log("memo.sweep_failed", { error: String(err) }));
 
   return {
     sweep,
