@@ -220,12 +220,34 @@ public actor FakeAPIClient: APIClient {
   public func listMemos(_ query: ListMemosQuery) async throws -> MemoPage {
     calls.append(.listMemos(query))
     try failIfScripted(.listMemos)
-    let newestFirst = memos.values.map(\.memo).sorted { ($0.createdAt, $0.id) > ($1.createdAt, $1.id) }
+    let matching = memos.values.map(\.memo)
+      .filter { memo in
+        (query.route.map { memo.route == $0.rawValue } ?? true)
+          && (query.state.map { memo.state == $0 } ?? true)
+          && Self.matches(memo, search: query.q)
+      }
+      .sorted { ($0.createdAt, $0.id) > ($1.createdAt, $1.id) }
+    let pinned = query.cursor == nil ? Array(matching.filter { $0.state == .needsRoute }.prefix(50)) : []
+    let newestFirst = matching.filter { $0.state != .needsRoute }
     let start = query.cursor.flatMap(Int.init) ?? 0
     let limit = query.limit ?? 50
-    guard start < newestFirst.count else { return MemoPage(items: []) }
+    guard start < newestFirst.count else { return MemoPage(items: [], pinned: pinned) }
     let end = min(start + limit, newestFirst.count)
-    return MemoPage(items: Array(newestFirst[start..<end]), nextCursor: end < newestFirst.count ? String(end) : nil)
+    return MemoPage(
+      items: Array(newestFirst[start..<end]), pinned: pinned, nextCursor: end < newestFirst.count ? String(end) : nil)
+  }
+
+  /// Every term of `search` is a case- and diacritic-insensitive prefix of a word of the transcript or headline.
+  private static func matches(_ memo: Memo, search: String?) -> Bool {
+    let terms = (search ?? "").split(whereSeparator: \.isWhitespace).map(String.init)
+    if terms.isEmpty { return true }
+    let words = [memo.transcript, memo.summary?.headline].compactMap { $0 }
+      .flatMap { $0.split(whereSeparator: { !$0.isLetter && !$0.isNumber }) }
+      .map { String($0).folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil) }
+    return terms.allSatisfy { term in
+      let folded = term.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil)
+      return words.contains { $0.hasPrefix(folded) }
+    }
   }
 
   public func memo(id: String) async throws -> MemoDetail {
