@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# mobilebuildmcp CLI wrapper (TDD D17: no MCP server). Pinned version, minimal output, Sentry off.
+#   scripts/mbm <workflow> <tool> [flags]      e.g. scripts/mbm ui-automation snapshot-ui --simulator-id <udid>
+#   scripts/mbm tools                          list the tools
+set -euo pipefail
+
+MBM_VERSION="2.7.1"
+
+export MOBILEBUILDMCP_SENTRY_DISABLED=true
+exec npx -y "mobilebuildmcp@${MBM_VERSION}" --style minimal "$@"

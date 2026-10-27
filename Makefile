@@ -178,3 +178,38 @@ snapshots: ## IrisUI snapshot tests on the pinned simulator (RECORD=1 make snaps
 .PHONY: uitest
 uitest: generate ## XCUITest smoke flows on the pinned simulator (launches with -IrisFakeCapture)
 	$(XCB) -scheme Iris -destination '$(SIM_DEST)' test
+
+# --- Agent verification (TDD §9/§10, D17): boot the pinned simulator, run the app, look at it. Output lands in .artifacts/ (gitignored). ---
+# The pinned device's UDID, resolved lazily from SIM_NAME/SIM_OS; empty when that device does not exist.
+SIM_RUNTIME = com.apple.CoreSimulator.SimRuntime.iOS-$(subst .,-,$(SIM_OS))
+SIM_UDID    = $(shell xcrun simctl list devices available -j | jq -r --arg rt '$(SIM_RUNTIME)' --arg n '$(SIM_NAME)' '.devices[$$rt] // [] | map(select(.name == $$n)) | first | .udid // empty')
+APP_BUNDLE  := com.jkrumm.iris
+ARTIFACTS   := .artifacts
+# `snapshot-ui` right after a launch times out ("remote automation session"); give the app time to settle first.
+UI_SETTLE   ?= 8
+
+.PHONY: sim
+sim: ## Boot the pinned simulator and block until it is ready (bootstatus -b)
+	@u="$(SIM_UDID)"; [ -n "$$u" ] || { echo "  no simulator '$(SIM_NAME)' on iOS $(SIM_OS) (xcrun simctl list devices available)"; exit 1; }; \
+	xcrun simctl boot "$$u" 2>/dev/null || true; \
+	xcrun simctl bootstatus "$$u" -b >/dev/null; \
+	echo "  simulator $(SIM_NAME) iOS $(SIM_OS) ready ($$u)"
+
+.PHONY: run-sim
+run-sim: generate sim ## Build Iris for the pinned simulator, install, launch (-IrisFakeCapture), print the pid
+	$(XCB) -scheme Iris -destination 'platform=iOS Simulator,id=$(SIM_UDID)' build
+	xcrun simctl install $(SIM_UDID) "$(APPLE_DIR)/.dd/Build/Products/Debug-iphonesimulator/Iris.app"
+	xcrun simctl terminate $(SIM_UDID) $(APP_BUNDLE) 2>/dev/null || true
+	xcrun simctl launch $(SIM_UDID) $(APP_BUNDLE) -IrisFakeCapture
+
+.PHONY: screenshot
+screenshot: sim ## Full-resolution PNG of the pinned simulator -> .artifacts/screenshot-<time>.png (NAME=<label> to rename)
+	@mkdir -p $(ARTIFACTS)
+	@f="$(ARTIFACTS)/$(or $(NAME),screenshot-$$(date +%H%M%S)).png"; xcrun simctl io $(SIM_UDID) screenshot "$$f" 2>/dev/null && echo "  $$f"
+
+.PHONY: ui-snapshot
+ui-snapshot: sim ## Semantic UI element tree of the foreground app -> .artifacts/ui-snapshot.txt (refs e1, e2 ... for scripts/mbm tap)
+	@mkdir -p $(ARTIFACTS)
+	@sleep $(UI_SETTLE)
+	@scripts/mbm ui-automation snapshot-ui --simulator-id $(SIM_UDID) > $(ARTIFACTS)/ui-snapshot.txt
+	@cat $(ARTIFACTS)/ui-snapshot.txt
