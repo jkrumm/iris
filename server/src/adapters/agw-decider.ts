@@ -3,7 +3,7 @@ import type { Decider, Choice, Decision } from "../ports/decider.js";
 import { createAgwJobRunner, type AgwClientOptions } from "./agw.js";
 
 // Polling is the only tuning: the timeout is the job runner's hang guard (agent-limits), like triage.
-// A failed decide parks the memo at needs_route, it never fails the step.
+// A failed job throws; the route step fails and POST /retry {from: route} recovers it.
 const DEFAULT_POLL_INTERVAL_MS = 500;
 
 const DESTINATION_INSTRUCTIONS =
@@ -23,7 +23,7 @@ const Answer = z.discriminatedUnion("type", [
 const DecideResult = z.looseObject({
   answers: z.record(z.string(), Answer),
   model: z.string(),
-  usage: z.looseObject({ costUsd: z.number().nullish() }).optional(),
+  usage: z.looseObject({ costUsd: z.number().nullish() }).nullish(),
 });
 
 function choiceOf(answer: z.infer<typeof Answer> | undefined): Choice | null {

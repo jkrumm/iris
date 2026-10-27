@@ -13,7 +13,7 @@ import type { AudioCombiner } from "./ports/audio.js";
 import type { Clock } from "./ports/clock.js";
 import type { DeviceStore } from "./ports/devices.js";
 import type { Decider } from "./ports/decider.js";
-import type { Destinations } from "./ports/destination.js";
+import { hasChoice, registeredDestinations, type Destinations } from "./ports/destination.js";
 import {
   fakeDecider,
   fakeDestination,
@@ -146,7 +146,9 @@ export function compose(deps: {
   // Not a `choose`: the decider only matters once there is a real choice (two or more destinations).
   const decider: Decider | undefined =
     fakes?.decider ?? (env.AGW_URL ? createAgwDecider({ baseUrl: env.AGW_URL }) : undefined);
-  if (Object.keys(ports.destinations ?? {}).length >= 2 && !decider) degraded.push("decide");
+  if (hasChoice(registeredDestinations(ports.destinations ?? {})) && !decider) {
+    degraded.push("decide");
+  }
 
   // APNs when all four APNS_* are set, else the log stand-in (intended until enrolment, so not `degraded`).
   const selected: {

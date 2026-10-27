@@ -230,8 +230,9 @@ Push to master deploys. LaunchAgent `com.jkrumm.iris` (KeepAlive, `ExitTimeOut` 
   (`journal|tagebuch`, `an hermes|hermes`, `tab <name>`; case and diacritics folded) routes (`prefix`); `memo.transcript` stays the raw speech-to-text and `act` / `summarize` cut the prefix again via `deliveredTranscript`;
   with fewer than two registered destinations the only one wins (`default`, confidence 1, no spend; this is production until Wave 11, and what
   `IRIS_FAKES` and `make smoke` rely on); otherwise `Decider` (agw `decide`, the job runner's hang guard): confidence ≥ 0.8 routes, else `needs_route`. A mode or prefix
-  naming an unregistered destination (journal and herdr until Wave 11), a refusal, a failed or timed-out decide and a missing decider (`decide`
-  in `/health` `degraded`, only with ≥ 2 destinations) all park at `needs_route`; none fails the step. With no destination at all neither `route`
+  naming an unregistered destination (journal and herdr until Wave 11), a refusal, an unknown choice, herdr without a live tab, low confidence and a missing
+  decider (`decide` in `/health` `degraded`, only with ≥ 2 destinations) park at `needs_route`. A decide infrastructure failure (transport error, hang-guard
+  timeout, off-schema answer) throws: the route step fails and `POST /retry {from: route}` recovers it. With no destination at all neither `route`
   nor `act` is registered and the memo waits at `transcribed`. Every outcome is one `route_decisions` row written by `completeStep` with the step
   (`patch.routeDecision`); the park reason is the latest row's `reason` (`store.listRouteDecisions`), a low-confidence park keeps the model's guess
   in `destination`. Because the transcript is never rewritten, a retry from `route` routes by the same prefix again.
