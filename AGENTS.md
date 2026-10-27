@@ -57,15 +57,19 @@ Never start dev servers for a human to look at; simulators are fine, shut them d
   (`MemoMedia`: the combined recording and the spoken result, both disk-cached and single-flight), `events.ts` (in-process
   pub/sub), `errors.ts` (`MemoError` codes, `configured()` for optional subsystems), `test-support.ts` (fake audio, seeded memos).
 - `server/src/pipeline/steps.ts` — `createStepHandlers`: the five step handlers, each a pure function
-  of (memo, ports); a handler is registered only when its port is provided.
+  of (memo, ports); a handler is registered only when its port is provided (`route` and `act` need at least one registered destination;
+  `act` dispatches on `memo.route`).
+- `server/src/routing/` — `prefix.ts` (`parsePrefix`, pure), `route.ts` (`route`: mode → prefix → only destination → `Decider`, always
+  returns a `RouteDecision`, never throws), `index.ts`.
 - `server/src/adapters/` — `sqlite.ts` (+ `sqlite-migrations.ts`, `PRAGMA user_version`), `sqlite-devices.ts`
   (`DeviceStore`, same db), `audio-fs.ts` (segments + `combined.m4a`), `speech-fs.ts` (`<id>.mp3` + `<id>.txt`),
-  and the downstream adapters (audio-gateway transcriber + ffmpeg combiner, `audio-gateway-speaker.ts`, Hermes, agw,
+  and the downstream adapters (audio-gateway transcriber + ffmpeg combiner, `audio-gateway-speaker.ts`, Hermes, agw (`agw.ts`: `triage` summarizer
+  and the shared job runner; `agw-decider.ts`: the `decide` job),
   `herdr.ts` over the unix socket, log notifier), and the APNs pair: `notifier-apns.ts` (`Notifier` over an `ApnsTransport`)
   and `apns-node.ts` (the transport on `@parse/node-apn`; `apns-test-support.ts` generates test keys and certs).
 - `server/src/ports/` — `audio.ts` (`AudioStore`, `AudioCombiner`, `Recording`), `clock.ts` (system, fixed and manual clocks),
   `transcriber.ts`, `speaker.ts` (+ `SpeechCache`), `devices.ts` (`DeviceStore`: devices, APNs tokens, Live Activity tokens),
-  `herd.ts`, `destination.ts`, `summarizer.ts`, `notifier.ts` (`notify` + best-effort `phase`),
+  `herd.ts`, `destination.ts` (+ `Destinations`, the registry of act adapters), `decider.ts`, `summarizer.ts`, `notifier.ts` (`notify` + best-effort `phase`),
   `apns.ts` (`ApnsTransport`), `fakes.ts` (in-memory fakes of the ports, incl. `fakeApnsTransport`).
 - `server/src/notify/` — `payloads.ts` (pure alert / Live Activity builders), `phases.ts` (`bindPhaseUpdates`: memo events →
   `notifier.phase`), `select.ts` (`selectNotifier`: APNs or log, plus the transport's `close`),
@@ -221,7 +225,16 @@ Push to master deploys. LaunchAgent `com.jkrumm.iris` (KeepAlive, `ExitTimeOut` 
 - **Downstream env** (all optional, empty = unset): `AUDIO_GATEWAY_URL`, `AGW_URL`, `HERMES_URL` +
   `HERMES_TOKEN`, `HERDR_SOCKET` (`launch.sh` sets it on the mini). Without one, `/health` lists `transcribe` /
   `summarize` / `act` / `speech` / `herd` in `degraded`; the first three park memos before that step, the last two
-  answer 503 `unavailable`. `route` always yields `hermes` until Phase 2.
+  answer 503 `unavailable`.
+- **Routing** (`routing/`, TDD §3 step 3), in order: a mode other than `auto` wins (source `mode`); a spoken prefix within the first 6 words
+  (`journal|tagebuch`, `an hermes|hermes`, `tab <name>`; case and diacritics folded) routes and is stripped from the stored transcript (`prefix`);
+  with fewer than two registered destinations the only one wins (`default`, confidence 1, no spend; this is production until Wave 11, and what
+  `IRIS_FAKES` and `make smoke` rely on); otherwise `Decider` (agw `decide`, 30 s): confidence ≥ 0.8 routes, else `needs_route`. A mode or prefix
+  naming an unregistered destination (journal and herdr until Wave 11), a refusal, a failed or timed-out decide and a missing decider (`decide`
+  in `/health` `degraded`, only with ≥ 2 destinations) all park at `needs_route`; none fails the step. With no destination at all neither `route`
+  nor `act` is registered and the memo waits at `transcribed`. Every outcome is one `route_decisions` row written by `completeStep` with the step
+  (`patch.routeDecision`); the park reason is the latest row's `reason` (`store.listRouteDecisions`), a low-confidence park keeps the model's guess
+  in `destination`. The stripped prefix is gone for good: a retry from `route` re-decides on the stripped text.
 - **`act` is at-least-once:** a crash or restart mid-`act` replays the step, which posts a second turn
   into the same Hermes session. Shutdown keeps the window small: `app.stop(true)`, `runner.stop()` (the
   running step finishes, no further step or queued memo starts), `notifyLifecycle.stop()`, `await runner.idle()` + the in-flight

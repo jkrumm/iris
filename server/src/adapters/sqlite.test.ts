@@ -321,6 +321,124 @@ describe("completeStep", () => {
   });
 });
 
+describe("route decisions", () => {
+  const decision = {
+    source: "decide" as const,
+    destination: "journal",
+    tab: null,
+    confidence: 0.91,
+    model: "decider-1",
+    costUsd: 0.0004,
+    reason: null,
+    outcome: "routed" as const,
+  };
+
+  it("appends the decision row in the same transaction as the step completion", () => {
+    const { store, clock } = testStore();
+    const { id } = seedMemo(store, "transcribed");
+    store.markStepStarted({ id, step: "route" });
+    clock.advance(1000);
+    const won = store.completeStep({
+      id,
+      step: "route",
+      from: "transcribed",
+      to: "routed",
+      patch: { route: "journal", routeDecision: decision },
+    });
+    expect(won).toBe(true);
+    expect(store.getMemo(id)).toMatchObject({ state: "routed", route: "journal" });
+    expect(store.listRouteDecisions(id)).toEqual([
+      { ...decision, id: 1, memoId: id, createdAt: clock.now().toISOString() },
+    ]);
+  });
+
+  it("stores a park with its reason and nullable fields", () => {
+    const { store } = testStore();
+    const { id } = seedMemo(store, "transcribed");
+    store.markStepStarted({ id, step: "route" });
+    store.completeStep({
+      id,
+      step: "route",
+      from: "transcribed",
+      to: "needs_route",
+      patch: {
+        routeDecision: {
+          source: "mode",
+          destination: null,
+          tab: null,
+          confidence: null,
+          model: null,
+          costUsd: null,
+          reason: "journal not available",
+          outcome: "needs_route",
+        },
+      },
+    });
+    expect(store.getMemo(id)?.route).toBeNull();
+    expect(store.listRouteDecisions(id)).toMatchObject([
+      {
+        destination: null,
+        confidence: null,
+        reason: "journal not available",
+        outcome: "needs_route",
+      },
+    ]);
+  });
+
+  it("writes no row when the compare-and-set loses", () => {
+    const { store } = testStore();
+    const { id } = seedMemo(store, "received");
+    store.markStepStarted({ id, step: "route" });
+    const won = store.completeStep({
+      id,
+      step: "route",
+      from: "transcribed",
+      to: "routed",
+      patch: { route: "journal", routeDecision: decision },
+    });
+    expect(won).toBe(false);
+    expect(store.listRouteDecisions(id)).toEqual([]);
+  });
+
+  it("keeps the log across a retry and returns rows oldest first", () => {
+    const { store } = testStore();
+    const { id } = seedMemo(store, "transcribed");
+    const complete = (to: "routed" | "needs_route", reason: string | null) => {
+      store.markStepStarted({ id, step: "route" });
+      store.completeStep({
+        id,
+        step: "route",
+        from: "transcribed",
+        to,
+        patch: { routeDecision: { ...decision, outcome: to, reason } },
+      });
+    };
+    complete("needs_route", "low confidence (0.60)");
+    store.transition({ id, from: "needs_route", to: "transcribed" });
+    complete("routed", null);
+    expect(store.listRouteDecisions(id).map((d) => [d.id, d.reason])).toEqual([
+      [1, "low confidence (0.60)"],
+      [2, null],
+    ]);
+  });
+
+  it("rejects an unknown source or outcome and cascades with the memo", () => {
+    const { store, db } = testStore();
+    const { id } = seedMemo(store, "transcribed");
+    const insert = (source: string, outcome: string) =>
+      db
+        .query(
+          "INSERT INTO route_decisions (memo_id, created_at, source, outcome) VALUES (?, 't', ?, ?)",
+        )
+        .run(id, source, outcome);
+    expect(() => insert("guess", "routed")).toThrow();
+    expect(() => insert("answer", "maybe")).toThrow();
+    insert("correction", "routed");
+    db.query("DELETE FROM memos WHERE id = ?").run(id);
+    expect(store.listRouteDecisions(id)).toEqual([]);
+  });
+});
+
 describe("migrations", () => {
   it("are idempotent on an existing database and keep its data", () => {
     const db = new Database(":memory:");
@@ -352,6 +470,19 @@ describe("migrations", () => {
     expect(store.getSegment({ id, index: 0 })).toEqual({ bytes: 5, sha256: "" });
     expect(store.recordSegment({ id, index: 1, bytes: 5, sha256: "ab" })).toBe(true);
     expect(store.listSegmentIndices(id)).toEqual([0, 1]);
+  });
+
+  it("adds route_decisions on top of an existing version-4 database", () => {
+    const db = new Database(":memory:");
+    migrate(db, MIGRATIONS.slice(0, 4));
+    const id = crypto.randomUUID();
+    db.query(
+      "INSERT INTO memos (id, mode, device, started_at, state, created_at, updated_at) VALUES (?, 'auto', 'iphone', 't', 'transcribed', 't', 't')",
+    ).run(id);
+
+    const store = createSqliteMemoStore({ db, clock: testStore().clock });
+    expect(store.listRouteDecisions(id)).toEqual([]);
+    expect(store.getMemo(id)?.state).toBe("transcribed");
   });
 
   it("applies only the migrations beyond the stored version", () => {

@@ -1,4 +1,12 @@
-import type { Memo, MemoMode, MemoPatch, MemoState, Step, StepRecord } from "./memo.js";
+import type {
+  Memo,
+  MemoMode,
+  MemoPatch,
+  MemoState,
+  RouteDecisionRecord,
+  Step,
+  StepRecord,
+} from "./memo.js";
 
 /** Synchronous on purpose: the one adapter is bun:sqlite, and every method is a single statement or transaction. */
 export interface MemoStore {
@@ -35,7 +43,7 @@ export interface MemoStore {
   }): void;
   /**
    * Atomic step completion: compare-and-set `from` → `to` first; only when it won, marks the step
-   * done and applies `patch`, all in one transaction. False (nothing written) when the memo is no
+   * done, applies `patch` and appends `patch.routeDecision` to the decision log, all in one transaction. False (nothing written) when the memo is no
    * longer in `from`.
    */
   completeStep(params: {
@@ -52,6 +60,8 @@ export interface MemoStore {
   /** failed → stateBefore(from), clearing error, failedStep, the timeline and the data columns of `from` and later steps; false if not failed. */
   resetForRetry(params: { id: string; from: Step }): boolean;
   listStepRecords(id: string): StepRecord[];
+  /** The routing decision log of one memo, oldest first; the last row carries the reason of a `needs_route` park. */
+  listRouteDecisions(id: string): RouteDecisionRecord[];
 
   /** Memos the runner must resume after a restart: not receiving, notified, failed or needs_route. */
   listNonTerminal(): Memo[];

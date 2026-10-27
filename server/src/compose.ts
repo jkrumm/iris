@@ -1,6 +1,7 @@
 import { join } from "node:path";
 import { createFsSpeechCache } from "./adapters/speech-fs.js";
 import { createAgwSummarizer } from "./adapters/agw.js";
+import { createAgwDecider } from "./adapters/agw-decider.js";
 import { createAudioGatewaySpeaker } from "./adapters/audio-gateway-speaker.js";
 import { createAudioGatewayTranscriber, ffmpegCombiner } from "./adapters/audio-gateway.js";
 import { createHerdrHerd } from "./adapters/herdr.js";
@@ -11,8 +12,10 @@ import { selectNotifier } from "./notify/select.js";
 import type { AudioCombiner } from "./ports/audio.js";
 import type { Clock } from "./ports/clock.js";
 import type { DeviceStore } from "./ports/devices.js";
-import type { Destination } from "./ports/destination.js";
+import type { Decider } from "./ports/decider.js";
+import type { Destinations } from "./ports/destination.js";
 import {
+  fakeDecider,
   fakeDestination,
   fakeHerd,
   fakeNotifier,
@@ -60,7 +63,9 @@ const TABS: HerdTab[] = [
 /** Every downstream port as a deterministic in-memory fake (`IRIS_FAKES=1`, see `make e2e`). */
 const fakePorts = () => ({
   transcriber: fakeTranscriber(),
-  destination: fakeDestination(),
+  // Hermes only: with one destination the route step never calls the decider.
+  destinations: { hermes: fakeDestination() } satisfies Destinations,
+  decider: fakeDecider(),
   summarizer: fakeSummarizer(),
   notifier: fakeNotifier(),
   speaker: fakeSpeaker({ result: { bytes: MP3_FRAME } }),
@@ -111,9 +116,15 @@ export function compose(deps: {
         ? createAudioGatewayTranscriber({ baseUrl: env.AUDIO_GATEWAY_URL })
         : undefined,
     ),
-    destination: choose<Destination>("act", fakes?.destination, () =>
+    // Only destinations with an act adapter are routing choices. Journal and herdr join in Wave 11.
+    destinations: choose<Destinations>("act", fakes?.destinations, () =>
       env.HERMES_URL && env.HERMES_TOKEN
-        ? createHermesDestination({ baseUrl: env.HERMES_URL, token: env.HERMES_TOKEN })
+        ? {
+            hermes: createHermesDestination({
+              baseUrl: env.HERMES_URL,
+              token: env.HERMES_TOKEN,
+            }),
+          }
         : undefined,
     ),
     summarizer: choose<Summarizer>("summarize", fakes?.summarizer, () =>
@@ -132,6 +143,11 @@ export function compose(deps: {
     speechCache: fakes?.speechCache ?? createFsSpeechCache(join(dataDir, "speech")),
   };
 
+  // Not a `choose`: the decider only matters once there is a real choice (two or more destinations).
+  const decider: Decider | undefined =
+    fakes?.decider ?? (env.AGW_URL ? createAgwDecider({ baseUrl: env.AGW_URL }) : undefined);
+  if (Object.keys(ports.destinations ?? {}).length >= 2 && !decider) degraded.push("decide");
+
   // APNs when all four APNS_* are set, else the log stand-in (intended until enrolment, so not `degraded`).
   const selected: {
     notifier: Notifier;
@@ -143,7 +159,7 @@ export function compose(deps: {
   log("notifier.selected", { kind: selected.kind });
 
   return {
-    ports,
+    ports: { ...ports, decider },
     degraded,
     deviceTokens,
     notifier: selected.notifier,

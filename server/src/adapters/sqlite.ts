@@ -6,9 +6,12 @@ import {
   stateBefore,
   stepsFrom,
   type Memo,
+  type MemoColumnPatch,
   type MemoMode,
-  type MemoPatch,
   type MemoState,
+  type RouteDecisionRecord,
+  type RouteOutcome,
+  type RouteSource,
   type Step,
   type StepRecord,
   type Summary,
@@ -70,6 +73,20 @@ interface StepRow {
   cost_usd: number | null;
 }
 
+interface RouteDecisionRow {
+  id: number;
+  memo_id: string;
+  created_at: string;
+  source: string;
+  destination: string | null;
+  tab: string | null;
+  confidence: number | null;
+  model: string | null;
+  cost_usd: number | null;
+  reason: string | null;
+  outcome: string;
+}
+
 const SummarySchema = z.object({ headline: z.string(), detail: z.string(), spoken: z.string() });
 
 /** A stored summary that no longer parses is dropped (null) with a warning, never thrown. */
@@ -104,6 +121,20 @@ const toMemo = (row: MemoRow): Memo => ({
   updatedAt: row.updated_at,
 });
 
+const toRouteDecision = (row: RouteDecisionRow): RouteDecisionRecord => ({
+  id: row.id,
+  memoId: row.memo_id,
+  createdAt: row.created_at,
+  source: row.source as RouteSource,
+  destination: row.destination,
+  tab: row.tab,
+  confidence: row.confidence,
+  model: row.model,
+  costUsd: row.cost_usd,
+  reason: row.reason,
+  outcome: row.outcome as RouteOutcome,
+});
+
 /** Column behind each patchable memo field. */
 const PATCH_COLUMNS = {
   audioSeconds: "audio_seconds",
@@ -112,10 +143,10 @@ const PATCH_COLUMNS = {
   destinationRef: "destination_ref",
   replyText: "reply_text",
   summary: "summary_json",
-} as const satisfies Record<keyof MemoPatch, string>;
+} as const satisfies Record<keyof MemoColumnPatch, string>;
 
 /** The data columns a step writes, cleared when the step is re-run. */
-const STEP_COLUMNS: Partial<Record<Step, (keyof MemoPatch)[]>> = {
+const STEP_COLUMNS: Partial<Record<Step, (keyof MemoColumnPatch)[]>> = {
   transcribe: ["audioSeconds", "transcript"],
   route: ["route"],
   act: ["destinationRef", "replyText"],
@@ -185,7 +216,26 @@ export function createSqliteMemoStore(params: { db: Database; clock: Clock }): M
         `UPDATE memo_steps SET status = 'done', finished_at = ?, error = NULL, usage_json = ?, cost_usd = ?
          WHERE memo_id = ? AND step = ?`,
       ).run(at, usage === undefined ? null : JSON.stringify(usage), costUsd ?? null, id, step);
-      const fields = (Object.keys(PATCH_COLUMNS) as (keyof MemoPatch)[]).filter(
+      const decision = patch?.routeDecision;
+      if (decision) {
+        db.query(
+          `INSERT INTO route_decisions
+             (memo_id, created_at, source, destination, tab, confidence, model, cost_usd, reason, outcome)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        ).run(
+          id,
+          at,
+          decision.source,
+          decision.destination,
+          decision.tab,
+          decision.confidence,
+          decision.model,
+          decision.costUsd,
+          decision.reason,
+          decision.outcome,
+        );
+      }
+      const fields = (Object.keys(PATCH_COLUMNS) as (keyof MemoColumnPatch)[]).filter(
         (field) => patch?.[field] !== undefined,
       );
       if (fields.length === 0) return true;
@@ -320,6 +370,15 @@ export function createSqliteMemoStore(params: { db: Database; clock: Clock }): M
         )
         .all(id)
         .map(toStepRecord);
+    },
+
+    listRouteDecisions(id) {
+      return db
+        .query<RouteDecisionRow, [string]>(
+          "SELECT * FROM route_decisions WHERE memo_id = ? ORDER BY id",
+        )
+        .all(id)
+        .map(toRouteDecision);
     },
 
     listNonTerminal() {

@@ -35,7 +35,9 @@ function fakesApp() {
     store,
     audio,
     transcriber: fakes.transcriber,
-    destination: fakes.destination,
+    destinations: fakes.destinations,
+    herd: fakes.herd,
+    decider: fakes.decider,
     summarizer: fakes.summarizer,
     notifier: fakes.notifier,
   });
@@ -128,8 +130,8 @@ describe("compose", () => {
       OTEL_EXPORTER_OTLP_ENDPOINT: "http://127.0.0.1:4318",
       AUDIO_GATEWAY_URL: "http://127.0.0.1:1",
     });
-    const { transcriber, destination, summarizer, speaker, herd } = composed.ports;
-    for (const port of [transcriber, destination, summarizer, speaker, herd]) {
+    const { transcriber, destinations, summarizer, speaker, herd } = composed.ports;
+    for (const port of [transcriber, destinations, summarizer, speaker, herd]) {
       expect(port).toBeDefined();
     }
     expect(composed.degraded).toEqual(["fakes"]);
@@ -139,8 +141,8 @@ describe("compose", () => {
 
   it("an empty env builds no downstream and reports each missing one in order", () => {
     const { composed } = build({});
-    const { transcriber, destination, summarizer, speaker, herd } = composed.ports;
-    for (const port of [transcriber, destination, summarizer, speaker, herd]) {
+    const { transcriber, destinations, summarizer, speaker, herd } = composed.ports;
+    for (const port of [transcriber, destinations, summarizer, speaker, herd]) {
       expect(port).toBeUndefined();
     }
     expect(composed.degraded).toEqual([
@@ -166,17 +168,27 @@ describe("compose", () => {
       HERMES_TOKEN: "token",
       HERDR_SOCKET: "/nonexistent/herdr.sock",
     });
-    const { transcriber, destination, summarizer, speaker, herd } = composed.ports;
-    for (const port of [transcriber, destination, summarizer, speaker, herd]) {
+    const { transcriber, destinations, summarizer, speaker, herd } = composed.ports;
+    for (const port of [transcriber, destinations, summarizer, speaker, herd]) {
       expect(port).toBeDefined();
     }
     expect(composed.degraded).toEqual([]);
+    expect(composed.ports.decider).toBeDefined();
     expect(composed.notifierKind).toBe("log");
+  });
+
+  it("registers Hermes as the only destination and never lists decide as degraded", () => {
+    const fakes = build({ IRIS_FAKES: true }).composed.ports;
+    expect(Object.keys(fakes.destinations ?? {})).toEqual(["hermes"]);
+    const real = build({ HERMES_URL: "http://127.0.0.1:1", HERMES_TOKEN: "t" }).composed;
+    expect(Object.keys(real.ports.destinations ?? {})).toEqual(["hermes"]);
+    expect(real.degraded).not.toContain("decide");
+    expect(real.ports.decider).toBeUndefined();
   });
 
   it("Hermes needs both its URL and token", () => {
     const { composed } = build({ HERMES_URL: "http://127.0.0.1:1" });
-    expect(composed.ports.destination).toBeUndefined();
+    expect(composed.ports.destinations).toBeUndefined();
     expect(composed.degraded).toContain("act");
   });
 });

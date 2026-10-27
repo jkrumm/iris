@@ -2,17 +2,18 @@ import type { HandlerStep, Memo } from "../memo/memo.js";
 import type { StepHandler } from "../memo/runner.js";
 import type { MemoStore } from "../memo/store.js";
 import type { AudioStore } from "../ports/audio.js";
-import type { Destination } from "../ports/destination.js";
+import type { Decider } from "../ports/decider.js";
+import type { DestinationName, Destinations } from "../ports/destination.js";
+import type { Herd } from "../ports/herd.js";
 import type { Notifier } from "../ports/notifier.js";
 import type { Summarizer } from "../ports/summarizer.js";
 import type { Transcriber } from "../ports/transcriber.js";
+import { route } from "../routing/index.js";
+import { log } from "../telemetry/log.js";
 import { getActiveSpan } from "../telemetry/otel.js";
 
 // Each step is a pure function of (memo, ports): it reads what earlier steps stored on the memo,
 // returns its own result as a patch and never writes the store itself, so it is safe to re-run.
-
-/** This chain always routes to Hermes; the `decide` routing is Phase 2. */
-const ROUTE = "hermes";
 
 function required<T>(value: T | null, what: string, step: HandlerStep): T {
   if (value === null) throw new Error(`${step}: memo has no ${what}`);
@@ -23,11 +24,26 @@ export function createStepHandlers(deps: {
   store: MemoStore;
   audio: AudioStore;
   transcriber?: Transcriber | undefined;
-  destination?: Destination | undefined;
+  /** The registered act adapters; the route step chooses among them, the act step dispatches by `memo.route`. */
+  destinations?: Destinations | undefined;
+  herd?: Herd | undefined;
+  decider?: Decider | undefined;
   summarizer?: Summarizer | undefined;
   notifier: Notifier;
 }): Partial<Record<HandlerStep, StepHandler>> {
-  const { store, audio, transcriber, destination, summarizer, notifier } = deps;
+  const {
+    store,
+    audio,
+    transcriber,
+    destinations = {},
+    herd,
+    decider,
+    summarizer,
+    notifier,
+  } = deps;
+  const registered = (Object.keys(destinations) as DestinationName[]).filter(
+    (name) => destinations[name],
+  );
   const handlers: Partial<Record<HandlerStep, StepHandler>> = {};
 
   if (transcriber) {
@@ -51,14 +67,51 @@ export function createStepHandlers(deps: {
     };
   }
 
-  handlers.route = async () => {
-    getActiveSpan().setAttributes({ route: ROUTE });
-    return { patch: { route: ROUTE } };
-  };
+  // Without a destination there is nothing to route to: the memo waits at `transcribed` until one is configured.
+  if (registered.length > 0) {
+    handlers.route = async ({ memo }) => {
+      const transcript = required(memo.transcript, "transcript", "route");
+      const decision = await route({
+        memoId: memo.id,
+        mode: memo.mode,
+        transcript,
+        destinations: registered,
+        herd,
+        decider,
+      });
+      const routed = decision.outcome === "routed";
+      getActiveSpan().setAttributes({
+        route: decision.destination,
+        "route.source": decision.source,
+        "route.confidence": decision.confidence,
+        cost_usd: decision.costUsd,
+      });
+      log("route.decided", {
+        memo: memo.id,
+        source: decision.source,
+        destination: decision.destination,
+        confidence: decision.confidence,
+        outcome: decision.outcome,
+        reason: decision.reason,
+      });
+      const { transcript: routedTranscript, usage, ...row } = decision;
+      return {
+        ...(!routed && { outcome: "needs_route" as const }),
+        patch: {
+          ...(routed && { route: decision.destination }),
+          ...(routedTranscript !== transcript && { transcript: routedTranscript }),
+          routeDecision: row,
+        },
+        ...(usage !== undefined && { usage }),
+        ...(decision.costUsd !== null && { costUsd: decision.costUsd }),
+      };
+    };
 
-  if (destination) {
     handlers.act = async ({ memo }) => {
       const transcript = required(memo.transcript, "transcript", "act");
+      const name = required(memo.route, "route", "act");
+      const destination = destinations[name as DestinationName];
+      if (!destination) throw new Error(`act: no destination registered for route "${name}"`);
       const delivery = await destination.deliver({ memoId: memo.id, transcript });
       getActiveSpan().setAttributes({
         reply_chars: delivery.replyText.length,
