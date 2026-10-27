@@ -20,6 +20,10 @@
     "text": {
       "description": "Trimmed server-side; 1 to 20000 Unicode code points after trimming, else 400.",
       "type": "string"
+    },
+    "threadId": {
+      "minLength": 1,
+      "type": "string"
     }
   },
   "required": [

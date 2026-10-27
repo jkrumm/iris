@@ -8,6 +8,7 @@ import { eventRoutes } from "./http/events.js";
 import { herdRoutes } from "./http/herd.js";
 import { mediaRoutes } from "./http/media.js";
 import { memoRoutes } from "./http/memos.js";
+import { threadRoutes } from "./http/threads.js";
 import { HealthResponse, WhoamiResponse } from "./http/schemas.js";
 import { telemetryRoutes } from "./http/telemetry.js";
 import type { DeviceStore } from "./ports/devices.js";
@@ -53,6 +54,7 @@ export function createApp(deps: AppDeps) {
           response: WhoamiResponse,
         })
         .use(memoRoutes({ memos, auth }))
+        .use(threadRoutes({ memos, auth }))
         .use(deviceRoutes({ devices, memos, auth }))
         .use(telemetryRoutes({ telemetry, auth }))
         .use(mediaRoutes({ media, auth }))

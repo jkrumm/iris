@@ -1,0 +1,21 @@
+{
+  "items": [
+    {
+      "id": "9d4f2b68-1e73-4a85-b0c6-5f8a3e7d2c10",
+      "kind": "chat",
+      "title": "Was ist der Unterschied zwischen einem Mutex und…",
+      "createdAt": "2026-03-14T09:21:12.190Z",
+      "updatedAt": "2026-03-14T10:07:44.310Z",
+      "lastMemoId": "5a3c8e21-7b94-4f06-a1d8-2e6b9c4f0a73"
+    },
+    {
+      "id": "c81e0f35-92d7-4b6a-8f13-6a0d4e5b7c92",
+      "kind": "hermes",
+      "title": "Plane den Release für Freitag",
+      "createdAt": "2026-03-13T16:02:08.440Z",
+      "updatedAt": "2026-03-13T16:02:31.905Z",
+      "lastMemoId": "c81e0f35-92d7-4b6a-8f13-6a0d4e5b7c92"
+    }
+  ],
+  "nextCursor": "WyIyMDI2LTAzLTEzVDE2OjAyOjMxLjkwNVoiLCJjODFlMGYzNS05MmQ3LTRiNmEtOGYxMy02YTBkNGU1YjdjOTIiXQ"
+}

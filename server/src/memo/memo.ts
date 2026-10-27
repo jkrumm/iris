@@ -46,7 +46,10 @@ export interface Memo {
   destinationRef: string | null;
   replyText: string | null;
   summary: Summary | null;
-  /** The Hermes session (chat or not) the memo's `act` ran in; null until then and for other destinations. */
+  /**
+   * The Hermes session (chat or not) the memo ran in: set by `act` (a fresh memo's own session, so equal to its id), or at
+   * creation for a memo that continues a thread. Null before then and for other destinations.
+   */
   threadId: string | null;
   /**
    * Derived from the decision log, not a column: while the memo is `needs_route`, why it parked and
@@ -112,8 +115,26 @@ export type MemoColumnPatch = Partial<
   >
 >;
 
+/**
+ * The thread a memo was created to continue, else null. A fresh memo's session is named after the memo, so its `threadId`
+ * equals its id once `act` ran and says nothing about what the client asked for.
+ */
+export function continuedThread(memo: Pick<Memo, "id" | "threadId">): string | null {
+  return memo.threadId !== null && memo.threadId !== memo.id ? memo.threadId : null;
+}
+
 export const THREAD_KINDS = ["chat", "hermes"] as const;
 export type ThreadKind = (typeof THREAD_KINDS)[number];
+
+/** A Hermes session that one or more memos ran in; `kind` is Iris's own record (`chat` or a normal task). */
+export interface Thread {
+  id: string;
+  kind: ThreadKind;
+  title: string;
+  createdAt: string;
+  updatedAt: string;
+  lastMemoId: string | null;
+}
 /** First characters of a thread's first transcript. */
 export const THREAD_TITLE_MAX = 60;
 
@@ -123,6 +144,46 @@ export function threadTitle(transcript: string): string {
   return text.length > THREAD_TITLE_MAX
     ? `${text.slice(0, THREAD_TITLE_MAX - 1).trimEnd()}…`
     : text;
+}
+
+/** One turn of a thread as Iris recorded it: what was said (the memo's transcript) or answered (its reply). */
+export interface ThreadMessage {
+  memoId: string;
+  role: "user" | "assistant";
+  /** Markdown for an assistant message. */
+  content: string;
+  createdAt: string;
+}
+
+/**
+ * A thread's messages from its memos, in the memos' order: each memo contributes its transcript as a `user` message and, once
+ * `act` returned one, its reply as an `assistant` message. A memo that has no transcript yet, or whose reply is empty (the
+ * destination did not answer, or the memo failed before `act`), contributes only what it has. `repliedAt` is when `act` finished
+ * (the reply's time); the memo's last update stands in when it is unknown.
+ */
+export function threadMessages(turns: { memo: Memo; repliedAt: string | null }[]): ThreadMessage[] {
+  return turns.flatMap(({ memo, repliedAt }): ThreadMessage[] => [
+    ...(memo.transcript && memo.transcript.trim() !== ""
+      ? [
+          {
+            memoId: memo.id,
+            role: "user" as const,
+            content: memo.transcript,
+            createdAt: memo.createdAt,
+          },
+        ]
+      : []),
+    ...(memo.replyText && memo.replyText.trim() !== ""
+      ? [
+          {
+            memoId: memo.id,
+            role: "assistant" as const,
+            content: memo.replyText,
+            createdAt: repliedAt ?? memo.updatedAt,
+          },
+        ]
+      : []),
+  ]);
 }
 
 /**

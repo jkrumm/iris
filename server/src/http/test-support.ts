@@ -5,6 +5,7 @@ import type { HandlerStep } from "../memo/memo.js";
 import { createRunner, type StepHandler } from "../memo/runner.js";
 import { createMemoMedia } from "../memo/media.js";
 import { createMemoService } from "../memo/service.js";
+import type { MemoStore } from "../memo/store.js";
 import { fakeAudio, testStore } from "../memo/test-support.js";
 import type { DestinationName } from "../ports/destination.js";
 import type { HerdTab } from "../ports/herd.js";
@@ -20,7 +21,10 @@ export const MAC = { authorization: "Bearer tok-mac" };
 /** The whole server over in-memory SQLite, a fake audio store and a manual clock. */
 export function testApp(
   options: {
-    handlers?: Partial<Record<HandlerStep, StepHandler>>;
+    /** Step handlers, or a function of the test's store (for `createStepHandlers`). */
+    handlers?:
+      | Partial<Record<HandlerStep, StepHandler>>
+      | ((store: MemoStore) => Partial<Record<HandlerStep, StepHandler>>);
     maxSegmentBytes?: number;
     sseKeepaliveMs?: number;
     /** `false` leaves speech unconfigured (503). */
@@ -52,7 +56,9 @@ export function testApp(
     },
   };
   const audio = fakeAudio();
-  const runner = createRunner({ store, handlers: options.handlers ?? {}, events, clock });
+  const handlers =
+    typeof options.handlers === "function" ? options.handlers(store) : (options.handlers ?? {});
+  const runner = createRunner({ store, handlers, events, clock });
   const memos = createMemoService({
     store,
     runner,

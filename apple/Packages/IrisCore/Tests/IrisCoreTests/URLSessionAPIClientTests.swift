@@ -183,6 +183,56 @@ struct URLSessionAPIClientTests {
     #expect(server.request?.url.path == "/v1/memos/\(memoID)")
   }
 
+  @Test("createMemo and createTextMemo send the threadId of a continuation")
+  func createInThread() async throws {
+    let server = StubServer { _ in try .json(201, fixture: "memos.create.response") }
+    let decoder = IrisJSON.makeDecoder()
+    let create = try decoder.decode(CreateMemoRequest.self, from: Contracts.fixtureData("memos.create.request.thread"))
+    _ = try await server.makeClient().createMemo(create)
+    #expect(
+      try jsonValue(#require(server.request).body) == jsonValue(Contracts.fixtureData("memos.create.request.thread")))
+
+    let textServer = StubServer { _ in try .json(202, fixture: "memos.text.response") }
+    let text = try decoder.decode(CreateTextMemoRequest.self, from: Contracts.fixtureData("memos.text.request.thread"))
+    _ = try await textServer.makeClient().createTextMemo(text)
+    #expect(
+      try jsonValue(#require(textServer.request).body) == jsonValue(Contracts.fixtureData("memos.text.request.thread")))
+  }
+
+  @Test("listThreads sends kind, limit and cursor as query items")
+  func listThreads() async throws {
+    let server = StubServer { _ in try .json(fixture: "threads.list.response") }
+    let page = try await server.makeClient().listThreads(ListThreadsQuery(kind: .chat, limit: 20, cursor: "abc"))
+
+    #expect(page.items.map(\.kind) == [.chat, .hermes])
+    #expect(page.nextCursor != nil)
+    let request = try #require(server.request)
+    #expect(request.method == "GET")
+    #expect(request.url.path == "/v1/threads")
+    #expect(
+      request.queryItems == [
+        URLQueryItem(name: "kind", value: "chat"), URLQueryItem(name: "limit", value: "20"),
+        URLQueryItem(name: "cursor", value: "abc"),
+      ])
+  }
+
+  @Test("listThreads without a query sends none")
+  func listThreadsNoQuery() async throws {
+    let server = StubServer { _ in try .json(fixture: "threads.list.response.empty") }
+    let page = try await server.makeClient().listThreads(ListThreadsQuery())
+    #expect(page.items.isEmpty)
+    #expect(server.request?.url.query == nil)
+  }
+
+  @Test("thread(id:) decodes the thread, its memos and the conversation")
+  func threadDetail() async throws {
+    let server = StubServer { _ in try .json(fixture: "threads.detail.response") }
+    let detail = try await server.makeClient().thread(id: "t1")
+    #expect(detail.memos.count == 2)
+    #expect(detail.messages.map(\.role) == [.user, .assistant, .user, .assistant])
+    #expect(server.request?.url.path == "/v1/threads/t1")
+  }
+
   @Test("result: 200 is ready, 202 is pending, and wait goes in the query")
   func result() async throws {
     let server = StubServer { request in

@@ -33,7 +33,7 @@ export function fakeTranscriber(
  * a destination that keeps none, or `result.thread` says otherwise.
  */
 export function fakeDestination(
-  options: Options<Delivery> & { threads?: boolean } = {},
+  options: Options<Delivery> & { threads?: boolean; sessionPerMemo?: boolean } = {},
 ): Destination & Calls<Parameters<Destination["deliver"]>[0]> {
   const calls: Parameters<Destination["deliver"]>[0][] = [];
   return {
@@ -41,7 +41,9 @@ export function fakeDestination(
     async deliver(params) {
       calls.push(params);
       if (options.failWith) throw options.failWith;
-      const delivery: Delivery = { ref: "session-1", replyText: "done", ...options.result };
+      // A continuation lands in its thread's session; otherwise one shared session, or (`sessionPerMemo`) one per memo like Hermes.
+      const ref = params.threadId ?? (options.sessionPerMemo ? params.memoId : "session-1");
+      const delivery: Delivery = { ref, replyText: "done", ...options.result };
       if (options.threads !== false && !delivery.thread) {
         delivery.thread = {
           id: delivery.ref,

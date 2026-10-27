@@ -72,8 +72,8 @@ const fakePorts = () => ({
   destinations: {
     journal: fakeDestination({ threads: false }),
     herdr: fakeDestination({ threads: false }),
-    // Only Hermes keeps conversations: this fake reports a thread.
-    hermes: fakeDestination(),
+    // Only Hermes keeps conversations: this fake reports a thread, and (like Hermes) names its session after the memo.
+    hermes: fakeDestination({ sessionPerMemo: true }),
   } satisfies Destinations,
   decider: fakeDecider(),
   summarizer: fakeSummarizer(),

@@ -396,6 +396,40 @@ describe("flows: every response conforms", () => {
   });
 });
 
+/** An `act` that ran in a chat thread. */
+const actInThread = async () => ({
+  patch: {
+    destinationRef: "iris-session",
+    replyText: "Notiert.",
+    thread: { id: "iris-session", kind: "chat" as const, title: "Hallo Welt" },
+  },
+});
+
+describe("flows: threads conform", () => {
+  it("list, detail and an unknown thread", async () => {
+    const { app } = testApp({ handlers: handlers({ act: actInThread }) });
+    await record(app);
+
+    const list = await call(app, { path: "/v1/threads" });
+    const listed = await conformingBody({ route: "GET /v1/threads", res: list });
+    expect(listed).toMatchObject({ items: [{ id: "iris-session", kind: "chat" }] });
+
+    const detail = await call(app, { path: "/v1/threads/iris-session" });
+    expect(await conformingBody({ route: "GET /v1/threads/:id", res: detail })).toMatchObject({
+      messages: [
+        { role: "user", content: "Hallo Welt" },
+        { role: "assistant", content: "Notiert." },
+      ],
+    });
+
+    const missing = await call(app, { path: "/v1/threads/nope" });
+    expect(missing.status).toBe(404);
+    expect(await conformingBody({ route: "GET /v1/threads/:id", res: missing })).toMatchObject({
+      error: "not_found",
+    });
+  });
+});
+
 describe("flows: every error shape conforms", () => {
   it("404, 409, 400, 413, 422 and 503 carry the manifest's error schemas", async () => {
     const { app } = testApp({ handlers: handlers(), maxSegmentBytes: 4, herd: false });
@@ -598,7 +632,16 @@ const query = (stem: string) =>
 
 describe("request fixtures are accepted by the server", () => {
   it("create, complete, retry, query strings", async () => {
-    const { app } = testApp({ handlers: handlers() });
+    const { app, db } = testApp({ handlers: handlers() });
+    // A request fixture that names a thread continues one that already exists.
+    for (const f of [...fixturesOf("memos.create.request"), ...fixturesOf("memos.text.request")]) {
+      const threadId = (f.value as { threadId?: string }).threadId;
+      if (threadId === undefined) continue;
+      db.query(
+        `INSERT OR IGNORE INTO threads (id, kind, title, created_at, updated_at)
+         VALUES (?, 'chat', 'earlier turn', '2026-03-14T09:00:00.000Z', '2026-03-14T09:00:00.000Z')`,
+      ).run(threadId);
+    }
     for (const f of fixturesOf("memos.create.request")) {
       const res = await call(app, { method: "POST", path: "/v1/memos", json: f.value });
       expect([f.stem, res.status < 300]).toEqual([f.stem, true]);
@@ -623,6 +666,10 @@ describe("request fixtures are accepted by the server", () => {
 
     for (const f of fixturesOf("memos.list.query")) {
       const res = await call(app, { path: `/v1/memos?${query(f.stem)}` });
+      expect([f.stem, res.status]).toEqual([f.stem, 200]);
+    }
+    for (const f of fixturesOf("threads.list.query")) {
+      const res = await call(app, { path: `/v1/threads?${query(f.stem)}` });
       expect([f.stem, res.status]).toEqual([f.stem, 200]);
     }
     for (const f of fixturesOf("memos.result.query")) {

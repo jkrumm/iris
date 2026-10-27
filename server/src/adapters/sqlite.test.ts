@@ -402,20 +402,40 @@ describe("threads", () => {
     expect(store.getMemo(id)?.threadId).toBeNull();
   });
 
-  it("resetForRetry from act unlinks the memo but keeps the thread", () => {
+  it("resetForRetry from act unlinks the memo from its own session but keeps the thread", () => {
     const { store, db } = testStore();
     const { id } = seedMemo(store, "routed");
-    act(store, id, { thread: thread("session") });
+    act(store, id, { thread: thread(id) });
     store.markStepStarted({ id, step: "summarize" });
     store.markStepFailed({ id, step: "summarize", error: "boom" });
 
     store.resetForRetry({ id, from: "summarize" });
-    expect(store.getMemo(id)?.threadId).toBe("session");
+    expect(store.getMemo(id)?.threadId).toBe(id);
 
     store.markStepFailed({ id, step: "act", error: "boom" });
     store.resetForRetry({ id, from: "act" });
     expect(store.getMemo(id)?.threadId).toBeNull();
-    expect(db.query("SELECT id FROM threads").all()).toEqual([{ id: "session" }]);
+    expect(db.query("SELECT id FROM threads").all()).toEqual([{ id }]);
+  });
+
+  it("resetForRetry keeps the thread of a memo created to continue it", () => {
+    const { store } = testStore();
+    const memo = seedMemo(store, "routed");
+    const continued = store.createTextMemo({
+      id: crypto.randomUUID(),
+      mode: "chat",
+      device: "iphone",
+      startedAt: "2026-01-01T00:00:00.000Z",
+      text: "and then?",
+      threadId: memo.id,
+    }).memo;
+    expect(continued.threadId).toBe(memo.id);
+
+    store.transition({ id: continued.id, from: "transcribed", to: "routed" });
+    act(store, continued.id, { thread: thread(memo.id) });
+    store.markStepFailed({ id: continued.id, step: "act", error: "boom" });
+    store.resetForRetry({ id: continued.id, from: "route" });
+    expect(store.getMemo(continued.id)?.threadId).toBe(memo.id);
   });
 
   it("rejects an unknown kind", () => {

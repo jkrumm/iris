@@ -4,11 +4,15 @@ public struct CreateMemoRequest: Codable, Hashable, Sendable {
   public var id: String
   public var mode: MemoMode
   public var startedAt: Date
+  /// Continues this thread (`MemoThread.id`): the memo is delivered into its Hermes session. Omitted when `nil`;
+  /// an unknown thread is a 404 and another thread on a replay a 409.
+  public var threadId: String?
 
-  public init(id: String, mode: MemoMode, startedAt: Date) {
+  public init(id: String, mode: MemoMode, startedAt: Date, threadId: String? = nil) {
     self.id = id
     self.mode = mode
     self.startedAt = startedAt
+    self.threadId = threadId
   }
 }
 
@@ -22,12 +26,15 @@ public struct CreateTextMemoRequest: Codable, Hashable, Sendable {
   public var mode: MemoMode
   public var startedAt: Date
   public var text: String
+  /// As on `CreateMemoRequest`: continues this thread; omitted when `nil`.
+  public var threadId: String?
 
-  public init(id: String, mode: MemoMode, startedAt: Date, text: String) {
+  public init(id: String, mode: MemoMode, startedAt: Date, text: String, threadId: String? = nil) {
     self.id = id
     self.mode = mode
     self.startedAt = startedAt
     self.text = text
+    self.threadId = threadId
   }
 }
 

@@ -16,6 +16,8 @@ public actor FakeAPIClient: APIClient {
     case routeMemo(id: String, request: RouteRequest)
     case listMemos(ListMemosQuery)
     case memo(id: String)
+    case listThreads(ListThreadsQuery)
+    case thread(id: String)
     case result(id: String, query: MemoResultQuery)
     case registerDevice(RegisterDeviceRequest)
     case setActivityToken(memoID: String, request: ActivityTokenRequest)
@@ -25,12 +27,13 @@ public actor FakeAPIClient: APIClient {
   /// The endpoints a failure can be scripted for.
   public enum Endpoint: Hashable, Sendable {
     case health, whoami, createMemo, createTextMemo, uploadSegment, completeMemo, retryMemo, routeMemo
-    case listMemos, memo, result
+    case listMemos, memo, listThreads, thread, result
     case registerDevice, setActivityToken, herd
   }
 
   public private(set) var calls: [Call] = []
   public private(set) var memos: [String: MemoDetail] = [:]
+  public private(set) var threads: [String: ThreadDetail] = [:]
   public private(set) var segments: [String: [Int: Data]] = [:]
   public private(set) var activityTokens: [String: String] = [:]
   public var deviceID: String
@@ -66,6 +69,11 @@ public actor FakeAPIClient: APIClient {
     memos[detail.id] = detail
   }
 
+  /// Stores a thread as if the server already had it; a memo may then continue it.
+  public func seed(_ thread: ThreadDetail) {
+    threads[thread.id] = thread
+  }
+
   public func setHealth(_ health: Health) { healthResponse = health }
 
   public func setHerd(_ herd: Herd) { herdResponse = herd }
@@ -97,12 +105,17 @@ public actor FakeAPIClient: APIClient {
   public func createMemo(_ request: CreateMemoRequest) async throws -> Memo {
     calls.append(.createMemo(request))
     try failIfScripted(.createMemo)
-    if let existing = memos[request.id] { return existing.memo }
+    if let existing = memos[request.id]?.memo {
+      try requireSameThread(existing, request.threadId)
+      return existing
+    }
+    try requireThread(request.threadId)
     let timestamp = now()
     let memo = Memo(
       id: request.id, mode: request.mode, device: deviceID, startedAt: request.startedAt, state: .receiving,
-      createdAt: timestamp, updatedAt: timestamp)
+      threadId: request.threadId, createdAt: timestamp, updatedAt: timestamp)
     memos[request.id] = MemoDetail(memo: memo, steps: [])
+    attach(memo)
     return memo
   }
 
@@ -117,18 +130,20 @@ public actor FakeAPIClient: APIClient {
     }
     if let existing = memos[request.id]?.memo {
       guard existing.mode == request.mode, existing.startedAt == request.startedAt, existing.transcript == text,
-        existing.isTyped
+        existing.isTyped, existing.threadId == request.threadId
       else {
         throw APIError.server(
           status: 409, body: ErrorBody(error: .conflict, message: "memo already exists with another body"))
       }
       return existing
     }
+    try requireThread(request.threadId)
     let timestamp = now()
     let memo = Memo(
       id: request.id, mode: request.mode, device: deviceID, startedAt: request.startedAt, state: .transcribed,
-      transcript: text, isTyped: true, createdAt: timestamp, updatedAt: timestamp)
+      transcript: text, threadId: request.threadId, isTyped: true, createdAt: timestamp, updatedAt: timestamp)
     memos[request.id] = MemoDetail(memo: memo, steps: [])
+    attach(memo)
     return memo
   }
 
@@ -216,6 +231,26 @@ public actor FakeAPIClient: APIClient {
     return detail
   }
 
+  public func listThreads(_ query: ListThreadsQuery) async throws -> ThreadPage {
+    calls.append(.listThreads(query))
+    try failIfScripted(.listThreads)
+    let newestFirst = threads.values.map(\.thread)
+      .filter { query.kind == nil || $0.kind == query.kind }
+      .sorted { ($0.updatedAt, $0.id) > ($1.updatedAt, $1.id) }
+    let start = query.cursor.flatMap(Int.init) ?? 0
+    let limit = query.limit ?? 20
+    guard start < newestFirst.count else { return ThreadPage(items: []) }
+    let end = min(start + limit, newestFirst.count)
+    return ThreadPage(items: Array(newestFirst[start..<end]), nextCursor: end < newestFirst.count ? String(end) : nil)
+  }
+
+  public func thread(id: String) async throws -> ThreadDetail {
+    calls.append(.thread(id: id))
+    try failIfScripted(.thread)
+    guard let detail = threads[id] else { throw notFound("thread not found") }
+    return detail
+  }
+
   public func result(id: String, query: MemoResultQuery) async throws -> MemoResult {
     calls.append(.result(id: id, query: query))
     try failIfScripted(.result)
@@ -263,6 +298,31 @@ public actor FakeAPIClient: APIClient {
     let error = queue.removeFirst()
     failures[endpoint] = queue
     throw error
+  }
+
+  /// A memo that names a thread must find it, as on the server.
+  private func requireThread(_ threadId: String?) throws {
+    guard let threadId, threads[threadId] == nil else { return }
+    throw notFound("thread \(threadId) not found")
+  }
+
+  private func requireSameThread(_ memo: Memo, _ threadId: String?) throws {
+    guard memo.threadId != threadId else { return }
+    throw APIError.server(
+      status: 409, body: ErrorBody(error: .conflict, message: "memo already exists with another thread"))
+  }
+
+  /// Files a new memo under its thread (its transcript becomes a user message) and moves the thread, as `act` does on the server.
+  private func attach(_ memo: Memo) {
+    guard let threadId = memo.threadId, var detail = threads[threadId] else { return }
+    detail.memos.append(memo)
+    if let transcript = memo.transcript {
+      detail.messages.append(
+        ThreadMessage(memoId: memo.id, role: .user, content: transcript, createdAt: memo.createdAt))
+    }
+    detail.thread.updatedAt = memo.updatedAt
+    detail.thread.lastMemoId = memo.id
+    threads[threadId] = detail
   }
 
   private func notFound(_ message: String) -> APIError {

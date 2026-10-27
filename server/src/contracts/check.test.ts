@@ -122,14 +122,14 @@ describe("checkContracts", () => {
       const manifest = JSON.parse(text);
       manifest.routes.push({
         method: "GET",
-        path: "/v1/threads",
+        path: "/v1/archive",
         auth: "bearer",
         responses: { "200": { mediaType: "application/json", schema: "whoami.response" } },
       });
       return JSON.stringify(manifest);
     });
     expect(problems()).toContainEqual(
-      expect.stringContaining("lists GET /v1/threads, which the app does not serve"),
+      expect.stringContaining("lists GET /v1/archive, which the app does not serve"),
     );
   });
 

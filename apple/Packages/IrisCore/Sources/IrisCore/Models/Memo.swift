@@ -31,7 +31,8 @@ public struct Memo: Codable, Hashable, Sendable, Identifiable {
   public var destinationRef: String?
   public var replyText: String?
   public var summary: MemoSummary?
-  /// The Hermes session (chat or not) the memo's `act` ran in; present once `act` ran in one, omitted (never `null`) otherwise.
+  /// The Hermes session (chat or not) the memo belongs to: set when `act` ran in it, or at creation for a memo that continues
+  /// a thread (`CreateMemoRequest.threadId`); omitted (never `null`) otherwise.
   public var threadId: String?
   /// Why the memo parked; present only while it is `needs_route`, omitted (never `null`) otherwise.
   public var routeReason: String?

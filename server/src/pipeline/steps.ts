@@ -1,4 +1,10 @@
-import type { HandlerStep, Memo, RouteDecisionInput, Summary } from "../memo/memo.js";
+import {
+  continuedThread,
+  type HandlerStep,
+  type Memo,
+  type RouteDecisionInput,
+  type Summary,
+} from "../memo/memo.js";
 import type { StepHandler } from "../memo/runner.js";
 import type { MemoStore } from "../memo/store.js";
 import type { AudioStore } from "../ports/audio.js";
@@ -6,6 +12,7 @@ import type { Decider } from "../ports/decider.js";
 import {
   isDestinationName,
   registeredDestinations,
+  type DestinationName,
   TabGoneError,
   type Destinations,
 } from "../ports/destination.js";
@@ -13,7 +20,7 @@ import type { Herd } from "../ports/herd.js";
 import type { Notifier } from "../ports/notifier.js";
 import type { Summarizer } from "../ports/summarizer.js";
 import type { Transcriber } from "../ports/transcriber.js";
-import { deliveredTranscript, route, WHICH_TAB } from "../routing/index.js";
+import { deliveredTranscript, route, WHICH_TAB, type RouteDecision } from "../routing/index.js";
 import { log } from "../telemetry/log.js";
 import { getActiveSpan } from "../telemetry/otel.js";
 
@@ -43,6 +50,23 @@ function templatedSummary(params: {
     headline: clip(`Sent to ${target}`, HEADLINE_MAX),
     detail,
     spoken: `Sent to ${tab ? `${tab.repo} ${tab.label}` : "the tab"}.`,
+  };
+}
+
+/** The route of a memo that continues a thread: forced to `hermes`, no model call. */
+function continuationRoute(registered: readonly DestinationName[]): RouteDecision {
+  if (!registered.includes("hermes")) {
+    throw new Error("route: a thread continues in Hermes, which is not registered");
+  }
+  return {
+    source: "mode",
+    destination: "hermes",
+    tab: null,
+    confidence: null,
+    model: null,
+    costUsd: null,
+    reason: null,
+    outcome: "routed",
   };
 }
 
@@ -108,14 +132,17 @@ export function createStepHandlers(deps: {
   if (registered.length > 0) {
     handlers.route = async ({ memo }) => {
       const transcript = required(memo.transcript, "transcript", "route");
-      const decision = await route({
-        memoId: memo.id,
-        mode: memo.mode,
-        transcript,
-        destinations: registered,
-        herd,
-        decider,
-      });
+      // A reply into a thread goes to the Hermes session that holds it, whatever the mode or the words say.
+      const decision: RouteDecision = continuedThread(memo)
+        ? continuationRoute(registered)
+        : await route({
+            memoId: memo.id,
+            mode: memo.mode,
+            transcript,
+            destinations: registered,
+            herd,
+            decider,
+          });
       const routed = decision.outcome === "routed";
       getActiveSpan().setAttributes({
         route: decision.destination,
@@ -171,14 +198,20 @@ export function createStepHandlers(deps: {
       };
       if (name === "herdr" && tab === undefined) return park(WHICH_TAB, null);
 
-      const chat = memo.mode === "chat";
+      // A continuation delivers into its thread's session; the thread, not the memo's mode, says whether it is a chat
+      // (Hermes does not keep the no-side-effects message, so every turn of a chat thread sends it again).
+      const threadId = name === "hermes" ? continuedThread(memo) : null;
+      const chat =
+        name === "hermes" &&
+        (threadId ? store.getThread(threadId)?.kind === "chat" : memo.mode === "chat");
       let delivery;
       try {
         delivery = await destination.deliver({
           memoId: memo.id,
           transcript,
           ...(tab !== undefined && { tab }),
-          ...(chat && name === "hermes" && { chat }),
+          ...(chat && { chat }),
+          ...(threadId && { threadId }),
         });
       } catch (err) {
         if (err instanceof TabGoneError) return park(err.message, err.tab);

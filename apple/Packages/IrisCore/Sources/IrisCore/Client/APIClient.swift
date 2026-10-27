@@ -7,7 +7,7 @@ public protocol APIClient: Sendable {
   func health() async throws -> Health
   /// `GET /v1/whoami`.
   func whoami() async throws -> Whoami
-  /// `POST /v1/memos`: idempotent by `request.id`.
+  /// `POST /v1/memos`: idempotent by `request.id`. With `request.threadId` the memo continues that thread (404 when unknown).
   func createMemo(_ request: CreateMemoRequest) async throws -> Memo
   /// `POST /v1/memos/text`: a memo typed instead of spoken. It is created `transcribed` with the text as its
   /// transcript and driven from `route`; there is no upload and no `complete`. Idempotent by `request.id`:
@@ -27,6 +27,11 @@ public protocol APIClient: Sendable {
   func listMemos(_ query: ListMemosQuery) async throws -> MemoPage
   /// `GET /v1/memos/:id`.
   func memo(id: String) async throws -> MemoDetail
+  /// `GET /v1/threads`: one page, newest update first; pass the previous page's `nextCursor` to continue.
+  func listThreads(_ query: ListThreadsQuery) async throws -> ThreadPage
+  /// `GET /v1/threads/:id`: the thread, its memos and the conversation built from them (no Hermes read).
+  /// An unknown thread throws a 404 `APIError.server`.
+  func thread(id: String) async throws -> ThreadDetail
   /// `GET /v1/memos/:id/result`: long-polls up to `query.wait` seconds for a result-ready state.
   func result(id: String, query: MemoResultQuery) async throws -> MemoResult
   /// `POST /v1/devices/register`.
