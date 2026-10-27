@@ -22,6 +22,14 @@ const isDeadToken = ({ status, reason }: Failure) =>
   status === 410 || reason === "BadDeviceToken" || reason === "Unregistered";
 
 /**
+ * BadDeviceToken from a device that never registered its environment: the push went to the
+ * sandbox by guess, and a valid production token is rejected exactly like this. Only an explicitly
+ * registered environment makes BadDeviceToken proof of a dead token (410 / Unregistered always are).
+ */
+const isEnvironmentMismatch = ({ status, reason }: Failure, apnsEnv: ApnsEnv | null) =>
+  apnsEnv === null && status !== 410 && reason === "BadDeviceToken";
+
+/**
  * Pushes through an `ApnsTransport`. A rejected token never fails the memo (it is logged, and
  * cleared when dead); a transient failure of the final push throws so the notify step fails and
  * `POST /retry` can re-drive it. Live Activity updates are best effort and never throw.
@@ -37,9 +45,6 @@ export function createApnsNotifier(deps: {
   const { transport, devices, topic, clock } = deps;
   const logger = deps.logger ?? log;
 
-  const environmentOf = (memo: Memo): ApnsEnv =>
-    devices.getDevice(memo.device)?.apnsEnv ?? "sandbox";
-
   async function push(params: {
     kind: Kind;
     memo: Memo;
@@ -48,9 +53,11 @@ export function createApnsNotifier(deps: {
     clearToken: () => void;
   }): Promise<ApnsResult> {
     const { kind, memo, token, message, clearToken } = params;
+    // An unregistered environment is pushed to the sandbox as a guess; see `isEnvironmentMismatch`.
+    const apnsEnv: ApnsEnv | null = devices.getDevice(memo.device)?.apnsEnv ?? null;
     const result = await transport.send({
       ...message,
-      environment: environmentOf(memo),
+      environment: apnsEnv ?? "sandbox",
       deviceToken: token,
     });
     if (result.ok) return result;
@@ -65,6 +72,13 @@ export function createApnsNotifier(deps: {
       logger("notify.apns_transient", fields);
       return result;
     }
+    if (isEnvironmentMismatch(result, apnsEnv)) {
+      logger("notify.apns_rejected", {
+        ...fields,
+        hint: "apnsEnv is unknown, BadDeviceToken may be a sandbox/production mismatch; token kept",
+      });
+      return result;
+    }
     logger("notify.apns_rejected", fields);
     if (isDeadToken(result)) clearToken();
     return result;
@@ -72,14 +86,7 @@ export function createApnsNotifier(deps: {
 
   // The device may have re-registered a fresh token while the push was in flight; only clear the one we used.
   const clearDeviceToken = (memo: Memo, token: string) => () => {
-    const device = devices.getDevice(memo.device);
-    if (device?.apnsToken !== token) return;
-    devices.registerDevice({
-      device: device.device,
-      name: device.name,
-      platform: device.platform,
-      apnsToken: null,
-    });
+    devices.clearApnsToken({ device: memo.device, expected: token });
   };
 
   const clearActivityToken = (memo: Memo, token: string) => () => {

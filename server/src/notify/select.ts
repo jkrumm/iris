@@ -22,6 +22,8 @@ export const unescapeNewlines = (pem: string) => pem.replaceAll("\\n", "\n");
 export function selectNotifier(deps: { apns: ApnsConfig; devices: DeviceStore; clock: Clock }): {
   notifier: Notifier;
   kind: "apns" | "log";
+  /** Closes the APNs connections; absent for the log notifier. */
+  close?: () => Promise<void>;
 } {
   const { APNS_KEY_P8, APNS_KEY_ID, APNS_TEAM_ID, APNS_TOPIC } = deps.apns;
   if (!APNS_KEY_P8 || !APNS_KEY_ID || !APNS_TEAM_ID || !APNS_TOPIC) {
@@ -40,5 +42,6 @@ export function selectNotifier(deps: { apns: ApnsConfig; devices: DeviceStore; c
       clock: deps.clock,
     }),
     kind: "apns",
+    close: () => transport.close(),
   };
 }

@@ -31,6 +31,12 @@ export interface DeviceStore {
     pushToStartToken?: string | null | undefined;
   }): Device;
   getDevice(device: string): Device | null;
+  /**
+   * Clears the device's APNs token only if it is still `expected` (APNs said that token is dead; a
+   * fresh registration meanwhile must survive). Touches nothing else, `lastSeenAt` included.
+   * False when the device is unknown or holds a different token.
+   */
+  clearApnsToken(params: { device: string; expected: string }): boolean;
   /** Oldest registration first. */
   listDevices(): Device[];
 

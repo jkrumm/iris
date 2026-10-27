@@ -17,6 +17,7 @@ import { createMemoEvents } from "./memo/events.js";
 import { createMemoMedia } from "./memo/media.js";
 import { createRunner } from "./memo/runner.js";
 import { createMemoService } from "./memo/service.js";
+import { createNotifyLifecycle } from "./notify/lifecycle.js";
 import { bindPhaseUpdates } from "./notify/phases.js";
 import { selectNotifier } from "./notify/select.js";
 import { createStepHandlers } from "./pipeline/steps.js";
@@ -80,8 +81,12 @@ const herd = fakes
 if (!herd) degraded.push("herd");
 
 // APNs when all four APNS_* are set, else the log stand-in (intended until enrolment, so not `degraded`).
-const { notifier, kind: notifierKind } = fakes
-  ? { notifier: fakes.notifier, kind: "fakes" }
+const {
+  notifier,
+  kind: notifierKind,
+  close: closeApns,
+} = fakes
+  ? { notifier: fakes.notifier, kind: "fakes", close: undefined }
   : selectNotifier({ apns: env, devices, clock });
 log("notifier.selected", { kind: notifierKind });
 
@@ -95,7 +100,10 @@ const handlers = createStepHandlers({
 });
 log("runner.handlers_registered", { steps: Object.keys(handlers) });
 const runner = createRunner({ store, handlers, events, clock });
-bindPhaseUpdates({ events, store, devices, notifier });
+const notifyLifecycle = createNotifyLifecycle({
+  phases: bindPhaseUpdates({ events, store, devices, notifier }),
+  closeTransport: closeApns,
+});
 const memos = createMemoService({
   store,
   runner,
@@ -140,8 +148,9 @@ const OTEL_FLUSH_DEADLINE_MS = 2_000;
 const after = (ms: number) =>
   new Promise<"timeout">((resolve) => setTimeout(resolve, ms, "timeout"));
 
-// One idempotent path for signals and crashes: stop accepting, let the running step finish (bounded
-// by the drain deadline), close the DB, then flush OTel under its own short deadline (an
+// One idempotent path for signals and crashes: stop accepting, let the running step and the Live
+// Activity pushes in flight finish (bounded by one drain deadline), close the APNs transport and the
+// DB, then flush OTel under its own short deadline (an
 // unreachable collector must not turn a deploy into a hard kill), then exit.
 async function shutdown(code: number): Promise<void> {
   if (shuttingDown) return;
@@ -149,14 +158,16 @@ async function shutdown(code: number): Promise<void> {
   try {
     await app.stop(true);
     runner.stop();
+    notifyLifecycle.stop();
     const drained = await Promise.race([
-      runner.idle().then(() => "drained"),
+      Promise.all([runner.idle(), notifyLifecycle.idle()]).then(() => "drained"),
       after(DRAIN_DEADLINE_MS),
     ]);
     if (drained === "timeout") {
-      // A step is still running: closing the DB would only turn its completion into an error.
+      // A step or push is still running: closing the DB would only turn its completion into an error.
       log("shutdown.drain_timeout", { inflight: runner.inflightIds() });
     } else {
+      await notifyLifecycle.close();
       db.close();
     }
   } catch (err) {

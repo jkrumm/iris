@@ -7,6 +7,13 @@ import { withSpan } from "../telemetry/otel.js";
 const TIMEOUT_MS = 120_000;
 const BODY_MAX = 300;
 
+/** A network error, timeout or abort is the gateway being unavailable, not a bug: a 503, not a 500. */
+function unreachable(memoId: string, err: unknown): never {
+  const reason = err instanceof Error ? err.message : String(err);
+  log("audio_gateway.speak_failed", { memo_id: memoId, error: reason });
+  throw new MemoError("unavailable", `speech synthesis unreachable: ${reason}`);
+}
+
 export interface AudioGatewaySpeakerOptions {
   baseUrl: string;
   fetch?: typeof fetch;
@@ -34,14 +41,16 @@ export function createAudioGatewaySpeaker(opts: AudioGatewaySpeakerOptions): Spe
             headers: { "content-type": "application/json", "x-audio-source": "iris" },
             body: JSON.stringify({ input: text, response_format: "mp3" }),
             signal: AbortSignal.timeout(TIMEOUT_MS),
-          });
+          }).catch((err: unknown) => unreachable(memoId, err));
           span.setAttributes({ status: res.status });
           if (!res.ok) {
             const body = (await res.text().catch(() => "")).slice(0, BODY_MAX);
             log("audio_gateway.speak_failed", { memo_id: memoId, status: res.status, body });
             throw new MemoError("unavailable", `speech synthesis failed: ${res.status}`);
           }
-          const bytes = new Uint8Array(await res.arrayBuffer());
+          const bytes = new Uint8Array(
+            await res.arrayBuffer().catch((err: unknown) => unreachable(memoId, err)),
+          );
           if (bytes.byteLength === 0) {
             throw new MemoError("unavailable", "speech synthesis returned no audio");
           }

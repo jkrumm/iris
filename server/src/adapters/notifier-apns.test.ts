@@ -29,7 +29,7 @@ function setup(options: { results?: ApnsResult[]; apnsEnv?: ApnsEnv | null } = {
     ...phone,
     apnsEnv: options.apnsEnv === undefined ? "production" : options.apnsEnv,
   });
-  return { devices, transport, notifier, memo, lines };
+  return { devices, transport, notifier, memo, lines, clock };
 }
 
 const events = (lines: { event: string }[]) => lines.map((l) => l.event);
@@ -115,6 +115,91 @@ describe("notify", () => {
 
     expect(devices.getActivityToken(memo.id)).toBeNull();
     expect(devices.getDevice("iphone")?.apnsToken).toBe("aa11");
+  });
+
+  it("keeps the alert token on BadDeviceToken when the device never reported an environment", async () => {
+    const { notifier, memo, devices, transport, lines } = setup({
+      apnsEnv: null,
+      results: [{ ok: false, status: 400, reason: "BadDeviceToken" }],
+    });
+    devices.registerDevice({ ...phone, apnsToken: "aa11" });
+
+    await notifier.notify({ memo, summary });
+
+    expect(transport.calls.map((c) => c.environment)).toEqual(["sandbox"]);
+    expect(devices.getDevice("iphone")?.apnsToken).toBe("aa11");
+    expect(lines).toHaveLength(1);
+    expect(lines[0]?.event).toBe("notify.apns_rejected");
+    expect(lines[0]?.fields["hint"]).toContain("apnsEnv is unknown");
+  });
+
+  it.each(["sandbox", "production"] as const)(
+    "clears the alert token on BadDeviceToken when the %s environment was registered",
+    async (apnsEnv) => {
+      const { notifier, memo, devices, lines } = setup({
+        apnsEnv,
+        results: [{ ok: false, status: 400, reason: "BadDeviceToken" }],
+      });
+      devices.registerDevice({ ...phone, apnsToken: "aa11" });
+
+      await notifier.notify({ memo, summary });
+
+      expect(devices.getDevice("iphone")?.apnsToken).toBeNull();
+      expect(lines[0]?.fields).not.toHaveProperty("hint");
+    },
+  );
+
+  it("clears the alert token on 410 even when the environment is unknown", async () => {
+    const { notifier, memo, devices } = setup({
+      apnsEnv: null,
+      results: [{ ok: false, status: 410, reason: "BadDeviceToken" }],
+    });
+    devices.registerDevice({ ...phone, apnsToken: "aa11" });
+
+    await notifier.notify({ memo, summary });
+
+    expect(devices.getDevice("iphone")?.apnsToken).toBeNull();
+  });
+
+  it("keeps a dead-looking activity token too while the environment is unknown", async () => {
+    const { notifier, memo, devices } = setup({
+      apnsEnv: null,
+      results: [{ ok: false, status: 400, reason: "BadDeviceToken" }],
+    });
+    devices.setActivityToken({ memoId: memo.id, token: "bb22" });
+
+    await notifier.notify({ memo, summary });
+
+    expect(devices.getActivityToken(memo.id)).toBe("bb22");
+  });
+
+  it("clears the alert token without touching lastSeenAt", async () => {
+    const { notifier, memo, devices, clock } = setup({
+      results: [{ ok: false, status: 410, reason: "Unregistered" }],
+    });
+    const before = devices.registerDevice({ ...phone, apnsToken: "aa11" });
+    clock.advance(60_000);
+
+    await notifier.notify({ memo, summary });
+
+    const after = devices.getDevice("iphone");
+    expect(after?.apnsToken).toBeNull();
+    expect(after?.lastSeenAt).toBe(before.lastSeenAt);
+    expect(after?.updatedAt).toBe(before.updatedAt);
+  });
+
+  it("sends the alert with the memo id as collapse id so a retry replaces the banner", async () => {
+    const { notifier, memo, devices, transport } = setup({
+      results: [{ ok: true }, { ok: false, status: 503, reason: "ServiceUnavailable" }],
+    });
+    devices.registerDevice({ ...phone, apnsToken: "aa11" });
+    devices.setActivityToken({ memoId: memo.id, token: "bb22" });
+
+    await expect(notifier.notify({ memo, summary })).rejects.toThrow("503");
+    await notifier.notify({ memo, summary });
+
+    const alerts = transport.calls.filter((c) => c.headers.pushType === "alert");
+    expect(alerts.map((c) => c.headers.collapseId)).toEqual([memo.id, memo.id]);
   });
 
   it("does not clear a token that was replaced while the push was in flight", async () => {

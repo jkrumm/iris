@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import {
   bytesRecording,
   type AudioCombiner,
@@ -72,7 +73,9 @@ export function createMemoMedia(deps: {
       const text = memo.summary?.spoken.trim() || memo.replyText?.trim();
       if (!text)
         throw new MemoError("bad_state", `memo ${id} has no summary or reply to speak yet`);
-      return once(`speech/${id}`, async () => {
+      // Keyed like the cache (id + text): a caller must not join a synthesis of different text.
+      const textHash = createHash("sha256").update(text).digest("hex");
+      return once(`speech/${id}/${textHash}`, async () => {
         const cached = await speechCache.get({ memoId: id, text });
         if (cached) return cached;
         const { bytes } = await speaker.speak({ memoId: id, text });

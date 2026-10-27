@@ -27,7 +27,9 @@ function select(apns: Parameters<typeof selectNotifier>[0]["apns"]) {
 
 describe("selectNotifier", () => {
   it("uses the log notifier when nothing is set", () => {
-    expect(select({}).kind).toBe("log");
+    const selected = select({});
+    expect(selected.kind).toBe("log");
+    expect(selected.close).toBeUndefined();
   });
 
   it.each(Object.keys(full))("uses the log notifier when %s is missing", (missing) => {
@@ -37,7 +39,9 @@ describe("selectNotifier", () => {
 
   it("uses the APNs notifier when all four are set, with the key's newlines escaped", async () => {
     const { pem } = await generateP8();
-    expect(select({ ...full, APNS_KEY_P8: pem.replaceAll("\n", "\\n") }).kind).toBe("apns");
+    const selected = select({ ...full, APNS_KEY_P8: pem.replaceAll("\n", "\\n") });
+    expect(selected.kind).toBe("apns");
+    await selected.close?.();
   });
 
   it("turns escaped newlines in the key into real ones", () => {

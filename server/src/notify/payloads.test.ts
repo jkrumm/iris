@@ -28,7 +28,7 @@ describe("alert", () => {
   it("carries the route chip, the headline and the rich-notification keys", () => {
     const memo = memoWith({ route: "hermes" });
     expect(buildAlert({ topic: TOPIC, memo, summary })).toEqual({
-      headers: { topic: TOPIC, pushType: "alert", priority: 10 },
+      headers: { topic: TOPIC, pushType: "alert", priority: 10, collapseId: memo.id },
       payload: {
         aps: {
           alert: { title: "Hermes", body: "Buy milk" },
@@ -40,6 +40,13 @@ describe("alert", () => {
         memo: memo.id,
       },
     });
+  });
+
+  it("collapses re-sends by memo id within the APNs 64-byte limit", () => {
+    const memo = memoWith();
+    const { headers } = buildAlert({ topic: TOPIC, memo, summary });
+    expect(headers.collapseId).toBe(memo.id);
+    expect(new TextEncoder().encode(headers.collapseId).length).toBeLessThanOrEqual(64);
   });
 
   it("falls back to Iris without a route and never leaks transcript, reply, detail or spoken text", () => {

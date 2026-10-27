@@ -27,7 +27,8 @@ come later under `apple/`.
   `herd.ts`, `destination.ts`, `summarizer.ts`, `notifier.ts` (`notify` + best-effort `phase`),
   `apns.ts` (`ApnsTransport`), `fakes.ts` (in-memory fakes of the ports, incl. `fakeApnsTransport`).
 - `server/src/notify/` — `payloads.ts` (pure alert / Live Activity builders), `phases.ts` (`bindPhaseUpdates`: memo events →
-  `notifier.phase`), `select.ts` (`selectNotifier`: APNs or log).
+  `notifier.phase`), `select.ts` (`selectNotifier`: APNs or log, plus the transport's `close`),
+  `lifecycle.ts` (`createNotifyLifecycle`: stop / idle / close for shutdown).
 - `server/src/http/` — `auth.ts` (device-token guard), `memos.ts`, `devices.ts`, `media.ts` (audio + speech, `Range`),
   `herd.ts` and `events.ts` (route plugins), `schemas.ts` (every request/response shape as pure TypeBox, exported for the
   contracts), `errors.ts` (the one `MemoError` → status mapping), `serialize.ts` (the one wire-shape mapping, camelCase),
@@ -161,8 +162,8 @@ Push to master deploys. LaunchAgent `com.jkrumm.iris` (KeepAlive, `ExitTimeOut` 
   answer 503 `unavailable`. `route` always yields `hermes` until Phase 2.
 - **`act` is at-least-once:** a crash or restart mid-`act` replays the step, which posts a second turn
   into the same Hermes session. Shutdown keeps the window small: `app.stop(true)`, `runner.stop()` (the
-  running step finishes, no further step or queued memo starts), `await runner.idle()` under a 30 s drain
-  deadline (`shutdown.drain_timeout` logs the in-flight memo ids), `db.close()`, then a separate 2 s OTel
+  running step finishes, no further step or queued memo starts), `notifyLifecycle.stop()`, `await runner.idle()` + the in-flight
+  Live Activity pushes under one 30 s drain deadline (`shutdown.drain_timeout` logs the in-flight memo ids), the APNs transport `close()`, `db.close()`, then a separate 2 s OTel
   flush deadline. The LaunchAgent's `ExitTimeOut` is 60 s to cover it.
 - **Devices:** identity is the authenticated device name from the token map, never the body (`name` is a display label).
   `registerDevice` keeps a stored token when the field is omitted or `""` and clears it only on explicit `null`. The
@@ -185,12 +186,14 @@ Push to master deploys. LaunchAgent `com.jkrumm.iris` (KeepAlive, `ExitTimeOut` 
 - **APNs** (`APNS_KEY_P8` PEM with literal `\n` allowed, `APNS_KEY_ID`, `APNS_TEAM_ID`, `APNS_TOPIC` = bundle id): the
   APNs notifier runs only when all four are set (else the log notifier), and that is deliberately not in `degraded` (the log
   notifier is the intended state until enrolment; a degraded `/health` fails `make verify`). Boot logs `notifier.selected`.
-  Environment per push is `device.apnsEnv`, `sandbox` when null. `notify` sends the Live Activity `end` (if the memo has an
+  Environment per push is `device.apnsEnv`, `sandbox` when null; with a null `apnsEnv`
+  a BadDeviceToken (likely a production token sent to the sandbox) is logged with a hint and the token is kept, so only
+  an explicitly registered env makes BadDeviceToken clear it (410 / Unregistered always do, via the conditional `clearApnsToken`). `notify` sends the Live Activity `end` (if the memo has an
   activity token) and the alert (if the device has an `apnsToken`); neither registered logs `notify.no_token` and succeeds.
   A rejected token never fails the memo: `notify.apns_rejected` is logged, and BadDeviceToken / 410 Unregistered clear the
   stored token (only if it is still the one we sent to); other 4xx (e.g. 403 InvalidProviderToken) are logged, tokens kept.
   Transient failures (status 0, 408, 429, 5xx, 403 ExpiredProviderToken) throw, so notify fails and `POST /retry` re-drives
-  it (a retry re-sends both pushes). `phase` (Live Activity `update`, priority 5) is bound to memo events by
+  it (a retry re-sends both pushes; the alert carries `apns-collapse-id` = memo id, so a re-send replaces the banner instead of duplicating it). `phase` (Live Activity `update`, priority 5) is bound to memo events by
   `bindPhaseUpdates`: not for `receiving` or `notified`, serialised per memo, latest state wins, errors logged only.
 - **APNs transport:** node-apn builds the ES256 JWT with `jsonwebtoken` and regenerates it when its `iat` is 3300 s (55 min)
   old, checked per request (Apple: not <20, not >60 min); it retries 408/429/5xx and ExpiredProviderToken 3x. We cap in-flight

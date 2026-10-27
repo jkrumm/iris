@@ -71,6 +71,13 @@ export function createSqliteDeviceStore(params: { db: Database; clock: Clock }):
       return row ? toDevice(row) : null;
     },
 
+    clearApnsToken({ device, expected }) {
+      const { changes } = db
+        .query("UPDATE devices SET apns_token = NULL WHERE device = ? AND apns_token = ?")
+        .run(device, expected);
+      return changes > 0;
+    },
+
     listDevices() {
       return db.query<DeviceRow, []>("SELECT * FROM devices ORDER BY rowid").all().map(toDevice);
     },

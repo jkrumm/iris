@@ -120,6 +120,7 @@ wire("node-apn transport against a local HTTP/2 server", () => {
     expect(request.headers["apns-topic"]).toBe(TOPIC);
     expect(request.headers["apns-push-type"]).toBe("alert");
     expect(request.headers["apns-priority"]).toBe("10");
+    expect(request.headers["apns-collapse-id"]).toBe(memo.id);
     expect(JSON.parse(request.body)).toEqual(message.payload);
 
     const jwt = await verifyBearerJwt(String(request.headers["authorization"]), p8.publicKey);

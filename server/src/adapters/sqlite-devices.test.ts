@@ -9,6 +9,43 @@ function setup() {
 
 const phone = { device: "iphone", name: "Test iPhone", platform: "ios" as const };
 
+describe("clearApnsToken", () => {
+  it("clears the expected token and reports it", () => {
+    const { devices } = setup();
+    devices.registerDevice({ ...phone, apnsToken: "aa11", pushToStartToken: "bb22" });
+    expect(devices.clearApnsToken({ device: "iphone", expected: "aa11" })).toBe(true);
+    expect(devices.getDevice("iphone")).toMatchObject({
+      apnsToken: null,
+      pushToStartToken: "bb22",
+    });
+  });
+
+  it("does not clear a token that rotated meanwhile", () => {
+    const { devices } = setup();
+    devices.registerDevice({ ...phone, apnsToken: "aa11" });
+    devices.registerDevice({ ...phone, apnsToken: "fresh" });
+    expect(devices.clearApnsToken({ device: "iphone", expected: "aa11" })).toBe(false);
+    expect(devices.getDevice("iphone")?.apnsToken).toBe("fresh");
+  });
+
+  it("leaves lastSeenAt and updatedAt untouched", () => {
+    const { devices, clock } = setup();
+    const before = devices.registerDevice({ ...phone, apnsToken: "aa11" });
+    clock.advance(60_000);
+    expect(devices.clearApnsToken({ device: "iphone", expected: "aa11" })).toBe(true);
+    const after = devices.getDevice("iphone");
+    expect(after?.lastSeenAt).toBe(before.lastSeenAt);
+    expect(after?.updatedAt).toBe(before.updatedAt);
+  });
+
+  it("is false for an unknown device or one without a token", () => {
+    const { devices } = setup();
+    expect(devices.clearApnsToken({ device: "ghost", expected: "aa11" })).toBe(false);
+    devices.registerDevice(phone);
+    expect(devices.clearApnsToken({ device: "iphone", expected: "aa11" })).toBe(false);
+  });
+});
+
 describe("registerDevice", () => {
   it("inserts a device with its tokens and stamps it from the clock", () => {
     const { devices } = setup();

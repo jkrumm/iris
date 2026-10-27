@@ -129,7 +129,10 @@ export function buildLiveActivityEnd(params: {
   };
 }
 
-/** Headline only, never transcript or reply text (TDD §12). */
+/**
+ * Headline only, never transcript or reply text (TDD §12). The collapse id is the memo id (36
+ * bytes, APNs allows 64), so a re-send after a partial notify failure replaces the banner.
+ */
 export function buildAlert(params: { topic: string; memo: Memo; summary: Summary }): ApnsMessage {
   const { topic, memo, summary } = params;
   const payload: AlertPayloadBody = {
@@ -145,5 +148,8 @@ export function buildAlert(params: { topic: string; memo: Memo; summary: Summary
     },
     memo: memo.id,
   };
-  return { headers: { topic, pushType: "alert", priority: 10 }, payload };
+  return {
+    headers: { topic, pushType: "alert", priority: 10, collapseId: memo.id },
+    payload,
+  };
 }

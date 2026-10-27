@@ -55,6 +55,46 @@ describe("audio-gateway speaker", () => {
     expect(error).toMatchObject({ code: "unavailable", message: "speech synthesis failed: 502" });
   });
 
+  it("fails as unavailable on a network error", async () => {
+    const speaker = createAudioGatewaySpeaker({
+      baseUrl: "http://127.0.0.1:1234",
+      fetch: (async () => {
+        throw new TypeError("fetch failed");
+      }) as unknown as typeof fetch,
+    });
+    const error = await speaker.speak({ memoId: MEMO_ID, text: "x" }).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(MemoError);
+    expect(error).toMatchObject({
+      code: "unavailable",
+      message: "speech synthesis unreachable: fetch failed",
+    });
+  });
+
+  it("fails as unavailable when the request is aborted or times out", async () => {
+    const speaker = createAudioGatewaySpeaker({
+      baseUrl: "http://127.0.0.1:1234",
+      fetch: (async () => {
+        throw new DOMException("The operation timed out.", "TimeoutError");
+      }) as unknown as typeof fetch,
+    });
+    await expect(speaker.speak({ memoId: MEMO_ID, text: "x" })).rejects.toMatchObject({
+      code: "unavailable",
+    });
+  });
+
+  it("fails as unavailable when the body stream breaks mid-download", async () => {
+    const broken = new ReadableStream({
+      start(controller) {
+        controller.error(new Error("connection reset"));
+      },
+    });
+    const { speaker } = setup(() => new Response(broken));
+    await expect(speaker.speak({ memoId: MEMO_ID, text: "x" })).rejects.toMatchObject({
+      code: "unavailable",
+      message: "speech synthesis unreachable: connection reset",
+    });
+  });
+
   it("fails as unavailable when the gateway returns no audio", async () => {
     const { speaker } = setup(() => new Response(new Uint8Array()));
     await expect(speaker.speak({ memoId: MEMO_ID, text: "x" })).rejects.toMatchObject({
