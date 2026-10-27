@@ -49,6 +49,15 @@ struct BatchEncodingTests {
     #expect(json == expected)
   }
 
+  @Test(arguments: [0.8, 0.123, 0.999, 0.001, 0.0])
+  func datesKeepTheirMilliseconds(fraction: Double) throws {
+    let log = LogRecord(timestamp: Fixtures.epoch.addingTimeInterval(fraction), body: "x")
+    let batch = TelemetryBatch(resource: Fixtures.resource, logs: [log])
+    let json = try #require(String(data: try batch.jsonData(), encoding: .utf8))
+    let milliseconds = String(format: "%03d", Int((fraction * 1000).rounded()))
+    #expect(json.contains("2023-11-14T22:13:20.\(milliseconds)Z"))
+  }
+
   @Test func macOSServiceName() throws {
     let resource = TelemetryResource(serviceName: .macos, deviceName: "Mac", appVersion: "1")
     let json = try #require(String(data: try TelemetryBatch(resource: resource).jsonData(), encoding: .utf8))

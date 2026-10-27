@@ -273,6 +273,33 @@
       }
     },
     {
+      "method": "POST",
+      "path": "/v1/telemetry",
+      "auth": "bearer",
+      "request": {
+        "mediaType": "application/json",
+        "schema": "telemetry.request"
+      },
+      "responses": {
+        "202": {
+          "mediaType": "application/json",
+          "schema": "telemetry.response"
+        },
+        "400": {
+          "mediaType": "application/json",
+          "schema": "error"
+        },
+        "413": {
+          "mediaType": "application/json",
+          "schema": "error.too-large"
+        },
+        "503": {
+          "mediaType": "application/json",
+          "schema": "error"
+        }
+      }
+    },
+    {
       "method": "PUT",
       "path": "/v1/memos/:id/activity-token",
       "auth": "bearer",

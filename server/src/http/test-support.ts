@@ -9,6 +9,8 @@ import { fakeAudio, testStore } from "../memo/test-support.js";
 import type { DestinationName } from "../ports/destination.js";
 import type { HerdTab } from "../ports/herd.js";
 import { fakeCombiner, fakeHerd, fakeSpeaker, fakeSpeechCache } from "../ports/fakes.js";
+import { fakeOtlpExporter } from "../telemetry/fakes.js";
+import { createTelemetryRelay } from "../telemetry/relay.js";
 import { parseDeviceTokens } from "./auth.js";
 
 export const TOKENS = "tok-phone=iphone,tok-mac=macbook";
@@ -29,6 +31,10 @@ export function testApp(
     combiner?: ReturnType<typeof fakeCombiner>;
     /** The destinations an answer may pick; default `hermes` only. */
     destinations?: DestinationName[];
+    /** The collector behind the telemetry relay; default a recording fake, `{down: true}` rejects. */
+    otlp?: ReturnType<typeof fakeOtlpExporter>;
+    /** `false` leaves the telemetry relay unconfigured (503). */
+    telemetry?: false;
   } = {},
 ) {
   const { store, clock, db } = testStore();
@@ -70,12 +76,19 @@ export function testApp(
     speaker,
     speechCache: fakeSpeechCache(),
   });
+  const otlp = options.otlp ?? fakeOtlpExporter();
+  const relayLog: Array<{ event: string; fields: Record<string, unknown> }> = [];
+  const telemetry = createTelemetryRelay({
+    exporter: otlp,
+    log: (event, fields) => relayLog.push({ event, fields }),
+  });
   const app = createApp({
     deviceTokens: parseDeviceTokens(TOKENS),
     memos,
     devices,
     media,
     herd,
+    telemetry: options.telemetry === false ? undefined : telemetry,
     sseKeepaliveMs: options.sseKeepaliveMs,
   });
   return {
@@ -91,6 +104,9 @@ export function testApp(
     combiner,
     speaker,
     herd,
+    otlp,
+    telemetry,
+    relayLog,
     listenerCount: () => listeners,
   };
 }

@@ -30,7 +30,10 @@ import type { Notifier } from "./ports/notifier.js";
 import type { Speaker } from "./ports/speaker.js";
 import type { Summarizer } from "./ports/summarizer.js";
 import type { Transcriber } from "./ports/transcriber.js";
+import { fakeOtlpExporter } from "./telemetry/fakes.js";
 import { log } from "./telemetry/log.js";
+import { exportOtlp } from "./telemetry/otel.js";
+import { createTelemetryRelay } from "./telemetry/relay.js";
 
 /** The slice of the parsed env the composition reads; every field optional so tests pass literals. */
 export type ComposeEnv = Partial<
@@ -78,6 +81,7 @@ const fakePorts = () => ({
   speaker: fakeSpeaker({ result: { bytes: MP3_FRAME } }),
   speechCache: fakeSpeechCache(),
   herd: fakeHerd({ tabs: TABS }),
+  otlp: fakeOtlpExporter(),
 });
 
 /**
@@ -173,8 +177,12 @@ export function compose(deps: {
     : selectNotifier({ apns: env, devices, clock });
   log("notifier.selected", { kind: selected.kind });
 
+  // Always present, never degraded: with no OTLP endpoint (already `otel` in `degraded`) the exporter is a no-op.
+  const telemetry = createTelemetryRelay({ exporter: fakes?.otlp ?? { send: exportOtlp } });
+
   return {
     ports: { ...ports, decider },
+    telemetry,
     degraded,
     deviceTokens,
     notifier: selected.notifier,

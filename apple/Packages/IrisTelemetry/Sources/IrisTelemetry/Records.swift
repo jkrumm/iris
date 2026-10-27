@@ -147,10 +147,10 @@ public struct TelemetryResource: Hashable, Sendable, Codable {
   }
 }
 
-/// The body of `POST /v1/telemetry`.
+/// The body of `POST /v1/telemetry` (schema `telemetry.request`, fixtures in `contracts/fixtures`).
 ///
-/// Proposed wire shape, server endpoint pending. Compact JSON, sorted keys, camelCase, dates as ISO 8601 UTC with
-/// millisecond precision (`2026-10-27T12:00:00.250Z`), ids as lowercase hex (32 for traces, 16 for spans):
+/// Compact JSON, sorted keys, camelCase, dates as ISO 8601 UTC with millisecond precision
+/// (`2026-10-27T12:00:00.250Z`), ids as lowercase hex (32 for traces, 16 for spans):
 ///
 ///     {"dropped":0,
 ///      "logs":[{"attributes":{},"body":"outbox.retry","severity":"warn","timestamp":"…","traceId":"…"}],
@@ -160,7 +160,11 @@ public struct TelemetryResource: Hashable, Sendable, Codable {
 ///
 /// `dropped` is the number of records the client discarded on buffer overflow since the previous batch.
 /// Delivery is at-least-once: a batch whose response was lost, or whose records were recovered from the crash file
-/// after being sent, can arrive twice. `(traceId, spanId)` identifies a span for de-duplication.
+/// after being sent, can arrive twice; the server does not de-duplicate, `(traceId, spanId)` identifies a span.
+///
+/// The server refuses a body over 256 KiB (413) and a batch of more than 500 spans and logs together (400), and
+/// answers 202 with a `TelemetryReceipt`. `TelemetryResource.serviceName` becomes `service.name`; `deviceName` and
+/// `appVersion` become the `device.name` and `service.version` resource attributes.
 public struct TelemetryBatch: Hashable, Sendable, Codable {
   public var resource: TelemetryResource
   public var spans: [SpanRecord]
@@ -180,16 +184,41 @@ public struct TelemetryBatch: Hashable, Sendable, Codable {
   }
 }
 
+/// The 202 answer to `POST /v1/telemetry` (schema `telemetry.response`): how many records the server took.
+public struct TelemetryReceipt: Hashable, Sendable, Codable {
+  public struct Accepted: Hashable, Sendable, Codable {
+    public var spans: Int
+    public var logs: Int
+
+    public init(spans: Int, logs: Int) {
+      self.spans = spans
+      self.logs = logs
+    }
+  }
+
+  public var accepted: Accepted
+
+  public init(accepted: Accepted) {
+    self.accepted = accepted
+  }
+}
+
 /// Shared JSON configuration for the wire and the crash file.
 enum TelemetryCoding {
   private static let dateStyle = Date.ISO8601FormatStyle(includingFractionalSeconds: true)
+
+  /// The formatter cuts the fraction off instead of rounding it, so `….8` (stored as `….79999`) would print `.799`.
+  /// Snap to the nearest millisecond and sit a quarter of one above it, which both a cut and a round print the same.
+  private static func millisecondDate(_ date: Date) -> Date {
+    Date(timeIntervalSince1970: ((date.timeIntervalSince1970 * 1000).rounded() + 0.25) / 1000)
+  }
 
   static func makeEncoder() -> JSONEncoder {
     let encoder = JSONEncoder()
     encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
     encoder.dateEncodingStrategy = .custom { date, encoder in
       var container = encoder.singleValueContainer()
-      try container.encode(date.formatted(dateStyle))
+      try container.encode(millisecondDate(date).formatted(dateStyle))
     }
     return encoder
   }

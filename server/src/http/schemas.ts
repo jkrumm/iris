@@ -4,6 +4,7 @@ import { MEMO_MODES, MEMO_STATES, STEPS } from "../memo/memo.js";
 import { APNS_ENVS, PLATFORMS } from "../ports/devices.js";
 import { DESTINATION_NAMES } from "../ports/destination.js";
 import { AGENT_STATES } from "../ports/herd.js";
+import { TELEMETRY_MAX_RECORDS } from "../telemetry/limits.js";
 
 // Every request and response shape on the wire, in one file. Pure TypeBox (no Transform or custom
 // codec) so they export to JSON Schema as they are. Response schemas mirror what `serialize.ts`
@@ -183,3 +184,54 @@ export const HealthResponse = t.Object({
 });
 
 export const WhoamiResponse = t.Object({ device: t.String() });
+
+// ── Telemetry ────────────────────────────────────────────────────────────────
+
+const TraceId = t.String({ pattern: "^[0-9a-f]{32}$" });
+const SpanId = t.String({ pattern: "^[0-9a-f]{16}$" });
+/** ISO 8601 UTC, `2026-10-27T12:00:00.250Z`; the clients send milliseconds, up to nanoseconds is read. */
+const Timestamp = t.String({
+  pattern: "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,9})?Z$",
+});
+const TelemetryAttributes = t.Record(t.String(), t.Union([t.String(), t.Number(), t.Boolean()]));
+
+export const TelemetryResource = t.Object({
+  serviceName: t.UnionEnum(["iris-ios", "iris-macos"]),
+  deviceName: t.String({ minLength: 1 }),
+  appVersion: t.String({ minLength: 1 }),
+});
+
+export const TelemetrySpan = t.Object({
+  traceId: TraceId,
+  spanId: SpanId,
+  parentSpanId: t.Optional(SpanId),
+  name: t.String({ minLength: 1 }),
+  startTime: Timestamp,
+  endTime: Timestamp,
+  status: t.UnionEnum(["unset", "ok", "error"]),
+  attributes: TelemetryAttributes,
+});
+
+export const TelemetryLog = t.Object({
+  timestamp: Timestamp,
+  severity: t.UnionEnum(["info", "warn", "error"]),
+  body: t.String(),
+  traceId: t.Optional(TraceId),
+  attributes: TelemetryAttributes,
+});
+
+/**
+ * The client span/log relay (TDD §8). `traceId` is the memo UUID without dashes where the record belongs to a
+ * memo. `dropped` counts the records the client discarded on buffer overflow since its previous batch. Delivery is
+ * at-least-once and the server does not de-duplicate (`(traceId, spanId)` identifies a span).
+ */
+export const TelemetryBatch = t.Object({
+  resource: TelemetryResource,
+  spans: t.Array(TelemetrySpan, { maxItems: TELEMETRY_MAX_RECORDS }),
+  logs: t.Array(TelemetryLog, { maxItems: TELEMETRY_MAX_RECORDS }),
+  dropped: t.Number({ multipleOf: 1, minimum: 0 }),
+});
+
+export const TelemetryResponse = t.Object({
+  accepted: t.Object({ spans: Int, logs: Int }),
+});

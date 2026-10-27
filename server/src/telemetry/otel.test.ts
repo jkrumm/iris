@@ -212,7 +212,7 @@ describe("postBatch", () => {
       () => Promise.reject(new Error("connection refused")),
       async () => {
         const posted = _test.postBatch("http://collector.invalid/v1/traces", {});
-        await expect(posted).resolves.toBeUndefined();
+        await expect(posted).resolves.toBe(false);
       },
     );
   });
@@ -222,7 +222,17 @@ describe("postBatch", () => {
       () => Promise.resolve({ ok: false, status: 503, statusText: "Service Unavailable" }),
       async () => {
         const posted = _test.postBatch("http://collector.invalid/v1/traces", {});
-        await expect(posted).resolves.toBeUndefined();
+        await expect(posted).resolves.toBe(false);
+      },
+    );
+  });
+
+  it("resolves true when the collector accepts the batch", async () => {
+    await withStubbedFetch(
+      () => Promise.resolve({ ok: true, status: 200, statusText: "OK" }),
+      async () => {
+        const posted = _test.postBatch("http://collector.invalid/v1/traces", {});
+        await expect(posted).resolves.toBe(true);
       },
     );
   });

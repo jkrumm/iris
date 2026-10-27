@@ -75,11 +75,13 @@ Never start dev servers for a human to look at; simulators are fine, shut them d
   `notifier.phase`), `needs-route.ts` (`bindNeedsRouteAlerts`: entering `needs_route` → `notifier.needsRoute`), `select.ts` (`selectNotifier`: APNs or log, plus the transport's `close`),
   `lifecycle.ts` (`createNotifyLifecycle`: stop / idle / close for shutdown).
 - `server/src/http/` — `auth.ts` (device-token guard), `memos.ts`, `devices.ts`, `media.ts` (audio + speech, `Range`),
-  `herd.ts` and `events.ts` (route plugins), `schemas.ts` (every request/response shape as pure TypeBox, exported for the
+  `herd.ts`, `events.ts` and `telemetry.ts` (route plugins; `telemetry.ts` reads and validates its own body), `schemas.ts` (every request/response shape as pure TypeBox, exported for the
   contracts), `errors.ts` (the one `MemoError` → status mapping), `serialize.ts` (the one wire-shape mapping, camelCase),
   `test-support.ts` (in-memory app for `app.handle` tests).
 - `server/src/telemetry/` — `otel.ts`, `otel-format.ts`, `log.ts`, copied from research-gateway
-  (hand-rolled OTLP JSON, no SDK). The trace id is the memo UUID with dashes stripped.
+  (hand-rolled OTLP JSON, no SDK). The trace id is the memo UUID with dashes stripped. Added here: `exportOtlp` in `otel.ts`
+  (posts a payload built elsewhere), `relay.ts` (`createTelemetryRelay`: a client `TelemetryBatch` → OTLP traces and logs under the
+  client's own resource, through the `OtlpExporter` port), `fakes.ts` (`fakeOtlpExporter`), `limits.ts` (256 KiB, 500 records).
 - `server/src/env.ts` — the only place `process.env` is parsed.
 - `server/src/contracts/` — `registry.ts` (contract name → TypeBox schema), `export.ts` (TypeBox → JSON Schema),
   `manifest.ts` (zod shape of `contracts/manifest.json`), `routes.ts` (the real app's route table),
@@ -110,6 +112,7 @@ All under `/v1`, `Authorization: Bearer <token>`. Errors: `{error: <code>, messa
 | `GET /memos/:id` | memo + `steps` timeline + `segmentCount`; 404 unknown |
 | `GET /memos/:id/result?wait=<s>` | 200 once result-ready, else 202 after the wait (0..600, default 0) |
 | `POST /devices/register` `{name, platform: ios\|macos, apnsToken?, apnsEnv?, pushToStartToken?}` | 200 `{device, name, platform, apnsEnv, hasApnsToken, hasPushToStartToken, registeredAt}`; upsert by the authenticated device |
+| `POST /telemetry` `{resource, spans, logs, dropped}` (the Swift `TelemetryBatch`) | 202 `{accepted: {spans, logs}}`; exported in the background as OTLP with `service.name=iris-ios\|iris-macos`, the memo trace id kept; 413 over 256 KiB, 400 over 500 spans+logs, a schema violation or a bad timestamp |
 | `PUT /memos/:id/activity-token` `{token}` (hex) | 204, replaces the stored token; 404 unknown memo |
 | `GET /memos/:id/audio` | `audio/mp4`, concatenated on first request and cached; `Range` → 206 / 416; 404; 409 while `receiving` |
 | `GET /memos/:id/speech` | `audio/mpeg` TTS of `summary.spoken`, else `replyText`, cached; 404; 409 with neither; 503 without audio-gateway |
@@ -208,6 +211,12 @@ Push to master deploys. LaunchAgent `com.jkrumm.iris` (KeepAlive, `ExitTimeOut` 
   `liveactivity.content-state` has no `inputName`: the device knows it and the Swift `ContentState` declares it
   optional. `routeChip` and `headline` are omitted, never null. Elysia mutates the shared TypeBox objects when it
   composes routes (adds `additionalProperties: false`), so `export.ts` strips that keyword to stay order-independent.
+- **Telemetry relay** (`POST /v1/telemetry`, TDD §8): the route reads and validates its own body (`parse: "none"`, `TypeCompiler` over
+  `TelemetryBatch`) so a bad token is 401 before any byte is read and an oversized body is cut off at 256 KiB (413 `too_large`).
+  `compose()` always builds it (a `fakeOtlpExporter` under `IRIS_FAKES`, else `exportOtlp`, a no-op without `OTEL_EXPORTER_OTLP_ENDPOINT`).
+  An export that fails is a `telemetry.relay_failed` log line, never an error to the client; the export is registered with `flushOtel`,
+  so the shutdown flush waits for it. Resource: `service.name` (client), `service.version`, `device.name`, `deployment.environment`;
+  `host.name=mini` is deliberately not on client records. No de-duplication of a resent batch.
 - **Auth:** `/v1/*` requires `Authorization: Bearer <token>`; `IRIS_DEVICE_TOKENS` is
   `token=device,token=device`. Empty means every `/v1` call is 401. Real tokens live in
   1Password, never in the repo.
