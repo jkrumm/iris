@@ -8,8 +8,8 @@ on:
 
 jobs:
   check:
-    # Private repo: the VPS self-hosted runner (vps repo, docs/gh-runner.md), never hosted minutes.
-    runs-on: [self-hosted, vps]
+    # Public repo: hosted runners (free); self-hosted VPS runners are for private repos only.
+    runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
