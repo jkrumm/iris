@@ -122,29 +122,48 @@ does not run `scripts/*.test.ts`; lint/format/tsc do cover `scripts/`. `fallow a
 (not in the gate). (7) The retention question for stuck `receiving` memos is still open.
 
 
-## Wave 4 — Run it on the mini            <!-- status: active -->
+## Wave 4 — Run it on the mini            <!-- status: done -->
 The owner pre-authorized this deploy on 2026-10-27: it is his own repo, mini-only, and the
 standing contract says deploys are routine. So Wave 3 spawns this wave with
 `RD_ORCHESTRATED=1 rd wave iris '…'`.
-- [ ] `scripts/launch.sh` plus `.env.local.tpl` / `.env.mini.tpl` / `.env.mini.otel.tpl`
+- [x] `scripts/launch.sh` plus `.env.local.tpl` / `.env.mini.tpl` / `.env.mini.otel.tpl`
       (research-gateway pattern). Add the new refs to `dotfiles-private/headless.refs`
       and seed them. The device tokens are generated, stored in 1Password `tkrumm`, and
       never written into the repo. `APNS_*` stays unset: the log `Notifier` runs until
       enrollment completes.
-- [ ] Deploy clone `~/.iris/app`, data in `~/.iris/data`. Add `launchd/` templates for
+- [x] Deploy clone `~/.iris/app`, data in `~/.iris/data`. Add `launchd/` templates for
       `com.jkrumm.iris` (KeepAlive) and `com.jkrumm.iris-deploy` (a 120 s poller, CI-green
       and idle gated), plus the `make launchd-install` and `mini-setup` targets.
-- [ ] Caddy door `iris.test` → `localhost:7730` (confirm the port is free first) in
+- [x] Caddy door `iris.test` → `localhost:7730` (confirm the port is free first) in
       `dotfiles/config/Caddyfile`, then `make caddy-tailnet`. Add rows for both labels to
       `dotfiles/docs/architecture.md`. Commit in dotfiles separately (`architecture-check.sh`
       must stay green).
-- [ ] End to end: run `scripts/send-memo.ts` against `https://iris.mini.<domain>` with a
+- [x] End to end: run `scripts/send-memo.ts` against `https://iris.mini.<domain>` with a
       real German voice recording of more than 60 s. The memo must reach `notified`, a
       Hermes session must hold the message, and the trace must be visible in HyperDX
       (`/otel`). Wrap it as `make smoke`. Fill in AGENTS.md Deploy and Verify & Monitor.
-**Left behind:**
+**Left behind:** iris-server is live on the mini and passed a real end-to-end memo: `IRIS_URL=https://iris.mini.<domain> make smoke`
+went `notified` in 10.6 s (96 s German TTS recording, 5 steps timed, $0.0002), the Hermes session (id = memo id) holds the
+user and assistant turn, and HyperDX shows one `memo` trace with 13 OK spans plus 3 correlated logs (`/otel`, prod). Hermes accepted
+the Wave-3 request shape unchanged. `make check` green (221 tests), `/review` run via the `agw review` CLI (MCP job stalled again
+and was cancelled; security + resilience angles). Layout: `scripts/{launch,mini-deploy,smoke}.sh`, `launchd/*.plist.template`,
+`.env.{local,mini,mini.otel}.tpl`; root `Makefile` gained `mini-setup, launchd-{install,uninstall,status,restart,logs}, deploy,
+verify, logs, smoke`. Port 7730 is free on loopback (the `rb` tailscale-serve row of the same number is a tailnet-interface
+binding, no conflict). Secrets: new 1Password item `op://mini/iris/{device-tokens,audio-gateway-url,otel-endpoint}` (tokens
+generated on the MacBook for devices `iphone`, `macbook`, `smoke`; the iPhone token is for the app later), refs added to
+`dotfiles-private/headless.refs` and seeded; Hermes host/key and the HyperDX key reuse existing refs. `HERMES_URL` is composed
+in `launch.sh`. `/health` gained `inflight` (the poller's idle gate); `ExitTimeOut` 60 s. Deploy poller: CI `check` green on the
+SHA + idle, restarts only for runtime paths, proven live (restart, pid change, marker). Review fixes: a failed restart rolls back to the
+previous SHA and records `~/.iris/failed-sha` (skipped until a newer push), and a changed `launchd/` template writes
+`~/.iris/launchd-pending` so `make verify` fails until `make launchd-install` runs. **The rollback path and the pending marker
+are unit-untested and unverified live** (a broken SHA cannot pass the CI gate). Dotfiles: `Caddyfile` door `iris.test` (+ the
+generated `iris.mini.<domain>`) and `architecture.md` rows, commit `d7ef7ba`, pushed. `scripts/architecture-check.sh` exits 1
+on four `com.iu.teamchat-*` rows mapped but absent on the mini; that predates this wave and is untouched (no iris label is unmapped).
+Wave 8 inherits `fixtures/audio/de-90s.m4a` (actually 96 s, generated with the audio-gateway Gemini TTS, voice Charon, via
+`x-audio-source: iris`, so it is TTS and not a human voice); its remaining Wave-8 work is the doc and spike items. Not done on
+purpose: `jobrun` reports a CI-red tick as success (exit 0, same as research-gateway); `make e2e` is Wave 5.
 
-## Wave 5 — Contracts + server completion for R1            <!-- status: pending -->
+## Wave 5 — Contracts + server completion for R1            <!-- status: active -->
 - [ ] `contracts/`: a JSON Schema and a fixture for every `/v1` request, response and SSE
       event that exists (TDD §3 API, D9). Elysia TypeBox schemas export to JSON Schema.
       `make check-contracts` asserts that the export equals `contracts/schema` and that the
@@ -257,8 +276,8 @@ with `xcodes runtimes install`. Follow `.claude/rules/swift.md` and the vendored
 - [ ] Own skills (TDD §10): `iris-server`, `ios-verify`, `device`, `memo-debug`,
       `apple-capture-notes`. Each has a short SKILL.md whose commands were actually run (or,
       without local Xcode, marked `unverified until Xcode` in one line).
-- [ ] `fixtures/audio/de-90s.m4a`: a German sample generated through audio-gateway TTS
-      (`x-audio-source: iris`), used by `make e2e` and `make smoke`. Write
+- [ ] `fixtures/audio/de-90s.m4a` already exists (Wave 4, 96 s, audio-gateway TTS); keep it,
+      and document how it was generated. Used by `make e2e` and `make smoke`. Write
       `docs/spikes/device-checklist.md` (TDD §9, hardware-only rows) and the S1–S3 spike
       briefs in `docs/spikes/`.
 - [ ] Rewrite AGENTS.md for the monorepo: layout, the full Validate matrix, the public-repo
