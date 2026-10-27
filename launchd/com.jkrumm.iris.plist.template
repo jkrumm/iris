@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.jkrumm.iris</string>
+  <!-- iris-server on the mini (:7730, loopback). Runs from the DEDICATED deploy clone
+       (~/.iris/app), never the dev checkout — see scripts/mini-deploy.sh and the Makefile's
+       mini-setup. ProgramArguments is the wrapper, never the bun binary (macOS BTM). -->
+  <key>ProgramArguments</key>
+  <array>
+    <string>__HOME__/.iris/app/scripts/launch.sh</string>
+  </array>
+  <key>KeepAlive</key><true/>
+  <key>RunAtLoad</key><true/>
+  <key>ThrottleInterval</key><integer>30</integer>
+  <key>WorkingDirectory</key><string>__HOME__/.iris/app</string>
+  <key>StandardOutPath</key><string>__HOME__/Library/Logs/iris.log</string>
+  <key>StandardErrorPath</key><string>__HOME__/Library/Logs/iris.err</string>
+  <!-- On SIGTERM the server drains the running step (30 s) and flushes OTel (2 s) before exit.
+       launchd's default ExitTimeOut is 20 s and would SIGKILL straight through the drain. -->
+  <key>ExitTimeOut</key><integer>60</integer>
+</dict>
+</plist>

@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.jkrumm.iris-deploy</string>
+  <!-- "Push to master deploys": a StartInterval poller runs scripts/mini-deploy.sh from the app
+       clone every 2 minutes (CI-green and idle gated). RunAtLoad is false so a login/reboot never
+       races the first `make mini-setup`. Wrapped in `jobrun` (dotfiles): each tick is recorded in
+       ~/.local/state/jobs and graded by `jobs-grade`; the lock replaces a hand-rolled mkdir lock.
+       The flags here, the Makefile `deploy` target and StartInterval must stay in step. -->
+  <key>ProgramArguments</key>
+  <array>
+    <string>__HOME__/.local/bin/jobrun</string>
+    <string>com.jkrumm.iris-deploy</string>
+    <string>--owner</string><string>iris</string>
+    <string>--every</string><string>120</string>
+    <string>--timeout</string><string>1800</string>
+    <string>--lock</string><string>iris-deploy</string>
+    <string>--</string>
+    <string>__HOME__/.iris/app/scripts/mini-deploy.sh</string>
+  </array>
+  <!-- launchd has no PATH: jobrun's shebang is `env bun`. -->
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key><string>__HOME__/.local/bin:/opt/homebrew/bin:/usr/bin:/bin</string>
+    <key>HOME</key><string>__HOME__</string>
+  </dict>
+  <key>StartInterval</key><integer>120</integer>
+  <key>RunAtLoad</key><false/>
+  <key>WorkingDirectory</key><string>__HOME__/.iris/app</string>
+  <key>StandardOutPath</key><string>__HOME__/Library/Logs/iris-deploy.log</string>
+  <key>StandardErrorPath</key><string>__HOME__/Library/Logs/iris-deploy.log</string>
+</dict>
+</plist>
