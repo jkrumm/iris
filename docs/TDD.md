@@ -462,7 +462,7 @@ the `IrisCore` dependency when R1 wires them together.
 | Pipeline end to end (fakes) | `scripts/send-memo.ts` against a server booted with fake downstreams | mini, CI | `make e2e` |
 | Pipeline smoke (real) | `send-memo.ts --real` against `iris.mini.<domain>` with `fixtures/audio/de-90s.m4a` | mini | `make smoke` (post-deploy) |
 | Swift packages | Swift Testing via `swift test` per package | mini, CI | `make check-apple` |
-| Views | swift-snapshot-testing on a pinned simulator (iPhone 17, iOS 26.x) | mini, CI (`xcode-27`) | `make snapshots` (record with `RECORD=1`) |
+| Views | swift-snapshot-testing on a pinned simulator (iPhone 17, iOS 27.0; `SIM_NAME`/`SIM_OS` in the Makefile) | mini, CI (`xcode-27`) | `make snapshots` (record with `RECORD=1`) |
 | App flows | XCUITest smoke: launch → history → detail; Record screen with a fake recorder (`-IrisFakeCapture`) | mini, CI | `make uitest` |
 | Agent verification | `xcodebuild` build/test, `xcrun simctl` (boot + `bootstatus -b`, install, launch, `io screenshot`, `openurl`, `push` for simulated notifications), and the `mobilebuildmcp` CLI (`ui-automation snapshot-ui` / `tap` / `type-text` / `screenshot`) | mini | `@verifier` / the `ios-verify` skill |
 | Physical device | `devicectl device install app`; screenshots via `pymobiledevice3 developer core-device screen-capture screenshot` (devicectl has no screenshot verb) | mini → iPhone on LAN | `device` skill |
@@ -514,8 +514,8 @@ the `IrisCore` dependency when R1 wires them together.
   `.swift-format` (toolchain-bundled; verify in the setup wave), plus SwiftLint
   only if it is needed later.
 - **CI (`.github/workflows/`):**
-  - `server.yml` on `ubuntu-latest`: check-server, check-contracts, e2e with
-    fakes;
+  - `check.yml` on `ubuntu-latest`: `make check` (server, contracts, guard), then e2e
+    with fakes;
   - `apple.yml` on `xcode-27`: generate, `swift test`, build, snapshots, UI
     smoke. It is a preview image, so on queueing trouble switch to `macos-26`
     with Xcode 26.6 and no iOS 27-only APIs.

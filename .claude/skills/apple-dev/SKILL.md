@@ -21,7 +21,8 @@ unless a line says **unverified**. No MCP servers (TDD D17, owner decision): UI 
 | `swift format` | in the toolchain | `.swift-format` at the repo root |
 
 Simulator runtimes installed: iOS 27.0 and 27.1 (`xcrun simctl list runtimes`). Device used below: `iPhone 18 Pro`
-(iOS 27.0), UDID from `xcrun simctl list devices available`. List more runtimes with `xcodes runtimes`; installing one is
+(iOS 27.0), UDID from `xcrun simctl list devices available`. **This repo pins `iPhone 17` on iOS 27.0** for snapshots, `make uitest`
+and CI (`SIM_NAME`/`SIM_OS` in the root Makefile, verified on the hosted `xcode-27` image); the recipes below work on any device. List more runtimes with `xcodes runtimes`; installing one is
 `xcodes runtimes install "iOS 27.1"` or `xcodebuild -downloadPlatform iOS` (**unverified**: both runtimes were already there;
 `xcodes` also needs an Apple ID session for downloads, which a headless host may not have).
 
