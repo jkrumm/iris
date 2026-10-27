@@ -1,0 +1,19 @@
+name: check
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+jobs:
+  check:
+    # Private repo: the VPS self-hosted runner (vps repo, docs/gh-runner.md), never hosted minutes.
+    runs-on: [self-hosted, vps]
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: make check-server

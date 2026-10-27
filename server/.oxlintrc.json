@@ -1,0 +1,63 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": [
+    "typescript",
+    "unicorn",
+    "promise",
+    "import"
+  ],
+  "jsPlugins": [
+    "eslint-plugin-zod"
+  ],
+  "env": {
+    "node": true
+  },
+  "categories": {
+    "correctness": "error",
+    "suspicious": "warn"
+  },
+  "rules": {
+    "typescript/no-explicit-any": "error",
+    "typescript/no-non-null-assertion": "warn",
+    "eslint/no-console": "warn",
+    "eslint/no-underscore-dangle": "off",
+    "eslint/no-unused-vars": "error",
+    "eslint/max-depth": [
+      "warn",
+      {
+        "max": 5
+      }
+    ],
+    "eslint/complexity": "off",
+    "eslint/no-throw-literal": "error",
+    "eslint/no-useless-catch": "error",
+    "import/no-unassigned-import": "off",
+    "import/no-named-as-default": "off",
+    "promise/no-nesting": "warn",
+    "promise/always-return": "off",
+    "zod/no-any-schema": "error",
+    "zod/no-optional-and-default-together": "error",
+    "zod/prefer-enum-over-literal-union": "warn",
+    "zod/consistent-import": [
+      "error",
+      {
+        "syntax": "named"
+      }
+    ],
+    "zod/prefer-meta": "off"
+  },
+  "ignorePatterns": [
+    "node_modules/**",
+    ".out/**"
+  ],
+  "overrides": [
+    {
+      "files": [
+        "src/telemetry/**"
+      ],
+      "rules": {
+        "eslint/no-console": "off"
+      }
+    }
+  ]
+}

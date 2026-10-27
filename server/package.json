@@ -1,0 +1,26 @@
+{
+  "name": "iris-server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "bun run src/index.ts",
+    "dev": "secrets-run run --env-file=../.env.local.tpl -- bun run --hot src/index.ts",
+    "lint": "oxlint src",
+    "format": "oxfmt src --write",
+    "format:check": "oxfmt src --check",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "elysia": "1.4.30",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@types/bun": "1.4.2",
+    "eslint-plugin-zod": "4.14.2",
+    "oxfmt": "0.73.0",
+    "oxlint": "1.88.0",
+    "typescript": "5.9.3"
+  }
+}
