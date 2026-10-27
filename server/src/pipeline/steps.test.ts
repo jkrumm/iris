@@ -129,7 +129,7 @@ describe("route", () => {
     });
   });
 
-  it("patches the stripped transcript when a spoken prefix routes the memo", async () => {
+  it("routes by a spoken prefix without rewriting the transcript", async () => {
     const { store, handlers } = setup({
       destinations: { hermes: fakeDestination(), journal: fakeDestination() },
     });
@@ -137,11 +137,11 @@ describe("route", () => {
     expect(result).toMatchObject({
       patch: {
         route: "journal",
-        transcript: "heute war gut",
         routeDecision: { source: "prefix", destination: "journal", outcome: "routed" },
       },
     });
     expect(result?.outcome).toBeUndefined();
+    expect(result?.patch).not.toHaveProperty("transcript");
   });
 
   it("parks on a destination that is not registered, leaving route unset", async () => {
@@ -149,7 +149,6 @@ describe("route", () => {
     const result = await handlers.route?.({ memo: transcribed(store, "Tagebuch: heute war gut") });
     expect(result?.outcome).toBe("needs_route");
     expect(result?.patch).toEqual({
-      transcript: "heute war gut",
       routeDecision: {
         source: "prefix",
         destination: null,
@@ -342,8 +341,8 @@ describe("pipeline end to end", () => {
 });
 
 describe("routing through the runner", () => {
-  it("writes the decision row with the step and strips the prefix from the stored transcript", async () => {
-    const { store, runner } = setup({
+  it("writes the decision row with the step and keeps the raw transcript and delivers the stripped one", async () => {
+    const { store, runner, destination, summarizer } = setup({
       transcriber: fakeTranscriber({ result: { text: "Hermes, kauf Milch" } }),
     });
     const { id } = seedWithSegments(store, [0]);
@@ -352,8 +351,10 @@ describe("routing through the runner", () => {
     expect(store.getMemo(id)).toMatchObject({
       state: "notified",
       route: "hermes",
-      transcript: "kauf Milch",
+      transcript: "Hermes, kauf Milch",
     });
+    expect(destination.calls).toEqual([{ memoId: id, transcript: "kauf Milch" }]);
+    expect(summarizer.calls[0]?.transcript).toBe("kauf Milch");
     expect(store.listRouteDecisions(id)).toMatchObject([
       { source: "prefix", destination: "hermes", confidence: 1, outcome: "routed" },
     ]);
@@ -369,7 +370,7 @@ describe("routing through the runner", () => {
     expect(store.getMemo(id)).toMatchObject({
       state: "needs_route",
       route: null,
-      transcript: "heute war gut",
+      transcript: "Tagebuch: heute war gut",
     });
     expect(store.listRouteDecisions(id).at(-1)).toMatchObject({
       outcome: "needs_route",
@@ -409,5 +410,39 @@ describe("routing through the runner", () => {
     await runner.drive(id);
     expect(store.getMemo(id)?.state).toBe("needs_route");
     expect(store.listRouteDecisions(id).at(-1)?.reason).toBe("decide unavailable");
+  });
+
+  it("routes a retry from route by the same prefix and still delivers the stripped text", async () => {
+    const inner = fakeDestination({ result: { ref: "note.md", replyText: "" } });
+    let broken = true;
+    const journal = {
+      calls: inner.calls,
+      async deliver(params: Parameters<typeof inner.deliver>[0]) {
+        if (broken) throw new Error("brain locked");
+        return inner.deliver(params);
+      },
+    };
+    const { store, runner } = setup({
+      transcriber: fakeTranscriber({ result: { text: "Tagebuch: heute war gut" } }),
+      destinations: { hermes: fakeDestination(), journal },
+    });
+    const { id } = seedWithSegments(store, [0]);
+    await runner.drive(id);
+    expect(store.getMemo(id)).toMatchObject({ state: "failed", failedStep: "act" });
+
+    broken = false;
+    runner.retry({ id, from: "route" });
+    await runner.idle();
+
+    expect(store.getMemo(id)).toMatchObject({
+      state: "notified",
+      route: "journal",
+      transcript: "Tagebuch: heute war gut",
+    });
+    expect(store.listRouteDecisions(id).map((d) => [d.source, d.destination])).toEqual([
+      ["prefix", "journal"],
+      ["prefix", "journal"],
+    ]);
+    expect(inner.calls).toEqual([{ memoId: id, transcript: "heute war gut" }]);
   });
 });
