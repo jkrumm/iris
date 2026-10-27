@@ -1,6 +1,6 @@
 # Iris — Product Requirements
 
-Status: v1, 2026-10-27. Owner: Johannes Krumm (the only user). Companion:
+Status: v1.1, 2026-10-27 (mockup feedback, round 1, folded in: `design/feedback-round-1.md`). Owner: Johannes Krumm (the only user). Companion:
 [`TDD.md`](TDD.md) holds how it is built.
 
 ## TLDR
@@ -55,6 +55,8 @@ the action was.
 | U4 | A 40-minute brain dump while switching apps | The take survives app switches, the Lock Screen and a phone call (pause and resume); segments upload while I talk |
 | U5 | Continue a Hermes thread | Iris → thread → hold-to-talk → the reply appears in place, plus a notification if I left |
 | U6 | At the MacBook | Hotkey → floating panel → talk → native notification |
+| U8 | A question I want answered, nothing to file | Chat mode → talk → a rendered answer in a thread, spoken on demand. Nothing is created anywhere |
+| U9 | Can't talk (meeting, train) | Type the memo instead; it goes through the same routing |
 | U7 (later) | An agent needs me | A rich notification with the question → [Reply by voice] → the answer goes back to that agent |
 
 ## Requirements
@@ -73,7 +75,10 @@ the action was.
   A crash loses at most one segment, and an offline take uploads later on its
   own.
 - **R-CAP-6:** The mode is chosen at capture: Auto (default), Journal, Hermes,
-  or a specific tab (last-used tab one tap away).
+  Chat, or a specific tab. The tab choice is de-emphasized: usually the project is
+  named in speech.
+- **R-CAP-7:** A typed memo is the fallback when speaking isn't possible. It
+  takes the same modes and the same pipeline, without STT.
 
 **Results**
 - **R-RES-1:** The Live Activity progresses recording → uploading → processing →
@@ -92,22 +97,31 @@ the action was.
   a herdr tab using the live tab list. Low confidence leads to R-RES-4.
 - **R-RTE-3:** Every intent that is neither journal nor herdr goes to Hermes
   unchanged.
+- **R-RTE-5:** Chat mode is a no-side-effects conversation (Perplexity-style):
+  it answers and never files, acts or dispatches.
 - **R-RTE-4:** Every decision and every manual correction is recorded for
   tuning.
 
 **History and threads**
 - **R-HIS-1:** History lists each memo with route, state, one line and time,
-  newest first, and is searchable by transcript.
-- **R-HIS-2:** Memo detail shows the transcript, the audio scrubber, a step
-  timeline with durations, cost, errors, [Retry from step] and [Play].
+  newest first. It is searchable by transcript and filterable by route and
+  state. Memos waiting for a route are pinned on top as tinted rows.
+- **R-HIS-2:** Memo detail shows the transcript, a scrubbable player with 10 s
+  back, [Play reply] and errors with [Retry from step]. The step waterfall (each
+  step starting where the previous ended, compared with that step's usual
+  duration) and the cost are collapsed by default. Trace ids are only in
+  Settings → Diagnostics.
+- **R-HIS-4:** A stats view shows what I record and route, how often, and
+  trends over days and weeks.
 - **R-HIS-3:** The Hermes thread view shows the session transcript, rendered as
   markdown, with hold-to-talk appending to that session.
 
 **Mac**
-- **R-MAC-1:** A menu-bar app with a global hotkey and a floating panel showing
-  the timer, level meter and mic picker.
-- **R-MAC-2:** The same modes, history and notifications as iOS. Mic preferences
-  are its own.
+- **R-MAC-1:** A menu-bar app with a global hotkey (distinct from my existing
+  input-box dictation key) and a floating panel showing the timer, level meter
+  and mic picker.
+- **R-MAC-2:** The same modes, history and notifications as iOS (including
+  Reply). Mic preferences are its own.
 
 **Operability**
 - **R-OPS-1:** One trace per memo, from the phone through the server to every
@@ -144,7 +158,7 @@ the action was.
 | R0 — Server | iris-server live on the mini, end to end via a test script | — |
 | R1 — Capture | iOS capture + Live Activity + Hermes route + result notification | Use it daily for Hermes |
 | R2 — Routing | journal + herdr + the decision model + [Play] + mic preferences | Use it for everything I speak |
-| R3 — History | history, detail, retry, Hermes threads, reply by voice | Leave Slack voice memos |
+| R3 — History | history + filters, detail, retry, Hermes threads, Chat mode, reply by voice, typed memos, stats | Leave Slack voice memos |
 | R4 — Mac | menu-bar app | Use it at the desk |
 | R5 — Polish | live on-device preview, widgets, spoken-replies mode | — |
 | R6 — Agent inbox | agents reach me through Iris, reply by voice | Mute Slack `#agents` |

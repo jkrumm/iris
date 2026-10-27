@@ -408,28 +408,40 @@ Open design questions for the owner are at the end of `docs/design/README.md`. S
 ## Fleet backlog (for the long-running fleet: mother → lead → workers)
 
 Not waves of this chain. The fleet's mother turns these into active waves, one at a time,
-refining scope from TDD/PRD. Releases are named in PRD §Release plan.
+refining scope from TDD/PRD. Releases are named in PRD §Release plan. The owner reviewed the
+mockups on 2026-10-27: `docs/design/feedback-round-1.md` is binding for every UI item.
+**Ordering while the owner is away (no paired iPhone until he is home):** start with items that
+need no phone (0, 4, 6, 7). Items 1–3 and 5 need the device for their exit checks and wait for
+pairing. Build their simulator-testable parts earlier if the queue runs dry.
 
-1. **Spikes S1–S3** on the iPhone: these need the owner's hands, Xcode on the mini and
-   phone pairing. S1: Lock Screen control → `AudioRecordingIntent` → Live Activity → a
-   30-min take while switching apps and locking. S2: a mic switch mid-take, built-in mic
-   while connected to the car. S3: APNs Live Activity update + [Play] from a suspended
-   app. Findings go to `docs/spikes/`, and TDD gets amended.
+0. **Design round 2:** apply `feedback-round-1.md` to the mockups:
+   - the memo detail waterfall (collapsed), the player with 10 s back, less shadow, no trace id;
+   - the Dynamic Island mic-swap icon, compact notification actions, Mac Reply;
+   - new surfaces: Chat mode, typed memo, History filters, Stats, the Threads view.
+   Render and upload like Wave 9. The owner reviews; until he answers, build the unchanged
+   surfaces.
+1. **Spikes S1–S3** on the iPhone (`docs/spikes/`). They need the owner's hands, pairing and
+   (for S3) enrollment. Findings amend TDD.
 2. **R1 capture:** `IrisCapture` for real (session, routes, segment recorder, outbox),
-   `StartMemoIntent` + Control + Live Activity, the Record screen, `-IrisFakeCapture` UI
-   tests.
-3. **R1 results:** APNs registration, notification categories + content extension, the
-   result long-poll backstop, Live Activity remote updates. TestFlight pipeline
-   (`make testflight`) once enrolled.
-4. **R2 routing (server):** prefix parser, `decide`, journal + herdr destinations,
-   `needs_route`, corrections, templated summaries, agw `caller` field (a small change in
-   agent-gateway).
-5. **R2 routing (iOS):** mode/tab picker, needs-route actions, [Play] via `PlayReplyIntent`,
-   per-route mic rules, spoken-replies setting.
-6. **R3 history:** history + search, memo detail (timeline, cost, retry, scrubber), SSE live
-   updates.
-7. **R3 threads:** the Hermes thread view (Textual), reply by voice into a thread.
-8. **R4 Mac:** the menu-bar app, hotkey, panel, capture on the Mac, SSE notifications.
+   `StartMemoIntent` + Control + Live Activity (client phases recording/paused/uploading, Wave 7
+   carry-forward), the Record screen, `-IrisFakeCapture` UI tests, package wiring onto `IrisCore`,
+   `POST /v1/telemetry` on the server.
+3. **R1 results:** APNs registration, notification categories + content extension, the result
+   long-poll backstop, Live Activity remote updates. TestFlight pipeline (`make testflight`) once
+   enrolled.
+4. **R2 routing (server):** prefix parser, `decide`, journal + herdr destinations, `needs_route`,
+   corrections, templated summaries, **Chat mode** (Hermes session with a no-side-effects system
+   message; confirm this reading with the owner when the item starts), typed memos (skip STT),
+   agw `caller` field (a small change in agent-gateway). Plus Wave 5's carry-forward (composition
+   dedupe, `MEMO_NEEDS_ROUTE`, `+faststart`).
+5. **R2 routing (iOS):** the mode picker incl. Chat, needs-route actions, [Play] via
+   `PlayReplyIntent`, per-route mic rules, spoken-replies setting, cost-on-Lock-Screen setting.
+6. **R3 history:** History + search + filters, memo detail per round 2, SSE live updates, Stats
+   (server aggregates + view), the typed-memo composer.
+7. **R3 threads:** the Threads view (Textual), reply by voice or text into a thread, Chat threads.
+8. **R4 Mac:** the menu-bar app, hotkey (configurable, default distinct from the owner's
+   dictation key), panel, capture on the Mac, SSE notifications with Reply.
 9. **R5 polish:** on-device live preview (`SpeechTranscriber`, German checked at runtime),
-   widgets, spoken-replies mode, alerts + health probe (TDD §8 Later).
-
+   widgets, spoken-replies mode, `.xcstrings` catalogs, alerts + health probe (TDD §8 Later).
+10. **Housekeeping after R3's screens ship:** delete the round-1/2 mockup image objects (via `/img`),
+    `iumac:/tmp/iris-mockups.html` and `docs/design/renders/`.
