@@ -377,19 +377,33 @@ rules, skills, a six-line wrapper and four Make targets, each run by hand. Carry
 `MEMO_NEEDS_ROUTE`, `+faststart`, lint warnings) and Wave 7's items (LiveActivityPhase client phases, package dependencies on `IrisCore`, `POST /v1/telemetry`, `.xcstrings`)
 remain open for the fleet. Stopped: the next wave (9, mockups) is spawned by the orchestrator tab.
 
-## Wave 9 — UI mockup round            <!-- status: active -->
-- [ ] `docs/design/mockups/`: static HTML using the basalt-ui tokens (the same values as
+## Wave 9 — UI mockup round            <!-- status: done -->
+- [x] `docs/design/mockups/`: static HTML using the basalt-ui tokens (the same values as
       `IrisUI/Theme`), styled to read as iOS 26 Liquid Glass. Surfaces: History, Memo detail
       (step timeline, cost, retry), Record (timer, waveform, mic picker, mode/tab picker),
       Live Activity (recording / processing / done / needs-route, Lock Screen + Dynamic
       Island), the notification card, the Mac panel. Use realistic German and English
       sample content.
-- [ ] Render each surface to PNG (chrome-devtools screenshot at device sizes), upload via
+- [x] Render each surface to PNG (chrome-devtools screenshot at device sizes), upload via
       `/img` as private presigned links, and list them in `docs/design/README.md`.
-- [ ] Stop here: the owner reviews the mockups. Write "stopped: owner reviews mockups;
+- [x] Stop here: the owner reviews the mockups. Write "stopped: owner reviews mockups;
       then the fleet starts R1 from the Fleet backlog" into **Left behind** and do not
       spawn.
-**Left behind:**
+**Left behind:** All three steps shipped; `make check` is green when run directly (exit 0, incl. `check-apple`). The `agw check` MCP run failed only
+in `xcodegen generate` ("Couldn't find current username", a sandbox artifact of the gateway worker), so the green is from the direct run. No `/review`:
+the diff is static HTML/CSS/JS, a token generator and a render script, nothing in the product paths. **Where:** `docs/design/mockups/*.html` (open with
+`?scheme=light|dark&v=<variant>`), `tokens.css` (generated from `BasaltTokens.generated.swift` by `gen-tokens.ts`, so the values equal `IrisUI/Theme`),
+`mock.css` (glass approximation, only on floating controls), `la.css`, `mock.js` (icon sprite, seeded waveforms), `docs/design/render.ts`, `make mockups`.
+**Surfaces (23 renders at 2x):** History (light, dark), Memo detail (done light and dark, failed dark: timeline, duration bars, cost, retry), Record (take light
+and dark, mic sheet, mode and tab sheet), Lock Screen (idle with the Control, recording, processing, done in dark and light, needs-route), Dynamic Island
+(compact and expanded, four states), notification card (done light and dark, needs-route), Mac (floating panel light and dark, menu-bar window, native
+notification). Sample content is German and English and reuses the fixture memo. **Links:** all 23 PNGs are uploaded with `imgcli private`, 7-day presigned
+links (expire 2026-11-03). **The repo is public, so the links are NOT in `docs/design/README.md`** (a presigned URL carries the real bucket host and signature,
+which the public guard and the repo rule forbid): they sit in the untracked `docs/design/links.local.md` on the mini; the README lists the surfaces and
+renders and says how to re-issue. PNGs are gitignored (`docs/design/renders/`, regenerate with `make mockups`). Deviations: rendered with headless Chrome CLI
+instead of the chrome-devtools MCP (same engine, scriptable for 23 shots; it exits non-zero after a virtual-time screenshot, so the file is the success
+signal). Mockups are approximations: the Liquid Glass is CSS blur plus a rim, SF Pro comes from the host font stack, and nothing is device-verified.
+Open design questions for the owner are at the end of `docs/design/README.md`. Stopped: owner reviews mockups; then the fleet starts R1 from the Fleet backlog.
 
 ## Fleet backlog (for the long-running fleet: mother → lead → workers)
 
