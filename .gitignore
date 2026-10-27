@@ -4,3 +4,15 @@ node_modules
 *.log
 data/
 .out/
+
+# Apple
+*.xcodeproj
+*.xcworkspace
+xcuserdata/
+.build/
+.swiftpm/
+.dd/
+DerivedData/
+.artifacts/
+*.xcresult
+apple/tools/node_modules/
