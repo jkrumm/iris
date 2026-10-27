@@ -117,4 +117,35 @@ export const MIGRATIONS: readonly string[] = [
   FROM first_memo;
   UPDATE memos SET thread_id = destination_ref WHERE route = 'hermes' AND destination_ref IS NOT NULL;
   `,
+  // History search: an external-content FTS5 index over the transcript and the summary headline. The content is a
+  // view because the headline lives inside `summary_json` (a malformed value indexes as no headline instead of
+  // failing the write), which also lets `rebuild` and `integrity-check` read it. Triggers keep the index in step
+  // with `memos`; the last statement backfills the memos that exist already.
+  `
+  CREATE VIEW memo_search AS
+    SELECT seq, transcript, CASE WHEN json_valid(summary_json) THEN json_extract(summary_json, '$.headline') END AS headline FROM memos;
+
+  CREATE VIRTUAL TABLE memo_fts USING fts5(
+    transcript, headline,
+    content = 'memo_search', content_rowid = 'seq',
+    tokenize = 'unicode61 remove_diacritics 2'
+  );
+
+  CREATE TRIGGER memo_fts_insert AFTER INSERT ON memos BEGIN
+    INSERT INTO memo_fts (rowid, transcript, headline)
+    VALUES (new.seq, new.transcript, CASE WHEN json_valid(new.summary_json) THEN json_extract(new.summary_json, '$.headline') END);
+  END;
+  CREATE TRIGGER memo_fts_delete AFTER DELETE ON memos BEGIN
+    INSERT INTO memo_fts (memo_fts, rowid, transcript, headline)
+    VALUES ('delete', old.seq, old.transcript, CASE WHEN json_valid(old.summary_json) THEN json_extract(old.summary_json, '$.headline') END);
+  END;
+  CREATE TRIGGER memo_fts_update AFTER UPDATE OF transcript, summary_json ON memos BEGIN
+    INSERT INTO memo_fts (memo_fts, rowid, transcript, headline)
+    VALUES ('delete', old.seq, old.transcript, CASE WHEN json_valid(old.summary_json) THEN json_extract(old.summary_json, '$.headline') END);
+    INSERT INTO memo_fts (rowid, transcript, headline)
+    VALUES (new.seq, new.transcript, CASE WHEN json_valid(new.summary_json) THEN json_extract(new.summary_json, '$.headline') END);
+  END;
+
+  INSERT INTO memo_fts (memo_fts) VALUES ('rebuild');
+  `,
 ];

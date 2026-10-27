@@ -89,6 +89,167 @@ describe("listMemos", () => {
   });
 });
 
+describe("listMemos search and filters", () => {
+  /** A memo in `state` carrying `patch`, written the way a step would (same-state completion). */
+  const memoWith = (
+    store: ReturnType<typeof testStore>["store"],
+    state: MemoState,
+    patch: MemoPatch,
+  ) => {
+    const { id } = seedMemo(store, state);
+    store.completeStep({ id, step: "transcribe", from: state, to: state, patch });
+    return id;
+  };
+  const summary = (headline: string) => ({ headline, detail: "d", spoken: "s" });
+  const ids = (page: { memos: { id: string }[] }) => page.memos.map((m) => m.id);
+
+  it("finds transcript and headline text, ignoring case and umlauts, with prefix terms ANDed", () => {
+    const { store } = testStore();
+    const kalender = memoWith(store, "notified", {
+      transcript: "Trag den Termin in den Kalender ein",
+    });
+    const uebung = memoWith(store, "notified", {
+      transcript: "irgendwas",
+      summary: summary("Übung am Donnerstag"),
+    });
+    memoWith(store, "notified", { transcript: "Milch kaufen" });
+
+    expect(ids(store.listMemos({ limit: 10, q: "kalend" }))).toEqual([kalender]);
+    expect(ids(store.listMemos({ limit: 10, q: "KALENDER" }))).toEqual([kalender]);
+    expect(ids(store.listMemos({ limit: 10, q: "ubung" }))).toEqual([uebung]);
+    expect(ids(store.listMemos({ limit: 10, q: "übung donn" }))).toEqual([uebung]);
+    expect(ids(store.listMemos({ limit: 10, q: "übung kalender" }))).toEqual([]);
+    expect(ids(store.listMemos({ limit: 10, q: "   " }))).toHaveLength(3);
+  });
+
+  it("keeps the index in step with later writes", () => {
+    const { store } = testStore();
+    const id = memoWith(store, "transcribed", { transcript: "alt" });
+    store.completeStep({
+      id,
+      step: "transcribe",
+      from: "transcribed",
+      to: "transcribed",
+      patch: { transcript: "neu geschrieben" },
+    });
+    expect(ids(store.listMemos({ limit: 5, q: "alt" }))).toEqual([]);
+    expect(ids(store.listMemos({ limit: 5, q: "geschr" }))).toEqual([id]);
+  });
+
+  it("never lets user input act as MATCH syntax", () => {
+    const { store } = testStore();
+    const id = memoWith(store, "notified", { transcript: "foo bar NEAR baz" });
+    for (const q of [
+      '"',
+      'foo"',
+      "foo*",
+      "foo OR",
+      "NOT foo",
+      "(foo",
+      "foo:bar",
+      "^foo",
+      "col:x -y",
+    ]) {
+      expect(() => store.listMemos({ limit: 5, q })).not.toThrow();
+    }
+    expect(ids(store.listMemos({ limit: 5, q: "near" }))).toEqual([id]);
+    expect(ids(store.listMemos({ limit: 5, q: "foo OR zzz" }))).toEqual([]);
+    expect(ids(store.listMemos({ limit: 5, q: "foo - bar" }))).toEqual([id]);
+    expect(ids(store.listMemos({ limit: 5, q: "... ---" }))).toEqual([]);
+  });
+
+  it("filters by route and state and combines them with q", () => {
+    const { store } = testStore();
+    const hermes = memoWith(store, "notified", { transcript: "Milch", route: "hermes" });
+    const journal = memoWith(store, "notified", { transcript: "Milch", route: "journal" });
+    const failed = memoWith(store, "acted", { transcript: "Brot", route: "hermes" });
+
+    expect(ids(store.listMemos({ limit: 10, route: "journal" }))).toEqual([journal]);
+    expect(ids(store.listMemos({ limit: 10, state: "acted" }))).toEqual([failed]);
+    expect(ids(store.listMemos({ limit: 10, route: "hermes", q: "milch" }))).toEqual([hermes]);
+    expect(ids(store.listMemos({ limit: 10, route: "herdr" }))).toEqual([]);
+  });
+
+  it("pins needs_route memos on the first page only and keeps them out of items", () => {
+    const { store } = testStore();
+    const first = parkMemo(store, { reason: "unsure" }, "Kalender Termin");
+    const old = memoWith(store, "notified", { transcript: "Kalender alt" });
+    const second = parkMemo(store, { reason: "unsure" }, "Milch");
+    const newest = memoWith(store, "notified", { transcript: "Kalender neu" });
+
+    const page1 = store.listMemos({ limit: 1 });
+    expect(page1.pinned.map((m) => m.id)).toEqual([second, first]);
+    expect(ids(page1)).toEqual([newest]);
+
+    const page2 = store.listMemos({ limit: 1, cursor: page1.nextCursor });
+    expect(page2.pinned).toEqual([]);
+    expect(ids(page2)).toEqual([old]);
+    expect(page2.nextCursor).toBeNull();
+
+    const searched = store.listMemos({ limit: 10, q: "kalend" });
+    expect(searched.pinned.map((m) => m.id)).toEqual([first]);
+    expect(ids(searched)).toEqual([newest, old]);
+  });
+
+  it("keeps the cursor stable when a pinned memo leaves needs_route", () => {
+    const { store } = testStore();
+    const a = seedMemo(store, "notified").id;
+    const b = seedMemo(store, "notified").id;
+    const c = seedMemo(store, "notified").id;
+    const parked = parkMemo(store, { reason: "unsure" });
+    const page1 = store.listMemos({ limit: 2 });
+    expect(ids(page1)).toEqual([c, b]);
+
+    store.answerRoute({
+      id: parked,
+      decision: {
+        source: "answer",
+        destination: "hermes",
+        tab: null,
+        confidence: null,
+        model: null,
+        costUsd: null,
+        reason: null,
+        outcome: "routed",
+      },
+    });
+    const page2 = store.listMemos({ limit: 2, cursor: page1.nextCursor });
+    expect(ids(page2)).toEqual([a]);
+  });
+
+  it("answers state=needs_route entirely from pinned, with the filters applied, capped at 50", () => {
+    const { store } = testStore();
+    for (let i = 0; i < 52; i++) parkMemo(store, { reason: "unsure" }, i === 0 ? "alpha" : "beta");
+    seedMemo(store, "notified");
+
+    const all = store.listMemos({ limit: 10, state: "needs_route" });
+    expect(all.memos).toEqual([]);
+    expect(all.nextCursor).toBeNull();
+    expect(all.pinned).toHaveLength(50);
+    expect(store.listMemos({ limit: 10, state: "needs_route", q: "alpha" }).pinned).toHaveLength(1);
+    expect(store.listMemos({ limit: 10, state: "notified" }).pinned).toEqual([]);
+
+    // `pinned` is never paged: with a cursor it is empty, and state=needs_route has no second page.
+    const later = store.listMemos({ limit: 10, state: "needs_route", cursor: "1" });
+    expect(later).toEqual({ memos: [], pinned: [], nextCursor: null });
+  });
+
+  it("backfills the index for memos that existed before the migration", () => {
+    const db = new Database(":memory:");
+    migrate(db, MIGRATIONS.slice(0, MIGRATIONS.length - 1));
+    db.query(
+      `INSERT INTO memos (id, mode, device, started_at, state, transcript, summary_json, created_at, updated_at)
+       VALUES (?, 'auto', 'iphone', 't', 'notified', 'Der Kalender spinnt', ?, 't', 't')`,
+    ).run("old", JSON.stringify({ headline: "Äpfel kaufen", detail: "d", spoken: "s" }));
+
+    const store = createSqliteMemoStore({ db, clock: testStore().clock });
+    expect(ids(store.listMemos({ limit: 5, q: "kalend" }))).toHaveLength(1);
+    expect(ids(store.listMemos({ limit: 5, q: "apfel" }))).toHaveLength(1);
+    const check = db.query("INSERT INTO memo_fts (memo_fts) VALUES ('integrity-check')");
+    expect(() => check.run()).not.toThrow();
+  });
+});
+
 describe("segments", () => {
   it("records first-write-wins, lists indices in order, and deletes them", () => {
     const { store } = testStore();
@@ -691,7 +852,7 @@ describe("answering and correcting a route", () => {
       routeReason: "low confidence (0.60)",
       routeSuggestion: "journal",
     });
-    expect(store.listMemos({ limit: 5 }).memos[0]).toMatchObject({
+    expect(store.listMemos({ limit: 5 }).pinned[0]).toMatchObject({
       routeReason: "low confidence (0.60)",
     });
 

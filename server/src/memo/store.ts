@@ -12,6 +12,9 @@ import type {
   ThreadKind,
 } from "./memo.js";
 
+/** The most `needs_route` memos the first history page pins. */
+export const PINNED_LIMIT = 50;
+
 /** An answer always names a destination, so a routed memo never has `route` NULL. */
 export type AnswerDecision = RouteDecisionInput & { destination: DestinationName };
 
@@ -60,9 +63,22 @@ export interface MemoStore extends ThreadStore {
     threadId?: string | undefined;
   }): { memo: Memo; created: boolean };
   getMemo(id: string): Memo | null;
-  /** Newest first. `nextCursor` is null on the last page; cursors stay valid as memos are added. */
-  listMemos(params: { limit: number; cursor?: string | null | undefined }): {
+  /**
+   * History, newest first. `q` searches the transcript and the summary headline (case, umlaut and prefix
+   * insensitive, terms ANDed), `route` and `state` filter exactly; all combine. `needs_route` memos never
+   * appear in `memos` (so the cursor survives one leaving that state): without a `cursor` they come back in
+   * `pinned` instead, every one matching the filters, newest first, at most `PINNED_LIMIT`. `nextCursor` is
+   * null on the last page; cursors stay valid as memos are added.
+   */
+  listMemos(params: {
+    limit: number;
+    cursor?: string | null | undefined;
+    q?: string | undefined;
+    route?: DestinationName | undefined;
+    state?: MemoState | undefined;
+  }): {
     memos: Memo[];
+    pinned: Memo[];
     nextCursor: string | null;
   };
 

@@ -172,11 +172,18 @@ export function memoRoutes(deps: { memos: MemoService; auth: ReturnType<typeof d
     .get(
       "/",
       ({ query }) => {
-        const { memos: items, nextCursor } = memos.list({
+        const {
+          memos: items,
+          pinned,
+          nextCursor,
+        } = memos.list({
           ...(query.limit !== undefined && { limit: query.limit }),
           cursor: query.cursor,
+          q: query.q,
+          route: query.route,
+          state: query.state,
         });
-        return { items: items.map(memoJson), nextCursor };
+        return { items: items.map(memoJson), pinned: pinned.map(memoJson), nextCursor };
       },
       { query: ListQuery, response: { 200: MemoList, 400: ErrorBody } },
     )

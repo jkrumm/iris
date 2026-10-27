@@ -13,6 +13,7 @@ import {
   MEMO_MODES,
   type Memo,
   type MemoMode,
+  type MemoState,
   type Step,
   type StepRecord,
   type Thread,
@@ -77,8 +78,15 @@ export interface MemoService {
     accepted: boolean;
   };
   get(id: string): MemoDetail;
-  list(params: { limit?: number; cursor?: string | null | undefined }): {
+  list(params: {
+    limit?: number;
+    cursor?: string | null | undefined;
+    q?: string | undefined;
+    route?: DestinationName | undefined;
+    state?: MemoState | undefined;
+  }): {
     memos: Memo[];
+    pinned: Memo[];
     nextCursor: string | null;
   };
   /** Newest `updated_at` first; the same limit and cursor rules as `list`. */
@@ -341,10 +349,13 @@ export function createMemoService(deps: {
       };
     },
 
-    list({ limit = DEFAULT_LIMIT, cursor }) {
+    list({ limit = DEFAULT_LIMIT, cursor, q, route, state }) {
       return store.listMemos({
         limit: Math.min(Math.max(Math.floor(limit), 1), MAX_LIMIT),
         cursor,
+        q,
+        route,
+        state,
       });
     },
 

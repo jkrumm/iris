@@ -161,7 +161,7 @@ any step ──error──> failed(step)   ──retry(from)──> <step>
 
 ### Data model (SQLite, WAL, append-only migrations in `server/src/adapters/sqlite-migrations.ts`, `PRAGMA user_version`)
 
-Shipped (Waves 5 and 10). Step results are columns on `memos`, not a separate table.
+Shipped (Waves 5, 10 and 12). Step results are columns on `memos`, not a separate table.
 
 | Table | Columns (key ones) |
 |-|-|
@@ -171,12 +171,20 @@ Shipped (Waves 5 and 10). Step results are columns on `memos`, not a separate ta
 | `devices` | `device` (PK, the token-map name), `name` (display label), `platform` (ios/macos), `apns_token`, `apns_env` (sandbox/production), `push_to_start_token`, `last_seen_at`, `updated_at` |
 | `activity_tokens` | `memo_id` (PK, cascades), `token`, `updated_at` |
 | `threads` | `id` (PK, the Hermes session id), `kind` (chat/hermes), `title` (the first ~60 characters of the first transcript, whitespace collapsed), `created_at`, `updated_at`, `last_memo_id`. The destination names the thread in its `Delivery` (`thread: {id, kind, title}`; Hermes: the session id, `chat` or `hermes`, the first ~60 characters of the transcript); `act` persists what it gets, upserting the row and setting `memos.thread_id` in the transaction of `completeStep` (`patch.thread`; `thread_id` is an `act`-owned column). An existing thread keeps its kind and title and moves `updated_at` / `last_memo_id`. A retry from `act` clears `thread_id` when it is the memo's own session (equal to the memo id) until the re-run sets it again, and keeps it for a memo created to continue a thread (its `thread_id` is never its own id: `continuedThread` in `memo.ts`); the thread row stays. The migration backfilled one `hermes` thread per distinct `destination_ref` of an existing hermes memo. `GET /v1/threads` and `/v1/threads/:id` read it (§HTTP API); the queries sit behind the `ThreadStore` port (`adapters/sqlite-threads.ts`, composed into the memo store) |
+| `memo_fts` | FTS5 virtual table, external content over the view `memo_search` (`seq`, `transcript`, headline = `summary_json.$.headline`; a malformed `summary_json` indexes as no headline), `content_rowid = seq`, tokenizer `unicode61 remove_diacritics 2`. Triggers on `memos` (insert, delete, update of `transcript` / `summary_json`) keep it in step; migration 7 backfills with `rebuild`. Read by `GET /v1/memos?q` only |
 | `route_decisions` | `id` (autoincrement), `memo_id` (cascades), `created_at`, `source` (mode/prefix/decide/default/answer/correction), `destination` (nullable), `tab`, `confidence`, `model`, `cost_usd`, `reason`, `outcome` (routed/needs_route). One row per route outcome, written in the transaction of the step's `completeStep`; read with `listRouteDecisions(memoId)`. `answer` (written with the `needs_route` → `routed` move, `memos.route` set in the same transaction) and `correction` (logged after `act`, the memo is untouched) rows come from `POST /v1/memos/:id/route` |
 
 A typed memo (Wave 11) needs no column: it is a `memos` row created in `transcribed` with `transcript` set and `segment_count` NULL, and has no `segments` or ingest/transcribe `memo_steps` rows.
 
-Planned for R3, not built: `memos.target_tab` / `language` / `route_source`,
-and a transcript FTS index. Device tokens are not stored: the token map lives in `IRIS_DEVICE_TOKENS`.
+**History search (Wave 12).** `GET /v1/memos?q` runs on SQLite FTS5 (probed on the mini: `bun:sqlite` 1.4.3 ships it), not `LIKE`:
+an index answers a prefix search without scanning every transcript, and `unicode61 remove_diacritics 2` folds case and umlauts the way German
+text needs ("kalend" finds "Kalender", "ubung" finds "Übung"). The index is external-content over the view `memo_search`, so it stores no second copy
+of the text and `rebuild` / `integrity-check` work; triggers keep it in step with `memos`. User input never reaches the MATCH syntax: the text is
+split on whitespace, words without a letter or digit are dropped (text with none matches nothing), every remaining term is double-quoted (embedded
+quotes doubled) and prefix-matched (`"kalend"*`), terms are ANDed. SQLite's own `changes` counts trigger writes in `bun:sqlite`, so
+`createMemo` / `createTextMemo` read `changes > 0`, not `=== 1`, to tell a new row from a conflict.
+
+Planned for R3, not built: `memos.target_tab` / `language` / `route_source`. Device tokens are not stored: the token map lives in `IRIS_DEVICE_TOKENS`.
 
 ### HTTP API (`/v1`, bearer = device token; `/health` is public)
 
@@ -193,7 +201,7 @@ Shipped; the authoritative list is `contracts/manifest.json` and the table in `A
 | `PUT /v1/memos/:id/activity-token` | The Live Activity push token for this memo (204) |
 | `POST /v1/memos/:id/retry` | `{from: Step}`, only for a `failed` memo |
 | `POST /v1/memos/:id/route` | `{destination: hermes\|journal\|herdr, tab?}` (`tab` iff herdr). `needs_route`: the destination must be registered (else 400 "<dest> not available"); writes an `answer` decision, moves the memo to `routed` (compare-and-set) and drives it on: 202 + memo. After `act` (`acted`/`summarized`/`notified`): records a `correction` decision, no re-act, memo unchanged: 200. Any other state 409 `bad_state`, so a second answer while the first drives is a 409 |
-| `GET /v1/memos?limit&cursor` | History, paged, newest first |
+| `GET /v1/memos?limit&cursor&q&route&state` | History, paged, newest first: `{items, pinned, nextCursor}`. `q` (≤ 200 characters) searches transcript and summary headline (see Data model); `route` (hermes\|journal\|herdr) and `state` (any memo state) filter exactly; all combine, an unknown value is 400. `items` never holds a `needs_route` memo, so the seq cursor stays stable when one leaves that state; the first page (no `cursor`) instead carries `pinned`: every `needs_route` memo matching the filters, newest first, at most 50. `pinned` is always present, `[]` on later pages. `state=needs_route` answers entirely from `pinned` with empty `items` and no cursor. `pinned` is not paged: the 50 cap is deliberate (a parked memo is an open question for the user, not an archive) and a `cursor` always yields `pinned: []`. Clients that read only `items` no longer see parked memos in the default list |
 | `GET /v1/memos/:id` | Memo + step timeline |
 | `GET /v1/memos/:id/result?wait=<s>` | Long-poll until result-ready (≤ 600 s) |
 | `GET /v1/threads?kind=chat\|hermes&limit&cursor` | `{items: Thread[], nextCursor}`, newest `updatedAt` first; `Thread = {id, kind, title, createdAt, updatedAt, lastMemoId}`. The cursor is the last row's `(updated_at, id)`, so it stays valid as threads are added or updated. A malformed cursor or unknown `kind` is 400 |
@@ -210,7 +218,7 @@ While a memo is `needs_route`, the memo shape carries `routeReason` (the latest 
 
 **Threads.** A thread is a Hermes session (`threads` row, `kind` `chat` for a chat, else `hermes`). `threadId` on either create route continues one: the service answers 404 for an unknown thread and 409 for a replay whose `threadId` differs (`continuedThread`: a memo's own session, equal to its id, is not a continuation). The memo is stored with that `thread_id`. The route step forces it to `hermes` (decision source `mode`, no decider call, whatever the mode or a spoken prefix says; a failure if Hermes is not registered), and `act` delivers into the thread's session (`Destination.deliver({threadId})`: the Hermes adapter skips the session create) with `chat` taken from the thread's kind, not the memo's mode, so every turn of a chat thread re-sends the no-side-effects `system_message`. The upsert moves the thread's `updated_at` and `last_memo_id` as for any `act`. The conversation is Iris's own data (`threadMessages` in `memo.ts`, built from the thread's memos in `seq` order); Hermes keeps its session but its transcript is never read, and a chat is tagged by `threads.kind`, not by Hermes's `source`.
 
-**Planned, not built:** `?q` transcript search, and the `targetTab` / `language`
+**Planned, not built:** the `targetTab` / `language`
 fields of `POST /v1/memos`.
 
 Every request and response body has a schema and a fixture in `contracts/`.
