@@ -72,10 +72,11 @@ with `failed(step)` as a side state.
 
 ## Validate
 
-`make check` — oxlint, `oxfmt --check`, `tsc --noEmit`, `bun test` (server). CI runs
-`make check-server` on `ubuntu-latest` (public repo, hosted runners). `make format` applies oxfmt.
+`make check` — `check-server` (oxlint, `oxfmt --check`, `tsc --noEmit`, `bun test`), `check-contracts` and
+`guard` (public-repo scan). CI runs `make check` then `make e2e` on `ubuntu-latest` (public repo, hosted
+runners). `make format` applies oxfmt.
 
-`make e2e` (`scripts/e2e.ts`, CI after `check-server`, needs ffmpeg) boots `server/src/index.ts` on a free port with
+`make e2e` (`scripts/e2e.ts`, CI after `check`, needs ffmpeg) boots `server/src/index.ts` on a free port with
 `IRIS_FAKES=1` and a temp `IRIS_DATA`, runs `send-memo.ts` on the smoke recording (must reach `notified`), then probes
 `/devices/register`, `/activity-token`, `/audio` (Range 206), `/speech` (audio/mpeg) and `/herd`. The server is always killed.
 
