@@ -89,7 +89,10 @@ export function createGitRunner(gitBinary = "git"): GitRunner {
       try {
         process.kill(-proc.pid, signal);
       } catch (err) {
-        if (errnoCode(err) !== "ESRCH") throw err;
+        // ESRCH: the group is gone. EPERM: macOS reports a group whose only member is an
+        // unreaped zombie leader that way; it is our own child, so nothing is left to signal.
+        const code = errnoCode(err);
+        if (code !== "ESRCH" && code !== "EPERM") throw err;
       }
     };
     const out = collect(proc.stdout);
