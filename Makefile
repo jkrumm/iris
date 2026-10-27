@@ -57,6 +57,7 @@ launchd-install: ## Render the plist templates (__HOME__ substituted) and (re)lo
 	@launchctl bootstrap "gui/$$(id -u)" "$(LAUNCHAGENTS)/$(LABEL).plist"
 	@launchctl bootout "gui/$$(id -u)/$(LABEL_DEPLOY)" 2>/dev/null || true
 	@launchctl bootstrap "gui/$$(id -u)" "$(LAUNCHAGENTS)/$(LABEL_DEPLOY).plist"
+	@rm -f "$(HOME)/.iris/launchd-pending"
 	@echo "installed $(LABEL), $(LABEL_DEPLOY)"
 
 .PHONY: launchd-uninstall
@@ -97,7 +98,8 @@ deploy: ## Run the app clone's mini-deploy.sh once, now (the poller's tick: same
 	@"$(HOME)/.local/bin/jobrun" $(LABEL_DEPLOY) --owner iris --every 120 --timeout 1800 --lock iris-deploy -- "$(APP_DIR)/scripts/mini-deploy.sh"
 
 .PHONY: verify
-verify: ## Probe production: exit 0 iff /health answers with status ok
+verify: ## Probe production: exit 0 iff /health answers ok and no launchd change is pending
+	@if [ -f "$(HOME)/.iris/launchd-pending" ]; then echo "  launchd/ templates changed since the last install: run make launchd-install on the mini"; exit 1; fi
 	@curl -fsS --max-time 5 $(HEALTH_URL) | grep -q '"status":"ok"' \
 		|| { echo "  iris not healthy ($(HEALTH_URL))"; exit 1; }
 	@echo "  iris healthy ($(HEALTH_URL))"

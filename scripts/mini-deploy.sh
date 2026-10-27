@@ -16,6 +16,12 @@ set -u
 APP_DIR="$HOME/.iris/app"
 DATA_DIR="$HOME/.iris/data"
 DEPLOYED_SHA_FILE="$HOME/.iris/deployed-sha"
+# A SHA whose restart never came back healthy: skipped until a newer SHA lands, so a broken push
+# is rolled back once instead of being redeployed every tick.
+FAILED_SHA_FILE="$HOME/.iris/failed-sha"
+# Set when a deploy changed launchd/ templates (the poller cannot reload its own plist); cleared by
+# `make launchd-install`, reported by `make verify`.
+LAUNCHD_PENDING_FILE="$HOME/.iris/launchd-pending"
 HEALTH_URL="http://127.0.0.1:7730/health"
 LABEL="com.jkrumm.iris"
 
@@ -104,6 +110,10 @@ main() {
     return 0
   fi
 
+  if [[ "$(cat "$FAILED_SHA_FILE" 2>/dev/null)" == "$origin_head" ]]; then
+    return 0  # already tried, rolled back, logged once
+  fi
+
   local ci_status
   ci_status=$(ci_gate_status "$origin_head")
   case "$ci_status" in
@@ -153,6 +163,9 @@ main() {
   [[ -n "$deployed_sha" ]] && from_label="${deployed_sha[1,12]}"
   log "deploying $from_label -> ${origin_head[1,12]} (${#changed_arr} changed path(s): ${(j:, :)changed_arr[1,20]}${${changed_arr[21]:+, …}:-})"
 
+  local prev_head
+  prev_head=$(git -C "$APP_DIR" rev-parse HEAD)
+
   if ! git -C "$APP_DIR" reset --hard origin/master >/dev/null; then
     log "ERROR: git reset --hard origin/master failed"
     return 1
@@ -178,7 +191,8 @@ main() {
   fi
 
   if [[ "$launchd_changed" -eq 1 ]]; then
-    log "WARNING: launchd/ templates changed — this deploy does NOT re-render or reload plists. Run 'make launchd-install' by hand."
+    log "WARNING: launchd/ templates changed — this deploy does NOT re-render or reload plists. Run 'make launchd-install' on the mini (make verify fails until then)."
+    print -r -- "$origin_head" > "$LAUNCHD_PENDING_FILE"
   fi
 
   if [[ "$restart_needed" -eq 0 ]]; then
@@ -212,7 +226,14 @@ main() {
     write_deployed_sha "$origin_head"
     log "deploy OK — $sha up and healthy after restart"
   else
-    log "ERROR: deploy of $sha did NOT come back healthy within ${HEALTH_POLL_SECS}s — check ~/Library/Logs/iris.err"
+    log "ERROR: deploy of $sha did NOT come back healthy within ${HEALTH_POLL_SECS}s — rolling back to ${prev_head[1,12]}, check ~/Library/Logs/iris.err"
+    print -r -- "$origin_head" > "$FAILED_SHA_FILE"
+    git -C "$APP_DIR" reset --hard "$prev_head" >/dev/null
+    if [[ "$deps_changed" -eq 1 ]]; then
+      (cd "$APP_DIR/server" && bun install --frozen-lockfile --production) || log "ERROR: bun install during rollback failed"
+    fi
+    mark_deliberate_restart "$LABEL"
+    launchctl kickstart -k "gui/$(id -u)/$LABEL" 2>&1 | while IFS= read -r l; do log "  $l"; done
     return 1
   fi
 }
