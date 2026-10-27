@@ -3,7 +3,11 @@ import type { StepHandler } from "../memo/runner.js";
 import type { MemoStore } from "../memo/store.js";
 import type { AudioStore } from "../ports/audio.js";
 import type { Decider } from "../ports/decider.js";
-import type { DestinationName, Destinations } from "../ports/destination.js";
+import {
+  isDestinationName,
+  registeredDestinations,
+  type Destinations,
+} from "../ports/destination.js";
 import type { Herd } from "../ports/herd.js";
 import type { Notifier } from "../ports/notifier.js";
 import type { Summarizer } from "../ports/summarizer.js";
@@ -47,9 +51,7 @@ export function createStepHandlers(deps: {
       transcript: required(memo.transcript, "transcript", step),
       decisions: store.listRouteDecisions(memo.id),
     });
-  const registered = (Object.keys(destinations) as DestinationName[]).filter(
-    (name) => destinations[name],
-  );
+  const registered = registeredDestinations(destinations);
   const handlers: Partial<Record<HandlerStep, StepHandler>> = {};
 
   if (transcriber) {
@@ -115,7 +117,7 @@ export function createStepHandlers(deps: {
     handlers.act = async ({ memo }) => {
       const transcript = delivered(memo, "act");
       const name = required(memo.route, "route", "act");
-      const destination = destinations[name as DestinationName];
+      const destination = isDestinationName(name) ? destinations[name] : undefined;
       if (!destination) throw new Error(`act: no destination registered for route "${name}"`);
       const delivery = await destination.deliver({ memoId: memo.id, transcript });
       getActiveSpan().setAttributes({

@@ -225,8 +225,9 @@ retries of transient errors are not built; recover with `POST /retry`.
      per live tab, and questions `destination: choice[<registered>]`, plus `tab: choice[...]` when herdr is registered and there are live
      tabs. A failing `Herd` call omits the tab lines and the question. Source `decide`.
    - At confidence ≥ 0.8 → `routed` (for herdr the weaker of destination and tab confidence, and a live tab is required); otherwise
-     `needs_route` with the model's best guess recorded as the decision's destination. A refusal, an unknown choice, a failed or timed-out
-     call and a missing decider ("decide unavailable") all park the same way; none fails the step.
+     `needs_route` with the model's best guess recorded as the decision's destination. A refusal, an unknown choice, herdr without a live tab
+     and a missing decider ("decide unavailable") park the same way. An infrastructure failure of the call (transport error, hang guard,
+     off-schema answer) throws instead: the step fails and `POST /retry {from: route}` recovers it.
    - Every outcome is written to `route_decisions`; the step row records the `decide` cost and usage. Span attributes `route`,
      `route.source`, `route.confidence`; log `route.decided`.
 4. **act:** dispatches on `memo.route`; a route without a registered destination fails the step.

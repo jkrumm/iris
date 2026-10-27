@@ -115,6 +115,14 @@ describe("route: default", () => {
 });
 
 describe("route: decide", () => {
+  it("parks when no destination is registered at all", async () => {
+    expect(await route(input({ destinations: [] }))).toMatchObject({
+      source: "default",
+      outcome: "needs_route",
+      reason: "no destination available",
+    });
+  });
+
   it("parks as 'decide unavailable' without a decider", async () => {
     expect(await route(input())).toMatchObject({
       source: "decide",
@@ -189,15 +197,9 @@ describe("route: decide", () => {
     });
   });
 
-  it("parks, never throws, when the decider fails", async () => {
+  it("lets a decider failure propagate so the step fails and can be retried", async () => {
     const decider = fakeDecider({ failWith: new Error("agw decide timed out after 1800000 ms") });
-    const { result, lines } = await captureLogs(() => route(input({ decider })));
-    expect(result).toMatchObject({
-      source: "decide",
-      outcome: "needs_route",
-      reason: "decide failed: agw decide timed out after 1800000 ms",
-    });
-    expect(lines.map((l) => l["event"])).toEqual(["route.decide_failed"]);
+    await expect(route(input({ decider }))).rejects.toThrow("agw decide timed out");
   });
 
   it("caps the transcript at 4000 characters in the state", async () => {

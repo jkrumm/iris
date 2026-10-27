@@ -1,6 +1,6 @@
 import type { MemoMode, RouteDecisionInput } from "../memo/memo.js";
 import type { Decider } from "../ports/decider.js";
-import type { DestinationName } from "../ports/destination.js";
+import { hasChoice, type DestinationName } from "../ports/destination.js";
 import type { Herd, HerdTab } from "../ports/herd.js";
 import { log } from "../telemetry/log.js";
 import { parsePrefix } from "./prefix.js";
@@ -96,25 +96,17 @@ async function decide(input: RouteInput & { decider: Decider }): Promise<RouteDe
     ...(tabs.length > 0 ? ["", "Open terminal tabs:", ...tabs.map(herdLine)] : []),
   ].join("\n");
 
-  let answer: Awaited<ReturnType<Decider["decide"]>>;
-  try {
-    answer = await decider.decide({
-      memoId,
-      state,
-      destinations: Object.fromEntries(destinations.map((name) => [name, DESCRIPTIONS[name]])),
-      tabs:
-        tabs.length > 0
-          ? Object.fromEntries(tabs.map((tab) => [tab.id, `${tab.repo} / ${tab.label}`]))
-          : undefined,
-    });
-  } catch (err) {
-    log("route.decide_failed", { memo: memoId, error: errorMessage(err) });
-    return decision({
-      source: "decide",
-      outcome: "needs_route",
-      reason: clip(`decide failed: ${errorMessage(err)}`),
-    });
-  }
+  // An infrastructure failure (transport, hang guard, off-schema answer) propagates: the step fails
+  // and `POST /retry {from: route}` recovers it. Only a model answer that cannot route parks the memo.
+  const answer = await decider.decide({
+    memoId,
+    state,
+    destinations: Object.fromEntries(destinations.map((name) => [name, DESCRIPTIONS[name]])),
+    tabs:
+      tabs.length > 0
+        ? Object.fromEntries(tabs.map((tab) => [tab.id, `${tab.repo} / ${tab.label}`]))
+        : undefined,
+  });
 
   const billed = {
     source: "decide" as const,
@@ -148,7 +140,8 @@ async function decide(input: RouteInput & { decider: Decider }): Promise<RouteDe
 
 /**
  * Decides where a transcribed memo goes. In order: an explicit mode, a spoken prefix, the only registered
- * destination, the decision model. Never throws: every fallback is a `needs_route` decision with a reason.
+ * destination, the decision model. A memo that cannot be routed is a `needs_route` decision with a reason;
+ * a failing decider throws, so the step fails and can be retried.
  */
 export async function route(input: RouteInput): Promise<RouteDecision> {
   const { mode, transcript, destinations } = input;
@@ -171,14 +164,16 @@ export async function route(input: RouteInput): Promise<RouteDecision> {
     });
   }
 
-  const [only, second] = destinations;
-  if (only && !second) {
-    return decision({
-      source: "default",
-      outcome: "routed",
-      destination: only,
-      confidence: 1,
-    });
+  if (!hasChoice(destinations)) {
+    const [only] = destinations;
+    if (!only) {
+      return decision({
+        source: "default",
+        outcome: "needs_route",
+        reason: "no destination available",
+      });
+    }
+    return decision({ source: "default", outcome: "routed", destination: only, confidence: 1 });
   }
   if (!input.decider) {
     return decision({

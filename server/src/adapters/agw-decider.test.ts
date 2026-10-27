@@ -116,6 +116,24 @@ describe("agw decider", () => {
     expect("costUsd" in out).toBe(false);
   });
 
+  it("accepts a null usage and omits cost and usage", async () => {
+    const { decider } = setup([
+      {
+        status: "done",
+        result: {
+          answers: { destination: { type: "choice", choice: "hermes", confidence: 0.9 } },
+          model: "decider-1",
+          usage: null,
+        },
+      },
+    ]);
+    expect(await decider.decide(request)).toEqual({
+      destination: { choice: "hermes", confidence: 0.9 },
+      tab: null,
+      model: "decider-1",
+    });
+  });
+
   it("polls every 500 ms and cancels the job at the timeout", async () => {
     const { calls, sleeps, decider } = setup([{ status: "running" }], 1500);
     await expect(decider.decide(request)).rejects.toThrow("agw decide timed out after 1500 ms");

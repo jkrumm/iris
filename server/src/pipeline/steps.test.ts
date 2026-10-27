@@ -445,4 +445,56 @@ describe("routing through the runner", () => {
     ]);
     expect(inner.calls).toEqual([{ memoId: id, transcript: "heute war gut" }]);
   });
+
+  it("fails the step on a decider failure and recovers with a retry from route", async () => {
+    const inner = fakeDecider({ result: { destination: { choice: "journal", confidence: 0.95 } } });
+    let broken = true;
+    const decider = {
+      calls: inner.calls,
+      async decide(params: Parameters<typeof inner.decide>[0]) {
+        if (broken) throw new Error("agw decide timed out after 1800000 ms");
+        return inner.decide(params);
+      },
+    };
+    const { store, runner } = setup({
+      decider,
+      destinations: { hermes: fakeDestination(), journal: fakeDestination() },
+    });
+    const { id } = seedWithSegments(store, [0]);
+    await runner.drive(id);
+
+    expect(store.getMemo(id)).toMatchObject({
+      state: "failed",
+      failedStep: "route",
+      error: "agw decide timed out after 1800000 ms",
+      route: null,
+    });
+    expect(store.listRouteDecisions(id)).toEqual([]);
+
+    broken = false;
+    runner.retry({ id, from: "route" });
+    await runner.idle();
+    expect(store.getMemo(id)).toMatchObject({ state: "notified", route: "journal" });
+    expect(store.listRouteDecisions(id)).toMatchObject([{ source: "decide", outcome: "routed" }]);
+  });
+
+  it("does not re-run route or reach act when a parked memo is driven again", async () => {
+    const decider = fakeDecider({
+      result: { destination: { choice: "journal", confidence: 0.5 } },
+    });
+    const hermes = fakeDestination();
+    const journal = fakeDestination();
+    const { store, runner } = setup({ decider, destinations: { hermes, journal } });
+    const { id } = seedWithSegments(store, [0]);
+    await runner.drive(id);
+    expect(store.getMemo(id)?.state).toBe("needs_route");
+
+    await runner.drive(id);
+    await runner.driveAll();
+
+    expect(store.getMemo(id)?.state).toBe("needs_route");
+    expect(decider.calls).toHaveLength(1);
+    expect(store.listRouteDecisions(id)).toHaveLength(1);
+    expect([hermes.calls, journal.calls]).toEqual([[], []]);
+  });
 });
