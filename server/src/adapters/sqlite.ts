@@ -19,7 +19,12 @@ import {
   type Summary,
   type ThreadUpsert,
 } from "../memo/memo.js";
-import { PINNED_LIMIT, type AnswerDecision, type MemoStore, type ThreadStore } from "../memo/store.js";
+import {
+  PINNED_LIMIT,
+  type AnswerDecision,
+  type MemoStore,
+  type ThreadStore,
+} from "../memo/store.js";
 import type { Clock } from "../ports/clock.js";
 import { log } from "../telemetry/log.js";
 import { MIGRATIONS } from "./sqlite-migrations.js";

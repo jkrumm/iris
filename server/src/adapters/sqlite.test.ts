@@ -217,6 +217,33 @@ describe("listMemos search and filters", () => {
     expect(ids(page2)).toEqual([a]);
   });
 
+  it("lists a memo pinned on page 1 and answered before page 2 again in items, for clients to de-duplicate", () => {
+    const { store } = testStore();
+    const parked = parkMemo(store, { reason: "unsure" });
+    const older = seedMemo(store, "notified").id;
+    const newest = seedMemo(store, "notified").id;
+    const page1 = store.listMemos({ limit: 1 });
+    expect(page1.pinned.map((m) => m.id)).toEqual([parked]);
+    expect(ids(page1)).toEqual([newest]);
+
+    store.answerRoute({
+      id: parked,
+      decision: {
+        source: "answer",
+        destination: "hermes",
+        tab: null,
+        confidence: null,
+        model: null,
+        costUsd: null,
+        reason: null,
+        outcome: "routed",
+      },
+    });
+    const page2 = store.listMemos({ limit: 5, cursor: page1.nextCursor });
+    expect(page2.pinned).toEqual([]);
+    expect(ids(page2)).toEqual([older, parked]);
+  });
+
   it("answers state=needs_route entirely from pinned, with the filters applied, capped at 50", () => {
     const { store } = testStore();
     for (let i = 0; i < 52; i++) parkMemo(store, { reason: "unsure" }, i === 0 ? "alpha" : "beta");

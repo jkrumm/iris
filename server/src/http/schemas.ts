@@ -126,11 +126,15 @@ export const ThreadDetail = t.Object({
 
 /**
  * One page of history. `pinned` is every `needs_route` memo matching the filters (newest first, at most 50) on the
- * first page and `[]` on later ones; `items` never holds a `needs_route` memo.
+ * first page and `[]` on later ones; `items` never holds a `needs_route` memo. A memo answered after page 1 left
+ * `needs_route` and appears in `items` at its seq position, so a later page can repeat a memo already in `pinned`.
  */
 export const MemoList = t.Object({
   items: t.Array(Memo),
-  pinned: t.Array(Memo),
+  pinned: t.Array(Memo, {
+    description:
+      "needs_route memos matching the filters, newest first, at most 50; [] with a cursor. Clients de-duplicate by memo id across pinned and pages: a memo answered after page 1 reappears in items on a later page.",
+  }),
   nextCursor: Nullable(t.String()),
 });
 
