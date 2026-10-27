@@ -146,6 +146,11 @@ export function isResultReady(state: MemoState): boolean {
   return isTerminal(state) || state === "needs_route";
 }
 
+/** After `act`: a route can no longer change the outcome, so an answer is only recorded as a correction. */
+export function isCorrectable(state: MemoState): boolean {
+  return state === "acted" || state === "summarized" || state === "notified";
+}
+
 /** The state a retry from `step` resets the memo to. */
 export function stateBefore(step: Step): MemoState {
   return TRANSITIONS[step].from;

@@ -409,7 +409,7 @@ describe("route", () => {
     expect(seen.map((e) => e.state)).toEqual(["routed", "acted", "summarized", "notified"]);
   });
 
-  it("rejects an unregistered destination and a wrong tab without touching the memo", () => {
+  it("rejects an unregistered destination and a wrong tab without touching the memo", async () => {
     const { store, service } = setup(rest);
     const id = park(store, { reason: "journal not available" });
     const attempts = [
@@ -419,15 +419,14 @@ describe("route", () => {
       { destination: "hermes" as const, tab: "w1:t1" },
     ];
     for (const attempt of attempts) {
-      expect(() => service.route({ id, ...attempt })).toThrow(MemoError);
+      expect([attempt, await codeOf(() => service.route({ id, ...attempt }))]).toEqual([
+        attempt,
+        "bad_request",
+      ]);
     }
+    expect(() => service.route({ id, destination: "journal" })).toThrow("journal not available");
     expect(store.getMemo(id)?.state).toBe("needs_route");
     expect(store.listRouteDecisions(id)).toHaveLength(1);
-    try {
-      service.route({ id, destination: "journal" });
-    } catch (err) {
-      expect(err).toMatchObject({ code: "bad_request", message: "journal not available" });
-    }
   });
 
   it("takes a herdr answer with a tab once herdr is registered", () => {

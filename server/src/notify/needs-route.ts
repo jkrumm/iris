@@ -5,9 +5,11 @@ import { log } from "../telemetry/log.js";
 
 /**
  * Sends one `MEMO_NEEDS_ROUTE` alert when a memo enters `needs_route`. The Live Activity update for
- * that state is `bindPhaseUpdates`' job, so this binding sends the alert only. A memo that was answered
- * before the push goes out is skipped (the answer already moved it on). Best effort: errors are
- * logged and the memo stays parked. `idle` resolves once every alert in flight has settled.
+ * that state is `bindPhaseUpdates`' job, so this binding sends the alert only. The state is checked
+ * before the push starts, so a memo already answered is skipped; one answered while the push is in
+ * flight still gets the banner, and the finished memo's done alert replaces it through the shared
+ * collapse id (the memo id). Best effort: errors are logged and the memo stays parked. `idle`
+ * resolves once every alert in flight has settled.
  */
 export function bindNeedsRouteAlerts(deps: {
   events: MemoEvents;

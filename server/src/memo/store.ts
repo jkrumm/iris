@@ -1,3 +1,4 @@
+import type { DestinationName } from "../ports/destination.js";
 import type {
   Memo,
   MemoMode,
@@ -8,6 +9,9 @@ import type {
   Step,
   StepRecord,
 } from "./memo.js";
+
+/** An answer always names a destination, so a routed memo never has `route` NULL. */
+export type AnswerDecision = RouteDecisionInput & { destination: DestinationName };
 
 /** Synchronous on purpose: the one adapter is bun:sqlite, and every method is a single statement or transaction. */
 export interface MemoStore {
@@ -68,7 +72,7 @@ export interface MemoStore {
    * The user's answer to a parked memo, atomically: `needs_route` → `routed`, `memos.route` set to
    * `decision.destination`, `decision` appended to the log. False (nothing written) when the memo is no longer `needs_route`.
    */
-  answerRoute(params: { id: string; decision: RouteDecisionInput }): boolean;
+  answerRoute(params: { id: string; decision: AnswerDecision }): boolean;
   /** Appends `decision` to the log without touching the memo; false when the memo has not reached `acted` yet (or is `failed`). */
   recordCorrection(params: { id: string; decision: RouteDecisionInput }): boolean;
 
