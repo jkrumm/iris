@@ -1,0 +1,196 @@
+# XcodeGen spec (TDD D10). `make generate` writes apple/Iris.xcodeproj (gitignored).
+# Build-setting spellings verified against Xcode 27.1 (TDD §6): SWIFT_DEFAULT_ACTOR_ISOLATION takes
+# `nonisolated | MainActor`; SWIFT_APPROACHABLE_CONCURRENCY is a YES/NO flag.
+name: Iris
+options:
+  bundleIdPrefix: com.jkrumm
+  deploymentTarget:
+    iOS: "26.0"
+    macOS: "26.0"
+  createIntermediateGroups: true
+  generateEmptyDirectories: true
+  groupSortPosition: top
+
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    SWIFT_STRICT_CONCURRENCY: complete
+    SWIFT_APPROACHABLE_CONCURRENCY: YES
+    SWIFT_DEFAULT_ACTOR_ISOLATION: MainActor
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    GENERATE_INFOPLIST_FILE: NO
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+    # Signing is injected per invocation (simulator builds pass CODE_SIGNING_ALLOWED=NO; device and TestFlight
+    # builds pass DEVELOPMENT_TEAM). No team id is tracked here.
+    CODE_SIGN_STYLE: Automatic
+
+packages:
+  IrisCore:
+    path: Packages/IrisCore
+  IrisCapture:
+    path: Packages/IrisCapture
+  IrisUI:
+    path: Packages/IrisUI
+  IrisTelemetry:
+    path: Packages/IrisTelemetry
+
+targets:
+  Iris:
+    type: application
+    platform: iOS
+    sources: [Iris]
+    entitlements:
+      path: Iris/Iris.entitlements
+      properties:
+        aps-environment: development
+        com.apple.security.application-groups: [group.com.jkrumm.iris]
+        keychain-access-groups: ["$(AppIdentifierPrefix)group.com.jkrumm.iris"]
+    info:
+      path: Iris/Info.plist
+      properties:
+        CFBundleDisplayName: Iris
+        UIBackgroundModes: [audio]
+        NSSupportsLiveActivities: true
+        NSMicrophoneUsageDescription: Iris records your voice memos.
+        UILaunchScreen: {}
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
+        ITSAppUsesNonExemptEncryption: false
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.jkrumm.iris
+        TARGETED_DEVICE_FAMILY: "1"
+    dependencies:
+      - package: IrisCore
+      - package: IrisCapture
+      - package: IrisUI
+      - package: IrisTelemetry
+      - target: IrisWidgets
+      - target: IrisNotifications
+      # The App Intents metadata extractor warns on targets that do not link it; the app gets intents in R1.
+      - sdk: AppIntents.framework
+
+  IrisWidgets:
+    type: app-extension
+    platform: iOS
+    sources: [IrisWidgets]
+    entitlements:
+      path: IrisWidgets/IrisWidgets.entitlements
+      properties:
+        com.apple.security.application-groups: [group.com.jkrumm.iris]
+        keychain-access-groups: ["$(AppIdentifierPrefix)group.com.jkrumm.iris"]
+    info:
+      path: IrisWidgets/Info.plist
+      properties:
+        CFBundleDisplayName: Iris Widgets
+        NSSupportsLiveActivities: true
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.jkrumm.iris.widgets
+        TARGETED_DEVICE_FAMILY: "1"
+        SKIP_INSTALL: YES
+    dependencies:
+      - package: IrisCore
+      - package: IrisUI
+
+  IrisNotifications:
+    type: app-extension
+    platform: iOS
+    sources: [IrisNotifications]
+    entitlements:
+      path: IrisNotifications/IrisNotifications.entitlements
+      properties:
+        com.apple.security.application-groups: [group.com.jkrumm.iris]
+        keychain-access-groups: ["$(AppIdentifierPrefix)group.com.jkrumm.iris"]
+    info:
+      path: IrisNotifications/Info.plist
+      properties:
+        CFBundleDisplayName: Iris Notifications
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.usernotifications.content-extension
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).NotificationViewController
+          NSExtensionAttributes:
+            UNNotificationExtensionCategory: [MEMO_DONE, MEMO_NEEDS_ROUTE]
+            UNNotificationExtensionInitialContentSizeRatio: 0.4
+            UNNotificationExtensionDefaultContentHidden: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.jkrumm.iris.notifications
+        TARGETED_DEVICE_FAMILY: "1"
+        SKIP_INSTALL: YES
+    dependencies:
+      - package: IrisCore
+      - package: IrisUI
+      - sdk: AppIntents.framework
+
+  IrisMac:
+    type: application
+    platform: macOS
+    # The history model and sample data are UI-framework-free and shared with the iOS app.
+    sources:
+      - IrisMac
+      - Iris/HistoryModel.swift
+      - Iris/MemoPresentation.swift
+      - Iris/SampleData.swift
+    entitlements:
+      path: IrisMac/IrisMac.entitlements
+      properties:
+        com.apple.security.app-sandbox: true
+        com.apple.security.device.audio-input: true
+        com.apple.security.network.client: true
+        com.apple.security.application-groups: [group.com.jkrumm.iris]
+    info:
+      path: IrisMac/Info.plist
+      properties:
+        CFBundleDisplayName: Iris
+        LSUIElement: true
+        LSMinimumSystemVersion: "26.0"
+        NSMicrophoneUsageDescription: Iris records your voice memos.
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.jkrumm.iris.mac
+        # A stable Apple Development identity keeps TCC grants across rebuilds (TDD §5); injected per build.
+        ENABLE_HARDENED_RUNTIME: YES
+    dependencies:
+      - package: IrisCore
+      - package: IrisCapture
+      - package: IrisUI
+      - package: IrisTelemetry
+      - sdk: AppIntents.framework
+
+  IrisUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources: [Tests/UITests]
+    info:
+      path: Tests/UITests/Info.plist
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.jkrumm.iris.uitests
+        TEST_TARGET_NAME: Iris
+        # XCUITest stays XCTest (swift.md); no MainActor-default friction for the test bundle.
+        SWIFT_DEFAULT_ACTOR_ISOLATION: nonisolated
+    dependencies:
+      - target: Iris
+      - sdk: AppIntents.framework
+
+schemes:
+  Iris:
+    build:
+      targets:
+        Iris: all
+    run:
+      config: Debug
+      commandLineArguments:
+        "-IrisFakeCapture": false
+    test:
+      config: Debug
+      targets: [IrisUITests]
+  IrisMac:
+    build:
+      targets:
+        IrisMac: all
