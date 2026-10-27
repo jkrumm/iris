@@ -51,6 +51,13 @@ let fixtureTypes: [String: RoundTrip] = [
   "whoami.response": roundTrip(Whoami.self),
 ]
 
+/// Schemas whose Swift types live in another package, which owns the fixture decode: IrisCore does not depend on
+/// it, and these are not mapped in `fixtureTypes`. Every fixture of one is skipped by `everyFixtureRoundTrips`, and
+/// `everySchemaIsMapped` does not ask for a type, but still requires the schema file to exist.
+///
+/// - `telemetry.*` (`POST /v1/telemetry`): `IrisTelemetry`, its `FixtureConformanceTests`.
+let decodedElsewhere: Set<String> = ["telemetry.request", "telemetry.response"]
+
 @Suite("Contract fixtures")
 struct FixtureConformanceTests {
   @Test("The fixtures directory is found and not empty")
@@ -62,6 +69,7 @@ struct FixtureConformanceTests {
   @Test("Every fixture decodes into its Swift type and re-encodes to the same JSON", arguments: Contracts.fixtures())
   func everyFixtureRoundTrips(_ fixture: Fixture) throws {
     let schema = try #require(fixture.schema, "\(fixture.fileName) matches no schema in contracts/schema")
+    guard !decodedElsewhere.contains(schema) else { return }
     let roundTrip = try #require(
       fixtureTypes[schema], "No Swift type is mapped for schema \(schema); add it to fixtureTypes")
 
@@ -77,9 +85,9 @@ struct FixtureConformanceTests {
     let manifest = try Contracts.manifest()
     let schemas = try Contracts.schemaNames()
     let referenced = Set(manifest.strings(forKey: "schema") + manifest.strings(forKey: "query")).union(schemas)
-    let unmapped = referenced.subtracting(fixtureTypes.keys)
+    let unmapped = referenced.subtracting(fixtureTypes.keys).subtracting(decodedElsewhere)
     #expect(unmapped.isEmpty, "Unmapped: \(unmapped.sorted())")
-    let stale = Set(fixtureTypes.keys).subtracting(schemas)
+    let stale = Set(fixtureTypes.keys).union(decodedElsewhere).subtracting(schemas)
     #expect(stale.isEmpty, "Mapped but no schema file: \(stale.sorted())")
   }
 
