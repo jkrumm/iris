@@ -1,4 +1,4 @@
-# Iris — UI mockups (round 1)
+# Iris — UI mockups (rounds 1 and 2)
 
 Static HTML for the owner's review, before any screen is built in Swift (TDD §7 process). Colors, radii,
 spacing and type sizes are the basalt-ui tokens, converted from `IrisUI/Theme` by
@@ -27,7 +27,7 @@ iPhone surfaces render at 402 x 874 pt (iPhone 17), the Mac at 1440 x 900, all a
 
 ## Renders and links
 
-`make mockups` regenerates `tokens.css` and all 23 PNGs into `renders/` (headless Chrome, device-sized
+`make mockups` regenerates `tokens.css` and all PNGs into `renders/` (round 1: 23; round 2 adds `r2-*`, see below) (headless Chrome, device-sized
 viewport). The PNGs are gitignored. They were uploaded with `imgcli private` as presigned links (7 days
 maximum); the repo is public, so the links are not tracked. They live in the untracked
 `links.local.md` next to this file; re-issue with `imgcli private <png> --expires 7d`.
@@ -38,3 +38,71 @@ maximum); the repo is public, so the links are not tracked. They live in the unt
 - **Live Activity buttons:** Play / Reply / Open on done is three; a 4 KB payload is no issue, the width is.
 - **Record screen mode row:** four chips fit at 402 pt; more running tabs go behind the tab chip's sheet.
 - **Cost on the Lock Screen:** shown in the done state's subline (`$0.047`). Drop it if it reads as noise.
+
+## Round 2
+
+Applies `feedback-round-1.md` (binding). Same approach as round 1: static HTML on the generated basalt tokens, glass only on
+floating controls, German and English content around the fixture memo, `?scheme=light|dark&v=<variant>`. Round-2 renders are
+named `r2-*`; the round-1 PNGs of surfaces that changed stay in `renders/` untouched (not regenerated) as the before picture.
+The Lock Screen pages did not change and keep their round-1 names. `mock.css` gained `.soft` (glass with almost no drop shadow)
+and the markdown block `.mdx`; `mock.js` gained the icons and the shared four-tab dock (`<div class="dock" data-dock="...">`).
+
+`make mockups` renders everything. The review gallery is a separate step:
+`bun docs/design/gallery.ts` writes `renders/iris-mockups.html` (images linked from a sibling `iris-mockups/` directory;
+the header comment has the rsync line). Presigned image links go only into the untracked `links.local.md`.
+
+### Surfaces and renders
+
+| Surface | Page and variant | Renders (`renders/`) |
+|-|-|-|
+| Memo detail | `detail?v=done\|steps\|cost\|failed` | `r2-detail-light`, `-dark`, `r2-detail-steps-light`, `-dark`, `r2-detail-cost-dark`, `r2-detail-failed-dark` |
+| Settings → Diagnostics (new) | `settings?v=diagnostics\|copied` | `r2-diagnostics-light`, `-dark`, `r2-diagnostics-copied-dark` |
+| Dynamic Island | `island?v=single\|two` | `r2-island`, `r2-island-two` |
+| Notification card | `notification?v=done\|needs-route` | `r2-notification-done-dark`, `-light`, `r2-notification-needs-route-dark` |
+| Mac | `mac?v=panel\|menu\|notify\|notify-reply` | `r2-mac-panel-light`, `-dark`, `r2-mac-menu-dark`, `r2-mac-notify-light`, `r2-mac-notify-reply-dark` |
+| Record | `record?v=take\|mic\|mode\|chat` | `r2-record-light`, `-dark`, `r2-record-mic-dark`, `r2-record-mode-light`, `r2-record-chat-dark` |
+| Chat mode, answered thread (new) | `chat` | `r2-chat-answer-light`, `-dark` |
+| Typed memo composer (new) | `compose` | `r2-compose-light`, `-dark` |
+| History, with filters (new) | `history?v=list\|filters\|filter-sheet` | `r2-history-light`, `-dark`, `r2-history-filters-light`, `-dark`, `r2-history-filter-sheet-dark` |
+| Stats (new) | `stats?v=day\|week` | `r2-stats-day-light`, `-dark`, `r2-stats-week-dark` |
+| Threads (new) | `threads?v=list\|thread\|hold` | `r2-threads-list-light`, `-dark`, `r2-threads-thread-light`, `-dark`, `r2-threads-hold-dark` |
+
+### How each feedback item was applied
+
+| Feedback | Applied as |
+|-|-|
+| Detail: less shadow on the bubbly buttons | `.soft` on the detail, Diagnostics and Chat screens: same blur and rim, drop shadow cut to a 1 px hairline |
+| Detail: telemetry not shown by default | Steps and Cost are one-line disclosure rows. A thin strip under Steps shows the run at a glance and flags a slow step |
+| Detail: scrubbable player, 10 s back | Waveform with a drag knob, elapsed and remaining time, a 10 s back button, play/pause, speed chip |
+| Detail: waterfall, faster/slower than median, collapsed by default | One track for the whole run. Each bar starts where the previous ended. A dashed ghost box is the step's median from the same start, so a shorter bar is faster and a longer one slower. Tags say `typical`, `+39 % slower`, `-17 % faster` (more than 15 % off the median), with the median value; colour is never the only signal. Collapsed by default; `v=steps` is the open state. The failed memo opens it |
+| Detail: trace id not visible | Removed from the memo, including the footer line. Lives in Diagnostics |
+| Detail: cost | Collapsed row with the total; `v=cost` is the open state. The total step time now matches the sum of the steps (27.5 s; round 1 showed 29.4 s) |
+| Diagnostics: trace id with copy | Memo picker, the 32-hex trace id (memo id without dashes), `Copy trace id`, a `Copied` state, and a memo-id copy |
+| Settings: hide cost on Lock Screen | Toggle with a Lock Screen preview of the result, on the Diagnostics screen as briefed (see open questions) |
+| Island: icon button for mic switch, keep pause | `micswap` icon button next to a pause icon button; Stop keeps the width |
+| Island: two memos in a row | Compact split (pill plus a small circle), expanded recording with the previous memo as a status row, expanded done with the next memo's timer as a row |
+| Notification: smaller, side by side | One row of three 38 pt capsules: Play / Reply / Open (Journal / Hermes / dotfiles on needs-route) |
+| Mac: hotkey differs from dictation | Shown as `⌃⌥ I` in the panel and the menu (placeholder, see open questions) |
+| Mac: Reply on the notification | Banner actions Play / Reply / Open; Reply expands into an inline text field with a mic button for a voice reply and send |
+| Record: tab chip de-emphasized | The tab chip is an icon-only hairline chip with no glass; the mode sheet moves tabs under "A running tab · rarely needed" with the hint to say the project while talking |
+| New: Chat mode | Mode row and sheet option; the Record screen in Chat explains "nothing is filed or run"; the answered thread is the question as the headline, the rendered answer, a Play button for the spoken version, follow-up by voice or text |
+| New: typed fallback | Keyboard button next to the mic picker on Record opens the composer: mode chips, text, same routing hint, Send |
+| New: History filters | Filter button beside search (badge = active filters), route and state chips on the list, a filter sheet with counts and a date range |
+| New: Stats | Days / Weeks switch, three totals, stacked bars per route (hover readout shown inline), per-route trend rows with sparkline and change |
+| New: Threads | List with route, turn count and last line; one thread as a rendered markdown document (typed and spoken turns marked); hold-to-talk bar and its holding state |
+
+Stats colours: Hermes blue, Journal green, Chat violet, Tabs orange, checked with the dataviz palette validator in light and dark
+(all checks pass). Series order is fixed.
+
+### Open questions for the owner
+
+- **Mac hotkey:** I don't know your dictation key. `⌃⌥ I` is a placeholder that avoids the common `⌥ Space` and `Fn`. Name the key to avoid, or pick one; the Mac settings should make it recordable.
+- **Where the cost toggle lives:** the brief puts it on Diagnostics, the feedback says "a Settings toggle". It is a display preference rather than a diagnostic. I'd move it to a Settings root group next to the mic rules.
+- **Side-by-side notification actions:** system notification actions always render as a vertical list. Side by side means buttons inside the content-extension card; this needs a device check (do they keep working with the card collapsed?). Fallback: the system list, as in round 1.
+- **Two memos:** one Live Activity per memo (system-split island, shown here) versus a single queue activity. Showing the previous memo inside an expanded activity needs the activity to carry the other memo's state. Tendency: one per memo, drop the status row if it costs state.
+- **Waterfall rules:** median over the last 30 memos per step and route, 15 % threshold, hidden until a step has at least five samples. The failed memo auto-expands. Say if you want the threshold or the window different.
+- **Route colour for tab memos:** History dots show herdr as grey, Stats needs a distinct hue (grey fails the colour-blind check) and uses orange. Pick orange everywhere, or grey in lists and orange only in charts.
+- **Typed-memo entry point:** the keyboard button beside the mic picker on Record. Alternatives: a long-press on the record button in History, or a button in the History search bar.
+- **Stats as a dock tab:** four tabs plus Record fit at 402 pt. Alternative: a button in the History header and keep three tabs. Stats also shows cost; the Lock Screen toggle does not touch it.
+- **Chat in the Threads list:** assumed Chat memos create threads like Hermes ones (violet route chip), and a Chat reply by hold-to-talk stays in that thread. Confirm.
+- **Not designed:** the later routing refinement for herdr-bound memos (orchestration queue, factory), and Settings beyond Diagnostics.

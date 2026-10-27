@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en" data-default-v="typing">
+<head>
+<meta charset="utf-8">
+<title>Iris — Typed memo composer (round 2)</title>
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="mock.css">
+<script src="mock.js"></script>
+<style>
+  .col { position: absolute; inset: 0; padding: 60px 16px 0; display: flex; flex-direction: column; gap: 12px; }
+  .bar { display: flex; align-items: center; justify-content: space-between; height: 44px; }
+  .bar .cancel { height: 44px; padding: 0 18px; border-radius: 99px; display: grid; place-items: center; font-size: var(--text-lg); color: var(--ink); }
+  .bar b { font-size: var(--text-lg); }
+  .bar .send { height: 44px; padding: 0 18px 0 14px; border-radius: 99px; display: flex; align-items: center; gap: 6px; font-weight: 600; font-size: var(--text-lg); }
+  .modes { display: flex; gap: 6px; align-items: center; padding: 0 4px; }
+  .modes .chip { height: 34px; padding: 0 13px; font-size: var(--text-md); }
+  .modes .chip.on { background: color-mix(in srgb, var(--accent-fill) 85%, transparent); color: var(--on-accent); }
+  .modes .chip.quiet { background: transparent; box-shadow: inset 0 0 0 .5px var(--surface-border); color: var(--faint); padding: 0 9px; }
+  .modes .chip.quiet i[data-i] { font-size: 15px; }
+  .field { flex: none; height: 176px; padding: 16px; font-size: 19px; line-height: 1.4; overflow: hidden; }
+  .field .caret { display: inline-block; width: 2px; height: 22px; background: var(--accent); vertical-align: -4px; margin-left: 1px; }
+  .field .ph { color: var(--faint); }
+  .meta { display: flex; justify-content: space-between; padding: 0 6px 6px; font-size: var(--text-xs); color: var(--faint); }
+  .hint { display: flex; align-items: center; gap: 8px; padding: 10px 14px; font-size: var(--text-sm); color: var(--ink2); }
+  .hint i[data-i] { color: var(--accent); font-size: 16px; }
+
+  /* iOS keyboard approximation */
+  .kbd { position: absolute; left: 0; right: 0; bottom: 0; height: 336px; background: color-mix(in srgb, var(--surface-elevated) 60%, #8a8f9c 40%); padding: 8px 4px 0; }
+  [data-scheme="light"] .kbd { background: #d1d3d9; }
+  [data-scheme="dark"] .kbd { background: #2b2b2e; }
+  .sug { display: flex; height: 40px; align-items: center; margin-bottom: 8px; }
+  .sug span { flex: 1; text-align: center; font-size: 16px; color: var(--ink); position: relative; }
+  .sug span + span::before { content: ""; position: absolute; left: 0; top: 4px; bottom: 4px; width: .5px; background: var(--divider); }
+  .krow { display: flex; justify-content: center; gap: 6px; margin-bottom: 11px; }
+  .key { width: 35px; height: 44px; border-radius: 6px; background: #fff; display: grid; place-items: center; font-size: 22px; color: #000; box-shadow: 0 1px 0 rgb(0 0 0 / .3); }
+  [data-scheme="dark"] .key { background: #5b5b60; color: #fff; }
+  .key.w { width: 46px; background: #adb0b9; font-size: 15px; } [data-scheme="dark"] .key.w { background: #3f3f43; }
+  .key.sp { width: 205px; font-size: 15px; } .key.go { width: 90px; background: var(--accent-fill); color: #fff; font-size: 15px; font-weight: 600; }
+  .key.n { width: 90px; background: #adb0b9; font-size: 15px; } [data-scheme="dark"] .key.n { background: #3f3f43; }
+  .kbot { display: flex; justify-content: space-between; padding: 0 20px; margin-top: 6px; color: var(--muted); font-size: 22px; }
+</style>
+</head>
+<body>
+<div class="screen">
+  <div class="statusbar"><span>9:41</span><span class="right"><svg viewBox="0 0 18 12"><path d="M1 8h2.5v3H1zM5.5 6h2.5v5H5.5zM10 3.5h2.5V11H10zM14.5 1H17v10h-2.5z"/></svg><svg viewBox="0 0 27 12"><rect x=".5" y=".5" width="22" height="11" rx="3.5" fill="none" stroke="currentColor" opacity=".4"/><rect x="2" y="2" width="17" height="8" rx="2"/></svg></span></div>
+  <div class="island"></div>
+
+  <div class="col">
+    <div class="bar">
+      <span class="cancel glass">Cancel</span>
+      <b>New memo</b>
+      <span class="send glass tint"><i data-i="send"></i>Send</span>
+    </div>
+    <div class="modes">
+      <span class="chip glass on"><i data-i="spark"></i>Auto</span>
+      <span class="chip glass">Journal</span>
+      <span class="chip glass">Hermes</span>
+      <span class="chip glass">Chat</span>
+      <span class="chip quiet"><i data-i="term"></i><i data-i="down"></i></span>
+    </div>
+    <div class="pnl field">Router bestellen und Netzwerkplan prüfen. Außerdem: soll das Gäste-WLAN getrennt laufen? Erinnere mich Freitag daran, die Rechnung abzulegen.<i class="caret"></i></div>
+    <div class="meta num"><span>de · 143 characters</span><span>Auto asks where it goes if unsure</span></div>
+    <div class="pnl hint"><i data-i="mic"></i>Typed memos take the same route as spoken ones: same history, same result.</div>
+  </div>
+
+  <div class="kbd">
+    <div class="sug"><span>Gäste-WLAN</span><span>Gäste</span><span>Gästen</span></div>
+    <div class="krow" id="r1"></div><div class="krow" id="r2"></div><div class="krow" id="r3"></div>
+    <div class="krow"><span class="key w">123</span><span class="key sp">Leerzeichen</span><span class="key go">Senden</span></div>
+    <div class="kbot"><i data-i="spark" style="font-size:22px"></i><i data-i="mic" style="font-size:22px"></i></div>
+  </div>
+  <div class="home-indicator"></div>
+</div>
+<script>
+  document.addEventListener("DOMContentLoaded", () => {
+    const rows = { r1: "qwertzuiopü", r2: "asdfghjklöä", r3: "yxcvbnm" };
+    for (const [id, keys] of Object.entries(rows)) {
+      const el = document.getElementById(id);
+      const html = [...keys].map((k) => `<span class="key">${k}</span>`).join("");
+      el.innerHTML = id === "r3" ? `<span class="key w">⇧</span>${html}<span class="key w">⌫</span>` : html;
+    }
+  });
+</script>
+</body>
+</html>
