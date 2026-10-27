@@ -19,13 +19,15 @@
     private let targetFormat: AVAudioFormat
 
     private var rotator: SegmentRotator
-    private var memoID: MemoID?
+    private var take = TakeLifecycle()
     private var openFile: AVAudioFile?
     private var openFileURL: URL?
     private var sampleSink: AsyncStream<[Float]>.Continuation?
     private var consumeTask: Task<Void, Never>?
     private var configurationTask: Task<Void, Never>?
     private var isPaused = false
+
+    private var memoID: MemoID? { take.activeMemoID }
 
     public init(directory: URL, policy: SegmentRotationPolicy = SegmentRotationPolicy()) throws {
       guard
@@ -41,13 +43,12 @@
     }
 
     public func start(memoID: MemoID) throws {
-      guard self.memoID == nil else { throw CaptureError.alreadyRecording }
+      try take.begin(memoID)
       do {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let (stream, sink) = AsyncStream.makeStream(of: [Float].self)
         sampleSink = sink
         try installTapAndStartEngine(sink: sink)
-        self.memoID = memoID
         rotator = SegmentRotator(policy: policy)
         isPaused = false
         // Owned by the recorder; ends when `stop()` finishes the stream.
@@ -59,12 +60,14 @@
       } catch {
         sampleSink?.finish()
         sampleSink = nil
+        take.abortStart()
         throw CaptureError.engineFailure(String(describing: error))
       }
     }
 
     public func stop() async throws {
-      guard memoID != nil else { throw CaptureError.notRecording }
+      // Claimed synchronously: the awaits below let other calls in, and they must see a stopping take.
+      let memoID = try take.beginStop()
       configurationTask?.cancel()
       configurationTask = nil
       engine.inputNode.removeTap(onBus: 0)
@@ -74,24 +77,24 @@
       await consumeTask?.value
       consumeTask = nil
       apply(rotator.finish(), samples: [])
-      if let memoID { eventContinuation.yield(.stopped(memoID, segmentCount: rotator.closedCount)) }
-      memoID = nil
+      eventContinuation.yield(.stopped(memoID, segmentCount: rotator.closedCount))
+      take.finishStop()
     }
 
     public func rotate(for reason: RotationReason) {
-      guard memoID != nil else { return }
+      guard take.isRecording else { return }
       apply(rotator.rotate(for: reason), samples: [])
     }
 
     public func pause() {
-      guard memoID != nil, !isPaused else { return }
+      guard take.isRecording, !isPaused else { return }
       apply(rotator.rotate(for: .interruption), samples: [])
       isPaused = true
       engine.pause()
     }
 
     public func resume() {
-      guard memoID != nil, isPaused else { return }
+      guard take.isRecording, isPaused else { return }
       do {
         try engine.start()
         isPaused = false
@@ -104,14 +107,33 @@
     // MARK: Engine
 
     private func installTapAndStartEngine(sink: AsyncStream<[Float]>.Continuation) throws {
-      let input = engine.inputNode
-      let inputFormat = input.outputFormat(forBus: 0)
-      guard let converter = AVAudioConverter(from: inputFormat, to: targetFormat) else {
-        throw CaptureError.engineFailure("no converter from the input format")
+      try EngineStartup.bringUp(InputTapEngine(engine: engine, target: targetFormat, sink: sink))
+    }
+
+    /// Production `TapEngine`: the input tap converts to the target format and feeds `sink`.
+    private struct InputTapEngine: TapEngine {
+      let engine: AVAudioEngine
+      let target: AVAudioFormat
+      let sink: AsyncStream<[Float]>.Continuation
+
+      func removeTap() { engine.inputNode.removeTap(onBus: 0) }
+
+      func installTap() throws {
+        let input = engine.inputNode
+        let inputFormat = input.outputFormat(forBus: 0)
+        guard let converter = AVAudioConverter(from: inputFormat, to: target) else {
+          throw CaptureError.engineFailure("no converter from the input format")
+        }
+        AVAudioEngineSegmentRecorder.installTap(
+          on: input, format: inputFormat, converter: converter, target: target, sink: sink)
       }
-      Self.installTap(on: input, format: inputFormat, converter: converter, target: targetFormat, sink: sink)
-      engine.prepare()
-      try engine.start()
+
+      func start() throws {
+        engine.prepare()
+        try engine.start()
+      }
+
+      func stop() { engine.stop() }
     }
 
     /// Nonisolated on purpose: the tap block runs on the audio thread and must not inherit the actor.
@@ -160,9 +182,8 @@
     }
 
     private func handleConfigurationChange() {
-      guard memoID != nil, !isPaused, let sink = sampleSink else { return }
+      guard take.isRecording, !isPaused, let sink = sampleSink else { return }
       apply(rotator.rotate(for: .configurationChange), samples: [])
-      engine.inputNode.removeTap(onBus: 0)
       do {
         try installTapAndStartEngine(sink: sink)
       } catch {

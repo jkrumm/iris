@@ -228,4 +228,44 @@ struct OutboxTests {
     try await store.save(machine.record)
     #expect(try await store.load() == machine.record)
   }
+
+  @Test func repeatedFinishMemoAfterCompletionDoesNotResurrectTheMemo() async throws {
+    let harness = try await OutboxHarness()
+    let id = memo(1)
+    await harness.outbox.enqueue(segment(id, 0))
+    await harness.outbox.finishMemo(id, segmentCount: 1)
+    await harness.outbox.settled()
+    #expect(await harness.uploader.completed.count == 1)
+
+    await harness.outbox.finishMemo(id, segmentCount: 1)
+    await harness.outbox.enqueue(segment(id, 0))  // late duplicate from the recorder
+    await harness.outbox.settled()
+
+    #expect(await harness.outbox.memos().isEmpty)
+    #expect(await harness.outbox.entries().isEmpty)
+    #expect(await harness.uploader.completed.count == 1)
+    #expect(await harness.uploader.attempts[key(id, 0)] == 1)
+    await harness.outbox.shutdown()
+  }
+
+  @Test func repeatedFinishMemoAfterARelaunchIsStillANoOp() async throws {
+    let first = try await OutboxHarness()
+    let id = memo(1)
+    await first.outbox.enqueue(segment(id, 0))
+    await first.outbox.finishMemo(id, segmentCount: 1)
+    await first.outbox.settled()
+    let onDisk = await first.store.load()
+    await first.outbox.shutdown()
+    #expect(onDisk.completedMemos == [id])
+
+    let second = try await OutboxHarness(record: onDisk)
+    await second.outbox.finishMemo(id, segmentCount: 1)
+    await second.outbox.enqueue(segment(id, 0))
+    await second.outbox.settled()
+    #expect(await second.outbox.memos().isEmpty)
+    #expect(await second.outbox.entries().isEmpty)
+    #expect(await second.uploader.attempts.isEmpty)
+    #expect(await second.uploader.completed.isEmpty)
+    await second.outbox.shutdown()
+  }
 }

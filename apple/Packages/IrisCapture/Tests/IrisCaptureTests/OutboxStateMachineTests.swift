@@ -83,7 +83,7 @@ struct OutboxStateMachineTests {
     #expect(actual3.isEmpty)  // not handed out twice
 
     machine.completeSucceeded(memo(1))
-    #expect(machine.record == OutboxRecord(nextSequence: 2))
+    #expect(machine.record == OutboxRecord(nextSequence: 2, completedMemos: [memo(1)]))
   }
 
   @Test func completeWaitsForSegmentsThatWereNeverEnqueued() {
@@ -127,5 +127,56 @@ struct OutboxStateMachineTests {
       relaunched.entries[SegmentKey(memoID: memo(1), index: 1)]?.state == .failed(retryAt: t0.addingTimeInterval(2)))
     #expect(relaunched.entries[SegmentKey(memoID: memo(1), index: 1)]?.attempts == 1)
     #expect(relaunched.entries[SegmentKey(memoID: memo(1), index: 2)]?.state == .pending)
+  }
+
+  @Test func repeatedFinishMemoAfterCompletionIsANoOp() {
+    var machine = makeMachine()
+    machine.enqueue(segment(memo(1), 0))
+    machine.finishMemo(memo(1), segmentCount: 1)
+    machine.completeSucceeded(memo(1))
+
+    machine.finishMemo(memo(1), segmentCount: 1)
+    #expect(machine.memos.isEmpty)
+    #expect(machine.enqueue(segment(memo(1), 0)) == false)
+    #expect(machine.entries.isEmpty)
+    #expect(machine.dispatch(now: t0, inFlight: 0).isEmpty)
+  }
+
+  @Test func completedMemosSurviveARelaunchOfTheMachine() {
+    var original = makeMachine()
+    original.enqueue(segment(memo(1), 0))
+    original.finishMemo(memo(1), segmentCount: 1)
+    original.completeSucceeded(memo(1))
+
+    var relaunched = OutboxStateMachine(record: original.record, policy: policy)
+    relaunched.finishMemo(memo(1), segmentCount: 1)
+    #expect(relaunched.memos.isEmpty)
+    #expect(relaunched.record.completedMemos == [memo(1)])
+  }
+
+  @Test func completedMemoHistoryIsBounded() {
+    var machine = makeMachine()
+    let limit = OutboxStateMachine.completedMemoLimit
+    for n in 0..<(limit + 5) {
+      let id = MemoID(
+        uuid: (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, UInt8(n >> 16), UInt8((n >> 8) & 0xff), UInt8(n & 0xff), 1))
+      machine.completeSucceeded(id)
+    }
+    #expect(machine.record.completedMemos.count == limit)
+  }
+
+  @Test func recordWrittenBeforeCompletedMemosExistedStillDecodes() throws {
+    var machine = makeMachine()
+    machine.enqueue(segment(memo(1), 0))
+    machine.finishMemo(memo(1), segmentCount: 1)
+    let data = try JSONEncoder().encode(machine.record)
+    var json = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+    json["completedMemos"] = nil
+
+    let legacy = try JSONSerialization.data(withJSONObject: json)
+    let decoded = try JSONDecoder().decode(OutboxRecord.self, from: legacy)
+    #expect(decoded.completedMemos.isEmpty)
+    #expect(decoded.entries == machine.record.entries)
+    #expect(decoded.memos == machine.record.memos)
   }
 }

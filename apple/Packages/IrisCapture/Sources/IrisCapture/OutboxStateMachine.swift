@@ -6,9 +6,13 @@ import Foundation
 /// `complete` for a memo is handed out only once the memo is finished and every segment
 /// `0..<segmentCount` is uploaded.
 public struct OutboxStateMachine: Sendable {
+  static let completedMemoLimit = 512
+
   private(set) var entries: [SegmentKey: OutboxEntry] = [:]
   private(set) var memos: [MemoID: OutboxMemo] = [:]
   private var nextSequence: Int
+  /// Oldest first; bounded so the persisted record does not grow without limit.
+  private var completedMemos: [MemoID]
   private let policy: OutboxPolicy
 
   /// Rebuilds the machine from persisted state. Transfers that were in flight when the app died
@@ -16,6 +20,7 @@ public struct OutboxStateMachine: Sendable {
   public init(record: OutboxRecord = OutboxRecord(), policy: OutboxPolicy = OutboxPolicy()) {
     self.policy = policy
     nextSequence = record.nextSequence
+    completedMemos = Array(record.completedMemos.suffix(Self.completedMemoLimit))
     for var entry in record.entries {
       if entry.state == .uploading { entry.state = .pending }
       entries[entry.key] = entry
@@ -30,13 +35,15 @@ public struct OutboxStateMachine: Sendable {
     OutboxRecord(
       entries: entries.values.sorted { $0.sequence < $1.sequence },
       memos: memos.values.sorted { $0.memoID.uuidString < $1.memoID.uuidString },
-      nextSequence: nextSequence
+      nextSequence: nextSequence,
+      completedMemos: completedMemos
     )
   }
 
-  /// Returns `false` if (memo, index) is already known, whatever its state.
+  /// Returns `false` if (memo, index) is already known, whatever its state, or the memo already completed.
   @discardableResult
   public mutating func enqueue(_ segment: ClosedSegment) -> Bool {
+    guard !completedMemos.contains(segment.memoID) else { return false }
     let key = SegmentKey(memoID: segment.memoID, index: segment.index)
     guard entries[key] == nil else { return false }
     entries[key] = OutboxEntry(segment: segment, sequence: nextSequence, state: .pending, attempts: 0)
@@ -44,9 +51,10 @@ public struct OutboxStateMachine: Sendable {
     return true
   }
 
-  /// A take with no segments has nothing to complete and is ignored.
+  /// A take with no segments has nothing to complete and is ignored, as is a memo that is already
+  /// queued or already completed (a repeat must not resurrect it without its entries).
   public mutating func finishMemo(_ memoID: MemoID, segmentCount: Int) {
-    guard segmentCount > 0, memos[memoID] == nil else { return }
+    guard segmentCount > 0, memos[memoID] == nil, !completedMemos.contains(memoID) else { return }
     memos[memoID] = OutboxMemo(memoID: memoID, segmentCount: segmentCount, completion: .pending, attempts: 0)
   }
 
@@ -90,6 +98,10 @@ public struct OutboxStateMachine: Sendable {
 
   /// The memo is done on the server: forget it and its segments.
   public mutating func completeSucceeded(_ memoID: MemoID) {
+    if !completedMemos.contains(memoID) {
+      completedMemos.append(memoID)
+      completedMemos.removeFirst(max(0, completedMemos.count - Self.completedMemoLimit))
+    }
     memos[memoID] = nil
     entries = entries.filter { $0.key.memoID != memoID }
   }

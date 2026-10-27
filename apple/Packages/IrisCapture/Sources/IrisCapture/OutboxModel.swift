@@ -41,11 +41,26 @@ public struct OutboxRecord: Sendable, Equatable, Codable {
   public var entries: [OutboxEntry]
   public var memos: [OutboxMemo]
   public var nextSequence: Int
+  /// Memos whose `complete` succeeded, oldest first and capped by the state machine. Lets a repeated
+  /// `finishMemo` or late `enqueue` be recognised after the memo and its entries were forgotten.
+  /// Added after the first release: records written without it decode to an empty list.
+  public var completedMemos: [MemoID]
 
-  public init(entries: [OutboxEntry] = [], memos: [OutboxMemo] = [], nextSequence: Int = 0) {
+  public init(
+    entries: [OutboxEntry] = [], memos: [OutboxMemo] = [], nextSequence: Int = 0, completedMemos: [MemoID] = []
+  ) {
     self.entries = entries
     self.memos = memos
     self.nextSequence = nextSequence
+    self.completedMemos = completedMemos
+  }
+
+  public init(from decoder: any Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    entries = try container.decode([OutboxEntry].self, forKey: .entries)
+    memos = try container.decode([OutboxMemo].self, forKey: .memos)
+    nextSequence = try container.decode(Int.self, forKey: .nextSequence)
+    completedMemos = try container.decodeIfPresent([MemoID].self, forKey: .completedMemos) ?? []
   }
 }
 
