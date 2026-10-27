@@ -531,25 +531,61 @@ conflicts between parallel workers sharing `memo.ts` and `TDD.md` hunks never ma
 waits for the CI `check` run, so `make deploy` right after a merge only logs "waiting for CI". Watch `gh run watch` first. The agent-gateway
 check has one pre-existing mini-only failure (`GIT_DENY_CREDENTIALS_ENV` vs the global osxkeychain helper), which reproduces on a clean master.
 
-## Wave 12 — R3 server: threads, search + filters, stats, telemetry relay            <!-- status: active -->
+## Wave 12 — R3 server: threads, search + filters, stats, telemetry relay            <!-- status: done -->
 The server half of backlog 6 and 7 plus Wave 7's server carry-forward. No phone and no design answer needed: every item is
 an API the R3 screens (Wave 13+) consume. Each contract change carries its Swift `IrisCore` follow-up (models + client call +
 fixture decode tests). Disjoint tracks where the files allow; the lead sequences anything touching `memo.ts` / `schemas.ts`.
-- [ ] **Threads API:** `GET /v1/threads` (newest `updated_at` first, `kind` filter, cursor) and `GET /v1/threads/:id` (the thread
+- [x] **Threads API:** `GET /v1/threads` (newest `updated_at` first, `kind` filter, cursor) and `GET /v1/threads/:id` (the thread
       row + its Iris memos + the Hermes session transcript as markdown messages, read from Hermes; Hermes down → the Iris part with
       a flag, not a 503). Continue a thread: `threadId` on `POST /v1/memos` and `/memos/text` targets that Hermes session (a chat
       thread re-sends the no-side-effects `system_message` every turn, TDD §3); unknown thread → 404.
-- [ ] **History search + filters:** `GET /v1/memos` gains `q` (transcript + headline, SQLite FTS5 or LIKE: the lead decides and
+- [x] **History search + filters:** `GET /v1/memos` gains `q` (transcript + headline, SQLite FTS5 or LIKE: the lead decides and
       writes why in TDD), `route` and `state` filters, and keeps `needs_route` memos pinned first (PRD R-HIS-1). Cursor stays stable.
-- [ ] **Stats:** `GET /v1/stats?days=<n>` — counts per route per day, totals per week, median step durations (the memo detail
+- [x] **Stats:** `GET /v1/stats?days=<n>` — counts per route per day, totals per week, median step durations (the memo detail
       waterfall compares against them, round-2 design), cost per route. Pure SQL aggregates over existing columns, no new spend.
-- [ ] **Telemetry relay** (TDD §8, Wave 7 carry-forward): `POST /v1/telemetry` takes the Swift `TelemetryBatch` (finalize the shape)
+- [x] **Telemetry relay** (TDD §8, Wave 7 carry-forward): `POST /v1/telemetry` takes the Swift `TelemetryBatch` (finalize the shape)
       and forwards spans/logs through the existing OTLP exporter with the memo trace id; bounded body, auth as every `/v1` route.
-- [ ] **Housekeeping:** `actions/checkout` (and any other Node 20 action) bumped in `check.yml` / `apple.yml`; multi-word spoken tab
+- [x] **Housekeeping:** `actions/checkout` (and any other Node 20 action) bumped in `check.yml` / `apple.yml`; multi-word spoken tab
       names if it stays small (else Left behind); after this wave's deploy runs cleanly, delete `~/.iris/data/iris.db.pre-w11-threads.bak`.
-- [ ] Deploy, `make verify` + `make smoke`, probe each new route against production with the smoke token; TDD §3 (HTTP API, data
+- [x] Deploy, `make verify` + `make smoke`, probe each new route against production with the smoke token; TDD §3 (HTTP API, data
       model, "planned, not built" list pruned) and AGENTS.md amended.
-**Left behind:**
+**Left behind:** Five PRs, each landed by the train after a green full `make check`: #11 housekeeping, #13 telemetry, #15 threads, #12 stats,
+#14 search. `agw review` (CLI/job API) on #12–#15, blocking findings resolved; #11 is a workflow-only version bump (no review: verified each action's
+current major and `node24` runtime by hand). Deployed `482883d`: `make verify` healthy, `degraded: []`, `make smoke` `notified` (hermes pinned).
+Production probes with the smoke token: threads list/detail/`kind=chat`/404, a typed chat continuation into the existing chat thread (reply
+"Sydney." after "Canberra.", detail shows four messages), unknown `threadId` → 404, `q` (umlaut-folded "bestatigt" matches), `route`/`state`
+filters, bad state → 400, `stats?days=7` (13 per-step-and-route medians), `days=0` → 400, telemetry 202/401/413 and a `telemetry.relayed` log line.
+DB backed up before migration 7 at `~/.iris/data/iris.db.pre-w12-fts.bak` (delete after Wave 13 runs cleanly); the w11 backup is deleted.
+CI `check` green on `482883d`; `apple.yml` was still queued on the hosted xcode-27 runner at close-out (the train ran `check-apple` locally on every merge).
+**Owner round 2 (binding, `docs/design/feedback-round-2.md`), applied mid-wave:** Iris owns chat data. `GET /v1/threads/:id` is built from Iris's
+own memos (per turn: transcript → `user`, `reply_text` → `assistant`, with `memoId`, `createdAt`), Hermes is never read; no Hermes patch. Stats
+medians are per step AND route with `samples` (n); the client owns the minimum-n threshold (no `minSamples` on the wire, TDD says why).
+**Threads (#15):** `sqlite-threads.ts` (`ThreadStore`, composed into the memo store), `http/threads.ts`. A continuation (`threadId` on either create
+route) skips session create and `decide`, is forced to hermes, re-sends the chat `system_message` when the thread's `kind` is chat, keeps `thread_id`
+across a retry; replay with another `threadId` → 409. Follow-ups: `getThread` reads step records per memo (N+1, unbounded); a continuation is
+accepted while hermes is unregistered and fails at route (retry recovers); concurrent turns into one Hermes session are not serialised.
+**Search (#14):** FTS5 (bun:sqlite ships it on the mini), external content over view `memo_search`, `unicode61 remove_diacritics 2`, quoted
+prefix terms ANDed (TDD has the why), migration 7 with triggers + backfill. `pinned` (every `needs_route` memo matching the filters, cap 50, first
+page only); `items` never holds one, so the seq cursor is stable. A memo answered between page fetches can repeat: clients de-duplicate by id
+(documented; `HistoryModel` does). Behaviour change for any client reading only `items` (none shipped). Follow-ups: no signal when the 50 cap
+truncates, `listMemos` mixes filter SQL and the pinning policy, tri-state `ftsMatch`, positional SQL binding.
+**Stats (#12):** `sqlite-stats.ts` (`StatsStore`), days/weeks bucketed in JS local time (bun test forces TZ=UTC, SQLite follows the system).
+Follow-ups: no index on `memos.created_at` / `memo_steps.started_at` (full scan, fine at this scale), the store is built in `index.ts` rather than
+`compose()`, and the aggregation could split out of the adapter.
+**Telemetry (#13):** `POST /v1/telemetry` reads its own body (401 before any byte, 413 at 256 KiB while streaming, ≤500 records), re-emits OTLP
+with `service.name=iris-ios|iris-macos`; exports share the `MAX_IN_FLIGHT` cap (at the cap: rejected without a fetch, counted in
+`telemetry.relay_failed`, client still 202). Swift encoder now rounds to the millisecond (it wrote .800 as .799). IrisCore's fixture test skips
+the `telemetry.*` schemas, decoded by IrisTelemetry's own conformance test.
+**Housekeeping (#11):** `actions/checkout@v7`, `upload-artifact@v7` (setup-bun v2 is already node24). Multi-word spoken tab names NOT built: the
+word count of the matched name would have to live on the decision row (`deliveredTranscript` re-strips the prefix in act/summarize without the
+herd), which is a schema + steps change; TDD still states one word.
+**For the next wave:** R3 iOS screens per round 2 (History is the one list: no Threads tab, a conversation opens the thread view; quick filters;
+swipe actions; Stats; typed composer). Server debt above, multi-word tab names. Lead lessons: `rd merge` runs `make check` but not `make e2e` — an
+API behaviour change broke the e2e probe only on CI (fixed in `482883d`); run `make e2e` before the train for server-behaviour PRs. Parallel workers
+on shared additive files (AGENTS.md, TDD, registry.ts, conformance tests, FakeAPIClient) conflict on every rebase despite named anchors: land one
+at a time and resolve the additive conflicts in the lead (fast); briefing anchors did not help. Parallel `xcodebuild` from several worktrees gets
+SIGTERMed (twice in the train); rerun. A backgrounded `agw review` CLI stops printing when its shell exits; read `GET /api/jobs/<id>` instead, and
+one job returned a degenerate result (`summary: placeholder`) whose single finding was still real.
 
 ## Fleet backlog (for the long-running fleet: mother → lead → workers)
 
