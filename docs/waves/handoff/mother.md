@@ -92,8 +92,14 @@ acted on and notified through a Live Activity and APNs. There is one user, the o
   No further design round. No Hermes upstream patch: Iris owns chat data. The w12 lead was steered: threads detail from
   Iris's own memos, stats baselines per step+route with n.
 
+- Wave 12 done (`482883d` deployed): threads API from Iris's own memos, FTS5 search + filters + `pinned`, stats with per-step-and-route
+  medians and n, telemetry relay, Node 24 actions. Owner amended round 2: Pele for Mermaid (server-rendered SVG + PNG), speech-ready
+  answer variant, Threads tab dropped (owner-confirmed), freed tab slot reserved for PRD §Later. All in the backlog.
+- Wave 13 (server flags + auto retries + debt ∥ iOS History shell) active; Wave 14 sketched (Pele + speech ∥ detail/Stats/Settings/composer).
+- Account quota is the fleet's real constraint: `iu`/`me` near their 7-day caps until 10-28 16:00 / 10-29 06:00. A refused spawn
+  ("no Claude account has room") is retried every 10 min in the background; never spill.
+
 ## Next action
 
 Watch the active wave's lead (`iris-w<n>`), verdict its close-out, `rd close`, write the next wave from the backlog
-(after Wave 12: Wave 13 = backlog 4b (server flags, auto retries, Wave 12 leftovers) ∥ the start of backlog 6 (tabs,
-History list, swipe + quick filters); then 6 rest, 7, the simulator parts of 2/5/8), spawn, loop.
+(after Wave 13: write Wave 14 in full; then 7 conversations, the simulator parts of 2/5/8), spawn, loop.

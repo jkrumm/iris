@@ -587,6 +587,33 @@ at a time and resolve the additive conflicts in the lead (fast); briefing anchor
 SIGTERMed (twice in the train); rerun. A backgrounded `agw review` CLI stops printing when its shell exits; read `GET /api/jobs/<id>` instead, and
 one job returned a degenerate result (`summary: placeholder`) whose single finding was still real.
 
+## Wave 13 — R3 server completion (flags, auto retries, debt) ∥ iOS History shell            <!-- status: active -->
+Backlog 4b (minus Pele and speech, which are Wave 14) plus the first slice of backlog 6. Design is binding:
+`docs/design/feedback-round-1.md` + `feedback-round-2.md` (round 2 wins). Two tracks: **S** (`server/**`, `contracts/**`,
+`scripts/**`, plus the `IrisCore` follow-up for each contract) and **I** (`apple/**` app and `IrisUI`). Wave 12's lessons apply:
+land server PRs one at a time and resolve additive conflicts (AGENTS.md, TDD, registry, conformance, FakeAPIClient) in the lead;
+run `make e2e` before the train for any server-behaviour PR; only one worker runs `xcodebuild` at a time.
+- [ ] **S1. Memo flags:** done, favorite, archived, and delete as a soft delete with an undo window, then purge (audio and speech files
+      too). Endpoints the swipe actions call, list filters for the quick-filter chips (Favorites, Chats, Needs route; archived and
+      deleted hidden by default, an Archived filter shows them), SSE `memo.updated` on every flag change. Contract + fixtures + `IrisCore`.
+- [ ] **S2. Automatic retries:** transient step failures (5xx, timeout, connection errors) retry twice with exponential backoff before
+      `failed`; the attempt count per step is on the memo wire (round 2: the UI shows attempts per step). TDD §3 states it as built.
+- [ ] **S3. Wave 12 debt:** `getThread` N+1 → one query; a continuation while hermes is unregistered is rejected at create (not a
+      route failure); turns into one Hermes session serialised; indexes on `memos.created_at` and `memo_steps.started_at`; the stats
+      store composed in `compose()`; `pinned` signals when the 50 cap truncates. Multi-word spoken tab names stay out (Left behind).
+- [ ] **I1. iOS History shell** (simulator, `-IrisFakeCapture` / fake API client): tabs **History · Stats · Settings** (no Threads tab;
+      the freed slot stays empty). History: round-1 rows (route chip · state · headline · relative time), pinned needs-route rows on top
+      (tinted), de-duplicated by id across pages, search, **quick-filter chips**, the bottom-sheet filter (route, state), SSE live updates,
+      and **swipe actions** wired to S1 (right: done, further right: favorite; left: archive, further left: delete with undo). Stats and
+      Settings tabs are placeholders here (Wave 14 fills them). Snapshot tests (light + dark), a UI test of a swipe, screenshots via
+      `make screenshot` checked against the round-2 renders.
+- [ ] Deploy and prove: `make verify` + `make smoke`, production probes of each new route with the smoke token (flag, undo, purge on a
+      smoke memo only); `apple.yml` green; TDD and AGENTS.md amended. Delete `~/.iris/data/iris.db.pre-w12-fts.bak` once this deploy runs cleanly.
+**Left behind:**
+
+## Wave 14 — Pele + speech-ready answers (server) ∥ memo detail, Stats, Settings, typed composer (iOS)            <!-- status: pending -->
+Backlog 4b's rendering half and the rest of backlog 6. Written in full by the mother when Wave 13 closes.
+
 ## Fleet backlog (for the long-running fleet: mother → lead → workers)
 
 Not waves of this chain. The fleet's mother turns these into active waves, one at a time,
