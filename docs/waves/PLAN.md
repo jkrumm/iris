@@ -177,9 +177,11 @@ Otherwise the `apple.yml` CI run is the gate (`gh run watch`).
 **Left behind:**
 
 ## Wave 7 — Agent tooling + verification harness            <!-- status: pending -->
-- [ ] `.mcp.json` with MobileBuildMCP pinned to an exact version (TDD §10). Document the
-      per-machine `claude mcp add --transport stdio xcode -- xcrun mcpbridge`, and the one-time
-      Xcode setting it needs, in AGENTS.md.
+- [ ] No MCP (TDD D17). Add `scripts/mbm`, a wrapper around a pinned
+      `npx -y mobilebuildmcp@<version>` CLI (`--style minimal`, Sentry telemetry off), plus
+      Make targets: `sim` (boot the pinned simulator + `bootstatus -b`), `run-sim`
+      (build, install, launch), `screenshot` (writes to `.artifacts/`) and `ui-snapshot`.
+      Every one of them has actually been run against Xcode 27.1 on the mini.
 - [ ] Vendor `swiftui-pro`, `swift-concurrency-pro` and `swift-testing-pro` from `twostraws/*`
       into `.claude/skills/`. Check each LICENSE is MIT and copy it alongside. Pin commits in
       `.claude/skills/VENDORED.md`.

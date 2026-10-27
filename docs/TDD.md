@@ -24,7 +24,9 @@ Iris has three deliverables in one monorepo:
 - **Tracing:** one trace per memo, keyed by the memo UUID, spans all three
   runtimes.
 - **Verification:** agents build, run, screenshot and test both apps on the
-  mini through MobileBuildMCP, Xcode's `mcpbridge` and `simctl`. Only the
+  mini through the CLI only (`xcodebuild`, `simctl`, `devicectl`, `xcresulttool`,
+  and the `mobilebuildmcp` CLI for UI automation), wrapped in repo skills. No MCP
+  servers. Only the
   hardware-bound checks (Lock Screen control, Bluetooth routing, background
   audio) need my hands.
 
@@ -47,6 +49,7 @@ Iris has three deliverables in one monorepo:
 | D13 | iOS/macOS 26.0 minimum; built with Xcode 27.1 (Swift 6.4), Swift 6 language mode, MainActor default isolation for app targets (SE-0466) | iOS 26 has every capture API we need. Xcode 27 matches the CI `xcode-27` image | iOS 27 minimum (excludes nothing useful) |
 | D14 | CI: the server on `ubuntu-latest`, Apple on the `xcode-27` hosted label (free on a public repo) | `macos-26` tops out at Xcode 26.6 and one Xcode major per macOS version; parity with the mini's 27.1 | `macos-26` + Xcode 26.6 (toolchain skew) |
 | D15 | Distribution through TestFlight internal testing (paid program, enrolling); a free team plus `devicectl` until then | Agents upload from the mini, devices auto-update | Weekly free-team re-sign |
+| D17 | CLI-only agent tooling: Apple's CLIs plus the `mobilebuildmcp` CLI (pinned, via `npx`), wrapped in repo skills and Make targets. No MCP server, global or project | The owner doesn't want MCP wired. The CLI exposes the same tools (`ui-automation snapshot-ui/tap/type-text/screenshot`, `simulator`, `device`). `mcpbridge` also needs the Xcode GUI open with the project | `.mcp.json` with MobileBuildMCP; Xcode `mcpbridge` |
 | D16 | A public GitHub repo | No secrets in the tree by construction; free macOS CI | Private + self-hosted (no macOS runner there) |
 
 ## 1. System context
@@ -90,7 +93,6 @@ iris/
   scripts/                  launch.sh, mini-deploy.sh, send-memo.ts, device helpers
   launchd/                  *.plist.template
   .claude/skills/           repo skills (§10)
-  .mcp.json                 MobileBuildMCP (project scope)
   docs/                     PRD, TDD, research/, spikes/, waves/
 ```
 
@@ -450,7 +452,7 @@ it.
 | Swift packages | Swift Testing via `swift test` per package | mini, CI | `make check-apple` |
 | Views | swift-snapshot-testing on a pinned simulator (iPhone 17, iOS 26.x) | mini, CI (`xcode-27`) | `make snapshots` (record with `RECORD=1`) |
 | App flows | XCUITest smoke: launch → history → detail; Record screen with a fake recorder (`-IrisFakeCapture`) | mini, CI | `make uitest` |
-| Agent verification | MobileBuildMCP (`build_run_sim`, `screenshot`, `tap`, `snapshot_ui`), Xcode `mcpbridge` (`RenderPreview`, `RunAllTests`), `xcrun simctl io <udid> screenshot` after `simctl bootstatus -b` | mini | `@verifier` / the `ios-verify` skill |
+| Agent verification | `xcodebuild` build/test, `xcrun simctl` (boot + `bootstatus -b`, install, launch, `io screenshot`, `openurl`, `push` for simulated notifications), and the `mobilebuildmcp` CLI (`ui-automation snapshot-ui` / `tap` / `type-text` / `screenshot`) | mini | `@verifier` / the `ios-verify` skill |
 | Physical device | `devicectl device install app`; screenshots via `pymobiledevice3 developer core-device screen-capture screenshot` (devicectl has no screenshot verb) | mini → iPhone on LAN | `device` skill |
 | Hardware-only | A checklist in `docs/spikes/device-checklist.md`: Lock Screen control, a 30-min background take, a mic switch iPhone↔AirPods↔car, a phone-call interruption, APNs Live Activity update | my hands | before each R-release |
 
@@ -463,12 +465,11 @@ it.
 
 ## 10. Agent tooling in the repo
 
-- **`.mcp.json`:** `MobileBuildMCP` (`npx -y mobilebuildmcp@latest mcp`), pinned
-  to a version at setup.
-  - Xcode's own MCP is added per machine with
-    `claude mcp add --transport stdio xcode -- xcrun mcpbridge`.
-  - It requires Xcode → Settings → Intelligence → "Allow external agents to use
-    Xcode tools", a one-time GUI step on the mini.
+- **No MCP servers** (D17). The `ios-verify` and `device` skills call the CLIs
+  directly. UI automation goes through
+  `scripts/mbm` → `npx -y mobilebuildmcp@<pinned> <workflow> <tool>`, with
+  `--style minimal` and its Sentry telemetry disabled through the environment
+  (verify the variable name at setup).
 - **Vendored skills** (`.claude/skills/`, MIT; license files copied, version
   pinned in a `VENDORED.md`): `swiftui-pro`, `swift-concurrency-pro` and
   `swift-testing-pro` from `twostraws/*`.
