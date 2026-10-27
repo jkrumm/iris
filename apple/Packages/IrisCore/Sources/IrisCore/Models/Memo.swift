@@ -15,7 +15,7 @@ public struct MemoSummary: Codable, Hashable, Sendable {
 
 /// A memo as returned by create, complete, retry, route, result and list. Every key is always present on the
 /// wire, unset ones as explicit `null`, which `encode(to:)` reproduces; the exceptions are `routeReason`,
-/// `routeSuggestion`, `threadId` and `typed`, which are omitted when `nil` / `false`.
+/// `routeSuggestion`, `threadId`, `typed`, `deletedAt` and `purgeAt`, which are omitted when `nil` / `false`.
 public struct Memo: Codable, Hashable, Sendable, Identifiable {
   public var id: String
   public var mode: MemoMode
@@ -38,12 +38,24 @@ public struct Memo: Codable, Hashable, Sendable, Identifiable {
   public var routeReason: String?
   /// The decision model's best guess on a low-confidence park; same presence rule as `routeReason`.
   public var routeSuggestion: String?
+  /// User flags (swipe actions), always on the wire. None of them changes the pipeline; `done` dims a row, and a `done`
+  /// `needs_route` memo is no longer pinned.
+  public var done: Bool
+  public var favorite: Bool
+  public var archived: Bool
+  /// Present only while the memo is soft-deleted: when it was deleted and when the server purges it for good. Until
+  /// then `APIClient.restoreMemo(id:)` undoes the delete.
+  public var deletedAt: Date?
+  public var purgeAt: Date?
   public var createdAt: Date
   public var updatedAt: Date
 
   /// Typed instead of spoken (`POST /v1/memos/text`), the wire's `typed`: present and `true` only then. Such a
   /// memo has no recording (`GET /audio` is a 409). Read it from here, never derive it from `segmentCount`.
   public var isTyped: Bool
+
+  /// Soft-deleted: awaiting the purge, restorable until `purgeAt`.
+  public var isDeleted: Bool { deletedAt != nil }
 
   public init(
     id: String,
@@ -64,6 +76,11 @@ public struct Memo: Codable, Hashable, Sendable, Identifiable {
     routeReason: String? = nil,
     routeSuggestion: String? = nil,
     isTyped: Bool = false,
+    done: Bool = false,
+    favorite: Bool = false,
+    archived: Bool = false,
+    deletedAt: Date? = nil,
+    purgeAt: Date? = nil,
     createdAt: Date,
     updatedAt: Date
   ) {
@@ -85,6 +102,11 @@ public struct Memo: Codable, Hashable, Sendable, Identifiable {
     self.routeReason = routeReason
     self.routeSuggestion = routeSuggestion
     self.isTyped = isTyped
+    self.done = done
+    self.favorite = favorite
+    self.archived = archived
+    self.deletedAt = deletedAt
+    self.purgeAt = purgeAt
     self.createdAt = createdAt
     self.updatedAt = updatedAt
   }
@@ -92,6 +114,7 @@ public struct Memo: Codable, Hashable, Sendable, Identifiable {
   private enum CodingKeys: String, CodingKey {
     case id, mode, device, startedAt, state, failedStep, error, segmentCount, audioSeconds, transcript, route
     case destinationRef, replyText, summary, threadId, routeReason, routeSuggestion, createdAt, updatedAt
+    case done, favorite, archived, deletedAt, purgeAt
     case isTyped = "typed"
   }
 
@@ -115,6 +138,12 @@ public struct Memo: Codable, Hashable, Sendable, Identifiable {
     routeReason = try container.decodeIfPresent(String.self, forKey: .routeReason)
     routeSuggestion = try container.decodeIfPresent(String.self, forKey: .routeSuggestion)
     isTyped = try container.decodeIfPresent(Bool.self, forKey: .isTyped) ?? false
+    // Always sent by a server with flags; a missing key (an older server) reads as unset.
+    done = try container.decodeIfPresent(Bool.self, forKey: .done) ?? false
+    favorite = try container.decodeIfPresent(Bool.self, forKey: .favorite) ?? false
+    archived = try container.decodeIfPresent(Bool.self, forKey: .archived) ?? false
+    deletedAt = try container.decodeIfPresent(Date.self, forKey: .deletedAt)
+    purgeAt = try container.decodeIfPresent(Date.self, forKey: .purgeAt)
     createdAt = try container.decode(Date.self, forKey: .createdAt)
     updatedAt = try container.decode(Date.self, forKey: .updatedAt)
   }
@@ -139,6 +168,11 @@ public struct Memo: Codable, Hashable, Sendable, Identifiable {
     try container.encodeIfPresent(routeReason, forKey: .routeReason)
     try container.encodeIfPresent(routeSuggestion, forKey: .routeSuggestion)
     if isTyped { try container.encode(true, forKey: .isTyped) }
+    try container.encode(done, forKey: .done)
+    try container.encode(favorite, forKey: .favorite)
+    try container.encode(archived, forKey: .archived)
+    try container.encodeIfPresent(deletedAt, forKey: .deletedAt)
+    try container.encodeIfPresent(purgeAt, forKey: .purgeAt)
     try container.encode(createdAt, forKey: .createdAt)
     try container.encode(updatedAt, forKey: .updatedAt)
   }
@@ -231,9 +265,9 @@ public struct MemoDetail: Codable, Hashable, Sendable, Identifiable {
   }
 }
 
-/// `GET /v1/memos`: one page, newest first. `nextCursor` is `nil` on the last page. `items` never holds a
-/// `needs_route` memo: the first page (no cursor) carries every one matching the filters in `pinned`
-/// (newest first, at most 50), later pages carry none.
+/// `GET /v1/memos`: one page, newest first. `nextCursor` is `nil` on the last page. `items` never holds an open
+/// `needs_route` memo (one that is not `done`): the first page (no cursor) carries every one matching the filters in
+/// `pinned` (newest first, at most 50), later pages carry none. Soft-deleted memos are in neither list.
 public struct MemoPage: Codable, Hashable, Sendable {
   public var items: [Memo]
   public var pinned: [Memo]

@@ -23,6 +23,14 @@ public protocol APIClient: Sendable {
   /// it on) or, after `act`, records a correction and leaves the memo unchanged. Throws a 409
   /// `APIError.server` in any other state, which includes a second answer while the first is still driving.
   func routeMemo(id: String, request: RouteRequest) async throws -> Memo
+  /// `PATCH /v1/memos/:id`: sets the flags that are not `nil` (at least one, else a 400 `APIError.server`). A soft-deleted
+  /// memo is a 409.
+  func setFlags(id: String, done: Bool?, favorite: Bool?, archived: Bool?) async throws -> Memo
+  /// `DELETE /v1/memos/:id`: soft delete. The memo comes back with `deletedAt` and `purgeAt`; until then
+  /// `restoreMemo(id:)` undoes it. Only a settled memo (`MemoState.isDeletable`) can be deleted, else a 409; repeatable.
+  func deleteMemo(id: String) async throws -> Memo
+  /// `POST /v1/memos/:id/restore`: the undo of `deleteMemo`. A 409 when the memo is not deleted, a 404 once it is purged.
+  func restoreMemo(id: String) async throws -> Memo
   /// `GET /v1/memos`: one page; pass the previous page's `nextCursor` to continue.
   func listMemos(_ query: ListMemosQuery) async throws -> MemoPage
   /// `GET /v1/memos/:id`.

@@ -75,24 +75,46 @@ public struct ActivityTokenRequest: Codable, Hashable, Sendable {
   }
 }
 
+/// Body of `PATCH /v1/memos/:id`: the flags to change, at least one (the server answers 400 for none). A `nil` flag is
+/// omitted and left as it is.
+public struct SetFlagsRequest: Codable, Hashable, Sendable {
+  public var done: Bool?
+  public var favorite: Bool?
+  public var archived: Bool?
+
+  public init(done: Bool? = nil, favorite: Bool? = nil, archived: Bool? = nil) {
+    self.done = done
+    self.favorite = favorite
+    self.archived = archived
+  }
+}
+
 /// Query of `GET /v1/memos`. `q` searches the transcript and summary headline (case, umlaut and prefix insensitive,
-/// terms ANDed, at most 200 characters); `route` and `state` filter exactly. All combine.
-public struct ListMemosQuery: Codable, Hashable, Sendable {
+/// terms ANDed, at most 200 characters); `route` and `state` filter exactly. `favorite` keeps the favorites, `archived`
+/// lists only the archived memos (they are hidden otherwise), `kind` keeps the memos whose thread has that kind (the
+/// Chats filter). The server accepts `favorite` and `archived` only as `true`, so `false` sends nothing. All combine.
+public struct ListMemosQuery: Hashable, Sendable {
   public var limit: Int?
   public var cursor: String?
   public var q: String?
   public var route: RouteDestination?
   public var state: MemoState?
+  public var favorite: Bool
+  public var archived: Bool
+  public var kind: ThreadKind?
 
   public init(
     limit: Int? = nil, cursor: String? = nil, q: String? = nil, route: RouteDestination? = nil,
-    state: MemoState? = nil
+    state: MemoState? = nil, favorite: Bool = false, archived: Bool = false, kind: ThreadKind? = nil
   ) {
     self.limit = limit
     self.cursor = cursor
     self.q = q
     self.route = route
     self.state = state
+    self.favorite = favorite
+    self.archived = archived
+    self.kind = kind
   }
 
   public var queryItems: [URLQueryItem] {
@@ -102,7 +124,53 @@ public struct ListMemosQuery: Codable, Hashable, Sendable {
     if let q { items.append(URLQueryItem(name: "q", value: q)) }
     if let route { items.append(URLQueryItem(name: "route", value: route.rawValue)) }
     if let state { items.append(URLQueryItem(name: "state", value: state.rawValue)) }
+    if favorite { items.append(URLQueryItem(name: "favorite", value: "true")) }
+    if archived { items.append(URLQueryItem(name: "archived", value: "true")) }
+    if let kind, kind != .unknown { items.append(URLQueryItem(name: "kind", value: kind.rawValue)) }
     return items
+  }
+}
+
+/// The query as the contract fixtures spell it: the values of the query string, so a flag is the string `"true"`.
+extension ListMemosQuery: Codable {
+  private enum CodingKeys: String, CodingKey {
+    case limit, cursor, q, route, state, favorite, archived, kind
+  }
+
+  public init(from decoder: any Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    self.init(
+      limit: try container.decodeIfPresent(Int.self, forKey: .limit),
+      cursor: try container.decodeIfPresent(String.self, forKey: .cursor),
+      q: try container.decodeIfPresent(String.self, forKey: .q),
+      route: try container.decodeIfPresent(RouteDestination.self, forKey: .route),
+      state: try container.decodeIfPresent(MemoState.self, forKey: .state),
+      favorite: try Self.decodeFlag(container, .favorite),
+      archived: try Self.decodeFlag(container, .archived),
+      kind: try container.decodeIfPresent(ThreadKind.self, forKey: .kind))
+  }
+
+  public func encode(to encoder: any Encoder) throws {
+    var container = encoder.container(keyedBy: CodingKeys.self)
+    try container.encodeIfPresent(limit, forKey: .limit)
+    try container.encodeIfPresent(cursor, forKey: .cursor)
+    try container.encodeIfPresent(q, forKey: .q)
+    try container.encodeIfPresent(route, forKey: .route)
+    try container.encodeIfPresent(state, forKey: .state)
+    if favorite { try container.encode("true", forKey: .favorite) }
+    if archived { try container.encode("true", forKey: .archived) }
+    try container.encodeIfPresent(kind, forKey: .kind)
+  }
+
+  private static func decodeFlag(
+    _ container: KeyedDecodingContainer<CodingKeys>, _ key: CodingKeys
+  ) throws -> Bool {
+    guard let value = try container.decodeIfPresent(String.self, forKey: key) else { return false }
+    guard value == "true" else {
+      throw DecodingError.dataCorruptedError(
+        forKey: key, in: container, debugDescription: "a flag filter is only ever \"true\"")
+    }
+    return true
   }
 }
 

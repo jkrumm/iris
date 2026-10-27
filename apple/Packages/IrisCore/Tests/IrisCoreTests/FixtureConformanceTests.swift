@@ -37,10 +37,14 @@ let fixtureTypes: [String: RoundTrip] = [
   "memos.create.request": roundTrip(CreateMemoRequest.self),
   "memos.create.response": roundTrip(Memo.self),
   "memos.detail.response": roundTrip(MemoDetail.self),
+  "memos.delete.response": roundTrip(Memo.self),
+  "memos.flags.request": roundTrip(SetFlagsRequest.self),
+  "memos.flags.response": roundTrip(Memo.self),
   "memos.list.query": roundTrip(ListMemosQuery.self),
   "memos.list.response": roundTrip(MemoPage.self),
   "memos.text.request": roundTrip(CreateTextMemoRequest.self),
   "memos.text.response": roundTrip(Memo.self),
+  "memos.restore.response": roundTrip(Memo.self),
   "memos.result.query": roundTrip(MemoResultQuery.self),
   "memos.result.response": roundTrip(Memo.self),
   "memos.retry.request": roundTrip(RetryMemoRequest.self),
@@ -137,6 +141,64 @@ struct FixtureConformanceTests {
     #expect(routed.routeReason == nil)
     let encoded = String(decoding: try IrisJSON.makeEncoder().encode(routed), as: UTF8.self)
     #expect(!encoded.contains("routeReason") && !encoded.contains("routeSuggestion"))
+  }
+
+  @Test("The flags are always on the wire; deletedAt and purgeAt only while the memo is soft-deleted")
+  func flags() throws {
+    let decoder = IrisJSON.makeDecoder()
+    let plain = try decoder.decode(Memo.self, from: Contracts.fixtureData("memos.create.response"))
+    #expect(!plain.done && !plain.favorite && !plain.archived && !plain.isDeleted)
+    let encoded = String(decoding: try IrisJSON.makeEncoder().encode(plain), as: UTF8.self)
+    #expect(encoded.contains("\"done\":false") && encoded.contains("\"archived\":false"))
+    #expect(!encoded.contains("deletedAt") && !encoded.contains("purgeAt"))
+
+    let flagged = try decoder.decode(Memo.self, from: Contracts.fixtureData("memos.flags.response"))
+    #expect(flagged.done && flagged.favorite && flagged.archived)
+
+    let deleted = try decoder.decode(Memo.self, from: Contracts.fixtureData("memos.delete.response"))
+    let deletedAt = try #require(deleted.deletedAt)
+    #expect(deleted.isDeleted)
+    #expect(deleted.purgeAt == deletedAt.addingTimeInterval(600))
+
+    let restored = try decoder.decode(Memo.self, from: Contracts.fixtureData("memos.restore.response"))
+    #expect(!restored.isDeleted && restored.purgeAt == nil)
+  }
+
+  @Test("A memo from a server without flags reads as unflagged")
+  func memoWithoutFlagKeys() throws {
+    let json = try JSONDecoder().decode(JSONValue.self, from: Contracts.fixtureData("memos.create.response"))
+    guard case .object(var object) = json else {
+      Issue.record("fixture is not an object")
+      return
+    }
+    for key in ["done", "favorite", "archived"] { object[key] = nil }
+    let data = try JSONEncoder().encode(JSONValue.object(object))
+    let memo = try IrisJSON.makeDecoder().decode(Memo.self, from: data)
+    #expect(!memo.done && !memo.favorite && !memo.archived)
+  }
+
+  @Test("The list query fixtures carry the flag filters as the string \"true\" and send them as query items")
+  func listQueryFilters() throws {
+    let decoder = IrisJSON.makeDecoder()
+    let filters = try decoder.decode(ListMemosQuery.self, from: Contracts.fixtureData("memos.list.query.filters"))
+    #expect(filters.favorite && !filters.archived && filters.kind == .chat)
+    #expect(
+      filters.queryItems == [
+        URLQueryItem(name: "limit", value: "20"), URLQueryItem(name: "favorite", value: "true"),
+        URLQueryItem(name: "kind", value: "chat"),
+      ])
+    let archived = try decoder.decode(ListMemosQuery.self, from: Contracts.fixtureData("memos.list.query.archived"))
+    #expect(archived.archived && !archived.favorite)
+    #expect(ListMemosQuery(favorite: false, archived: false, kind: .unknown).queryItems.isEmpty)
+    #expect(throws: DecodingError.self) {
+      try decoder.decode(ListMemosQuery.self, from: Data(#"{"favorite":"false"}"#.utf8))
+    }
+  }
+
+  @Test("A flags request omits the flags it does not change")
+  func flagsRequest() throws {
+    let encoded = try IrisJSON.makeEncoder().encode(SetFlagsRequest(favorite: true))
+    #expect(String(decoding: encoded, as: UTF8.self) == #"{"favorite":true}"#)
   }
 
   @Test("`typed` is explicit: true on a typed memo, absent on a recording, in a memo and in the detail")
