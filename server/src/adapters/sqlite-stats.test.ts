@@ -1,5 +1,6 @@
 import { Database } from "bun:sqlite";
 import { describe, expect, it } from "bun:test";
+import { join } from "node:path";
 import { fixedClock } from "../ports/clock.js";
 import { createSqliteStatsStore, median } from "./sqlite-stats.js";
 
@@ -8,9 +9,9 @@ const NOW = new Date(2026, 9, 28, 12, 0, 0);
 const at = (month: number, day: number, hour = 12, minute = 0, second = 0, ms = 0) =>
   new Date(2026, month - 1, day, hour, minute, second, ms).toISOString();
 
-function seeded() {
+function seeded(now: Date = NOW) {
   const db = new Database(":memory:");
-  const stats = createSqliteStatsStore({ db, clock: fixedClock(NOW) });
+  const stats = createSqliteStatsStore({ db, clock: fixedClock(now) });
   let seq = 0;
   return {
     stats,
@@ -48,6 +49,28 @@ function seeded() {
     },
   };
 }
+
+describe("the stats.response fixture", () => {
+  it("is what the server produces from its own perDay: days and weeks", async () => {
+    const fixture = await Bun.file(
+      join(import.meta.dir, "../../../contracts/fixtures/stats.response.json"),
+    ).json();
+    const [year = 0, month = 0, day = 0] = fixture.to.split("-").map(Number);
+    const { stats, memo } = seeded(new Date(year, month - 1, day, 12));
+    for (const { date, route, count } of fixture.perDay) {
+      const [y = 0, m = 0, d = 0] = date.split("-").map(Number);
+      for (let i = 0; i < count; i++) {
+        memo({ createdAt: new Date(y, m - 1, d, 12).toISOString(), route });
+      }
+    }
+    expect(stats.summary({ days: fixture.days })).toMatchObject({
+      from: fixture.from,
+      to: fixture.to,
+      perDay: fixture.perDay,
+      perWeek: fixture.perWeek,
+    });
+  });
+});
 
 describe("median", () => {
   it("takes the middle of an odd count", () => expect(median([1, 5, 9])).toBe(5));
