@@ -100,7 +100,16 @@ export interface RouteDecisionRecord extends RouteDecisionInput {
 
 /** The memo columns a handler may set when its step completes. */
 export type MemoColumnPatch = Partial<
-  Pick<Memo, "audioSeconds" | "transcript" | "route" | "destinationRef" | "replyText" | "summary">
+  Pick<
+    Memo,
+    | "audioSeconds"
+    | "transcript"
+    | "route"
+    | "destinationRef"
+    | "replyText"
+    | "summary"
+    | "threadId"
+  >
 >;
 
 export const THREAD_KINDS = ["chat", "hermes"] as const;
@@ -108,9 +117,20 @@ export type ThreadKind = (typeof THREAD_KINDS)[number];
 /** First characters of a thread's first transcript. */
 export const THREAD_TITLE_MAX = 60;
 
-/** A Hermes session as `act` reports it: upserted into `threads`, and `memos.thread_id` set to its id. */
+/** The first ~60 characters of a transcript, whitespace collapsed: a thread's title. */
+export function threadTitle(transcript: string): string {
+  const text = transcript.replace(/\s+/g, " ").trim();
+  return text.length > THREAD_TITLE_MAX
+    ? `${text.slice(0, THREAD_TITLE_MAX - 1).trimEnd()}…`
+    : text;
+}
+
+/**
+ * A thread as the destination reports it, which alone decides its identity: upserted into `threads`, and `memos.thread_id`
+ * set to its id with the step's patch.
+ */
 export interface ThreadUpsert {
-  /** The Hermes session id. */
+  /** The destination's session id (Hermes). */
   id: string;
   kind: ThreadKind;
   /** Only used when the thread is new; a thread keeps the title of its first transcript. */
@@ -119,7 +139,7 @@ export interface ThreadUpsert {
 
 /**
  * What a step writes atomically with its completion: memo columns, and for a step that routes or
- * parks (`route`, `act`) a decision-log row, and for `act` into Hermes the thread it ran in.
+ * parks (`route`, `act`) a decision-log row, and for `act` into a thread-keeping destination the thread it ran in (`thread` upserts the row; `memos.thread_id` is set from it).
  */
 export type MemoPatch = MemoColumnPatch & {
   routeDecision?: RouteDecisionInput;

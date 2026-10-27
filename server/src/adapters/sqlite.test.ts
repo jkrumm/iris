@@ -353,7 +353,7 @@ function act(store: ReturnType<typeof testStore>["store"], id: string, patch: Me
 }
 
 describe("threads", () => {
-  it("upserts the thread and links the memo in the act completion", () => {
+  it("upserts the thread and sets the memo's thread_id in the act completion", () => {
     const { store, db, clock } = testStore();
     const { id } = seedMemo(store, "routed");
     expect(store.getMemo(id)?.threadId).toBeNull();
@@ -426,15 +426,42 @@ describe("threads", () => {
     ).toThrow();
   });
 
-  it("adds threads on top of an existing database", () => {
+  it("backfills a thread for each existing hermes memo and links it, leaving other memos alone", () => {
     const db = new Database(":memory:");
     migrate(db, MIGRATIONS.slice(0, 5));
-    const id = crypto.randomUUID();
-    db.query(
-      "INSERT INTO memos (id, mode, device, started_at, state, created_at, updated_at) VALUES (?, 'auto', 'iphone', 't', 'transcribed', 't', 't')",
-    ).run(id);
+    const insert = db.query(
+      `INSERT INTO memos (id, mode, device, started_at, state, transcript, route, destination_ref, created_at, updated_at)
+       VALUES (?, ?, 'iphone', 't', ?, ?, ?, ?, ?, ?)`,
+    );
+    const long = `${"word ".repeat(30)}end`;
+    insert.run("h1", "hermes", "notified", "buy\nmilk", "hermes", "h1", "c1", "u1");
+    insert.run("h2", "auto", "notified", long, "hermes", "h2", "c2", "u2");
+    insert.run("j1", "journal", "notified", "dear diary", "journal", "note.md", "c3", "u3");
+    insert.run("h3", "hermes", "routed", "not acted yet", "hermes", null, "c4", "u4");
+
     const store = createSqliteMemoStore({ db, clock: testStore().clock });
-    expect(store.getMemo(id)?.threadId).toBeNull();
+    expect(db.query("SELECT * FROM threads ORDER BY id").all()).toEqual([
+      {
+        id: "h1",
+        kind: "hermes",
+        title: "buy milk",
+        created_at: "c1",
+        updated_at: "u1",
+        last_memo_id: "h1",
+      },
+      {
+        id: "h2",
+        kind: "hermes",
+        title: `${"word ".repeat(11)}word…`,
+        created_at: "c2",
+        updated_at: "u2",
+        last_memo_id: "h2",
+      },
+    ]);
+    expect(store.getMemo("h1")?.threadId).toBe("h1");
+    expect(store.getMemo("h2")?.threadId).toBe("h2");
+    expect(store.getMemo("j1")?.threadId).toBeNull();
+    expect(store.getMemo("h3")?.threadId).toBeNull();
   });
 });
 

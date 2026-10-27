@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { threadTitle } from "../memo/memo.js";
 import type { Delivery, Destination } from "../ports/destination.js";
 import { log } from "../telemetry/log.js";
 import { withSpan } from "../telemetry/otel.js";
@@ -70,10 +71,11 @@ function parseData(frame: SseFrame): unknown {
 }
 
 /**
- * Delivers a transcript to Hermes: a session (fresh and named after the memo, or the given thread), one chat turn over
+ * Delivers a transcript to Hermes: a fresh session named after the memo, one chat turn over
  * the named-event SSE stream, and the final assistant text as the reply. A chat turn also carries
  * `CHAT_SYSTEM_MESSAGE` and opens its session with `source: "iris-chat"`. Note: the Hermes API server maps a `source` it does
  * not know (today everything but its own platform names) to `api_server`, so the thread's kind is Iris's own record (`threads.kind`), not Hermes's.
+ * The delivery names the thread (the session id, its kind and title); `act` only persists it.
  */
 export function createHermesDestination(opts: HermesDestinationOptions): Destination {
   const doFetch = opts.fetch ?? fetch;
@@ -84,8 +86,8 @@ export function createHermesDestination(opts: HermesDestinationOptions): Destina
   };
 
   return {
-    async deliver({ memoId, transcript, chat = false, threadId }): Promise<Delivery> {
-      const sessionId = threadId ?? memoId;
+    async deliver({ memoId, transcript, chat = false }): Promise<Delivery> {
+      const sessionId = memoId;
       const attrs = { memo_id: memoId, downstream: "hermes" };
 
       await withSpan("hermes.create_session", attrs, async (span) => {
@@ -170,6 +172,7 @@ export function createHermesDestination(opts: HermesDestinationOptions): Destina
         return {
           ref: sessionId,
           replyText: reply?.content ?? "",
+          thread: { id: sessionId, kind: chat ? "chat" : "hermes", title: threadTitle(transcript) },
           ...(usage ? { usage } : {}),
         };
       });

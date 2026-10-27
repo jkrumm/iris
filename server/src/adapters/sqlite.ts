@@ -160,13 +160,14 @@ const PATCH_COLUMNS = {
   destinationRef: "destination_ref",
   replyText: "reply_text",
   summary: "summary_json",
+  threadId: "thread_id",
 } as const satisfies Record<keyof MemoColumnPatch, string>;
 
 /** The data columns a step writes, cleared when the step is re-run. */
 const STEP_COLUMNS: Partial<Record<Step, (keyof MemoColumnPatch)[]>> = {
   transcribe: ["audioSeconds", "transcript"],
   route: ["route"],
-  act: ["destinationRef", "replyText"],
+  act: ["destinationRef", "replyText", "threadId"],
   summarize: ["summary"],
 };
 
@@ -207,11 +208,9 @@ export function createSqliteMemoStore(params: { db: Database; clock: Clock }): M
       .run(stateBefore(from), stamp(), id);
     if (reset.changes === 0) return false;
     const cleared = stepsFrom(from);
-    const columns: string[] = cleared
+    const columns = cleared
       .flatMap((step) => STEP_COLUMNS[step] ?? [])
       .map((f) => PATCH_COLUMNS[f]);
-    // `act` also sets `thread_id`, through the thread upsert rather than a column patch.
-    if (cleared.includes("act")) columns.push("thread_id");
     if (columns.length > 0) {
       db.query(`UPDATE memos SET ${columns.map((c) => `${c} = NULL`).join(", ")} WHERE id = ?`).run(
         id,
@@ -242,14 +241,13 @@ export function createSqliteMemoStore(params: { db: Database; clock: Clock }): M
     );
   };
 
-  /** Creates the thread, or bumps `updated_at` and `last_memo_id` of an existing one (its kind and title stay), and links the memo. */
+  /** Creates the thread, or bumps `updated_at` and `last_memo_id` of an existing one (its kind and title stay). The memo's `thread_id` is a patched column. */
   const upsertThread = (memoId: string, at: string, thread: ThreadUpsert) => {
     db.query(
       `INSERT INTO threads (id, kind, title, created_at, updated_at, last_memo_id)
        VALUES (?, ?, ?, ?, ?, ?)
        ON CONFLICT (id) DO UPDATE SET updated_at = excluded.updated_at, last_memo_id = excluded.last_memo_id`,
     ).run(thread.id, thread.kind, thread.title, at, at, memoId);
-    db.query("UPDATE memos SET thread_id = ? WHERE id = ?").run(thread.id, memoId);
   };
 
   const answerRoute = db.transaction((id: string, decision: AnswerDecision): boolean => {
@@ -287,12 +285,16 @@ export function createSqliteMemoStore(params: { db: Database; clock: Clock }): M
       ).run(at, usage === undefined ? null : JSON.stringify(usage), costUsd ?? null, id, step);
       if (patch?.routeDecision) insertRouteDecision(id, at, patch.routeDecision);
       if (patch?.thread) upsertThread(id, at, patch.thread);
+      // A reported thread is also the memo's `thread_id`.
+      const columns: MemoColumnPatch | undefined = patch?.thread
+        ? { ...patch, threadId: patch.thread.id }
+        : patch;
       const fields = (Object.keys(PATCH_COLUMNS) as (keyof MemoColumnPatch)[]).filter(
-        (field) => patch?.[field] !== undefined,
+        (field) => columns?.[field] !== undefined,
       );
       if (fields.length === 0) return true;
       const values = fields.map((field) => {
-        const value = patch?.[field];
+        const value = columns?.[field];
         if (field !== "summary") return value as string | number | null;
         return value === null ? null : JSON.stringify(value);
       });

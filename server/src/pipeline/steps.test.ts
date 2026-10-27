@@ -226,7 +226,7 @@ describe("act", () => {
     });
   });
 
-  it("opens a chat thread for a chat memo and tells the destination it is a chat", async () => {
+  it("tells the destination a chat memo is a chat and persists the thread it names", async () => {
     const { store, handlers, destination } = setup();
     const memo = {
       ...seedMemo(store, "routed"),
@@ -243,15 +243,16 @@ describe("act", () => {
     });
   });
 
-  it("titles a thread with the first 60 characters of the transcript", async () => {
-    const { store, handlers } = setup();
-    const memo = { ...seedMemo(store, "routed"), transcript: "word ".repeat(40), route: "hermes" };
+  it("persists the thread exactly as the destination reported it", async () => {
+    const thread = { id: "other", kind: "hermes" as const, title: "named by the adapter" };
+    const { store, handlers } = setup({ destination: fakeDestination({ result: { thread } }) });
+    const memo = { ...seedMemo(store, "routed"), transcript: "anything", route: "hermes" };
     const result = await handlers.act?.({ memo });
-    expect(result?.patch?.thread?.title).toBe(`${"word ".repeat(11)}word…`);
+    expect(result?.patch?.thread).toEqual(thread);
   });
 
-  it("does not open a thread for other destinations", async () => {
-    const journal = fakeDestination({ result: { ref: "note.md", replyText: "" } });
+  it("persists no thread when the destination reports none", async () => {
+    const journal = fakeDestination({ threads: false, result: { ref: "note.md", replyText: "" } });
     const { store, handlers } = setup({ destinations: { hermes: fakeDestination(), journal } });
     const memo = { ...seedMemo(store, "routed"), transcript: "heute", route: "journal" };
     const result = await handlers.act?.({ memo });
@@ -260,7 +261,7 @@ describe("act", () => {
 
   it("dispatches by the memo's route", async () => {
     const hermes = fakeDestination();
-    const journal = fakeDestination({ result: { ref: "note.md", replyText: "" } });
+    const journal = fakeDestination({ threads: false, result: { ref: "note.md", replyText: "" } });
     const { store, handlers } = setup({ destinations: { hermes, journal } });
     const memo = { ...seedMemo(store, "routed"), transcript: "heute", route: "journal" };
     const result = await handlers.act?.({ memo });

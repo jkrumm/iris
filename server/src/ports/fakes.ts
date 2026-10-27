@@ -1,4 +1,4 @@
-import type { Memo, Summary } from "../memo/memo.js";
+import { threadTitle, type Memo, type Summary } from "../memo/memo.js";
 import type { ApnsResult, ApnsTransport } from "./apns.js";
 import type { AudioCombiner } from "./audio.js";
 import type { Decider, Decision } from "./decider.js";
@@ -28,8 +28,12 @@ export function fakeTranscriber(
   };
 }
 
+/**
+ * Stands for Hermes: every delivery names its thread (the ref, kind `chat` for a chat) unless `threads: false` makes it
+ * a destination that keeps none, or `result.thread` says otherwise.
+ */
 export function fakeDestination(
-  options: Options<Delivery> = {},
+  options: Options<Delivery> & { threads?: boolean } = {},
 ): Destination & Calls<Parameters<Destination["deliver"]>[0]> {
   const calls: Parameters<Destination["deliver"]>[0][] = [];
   return {
@@ -37,7 +41,15 @@ export function fakeDestination(
     async deliver(params) {
       calls.push(params);
       if (options.failWith) throw options.failWith;
-      return { ref: "session-1", replyText: "done", ...options.result };
+      const delivery: Delivery = { ref: "session-1", replyText: "done", ...options.result };
+      if (options.threads !== false && !delivery.thread) {
+        delivery.thread = {
+          id: delivery.ref,
+          kind: params.chat ? "chat" : "hermes",
+          title: threadTitle(params.transcript),
+        };
+      }
+      return delivery;
     },
   };
 }

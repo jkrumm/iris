@@ -156,6 +156,21 @@ struct FixtureConformanceTests {
     #expect(!encoded.contains("threadId"))
   }
 
+  @Test("A memo with a mode this build does not know decodes with .unknown and keeps the rest of the page")
+  func unknownMode() throws {
+    let original = String(decoding: try Contracts.fixtureData("memos.list.response"), as: UTF8.self)
+    let patched = original.replacingOccurrences(of: "\"mode\": \"auto\"", with: "\"mode\": \"voice-note\"")
+    #expect(patched != original)
+
+    let decoder = IrisJSON.makeDecoder()
+    let known = try decoder.decode(MemoPage.self, from: Data(original.utf8))
+    let page = try decoder.decode(MemoPage.self, from: Data(patched.utf8))
+    #expect(page.items.count == known.items.count)
+    #expect(page.items.first?.mode == .unknown)
+    #expect(page.items.dropFirst().map(\.mode) == known.items.dropFirst().map(\.mode))
+    #expect(!MemoMode.allCases.contains(.unknown))
+  }
+
   @Test("Result-ready states match the server")
   func resultReadyStates() {
     #expect(MemoState.allCases.filter(\.isResultReady) == [.needsRoute, .notified, .failed])
