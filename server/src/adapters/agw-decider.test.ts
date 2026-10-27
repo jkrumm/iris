@@ -69,10 +69,12 @@ describe("agw decider", () => {
     });
     const submitted = calls[0]?.body as {
       tool: string;
+      caller: string;
       params: { state: string; questions: Record<string, { type: string; options: unknown }> };
     };
     expect(calls[0]).toMatchObject({ method: "POST", path: "/api/jobs" });
     expect(submitted.tool).toBe("decide");
+    expect(submitted.caller).toBe("iris");
     expect(submitted.params.state).toBe("kauf bitte Milch");
     expect(Object.keys(submitted.params.questions)).toEqual(["destination"]);
     expect(submitted.params.questions["destination"]).toMatchObject({

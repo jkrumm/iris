@@ -134,6 +134,7 @@ describe("compose", () => {
     for (const port of [transcriber, destinations, summarizer, speaker, herd]) {
       expect(port).toBeDefined();
     }
+    expect(Object.keys(destinations ?? {}).toSorted()).toEqual(["herdr", "hermes", "journal"]);
     expect(composed.degraded).toEqual(["fakes"]);
     expect(composed.notifierKind).toBe("fakes");
     expect(composed.closeTransport).toBeUndefined();
@@ -167,6 +168,7 @@ describe("compose", () => {
       HERMES_URL: "http://127.0.0.1:1",
       HERMES_TOKEN: "token",
       HERDR_SOCKET: "/nonexistent/herdr.sock",
+      BRAIN_DIR: "/nonexistent/brain",
     });
     const { transcriber, destinations, summarizer, speaker, herd } = composed.ports;
     for (const port of [transcriber, destinations, summarizer, speaker, herd]) {
@@ -177,13 +179,37 @@ describe("compose", () => {
     expect(composed.notifierKind).toBe("log");
   });
 
-  it("registers Hermes as the only destination and never lists decide as degraded", () => {
-    const fakes = build({ IRIS_FAKES: true }).composed.ports;
-    expect(Object.keys(fakes.destinations ?? {})).toEqual(["hermes"]);
-    const real = build({ HERMES_URL: "http://127.0.0.1:1", HERMES_TOKEN: "t" }).composed;
-    expect(Object.keys(real.ports.destinations ?? {})).toEqual(["hermes"]);
-    expect(real.degraded).not.toContain("decide");
-    expect(real.ports.decider).toBeUndefined();
+  it("registers each destination on its own env and turns decide on from two", () => {
+    const hermes = { HERMES_URL: "http://127.0.0.1:1", HERMES_TOKEN: "t" };
+    const only = (env: ComposeEnv) => {
+      const { ports, degraded } = build(env).composed;
+      return { names: Object.keys(ports.destinations ?? {}), degraded };
+    };
+
+    const one = only(hermes);
+    expect(one.names).toEqual(["hermes"]);
+    expect(one.degraded).not.toContain("decide");
+
+    const journal = only({ BRAIN_DIR: "/nonexistent/brain" });
+    expect(journal.names).toEqual(["journal"]);
+    expect(journal.degraded).not.toContain("act");
+
+    const herdr = only({ HERDR_SOCKET: "/nonexistent/herdr.sock" });
+    expect(herdr.names).toEqual(["herdr"]);
+    expect(herdr.degraded).not.toContain("act");
+    expect(herdr.degraded).not.toContain("herd");
+
+    const several = only({ ...hermes, BRAIN_DIR: "/nonexistent/brain" });
+    expect(several.names.toSorted()).toEqual(["hermes", "journal"]);
+    expect(several.degraded).toContain("decide");
+
+    const withDecider = build({
+      ...hermes,
+      BRAIN_DIR: "/nonexistent/brain",
+      AGW_URL: "http://127.0.0.1:1",
+    }).composed;
+    expect(withDecider.degraded).not.toContain("decide");
+    expect(withDecider.ports.decider).toBeDefined();
   });
 
   it("Hermes needs both its URL and token", () => {

@@ -95,7 +95,7 @@ async function probe(base: string) {
   out(`e2e: R1 endpoints ok for memo ${id}`);
 }
 
-/** Parks a memo (journal has no adapter yet), answers it with hermes, then corrects it after act. */
+/** Parks a memo (mode tab with three live tabs asks "which tab?"), answers it with hermes, then corrects it after act. */
 async function probeRoute(base: string) {
   const call = (path: string, init: RequestInit = {}) =>
     fetch(`${base}/v1${path}`, {
@@ -115,11 +115,11 @@ async function probeRoute(base: string) {
       "--token",
       TOKEN,
       "--mode",
-      "journal",
+      "tab",
     ],
     { cwd: ROOT, stdout: "ignore", stderr: "ignore" },
   );
-  assert((await park.exited) === 2, "send-memo --mode journal parks at needs_route (exit 2)");
+  assert((await park.exited) === 2, "send-memo --mode tab parks at needs_route (exit 2)");
 
   const list = (await (await call("/memos?limit=1")).json()) as { items: { id: string }[] };
   const id = list.items[0]?.id;
@@ -130,12 +130,12 @@ async function probeRoute(base: string) {
   };
   assert(parked.state === "needs_route", `memo parks at needs_route (got ${parked.state})`);
   assert(
-    parked.routeReason === "journal not available",
+    parked.routeReason === "which tab?",
     `routeReason explains the park (got ${parked.routeReason})`,
   );
 
-  const unavailable = await route(id, "journal");
-  assert(unavailable.status === 400, `answering journal 400 (got ${unavailable.status})`);
+  const noTab = await route(id, "herdr");
+  assert(noTab.status === 400, `answering herdr without a tab 400 (got ${noTab.status})`);
 
   const answer = await route(id, "hermes");
   assert(answer.status === 202, `answering hermes 202 (got ${answer.status})`);
@@ -188,6 +188,77 @@ async function probeTyped(base: string) {
   out(`e2e: typed memo ok for memo ${id}`);
 }
 
+interface TypedMemo {
+  state: string;
+  route: string | null;
+  summary: { headline: string; detail: string; spoken: string } | null;
+  steps: { step: string }[];
+}
+
+/** Sends `text` as a typed memo in `mode`, requires `notified`, and returns the memo it created. */
+async function sendTyped(base: string, text: string, mode: string): Promise<TypedMemo> {
+  const send = Bun.spawn(
+    [
+      "bun",
+      "scripts/send-memo.ts",
+      "--text",
+      text,
+      "--url",
+      base,
+      "--token",
+      TOKEN,
+      "--mode",
+      mode,
+    ],
+    { cwd: ROOT, stdout: "ignore", stderr: "ignore" },
+  );
+  assert((await send.exited) === 0, `send-memo --text --mode ${mode} reached notified (exit 0)`);
+
+  const call = (path: string) =>
+    fetch(`${base}/v1${path}`, { headers: { authorization: `Bearer ${TOKEN}` } });
+  const list = (await (await call("/memos?limit=1")).json()) as { items: { id: string }[] };
+  const id = list.items[0]?.id;
+  assert(id, `GET /memos?limit=1 returns the ${mode} memo`);
+  return (await (await call(`/memos/${id}`)).json()) as TypedMemo;
+}
+
+/** Mode journal: routed to the (fake) journal destination, summarized from the template. */
+async function probeJournal(base: string) {
+  const memo = await sendTyped(base, "Heute war ein guter Tag.", "journal");
+  assert(memo.route === "journal", `mode journal routes to journal (got ${memo.route})`);
+  assert(
+    memo.summary?.headline === "Saved to journal",
+    `journal summary is the template (got ${memo.summary?.headline})`,
+  );
+  assert(memo.summary.detail.startsWith("Heute"), "journal summary detail is the memo text");
+  out("e2e: journal memo ok");
+}
+
+/** "tab server" names a fake tab; the prefix wins over the decider (mode `tab` alone parks, see probeRoute). */
+async function probeTab(base: string) {
+  const memo = await sendTyped(base, "tab server Starte die Tests.", "auto");
+  assert(memo.route === "herdr", `a tab prefix routes to herdr (got ${memo.route})`);
+  const { summary } = memo;
+  assert(summary, "tab memo has a summary");
+  assert(
+    summary.headline.startsWith("Sent to"),
+    `tab summary is the template (got ${summary.headline})`,
+  );
+  assert(
+    summary.detail === "Starte die Tests.",
+    `the delivered text has the prefix cut (got ${summary.detail})`,
+  );
+  out("e2e: tab memo ok");
+}
+
+/** Auto with no prefix and three destinations: the fake decider (hermes, 0.9) routes it. */
+async function probeDecide(base: string) {
+  const memo = await sendTyped(base, "Wie wird morgen das Wetter?", "auto");
+  assert(memo.route === "hermes", `the fake decider routes to hermes (got ${memo.route})`);
+  assert(memo.summary?.headline === "Headline", "hermes summary comes from the summarizer");
+  out("e2e: decided memo ok");
+}
+
 async function main() {
   dataDir = await mkdtemp(join(tmpdir(), "iris-e2e-"));
   const port = freePort();
@@ -219,6 +290,9 @@ async function main() {
   await probe(base);
   await probeRoute(base);
   await probeTyped(base);
+  await probeJournal(base);
+  await probeTab(base);
+  await probeDecide(base);
 }
 
 async function cleanup() {

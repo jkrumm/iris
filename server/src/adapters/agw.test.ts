@@ -82,9 +82,11 @@ describe("agw summarizer", () => {
     ]);
     const submitted = calls[0]?.body as {
       tool: string;
+      caller: string;
       params: { prompt: string; schema: unknown };
     };
     expect(submitted.tool).toBe("triage");
+    expect(submitted.caller).toBe("iris");
     expect(submitted.params.schema).toEqual(SUMMARY_JSON_SCHEMA);
     expect(submitted.params.prompt).toContain("buy milk");
     expect(submitted.params.prompt).toContain("Noted.");

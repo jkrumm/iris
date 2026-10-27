@@ -18,8 +18,11 @@ const Env = z.object({
   AGW_URL: z.preprocess(emptyToUndefined, z.url().optional()),
   HERMES_URL: z.preprocess(emptyToUndefined, z.url().optional()),
   HERMES_TOKEN: z.preprocess(emptyToUndefined, z.string().optional()),
-  // herdr's unix socket (`~/.config/herdr/herdr.sock` on the mini); unset leaves `GET /v1/herd` at 503.
+  // herdr's unix socket (`~/.config/herdr/herdr.sock` on the mini); unset leaves `GET /v1/herd` at 503 and the `herdr` destination unregistered.
   HERDR_SOCKET: z.preprocess(emptyToUndefined, z.string().optional()),
+  // The brain git checkout (`~/SourceRoot/brain` on the mini); set registers the `journal` destination, which
+  // writes notes into `Inbox/` and pushes. Unset leaves journal unregistered (not `degraded`).
+  BRAIN_DIR: z.preprocess(emptyToUndefined, z.string().optional()),
   // APNs credentials. The APNs notifier needs all four (else the log notifier runs, which is not
   // `degraded`). `APNS_KEY_P8` is the .p8 PEM, literal `\n` escapes allowed; `APNS_TOPIC` the bundle id.
   APNS_KEY_P8: z.preprocess(emptyToUndefined, z.string().optional()),

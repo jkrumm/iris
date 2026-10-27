@@ -183,15 +183,16 @@ Push to master deploys. LaunchAgent `com.jkrumm.iris` (KeepAlive, `ExitTimeOut` 
   Device tokens, the audio-gateway URL and the OTLP endpoint live in `op://mini/iris/*` (listed in
   `dotfiles-private/headless.refs`). Rotate a token: edit the field, `make secrets-seed` from the
   MacBook, `make launchd-restart`. `APNS_*` is unset (no `op://` ref yet, so not in `.env.mini.tpl`; add both at enrolment), so the log notifier runs.
-- `HERMES_URL` is composed in `launch.sh` from `HERMES_HOST` + `HERMES_PORT`.
+- `HERMES_URL` is composed in `launch.sh` from `HERMES_HOST` + `HERMES_PORT`. The journal pushes the brain checkout over HTTPS with the mini's headless credential helper (no prompt); `launch.sh` exports `BRAIN_DIR` only when the checkout exists.
+- agent-gateway jobs (`triage`, `decide`) are submitted with `caller: "iris"` at the top level of the `POST /api/jobs` body, for per-consumer spend attribution; an older gateway ignores it.
 
 
 ## Verify & Monitor
 
 - `make verify` — exit 0 iff `GET /health` answers `status: ok` (public; `{status, degraded[], inflight}`).
-  `degraded` lists `otel`, `device-tokens` and steps without a downstream (`transcribe`, `act`, `summarize`).
+  `degraded` lists `otel`, `device-tokens` and steps without a downstream (`transcribe`, `act` (no destination at all), `summarize`, and `decide` when two or more destinations have no decider).
 - `make smoke` — a real German 96 s recording (`fixtures/audio/de-90s.m4a`) through the pipeline to
-  `notified`. `IRIS_URL=https://iris.mini.<domain> make smoke` goes through the tailnet door. Uses the
+  `notified`; it pins `--mode hermes`, because an `auto` memo could land in the real brain or a live tab. `IRIS_URL=https://iris.mini.<domain> make smoke` goes through the tailnet door. Uses the
   `smoke` device token; the memo shows up in a Hermes session named by the memo id.
 - `make logs` (bounded tail of `~/Library/Logs/iris{.log,.err}` and `iris-deploy.log`),
   `make launchd-status`, `make launchd-restart` (refuses while `inflight > 0`, `FORCE=1` overrides).
@@ -225,14 +226,15 @@ Push to master deploys. LaunchAgent `com.jkrumm.iris` (KeepAlive, `ExitTimeOut` 
   the re-run steps and later. A store error in `completeStep` is bookkeeping, not a step failure: it
   propagates and the drive failure is logged.
 - **Downstream env** (all optional, empty = unset): `AUDIO_GATEWAY_URL`, `AGW_URL`, `HERMES_URL` +
-  `HERMES_TOKEN`, `HERDR_SOCKET` (`launch.sh` sets it on the mini). Without one, `/health` lists `transcribe` /
+  `HERMES_TOKEN`, `HERDR_SOCKET` and `BRAIN_DIR` (`launch.sh` sets both on the mini; `BRAIN_DIR` only when `~/SourceRoot/brain` exists). Each of
+  `BRAIN_DIR` (journal), `HERDR_SOCKET` (herdr, also the herd) and `HERMES_*` registers its destination on its own; a missing one is not
+  `degraded`, `act` is only when none is registered. Without the rest, `/health` lists `transcribe` /
   `summarize` / `act` / `speech` / `herd` in `degraded`; the first two park memos before that step (`summarize` always has a handler: journal and herdr use a template, a hermes memo fails the step without a summarizer), the last two
   answer 503 `unavailable`.
 - **Routing** (`routing/`, TDD §3 step 3), in order: a mode other than `auto` wins (source `mode`); a spoken prefix within the first 6 words
   (`journal|tagebuch`, `an hermes|hermes`, `tab <name>`; case and diacritics folded) routes (`prefix`); `memo.transcript` stays the raw speech-to-text and `act` / `summarize` cut the prefix again via `deliveredTranscript`;
-  with fewer than two registered destinations the only one wins (`default`, confidence 1, no spend; this is production until Wave 11, and what
-  `IRIS_FAKES` and `make smoke` rely on); otherwise `Decider` (agw `decide`, the job runner's hang guard): confidence ≥ 0.8 routes, else `needs_route`. A mode or prefix
-  naming an unregistered destination (journal and herdr until `compose()` registers them), a refusal, an unknown choice, herdr without a live tab, low confidence and a missing
+  with fewer than two registered destinations the only one wins (`default`, confidence 1, no spend); two or more (production since Wave 11: journal, herdr, hermes; `IRIS_FAKES` registers all three) turn the decider on; otherwise `Decider` (agw `decide`, the job runner's hang guard): confidence ≥ 0.8 routes, else `needs_route`. A mode or prefix
+  naming an unregistered destination (an unset `BRAIN_DIR`, `HERDR_SOCKET` or `HERMES_*`), a refusal, an unknown choice, herdr without a live tab, low confidence and a missing
   decider (`decide` in `/health` `degraded`, only with ≥ 2 destinations) park at `needs_route`. A decide infrastructure failure (transport error, hang-guard
   timeout, off-schema answer) throws: the route step fails and `POST /retry {from: route}` recovers it. With no destination at all neither `route`
   nor `act` is registered and the memo waits at `transcribed`. Every outcome is one `route_decisions` row written by `completeStep` with the step
