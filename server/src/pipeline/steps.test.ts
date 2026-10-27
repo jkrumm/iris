@@ -1,11 +1,13 @@
 import { describe, expect, it } from "bun:test";
 import { createMemoEvents } from "../memo/events.js";
+import { bindNeedsRouteAlerts } from "../notify/needs-route.js";
 import { createRunner } from "../memo/runner.js";
 import { fakeAudio, seedMemo, testStore } from "../memo/test-support.js";
-import type { Destinations } from "../ports/destination.js";
+import { TabGoneError, type Destination, type Destinations } from "../ports/destination.js";
 import {
   fakeDecider,
   fakeDestination,
+  fakeHerd,
   fakeNotifier,
   fakeSummarizer,
   fakeTranscriber,
@@ -19,7 +21,8 @@ function setup(
     /** Replaces the Hermes-only registry, e.g. to add a journal destination. */
     destinations?: Destinations;
     decider?: ReturnType<typeof fakeDecider>;
-    summarizer?: ReturnType<typeof fakeSummarizer>;
+    summarizer?: ReturnType<typeof fakeSummarizer> | null;
+    herd?: ReturnType<typeof fakeHerd>;
     notifier?: ReturnType<typeof fakeNotifier>;
   } = {},
 ) {
@@ -28,19 +31,24 @@ function setup(
   const transcriber = options.transcriber ?? fakeTranscriber({ result: { costUsd: 0.02 } });
   const destination =
     options.destination ?? fakeDestination({ result: { usage: { turns: 1 }, costUsd: 0.1 } });
-  const summarizer = options.summarizer ?? fakeSummarizer({ result: { costUsd: 0.001 } });
+  const summarizer =
+    options.summarizer === null
+      ? undefined
+      : (options.summarizer ?? fakeSummarizer({ result: { costUsd: 0.001 } }));
   const notifier = options.notifier ?? fakeNotifier();
   const handlers = createStepHandlers({
     store,
     audio,
     transcriber,
     destinations: options.destinations ?? { hermes: destination },
+    herd: options.herd,
     decider: options.decider,
     summarizer,
     notifier,
   });
-  const runner = createRunner({ store, handlers, events: createMemoEvents(), clock });
-  return { store, audio, handlers, runner, transcriber, destination, summarizer, notifier };
+  const events = createMemoEvents();
+  const runner = createRunner({ store, handlers, events, clock });
+  return { store, audio, handlers, runner, events, transcriber, destination, summarizer, notifier };
 }
 
 function seedWithSegments(store: ReturnType<typeof testStore>["store"], indices: number[]) {
@@ -60,13 +68,13 @@ describe("createStepHandlers", () => {
       destinations: { hermes: fakeDestination() },
       notifier: fakeNotifier(),
     });
-    expect(Object.keys(handlers).toSorted()).toEqual(["act", "notify", "route"]);
+    expect(Object.keys(handlers).toSorted()).toEqual(["act", "notify", "route", "summarize"]);
   });
 
   it("registers neither route nor act without a destination", () => {
     const { store } = testStore();
     const handlers = createStepHandlers({ store, audio: fakeAudio(), notifier: fakeNotifier() });
-    expect(Object.keys(handlers)).toEqual(["notify"]);
+    expect(Object.keys(handlers).toSorted()).toEqual(["notify", "summarize"]);
   });
 });
 
@@ -253,13 +261,136 @@ describe("summarize", () => {
       replyText: "r",
     };
     const result = await handlers.summarize?.({ memo });
-    expect(summarizer.calls).toEqual([
+    expect(summarizer?.calls).toEqual([
       { memoId: memo.id, route: "hermes", transcript: "t", replyText: "r" },
     ]);
     expect(result).toMatchObject({
       patch: { summary: { headline: "Headline", detail: "Detail", spoken: "Spoken." } },
       costUsd: 0.001,
     });
+  });
+});
+
+describe("summarize: templated routes", () => {
+  const herd = fakeHerd({
+    tabs: [{ id: "w1:t1", repo: "iris", label: "server", agentState: "idle", lastActivity: null }],
+  });
+
+  it("summarizes a journal memo without a summarizer, with no cost", async () => {
+    const { store, handlers } = setup({ summarizer: null });
+    const memo = {
+      ...seedMemo(store, "acted"),
+      route: "journal",
+      transcript: "heute\n war   gut",
+    };
+    expect(await handlers.summarize?.({ memo })).toEqual({
+      patch: {
+        summary: {
+          headline: "Saved to journal",
+          detail: "heute war gut",
+          spoken: "Saved to your journal.",
+        },
+      },
+    });
+  });
+
+  it("summarizes a herdr memo with the tab it went to, without calling the summarizer", async () => {
+    const { store, handlers, summarizer } = setup({ herd });
+    const memo = {
+      ...seedMemo(store, "acted"),
+      route: "herdr",
+      destinationRef: "w1:t1",
+      transcript: "run the tests",
+    };
+    expect(await handlers.summarize?.({ memo })).toEqual({
+      patch: {
+        summary: {
+          headline: "Sent to iris / server",
+          detail: "run the tests",
+          spoken: "Sent to iris server.",
+        },
+      },
+    });
+    expect(summarizer?.calls).toEqual([]);
+  });
+
+  it("falls back to a generic target when the tab is no longer in the herd", async () => {
+    for (const unreadable of [
+      setup({ herd: fakeHerd({ failWith: new Error("down") }) }),
+      setup(),
+    ]) {
+      const memo = {
+        ...seedMemo(unreadable.store, "acted"),
+        route: "herdr",
+        destinationRef: "w9:t9",
+        transcript: "x",
+      };
+      const result = await unreadable.handlers.summarize?.({ memo });
+      expect(result?.patch?.summary).toMatchObject({
+        headline: "Sent to tab",
+        spoken: "Sent to the tab.",
+      });
+    }
+  });
+
+  it("keeps the headline within 60 and the detail within 240 characters", async () => {
+    const long = fakeHerd({
+      tabs: [
+        {
+          id: "w1:t1",
+          repo: "r".repeat(50),
+          label: "l".repeat(50),
+          agentState: "idle",
+          lastActivity: null,
+        },
+      ],
+    });
+    const { store, handlers } = setup({ herd: long });
+    const memo = {
+      ...seedMemo(store, "acted"),
+      route: "herdr",
+      destinationRef: "w1:t1",
+      transcript: "word ".repeat(100),
+    };
+    const summary = (await handlers.summarize?.({ memo }))?.patch?.summary;
+    expect(summary?.headline.length).toBeLessThanOrEqual(60);
+    expect(summary?.detail.length).toBeLessThanOrEqual(240);
+    expect(summary?.detail.endsWith("…")).toBe(true);
+  });
+
+  it("strips a spoken prefix from the excerpt", async () => {
+    const { store, handlers } = setup({ summarizer: null });
+    const memo = {
+      ...seedMemo(store, "acted"),
+      route: "journal",
+      transcript: "Tagebuch: heute war gut",
+    };
+    store.completeStep({
+      id: memo.id,
+      step: "route",
+      from: "acted",
+      to: "acted",
+      patch: {
+        routeDecision: {
+          source: "prefix",
+          destination: "journal",
+          tab: null,
+          confidence: 1,
+          model: null,
+          costUsd: null,
+          reason: null,
+          outcome: "routed",
+        },
+      },
+    });
+    const result = await handlers.summarize?.({ memo });
+    expect(result?.patch?.summary?.detail).toBe("heute war gut");
+  });
+
+  it("still needs a summarizer for hermes", async () => {
+    const { store, handlers } = setup({ summarizer: null });
+    const memo = { ...seedMemo(store, "acted"), route: "hermes", transcript: "t" };
+    await expect(handlers.summarize?.({ memo })).rejects.toThrow("no summarizer configured");
   });
 });
 
@@ -354,7 +485,7 @@ describe("routing through the runner", () => {
       transcript: "Hermes, kauf Milch",
     });
     expect(destination.calls).toEqual([{ memoId: id, transcript: "kauf Milch" }]);
-    expect(summarizer.calls[0]?.transcript).toBe("kauf Milch");
+    expect(summarizer?.calls[0]?.transcript).toBe("kauf Milch");
     expect(store.listRouteDecisions(id)).toMatchObject([
       { source: "prefix", destination: "hermes", confidence: 1, outcome: "routed" },
     ]);
@@ -496,5 +627,121 @@ describe("routing through the runner", () => {
     expect(decider.calls).toHaveLength(1);
     expect(store.listRouteDecisions(id)).toHaveLength(1);
     expect([hermes.calls, journal.calls]).toEqual([[], []]);
+  });
+});
+
+const spoken = (text: string) => fakeTranscriber({ result: { text } });
+
+describe("herdr act", () => {
+  const herd = fakeHerd({
+    tabs: [
+      { id: "w1:t1", repo: "iris", label: "server", agentState: "idle", lastActivity: null },
+      { id: "w2:t1", repo: "dotfiles", label: "main", agentState: "idle", lastActivity: null },
+    ],
+  });
+  it("delivers the stripped transcript to the tab the prefix resolved to", async () => {
+    const herdr = fakeDestination({ result: { ref: "w1:t1", replyText: "" } });
+    const { store, runner, summarizer } = setup({
+      transcriber: spoken("Tab server run the tests"),
+      destinations: { herdr, hermes: fakeDestination() },
+      herd,
+    });
+    const { id } = seedWithSegments(store, [0]);
+    await runner.drive(id);
+
+    expect(herdr.calls).toEqual([{ memoId: id, transcript: "run the tests", tab: "w1:t1" }]);
+    expect(store.getMemo(id)).toMatchObject({
+      state: "notified",
+      route: "herdr",
+      destinationRef: "w1:t1",
+      summary: { headline: "Sent to iris / server", detail: "run the tests" },
+    });
+    expect(summarizer?.calls).toEqual([]);
+  });
+
+  it("passes no tab to a destination that is not herdr", async () => {
+    const hermes = fakeDestination();
+    const { store, runner } = setup({ destinations: { hermes } });
+    const { id } = seedWithSegments(store, [0]);
+    await runner.drive(id);
+    expect(hermes.calls[0]).toEqual({ memoId: id, transcript: "hello iris" });
+  });
+
+  it("fails the step when a herdr route has no tab", async () => {
+    const { store, handlers } = setup({ destinations: { herdr: fakeDestination() } });
+    const memo = { ...seedMemo(store, "routed"), transcript: "t", route: "herdr" };
+    await expect(handlers.act?.({ memo })).rejects.toThrow("herdr route has no tab");
+  });
+
+  it("parks a vanished tab, alerts once, and delivers after the answer names another tab", async () => {
+    const calls: { memoId: string; transcript: string; tab?: string }[] = [];
+    const herdr: Destination = {
+      async deliver(params) {
+        calls.push(params);
+        if (params.tab === "w1:t1") throw new TabGoneError(params.tab);
+        return { ref: params.tab ?? "", replyText: "" };
+      },
+    };
+    const { store, runner, events, notifier } = setup({
+      transcriber: spoken("Tab server run the tests"),
+      destinations: { herdr },
+      herd,
+    });
+    const alerts = bindNeedsRouteAlerts({ events, store, notifier });
+    const { id } = seedWithSegments(store, [0]);
+    await runner.drive(id);
+    await alerts.idle();
+
+    expect(store.getMemo(id)).toMatchObject({
+      state: "needs_route",
+      route: "herdr",
+      routeReason: "tab w1:t1 is gone",
+      routeSuggestion: "herdr",
+    });
+    expect(store.listRouteDecisions(id)).toMatchObject([
+      { source: "prefix", outcome: "routed", destination: "herdr", tab: "w1:t1" },
+      {
+        source: "prefix",
+        outcome: "needs_route",
+        destination: "herdr",
+        tab: "w1:t1",
+        reason: "tab w1:t1 is gone",
+      },
+    ]);
+    expect(notifier.needsRouteCalls).toMatchObject([{ reason: "tab w1:t1 is gone" }]);
+
+    // The runner leaves it parked, and the answer routes it as usual.
+    await runner.drive(id);
+    expect(calls).toHaveLength(1);
+    const answered = store.answerRoute({
+      id,
+      decision: {
+        source: "answer",
+        destination: "herdr",
+        tab: "w2:t1",
+        confidence: 1,
+        model: null,
+        costUsd: null,
+        reason: null,
+        outcome: "routed",
+      },
+    });
+    expect(answered).toBe(true);
+    await runner.drive(id);
+
+    expect(calls.map((c) => c.tab)).toEqual(["w1:t1", "w2:t1"]);
+    expect(store.getMemo(id)).toMatchObject({ state: "notified", destinationRef: "w2:t1" });
+  });
+
+  it("does not park on any other delivery failure", async () => {
+    const herdr = fakeDestination({ failWith: new Error("herdr: socket closed") });
+    const { store, runner } = setup({
+      transcriber: spoken("Tab server run the tests"),
+      destinations: { herdr },
+      herd,
+    });
+    const { id } = seedWithSegments(store, [0]);
+    await runner.drive(id);
+    expect(store.getMemo(id)).toMatchObject({ state: "failed", failedStep: "act" });
   });
 });

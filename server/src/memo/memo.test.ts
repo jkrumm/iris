@@ -27,11 +27,15 @@ describe("transition table", () => {
     expect(stateBefore(step)).toBe(from);
   });
 
-  it("lets only route park in needs_route", () => {
+  it("lets route and act park in needs_route, no other step", () => {
     expect(advance({ state: "transcribed", step: "route", outcome: "needs_route" })).toBe(
       "needs_route",
     );
-    expect(() => advance({ state: "routed", step: "act", outcome: "needs_route" })).toThrow(
+    expect(advance({ state: "routed", step: "act", outcome: "needs_route" })).toBe("needs_route");
+    expect(() => advance({ state: "acted", step: "summarize", outcome: "needs_route" })).toThrow(
+      IllegalTransitionError,
+    );
+    expect(() => advance({ state: "summarized", step: "notify", outcome: "needs_route" })).toThrow(
       IllegalTransitionError,
     );
   });

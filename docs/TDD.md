@@ -134,9 +134,14 @@ of the registered act adapters (`Partial<Record<"hermes" | "journal" | "herdr", 
 ```
 receiving ──complete──> received ──> transcribed ──> routed ──> acted ──> summarized ──> notified (terminal)
                                           └──> needs_route ──POST /route (answer)──> routed
+                                                  ^
+                           routed ──act: tab gone──┘
 any step ──error──> failed(step)   ──retry(from)──> <step>
 ```
 
+- **Parking:** only `route` and `act` may park a memo in `needs_route` (a handler result `outcome: "needs_route"`; any other step
+  that asks to fails). `act` parks when the herdr tab it was routed to has vanished. The answer is the same `POST /route`, which routes it back
+  to `act`.
 - **Idempotent steps:** each step is keyed by `(memo_id, step, attempt)`. On
   boot and on every `complete`, the runner drives each non-terminal memo from
   its last finished step.
@@ -204,7 +209,7 @@ the exported JSON Schema matches `contracts/schema`.
 ### Pipeline steps
 
 Shipped as five runner steps: `transcribe` (includes the concat below), `route`, `act`, `summarize`, `notify`. The journal/herdr
-destinations are Wave 11. The timeouts follow `agent-limits.md`
+destinations ship in Wave 11 (adapters and step logic here; registration in `compose()` follows). The timeouts follow `agent-limits.md`
 (idle watchdogs and 30-minute hang guards, not the budgets sketched earlier). Retention (audio deleted 30 days after `notified`) and automatic
 retries of transient errors are not built; recover with `POST /retry`.
 
@@ -216,12 +221,17 @@ retries of transient errors are not built; recover with `POST /retry`.
      titles).
    - Header: `x-audio-source: iris`.
    - The gateway handles chunking up to about 2 h. A 413 is terminal.
-3. **route:** only destinations with a registered act adapter are choices (`Destinations`; today Hermes only).
-   - If the memo's mode is not auto, it wins (`journal` → journal, `hermes` → hermes, `tab` → herdr). Source `mode`.
+3. **route:** only destinations with a registered act adapter are choices (`Destinations`).
+   - If the memo's mode is not auto, it wins (`journal` → journal, `hermes` → hermes, `tab` → herdr). Source `mode`. Mode `tab` carries no name:
+     it routes to the only live tab, and parks with "which tab?" when there are several or none.
    - Otherwise the prefix parser matches "journal|tagebuch", "an hermes|hermes", "tab <name>", case- and diacritic-insensitive, with the
      phrase starting within the first 6 words. Everything up to and including the phrase, plus trailing punctuation, is
      cut from the text `act` and `summarize` receive (`deliveredTranscript`, derived from the raw transcript whenever a `prefix` decision exists;
-     kept whole when nothing else was said). `memos.transcript` stays the raw speech-to-text, so a retry from `route` routes the same way. Source `prefix`; the tab is the spoken name.
+     kept whole when nothing else was said). `memos.transcript` stays the raw speech-to-text, so a retry from `route` routes the same way. Source `prefix`; the spoken name is a single word.
+   - **Spoken tab resolution:** a spoken tab name is resolved against the live `Herd` to a tab id, which is what the decision stores. It matches
+     a tab label, a workspace (repo) label or "repo label", ignoring case and diacritics. Exactly one match routes; none or several park with a
+     reason that names the spoken name (`no tab named "x"`, `several tabs match "x"`); a herd that cannot be read parks as "herd unavailable".
+     Every park of this kind carries `destination: herdr`.
    - A mode or prefix that names an unregistered destination parks at `needs_route` with the reason "<destination> not available".
    - With fewer than two registered destinations the step stops here: it routes to the only one (source `default`, confidence 1, no spend).
    - Otherwise call `decide` through the `Decider` port (agw `decide` job, hang guard like `triage`) with state = transcript (first 4k chars) + one line
@@ -233,17 +243,23 @@ retries of transient errors are not built; recover with `POST /retry`.
      off-schema answer) throws instead: the step fails and `POST /retry {from: route}` recovers it.
    - Every outcome is written to `route_decisions`; the step row records the `decide` cost and usage. Span attributes `route`,
      `route.source`, `route.confidence`; log `route.decided`.
-4. **act:** dispatches on `memo.route`; a route without a registered destination fails the step.
+4. **act:** dispatches on `memo.route`; a route without a registered destination fails the step. For `herdr` the tab comes from the latest
+   routed decision (`store.listRouteDecisions`, not a `correction`) and is passed to `Destination.deliver` as `tab`; a herdr route without one
+   fails the step. A `TabGoneError` from the destination parks the memo instead of failing it: `act` returns `needs_route` with a decision
+   row (outcome `needs_route`, destination `herdr`, the tab, reason "tab <id> is gone", the source of the decision that routed it), and the
+   answer re-runs `act`. Any other delivery failure fails the step as before.
 
    | Destination | Action |
    |-|-|
    | journal | Write `brain/Inbox/<YYYY-MM-DD>-<slug>.md` (frontmatter `title`, `date`, `tags: [journal, iris]`, `source: iris`, `memo`) under the brain-sync lock (`brain/docs/brain-access.md`), then commit and push following that doc |
-   | herdr | `pane.send_text` (the transcript) + `send_keys Enter` on the resolved pane over the herdr socket. Fails if the tab is gone, which leads to `needs_route` |
+   | herdr | `pane.send_text` (the transcript) + `pane.send_keys ["enter"]` on the tab's agent pane over the herdr socket (the pane comes from `session.snapshot`: the tab's agent, else its only pane). A tab missing from the snapshot is `TabGoneError`, which leads to `needs_route`. `ref` is the tab id, `reply_text` stays empty |
    | hermes | `POST /api/sessions {id: thread_id ?? new, source: "iris"}` (201/409 = OK) → `POST /api/sessions/:id/chat/stream {message}`. Collect the final assistant text from the SSE, store it as `reply_text`, and upsert `threads` |
 5. **summarize:** agw `triage` with the schema
    `{headline (≤60), detail (≤240), spoken (≤2 sentences)}` over the
    destination, transcript excerpt and reply. Journal and herdr skip the model
-   and use templates (no spend).
+   and use templates (no spend, no summarizer needed): headline "Saved to journal" / "Sent to <repo> / <label>" (≤60; "Sent to tab" when the
+   herd no longer lists the tab), detail the whitespace-collapsed transcript excerpt (≤240), spoken one sentence. Hermes keeps the model and
+   fails the step without a summarizer.
 6. **notify:**
    - a Live Activity `update` (priority 5) for each phase change, plus a final
      `end` with the result content state and `dismissal-date` = now + 15 min;

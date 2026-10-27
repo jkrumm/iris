@@ -60,12 +60,12 @@ Never start dev servers for a human to look at; simulators are fine, shut them d
   of (memo, ports); a handler is registered only when its port is provided (`route` and `act` need at least one registered destination;
   `act` dispatches on `memo.route`).
 - `server/src/routing/` — `prefix.ts` (`parsePrefix`, pure), `route.ts` (`route`: mode → prefix → only destination → `Decider`, always
-  returns a `RouteDecision`, never throws), `index.ts`.
+  returns a `RouteDecision`, never throws; a spoken or mode `tab` is resolved against the herd to a tab id), `index.ts`.
 - `server/src/adapters/` — `sqlite.ts` (+ `sqlite-migrations.ts`, `PRAGMA user_version`), `sqlite-devices.ts`
   (`DeviceStore`, same db), `audio-fs.ts` (segments + `combined.m4a`), `speech-fs.ts` (`<id>.mp3` + `<id>.txt`),
   and the downstream adapters (audio-gateway transcriber + ffmpeg combiner, `audio-gateway-speaker.ts`, Hermes, agw (`agw.ts`: `triage` summarizer
   and the shared job runner; `agw-decider.ts`: the `decide` job),
-  `herdr.ts` over the unix socket, log notifier), and the APNs pair: `notifier-apns.ts` (`Notifier` over an `ApnsTransport`)
+  `herdr.ts` over the unix socket: the `Herd` and the `herdr` `Destination`, log notifier), and the APNs pair: `notifier-apns.ts` (`Notifier` over an `ApnsTransport`)
   and `apns-node.ts` (the transport on `@parse/node-apn`; `apns-test-support.ts` generates test keys and certs).
 - `server/src/ports/` — `audio.ts` (`AudioStore`, `AudioCombiner`, `Recording`), `clock.ts` (system, fixed and manual clocks),
   `transcriber.ts`, `speaker.ts` (+ `SpeechCache`), `devices.ts` (`DeviceStore`: devices, APNs tokens, Live Activity tokens),
@@ -225,18 +225,23 @@ Push to master deploys. LaunchAgent `com.jkrumm.iris` (KeepAlive, `ExitTimeOut` 
   propagates and the drive failure is logged.
 - **Downstream env** (all optional, empty = unset): `AUDIO_GATEWAY_URL`, `AGW_URL`, `HERMES_URL` +
   `HERMES_TOKEN`, `HERDR_SOCKET` (`launch.sh` sets it on the mini). Without one, `/health` lists `transcribe` /
-  `summarize` / `act` / `speech` / `herd` in `degraded`; the first three park memos before that step, the last two
+  `summarize` / `act` / `speech` / `herd` in `degraded`; the first two park memos before that step (`summarize` always has a handler: journal and herdr use a template, a hermes memo fails the step without a summarizer), the last two
   answer 503 `unavailable`.
 - **Routing** (`routing/`, TDD §3 step 3), in order: a mode other than `auto` wins (source `mode`); a spoken prefix within the first 6 words
   (`journal|tagebuch`, `an hermes|hermes`, `tab <name>`; case and diacritics folded) routes (`prefix`); `memo.transcript` stays the raw speech-to-text and `act` / `summarize` cut the prefix again via `deliveredTranscript`;
   with fewer than two registered destinations the only one wins (`default`, confidence 1, no spend; this is production until Wave 11, and what
   `IRIS_FAKES` and `make smoke` rely on); otherwise `Decider` (agw `decide`, the job runner's hang guard): confidence ≥ 0.8 routes, else `needs_route`. A mode or prefix
-  naming an unregistered destination (journal and herdr until Wave 11), a refusal, an unknown choice, herdr without a live tab, low confidence and a missing
+  naming an unregistered destination (journal and herdr until `compose()` registers them), a refusal, an unknown choice, herdr without a live tab, low confidence and a missing
   decider (`decide` in `/health` `degraded`, only with ≥ 2 destinations) park at `needs_route`. A decide infrastructure failure (transport error, hang-guard
   timeout, off-schema answer) throws: the route step fails and `POST /retry {from: route}` recovers it. With no destination at all neither `route`
   nor `act` is registered and the memo waits at `transcribed`. Every outcome is one `route_decisions` row written by `completeStep` with the step
   (`patch.routeDecision`); the park reason is the latest row's `reason` (`store.listRouteDecisions`), a low-confidence park keeps the model's guess
   in `destination`. Because the transcript is never rewritten, a retry from `route` routes by the same prefix again.
+  A spoken tab name (`tab <name>`, one word) matches a tab label, a workspace label or "repo label" (case and diacritics folded) on the live herd and stores the
+  tab id; none or several matches park naming the spoken name, an unreadable herd parks as "herd unavailable". Mode `tab` has no name: the only live tab, else
+  "which tab?". `act` passes the routing decision's tab to `Destination.deliver({tab})`; a tab that has vanished by then (`TabGoneError`) parks the memo
+  at `needs_route` again (a decision row, reason "tab <id> is gone", the routing decision's source), `act` being the second step that may park.
+  `summarize` for journal and herdr is a template (no model call, no summarizer needed).
 - **Answering a park** (`POST /memos/:id/route`, `MemoService.route`): `store.answerRoute` is one transaction (`needs_route` → `routed` compare-and-set,
   `memos.route` set, an `answer` decision row), then `memo.updated` (`routed`, step `route`) is published and the runner drives on with `act`. A second answer
   while the first drives is 409 `bad_state` (the memo left `needs_route`), which is the idempotency story. After `act`, `store.recordCorrection` only appends a
@@ -261,7 +266,9 @@ Push to master deploys. LaunchAgent `com.jkrumm.iris` (KeepAlive, `ExitTimeOut` 
   multi-range and malformed headers get the whole body, a range past the end gets 416.
 - **Speech request** to audio-gateway: `POST /v1/audio/speech {input, response_format: "mp3"}` with `x-audio-source: iris`.
   No `model` or `voice`: the gateway owns both and detects the language. A non-2xx is 503 `unavailable`.
-- **herdr:** one connection per request, newline-delimited JSON, `session.snapshot` (verified on herdr 0.9.3, protocol 22).
+- **herdr:** one connection per request, newline-delimited JSON, `session.snapshot`, `pane.send_text`, `pane.send_keys` (verified on herdr 0.9.3,
+  protocol 22; request shapes in the `adapters/herdr.ts` header). Delivery types the transcript into the tab's agent pane and presses `enter` (the agent's
+  answer stays in its terminal, `replyText` is empty).
   A HerdTab is a tab of a non-separator workspace (labels starting `── ` are sidebar dividers), `repo` is the workspace
   label, `agentState` is the tab's `agent_status` (unknown values become `unknown`). The snapshot has no timestamps, so
   `lastActivity` is always null. A 5 s hang guard, a refused connection or a bad answer is 503.

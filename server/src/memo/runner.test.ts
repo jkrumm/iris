@@ -110,11 +110,21 @@ describe("drive", () => {
     expect(store.getMemo(id)?.state).toBe("needs_route");
   });
 
-  it("fails the step when a non-route handler asks to park", async () => {
-    const { store, runner } = setup({ act: async () => ({ outcome: "needs_route" }) });
+  it("parks a memo whose act handler cannot deliver and does not advance it", async () => {
+    const { store, runner, calls } = setup({ act: async () => ({ outcome: "needs_route" }) });
     const { id } = seedMemo(store, "routed");
     await runner.drive(id);
-    expect(store.getMemo(id)).toMatchObject({ state: "failed", failedStep: "act" });
+    expect(store.getMemo(id)?.state).toBe("needs_route");
+    expect(calls).toEqual([]);
+    await runner.drive(id);
+    expect(store.getMemo(id)?.state).toBe("needs_route");
+  });
+
+  it("fails the step when a handler that may not park asks to", async () => {
+    const { store, runner } = setup({ summarize: async () => ({ outcome: "needs_route" }) });
+    const { id } = seedMemo(store, "acted");
+    await runner.drive(id);
+    expect(store.getMemo(id)).toMatchObject({ state: "failed", failedStep: "summarize" });
   });
 
   it("is single-flight: concurrent drives share one run and run each handler once", async () => {

@@ -3,7 +3,7 @@ import type { Decider } from "../ports/decider.js";
 import { hasChoice, type DestinationName } from "../ports/destination.js";
 import type { Herd, HerdTab } from "../ports/herd.js";
 import { log } from "../telemetry/log.js";
-import { parsePrefix } from "./prefix.js";
+import { fold, parsePrefix } from "./prefix.js";
 
 /** At or above this confidence the model's answer routes the memo; below it the memo parks. */
 export const CONFIDENCE_THRESHOLD = 0.8;
@@ -56,14 +56,44 @@ function decision(
   };
 }
 
+/**
+ * The live tab a spoken name points at: it matches a tab label, a workspace (repo) label or "repo label",
+ * ignoring case and diacritics. Without a name (mode `tab`) the only live tab is the answer. Anything but
+ * exactly one match is a reason to park.
+ */
+async function resolveTab(params: {
+  spoken: string | null;
+  herd: Herd | undefined;
+  memoId: string;
+}): Promise<{ tab: string } | { reason: string }> {
+  const { spoken, herd, memoId } = params;
+  const tabs = await liveTabs(herd, memoId);
+  if (tabs === null) return { reason: "herd unavailable" };
+
+  const matches =
+    spoken === null
+      ? tabs
+      : tabs.filter((tab) => {
+          const name = fold(spoken);
+          return [tab.label, tab.repo, `${tab.repo} ${tab.label}`].some((c) => fold(c) === name);
+        });
+  const [first] = matches;
+  if (first && matches.length === 1) return { tab: first.id };
+  if (spoken === null) return { reason: "which tab?" };
+  const what = clip(`"${spoken}"`);
+  return { reason: matches.length === 0 ? `no tab named ${what}` : `several tabs match ${what}` };
+}
+
 /** A destination named by mode or prefix: routed when registered, else parked with a reason. */
-function named(params: {
+async function named(params: {
   source: "mode" | "prefix";
   destination: DestinationName;
-  tab: string | null;
+  spokenTab: string | null;
   registered: readonly DestinationName[];
-}): RouteDecision {
-  const { source, destination, tab, registered } = params;
+  herd: Herd | undefined;
+  memoId: string;
+}): Promise<RouteDecision> {
+  const { source, destination, spokenTab, registered, herd, memoId } = params;
   if (!registered.includes(destination)) {
     return decision({
       source,
@@ -71,26 +101,33 @@ function named(params: {
       reason: `${destination} not available`,
     });
   }
-  return decision({ source, outcome: "routed", destination, tab, confidence: 1 });
+  if (destination !== "herdr") {
+    return decision({ source, outcome: "routed", destination, confidence: 1 });
+  }
+  const resolved = await resolveTab({ spoken: spokenTab, herd, memoId });
+  if ("reason" in resolved) {
+    return decision({ source, outcome: "needs_route", destination, reason: resolved.reason });
+  }
+  return decision({ source, outcome: "routed", destination, tab: resolved.tab, confidence: 1 });
 }
 
 const herdLine = (tab: HerdTab) => `- ${tab.id}: ${tab.repo} / ${tab.label} (${tab.agentState})`;
 
-/** Live tabs, or none when herdr is not a choice or the herd cannot be read. */
-async function liveTabs(herd: Herd | undefined, memoId: string): Promise<HerdTab[]> {
-  if (!herd) return [];
+/** Live tabs; null when there is no herd or it cannot be read. */
+async function liveTabs(herd: Herd | undefined, memoId: string): Promise<HerdTab[] | null> {
+  if (!herd) return null;
   try {
     return await herd.snapshot();
   } catch (err) {
     log("route.herd_unavailable", { memo: memoId, error: errorMessage(err) });
-    return [];
+    return null;
   }
 }
 
 async function decide(input: RouteInput & { decider: Decider }): Promise<RouteDecision> {
   const { memoId, transcript, destinations, decider } = input;
   const herdrChoice = destinations.includes("herdr");
-  const tabs = herdrChoice ? await liveTabs(input.herd, memoId) : [];
+  const tabs = herdrChoice ? ((await liveTabs(input.herd, memoId)) ?? []) : [];
   const state = [
     transcript.slice(0, STATE_TRANSCRIPT_MAX),
     ...(tabs.length > 0 ? ["", "Open terminal tabs:", ...tabs.map(herdLine)] : []),
@@ -139,8 +176,8 @@ async function decide(input: RouteInput & { decider: Decider }): Promise<RouteDe
 }
 
 /**
- * Decides where a transcribed memo goes. In order: an explicit mode, a spoken prefix, the only registered
- * destination, the decision model. A memo that cannot be routed is a `needs_route` decision with a reason;
+ * Decides where a transcribed memo goes. In order: an explicit mode, a spoken prefix (a spoken tab name is
+ * resolved against the live herd to a tab id), the only registered destination, the decision model. A memo that cannot be routed is a `needs_route` decision with a reason;
  * a failing decider throws, so the step fails and can be retried.
  */
 export async function route(input: RouteInput): Promise<RouteDecision> {
@@ -149,8 +186,10 @@ export async function route(input: RouteInput): Promise<RouteDecision> {
     return named({
       source: "mode",
       destination: MODE_DESTINATION[mode],
-      tab: null,
+      spokenTab: null,
       registered: destinations,
+      herd: input.herd,
+      memoId: input.memoId,
     });
   }
 
@@ -159,8 +198,10 @@ export async function route(input: RouteInput): Promise<RouteDecision> {
     return named({
       source: "prefix",
       destination: prefix.destination,
-      tab: prefix.tab ?? null,
+      spokenTab: prefix.tab ?? null,
       registered: destinations,
+      herd: input.herd,
+      memoId: input.memoId,
     });
   }
 
