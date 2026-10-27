@@ -470,9 +470,14 @@ it.
   `scripts/mbm` → `npx -y mobilebuildmcp@<pinned> <workflow> <tool>`, with
   `--style minimal` and its Sentry telemetry disabled through the environment
   (verify the variable name at setup).
-- **Vendored skills** (`.claude/skills/`, MIT; license files copied, version
-  pinned in a `VENDORED.md`): `swiftui-pro`, `swift-concurrency-pro` and
-  `swift-testing-pro` from `twostraws/*`.
+- **Global Apple layer (dotfiles, reused by every Apple repo):**
+  - `rules/swift.md`, a lazy rule on Swift/XcodeGen paths;
+  - vendored MIT skills `swiftui-pro`, `swift-concurrency-pro`,
+    `swift-testing-pro` and `swiftdata-pro` (from `twostraws/*`, pinned in
+    `dotfiles/skills/VENDORED.md`);
+  - the owner's `apple-dev` skill (toolchain + recipes).
+- **Repo rules:** `.claude/rules/apple.md` and `server.md` hold the Iris
+  invariants only, each pointing at its TDD section.
 - **Own skills:**
 
   | Skill | Covers |
