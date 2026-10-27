@@ -111,7 +111,7 @@ const RESOURCE = {
     "service.name": env.OTEL_SERVICE_NAME,
     "service.version": pkg.version,
     "deployment.environment": env.NODE_ENV,
-    ...parseResourceAttributesEnv(process.env["OTEL_RESOURCE_ATTRIBUTES"] ?? ""),
+    ...parseResourceAttributesEnv(env.OTEL_RESOURCE_ATTRIBUTES),
   }),
 };
 

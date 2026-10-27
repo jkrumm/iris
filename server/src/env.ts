@@ -10,7 +10,8 @@ const Env = z.object({
   IRIS_DEVICE_TOKENS: z.string().default(""),
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   // Optional with no default: unset keeps local dev and every test console-only.
-  OTEL_EXPORTER_OTLP_ENDPOINT: z.url().optional(),
+  OTEL_EXPORTER_OTLP_ENDPOINT: z.preprocess((v) => (v === "" ? undefined : v), z.url().optional()),
+  OTEL_RESOURCE_ATTRIBUTES: z.string().default(""),
   OTEL_SERVICE_NAME: z.string().default("iris-server"),
   OTEL_EXPORTER_OTLP_HEADERS: z.string().default(""),
   OTEL_EXPORTER_OTLP_AUTHORIZATION: z
