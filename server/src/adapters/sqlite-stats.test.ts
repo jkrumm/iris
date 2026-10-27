@@ -118,13 +118,15 @@ describe("sqlite stats", () => {
     ]);
   });
 
-  it("computes step medians over done steps in pipeline order (odd, even, single)", () => {
+  it("computes step medians per step and route in pipeline order (odd, even, single)", () => {
     const { stats, memo, step } = seeded();
-    const a = memo({ createdAt: at(10, 27) });
-    const b = memo({ createdAt: at(10, 27) });
-    const c = memo({ createdAt: at(10, 27) });
-    const d = memo({ createdAt: at(10, 27) });
-    // transcribe: 1000, 5000, 3000 -> odd, median 3000
+    const a = memo({ createdAt: at(10, 27), route: "hermes" });
+    const b = memo({ createdAt: at(10, 27), route: "hermes" });
+    const c = memo({ createdAt: at(10, 27), route: "hermes" });
+    const d = memo({ createdAt: at(10, 27), route: "hermes" });
+    const j = memo({ createdAt: at(10, 27), route: "journal" });
+    const parked = memo({ createdAt: at(10, 27), route: null });
+    // transcribe, hermes: 1000, 5000, 3000 -> odd, median 3000
     for (const [id, ms] of [
       [a, 1000],
       [b, 5000],
@@ -132,7 +134,7 @@ describe("sqlite stats", () => {
     ] as const) {
       step({ memoId: id, step: "transcribe", startedAt: at(10, 27, 12), durationMs: ms });
     }
-    // route: 100, 201, 300, 700 -> even, mean of 201 and 300 = 250.5 -> 251
+    // route, hermes: 100, 201, 300, 700 -> even, mean of 201 and 300 = 250.5 -> 251
     for (const [id, ms] of [
       [a, 100],
       [b, 700],
@@ -141,7 +143,10 @@ describe("sqlite stats", () => {
     ] as const) {
       step({ memoId: id, step: "route", startedAt: at(10, 27, 12), durationMs: ms });
     }
-    step({ memoId: a, step: "notify", startedAt: at(10, 27, 12), durationMs: 40 });
+    // the same step on another route is its own baseline; an unrouted memo reports "unrouted"
+    step({ memoId: j, step: "transcribe", startedAt: at(10, 27, 12), durationMs: 800 });
+    step({ memoId: j, step: "act", startedAt: at(10, 27, 12), durationMs: 12 });
+    step({ memoId: parked, step: "transcribe", startedAt: at(10, 27, 12), durationMs: 400 });
     // not counted: failed, still running, and a done step that started before the window
     step({
       memoId: b,
@@ -153,9 +158,11 @@ describe("sqlite stats", () => {
     step({ memoId: c, step: "act", startedAt: at(10, 27, 12), status: "running" });
     step({ memoId: d, step: "act", startedAt: at(9, 1), durationMs: 5 });
     expect(stats.summary({ days: 7 }).stepMedians).toEqual([
-      { step: "transcribe", medianMs: 3000, samples: 3 },
-      { step: "route", medianMs: 251, samples: 4 },
-      { step: "notify", medianMs: 40, samples: 1 },
+      { step: "transcribe", route: "hermes", medianMs: 3000, samples: 3 },
+      { step: "transcribe", route: "journal", medianMs: 800, samples: 1 },
+      { step: "transcribe", route: "unrouted", medianMs: 400, samples: 1 },
+      { step: "route", route: "hermes", medianMs: 251, samples: 4 },
+      { step: "act", route: "journal", medianMs: 12, samples: 1 },
     ]);
   });
 

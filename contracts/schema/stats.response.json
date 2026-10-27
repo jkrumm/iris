@@ -75,6 +75,9 @@
           "medianMs": {
             "type": "integer"
           },
+          "route": {
+            "type": "string"
+          },
           "samples": {
             "type": "integer"
           },
@@ -92,6 +95,7 @@
         },
         "required": [
           "step",
+          "route",
           "medianMs",
           "samples"
         ],

@@ -13,11 +13,14 @@
     { "weekStart": "2026-03-09", "count": 3 }
   ],
   "stepMedians": [
-    { "step": "transcribe", "medianMs": 4120, "samples": 7 },
-    { "step": "route", "medianMs": 1850, "samples": 7 },
-    { "step": "act", "medianMs": 2310, "samples": 6 },
-    { "step": "summarize", "medianMs": 6400, "samples": 5 },
-    { "step": "notify", "medianMs": 180, "samples": 5 }
+    { "step": "transcribe", "route": "herdr", "medianMs": 3980, "samples": 2 },
+    { "step": "transcribe", "route": "hermes", "medianMs": 4120, "samples": 3 },
+    { "step": "transcribe", "route": "journal", "medianMs": 4410, "samples": 1 },
+    { "step": "transcribe", "route": "unrouted", "medianMs": 3600, "samples": 1 },
+    { "step": "route", "route": "hermes", "medianMs": 1850, "samples": 3 },
+    { "step": "act", "route": "hermes", "medianMs": 2310, "samples": 3 },
+    { "step": "summarize", "route": "hermes", "medianMs": 6400, "samples": 3 },
+    { "step": "notify", "route": "herdr", "medianMs": 175, "samples": 2 }
   ],
   "costPerRoute": [
     { "route": "herdr", "costUsd": 0, "memos": 2 },

@@ -119,7 +119,7 @@ All under `/v1`, `Authorization: Bearer <token>`. Errors: `{error: <code>, messa
 | `GET /memos/:id/audio` | `audio/mp4`, concatenated on first request and cached; `Range` → 206 / 416; 404; 409 while `receiving` |
 | `GET /memos/:id/speech` | `audio/mpeg` TTS of `summary.spoken`, else `replyText`, cached; 404; 409 with neither; 503 without audio-gateway |
 | `GET /herd` | `{tabs: [{id, repo, label, agentState, lastActivity}]}` from herdr; 503 without `HERDR_SOCKET` or when herdr is unreachable |
-| `GET /stats?days=<n>` | `{days, from, to, perDay, perWeek, stepMedians, costPerRoute}` over the last `n` local days (default 30, 1..365 else 400); read-only SQL/JS aggregates, `null` route = `unrouted` |
+| `GET /stats?days=<n>` | `{days, from, to, perDay, perWeek, stepMedians (per step and route, with n), costPerRoute}` over the last `n` local days (default 30, 1..365 else 400); read-only SQL/JS aggregates, `null` route = `unrouted` |
 | `GET /events` | SSE: `ready`, `memo.updated` per state change, plus `memo.done` when result-ready, `: keepalive` every 15 s |
 
 Codes: not_found 404, conflict / bad_state 409, missing_segments 422, too_large 413, bad_request 400, unavailable 503.

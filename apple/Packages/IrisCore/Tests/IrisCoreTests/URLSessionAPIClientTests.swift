@@ -300,7 +300,13 @@ struct URLSessionAPIClientTests {
     let stats = try await server.makeClient().stats(StatsQuery(days: 7))
     #expect(stats.days == 7)
     #expect(stats.perDay.contains(StatsDayCount(date: "2026-03-12", route: "unrouted", count: 1)))
-    #expect(stats.stepMedians.map(\.step) == [.transcribe, .route, .act, .summarize, .notify])
+    #expect(
+      stats.stepMedians.map(\.step) == [
+        .transcribe, .transcribe, .transcribe, .transcribe, .route, .act, .summarize, .notify,
+      ])
+    #expect(
+      stats.stepMedians.first { $0.step == .transcribe && $0.route == "hermes" }
+        == StatsStepMedian(step: .transcribe, route: "hermes", medianMs: 4120, samples: 3))
     #expect(stats.costPerRoute.first { $0.route == "hermes" }?.costUsd == 0.0421)
     #expect(server.request?.url.path == "/v1/stats")
     #expect(server.request?.queryItems == [URLQueryItem(name: "days", value: "7")])

@@ -54,23 +54,32 @@ export function createSqliteStatsStore(params: { db: Database; clock: Clock }): 
         .map(([weekStart, count]) => ({ weekStart, count }))
         .sort((x, y) => x.weekStart.localeCompare(y.weekStart));
 
-      const durations = new Map<Step, number[]>();
+      // Keyed by step and the memo's route: a step's speed depends on where the memo went (journal vs hermes act).
+      const durations = new Map<string, { step: Step; route: string; ms: number[] }>();
       const stepRows = db
-        .query<{ step: Step; started_at: string; finished_at: string }, [string]>(
-          `SELECT step, started_at, finished_at FROM memo_steps
-           WHERE status = 'done' AND finished_at IS NOT NULL AND started_at >= ?`,
+        .query<{ step: Step; route: string; started_at: string; finished_at: string }, [string]>(
+          `SELECT s.step, COALESCE(m.route, '${UNROUTED}') AS route, s.started_at, s.finished_at
+           FROM memo_steps s JOIN memos m ON m.id = s.memo_id
+           WHERE s.status = 'done' AND s.finished_at IS NOT NULL AND s.started_at >= ?`,
         )
         .all(since);
       for (const row of stepRows) {
         const ms = Math.max(0, Date.parse(row.finished_at) - Date.parse(row.started_at));
-        durations.set(row.step, [...(durations.get(row.step) ?? []), ms]);
+        const key = `${row.step}\t${row.route}`;
+        const group = durations.get(key) ?? { step: row.step, route: row.route, ms: [] };
+        group.ms.push(ms);
+        durations.set(key, group);
       }
-      const stepMedians = STEPS.flatMap((step) => {
-        const samples = (durations.get(step) ?? []).sort((a, b) => a - b);
-        return samples.length === 0
-          ? []
-          : [{ step, medianMs: median(samples), samples: samples.length }];
-      });
+      const stepMedians = [...durations.values()]
+        .sort(
+          (x, y) => STEPS.indexOf(x.step) - STEPS.indexOf(y.step) || x.route.localeCompare(y.route),
+        )
+        .map(({ step, route, ms }) => ({
+          step,
+          route,
+          medianMs: median(ms.sort((x, y) => x - y)),
+          samples: ms.length,
+        }));
 
       const costPerRoute = db
         .query<{ route: string; costUsd: number; memos: number }, [string]>(
