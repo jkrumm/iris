@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { chmod, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, readdir, rm, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fixedClock } from "../ports/clock.js";
@@ -274,6 +274,95 @@ describe("journal destination", () => {
     expect(await readdir(vault.brain)).not.toContain("Inbox");
     expect(await commitCount(vault.brain)).toBe(before);
     expect((await readdir(vault.root)).includes("brain-sync.lock")).toBe(true);
+  });
+});
+
+const lockExists = async () => (await readdir(vault.root)).includes("brain-sync.lock");
+
+async function holdLock(pid?: string, ageSeconds = 0) {
+  await mkdir(vault.lockDir);
+  if (pid !== undefined) await writeFile(join(vault.lockDir, "pid"), pid);
+  const born = new Date(Date.now() - ageSeconds * 1000);
+  await utimes(vault.lockDir, born, born);
+}
+
+/** A pid that is certainly gone: a child that has exited and been reaped. */
+async function deadPid(): Promise<number> {
+  const child = Bun.spawn(["true"]);
+  await child.exited;
+  return child.pid;
+}
+
+const deliver = (extra: Partial<JournalDestinationOptions> = {}) =>
+  journal(extra).deliver({ memoId: MEMO_A, transcript: "Call Anna." });
+
+describe("brain-sync lock protocol", () => {
+  it("writes its own pid while it holds the lock and removes the lock after", async () => {
+    const seen: Array<string | undefined> = [];
+    await deliver({
+      git: async (args, cwd, opts) => {
+        if (args[0] === "add") {
+          seen.push(await readFile(join(vault.lockDir, "pid"), "utf8").catch(() => undefined));
+        }
+        return bunGitRunner(args, cwd, opts);
+      },
+    });
+    expect(seen).toEqual([String(process.pid)]);
+    expect(await lockExists()).toBe(false);
+  });
+
+  it("waits for a live holder and never reclaims it", async () => {
+    // The parent is alive for the whole test run and not us.
+    await holdLock(String(process.ppid), 3600);
+    await expect(deliver()).rejects.toThrow(/brain-sync lock is busy/);
+    expect(await readFile(join(vault.lockDir, "pid"), "utf8")).toBe(String(process.ppid));
+    expect(await readdir(vault.brain)).not.toContain("Inbox");
+  });
+
+  it("proceeds once a live holder lets go", async () => {
+    await holdLock(String(process.ppid));
+    setTimeout(() => void rm(vault.lockDir, { recursive: true }), 20);
+    const { ref } = await deliver({ lockAttempts: 6 });
+    expect(ref).toBe("Inbox/2026-03-05-call-anna.md");
+    expect(await lockExists()).toBe(false);
+  });
+
+  it("reclaims the lock of a dead pid, even a fresh one", async () => {
+    await holdLock(String(await deadPid()));
+    const { ref } = await deliver();
+    expect(ref).toBe("Inbox/2026-03-05-call-anna.md");
+    expect(await lockExists()).toBe(false);
+  });
+
+  it("treats a pidless lock younger than 60 s as live", async () => {
+    await holdLock(undefined, 30);
+    await expect(deliver()).rejects.toThrow(/brain-sync lock is busy/);
+    expect(await lockExists()).toBe(true);
+    expect(await readdir(vault.brain)).not.toContain("Inbox");
+  });
+
+  it("reclaims a pidless lock of 60 s or more", async () => {
+    await holdLock(undefined, 61);
+    const { ref } = await deliver();
+    expect(ref).toBe("Inbox/2026-03-05-call-anna.md");
+    expect(await lockExists()).toBe(false);
+  });
+
+  it("treats a pid file that holds no pid like a pidless lock", async () => {
+    await holdLock("garbage", 61);
+    await deliver();
+    expect(await lockExists()).toBe(false);
+  });
+
+  it("does not remove a lock someone else re-took while it worked", async () => {
+    await deliver({
+      git: async (args, cwd, opts) => {
+        // brain-sync reclaimed our lock mid-delivery and now holds it.
+        if (args[0] === "commit") await writeFile(join(vault.lockDir, "pid"), String(process.ppid));
+        return bunGitRunner(args, cwd, opts);
+      },
+    });
+    expect(await readFile(join(vault.lockDir, "pid"), "utf8")).toBe(String(process.ppid));
   });
 });
 

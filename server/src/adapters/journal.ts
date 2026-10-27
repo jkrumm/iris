@@ -1,4 +1,4 @@
-import { link, mkdir, readdir, rm, writeFile } from "node:fs/promises";
+import { link, mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { Clock } from "../ports/clock.js";
@@ -18,6 +18,8 @@ const DEFAULT_LOCK_DIR = join(homedir(), "Library", "Caches", "brain-sync.lock")
 const DEFAULT_LOCK_ATTEMPTS = 5;
 const DEFAULT_LOCK_BASE_DELAY_MS = 1_000;
 const LOCK_MAX_DELAY_MS = 10_000;
+// A lock with no pid file this young is a run mid-publish, not an abandoned one (brain-sync.sh).
+const PIDLESS_LOCK_GRACE_MS = 60_000;
 const DEFAULT_PUSH_TIMEOUT_MS = 30_000;
 const GIT_TIMEOUT_MS = 60_000;
 const GIT_TIMEOUT_CODE = 124;
@@ -226,21 +228,85 @@ async function findNoteOf(inboxDir: string, memoId: string): Promise<string | un
   return undefined;
 }
 
+/** `mkdir` is the atomic claim; false when the directory already exists. */
+async function mkdirExclusive(lockDir: string): Promise<boolean> {
+  try {
+    await mkdir(lockDir);
+    return true;
+  } catch (err) {
+    if (errnoCode(err) === "EEXIST") return false;
+    throw err;
+  }
+}
+
+/** The pid brain-sync's protocol keeps in `<lockDir>/pid`; undefined when absent or not a pid. */
+async function readLockPid(lockDir: string): Promise<number | undefined> {
+  const raw = await readFile(join(lockDir, "pid"), "utf8").catch((err: unknown) => {
+    if (isMissing(err)) return "";
+    throw err;
+  });
+  return /^\d+$/.test(raw.trim()) && Number(raw) > 0 ? Number(raw) : undefined;
+}
+
+/**
+ * Whether the lock on disk belongs to a run that may still be going. A live pid (EPERM counts: it
+ * exists, owned by someone else) is live; a pidless lock is live while younger than the grace, a
+ * run that is mid-publish; a lock that vanished meanwhile is left to the next attempt's `mkdir`.
+ */
+async function holderIsLive(lockDir: string): Promise<boolean> {
+  const pid = await readLockPid(lockDir);
+  if (pid !== undefined) {
+    try {
+      process.kill(pid, 0);
+      return true;
+    } catch (err) {
+      return errnoCode(err) === "EPERM";
+    }
+  }
+  try {
+    return Date.now() - (await stat(lockDir)).mtimeMs < PIDLESS_LOCK_GRACE_MS;
+  } catch (err) {
+    if (isMissing(err)) return true;
+    throw err;
+  }
+}
+
+/** Removes the lock only while `<lockDir>/pid` is still ours: a lock someone else re-took is theirs. */
+async function releaseLock(lockDir: string): Promise<void> {
+  try {
+    if ((await readLockPid(lockDir)) === process.pid)
+      await rm(lockDir, { recursive: true, force: true });
+  } catch {
+    // Best effort: a stale lock is reclaimed by the next taker.
+  }
+}
+
+/** One attempt at brain-sync's lock; true once `<lockDir>/pid` holds our pid. */
+async function tryTakeLock(lockDir: string): Promise<boolean> {
+  if (!(await mkdirExclusive(lockDir))) {
+    if (await holderIsLive(lockDir)) return false;
+    // Dead holder or abandoned pidless lock: reclaim. Losing the race to another reclaimer is just busy.
+    await rm(lockDir, { recursive: true, force: true });
+    if (!(await mkdirExclusive(lockDir))) return false;
+  }
+  try {
+    await writeFile(join(lockDir, "pid"), String(process.pid));
+  } catch (err) {
+    await rm(lockDir, { recursive: true, force: true }).catch(() => {});
+    throw err;
+  }
+  return true;
+}
+
 async function acquireLock(lockDir: string, attempts: number, baseDelayMs: number): Promise<void> {
   for (let attempt = 0; ; attempt++) {
-    try {
-      await mkdir(lockDir);
-      return;
-    } catch (err) {
-      if (errnoCode(err) !== "EEXIST") throw err;
-      if (attempt >= attempts) {
-        throw new Error(
-          `journal: brain-sync lock is busy after ${attempts + 1} attempts (${lockDir})`,
-          { cause: err },
-        );
-      }
-      await Bun.sleep(Math.min(baseDelayMs * 2 ** attempt, LOCK_MAX_DELAY_MS));
+    if (await tryTakeLock(lockDir)) return;
+    if (attempt >= attempts) {
+      throw new Error(
+        `journal: brain-sync lock is busy after ${attempts + 1} attempts (${lockDir})`,
+      );
     }
+    await Bun.sleep(Math.min(baseDelayMs * 2 ** attempt, LOCK_MAX_DELAY_MS));
   }
 }
 
@@ -309,7 +375,7 @@ export function createJournalDestination(opts: JournalDestinationOptions): Desti
       await mustGit(["commit", "-m", `journal: ${title}`, "--", ref]);
       return { ref, committed: true };
     } finally {
-      await rm(lockDir, { recursive: true, force: true }).catch(() => {});
+      await releaseLock(lockDir);
     }
   }
 
