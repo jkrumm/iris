@@ -405,6 +405,12 @@ instead of the chrome-devtools MCP (same engine, scriptable for 23 shots; it exi
 signal). Mockups are approximations: the Liquid Glass is CSS blur plus a rim, SF Pro comes from the host font stack, and nothing is device-verified.
 Open design questions for the owner are at the end of `docs/design/README.md`. Stopped: owner reviews mockups; then the fleet starts R1 from the Fleet backlog.
 
+## Fleet (from 2026-10-27 evening)
+
+The foundation chain (Waves 1–9) is complete. The fleet takes over: a mother (`docs/waves/handoff/mother.md` is its
+memory) turns the backlog below into Wave 10+ sections, one active at a time, each executed by a lead that fans out
+workers. The mother writes the next wave here.
+
 ## Fleet backlog (for the long-running fleet: mother → lead → workers)
 
 Not waves of this chain. The fleet's mother turns these into active waves, one at a time,
