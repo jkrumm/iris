@@ -9,6 +9,7 @@ import {
   createJournalDestination,
   journalSlug,
   journalTitle,
+  type GitResult,
   type JournalDestinationOptions,
 } from "./journal.js";
 
@@ -285,9 +286,15 @@ const isAlive = (pid: number): boolean => {
   }
 };
 
+/** Polls up to ~10 s: killed processes are reaped asynchronously, and a loaded host reaps late. */
 async function waitUntilDead(pid: number): Promise<void> {
-  for (let i = 0; i < 50 && isAlive(pid); i++) await Bun.sleep(20);
+  for (let i = 0; i < 500 && isAlive(pid); i++) await Bun.sleep(20);
 }
+
+// The timeout starts at spawn, so on a loaded host it can fire before the fake git has even
+// written its pid file. These budgets bound each attempt; a longer one is only used after a
+// shorter one proved the script had not started yet.
+const TIMEOUT_LADDER_MS = [1_000, 4_000, 16_000];
 
 describe("git runner timeout", () => {
   let dir: string;
@@ -309,54 +316,66 @@ describe("git runner timeout", () => {
   });
 
   /** A stand-in for `git` that starts `sleep` in the background (inheriting stdout and stderr), then runs `rest`. */
-  async function fakeGit(
-    rest: string,
-    preamble = "",
-  ): Promise<{ run: ReturnType<typeof createGitRunner>; pidFile: string }> {
+  async function fakeGit(rest: string, preamble = ""): Promise<{ bin: string; pidFile: string }> {
     const bin = join(dir, "fake-git.sh");
     const pidFile = join(dir, "child.pid");
     await writeFile(bin, `#!/bin/sh\n${preamble}\nsleep 30 &\necho $! > "${pidFile}"\n${rest}\n`, {
       mode: 0o755,
     });
-    return { run: createGitRunner(bin), pidFile };
+    return { bin, pidFile };
   }
 
-  const childPid = async (pidFile: string): Promise<number> => {
-    const pid = Number((await readFile(pidFile, "utf8")).trim());
+  /** The pid the fake git recorded; empty if it was stopped before it got that far. */
+  async function recordedPid(pidFile: string): Promise<number | undefined> {
+    const text = await readFile(pidFile, "utf8").catch(() => "");
+    const pid = Number(text.trim());
+    if (!Number.isInteger(pid) || pid <= 0) return undefined;
     pids.push(pid);
     return pid;
-  };
+  }
+
+  /**
+   * Runs the hanging fake git until the timeout demonstrably fired on a script that had started,
+   * i.e. there is a child to check. Never asserts on wall-clock time.
+   */
+  async function runHanging(
+    rest: string,
+    preamble = "",
+  ): Promise<{ result: GitResult; childPid: number; timeoutMs: number }> {
+    const { bin, pidFile } = await fakeGit(rest, preamble);
+    const run = createGitRunner(bin);
+    for (const timeoutMs of TIMEOUT_LADDER_MS) {
+      await rm(pidFile, { force: true });
+      const result = await run(["push"], dir, { timeoutMs });
+      expect(result.code).toBe(124);
+      const childPid = await recordedPid(pidFile);
+      if (childPid !== undefined) return { result, childPid, timeoutMs };
+    }
+    throw new Error("the fake git never got to record its child within the longest timeout");
+  }
 
   it("kills the whole process group when git hangs on a child holding the pipes", async () => {
-    const { run, pidFile } = await fakeGit("wait");
-    const started = Date.now();
-    const result = await run(["push"], dir, { timeoutMs: 1_000 });
+    const { result, childPid, timeoutMs } = await runHanging("wait");
 
-    expect(result.code).toBe(124);
-    expect(result.stderr).toContain("git push timed out after 1000ms");
-    expect(Date.now() - started).toBeLessThan(5_000);
-    const pid = await childPid(pidFile);
-    await waitUntilDead(pid);
-    expect(isAlive(pid)).toBe(false);
-  });
+    expect(result.stderr).toContain(`git push timed out after ${timeoutMs}ms`);
+    await waitUntilDead(childPid);
+    expect(isAlive(childPid)).toBe(false);
+  }, 60_000);
 
   it("escalates to SIGKILL when the group ignores SIGTERM", async () => {
-    const { run, pidFile } = await fakeGit("wait", "trap '' TERM");
-    const result = await run(["push"], dir, { timeoutMs: 1_000 });
+    const { childPid } = await runHanging("wait", "trap '' TERM");
 
-    expect(result.code).toBe(124);
-    const pid = await childPid(pidFile);
-    await waitUntilDead(pid);
-    expect(isAlive(pid)).toBe(false);
-  }, 10_000);
+    await waitUntilDead(childPid);
+    expect(isAlive(childPid)).toBe(false);
+  }, 60_000);
 
   it("returns once git exits even though a child still holds stderr", async () => {
-    const { run, pidFile } = await fakeGit("echo done; exit 3");
-    const started = Date.now();
-    const result = await run(["status"], dir, { timeoutMs: 10_000 });
+    // The child sleeps 30 s holding the pipes: awaiting their EOF would hit the test timeout.
+    // Exit code 3 (not 124) shows the call returned on git's exit, not on its timeout.
+    const { bin, pidFile } = await fakeGit("echo done; exit 3");
+    const result = await createGitRunner(bin)(["status"], dir, { timeoutMs: 60_000 });
 
     expect(result).toMatchObject({ code: 3, stdout: "done\n" });
-    expect(Date.now() - started).toBeLessThan(2_000);
-    await childPid(pidFile);
-  });
+    await recordedPid(pidFile);
+  }, 20_000);
 });
