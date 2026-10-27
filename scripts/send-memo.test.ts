@@ -94,6 +94,12 @@ describe("parseCliArgs", () => {
     expect(() => parseCliArgs(["--text", "  "], { IRIS_TOKEN: "t" })).toThrow(UsageError);
   });
 
+  it("accepts --mode chat", () => {
+    expect(parseCliArgs(["--text", "hi", "--mode", "chat"], { IRIS_TOKEN: "t" })).toMatchObject({
+      mode: "chat",
+    });
+  });
+
   it("rejects bad usage", () => {
     expect(() => parseCliArgs(["a.m4a"], {})).toThrow(UsageError);
     expect(() => parseCliArgs([], { IRIS_TOKEN: "t" })).toThrow(UsageError);

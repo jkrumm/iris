@@ -9,7 +9,8 @@
         "auto",
         "journal",
         "hermes",
-        "tab"
+        "tab",
+        "chat"
       ],
       "type": "string"
     },

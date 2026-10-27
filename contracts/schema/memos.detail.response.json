@@ -63,7 +63,8 @@
         "auto",
         "journal",
         "hermes",
-        "tab"
+        "tab",
+        "chat"
       ],
       "type": "string"
     },
@@ -208,6 +209,9 @@
           "type": "null"
         }
       ]
+    },
+    "threadId": {
+      "type": "string"
     },
     "transcript": {
       "anyOf": [

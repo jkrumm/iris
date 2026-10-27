@@ -85,4 +85,17 @@ export const MIGRATIONS: readonly string[] = [
   );
   CREATE INDEX route_decisions_memo ON route_decisions (memo_id, id);
   `,
+  // Threads: a Hermes session that one or more memos ran in. `id` is the Hermes session id.
+  `
+  CREATE TABLE threads (
+    id TEXT PRIMARY KEY,
+    kind TEXT NOT NULL CHECK (kind IN ('chat', 'hermes')),
+    title TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    last_memo_id TEXT
+  );
+  ALTER TABLE memos ADD COLUMN thread_id TEXT;
+  CREATE INDEX memos_thread ON memos (thread_id);
+  `,
 ];

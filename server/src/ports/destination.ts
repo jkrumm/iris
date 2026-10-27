@@ -10,9 +10,16 @@ export interface Delivery {
 export interface Destination {
   /**
    * Hands the transcript to the destination and waits for its reply. `tab` is the resolved herdr tab id
-   * and only set for `herdr`. Throws `TabGoneError` when that tab no longer exists.
+   * and only set for `herdr`. Throws `TabGoneError` when that tab no longer exists. `chat` (Hermes only) opens or continues a
+   * side-effect-free conversation instead of a task; `threadId` continues that existing Hermes session, else a new one named after the memo.
    */
-  deliver(params: { memoId: string; transcript: string; tab?: string }): Promise<Delivery>;
+  deliver(params: {
+    memoId: string;
+    transcript: string;
+    tab?: string;
+    chat?: boolean;
+    threadId?: string;
+  }): Promise<Delivery>;
 }
 
 /** The tab a memo was routed to has been closed since: the memo needs a new route, retrying cannot help. */

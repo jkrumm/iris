@@ -341,6 +341,103 @@ describe("completeStep", () => {
   });
 });
 
+const thread = (id: string, title = "first words") => ({
+  id,
+  kind: "chat" as const,
+  title,
+});
+
+function act(store: ReturnType<typeof testStore>["store"], id: string, patch: MemoPatch) {
+  store.markStepStarted({ id, step: "act" });
+  return store.completeStep({ id, step: "act", from: "routed", to: "acted", patch });
+}
+
+describe("threads", () => {
+  it("upserts the thread and links the memo in the act completion", () => {
+    const { store, db, clock } = testStore();
+    const { id } = seedMemo(store, "routed");
+    expect(store.getMemo(id)?.threadId).toBeNull();
+    expect(act(store, id, { destinationRef: id, thread: thread(id) })).toBe(true);
+    expect(store.getMemo(id)?.threadId).toBe(id);
+    expect(db.query("SELECT * FROM threads").all()).toEqual([
+      {
+        id,
+        kind: "chat",
+        title: "first words",
+        created_at: clock.now().toISOString(),
+        updated_at: clock.now().toISOString(),
+        last_memo_id: id,
+      },
+    ]);
+  });
+
+  it("keeps kind, title and created_at of an existing thread and moves updated_at and last_memo_id", () => {
+    const { store, db, clock } = testStore();
+    const first = seedMemo(store, "routed");
+    act(store, first.id, { thread: thread("session", "first words") });
+    const created = clock.now().toISOString();
+    clock.advance(5_000);
+    const second = seedMemo(store, "routed");
+    act(store, second.id, {
+      thread: { id: "session", kind: "hermes", title: "other words" },
+    });
+    expect(store.getMemo(second.id)?.threadId).toBe("session");
+    expect(db.query("SELECT * FROM threads").all()).toEqual([
+      {
+        id: "session",
+        kind: "chat",
+        title: "first words",
+        created_at: created,
+        updated_at: clock.now().toISOString(),
+        last_memo_id: second.id,
+      },
+    ]);
+  });
+
+  it("writes no thread when the compare-and-set loses", () => {
+    const { store, db } = testStore();
+    const { id } = seedMemo(store, "acted");
+    expect(act(store, id, { thread: thread("session") })).toBe(false);
+    expect(db.query("SELECT * FROM threads").all()).toEqual([]);
+    expect(store.getMemo(id)?.threadId).toBeNull();
+  });
+
+  it("resetForRetry from act unlinks the memo but keeps the thread", () => {
+    const { store, db } = testStore();
+    const { id } = seedMemo(store, "routed");
+    act(store, id, { thread: thread("session") });
+    store.markStepStarted({ id, step: "summarize" });
+    store.markStepFailed({ id, step: "summarize", error: "boom" });
+
+    store.resetForRetry({ id, from: "summarize" });
+    expect(store.getMemo(id)?.threadId).toBe("session");
+
+    store.markStepFailed({ id, step: "act", error: "boom" });
+    store.resetForRetry({ id, from: "act" });
+    expect(store.getMemo(id)?.threadId).toBeNull();
+    expect(db.query("SELECT id FROM threads").all()).toEqual([{ id: "session" }]);
+  });
+
+  it("rejects an unknown kind", () => {
+    const { store } = testStore();
+    const { id } = seedMemo(store, "routed");
+    expect(() =>
+      act(store, id, { thread: { id: "s", kind: "other" as never, title: "t" } }),
+    ).toThrow();
+  });
+
+  it("adds threads on top of an existing database", () => {
+    const db = new Database(":memory:");
+    migrate(db, MIGRATIONS.slice(0, 5));
+    const id = crypto.randomUUID();
+    db.query(
+      "INSERT INTO memos (id, mode, device, started_at, state, created_at, updated_at) VALUES (?, 'auto', 'iphone', 't', 'transcribed', 't', 't')",
+    ).run(id);
+    const store = createSqliteMemoStore({ db, clock: testStore().clock });
+    expect(store.getMemo(id)?.threadId).toBeNull();
+  });
+});
+
 describe("route decisions", () => {
   const decision = {
     source: "decide" as const,

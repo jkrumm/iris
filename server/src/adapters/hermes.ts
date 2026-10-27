@@ -9,6 +9,21 @@ const DEFAULT_IDLE_MS = 300_000;
 const SESSION_TIMEOUT_MS = 30_000;
 const ERROR_BODY_MAX = 300;
 
+/** Hermes session `source` of a normal memo and of a chat. */
+const SOURCE_MEMO = "iris";
+const SOURCE_CHAT = "iris-chat";
+
+/**
+ * Sent as the per-turn `system_message` of every chat turn. Hermes appends it to the session's system prompt for that
+ * turn only and does not persist it, so a later reply into the thread must send it again.
+ */
+export const CHAT_SYSTEM_MESSAGE = [
+  "This is a conversation, not a task. Answer conversationally and concisely.",
+  "Take NO actions with side effects: make no tool calls that write, send, schedule, create, delete or change anything,",
+  "anywhere (files, messages, calendar, notes, tickets, services, settings). Read-only lookups are fine when needed to answer.",
+  "If the user asks you to do something that would change state, say what you would do and that this chat cannot do it.",
+].join(" ");
+
 const AssistantCompleted = z.object({
   content: z.string(),
   partial: z.boolean(),
@@ -55,8 +70,10 @@ function parseData(frame: SseFrame): unknown {
 }
 
 /**
- * Delivers a transcript to Hermes: a fresh session named after the memo, one chat turn over
- * the named-event SSE stream, and the final assistant text as the reply.
+ * Delivers a transcript to Hermes: a session (fresh and named after the memo, or the given thread), one chat turn over
+ * the named-event SSE stream, and the final assistant text as the reply. A chat turn also carries
+ * `CHAT_SYSTEM_MESSAGE` and opens its session with `source: "iris-chat"`. Note: the Hermes API server maps a `source` it does
+ * not know (today everything but its own platform names) to `api_server`, so the thread's kind is Iris's own record (`threads.kind`), not Hermes's.
  */
 export function createHermesDestination(opts: HermesDestinationOptions): Destination {
   const doFetch = opts.fetch ?? fetch;
@@ -67,15 +84,15 @@ export function createHermesDestination(opts: HermesDestinationOptions): Destina
   };
 
   return {
-    async deliver({ memoId, transcript }): Promise<Delivery> {
-      const sessionId = memoId;
+    async deliver({ memoId, transcript, chat = false, threadId }): Promise<Delivery> {
+      const sessionId = threadId ?? memoId;
       const attrs = { memo_id: memoId, downstream: "hermes" };
 
       await withSpan("hermes.create_session", attrs, async (span) => {
         const res = await doFetch(new URL("/api/sessions", opts.baseUrl).toString(), {
           method: "POST",
           headers,
-          body: JSON.stringify({ id: sessionId, source: "iris" }),
+          body: JSON.stringify({ id: sessionId, source: chat ? SOURCE_CHAT : SOURCE_MEMO }),
           signal: AbortSignal.timeout(SESSION_TIMEOUT_MS),
         });
         span.setAttributes({ status: res.status });
@@ -96,7 +113,10 @@ export function createHermesDestination(opts: HermesDestinationOptions): Destina
         const res = await doFetch(url, {
           method: "POST",
           headers,
-          body: JSON.stringify({ message: transcript }),
+          body: JSON.stringify({
+            message: transcript,
+            ...(chat && { system_message: CHAT_SYSTEM_MESSAGE }),
+          }),
           signal: controller.signal,
         })
           .catch((err: unknown) => {

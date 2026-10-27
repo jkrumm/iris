@@ -24,6 +24,7 @@ const MODE_DESTINATION: Record<Exclude<MemoMode, "auto">, DestinationName> = {
   journal: "journal",
   hermes: "hermes",
   tab: "herdr",
+  chat: "hermes",
 };
 
 export interface RouteDecision extends RouteDecisionInput {

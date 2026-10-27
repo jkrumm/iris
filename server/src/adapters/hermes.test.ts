@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { createHermesDestination } from "./hermes.js";
+import { CHAT_SYSTEM_MESSAGE, createHermesDestination } from "./hermes.js";
 
 const MEMO_ID = "0f8fad5b-d9cb-469f-a165-70867728950e";
 const BASE_URL = "http://127.0.0.1:1234/v1";
@@ -106,6 +106,43 @@ describe("hermes destination", () => {
         "Bearer test-token",
       );
     }
+  });
+
+  it("opens a chat session with source iris-chat and sends the no-side-effects system message", async () => {
+    const { calls, destination } = fakeHermes({
+      chat: () => sseResponse([completed("a monad is..."), done]),
+    });
+    const delivery = await destination.deliver({
+      memoId: MEMO_ID,
+      transcript: "what is a monad?",
+      chat: true,
+    });
+    expect(delivery.ref).toBe(MEMO_ID);
+    expect(JSON.parse(String(calls[0]?.init.body))).toEqual({
+      id: MEMO_ID,
+      source: "iris-chat",
+    });
+    expect(JSON.parse(String(calls[1]?.init.body))).toEqual({
+      message: "what is a monad?",
+      system_message: CHAT_SYSTEM_MESSAGE,
+    });
+    expect(CHAT_SYSTEM_MESSAGE).toContain("NO actions with side effects");
+  });
+
+  it("continues the given thread instead of the memo's own session", async () => {
+    const { calls, destination } = fakeHermes({
+      chat: () => sseResponse([completed("and again"), done]),
+    });
+    const delivery = await destination.deliver({
+      memoId: MEMO_ID,
+      transcript: "go on",
+      chat: true,
+      threadId: "thread-1",
+    });
+    expect(delivery.ref).toBe("thread-1");
+    expect(JSON.parse(String(calls[0]?.init.body))).toMatchObject({ id: "thread-1" });
+    expect(calls[1]?.url).toBe("http://127.0.0.1:1234/api/sessions/thread-1/chat/stream");
+    expect(JSON.parse(String(calls[1]?.init.body))).toHaveProperty("system_message");
   });
 
   it("reassembles frames split across chunks and omits usage when run.completed has none", async () => {

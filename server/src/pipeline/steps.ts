@@ -1,4 +1,10 @@
-import type { HandlerStep, Memo, RouteDecisionInput, Summary } from "../memo/memo.js";
+import {
+  THREAD_TITLE_MAX,
+  type HandlerStep,
+  type Memo,
+  type RouteDecisionInput,
+  type Summary,
+} from "../memo/memo.js";
 import type { StepHandler } from "../memo/runner.js";
 import type { MemoStore } from "../memo/store.js";
 import type { AudioStore } from "../ports/audio.js";
@@ -45,6 +51,10 @@ function templatedSummary(params: {
     spoken: `Sent to ${tab ? `${tab.repo} ${tab.label}` : "the tab"}.`,
   };
 }
+
+/** The first ~60 characters of the transcript, whitespace collapsed. */
+const threadTitle = (transcript: string) =>
+  clip(transcript.replace(/\s+/g, " ").trim(), THREAD_TITLE_MAX);
 
 const errorMessage = (err: unknown) => (err instanceof Error ? err.message : String(err));
 
@@ -171,12 +181,14 @@ export function createStepHandlers(deps: {
       };
       if (name === "herdr" && tab === undefined) return park(WHICH_TAB, null);
 
+      const chat = memo.mode === "chat";
       let delivery;
       try {
         delivery = await destination.deliver({
           memoId: memo.id,
           transcript,
           ...(tab !== undefined && { tab }),
+          ...(chat && name === "hermes" && { chat }),
         });
       } catch (err) {
         if (err instanceof TabGoneError) return park(err.message, err.tab);
@@ -187,7 +199,18 @@ export function createStepHandlers(deps: {
         cost_usd: delivery.costUsd,
       });
       return {
-        patch: { destinationRef: delivery.ref, replyText: delivery.replyText },
+        patch: {
+          destinationRef: delivery.ref,
+          replyText: delivery.replyText,
+          // Every hermes delivery is a thread: its ref is the Hermes session id.
+          ...(name === "hermes" && {
+            thread: {
+              id: delivery.ref,
+              kind: chat ? ("chat" as const) : ("hermes" as const),
+              title: threadTitle(transcript),
+            },
+          }),
+        },
         usage: delivery.usage,
         ...(delivery.costUsd !== undefined && { costUsd: delivery.costUsd }),
       };
