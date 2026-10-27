@@ -470,14 +470,18 @@ it.
   `scripts/mbm` → `npx -y mobilebuildmcp@<pinned> <workflow> <tool>`, with
   `--style minimal` and its Sentry telemetry disabled through the environment
   (verify the variable name at setup).
-- **Global Apple layer (dotfiles, reused by every Apple repo):**
-  - `rules/swift.md`, a lazy rule on Swift/XcodeGen paths;
+- **Swift layer, repo-local** (Iris is the only Swift project; other apps will
+  use Tauri / React Native):
+  - `.claude/rules/swift.md`;
   - vendored MIT skills `swiftui-pro`, `swift-concurrency-pro`,
     `swift-testing-pro` and `swiftdata-pro` (from `twostraws/*`, pinned in
-    `dotfiles/skills/VENDORED.md`);
-  - the owner's `apple-dev` skill (toolchain + recipes).
-- **Repo rules:** `.claude/rules/apple.md` and `server.md` hold the Iris
-  invariants only, each pointing at its TDD section.
+    `.claude/skills/VENDORED.md`);
+  - `.claude/skills/apple-dev` (toolchain + recipes).
+
+  Only the machine toolchain (XcodeGen, `xcodes`, `pymobiledevice3`) lands in
+  dotfiles.
+- **Iris rules:** `.claude/rules/apple.md` and `server.md` hold the Iris
+  invariants, each pointing at its TDD section.
 - **Own skills:**
 
   | Skill | Covers |

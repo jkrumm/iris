@@ -3,7 +3,7 @@
 **Goal:** `iris-server` runs on the mini behind `iris.mini.<domain>` and passes a real
 end-to-end memo, with the trace visible in HyperDX. The monorepo also carries the
 contracts, the Apple scaffold (XcodeGen + local packages + CI), the agent tooling
-(skills, rules, CLI verification harness, plus a global Swift/Apple setup in dotfiles), and an HTML mockup round of the UI, ready for the
+(Swift rules, vendored + own skills, CLI verification harness), and an HTML mockup round of the UI, ready for the
 long-running fleet that builds R1–R5.
 **Gate:** `make check` green (it grows: server → contracts → apple), then `/review` with its
 findings resolved. From Wave 4 on, `make verify` too. Apple waves without a local Xcode
@@ -144,15 +144,13 @@ standing contract says deploys are routine. So Wave 3 spawns this wave with
       `*.ts.net`, the real domain pattern and token shapes in tracked files.
 **Left behind:**
 
-## Wave 6 — Global Swift / Apple dev setup (dotfiles)            <!-- status: pending -->
-Lands in `~/SourceRoot/dotfiles` (direct-to-master, its own AGENTS.md and `make` link
-targets), not in iris. It is reusable for every future Apple repo (shutterflow and WeatherOrb
-apps later). Read `docs/research/2026-10-27-agent-dev-tooling.md` and
-`docs/research/2026-10-27-swiftui-design.md` first. Follow `dotfiles/docs/agents-md.md` and the
-density rule of the global CLAUDE.md (every line changes a decision). Before editing
-dotfiles, run `rd agents` and `git -C ~/SourceRoot/dotfiles status`. If another agent is working in
-dotfiles or its tree is dirty, touch only your own new files and commit only those paths.
-- [ ] `dotfiles/rules/swift.md`, lazy, with `paths: ["**/*.swift", "**/Package.swift",
+## Wave 6 — Swift / Apple dev layer (in iris)            <!-- status: pending -->
+Iris is the owner's only Swift project (shutterflow and WeatherOrb will use Tauri / React
+Native with basalt-ui), so the generic Swift layer lives in this repo's `.claude/`, not in
+dotfiles. Only machine toolchain setup goes into dotfiles. Read
+`docs/research/2026-10-27-agent-dev-tooling.md` and `docs/research/2026-10-27-swiftui-design.md`
+first.
+- [ ] `.claude/rules/swift.md`, lazy, with `paths: ["**/*.swift", "**/Package.swift",
       "**/project.yml", "**/*.xcconfig"]`. It covers:
   - Swift 6 language mode with complete concurrency checking, MainActor default for app
     targets, and actors / `Sendable` instead of locks;
@@ -163,17 +161,15 @@ dotfiles or its tree is dirty, touch only your own new files and commit only tho
   - no force unwraps or `try!` outside tests;
   - `swift format`;
   - research-first for any iOS 26/27 / macOS 26 API (the training cutoff predates them);
-  - repo truth in AGENTS.md / TDD;
-  - the vendored skills to load (below).
-  Keep it ≤ 80 lines and modelled on `rules/typescript.md` and `rules/code-style.md`.
+  - the vendored skills to load.
+  Keep it ≤ 80 lines and modelled on `~/SourceRoot/dotfiles/rules/typescript.md`.
 - [ ] Vendor `twostraws/SwiftUI-Agent-Skill` (`swiftui-pro`) and the sibling
       `swift-concurrency-pro`, `swift-testing-pro` and `swiftdata-pro` skills (see
-      `twostraws/Swift-Agent-Skills`) into `dotfiles/skills/<name>/`. Verify each LICENSE is MIT
-      and copy it in, pinning commit SHAs in `dotfiles/skills/VENDORED.md` (with an update
-      procedure). Link them with dotfiles' existing skills `make` target and confirm they show up
-      in `~/.claude/skills/`.
-- [ ] `dotfiles/skills/apple-dev/SKILL.md`, the owner's own: the mini's Apple toolchain and
-      recipes, each command actually run once on the mini:
+      `twostraws/Swift-Agent-Skills`) into `.claude/skills/<name>/`. Verify each LICENSE is MIT
+      and copy it in, pinning commit SHAs in `.claude/skills/VENDORED.md` with an update
+      procedure.
+- [ ] `.claude/skills/apple-dev/SKILL.md`: the mini's Apple toolchain and recipes, each
+      command actually run once on the mini:
   - Xcode via `xcodes` at `~/.local/bin` (brew build broken), `xcode-select`, simulator
     runtimes (`xcodes runtimes`), XcodeGen;
   - `xcodebuild` build/test/archive with `-allowProvisioningUpdates`;
@@ -184,19 +180,20 @@ dotfiles or its tree is dirty, touch only your own new files and commit only tho
   - headless signing (`security set-key-partition-list`), TCC + stable signing identity
     for Mac apps, snapshot runtime pinning, TestFlight upload (mark as unverified until
     enrollment).
-- [ ] Toolchain reproducibility: add `xcodegen` (and `pymobiledevice3` via the repo's usual
-      Python tool installer) to the Brewfile or the equivalent dotfiles manifest. Add
-      `scripts/install-xcodes.sh`, which fetches the pinned signed `xcodes` release binary to
-      `~/.local/bin`.
-- [ ] One routing line in `dotfiles/config/global.CLAUDE.md` §Workspaces (like the frontend
-      line): "Apple/Swift: `rules/swift.md` + the `apple-dev` skill". Run the dotfiles gate
-      (`make check` / `make doctor` as its AGENTS.md says), commit, and push dotfiles.
+- [ ] Machine toolchain in dotfiles, the only dotfiles change:
+  - add `xcodegen` (and `pymobiledevice3` via dotfiles' usual Python tool installer) to the
+    Brewfile or equivalent manifest;
+  - add `scripts/install-xcodes.sh`, which fetches the pinned signed `xcodes` release binary
+    to `~/.local/bin`.
+  Before editing, run `rd agents` and `git -C ~/SourceRoot/dotfiles status`. If dotfiles is
+  busy or dirty, commit only your own paths. Push dotfiles. No global CLAUDE.md, rules or
+  skills changes.
 **Left behind:**
 
 ## Wave 7 — Apple monorepo scaffold            <!-- status: pending -->
 Xcode 27.1 is installed on the mini (`xcodebuild -version`). Gate locally *and* on the
 `apple.yml` CI run (`gh run watch`). If the simulator runtime is still missing, install it
-with `xcodes runtimes install`. Follow the global `rules/swift.md` and the vendored
+with `xcodes runtimes install`. Follow `.claude/rules/swift.md` and the vendored
 `swiftui-pro` / `swift-concurrency-pro` / `swift-testing-pro` skills from Wave 6.
 - [ ] `apple/project.yml` (XcodeGen 2.46+, `brew install xcodegen` if missing): targets
       `Iris`, `IrisWidgets`, `IrisNotifications`, `IrisMac`. Bundle ids, App Group
@@ -233,8 +230,8 @@ with `xcodes runtimes install`. Follow the global `rules/swift.md` and the vendo
       Make targets: `sim` (boot the pinned simulator + `bootstatus -b`), `run-sim`
       (build, install, launch), `screenshot` (writes to `.artifacts/`) and `ui-snapshot`.
       Every one of them has actually been run against Xcode 27.1 on the mini.
-- [ ] `.claude/rules/apple.md` (paths `apple/**`): Iris invariants only (no generic Swift,
-      which lives in the global rule): never `AVAudioRecorder`, the segment rotation and outbox
+- [ ] `.claude/rules/apple.md` (paths `apple/**`): Iris invariants only (generic Swift
+      lives in `.claude/rules/swift.md`): never `AVAudioRecorder`, the segment rotation and outbox
       contract, the Live Activity 4 KB / headline ≤ 60 rules, contract fixtures as the API source
       of truth, `FakeCapture` for UI tests, no real hosts in fixtures. Add
       `.claude/rules/server.md` (paths `server/**`) the same way. Each points at its TDD section.
@@ -246,7 +243,7 @@ with `xcodes runtimes install`. Follow the global `rules/swift.md` and the vendo
       `docs/spikes/device-checklist.md` (TDD §9, hardware-only rows) and the S1–S3 spike
       briefs in `docs/spikes/`.
 - [ ] Rewrite AGENTS.md for the monorepo: layout, the full Validate matrix, the public-repo
-      rule, the Xcode/CLI tooling setup, an index of skills and rules (global + repo), Gotchas. Point it at TDD/PRD.
+      rule, the Xcode/CLI tooling setup, an index of the repo's skills and rules, Gotchas. Point it at TDD/PRD.
 **Left behind:**
 
 ## Wave 9 — UI mockup round            <!-- status: pending -->
