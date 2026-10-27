@@ -531,6 +531,26 @@ conflicts between parallel workers sharing `memo.ts` and `TDD.md` hunks never ma
 waits for the CI `check` run, so `make deploy` right after a merge only logs "waiting for CI". Watch `gh run watch` first. The agent-gateway
 check has one pre-existing mini-only failure (`GIT_DENY_CREDENTIALS_ENV` vs the global osxkeychain helper), which reproduces on a clean master.
 
+## Wave 12 — R3 server: threads, search + filters, stats, telemetry relay            <!-- status: active -->
+The server half of backlog 6 and 7 plus Wave 7's server carry-forward. No phone and no design answer needed: every item is
+an API the R3 screens (Wave 13+) consume. Each contract change carries its Swift `IrisCore` follow-up (models + client call +
+fixture decode tests). Disjoint tracks where the files allow; the lead sequences anything touching `memo.ts` / `schemas.ts`.
+- [ ] **Threads API:** `GET /v1/threads` (newest `updated_at` first, `kind` filter, cursor) and `GET /v1/threads/:id` (the thread
+      row + its Iris memos + the Hermes session transcript as markdown messages, read from Hermes; Hermes down → the Iris part with
+      a flag, not a 503). Continue a thread: `threadId` on `POST /v1/memos` and `/memos/text` targets that Hermes session (a chat
+      thread re-sends the no-side-effects `system_message` every turn, TDD §3); unknown thread → 404.
+- [ ] **History search + filters:** `GET /v1/memos` gains `q` (transcript + headline, SQLite FTS5 or LIKE: the lead decides and
+      writes why in TDD), `route` and `state` filters, and keeps `needs_route` memos pinned first (PRD R-HIS-1). Cursor stays stable.
+- [ ] **Stats:** `GET /v1/stats?days=<n>` — counts per route per day, totals per week, median step durations (the memo detail
+      waterfall compares against them, round-2 design), cost per route. Pure SQL aggregates over existing columns, no new spend.
+- [ ] **Telemetry relay** (TDD §8, Wave 7 carry-forward): `POST /v1/telemetry` takes the Swift `TelemetryBatch` (finalize the shape)
+      and forwards spans/logs through the existing OTLP exporter with the memo trace id; bounded body, auth as every `/v1` route.
+- [ ] **Housekeeping:** `actions/checkout` (and any other Node 20 action) bumped in `check.yml` / `apple.yml`; multi-word spoken tab
+      names if it stays small (else Left behind); after this wave's deploy runs cleanly, delete `~/.iris/data/iris.db.pre-w11-threads.bak`.
+- [ ] Deploy, `make verify` + `make smoke`, probe each new route against production with the smoke token; TDD §3 (HTTP API, data
+      model, "planned, not built" list pruned) and AGENTS.md amended.
+**Left behind:**
+
 ## Fleet backlog (for the long-running fleet: mother → lead → workers)
 
 Not waves of this chain. The fleet's mother turns these into active waves, one at a time,

@@ -84,9 +84,13 @@ acted on and notified through a Live Activity and APNs. There is one user, the o
 
 - 2026-10-27: Wave 10 done (design round 2 + R2 routing core, deployed `cc19d4c`). Chat-mode reading confirmed by the owner via the
   `ask-human` dialog (Run clicked). Design round 2 owner review pending (gallery on the MacBook, links in the untracked `links.local.md`).
-- Wave 11 (R2 destinations, Chat, typed memos, agw `caller`) active.
+- Wave 11 done (`f5da34c` deployed): journal, herdr, typed memos, Chat (soft no-side-effects `system_message`; Hermes rewrites the
+  `iris-chat` source to `api_server`, so `threads.kind` is the marker), agw `caller`. Backlog 4 / R2 server complete.
+- Wave 12 (R3 server: threads API, search + filters, stats, telemetry relay, housekeeping) active.
+- Open for the owner, not blocking: design round 2 review; optionally widening Hermes' source allow-list (third-party change).
 
 ## Next action
 
 Watch the active wave's lead (`iris-w<n>`), verdict its close-out, `rd close`, write the next wave from the backlog
-(after Wave 11: backlog 6 R3 history server parts + 7 threads, or the design-round-2 answers if the owner replied), spawn, loop.
+(after Wave 12: R3 iOS screens on the simulator from the round-2 mockups — History + filters + search, memo detail, SSE,
+typed composer, Threads, Stats — folding in the owner's round-2 answers if they arrived), spawn, loop.
