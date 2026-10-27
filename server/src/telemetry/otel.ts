@@ -18,7 +18,7 @@ import {
 // is not certified (Bun's `async_hooks` are partial) — the one piece that has to be correct
 // for parent/child propagation across the worker fan-out. The hand-rolled version below is
 // ported from audio-gateway (`src/otel.ts`), which has been running in production against
-// THE SAME ClickStack collector (`http://clickstack:4319`), proving that receiver accepts
+// THE SAME ClickStack collector (`http://<collector-host>:4319`), proving that receiver accepts
 // OTLP/HTTP JSON on that port.
 //
 // Not used, on purpose: the AI SDK's own `@ai-sdk/otel` telemetry. In ai@7 it records prompts
