@@ -3,8 +3,9 @@
 Voice channel into the agent platform. A memo recorded on a phone is uploaded as 10 s segments,
 transcribed, routed to Hermes, summarized and notified. **`docs/TDD.md` is the design**
 (system design, modules, telemetry; `docs/PRD.md` is the product); `docs/waves/PLAN.md` is the implementation chain.
-Today only `server/` exists (Bun + Elysia + `bun:sqlite`, TypeScript strict); the Apple apps
-come later under `apple/`.
+`server/` is Bun + Elysia + `bun:sqlite` (TypeScript strict). `apple/` holds the XcodeGen project
+(`apple/project.yml`: `Iris`, `IrisWidgets`, `IrisNotifications`, `IrisMac`), the local packages
+`apple/Packages/{IrisCore,IrisCapture,IrisUI,IrisTelemetry}` and `apple/tools/` (basalt-ui Theme generator).
 
 ## Layout
 
@@ -76,6 +77,11 @@ with `failed(step)` as a side state.
 `make check` — `check-server` (oxlint, `oxfmt --check`, `tsc --noEmit`, `bun test`), `check-contracts` and
 `guard` (public-repo scan). CI runs `make check` then `make e2e` on `ubuntu-latest` (public repo, hosted
 runners). `make format` applies oxfmt.
+
+`check-apple` joins `make check` wherever `xcodebuild` exists: Theme drift (`gen-theme.ts --check`), `swift format lint --strict`,
+`swift test` per package (macOS host), `xcodebuild build` of `Iris` (simulator, with both extensions) and `IrisMac`. Also
+`make snapshots` (`RECORD=1` re-records) and `make uitest`, both on the pinned simulator (`SIM_NAME`/`SIM_OS`, iPhone 17 on
+iOS 27.0). `apple.yml` runs all three on the hosted `xcode-27` image. Toolchain recipes: `.claude/skills/apple-dev`.
 
 `make e2e` (`scripts/e2e.ts`, CI after `check`, needs ffmpeg) boots `server/src/index.ts` on a free port with
 `IRIS_FAKES=1` and a temp `IRIS_DATA`, runs `send-memo.ts` on the smoke recording (must reach `notified`), then probes

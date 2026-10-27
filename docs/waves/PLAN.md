@@ -274,19 +274,19 @@ installer, so it follows the fallow/ocr pin pattern). The mini now has `xcodegen
 `swiftlint` (the plan names only `swift format`); `rules/apple.md` and `rules/server.md` (Wave 8); an AGENTS.md index of the new rules and skills (Wave 8
 rewrites it). `security find-identity` shows 0 codesigning identities on the mini; Wave 7's simulator builds do not need one (`CODE_SIGNING_ALLOWED=NO`).
 
-## Wave 7 — Apple monorepo scaffold            <!-- status: active -->
+## Wave 7 — Apple monorepo scaffold            <!-- status: done -->
 Xcode 27.1 is installed on the mini (`xcodebuild -version`). Gate locally *and* on the
 `apple.yml` CI run (`gh run watch`). If the simulator runtime is still missing, install it
 with `xcodes runtimes install`. Follow `.claude/rules/swift.md` and the vendored
 `swiftui-pro` / `swift-concurrency-pro` / `swift-testing-pro` skills from Wave 6.
-- [ ] `apple/project.yml` (XcodeGen 2.46+, `brew install xcodegen` if missing): targets
+- [x] `apple/project.yml` (XcodeGen 2.46+, `brew install xcodegen` if missing): targets
       `Iris`, `IrisWidgets`, `IrisNotifications`, `IrisMac`. Bundle ids, App Group
       `group.com.jkrumm.iris`, entitlements, Info.plist keys (`UIBackgroundModes: audio`,
       `NSSupportsLiveActivities`, `NSMicrophoneUsageDescription`, `LSUIElement` for Mac),
       iOS/macOS 26.0 minimum, Swift 6 mode, and MainActor default isolation for the app
       targets. **Verify the build-setting spelling against the installed toolchain or
       the CI image, and record it in TDD §6.** `.xcodeproj` is gitignored.
-- [ ] Local packages `apple/Packages/{IrisCore,IrisCapture,IrisUI,IrisTelemetry}` with
+- [x] Local packages `apple/Packages/{IrisCore,IrisCapture,IrisUI,IrisTelemetry}` with
       their public interfaces stubbed per TDD §4–§8:
   - `IrisCore`: models, an API client, an SSE parser, and decoding tests over every
     `contracts/fixtures` file;
@@ -296,19 +296,50 @@ with `xcodes runtimes install`. Follow `.claude/rules/swift.md` and the vendored
   - `IrisUI`: `Theme` generated from basalt-ui tokens by a script, plus a swift-snapshot-
     testing setup with one reference;
   - `IrisTelemetry`: a buffer plus a relay exporter.
-- [ ] Thin app targets that compile and launch to a placeholder history (fed from fake
+- [x] Thin app targets that compile and launch to a placeholder history (fed from fake
       data). The widget extension has a placeholder Control and Live Activity; the
       notification extension has a placeholder card. The Mac target is a MenuBarExtra
       placeholder.
-- [ ] `.swift-format` + `swift format lint --strict`, and Make targets `generate`,
+- [x] `.swift-format` + `swift format lint --strict`, and Make targets `generate`,
       `check-apple` (lint, `swift test` per package, `xcodebuild build` of all schemes for
       the simulator), `snapshots` (`RECORD=1`), and `uitest`. Add
       `.github/workflows/apple.yml` on `runs-on: xcode-27` (TDD D14; fall back to `macos-26`
       only if the image queues for more than 30 min). `check-apple` joins `make check` when
       `xcodebuild` exists locally.
-**Left behind:**
+**Left behind:** All four steps shipped, `make check` is green locally (it now includes `check-apple` wherever `xcodebuild` exists), and
+the `apple.yml` run on the hosted `xcode-27` image went green on its first push (no queueing; check-apple, snapshots and UI smoke, about
+12 min). `make snapshots` and `make uitest` also pass locally. `/review` ran through the `agw review` CLI (the MCP failed to connect):
+4 blockers, all in capture/telemetry (reentrant `stop()`, tap leaked by a failed start, a repeated `finishMemo` resurrecting a completed
+memo, an unserialized telemetry crash-file rewrite), all fixed with regression tests; the re-review approved with 5 optional notes
+(teardown seam, a bounded dedupe window of 512 completed memos, file splits). **Layout:** `apple/project.yml` (XcodeGen 2.46; targets
+`Iris`, `IrisWidgets`, `IrisNotifications`, `IrisMac`, `IrisUITests`; schemes `Iris`, `IrisMac`; bundle ids, App Group, entitlements,
+Info keys per the plan; no team id tracked, signing is injected per build), thin targets in `apple/{Iris,IrisWidgets,IrisNotifications,
+IrisMac}`, UI smoke in `apple/Tests/UITests`, packages in `apple/Packages/`, tooling in `apple/tools/` (Bun, `basalt-ui` pinned 2.29.0,
+`bunfig.toml` sets `peer = false`, so the install is 12 MB). Build settings (`SWIFT_VERSION 6.0`, `SWIFT_STRICT_CONCURRENCY complete`,
+`SWIFT_DEFAULT_ACTOR_ISOLATION MainActor`, `SWIFT_APPROACHABLE_CONCURRENCY YES`) are recorded in TDD §6; all schemes build warning-free.
+**Packages (tests on the macOS host):** `IrisCore` 47 tests plus 54 fixture cases (every `contracts/fixtures` file decodes and re-encodes;
+a new fixture without a mapped Swift type fails the suite), `APIClient` + `URLSessionAPIClient` + `FakeAPIClient`, `SSEParser`/`ServerEvent`,
+`MemoAttributes` (iOS only); `IrisCapture` 58 (protocols, `SegmentRotator`, `OutboxStateMachine`/`Outbox`, `TakeLifecycle`, `FakeCapture`, AVAudio
+adapters compile-checked on iOS only); `IrisTelemetry` 46 (`TelemetryBuffer`, `FileTelemetryStore` actor, `RelayExporter`, `Tracer`); `IrisUI`
+4 plus 1 snapshot (`Theme` generated by `bun apple/tools/gen-theme.ts`, `--check` is a CI gate; `RouteChip`). **Make targets:** `generate`,
+`theme`, `lint-apple`, `test-packages`, `build-apple`, `check-apple`, `snapshots` (`RECORD=1` re-records, forwarded as `TEST_RUNNER_RECORD`),
+`uitest`. **Pinned simulator: iPhone 17, iOS 27.0** (`SIM_NAME`/`SIM_OS` in the Makefile), recorded and verified on the mini and on CI; the
+snapshot references capture content, color, type and layout but NOT the glass layer (no host app, so it does not render in a snapshot).
+Also fixed: `scripts/public-guard.ts` crashed on the two tracked symlinks to directories in the vendored skills, which had turned CI red since
+Wave 6. **Carry forward:** (1) `LiveActivityPhase` has only the server phases (`processing|needsRoute|done|failed`); the client-local
+`recording|paused|uploading` of TDD §4 are missing and the placeholder Live Activity shows the timer under `processing`: R1 must add them
+(the server contract and fixtures stay as they are, so decide whether it is a client-only enum). (2) `IrisCapture`, `IrisUI` and
+`IrisTelemetry` do not depend on `IrisCore` yet (they define `MemoID`, uploader and transport ports locally); R1 wires them. (3) `POST
+/v1/telemetry` does not exist on the server; the client payload is a proposed shape documented on `TelemetryBatch`. (4) Not device-verified:
+the AVAudioEngine recorder, both interruption notification paths (`didBecomeInactive`/`resumptionRecommendation` are iOS 27 only, with an
+`interruptionNotification` fallback for 26), `.bluetoothHighQualityRecording`; ControlWidget, Live Activity, Dynamic Island, notification card
+and the Mac panel compile but were never rendered. (5) Telemetry's crash file needs a file-protection class (until first unlock) set by the app;
+the outbox persists absolute file URLs and never deletes uploaded segment files (app policy, R1). (6) The recorder does not consult
+`RouteManager` rules; a coordinator applies them and calls `rotate(for: .micSwitch)` (R1/R2). (7) No `.xcstrings` catalog in the app targets yet
+(English defaults only); `IrisUI` has en/de. (8) TDD §3 is still stale vs the server (Wave 5 list); Wave 8's doc pass amends it. (9) `xcodebuild`
+leaves `apple/.dd` and per-package `.dd`/`.build` (all gitignored).
 
-## Wave 8 — Iris agent tooling + verification harness            <!-- status: pending -->
+## Wave 8 — Iris agent tooling + verification harness            <!-- status: active -->
 - [ ] No MCP (TDD D17). Add `scripts/mbm`, a wrapper around a pinned
       `npx -y mobilebuildmcp@<version>` CLI (`--style minimal`, Sentry telemetry off), plus
       Make targets: `sim` (boot the pinned simulator + `bootstatus -b`), `run-sim`
