@@ -63,7 +63,12 @@ const memos = createMemoService({
   maxSegmentBytes: env.IRIS_MAX_SEGMENT_BYTES,
 });
 
-const app = createApp({ deviceTokens, degraded, memos }).listen({
+const app = createApp({
+  deviceTokens,
+  degraded,
+  memos,
+  inflight: () => runner.inflightIds().length,
+}).listen({
   port: env.PORT,
   hostname: env.HOST,
 });

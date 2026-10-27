@@ -10,6 +10,8 @@ export interface AppDeps {
   memos: MemoService;
   /** Names of optional subsystems that are not configured; surfaced on /health. */
   degraded?: string[];
+  /** Memos with a step running right now; surfaced on /health so the deploy poller can wait for idle. */
+  inflight?: () => number;
   /** SSE keepalive comment interval; tests shrink it. */
   sseKeepaliveMs?: number | undefined;
 }
@@ -24,6 +26,7 @@ export function createApp(deps: AppDeps) {
     .get("/health", () => ({
       status: degraded.length > 0 ? ("degraded" as const) : ("ok" as const),
       degraded,
+      inflight: deps.inflight?.() ?? 0,
     }))
     .group("/v1", (v1) =>
       v1

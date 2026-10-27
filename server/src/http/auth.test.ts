@@ -59,12 +59,18 @@ describe("/v1 guard", () => {
   it("leaves /health public", async () => {
     const res = await get("/health");
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ status: "ok", degraded: [] });
+    expect(await res.json()).toEqual({ status: "ok", degraded: [], inflight: 0 });
   });
 
   it("reports degraded subsystems on /health", async () => {
     const degraded = createApp({ deviceTokens: tokens, memos, degraded: ["otel"] });
     const res = await degraded.handle(new Request("http://iris.test/health"));
-    expect(await res.json()).toEqual({ status: "degraded", degraded: ["otel"] });
+    expect(await res.json()).toEqual({ status: "degraded", degraded: ["otel"], inflight: 0 });
+  });
+
+  it("reports the in-flight memo count on /health", async () => {
+    const busy = createApp({ deviceTokens: tokens, memos, inflight: () => 2 });
+    const res = await busy.handle(new Request("http://iris.test/health"));
+    expect(await res.json()).toEqual({ status: "ok", degraded: [], inflight: 2 });
   });
 });
