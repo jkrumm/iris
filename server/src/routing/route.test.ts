@@ -31,10 +31,20 @@ const input = (overrides: Partial<RouteInput> = {}): RouteInput => ({
 });
 
 describe("route: mode", () => {
+  it("never routes a chat memo elsewhere by prefix or decide", async () => {
+    const decider = fakeDecider({ result: { destination: { choice: "journal", confidence: 1 } } });
+    const decision = await route(
+      input({ mode: "chat", transcript: "Tagebuch heute war gut", destinations: ALL, decider }),
+    );
+    expect(decision).toMatchObject({ source: "mode", destination: "hermes", outcome: "routed" });
+    expect(decider.calls).toEqual([]);
+  });
+
   it.each([
     ["journal", "journal"],
     ["hermes", "hermes"],
     ["tab", "herdr"],
+    ["chat", "hermes"],
   ] as const)("mode %s routes to %s without asking anyone", async (mode, destination) => {
     const decider = fakeDecider();
     const herd = fakeHerd({ tabs: [tab("w1:t1", "iris", "server")] });

@@ -17,6 +17,7 @@ import {
   type Step,
   type StepRecord,
   type Summary,
+  type ThreadUpsert,
 } from "../memo/memo.js";
 import type { AnswerDecision, MemoStore } from "../memo/store.js";
 import type { Clock } from "../ports/clock.js";
@@ -61,6 +62,7 @@ interface MemoRow {
   destination_ref: string | null;
   reply_text: string | null;
   summary_json: string | null;
+  thread_id: string | null;
   created_at: string;
   updated_at: string;
   /** The latest decision's reason and destination, only while the memo is `needs_route`. */
@@ -122,6 +124,7 @@ const toMemo = (row: MemoRow): Memo => ({
   destinationRef: row.destination_ref,
   replyText: row.reply_text,
   summary: parseSummary(row),
+  threadId: row.thread_id,
   ...(row.park_reason !== null && { routeReason: row.park_reason }),
   ...(row.park_destination !== null && { routeSuggestion: row.park_destination }),
   createdAt: row.created_at,
@@ -204,9 +207,11 @@ export function createSqliteMemoStore(params: { db: Database; clock: Clock }): M
       .run(stateBefore(from), stamp(), id);
     if (reset.changes === 0) return false;
     const cleared = stepsFrom(from);
-    const columns = cleared
+    const columns: string[] = cleared
       .flatMap((step) => STEP_COLUMNS[step] ?? [])
       .map((f) => PATCH_COLUMNS[f]);
+    // `act` also sets `thread_id`, through the thread upsert rather than a column patch.
+    if (cleared.includes("act")) columns.push("thread_id");
     if (columns.length > 0) {
       db.query(`UPDATE memos SET ${columns.map((c) => `${c} = NULL`).join(", ")} WHERE id = ?`).run(
         id,
@@ -235,6 +240,16 @@ export function createSqliteMemoStore(params: { db: Database; clock: Clock }): M
       decision.reason,
       decision.outcome,
     );
+  };
+
+  /** Creates the thread, or bumps `updated_at` and `last_memo_id` of an existing one (its kind and title stay), and links the memo. */
+  const upsertThread = (memoId: string, at: string, thread: ThreadUpsert) => {
+    db.query(
+      `INSERT INTO threads (id, kind, title, created_at, updated_at, last_memo_id)
+       VALUES (?, ?, ?, ?, ?, ?)
+       ON CONFLICT (id) DO UPDATE SET updated_at = excluded.updated_at, last_memo_id = excluded.last_memo_id`,
+    ).run(thread.id, thread.kind, thread.title, at, at, memoId);
+    db.query("UPDATE memos SET thread_id = ? WHERE id = ?").run(thread.id, memoId);
   };
 
   const answerRoute = db.transaction((id: string, decision: AnswerDecision): boolean => {
@@ -271,6 +286,7 @@ export function createSqliteMemoStore(params: { db: Database; clock: Clock }): M
          WHERE memo_id = ? AND step = ?`,
       ).run(at, usage === undefined ? null : JSON.stringify(usage), costUsd ?? null, id, step);
       if (patch?.routeDecision) insertRouteDecision(id, at, patch.routeDecision);
+      if (patch?.thread) upsertThread(id, at, patch.thread);
       const fields = (Object.keys(PATCH_COLUMNS) as (keyof MemoColumnPatch)[]).filter(
         (field) => patch?.[field] !== undefined,
       );

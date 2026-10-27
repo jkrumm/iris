@@ -1,4 +1,4 @@
-export const MEMO_MODES = ["auto", "journal", "hermes", "tab"] as const;
+export const MEMO_MODES = ["auto", "journal", "hermes", "tab", "chat"] as const;
 export type MemoMode = (typeof MEMO_MODES)[number];
 
 export const MEMO_STATES = [
@@ -46,6 +46,8 @@ export interface Memo {
   destinationRef: string | null;
   replyText: string | null;
   summary: Summary | null;
+  /** The Hermes session (chat or not) the memo's `act` ran in; null until then and for other destinations. */
+  threadId: string | null;
   /**
    * Derived from the decision log, not a column: while the memo is `needs_route`, why it parked and
    * (low-confidence parks) the model's best guess. Absent in every other state.
@@ -101,8 +103,28 @@ export type MemoColumnPatch = Partial<
   Pick<Memo, "audioSeconds" | "transcript" | "route" | "destinationRef" | "replyText" | "summary">
 >;
 
-/** What a step writes atomically with its completion: memo columns, and for a step that routes or parks (`route`, `act`) a decision-log row. */
-export type MemoPatch = MemoColumnPatch & { routeDecision?: RouteDecisionInput };
+export const THREAD_KINDS = ["chat", "hermes"] as const;
+export type ThreadKind = (typeof THREAD_KINDS)[number];
+/** First characters of a thread's first transcript. */
+export const THREAD_TITLE_MAX = 60;
+
+/** A Hermes session as `act` reports it: upserted into `threads`, and `memos.thread_id` set to its id. */
+export interface ThreadUpsert {
+  /** The Hermes session id. */
+  id: string;
+  kind: ThreadKind;
+  /** Only used when the thread is new; a thread keeps the title of its first transcript. */
+  title: string;
+}
+
+/**
+ * What a step writes atomically with its completion: memo columns, and for a step that routes or
+ * parks (`route`, `act`) a decision-log row, and for `act` into Hermes the thread it ran in.
+ */
+export type MemoPatch = MemoColumnPatch & {
+  routeDecision?: RouteDecisionInput;
+  thread?: ThreadUpsert;
+};
 
 export interface StepRecord {
   step: Step;

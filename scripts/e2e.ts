@@ -189,8 +189,10 @@ async function probeTyped(base: string) {
 }
 
 interface TypedMemo {
+  mode: string;
   state: string;
   route: string | null;
+  threadId?: string;
   summary: { headline: string; detail: string; spoken: string } | null;
   steps: { step: string }[];
 }
@@ -259,6 +261,18 @@ async function probeDecide(base: string) {
   out("e2e: decided memo ok");
 }
 
+/** A chat memo is a Hermes thread: it reaches notified and carries the thread id. */
+async function probeChat(base: string) {
+  const memo = await sendTyped(base, "Was ist der Unterschied zwischen Mutex und Semaphor?", "chat");
+  assert(memo.mode === "chat", `chat memo keeps mode chat (got ${memo.mode})`);
+  assert(memo.route === "hermes", `chat memo routes to hermes (got ${memo.route})`);
+  assert(
+    typeof memo.threadId === "string" && memo.threadId !== "",
+    `chat memo carries a threadId (got ${memo.threadId})`,
+  );
+  out("e2e: chat memo ok");
+}
+
 async function main() {
   dataDir = await mkdtemp(join(tmpdir(), "iris-e2e-"));
   const port = freePort();
@@ -293,6 +307,7 @@ async function main() {
   await probeJournal(base);
   await probeTab(base);
   await probeDecide(base);
+  await probeChat(base);
 }
 
 async function cleanup() {

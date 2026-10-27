@@ -1,0 +1,80 @@
+{
+  "id": "9d4f2b68-1e73-4a85-b0c6-5f8a3e7d2c10",
+  "mode": "chat",
+  "device": "iphone",
+  "startedAt": "2026-03-14T09:20:41.000Z",
+  "state": "notified",
+  "failedStep": null,
+  "error": null,
+  "segmentCount": 4,
+  "audioSeconds": 38.4,
+  "transcript": "Was ist der Unterschied zwischen einem Mutex und einem Semaphor?",
+  "route": "hermes",
+  "destinationRef": "9d4f2b68-1e73-4a85-b0c6-5f8a3e7d2c10",
+  "replyText": "Ein Mutex schützt eine Ressource für genau einen Halter, ein Semaphor zählt freie Plätze und lässt mehrere gleichzeitig hinein.",
+  "summary": {
+    "headline": "Mutex gegen Semaphor erklärt",
+    "detail": "Ein Mutex hat genau einen Halter, ein Semaphor zählt freie Plätze und erlaubt mehrere gleichzeitige Halter.",
+    "spoken": "Ein Mutex hat einen Halter, ein Semaphor zählt freie Plätze."
+  },
+  "threadId": "9d4f2b68-1e73-4a85-b0c6-5f8a3e7d2c10",
+  "createdAt": "2026-03-14T09:20:41.512Z",
+  "updatedAt": "2026-03-14T09:21:19.870Z",
+  "steps": [
+    {
+      "step": "transcribe",
+      "status": "done",
+      "startedAt": "2026-03-14T09:20:52.100Z",
+      "finishedAt": "2026-03-14T09:21:00.640Z",
+      "error": null,
+      "usage": {
+        "audioSeconds": 38.4
+      },
+      "costUsd": 0.0038
+    },
+    {
+      "step": "route",
+      "status": "done",
+      "startedAt": "2026-03-14T09:21:00.700Z",
+      "finishedAt": "2026-03-14T09:21:00.712Z",
+      "error": null,
+      "usage": null,
+      "costUsd": null
+    },
+    {
+      "step": "act",
+      "status": "done",
+      "startedAt": "2026-03-14T09:21:00.780Z",
+      "finishedAt": "2026-03-14T09:21:12.190Z",
+      "error": null,
+      "usage": {
+        "inputTokens": 1840,
+        "outputTokens": 212,
+        "totalTokens": 2052
+      },
+      "costUsd": 0.0412
+    },
+    {
+      "step": "summarize",
+      "status": "done",
+      "startedAt": "2026-03-14T09:21:12.260Z",
+      "finishedAt": "2026-03-14T09:21:17.930Z",
+      "error": null,
+      "usage": {
+        "inputTokens": 910,
+        "outputTokens": 148,
+        "totalTokens": 1058
+      },
+      "costUsd": 0.0021
+    },
+    {
+      "step": "notify",
+      "status": "done",
+      "startedAt": "2026-03-14T09:21:18.010Z",
+      "finishedAt": "2026-03-14T09:21:19.860Z",
+      "error": null,
+      "usage": null,
+      "costUsd": null
+    }
+  ]
+}

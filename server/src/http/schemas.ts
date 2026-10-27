@@ -58,6 +58,8 @@ const memoFields = {
   destinationRef: Nullable(t.String()),
   replyText: Nullable(t.String()),
   summary: Nullable(Summary),
+  // Present only once `act` ran in a Hermes session (chat or not): that session's id; omitted, never null, otherwise.
+  threadId: t.Optional(t.String()),
   // Present (and `true`) only for a typed memo, one created from text; omitted for a recording.
   typed: t.Optional(t.Literal(true)),
   // Present only while the memo is `needs_route`: why it parked, and the model's guess on a low-confidence park.

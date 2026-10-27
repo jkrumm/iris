@@ -165,16 +165,17 @@ Shipped (Waves 5 and 10). Step results are columns on `memos`, not a separate ta
 
 | Table | Columns (key ones) |
 |-|-|
-| `memos` | `seq` (autoincrement), `id` (uuid, client-minted), `mode` (auto/journal/hermes/tab), `device` (authenticated device name), `state`, `failed_step`, `error`, `started_at`, `segment_count`, `audio_seconds`, `transcript`, `route`, `destination_ref`, `reply_text`, `summary_json`, `created_at`, `updated_at` |
+| `memos` | `seq` (autoincrement), `id` (uuid, client-minted), `mode` (auto/journal/hermes/tab/chat), `device` (authenticated device name), `state`, `failed_step`, `error`, `started_at`, `segment_count`, `audio_seconds`, `transcript`, `route`, `destination_ref`, `reply_text`, `summary_json`, `thread_id` (the Hermes session `act` ran in, NULL until then), `created_at`, `updated_at` |
 | `segments` | `memo_id`, `idx`, `bytes`, `sha256`, `received_at`: PK (`memo_id`, `idx`) |
 | `memo_steps` | `memo_id`, `step`, `status`, `started_at`, `finished_at`, `error`, `usage_json`, `cost_usd`: PK (`memo_id`, `step`), no `attempt` (a retry resets the row) |
 | `devices` | `device` (PK, the token-map name), `name` (display label), `platform` (ios/macos), `apns_token`, `apns_env` (sandbox/production), `push_to_start_token`, `last_seen_at`, `updated_at` |
 | `activity_tokens` | `memo_id` (PK, cascades), `token`, `updated_at` |
+| `threads` | `id` (PK, the Hermes session id), `kind` (chat/hermes), `title` (the first ~60 characters of the first transcript, whitespace collapsed), `created_at`, `updated_at`, `last_memo_id`. Every hermes `act` upserts its thread and sets `memos.thread_id` in the transaction of `completeStep` (`patch.thread`); an existing thread keeps its kind and title and moves `updated_at` / `last_memo_id`. A retry from `act` unlinks the memo (`thread_id` NULL) until the re-run links it again; the thread row stays. No HTTP endpoints yet (R3) |
 | `route_decisions` | `id` (autoincrement), `memo_id` (cascades), `created_at`, `source` (mode/prefix/decide/default/answer/correction), `destination` (nullable), `tab`, `confidence`, `model`, `cost_usd`, `reason`, `outcome` (routed/needs_route). One row per route outcome, written in the transaction of the step's `completeStep`; read with `listRouteDecisions(memoId)`. `answer` (written with the `needs_route` → `routed` move, `memos.route` set in the same transaction) and `correction` (logged after `act`, the memo is untouched) rows come from `POST /v1/memos/:id/route` |
 
 A typed memo (Wave 11) needs no column: it is a `memos` row created in `transcribed` with `transcript` set and `segment_count` NULL, and has no `segments` or ingest/transcribe `memo_steps` rows.
 
-Planned for R3, not built: `threads`, `memos.target_tab` / `thread_id` / `language` / `route_source`,
+Planned for R3, not built: `memos.target_tab` / `language` / `route_source`, the threads endpoints,
 and a transcript FTS index. Device tokens are not stored: the token map lives in `IRIS_DEVICE_TOKENS`.
 
 ### HTTP API (`/v1`, bearer = device token; `/health` is public)
@@ -227,7 +228,7 @@ retries of transient errors are not built; recover with `POST /retry`.
    - Header: `x-audio-source: iris`.
    - The gateway handles chunking up to about 2 h. A 413 is terminal.
 3. **route:** only destinations with a registered act adapter are choices (`Destinations`).
-   - If the memo's mode is not auto, it wins (`journal` → journal, `hermes` → hermes, `tab` → herdr). Source `mode`. Mode `tab` carries no name:
+   - If the memo's mode is not auto, it wins (`journal` → journal, `hermes` → hermes, `tab` → herdr, `chat` → hermes). Source `mode`; a chat memo is never routed elsewhere by prefix or `decide`. Mode `tab` carries no name:
      it routes to the only live tab, and parks with "which tab?" when there are several or none.
    - Otherwise the prefix parser matches "journal|tagebuch", "an hermes|hermes", "tab <name>", case- and diacritic-insensitive, with the
      phrase starting within the first 6 words. Everything up to and including the phrase, plus trailing punctuation, is
@@ -259,7 +260,8 @@ retries of transient errors are not built; recover with `POST /retry`.
    |-|-|
    | journal | Write `brain/Inbox/<YYYY-MM-DD>-<slug>.md` (frontmatter `title`, `date`, `tags: [journal, iris]`, `source: iris`, `memo`) under the brain-sync lock (`brain/docs/brain-access.md`), then commit and push following that doc |
    | herdr | `pane.send_text` (the transcript) + `pane.send_keys ["enter"]` on the tab's agent pane over the herdr socket (the pane comes from `session.snapshot`: the tab's agent, else its only pane). A tab missing from the snapshot, or a `pane_not_found` answer to either write (the tab closed in between), is `TabGoneError`, which leads to `needs_route`. Deliveries to one pane are serialised in the adapter, so text and Enter of two memos never interleave. `ref` is the tab id, `reply_text` stays empty |
-   | hermes | `POST /api/sessions {id: thread_id ?? new, source: "iris"}` (201/409 = OK) → `POST /api/sessions/:id/chat/stream {message}`. Collect the final assistant text from the SSE, store it as `reply_text`, and upsert `threads` |
+   | hermes | `POST /api/sessions {id: threadId ?? memoId, source: "iris"}` (201/409 = OK) → `POST /api/sessions/:id/chat/stream {message}`. Collect the final assistant text from the SSE, store it as `reply_text`, and upsert `threads` (kind `hermes`) |
+   | hermes, mode `chat` | The same, with `source: "iris-chat"` and `system_message` on every `chat/stream` turn: answer conversationally and take no action with side effects (no tool call that writes, sends, schedules or changes anything). Thread kind `chat`. `system_message` is Hermes' per-turn ephemeral system prompt: appended to that turn's prompt, never stored, so a reply into the thread sends it again. The Hermes API server maps a `source` it does not list (`iris` and `iris-chat` today) to `api_server`, so `threads.kind` is Iris's record of what is a chat, not Hermes's |
 5. **summarize:** agw `triage` with the schema
    `{headline (≤60), detail (≤240), spoken (≤2 sentences)}` over the
    destination, transcript excerpt and reply. Journal and herdr skip the model

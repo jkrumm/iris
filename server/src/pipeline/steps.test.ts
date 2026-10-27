@@ -216,10 +216,46 @@ describe("act", () => {
     const result = await handlers.act?.({ memo });
     expect(destination.calls).toEqual([{ memoId: memo.id, transcript: "do the thing" }]);
     expect(result).toEqual({
-      patch: { destinationRef: "session-1", replyText: "done" },
+      patch: {
+        destinationRef: "session-1",
+        replyText: "done",
+        thread: { id: "session-1", kind: "hermes", title: "do the thing" },
+      },
       usage: { turns: 1 },
       costUsd: 0.1,
     });
+  });
+
+  it("opens a chat thread for a chat memo and tells the destination it is a chat", async () => {
+    const { store, handlers, destination } = setup();
+    const memo = {
+      ...seedMemo(store, "routed"),
+      mode: "chat" as const,
+      transcript: "what is   a monad?",
+      route: "hermes",
+    };
+    const result = await handlers.act?.({ memo });
+    expect(destination.calls).toEqual([
+      { memoId: memo.id, transcript: "what is   a monad?", chat: true },
+    ]);
+    expect(result).toMatchObject({
+      patch: { thread: { id: "session-1", kind: "chat", title: "what is a monad?" } },
+    });
+  });
+
+  it("titles a thread with the first 60 characters of the transcript", async () => {
+    const { store, handlers } = setup();
+    const memo = { ...seedMemo(store, "routed"), transcript: "word ".repeat(40), route: "hermes" };
+    const result = await handlers.act?.({ memo });
+    expect(result?.patch?.thread?.title).toBe(`${"word ".repeat(11)}word…`);
+  });
+
+  it("does not open a thread for other destinations", async () => {
+    const journal = fakeDestination({ result: { ref: "note.md", replyText: "" } });
+    const { store, handlers } = setup({ destinations: { hermes: fakeDestination(), journal } });
+    const memo = { ...seedMemo(store, "routed"), transcript: "heute", route: "journal" };
+    const result = await handlers.act?.({ memo });
+    expect(result?.patch).toEqual({ destinationRef: "note.md", replyText: "" });
   });
 
   it("dispatches by the memo's route", async () => {

@@ -100,8 +100,8 @@ All under `/v1`, `Authorization: Bearer <token>`. Errors: `{error: <code>, messa
 
 | Route | Result |
 |-|-|
-| `POST /memos` `{id, mode, startedAt}` | 201 memo; 200 if it exists for this device; 409 other device |
-| `POST /memos/text` `{id, mode, startedAt, text}` | 202 memo created in `transcribed` (`transcript` = trimmed text, driven from `route`; a replay too); memo carries `typed: true`; 400 empty, over 20 000 code points, or no/unknown `mode`; 409 another body, device or a recorded memo with that id |
+| `POST /memos` `{id, mode: auto\|journal\|hermes\|tab\|chat, startedAt}` | 201 memo; 200 if it exists for this device; 409 other device |
+| `POST /memos/text` `{id, mode, startedAt, text}` | 202 memo created in `transcribed` (`transcript` = trimmed text, driven from `route`; a replay too); memo carries `typed: true`; any mode incl. `chat`; 400 empty, over 20 000 code points, or no/unknown `mode`; 409 another body, device or a recorded memo with that id |
 | `PUT /memos/:id/segments/:n` raw `audio/mp4` bytes | 200, idempotent by sha256 (same sha no-op, different sha 409); 413 over `IRIS_MAX_SEGMENT_BYTES`; 409 after `complete` |
 | `POST /memos/:id/complete` `{segmentCount}` | 202 memo (repeat too); 422 `missing_segments` + `missing: [...]` |
 | `POST /memos/:id/retry` `{from}` | 202 memo; 409 unless `failed` |
@@ -161,7 +161,7 @@ in-memory SQLite and fake ports, no `mock.module` / `spyOn`, HTTP via `app.handl
 **Harness:** `bun scripts/send-memo.ts <audio-file>` is the end-to-end driver. It splits the file into
 10 s m4a segments with ffmpeg, then creates, uploads, completes and long-polls a memo like the phone
 does, and prints transcript, reply, summary, step timings and cost. Env: `IRIS_URL` (default
-`http://127.0.0.1:7730`), `IRIS_TOKEN` (required); flags `--url --token --mode auto|journal|hermes|tab
+`http://127.0.0.1:7730`), `IRIS_TOKEN` (required); flags `--url --token --mode auto|journal|hermes|tab|chat
 --wait <s>`. Exit 0 `notified`, 1 `failed`, 2 timeout, `needs_route` or usage error. Its tests
 (`bun test scripts`, fake in-process server) run via the repo root; lint and format cover `scripts/`.
 
@@ -231,6 +231,11 @@ Push to master deploys. LaunchAgent `com.jkrumm.iris` (KeepAlive, `ExitTimeOut` 
   `degraded`, `act` is only when none is registered. Without the rest, `/health` lists `transcribe` /
   `summarize` / `act` / `speech` / `herd` in `degraded`; the first two park memos before that step (`summarize` always has a handler: journal and herdr use a template, a hermes memo fails the step without a summarizer), the last two
   answer 503 `unavailable`.
+- **Chat mode and threads** (TDD §3 act, data model): mode `chat` routes to hermes (source `mode`, never prefix or `decide`); `act` passes `chat: true` to
+  `Destination.deliver`, and the Hermes adapter then opens its session with `source: "iris-chat"` and sends a no-side-effects `system_message` on every turn
+  (Hermes' per-turn ephemeral system prompt, not stored). Hermes maps unknown `source` values to `api_server`, so `threads.kind` (`chat|hermes`) is the
+  marker, not Hermes. Every hermes `act` upserts a `threads` row (`id` = Hermes session id = `destination_ref`) and sets `memos.thread_id` in `completeStep`
+  (`patch.thread`); the memo wire carries `threadId`, omitted when null. `deliver({threadId})` continues an existing session (nothing sets it yet; R3). No threads endpoints yet.
 - **Routing** (`routing/`, TDD §3 step 3), in order: a mode other than `auto` wins (source `mode`); a spoken prefix within the first 6 words
   (`journal|tagebuch`, `an hermes|hermes`, `tab <name>`; case and diacritics folded) routes (`prefix`); `memo.transcript` stays the raw speech-to-text and `act` / `summarize` cut the prefix again via `deliveredTranscript`;
   with fewer than two registered destinations the only one wins (`default`, confidence 1, no spend); two or more (production since Wave 11: journal, herdr, hermes; `IRIS_FAKES` registers all three) turn the decider on; otherwise `Decider` (agw `decide`, the job runner's hang guard): confidence ≥ 0.8 routes, else `needs_route`. A mode or prefix

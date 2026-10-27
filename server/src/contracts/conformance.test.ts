@@ -31,7 +31,7 @@ const fixture = (stem: string) => {
 };
 
 /** Schema properties that are omitted rather than null: a body or fixture may lack them. */
-const OPTIONAL_KEYS = ["routeReason", "routeSuggestion", "typed"];
+const OPTIONAL_KEYS = ["routeReason", "routeSuggestion", "typed", "threadId"];
 
 /** Validates `value` against `schema` and compares its keys with each fixture (default: all of them). */
 function conforms(params: { schema: string; value: unknown; fixtures?: string[] }) {
@@ -174,6 +174,37 @@ describe("flows: every response conforms", () => {
       "summarize",
       "notify",
     ]);
+  });
+
+  it("a chat memo carries its threadId on the detail and the list", async () => {
+    const { app } = testApp({
+      handlers: handlers({
+        act: async ({ memo }) => ({
+          patch: {
+            destinationRef: memo.id,
+            replyText: "Ein Mutex hat einen Halter.",
+            thread: { id: memo.id, kind: "chat", title: "Mutex gegen Semaphor" },
+          },
+        }),
+      }),
+    });
+    const id = crypto.randomUUID();
+    const created = await create(app, id, "chat");
+    expect(created.status).toBe(201);
+    await conformingBody({ route: "POST /v1/memos", res: created });
+    for (let n = 0; n < 4; n++) await upload(app, id, n);
+    expect((await complete(app, id, 4)).status).toBe(202);
+    await call(app, { path: `/v1/memos/${id}/result?wait=5` });
+
+    const detail = await conformingBody({
+      route: "GET /v1/memos/:id",
+      res: await call(app, { path: `/v1/memos/${id}` }),
+      fixtures: ["memos.detail.response.chat"],
+    });
+    expect(detail).toMatchObject({ mode: "chat", state: "notified", threadId: id });
+    const list = await call(app, { path: "/v1/memos" });
+    const items = ((await list.json()) as { items: { id: string; threadId?: string }[] }).items;
+    expect(items.find((m) => m.id === id)?.threadId).toBe(id);
   });
 
   it("create, upload, complete, result, detail, list, activity token and media on a notified memo", async () => {
