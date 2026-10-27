@@ -4,7 +4,7 @@
 #
 #   IRIS_URL=https://iris.mini.<domain> AUDIO=<file> make smoke
 #
-# IRIS_URL defaults to the loopback instance; AUDIO defaults to fixtures/audio/de-90s.m4a.
+# IRIS_URL (read by send-memo.ts) defaults to the loopback instance; AUDIO defaults to fixtures/audio/de-90s.m4a.
 set -eu
 
 DIR="${0:A:h:h}"
@@ -17,4 +17,4 @@ AUDIO="${AUDIO:-fixtures/audio/de-90s.m4a}"
 TOKEN=$(secrets-run read op://mini/iris/device-tokens | /usr/bin/tr ',' '\n' | /usr/bin/awk -F= '$2 == "smoke" {print $1}')
 [[ -n "$TOKEN" ]] || { print -u2 "smoke: no 'smoke' device in op://mini/iris/device-tokens"; exit 2; }
 
-IRIS_TOKEN="$TOKEN" exec bun scripts/send-memo.ts "$AUDIO" --mode hermes --wait "${SMOKE_WAIT:-600}" ${IRIS_URL:+--url "$IRIS_URL"}
+IRIS_TOKEN="$TOKEN" exec bun scripts/send-memo.ts "$AUDIO" --mode hermes --wait "${SMOKE_WAIT:-600}"

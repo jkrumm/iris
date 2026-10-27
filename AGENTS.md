@@ -26,6 +26,8 @@ come later under `apple/`.
 - `server/src/telemetry/` — `otel.ts`, `otel-format.ts`, `log.ts`, copied from research-gateway
   (hand-rolled OTLP JSON, no SDK). The trace id is the memo UUID with dashes stripped.
 - `server/src/env.ts` — the only place `process.env` is parsed.
+- `scripts/` — `send-memo.ts` (e2e driver), `smoke.sh`, `launch.sh` (LaunchAgent entry), `mini-deploy.sh` (poller tick);
+  `launchd/` — plist templates; `fixtures/audio/` — the German smoke recording.
 
 ## HTTP API
 
@@ -64,15 +66,35 @@ does, and prints transcript, reply, summary, step timings and cost. Env: `IRIS_U
 
 ## Deploy
 
-Placeholder until Wave 4: LaunchAgent `com.jkrumm.iris` from the deploy clone `~/.iris/app`
-(data in `~/.iris/data`), behind `iris.test` on the mini's Caddy. Direct-to-master.
+Push to master deploys. LaunchAgent `com.jkrumm.iris` (KeepAlive, `ExitTimeOut` 60 s) runs
+`scripts/launch.sh` from the deploy clone `~/.iris/app`, never this checkout; data lives in
+`~/.iris/data`; it listens on `127.0.0.1:7730`. Doors: `iris.test` (local) and
+`iris.mini.<domain>` (tailnet), both Caddy in `dotfiles/config/Caddyfile`.
+
+- `com.jkrumm.iris-deploy` polls `scripts/mini-deploy.sh` every 120 s through `jobrun`. It deploys
+  `origin/master` only when the `check` job is green on that SHA and no memo is mid-step
+  (`/health` `inflight` is 0). It restarts only for runtime paths (docs, tests, Makefile and
+  `launchd/` do not; `launchd/` prints a warning), and writes `~/.iris/deployed-sha` once the new
+  pid answers `/health`. `make deploy` runs one tick now.
+- First install or a changed `launchd/` template: `make mini-setup` / `make launchd-install` on the mini.
+- Secrets: `.env.local.tpl` + `.env.mini.tpl` (+ optional `.env.mini.otel.tpl`) via `secrets-run`.
+  `launch.sh` refuses to start if a base ref does not resolve; a missing OTel overlay starts degraded.
+  Device tokens, the audio-gateway URL and the OTLP endpoint live in `op://mini/iris/*` (listed in
+  `dotfiles-private/headless.refs`). Rotate a token: edit the field, `make secrets-seed` from the
+  MacBook, `make launchd-restart`. `APNS_*` is unset, so the log notifier runs.
+- `HERMES_URL` is composed in `launch.sh` from `HERMES_HOST` + `HERMES_PORT`.
 
 ## Verify & Monitor
 
-Placeholder until Wave 4. `GET /health` is public and returns `{status, degraded[]}`;
-`degraded` lists `otel` (no OTLP endpoint), `device-tokens` (none configured) and the steps without a
-configured downstream (`transcribe`, `act`, `summarize`). Traces and
-logs go to HyperDX with `service.name=iris-server`.
+- `make verify` — exit 0 iff `GET /health` answers `status: ok` (public; `{status, degraded[], inflight}`).
+  `degraded` lists `otel`, `device-tokens` and steps without a downstream (`transcribe`, `act`, `summarize`).
+- `make smoke` — a real German 96 s recording (`fixtures/audio/de-90s.m4a`) through the pipeline to
+  `notified`. `IRIS_URL=https://iris.mini.<domain> make smoke` goes through the tailnet door. Uses the
+  `smoke` device token; the memo shows up in a Hermes session named by the memo id.
+- `make logs` (bounded tail of `~/Library/Logs/iris{.log,.err}` and `iris-deploy.log`),
+  `make launchd-status`, `make launchd-restart` (refuses while `inflight > 0`, `FORCE=1` overrides).
+- Traces and logs: HyperDX, `service.name=iris-server`, trace id = memo UUID without dashes. Root span
+  `memo`, a child per step. Query via `/otel` (prod).
 
 ## Gotchas
 
@@ -100,7 +122,7 @@ logs go to HyperDX with `service.name=iris-server`.
   into the same Hermes session. Shutdown keeps the window small: `app.stop(true)`, `runner.stop()` (the
   running step finishes, no further step or queued memo starts), `await runner.idle()` under a 30 s drain
   deadline (`shutdown.drain_timeout` logs the in-flight memo ids), `db.close()`, then a separate 2 s OTel
-  flush deadline. Wave 4's LaunchAgent must set `ExitTimeOut` >= 45 s.
+  flush deadline. The LaunchAgent's `ExitTimeOut` is 60 s to cover it.
 - **Bookkeeping failures** (`completeStep` throws after a handler ran) log `runner.bookkeeping_failed`
   and propagate; the step row stays `running` and the memo keeps its state until the next `driveAll`.
 - A stored `summary_json` that fails the zod `Summary` schema reads as `null` with a `memo.summary_invalid` log.

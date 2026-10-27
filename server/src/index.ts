@@ -80,7 +80,7 @@ runner.driveAll().catch((err: unknown) => log("runner.drive_all_failed", { error
 
 let shuttingDown = false;
 
-// Wave 4's LaunchAgent must set ExitTimeOut above DRAIN_DEADLINE_MS + OTEL_FLUSH_DEADLINE_MS (>= 45 s).
+// The LaunchAgent's ExitTimeOut (launchd/*.plist.template) must stay above DRAIN_DEADLINE_MS + OTEL_FLUSH_DEADLINE_MS.
 const DRAIN_DEADLINE_MS = 30_000;
 const OTEL_FLUSH_DEADLINE_MS = 2_000;
 
