@@ -10,6 +10,8 @@ import {
   STEPS,
   type HandlerStep,
   type Memo,
+  type MemoPatch,
+  type MemoState,
   type Step,
   type StepOutcome,
 } from "./memo.js";
@@ -20,6 +22,8 @@ export interface StepResult {
   outcome?: StepOutcome;
   usage?: unknown;
   costUsd?: number;
+  /** Memo data columns to write atomically with the step completion. */
+  patch?: MemoPatch;
 }
 
 export type StepHandler = (ctx: { memo: Memo }) => Promise<StepResult>;
@@ -30,11 +34,22 @@ export interface Runner {
    * per memo: a call while one is running joins it, and the loop re-checks state before settling.
    */
   drive(id: string): Promise<void>;
-  /** Startup recovery: resumes every memo that was mid-pipeline when the process stopped. */
+  /** Startup recovery: resumes every memo that was mid-pipeline, at most `MAX_CONCURRENT_DRIVES` at a time. */
   driveAll(): Promise<void>;
+  /**
+   * Graceful shutdown, step one: no new memo starts and no running loop starts another step. The
+   * step currently executing finishes and completes normally. Not reversible.
+   */
+  stop(): void;
+  /** Ids of the memos currently being driven. */
+  inflightIds(): string[];
+  /** Resolves once no memo is in flight and no `driveAll` is running. Never throws. */
+  idle(): Promise<void>;
   /** Resets a failed memo to before `from` and drives it in the background. Returns the reset memo. */
   retry(params: { id: string; from: Step }): Memo;
 }
+
+const MAX_CONCURRENT_DRIVES = 3;
 
 const errorMessage = (err: unknown) => (err instanceof Error ? err.message : String(err));
 
@@ -49,7 +64,9 @@ export function createRunner(deps: {
 }): Runner {
   const { store, handlers, events, clock } = deps;
   const inflight = new Map<string, Promise<void>>();
+  const driveAlls = new Set<Promise<void>>();
   const rerun = new Set<string>();
+  let stopping = false;
   const warnedNoHandler = new Set<HandlerStep>();
 
   const publish = (id: string, step: Step | null) => {
@@ -59,6 +76,7 @@ export function createRunner(deps: {
 
   /** The memo plus the step and handler to run next, or null when the loop should stop. */
   function nextRunnable(id: string) {
+    if (stopping) return null;
     const memo = store.getMemo(id);
     if (!memo) return null;
     const step = nextStep(memo.state);
@@ -74,23 +92,41 @@ export function createRunner(deps: {
     return { memo, step, handler };
   }
 
-  /** Returns false when the memo failed, or lost its state to a concurrent writer. */
+  /**
+   * Returns false when the memo failed, or lost its state to a concurrent writer. Only the handler
+   * (and the outcome check) can fail the step; a store error is bookkeeping and propagates.
+   */
   async function runStep(params: { memo: Memo; step: HandlerStep; handler: StepHandler }) {
     const { memo, step, handler } = params;
     store.markStepStarted({ id: memo.id, step });
+    let result: StepResult;
+    let to: MemoState;
     try {
-      const result = await withSpan(`memo.${step}`, { memo_id: memo.id, step }, () =>
-        handler({ memo }),
-      );
-      const to = advance({ state: memo.state, step, outcome: result.outcome });
-      store.markStepDone({ id: memo.id, step, usage: result.usage, costUsd: result.costUsd });
-      if (!store.transition({ id: memo.id, from: memo.state, to })) {
-        log("runner.lost_transition", { memo_id: memo.id, step, from: memo.state, to });
-        return false;
-      }
+      result = await withSpan(`memo.${step}`, { memo_id: memo.id, step }, () => handler({ memo }));
+      to = advance({ state: memo.state, step, outcome: result.outcome });
     } catch (err) {
       store.markStepFailed({ id: memo.id, step, error: errorMessage(err) });
       publish(memo.id, step);
+      return false;
+    }
+    let completed: boolean;
+    try {
+      completed = store.completeStep({
+        id: memo.id,
+        step,
+        from: memo.state,
+        to,
+        usage: result.usage,
+        costUsd: result.costUsd,
+        patch: result.patch,
+      });
+    } catch (err) {
+      // Not a step failure: the handler ran, the store did not. Propagate; the step row stays running.
+      log("runner.bookkeeping_failed", { memo_id: memo.id, step, error: errorMessage(err) });
+      throw err;
+    }
+    if (!completed) {
+      log("runner.lost_transition", { memo_id: memo.id, step, from: memo.state, to });
       return false;
     }
     publish(memo.id, step);
@@ -119,7 +155,7 @@ export function createRunner(deps: {
       do {
         rerun.delete(id);
         await pass(id);
-      } while (rerun.has(id));
+      } while (rerun.has(id) && !stopping);
     } finally {
       // Same tick as the rerun check: no drive() can slip in between and be dropped.
       inflight.delete(id);
@@ -128,6 +164,7 @@ export function createRunner(deps: {
 
   function drive(id: string) {
     const running = inflight.get(id);
+    if (stopping) return running ?? Promise.resolve();
     if (running) {
       rerun.add(id);
       return running;
@@ -141,11 +178,33 @@ export function createRunner(deps: {
     drive,
 
     async driveAll() {
-      const memos = store.listNonTerminal();
-      const results = await Promise.allSettled(memos.map((memo) => drive(memo.id)));
-      results.forEach((result, i) => {
-        if (result.status === "rejected") logDriveFailure(memos[i]?.id ?? "")(result.reason);
-      });
+      const queue = store.listNonTerminal().map((memo) => memo.id);
+      const worker = async () => {
+        for (let id = queue.shift(); id !== undefined && !stopping; id = queue.shift()) {
+          await drive(id).catch(logDriveFailure(id));
+        }
+      };
+      const run = Promise.all(Array.from({ length: MAX_CONCURRENT_DRIVES }, worker)).then(
+        () => undefined,
+      );
+      driveAlls.add(run);
+      try {
+        await run;
+      } finally {
+        driveAlls.delete(run);
+      }
+    },
+
+    stop() {
+      stopping = true;
+    },
+
+    inflightIds: () => Array.from(inflight.keys()),
+
+    async idle() {
+      while (inflight.size > 0 || driveAlls.size > 0) {
+        await Promise.allSettled([...inflight.values(), ...driveAlls]);
+      }
     },
 
     retry({ id, from }) {

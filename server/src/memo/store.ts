@@ -1,4 +1,4 @@
-import type { Memo, MemoMode, MemoState, Step, StepRecord } from "./memo.js";
+import type { Memo, MemoMode, MemoPatch, MemoState, Step, StepRecord } from "./memo.js";
 
 /** Synchronous on purpose: the one adapter is bun:sqlite, and every method is a single statement or transaction. */
 export interface MemoStore {
@@ -33,9 +33,23 @@ export interface MemoStore {
     usage?: unknown;
     costUsd?: number | undefined;
   }): void;
+  /**
+   * Atomic step completion: compare-and-set `from` → `to` first; only when it won, marks the step
+   * done and applies `patch`, all in one transaction. False (nothing written) when the memo is no
+   * longer in `from`.
+   */
+  completeStep(params: {
+    id: string;
+    step: Step;
+    from: MemoState;
+    to: MemoState;
+    usage?: unknown;
+    costUsd?: number | undefined;
+    patch?: MemoPatch | undefined;
+  }): boolean;
   /** Also moves the memo to `failed` and records `failedStep` and `error`. */
   markStepFailed(params: { id: string; step: Step; error: string }): void;
-  /** failed → stateBefore(from), clearing error, failedStep and the timeline from `from` on; false if not failed. */
+  /** failed → stateBefore(from), clearing error, failedStep, the timeline and the data columns of `from` and later steps; false if not failed. */
   resetForRetry(params: { id: string; from: Step }): boolean;
   listStepRecords(id: string): StepRecord[];
 

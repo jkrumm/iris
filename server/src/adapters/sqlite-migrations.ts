@@ -40,4 +40,13 @@ export const MIGRATIONS: readonly string[] = [
   ALTER TABLE segments ADD COLUMN sha256 TEXT NOT NULL DEFAULT '';
   ALTER TABLE segments ADD COLUMN received_at TEXT NOT NULL DEFAULT '';
   `,
+  // Step results live on the memo itself: one row answers "what came out of this memo".
+  `
+  ALTER TABLE memos ADD COLUMN audio_seconds REAL;
+  ALTER TABLE memos ADD COLUMN transcript TEXT;
+  ALTER TABLE memos ADD COLUMN route TEXT;
+  ALTER TABLE memos ADD COLUMN destination_ref TEXT;
+  ALTER TABLE memos ADD COLUMN reply_text TEXT;
+  ALTER TABLE memos ADD COLUMN summary_json TEXT;
+  `,
 ];

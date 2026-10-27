@@ -12,10 +12,14 @@ come later under `apple/`.
 - `server/src/index.ts` — entry point and production composition (SQLite, audio-fs, runner, service),
   listen, background `driveAll`, signals, DB close, OTel flush.
 - `server/src/memo/` — domain: `memo.ts` (states, steps, transitions), `store.ts` (port), `runner.ts`
-  (idempotent step runner), `service.ts` (`MemoService`, what HTTP calls), `events.ts` (in-process
+  (idempotent step runner, concurrency-bounded `driveAll`, `idle()`), `service.ts` (`MemoService`, what HTTP calls), `events.ts` (in-process
   pub/sub), `errors.ts` (`MemoError` codes), `test-support.ts` (fake audio, seeded memos).
-- `server/src/adapters/` — `sqlite.ts` (+ `sqlite-migrations.ts`, `PRAGMA user_version`), `audio-fs.ts`.
-- `server/src/ports/` — `audio.ts`, `clock.ts` (system, fixed and manual clocks).
+- `server/src/pipeline/steps.ts` — `createStepHandlers`: the five step handlers, each a pure function
+  of (memo, ports); a handler is registered only when its port is provided.
+- `server/src/adapters/` — `sqlite.ts` (+ `sqlite-migrations.ts`, `PRAGMA user_version`), `audio-fs.ts`,
+  and the downstream adapters (audio-gateway, Hermes, agw, log notifier).
+- `server/src/ports/` — `audio.ts`, `clock.ts` (system, fixed and manual clocks), `transcriber.ts`,
+  `destination.ts`, `summarizer.ts`, `notifier.ts`, `fakes.ts` (in-memory fakes of the four).
 - `server/src/http/` — `auth.ts` (device-token guard), `memos.ts` and `events.ts` (route plugins),
   `errors.ts` (the one `MemoError` → status mapping), `serialize.ts` (the one wire-shape mapping, camelCase),
   `test-support.ts` (in-memory app for `app.handle` tests).
@@ -51,6 +55,13 @@ with `failed(step)` as a side state.
 Tests are colocated `*.test.ts`. Ports and adapters: dependencies are injected, tests use
 in-memory SQLite and fake ports, no `mock.module` / `spyOn`, HTTP via `app.handle(new Request())`.
 
+**Harness:** `bun scripts/send-memo.ts <audio-file>` is the end-to-end driver. It splits the file into
+10 s m4a segments with ffmpeg, then creates, uploads, completes and long-polls a memo like the phone
+does, and prints transcript, reply, summary, step timings and cost. Env: `IRIS_URL` (default
+`http://127.0.0.1:7730`), `IRIS_TOKEN` (required); flags `--url --token --mode auto|journal|hermes|tab
+--wait <s>`. Exit 0 `notified`, 1 `failed`, 2 timeout, `needs_route` or usage error. Its tests
+(`bun test scripts`, fake in-process server) run via the repo root; lint and format cover `scripts/`.
+
 ## Deploy
 
 Placeholder until Wave 4: LaunchAgent `com.jkrumm.iris` from the deploy clone `~/.iris/app`
@@ -59,7 +70,8 @@ Placeholder until Wave 4: LaunchAgent `com.jkrumm.iris` from the deploy clone `~
 ## Verify & Monitor
 
 Placeholder until Wave 4. `GET /health` is public and returns `{status, degraded[]}`;
-`degraded` lists `otel` (no OTLP endpoint) and `device-tokens` (none configured). Traces and
+`degraded` lists `otel` (no OTLP endpoint), `device-tokens` (none configured) and the steps without a
+configured downstream (`transcribe`, `act`, `summarize`). Traces and
 logs go to HyperDX with `service.name=iris-server`.
 
 ## Gotchas
@@ -76,8 +88,22 @@ logs go to HyperDX with `service.name=iris-server`.
 - **Segments** are idempotent by sha256 (same bytes no-op, different bytes 409, the stored file is
   never overwritten) and rejected (409) after `complete`.
 - **`needs_route`** is parked (the runner does not resume it) and counts as result-ready.
-- **The runner has no handlers until Wave 3:** memos stop after `received`; `index.ts` logs
-  `runner.no_handlers_registered`.
+- **Step results live on the memo row** (`audio_seconds`, `transcript`, `route`, `destination_ref`,
+  `reply_text`, `summary_json`), written by `MemoStore.completeStep` in one transaction with the state
+  change and the done row; a lost compare-and-set writes nothing. `resetForRetry` clears the columns of
+  the re-run steps and later. A store error in `completeStep` is bookkeeping, not a step failure: it
+  propagates and the drive failure is logged.
+- **Downstream env** (all optional, empty = unset): `AUDIO_GATEWAY_URL`, `AGW_URL`, `HERMES_URL` +
+  `HERMES_TOKEN`. Without one, `/health` lists `transcribe` / `summarize` / `act` in `degraded` and
+  memos park before that step. `route` always yields `hermes` until Phase 2.
+- **`act` is at-least-once:** a crash or restart mid-`act` replays the step, which posts a second turn
+  into the same Hermes session. Shutdown keeps the window small: `app.stop(true)`, `runner.stop()` (the
+  running step finishes, no further step or queued memo starts), `await runner.idle()` under a 30 s drain
+  deadline (`shutdown.drain_timeout` logs the in-flight memo ids), `db.close()`, then a separate 2 s OTel
+  flush deadline. Wave 4's LaunchAgent must set `ExitTimeOut` >= 45 s.
+- **Bookkeeping failures** (`completeStep` throws after a handler ran) log `runner.bookkeeping_failed`
+  and propagate; the step row stays `running` and the memo keeps its state until the next `driveAll`.
+- A stored `summary_json` that fails the zod `Summary` schema reads as `null` with a `memo.summary_invalid` log.
 - **SSE** has no `Last-Event-ID` replay; clients refetch the list on reconnect.
 - **Long polls and SSE** call `server.timeout(request, 0)` to escape Bun's idle timeout.
 - **Secrets on the mini:** `secrets-run`, never `op`.

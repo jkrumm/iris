@@ -14,6 +14,12 @@ export const memoJson = (memo: Memo) => ({
   failedStep: memo.failedStep,
   error: memo.error,
   segmentCount: memo.segmentCount,
+  audioSeconds: memo.audioSeconds,
+  transcript: memo.transcript,
+  route: memo.route,
+  destinationRef: memo.destinationRef,
+  replyText: memo.replyText,
+  summary: memo.summary,
   createdAt: memo.createdAt,
   updatedAt: memo.updatedAt,
 });

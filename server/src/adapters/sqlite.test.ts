@@ -1,7 +1,8 @@
 import { Database } from "bun:sqlite";
 import { describe, expect, it } from "bun:test";
 import { MemoError } from "../memo/errors.js";
-import { seedMemo, testStore } from "../memo/test-support.js";
+import type { MemoPatch, MemoState, Step } from "../memo/memo.js";
+import { captureLogs, seedMemo, testStore } from "../memo/test-support.js";
 import { createSqliteMemoStore, migrate } from "./sqlite.js";
 import { MIGRATIONS } from "./sqlite-migrations.js";
 
@@ -189,6 +190,134 @@ describe("step records", () => {
     });
     expect(store.listStepRecords(id).map((r) => r.step)).toEqual(["transcribe"]);
     expect(store.resetForRetry({ id, from: "route" })).toBe(false);
+  });
+});
+
+describe("completeStep", () => {
+  const summary = { headline: "h", detail: "d", spoken: "s" };
+
+  it("moves the state, marks the step done and applies the patch in one go", () => {
+    const { store } = testStore();
+    const { id } = seedMemo(store, "received");
+    expect(store.getMemo(id)).toMatchObject({
+      audioSeconds: null,
+      transcript: null,
+      summary: null,
+    });
+    store.markStepStarted({ id, step: "transcribe" });
+    const won = store.completeStep({
+      id,
+      step: "transcribe",
+      from: "received",
+      to: "transcribed",
+      usage: { audioSeconds: 3 },
+      costUsd: 0.5,
+      patch: { transcript: "hi", audioSeconds: 3 },
+    });
+    expect(won).toBe(true);
+    expect(store.getMemo(id)).toMatchObject({
+      state: "transcribed",
+      transcript: "hi",
+      audioSeconds: 3,
+      route: null,
+    });
+    expect(store.listStepRecords(id)[0]).toMatchObject({
+      status: "done",
+      usage: { audioSeconds: 3 },
+      costUsd: 0.5,
+    });
+  });
+
+  it("round-trips the summary as JSON", () => {
+    const { store } = testStore();
+    const { id } = seedMemo(store, "acted");
+    store.markStepStarted({ id, step: "summarize" });
+    store.completeStep({
+      id,
+      step: "summarize",
+      from: "acted",
+      to: "summarized",
+      patch: { summary },
+    });
+    expect(store.getMemo(id)?.summary).toEqual(summary);
+  });
+
+  it("stores a null summary as SQL NULL, not the text 'null'", () => {
+    const { store, db } = testStore();
+    const { id } = seedMemo(store, "acted");
+    store.markStepStarted({ id, step: "summarize" });
+    store.completeStep({
+      id,
+      step: "summarize",
+      from: "acted",
+      to: "summarized",
+      patch: { summary: null },
+    });
+    const row = db
+      .query<{ summary_json: string | null }, [string]>(
+        "SELECT summary_json FROM memos WHERE id = ?",
+      )
+      .get(id);
+    expect(row?.summary_json).toBeNull();
+    expect(store.getMemo(id)?.summary).toBeNull();
+  });
+
+  it("reads an invalid stored summary as null and logs a warning", async () => {
+    const { store, db } = testStore();
+    const { id } = seedMemo(store, "summarized");
+    db.query("UPDATE memos SET summary_json = ? WHERE id = ?").run('{"headline":1}', id);
+    const { result, lines } = await captureLogs(async () => store.getMemo(id));
+    expect(result?.summary).toBeNull();
+    expect(lines).toContainEqual(
+      expect.objectContaining({ event: "memo.summary_invalid", memo_id: id }),
+    );
+
+    db.query("UPDATE memos SET summary_json = ? WHERE id = ?").run("not json", id);
+    const second = await captureLogs(async () => store.getMemo(id));
+    expect(second.result?.summary).toBeNull();
+    expect(second.lines).toHaveLength(1);
+  });
+
+  it("writes nothing when the compare-and-set loses", () => {
+    const { store } = testStore();
+    const { id } = seedMemo(store, "received");
+    store.markStepStarted({ id, step: "transcribe" });
+    const won = store.completeStep({
+      id,
+      step: "transcribe",
+      from: "routed",
+      to: "acted",
+      usage: { x: 1 },
+      patch: { transcript: "nope" },
+    });
+    expect(won).toBe(false);
+    expect(store.getMemo(id)).toMatchObject({ state: "received", transcript: null });
+    expect(store.listStepRecords(id)[0]).toMatchObject({ status: "running", usage: null });
+  });
+
+  it("resetForRetry clears the data columns of the re-run steps and later, keeping earlier ones", () => {
+    const { store } = testStore();
+    const { id } = seedMemo(store, "received");
+    const complete = (step: Step, from: MemoState, to: MemoState, patch: MemoPatch) => {
+      store.markStepStarted({ id, step });
+      store.completeStep({ id, step, from, to, patch });
+    };
+    complete("transcribe", "received", "transcribed", { transcript: "t", audioSeconds: 2 });
+    complete("route", "transcribed", "routed", { route: "hermes" });
+    complete("act", "routed", "acted", { destinationRef: "r", replyText: "x" });
+    store.markStepStarted({ id, step: "summarize" });
+    store.markStepFailed({ id, step: "summarize", error: "boom" });
+
+    store.resetForRetry({ id, from: "act" });
+    expect(store.getMemo(id)).toMatchObject({
+      state: "routed",
+      transcript: "t",
+      audioSeconds: 2,
+      route: "hermes",
+      destinationRef: null,
+      replyText: null,
+      summary: null,
+    });
   });
 });
 

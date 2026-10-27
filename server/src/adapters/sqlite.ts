@@ -1,4 +1,5 @@
 import { Database } from "bun:sqlite";
+import { z } from "zod";
 import { MemoError } from "../memo/errors.js";
 import {
   STEPS,
@@ -6,12 +7,15 @@ import {
   stepsFrom,
   type Memo,
   type MemoMode,
+  type MemoPatch,
   type MemoState,
   type Step,
   type StepRecord,
+  type Summary,
 } from "../memo/memo.js";
 import type { MemoStore } from "../memo/store.js";
 import type { Clock } from "../ports/clock.js";
+import { log } from "../telemetry/log.js";
 import { MIGRATIONS } from "./sqlite-migrations.js";
 
 /** Opens the data file with WAL and foreign keys on. Tests pass `:memory:`. */
@@ -46,6 +50,12 @@ interface MemoRow {
   failed_step: string | null;
   error: string | null;
   segment_count: number | null;
+  audio_seconds: number | null;
+  transcript: string | null;
+  route: string | null;
+  destination_ref: string | null;
+  reply_text: string | null;
+  summary_json: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -60,6 +70,21 @@ interface StepRow {
   cost_usd: number | null;
 }
 
+const SummarySchema = z.object({ headline: z.string(), detail: z.string(), spoken: z.string() });
+
+/** A stored summary that no longer parses is dropped (null) with a warning, never thrown. */
+function parseSummary(row: MemoRow): Summary | null {
+  if (row.summary_json === null) return null;
+  try {
+    const parsed = SummarySchema.safeParse(JSON.parse(row.summary_json));
+    if (parsed.success) return parsed.data;
+    log("memo.summary_invalid", { memo_id: row.id, error: parsed.error.message });
+  } catch (err) {
+    log("memo.summary_invalid", { memo_id: row.id, error: String(err) });
+  }
+  return null;
+}
+
 const toMemo = (row: MemoRow): Memo => ({
   id: row.id,
   mode: row.mode as MemoMode,
@@ -69,9 +94,33 @@ const toMemo = (row: MemoRow): Memo => ({
   failedStep: row.failed_step as Step | null,
   error: row.error,
   segmentCount: row.segment_count,
+  audioSeconds: row.audio_seconds,
+  transcript: row.transcript,
+  route: row.route,
+  destinationRef: row.destination_ref,
+  replyText: row.reply_text,
+  summary: parseSummary(row),
   createdAt: row.created_at,
   updatedAt: row.updated_at,
 });
+
+/** Column behind each patchable memo field. */
+const PATCH_COLUMNS = {
+  audioSeconds: "audio_seconds",
+  transcript: "transcript",
+  route: "route",
+  destinationRef: "destination_ref",
+  replyText: "reply_text",
+  summary: "summary_json",
+} as const satisfies Record<keyof MemoPatch, string>;
+
+/** The data columns a step writes, cleared when the step is re-run. */
+const STEP_COLUMNS: Partial<Record<Step, (keyof MemoPatch)[]>> = {
+  transcribe: ["audioSeconds", "transcript"],
+  route: ["route"],
+  act: ["destinationRef", "replyText"],
+  summarize: ["summary"],
+};
 
 const toStepRecord = (row: StepRow): StepRecord => ({
   step: row.step as Step,
@@ -110,11 +159,47 @@ export function createSqliteMemoStore(params: { db: Database; clock: Clock }): M
       .run(stateBefore(from), stamp(), id);
     if (reset.changes === 0) return false;
     const cleared = stepsFrom(from);
+    const columns = cleared
+      .flatMap((step) => STEP_COLUMNS[step] ?? [])
+      .map((f) => PATCH_COLUMNS[f]);
+    if (columns.length > 0) {
+      db.query(`UPDATE memos SET ${columns.map((c) => `${c} = NULL`).join(", ")} WHERE id = ?`).run(
+        id,
+      );
+    }
     db.query(
       `DELETE FROM memo_steps WHERE memo_id = ? AND step IN (${cleared.map(() => "?").join(",")})`,
     ).run(id, ...cleared);
     return true;
   });
+
+  const completeStep = db.transaction(
+    (input: Parameters<MemoStore["completeStep"]>[0]): boolean => {
+      const { id, step, from, to, usage, costUsd, patch } = input;
+      const at = stamp();
+      const moved = db
+        .query("UPDATE memos SET state = ?, updated_at = ? WHERE id = ? AND state = ?")
+        .run(to, at, id, from);
+      if (moved.changes === 0) return false;
+      db.query(
+        `UPDATE memo_steps SET status = 'done', finished_at = ?, error = NULL, usage_json = ?, cost_usd = ?
+         WHERE memo_id = ? AND step = ?`,
+      ).run(at, usage === undefined ? null : JSON.stringify(usage), costUsd ?? null, id, step);
+      const fields = (Object.keys(PATCH_COLUMNS) as (keyof MemoPatch)[]).filter(
+        (field) => patch?.[field] !== undefined,
+      );
+      if (fields.length === 0) return true;
+      const values = fields.map((field) => {
+        const value = patch?.[field];
+        if (field !== "summary") return value as string | number | null;
+        return value === null ? null : JSON.stringify(value);
+      });
+      db.query(
+        `UPDATE memos SET ${fields.map((f) => `${PATCH_COLUMNS[f]} = ?`).join(", ")} WHERE id = ?`,
+      ).run(...values, id);
+      return true;
+    },
+  );
 
   return {
     createMemo({ id, mode, device, startedAt }) {
@@ -213,6 +298,10 @@ export function createSqliteMemoStore(params: { db: Database; clock: Clock }): M
         `UPDATE memo_steps SET status = 'done', finished_at = ?, error = NULL, usage_json = ?, cost_usd = ?
          WHERE memo_id = ? AND step = ?`,
       ).run(stamp(), usage === undefined ? null : JSON.stringify(usage), costUsd ?? null, id, step);
+    },
+
+    completeStep(input) {
+      return completeStep(input);
     },
 
     markStepFailed({ id, step, error }) {

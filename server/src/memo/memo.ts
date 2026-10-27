@@ -22,6 +22,13 @@ export type HandlerStep = Exclude<Step, "ingest">;
 /** A handler can park the memo instead of advancing it; only `route` may. */
 export type StepOutcome = "needs_route";
 
+/** The triage result: a notification headline, a longer detail line and 1–2 spoken sentences. */
+export interface Summary {
+  headline: string;
+  detail: string;
+  spoken: string;
+}
+
 export interface Memo {
   id: string;
   mode: MemoMode;
@@ -31,9 +38,22 @@ export interface Memo {
   failedStep: Step | null;
   error: string | null;
   segmentCount: number | null;
+  /** Written by the steps; null until the step that produces it has run. */
+  audioSeconds: number | null;
+  transcript: string | null;
+  /** Plain string today (`hermes`); the routing phase narrows it. */
+  route: string | null;
+  destinationRef: string | null;
+  replyText: string | null;
+  summary: Summary | null;
   createdAt: string;
   updatedAt: string;
 }
+
+/** The step-written memo fields a handler may set when its step completes. */
+export type MemoPatch = Partial<
+  Pick<Memo, "audioSeconds" | "transcript" | "route" | "destinationRef" | "replyText" | "summary">
+>;
 
 export interface StepRecord {
   step: Step;

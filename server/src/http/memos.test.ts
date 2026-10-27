@@ -34,6 +34,12 @@ describe("POST /v1/memos", () => {
       startedAt: "2026-01-01T00:00:00.000Z",
       failedStep: null,
       segmentCount: null,
+      audioSeconds: null,
+      transcript: null,
+      route: null,
+      destinationRef: null,
+      replyText: null,
+      summary: null,
     });
     const again = await create(app, id);
     expect(again.status).toBe(200);
@@ -281,6 +287,38 @@ describe("GET /v1/memos/:id/result", () => {
     const parked = await call(app, { path: `/v1/memos/${id}/result` });
     expect(parked.status).toBe(200);
     expect(await parked.json()).toMatchObject({ state: "needs_route" });
+  });
+
+  it("returns the pipeline outcome with the finished memo", async () => {
+    const { app, store } = testApp();
+    const id = newId();
+    await create(app, id);
+    store.markReceived({ id, segmentCount: 1 });
+    const summary = { headline: "h", detail: "d", spoken: "s" };
+    store.completeStep({
+      id,
+      step: "transcribe",
+      from: "received",
+      to: "transcribed",
+      patch: {
+        transcript: "hello",
+        audioSeconds: 2.5,
+        route: "hermes",
+        destinationRef: "session-1",
+        replyText: "done",
+        summary,
+      },
+    });
+    store.transition({ id, from: "transcribed", to: "needs_route" });
+    const res = await call(app, { path: `/v1/memos/${id}/result` });
+    expect(await res.json()).toMatchObject({
+      transcript: "hello",
+      audioSeconds: 2.5,
+      route: "hermes",
+      destinationRef: "session-1",
+      replyText: "done",
+      summary,
+    });
   });
 
   it("releases the wait on client abort without leaking a listener", async () => {
