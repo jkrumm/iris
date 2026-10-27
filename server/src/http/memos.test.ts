@@ -89,6 +89,15 @@ describe("POST /v1/memos/text", () => {
     expect(detail.segmentCount).toBe(0);
   });
 
+  it("409s GET /audio: a typed memo has no recording", async () => {
+    const { app } = testApp({ handlers: fakeHandlers });
+    const id = newId();
+    await createText(app, { id });
+    const res = await call(app, { path: `/v1/memos/${id}/audio` });
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({ error: "bad_state" });
+  });
+
   it("requires a device token", async () => {
     const { app } = testApp();
     const res = await call(app, {

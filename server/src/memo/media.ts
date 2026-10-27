@@ -53,6 +53,9 @@ export function createMemoMedia(deps: {
       if (memo.state === "receiving") {
         throw new MemoError("bad_state", `memo ${id} is still receiving segments`);
       }
+      if (memo.segmentCount === null) {
+        throw new MemoError("bad_state", `memo ${id} was typed, it has no recording`);
+      }
       return once(`recording/${id}`, async () => {
         const cached = await audio.readCombined(id);
         if (cached) return cached;
