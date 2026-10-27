@@ -165,6 +165,22 @@ struct URLSessionAPIClientTests {
       request.queryItems == [URLQueryItem(name: "limit", value: "20"), URLQueryItem(name: "cursor", value: "41")])
   }
 
+  @Test("listMemos sends q, route and state and decodes the pinned memos")
+  func listMemosSearch() async throws {
+    let server = StubServer { _ in try .json(fixture: "memos.list.response.pinned") }
+    let query = ListMemosQuery(limit: 20, q: "kalender termin", route: .hermes, state: .notified)
+    let page = try await server.makeClient().listMemos(query)
+
+    #expect(page.pinned.map(\.state) == [.needsRoute])
+    #expect(page.items.count == 2)
+    let request = try #require(server.request)
+    #expect(
+      request.queryItems == [
+        URLQueryItem(name: "limit", value: "20"), URLQueryItem(name: "q", value: "kalender termin"),
+        URLQueryItem(name: "route", value: "hermes"), URLQueryItem(name: "state", value: "notified"),
+      ])
+  }
+
   @Test("listMemos without a query sends none")
   func listMemosNoQuery() async throws {
     let server = StubServer { _ in try .json(fixture: "memos.list.response.empty") }

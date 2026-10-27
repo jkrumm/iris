@@ -75,20 +75,33 @@ public struct ActivityTokenRequest: Codable, Hashable, Sendable {
   }
 }
 
-/// Query of `GET /v1/memos`.
+/// Query of `GET /v1/memos`. `q` searches the transcript and summary headline (case, umlaut and prefix insensitive,
+/// terms ANDed, at most 200 characters); `route` and `state` filter exactly. All combine.
 public struct ListMemosQuery: Codable, Hashable, Sendable {
   public var limit: Int?
   public var cursor: String?
+  public var q: String?
+  public var route: RouteDestination?
+  public var state: MemoState?
 
-  public init(limit: Int? = nil, cursor: String? = nil) {
+  public init(
+    limit: Int? = nil, cursor: String? = nil, q: String? = nil, route: RouteDestination? = nil,
+    state: MemoState? = nil
+  ) {
     self.limit = limit
     self.cursor = cursor
+    self.q = q
+    self.route = route
+    self.state = state
   }
 
   public var queryItems: [URLQueryItem] {
     var items: [URLQueryItem] = []
     if let limit { items.append(URLQueryItem(name: "limit", value: String(limit))) }
     if let cursor { items.append(URLQueryItem(name: "cursor", value: cursor)) }
+    if let q { items.append(URLQueryItem(name: "q", value: q)) }
+    if let route { items.append(URLQueryItem(name: "route", value: route.rawValue)) }
+    if let state { items.append(URLQueryItem(name: "state", value: state.rawValue)) }
     return items
   }
 }

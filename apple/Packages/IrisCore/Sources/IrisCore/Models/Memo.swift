@@ -231,23 +231,35 @@ public struct MemoDetail: Codable, Hashable, Sendable, Identifiable {
   }
 }
 
-/// `GET /v1/memos`: one page, newest first. `nextCursor` is `nil` on the last page.
+/// `GET /v1/memos`: one page, newest first. `nextCursor` is `nil` on the last page. `items` never holds a
+/// `needs_route` memo: the first page (no cursor) carries every one matching the filters in `pinned`
+/// (newest first, at most 50), later pages carry none.
 public struct MemoPage: Codable, Hashable, Sendable {
   public var items: [Memo]
+  public var pinned: [Memo]
   public var nextCursor: String?
 
-  public init(items: [Memo], nextCursor: String? = nil) {
+  public init(items: [Memo], pinned: [Memo] = [], nextCursor: String? = nil) {
     self.items = items
+    self.pinned = pinned
     self.nextCursor = nextCursor
   }
 
   private enum CodingKeys: String, CodingKey {
-    case items, nextCursor
+    case items, pinned, nextCursor
+  }
+
+  public init(from decoder: any Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    items = try container.decode([Memo].self, forKey: .items)
+    pinned = try container.decodeIfPresent([Memo].self, forKey: .pinned) ?? []
+    nextCursor = try container.decodeIfPresent(String.self, forKey: .nextCursor)
   }
 
   public func encode(to encoder: any Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
     try container.encode(items, forKey: .items)
+    try container.encode(pinned, forKey: .pinned)
     try container.encode(nextCursor, forKey: .nextCursor)
   }
 }

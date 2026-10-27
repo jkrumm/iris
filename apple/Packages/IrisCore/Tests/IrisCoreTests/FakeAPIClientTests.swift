@@ -253,6 +253,25 @@ struct FakeAPIClientTests {
     #expect(second.nextCursor == nil)
   }
 
+  @Test("list searches, filters and pins needs_route memos on the first page")
+  func searchingAndPinning() async throws {
+    let fake = FakeAPIClient(now: { Date(timeIntervalSince1970: 1_773_480_100) })
+    for id in ["a", "b"] { _ = try await create(fake, id: id) }
+    let parkedMemo = try await parked(fake)
+
+    let first = try await fake.listMemos(ListMemosQuery())
+    #expect(first.pinned.map(\.id) == [parkedMemo.id])
+    #expect(first.items.map(\.id).sorted() == ["a", "b"])
+    let later = try await fake.listMemos(ListMemosQuery(limit: 1, cursor: "1"))
+    #expect(later.pinned.isEmpty)
+
+    let onlyParked = try await fake.listMemos(ListMemosQuery(state: .needsRoute))
+    #expect(onlyParked.items.isEmpty)
+    #expect(onlyParked.pinned.count == 1)
+    #expect(try await fake.listMemos(ListMemosQuery(q: "nichts-davon")).items.isEmpty)
+    #expect(try await fake.listMemos(ListMemosQuery(route: .journal)).items.isEmpty)
+  }
+
   @Test("emit feeds the events stream")
   func eventStream() async throws {
     let fake = FakeAPIClient()
