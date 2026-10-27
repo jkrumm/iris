@@ -6,9 +6,9 @@
   "scripts": {
     "start": "bun run src/index.ts",
     "dev": "secrets-run run --env-file=../.env.local.tpl -- bun run --hot src/index.ts",
-    "lint": "oxlint src",
-    "format": "oxfmt src --write",
-    "format:check": "oxfmt src --check",
+    "lint": "cd .. && oxlint -c server/.oxlintrc.json server/src scripts",
+    "format": "cd .. && oxfmt -c server/.oxfmtrc.json server/src scripts --write",
+    "format:check": "cd .. && oxfmt -c server/.oxfmtrc.json server/src scripts --check",
     "typecheck": "tsc --noEmit",
     "test": "bun test"
   },
