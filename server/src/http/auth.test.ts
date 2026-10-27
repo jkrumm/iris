@@ -1,9 +1,10 @@
 import { describe, expect, it } from "bun:test";
 import { createApp } from "../app.js";
 import { deviceForToken, parseDeviceTokens } from "./auth.js";
+import { testApp } from "./test-support.js";
 
 const tokens = parseDeviceTokens("tok-phone=iphone, tok-mac=macbook");
-const app = createApp({ deviceTokens: tokens });
+const { memos, app } = testApp();
 const get = (path: string, auth?: string) =>
   app.handle(
     new Request(`http://iris.test${path}`, auth ? { headers: { authorization: auth } } : {}),
@@ -42,7 +43,7 @@ describe("/v1 guard", () => {
   });
 
   it("401s everything when no tokens are configured", async () => {
-    const open = createApp({ deviceTokens: new Map() });
+    const open = createApp({ deviceTokens: new Map(), memos });
     const res = await open.handle(
       new Request("http://iris.test/v1/whoami", { headers: { authorization: "Bearer " } }),
     );
@@ -62,7 +63,7 @@ describe("/v1 guard", () => {
   });
 
   it("reports degraded subsystems on /health", async () => {
-    const degraded = createApp({ deviceTokens: tokens, degraded: ["otel"] });
+    const degraded = createApp({ deviceTokens: tokens, memos, degraded: ["otel"] });
     const res = await degraded.handle(new Request("http://iris.test/health"));
     expect(await res.json()).toEqual({ status: "degraded", degraded: ["otel"] });
   });

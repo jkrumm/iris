@@ -1,0 +1,44 @@
+import type { MemoEvent } from "../memo/events.js";
+import type { Memo, StepRecord } from "../memo/memo.js";
+import type { MemoDetail } from "../memo/service.js";
+
+// The wire format is camelCase (docs/TDD.md §3). Every response shape is spelled out here, in
+// the one file, so a domain rename can never change a contract by accident.
+
+export const memoJson = (memo: Memo) => ({
+  id: memo.id,
+  mode: memo.mode,
+  device: memo.device,
+  startedAt: memo.startedAt,
+  state: memo.state,
+  failedStep: memo.failedStep,
+  error: memo.error,
+  segmentCount: memo.segmentCount,
+  createdAt: memo.createdAt,
+  updatedAt: memo.updatedAt,
+});
+
+const stepJson = (record: StepRecord) => ({
+  step: record.step,
+  status: record.status,
+  startedAt: record.startedAt,
+  finishedAt: record.finishedAt,
+  error: record.error,
+  usage: record.usage,
+  costUsd: record.costUsd,
+});
+
+export const detailJson = ({ memo, steps, segmentCount }: MemoDetail) => ({
+  ...memoJson(memo),
+  segmentCount,
+  steps: steps.map(stepJson),
+});
+
+export const eventJson = (event: MemoEvent) => ({
+  id: event.id,
+  state: event.state,
+  step: event.step,
+  failedStep: event.failedStep,
+  error: event.error,
+  at: event.at,
+});

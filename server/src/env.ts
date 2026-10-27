@@ -6,6 +6,8 @@ const Env = z.object({
   HOST: z.string().default("127.0.0.1"),
   // Audio segments and the SQLite file live here (`~/.iris/data` on the mini).
   IRIS_DATA: z.string().default("./data"),
+  // Per-segment upload cap; a 10 s m4a segment is well under 1 MB.
+  IRIS_MAX_SEGMENT_BYTES: z.coerce.number().int().positive().default(5_000_000),
   // `token=device,token=device` — see `parseDeviceTokens`. Empty means every /v1/* call is 401.
   IRIS_DEVICE_TOKENS: z.string().default(""),
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
