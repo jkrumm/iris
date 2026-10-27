@@ -12,6 +12,7 @@ public actor FakeAPIClient: APIClient {
     case uploadSegment(memoID: String, index: Int, byteCount: Int)
     case completeMemo(id: String, request: CompleteMemoRequest)
     case retryMemo(id: String, request: RetryMemoRequest)
+    case routeMemo(id: String, request: RouteRequest)
     case listMemos(ListMemosQuery)
     case memo(id: String)
     case result(id: String, query: MemoResultQuery)
@@ -22,7 +23,7 @@ public actor FakeAPIClient: APIClient {
 
   /// The endpoints a failure can be scripted for.
   public enum Endpoint: Hashable, Sendable {
-    case health, whoami, createMemo, uploadSegment, completeMemo, retryMemo, listMemos, memo, result
+    case health, whoami, createMemo, uploadSegment, completeMemo, retryMemo, routeMemo, listMemos, memo, result
     case registerDevice, setActivityToken, herd
   }
 
@@ -139,6 +140,33 @@ public actor FakeAPIClient: APIClient {
     detail.memo.error = nil
     detail.memo.updatedAt = now()
     memos[id] = detail
+    return detail.memo
+  }
+
+  /// Mirrors the server's rules without a runner: a parked memo becomes `routed` (nothing drives it on),
+  /// a memo past `act` is left as it is, anything else is a 409.
+  public func routeMemo(id: String, request: RouteRequest) async throws -> Memo {
+    calls.append(.routeMemo(id: id, request: request))
+    try failIfScripted(.routeMemo)
+    guard var detail = memos[id] else { throw notFound("memo not found") }
+    guard (request.destination == .herdr) == (request.tab != nil) else {
+      throw APIError.server(
+        status: 400, body: ErrorBody(error: .badRequest, message: "tab is required for herdr and only for herdr"))
+    }
+    switch detail.memo.state {
+    case .needsRoute:
+      detail.memo.state = .routed
+      detail.memo.route = request.destination.rawValue
+      detail.memo.routeReason = nil
+      detail.memo.routeSuggestion = nil
+      detail.memo.updatedAt = now()
+      memos[id] = detail
+    case .acted, .summarized, .notified:
+      break
+    default:
+      throw APIError.server(
+        status: 409, body: ErrorBody(error: .badState, message: "only parked or acted memos take a route"))
+    }
     return detail.memo
   }
 

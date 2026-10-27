@@ -103,6 +103,38 @@ struct URLSessionAPIClientTests {
     #expect(try jsonValue(requests[1].body) == jsonValue(Contracts.fixtureData("memos.retry.request")))
   }
 
+  @Test("routeMemo posts the destination and tab to /route and decodes 202 and 200 alike")
+  func routeMemo() async throws {
+    for status in [202, 200] {
+      let server = StubServer { _ in try .json(status, fixture: "memos.route.response") }
+      let memo = try await server.makeClient().routeMemo(
+        id: memoID, request: RouteRequest(destination: .herdr, tab: "w1:t1"))
+
+      #expect(memo.state == .routed)
+      #expect(memo.route == "hermes")
+      let request = try #require(server.request)
+      #expect(request.method == "POST")
+      #expect(request.url.path == "/v1/memos/\(memoID)/route")
+      #expect(try jsonValue(request.body) == jsonValue(Contracts.fixtureData("memos.route.request.herdr")))
+    }
+  }
+
+  @Test("routeMemo without a tab omits the key")
+  func routeMemoNoTab() async throws {
+    let server = StubServer { _ in try .json(202, fixture: "memos.route.response") }
+    _ = try await server.makeClient().routeMemo(id: memoID, request: RouteRequest(destination: .hermes))
+    let request = try #require(server.request)
+    #expect(try jsonValue(request.body) == jsonValue(Contracts.fixtureData("memos.route.request")))
+  }
+
+  @Test("routeMemo maps a 409 to the server error")
+  func routeMemoConflict() async throws {
+    let server = StubServer { _ in try .json(409, fixture: "error.bad-state") }
+    await #expect(throws: APIError.self) {
+      try await server.makeClient().routeMemo(id: memoID, request: RouteRequest(destination: .hermes))
+    }
+  }
+
   @Test("listMemos sends limit and cursor as query items")
   func listMemos() async throws {
     let server = StubServer { _ in try .json(fixture: "memos.list.response") }

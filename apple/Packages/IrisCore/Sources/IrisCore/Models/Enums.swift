@@ -36,6 +36,13 @@ public enum MemoStep: String, Codable, Hashable, Sendable, CaseIterable {
   case notify
 }
 
+/// A destination the user can route a memo to (`POST /v1/memos/:id/route`).
+public enum RouteDestination: String, Codable, Hashable, Sendable, CaseIterable {
+  case hermes
+  case journal
+  case herdr
+}
+
 public enum StepStatus: String, Codable, Hashable, Sendable, CaseIterable {
   case running
   case done

@@ -43,6 +43,10 @@ public struct URLSessionAPIClient: APIClient {
     try await decode(Memo.self, from: makeJSONRequest("POST", ["v1", "memos", id, "retry"], body: body))
   }
 
+  public func routeMemo(id: String, request body: RouteRequest) async throws -> Memo {
+    try await decode(Memo.self, from: makeJSONRequest("POST", ["v1", "memos", id, "route"], body: body))
+  }
+
   public func listMemos(_ query: ListMemosQuery) async throws -> MemoPage {
     try await decode(MemoPage.self, from: makeRequest("GET", ["v1", "memos"], query: query.queryItems))
   }

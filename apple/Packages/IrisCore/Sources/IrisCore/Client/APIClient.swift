@@ -15,6 +15,10 @@ public protocol APIClient: Sendable {
   func completeMemo(id: String, request: CompleteMemoRequest) async throws -> Memo
   /// `POST /v1/memos/:id/retry`.
   func retryMemo(id: String, request: RetryMemoRequest) async throws -> Memo
+  /// `POST /v1/memos/:id/route`: answers a memo parked at `needs_route` (the server routes it and drives
+  /// it on) or, after `act`, records a correction and leaves the memo unchanged. Throws a 409
+  /// `APIError.server` in any other state, which includes a second answer while the first is still driving.
+  func routeMemo(id: String, request: RouteRequest) async throws -> Memo
   /// `GET /v1/memos`: one page; pass the previous page's `nextCursor` to continue.
   func listMemos(_ query: ListMemosQuery) async throws -> MemoPage
   /// `GET /v1/memos/:id`.

@@ -13,8 +13,9 @@ public struct MemoSummary: Codable, Hashable, Sendable {
   }
 }
 
-/// A memo as returned by create, complete, retry, result and list. Every key is always present on the
-/// wire; unset ones are explicit `null`, which `encode(to:)` reproduces.
+/// A memo as returned by create, complete, retry, route, result and list. Every key is always present on the
+/// wire, unset ones as explicit `null`, which `encode(to:)` reproduces; the two exceptions are `routeReason`
+/// and `routeSuggestion`, which are omitted when `nil`.
 public struct Memo: Codable, Hashable, Sendable, Identifiable {
   public var id: String
   public var mode: MemoMode
@@ -30,6 +31,10 @@ public struct Memo: Codable, Hashable, Sendable, Identifiable {
   public var destinationRef: String?
   public var replyText: String?
   public var summary: MemoSummary?
+  /// Why the memo parked; present only while it is `needs_route`, omitted (never `null`) otherwise.
+  public var routeReason: String?
+  /// The decision model's best guess on a low-confidence park; same presence rule as `routeReason`.
+  public var routeSuggestion: String?
   public var createdAt: Date
   public var updatedAt: Date
 
@@ -48,6 +53,8 @@ public struct Memo: Codable, Hashable, Sendable, Identifiable {
     destinationRef: String? = nil,
     replyText: String? = nil,
     summary: MemoSummary? = nil,
+    routeReason: String? = nil,
+    routeSuggestion: String? = nil,
     createdAt: Date,
     updatedAt: Date
   ) {
@@ -65,6 +72,8 @@ public struct Memo: Codable, Hashable, Sendable, Identifiable {
     self.destinationRef = destinationRef
     self.replyText = replyText
     self.summary = summary
+    self.routeReason = routeReason
+    self.routeSuggestion = routeSuggestion
     self.createdAt = createdAt
     self.updatedAt = updatedAt
   }
@@ -85,6 +94,8 @@ public struct Memo: Codable, Hashable, Sendable, Identifiable {
     try container.encode(destinationRef, forKey: .destinationRef)
     try container.encode(replyText, forKey: .replyText)
     try container.encode(summary, forKey: .summary)
+    try container.encodeIfPresent(routeReason, forKey: .routeReason)
+    try container.encodeIfPresent(routeSuggestion, forKey: .routeSuggestion)
     try container.encode(createdAt, forKey: .createdAt)
     try container.encode(updatedAt, forKey: .updatedAt)
   }
