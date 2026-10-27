@@ -43,22 +43,28 @@ Downstream facts, verified 2026-10-27. Re-check them where a wave depends on one
 - **Secrets:** use `secrets-run`, never `op`, on the mini. New refs go into
   `dotfiles-private/headless.refs`. Seeding is `ask-human.sh ask … --cmd 'make secrets-seed'`.
 
-## Wave 1 — Repo foundation            <!-- status: active -->
-- [ ] `gh repo create jkrumm/iris --private --source . --push`, then
+## Wave 1 — Repo foundation            <!-- status: done -->
+- [x] `gh repo create jkrumm/iris --private --source . --push`, then
       `make -C ~/SourceRoot/vps gh-runner-sync`
-- [ ] Scaffold `server/` (Bun + Elysia + `bun:sqlite`, TypeScript strict) and the root
+- [x] Scaffold `server/` (Bun + Elysia + `bun:sqlite`, TypeScript strict) and the root
       `Makefile` (`check` = `check-server`, which also leaves room for a later
       `check-apple`). Add the oxlint/oxfmt configs, `.gitignore`, and
       `.github/workflows/check.yml` on the self-hosted VPS runner.
-- [ ] `server/src/telemetry/` copied from research-gateway with `service.name=iris-server`.
+- [x] `server/src/telemetry/` copied from research-gateway with `service.name=iris-server`.
       Add `app.ts` as the composition root, `index.ts` as the entry point, and `GET /health`.
-- [ ] Device-token auth (a `IRIS_DEVICE_TOKENS` map of token to device name, the
+- [x] Device-token auth (a `IRIS_DEVICE_TOKENS` map of token to device name, the
       audio-gateway caller-token pattern) as an Elysia guard on `/v1/*`, with tests.
-- [ ] Write `AGENTS.md` with the required sections: Validate, Deploy (placeholder until
+- [x] Write `AGENTS.md` with the required sections: Validate, Deploy (placeholder until
       Wave 4), Verify & Monitor, Gotchas.
-**Left behind:**
+**Left behind:** Repo `jkrumm/iris` (private, master, runner `vps-iris` registered, CI is `make check-server`).
+`server/` has `src/{app,index,env}.ts`, `src/http/auth.ts` (`parseDeviceTokens`, `deviceAuth(tokens)` derives
+`device`; mounted under `/v1` in `createApp({deviceTokens, degraded})`), `src/telemetry/` (copy of research-gateway;
+`traceIdFromMemoId`). `process.env` is parsed only in `env.ts`. Root `make check` is green (46 tests), and
+`/review` was clean. Not done, deliberately: rejecting an `http://` OTLP endpoint when an auth header is set (the
+mini endpoint is https; revisit in Wave 4). The Makefile has no deploy/verify/logs yet (Wave 4), and the lint config
+lives in `server/`.
 
-## Wave 2 — Memo domain + HTTP surface            <!-- status: pending -->
+## Wave 2 — Memo domain + HTTP surface            <!-- status: active -->
 - [ ] `memo/`: the Memo state machine (`receiving → received → transcribed → routed |
       needs_route → acted → summarized → notified`, with `failed(step)` as a side state),
       the `MemoStore` port, and a SQLite adapter with migrations. The memo id is
