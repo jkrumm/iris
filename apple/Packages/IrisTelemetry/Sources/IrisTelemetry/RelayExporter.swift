@@ -1,0 +1,93 @@
+import Foundation
+import os
+
+/// Flushes the buffer to the server through a `TelemetryTransport`.
+///
+/// Triggers are explicit (`flush`, `flushOnBackground`, `flushOnLaunch`) plus `run()`, a loop that flushes every
+/// `interval` on the injected clock. A failed send puts the data back, counts a failure and doubles the loop's wait
+/// (capped at `maxBackoff`) until a send succeeds. Nothing here throws to callers, and recording never waits on a
+/// flush: the buffer is a separate actor.
+public actor RelayExporter {
+  private let buffer: TelemetryBuffer
+  private let transport: any TelemetryTransport
+  private let resource: TelemetryResource
+  private let clock: any TelemetryClock
+  private let batchSize: Int
+  private let interval: Duration
+  private let maxBackoff: Duration
+  private var consecutiveFailures = 0
+  private var isFlushing = false
+
+  public init(
+    buffer: TelemetryBuffer,
+    transport: any TelemetryTransport,
+    resource: TelemetryResource,
+    clock: any TelemetryClock = SystemTelemetryClock(),
+    batchSize: Int = 100,
+    interval: Duration = .seconds(10),
+    maxBackoff: Duration = .seconds(300)
+  ) {
+    self.buffer = buffer
+    self.transport = transport
+    self.resource = resource
+    self.clock = clock
+    self.batchSize = max(1, batchSize)
+    self.interval = interval
+    self.maxBackoff = maxBackoff
+  }
+
+  /// Sends everything buffered in batches of at most `batchSize`, stopping at the first failure. A call made while
+  /// another flush is running returns immediately; that flush picks up the data.
+  public func flush() async {
+    guard !isFlushing else { return }
+    isFlushing = true
+    defer { isFlushing = false }
+
+    while !Task.isCancelled {
+      let drain = await buffer.drain(max: batchSize)
+      if drain.isEmpty { return }
+      do {
+        try await transport.send(TelemetryBatch(resource: resource, drain: drain))
+      } catch {
+        await buffer.requeue(drain)
+        if !(error is CancellationError) {
+          consecutiveFailures += 1
+          Logger.telemetry.warning(
+            "Telemetry flush failed (\(self.consecutiveFailures, privacy: .public) in a row): \(String(describing: type(of: error)), privacy: .public)"
+          )
+        }
+        return
+      }
+      await buffer.acknowledge(drain)
+      consecutiveFailures = 0
+    }
+  }
+
+  /// Call when the app moves to the background; the caller holds the background-task assertion around it.
+  public func flushOnBackground() async {
+    await flush()
+  }
+
+  /// Call at launch: recovers what the crash file holds, then flushes it.
+  public func flushOnLaunch() async {
+    await buffer.recover()
+    await flush()
+  }
+
+  /// The periodic loop. Runs until the surrounding task is cancelled; the caller owns that task.
+  public func run() async {
+    while !Task.isCancelled {
+      do {
+        try await clock.sleep(for: delayBeforeNextFlush)
+      } catch {
+        return
+      }
+      await flush()
+    }
+  }
+
+  private var delayBeforeNextFlush: Duration {
+    guard consecutiveFailures > 0 else { return interval }
+    return min(maxBackoff, interval * (1 << min(consecutiveFailures, 10)))
+  }
+}
