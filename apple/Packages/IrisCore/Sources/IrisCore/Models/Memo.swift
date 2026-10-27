@@ -15,7 +15,7 @@ public struct MemoSummary: Codable, Hashable, Sendable {
 
 /// A memo as returned by create, complete, retry, route, result and list. Every key is always present on the
 /// wire, unset ones as explicit `null`, which `encode(to:)` reproduces; the exceptions are `routeReason`,
-/// `routeSuggestion` and `typed`, which are omitted when `nil` / `false`.
+/// `routeSuggestion`, `threadId` and `typed`, which are omitted when `nil` / `false`.
 public struct Memo: Codable, Hashable, Sendable, Identifiable {
   public var id: String
   public var mode: MemoMode
@@ -31,6 +31,8 @@ public struct Memo: Codable, Hashable, Sendable, Identifiable {
   public var destinationRef: String?
   public var replyText: String?
   public var summary: MemoSummary?
+  /// The Hermes session (chat or not) the memo's `act` ran in; present once `act` ran in one, omitted (never `null`) otherwise.
+  public var threadId: String?
   /// Why the memo parked; present only while it is `needs_route`, omitted (never `null`) otherwise.
   public var routeReason: String?
   /// The decision model's best guess on a low-confidence park; same presence rule as `routeReason`.
@@ -57,6 +59,7 @@ public struct Memo: Codable, Hashable, Sendable, Identifiable {
     destinationRef: String? = nil,
     replyText: String? = nil,
     summary: MemoSummary? = nil,
+    threadId: String? = nil,
     routeReason: String? = nil,
     routeSuggestion: String? = nil,
     isTyped: Bool = false,
@@ -77,6 +80,7 @@ public struct Memo: Codable, Hashable, Sendable, Identifiable {
     self.destinationRef = destinationRef
     self.replyText = replyText
     self.summary = summary
+    self.threadId = threadId
     self.routeReason = routeReason
     self.routeSuggestion = routeSuggestion
     self.isTyped = isTyped
@@ -86,7 +90,7 @@ public struct Memo: Codable, Hashable, Sendable, Identifiable {
 
   private enum CodingKeys: String, CodingKey {
     case id, mode, device, startedAt, state, failedStep, error, segmentCount, audioSeconds, transcript, route
-    case destinationRef, replyText, summary, routeReason, routeSuggestion, createdAt, updatedAt
+    case destinationRef, replyText, summary, threadId, routeReason, routeSuggestion, createdAt, updatedAt
     case isTyped = "typed"
   }
 
@@ -106,6 +110,7 @@ public struct Memo: Codable, Hashable, Sendable, Identifiable {
     destinationRef = try container.decode(String?.self, forKey: .destinationRef)
     replyText = try container.decode(String?.self, forKey: .replyText)
     summary = try container.decode(MemoSummary?.self, forKey: .summary)
+    threadId = try container.decodeIfPresent(String.self, forKey: .threadId)
     routeReason = try container.decodeIfPresent(String.self, forKey: .routeReason)
     routeSuggestion = try container.decodeIfPresent(String.self, forKey: .routeSuggestion)
     isTyped = try container.decodeIfPresent(Bool.self, forKey: .isTyped) ?? false
@@ -129,6 +134,7 @@ public struct Memo: Codable, Hashable, Sendable, Identifiable {
     try container.encode(destinationRef, forKey: .destinationRef)
     try container.encode(replyText, forKey: .replyText)
     try container.encode(summary, forKey: .summary)
+    try container.encodeIfPresent(threadId, forKey: .threadId)
     try container.encodeIfPresent(routeReason, forKey: .routeReason)
     try container.encodeIfPresent(routeSuggestion, forKey: .routeSuggestion)
     if isTyped { try container.encode(true, forKey: .isTyped) }

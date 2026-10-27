@@ -143,6 +143,19 @@ struct FixtureConformanceTests {
     #expect(!encoded.contains("\"typed\""))
   }
 
+  @Test("`threadId` is present on a chat memo's detail and omitted on a memo without one")
+  func threadId() throws {
+    let decoder = IrisJSON.makeDecoder()
+    let chat = try decoder.decode(MemoDetail.self, from: Contracts.fixtureData("memos.detail.response.chat"))
+    #expect(chat.memo.mode == .chat)
+    #expect(chat.memo.threadId == chat.memo.id)
+
+    let plain = try decoder.decode(Memo.self, from: Contracts.fixtureData("memos.create.response"))
+    #expect(plain.threadId == nil)
+    let encoded = String(decoding: try IrisJSON.makeEncoder().encode(plain), as: UTF8.self)
+    #expect(!encoded.contains("threadId"))
+  }
+
   @Test("Result-ready states match the server")
   func resultReadyStates() {
     #expect(MemoState.allCases.filter(\.isResultReady) == [.needsRoute, .notified, .failed])
