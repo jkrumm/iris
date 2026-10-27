@@ -2,6 +2,7 @@ import { Database } from "bun:sqlite";
 import { z } from "zod";
 import { MemoError } from "../memo/errors.js";
 import {
+  isCorrectable,
   STEPS,
   stateBefore,
   stepsFrom,
@@ -17,7 +18,7 @@ import {
   type StepRecord,
   type Summary,
 } from "../memo/memo.js";
-import type { MemoStore } from "../memo/store.js";
+import type { AnswerDecision, MemoStore } from "../memo/store.js";
 import type { Clock } from "../ports/clock.js";
 import { log } from "../telemetry/log.js";
 import { MIGRATIONS } from "./sqlite-migrations.js";
@@ -166,9 +167,6 @@ const STEP_COLUMNS: Partial<Record<Step, (keyof MemoColumnPatch)[]>> = {
   summarize: ["summary"],
 };
 
-/** States after `act`, where a routing correction is only a log entry. */
-const CORRECTABLE: readonly MemoState[] = ["acted", "summarized", "notified"];
-
 const toStepRecord = (row: StepRow): StepRecord => ({
   step: row.step as Step,
   status: row.status as StepRecord["status"],
@@ -239,7 +237,7 @@ export function createSqliteMemoStore(params: { db: Database; clock: Clock }): M
     );
   };
 
-  const answerRoute = db.transaction((id: string, decision: RouteDecisionInput): boolean => {
+  const answerRoute = db.transaction((id: string, decision: AnswerDecision): boolean => {
     const at = stamp();
     const moved = db
       .query(
@@ -255,7 +253,7 @@ export function createSqliteMemoStore(params: { db: Database; clock: Clock }): M
     const row = db
       .query<{ state: string }, [string]>("SELECT state FROM memos WHERE id = ?")
       .get(id);
-    if (!row || !CORRECTABLE.includes(row.state as MemoState)) return false;
+    if (!row || !isCorrectable(row.state as MemoState)) return false;
     insertRouteDecision(id, stamp(), decision);
     return true;
   });

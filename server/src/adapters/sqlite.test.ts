@@ -511,7 +511,7 @@ describe("migrations", () => {
 describe("answering and correcting a route", () => {
   const answer = {
     source: "answer" as const,
-    destination: "hermes",
+    destination: "hermes" as const,
     tab: null,
     confidence: null,
     model: null,

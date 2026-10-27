@@ -6,17 +6,16 @@ import { log } from "../telemetry/log.js";
 import { MemoError } from "./errors.js";
 import { memoEvent, type MemoEvents, type MemoListener } from "./events.js";
 import {
+  isCorrectable,
   isResultReady,
   MEMO_MODES,
-  type RouteDecisionInput,
   type Memo,
   type MemoMode,
-  type MemoState,
   type Step,
   type StepRecord,
 } from "./memo.js";
 import type { Runner } from "./runner.js";
-import type { MemoStore } from "./store.js";
+import type { AnswerDecision, MemoStore } from "./store.js";
 
 export interface MemoDetail {
   memo: Memo;
@@ -58,8 +57,6 @@ export interface MemoService {
   subscribe(listener: MemoListener): () => void;
 }
 
-/** States after `act`, where a route can no longer change the outcome and is only recorded. */
-const CORRECTABLE_STATES: readonly MemoState[] = ["acted", "summarized", "notified"];
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MAX_SEGMENTS = 1_000_000; // matches the six-digit file names of the audio store
 const DEFAULT_LIMIT = 20;
@@ -191,7 +188,7 @@ export function createMemoService(deps: {
     route({ id, destination, tab }) {
       const memo = mustGet(id);
       const isAnswer = memo.state === "needs_route";
-      if (!isAnswer && !CORRECTABLE_STATES.includes(memo.state)) {
+      if (!isAnswer && !isCorrectable(memo.state)) {
         throw new MemoError(
           "bad_state",
           `memo ${id} is ${memo.state}, only parked or acted memos take a route`,
@@ -203,7 +200,7 @@ export function createMemoService(deps: {
       if ((destination === "herdr") !== (tab !== undefined)) {
         throw new MemoError("bad_request", "tab is required for herdr and only for herdr");
       }
-      const decision: RouteDecisionInput = {
+      const decision: AnswerDecision = {
         source: isAnswer ? "answer" : "correction",
         destination,
         tab: tab ?? null,
