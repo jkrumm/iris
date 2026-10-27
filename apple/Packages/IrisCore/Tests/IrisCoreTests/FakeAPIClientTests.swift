@@ -281,4 +281,122 @@ struct FakeAPIClientTests {
     for try await event in fake.events() { received.append(event) }
     #expect(received == [.ready])
   }
+
+  // MARK: Flags, delete and restore
+
+  private func seedMemo(
+    _ fake: FakeAPIClient, id: String, state: MemoState = .notified, createdAt: TimeInterval = 1_773_480_000,
+    threadId: String? = nil
+  ) async {
+    let date = Date(timeIntervalSince1970: createdAt)
+    let memo = Memo(
+      id: id, mode: .auto, device: "fake-device", startedAt: date, state: state, threadId: threadId, createdAt: date,
+      updatedAt: date)
+    await fake.seed(MemoDetail(memo: memo, steps: []))
+  }
+
+  private func listedIDs(_ fake: FakeAPIClient, _ query: ListMemosQuery = ListMemosQuery()) async throws -> (
+    items: [String], pinned: [String]
+  ) {
+    let page = try await fake.listMemos(query)
+    return (page.items.map(\.id), page.pinned.map(\.id))
+  }
+
+  @Test("setFlags sets only the given flags, and 400s for none")
+  func setFlags() async throws {
+    let fake = FakeAPIClient()
+    await seedMemo(fake, id: "m1")
+    let memo = try await fake.setFlags(id: "m1", done: true, favorite: nil, archived: nil)
+    #expect(memo.done && !memo.favorite && !memo.archived)
+    let both = try await fake.setFlags(id: "m1", done: nil, favorite: true, archived: true)
+    #expect(both.done && both.favorite && both.archived)
+    #expect(await fake.calls.last == .setFlags(id: "m1", done: nil, favorite: true, archived: true))
+
+    await #expect(throws: APIError.self) { try await fake.setFlags(id: "m1", done: nil, favorite: nil, archived: nil) }
+    await #expect(throws: APIError.self) {
+      try await fake.setFlags(id: "nope", done: true, favorite: nil, archived: nil)
+    }
+  }
+
+  @Test("deleteMemo soft-deletes a settled memo, is repeatable, and refuses one that is still running")
+  func deleteMemo() async throws {
+    let fake = FakeAPIClient(now: { Date(timeIntervalSince1970: 1_773_480_100) })
+    await seedMemo(fake, id: "m1")
+    await seedMemo(fake, id: "running", state: .routed)
+    let deleted = try await fake.deleteMemo(id: "m1")
+    #expect(deleted.deletedAt == Date(timeIntervalSince1970: 1_773_480_100))
+    #expect(deleted.purgeAt == deleted.deletedAt?.addingTimeInterval(FakeAPIClient.purgeWindow))
+    #expect(try await fake.deleteMemo(id: "m1") == deleted)
+
+    await #expect(throws: APIError.self) { try await fake.deleteMemo(id: "running") }
+    await #expect(throws: APIError.self) { try await fake.setFlags(id: "m1", done: true, favorite: nil, archived: nil) }
+    #expect(try await fake.memo(id: "m1").memo.isDeleted)
+  }
+
+  @Test("restoreMemo undoes a delete, 409s when not deleted and 404s once the purge window is over")
+  func restoreMemo() async throws {
+    let clock = LockedDate(Date(timeIntervalSince1970: 1_773_480_100))
+    let fake = FakeAPIClient(now: { clock.value })
+    await seedMemo(fake, id: "m1")
+    await #expect(throws: APIError.self) { try await fake.restoreMemo(id: "m1") }
+
+    _ = try await fake.deleteMemo(id: "m1")
+    let restored = try await fake.restoreMemo(id: "m1")
+    #expect(!restored.isDeleted && restored.purgeAt == nil)
+
+    _ = try await fake.deleteMemo(id: "m1")
+    clock.advance(FakeAPIClient.purgeWindow)
+    await #expect(throws: APIError.self) { try await fake.restoreMemo(id: "m1") }
+    await #expect(throws: APIError.self) { try await fake.memo(id: "m1") }
+    #expect(await fake.memos["m1"] == nil)
+  }
+
+  @Test("listMemos hides deleted and archived memos and filters favorites, archived and kind")
+  func listFilters() async throws {
+    let fake = FakeAPIClient()
+    for (index, id) in ["plain", "star", "archived", "gone", "chat"].enumerated() {
+      await seedMemo(
+        fake, id: id, createdAt: 1_773_480_000 + Double(index), threadId: id == "chat" ? "t1" : nil)
+    }
+    await fake.seed(
+      ThreadDetail(
+        thread: MemoThread(id: "t1", kind: .chat, title: "t", createdAt: Date(), updatedAt: Date()), memos: [],
+        messages: []))
+    _ = try await fake.setFlags(id: "star", done: nil, favorite: true, archived: nil)
+    _ = try await fake.setFlags(id: "archived", done: nil, favorite: nil, archived: true)
+    _ = try await fake.deleteMemo(id: "gone")
+
+    #expect(try await listedIDs(fake).items == ["chat", "star", "plain"])
+    #expect(try await listedIDs(fake, ListMemosQuery(favorite: true)).items == ["star"])
+    #expect(try await listedIDs(fake, ListMemosQuery(archived: true)).items == ["archived"])
+    #expect(try await listedIDs(fake, ListMemosQuery(kind: .chat)).items == ["chat"])
+    #expect(try await listedIDs(fake, ListMemosQuery(kind: .hermes)).items.isEmpty)
+  }
+
+  @Test("A done needs_route memo is not pinned and is paged instead; a deleted one is in neither")
+  func pinnedSkipsDone() async throws {
+    let fake = FakeAPIClient()
+    await seedMemo(fake, id: "open", state: .needsRoute, createdAt: 1_773_480_002)
+    await seedMemo(fake, id: "handled", state: .needsRoute, createdAt: 1_773_480_001)
+    await seedMemo(fake, id: "dropped", state: .needsRoute, createdAt: 1_773_480_000)
+    _ = try await fake.setFlags(id: "handled", done: true, favorite: nil, archived: nil)
+    #expect(try await listedIDs(fake).pinned == ["open", "dropped"])
+    #expect(try await listedIDs(fake).items == ["handled"])
+
+    _ = try await fake.deleteMemo(id: "dropped")
+    let page = try await listedIDs(fake)
+    #expect(page.pinned == ["open"] && page.items == ["handled"])
+  }
+}
+
+/// A clock a test moves, readable from the fake's `@Sendable` closure.
+private final class LockedDate: @unchecked Sendable {
+  private let lock = NSLock()
+  private var date: Date
+
+  init(_ date: Date) { self.date = date }
+
+  var value: Date { lock.withLock { date } }
+
+  func advance(_ seconds: TimeInterval) { lock.withLock { date = date.addingTimeInterval(seconds) } }
 }

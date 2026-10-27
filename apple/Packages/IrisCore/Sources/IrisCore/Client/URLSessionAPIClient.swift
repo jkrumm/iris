@@ -51,6 +51,19 @@ public struct URLSessionAPIClient: APIClient {
     try await decode(Memo.self, from: makeJSONRequest("POST", ["v1", "memos", id, "route"], body: body))
   }
 
+  public func setFlags(id: String, done: Bool?, favorite: Bool?, archived: Bool?) async throws -> Memo {
+    let body = SetFlagsRequest(done: done, favorite: favorite, archived: archived)
+    return try await decode(Memo.self, from: makeJSONRequest("PATCH", ["v1", "memos", id], body: body))
+  }
+
+  public func deleteMemo(id: String) async throws -> Memo {
+    try await decode(Memo.self, from: makeRequest("DELETE", ["v1", "memos", id]))
+  }
+
+  public func restoreMemo(id: String) async throws -> Memo {
+    try await decode(Memo.self, from: makeRequest("POST", ["v1", "memos", id, "restore"]))
+  }
+
   public func listMemos(_ query: ListMemosQuery) async throws -> MemoPage {
     try await decode(MemoPage.self, from: makeRequest("GET", ["v1", "memos"], query: query.queryItems))
   }

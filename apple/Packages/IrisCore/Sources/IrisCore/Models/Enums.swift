@@ -17,6 +17,9 @@ public enum MemoState: String, Codable, Hashable, Sendable, CaseIterable {
 
   /// A `result` long-poll answers 200, and the server emits `memo.done`.
   public var isResultReady: Bool { isTerminal || self == .needsRoute }
+
+  /// The pipeline is done with the memo, so `DELETE /v1/memos/:id` accepts it (any other state is a 409).
+  public var isDeletable: Bool { isResultReady }
 }
 
 /// The one tolerant enum: a mode this build does not know decodes to `.unknown` instead of failing the whole page

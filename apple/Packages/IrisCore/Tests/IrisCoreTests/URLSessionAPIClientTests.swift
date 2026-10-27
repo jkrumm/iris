@@ -181,6 +181,62 @@ struct URLSessionAPIClientTests {
       ])
   }
 
+  @Test("listMemos sends the favorite, archived and kind filters")
+  func listMemosFilters() async throws {
+    let server = StubServer { _ in try .json(fixture: "memos.list.response.empty") }
+    _ = try await server.makeClient().listMemos(ListMemosQuery(favorite: true, archived: true, kind: .chat))
+    #expect(
+      server.request?.queryItems == [
+        URLQueryItem(name: "favorite", value: "true"), URLQueryItem(name: "archived", value: "true"),
+        URLQueryItem(name: "kind", value: "chat"),
+      ])
+  }
+
+  @Test("setFlags: PATCH /v1/memos/:id with only the flags given")
+  func setFlags() async throws {
+    let server = StubServer { _ in try .json(fixture: "memos.flags.response") }
+    let memo = try await server.makeClient().setFlags(id: memoID, done: true, favorite: nil, archived: nil)
+
+    #expect(memo.favorite && memo.archived)
+    let request = try #require(server.request)
+    #expect(request.method == "PATCH")
+    #expect(request.url.path == "/v1/memos/\(memoID)")
+    #expect(request.header("Content-Type") == "application/json")
+    #expect(try jsonValue(request.body) == jsonValue(Contracts.fixtureData("memos.flags.request")))
+  }
+
+  @Test("setFlags maps a 409 on a deleted memo to the server error")
+  func setFlagsConflict() async throws {
+    let server = StubServer { _ in try .json(409, fixture: "error.bad-state") }
+    await #expect(throws: APIError.self) {
+      try await server.makeClient().setFlags(id: memoID, done: true, favorite: nil, archived: nil)
+    }
+  }
+
+  @Test("deleteMemo: DELETE /v1/memos/:id without a body, decoding deletedAt and purgeAt")
+  func deleteMemo() async throws {
+    let server = StubServer { _ in try .json(fixture: "memos.delete.response") }
+    let memo = try await server.makeClient().deleteMemo(id: memoID)
+
+    #expect(memo.isDeleted)
+    let request = try #require(server.request)
+    #expect(request.method == "DELETE")
+    #expect(request.url.path == "/v1/memos/\(memoID)")
+    #expect(request.body.isEmpty)
+  }
+
+  @Test("restoreMemo: POST /v1/memos/:id/restore without a body")
+  func restoreMemo() async throws {
+    let server = StubServer { _ in try .json(fixture: "memos.restore.response") }
+    let memo = try await server.makeClient().restoreMemo(id: memoID)
+
+    #expect(!memo.isDeleted)
+    let request = try #require(server.request)
+    #expect(request.method == "POST")
+    #expect(request.url.path == "/v1/memos/\(memoID)/restore")
+    #expect(request.body.isEmpty)
+  }
+
   @Test("listMemos without a query sends none")
   func listMemosNoQuery() async throws {
     let server = StubServer { _ in try .json(fixture: "memos.list.response.empty") }

@@ -4,6 +4,9 @@ import Foundation
 /// memos are stored, segments are tracked, `complete` reports missing segments, `result` answers from
 /// the stored state. It records every call and lets a test script failures and results.
 public actor FakeAPIClient: APIClient {
+  /// How long a deleted memo stays restorable (the server's purge window, 10 minutes).
+  public static let purgeWindow: TimeInterval = 600
+
   /// A call as the client saw it. Segment bytes are reduced to their count.
   public enum Call: Hashable, Sendable {
     case health
@@ -14,6 +17,9 @@ public actor FakeAPIClient: APIClient {
     case completeMemo(id: String, request: CompleteMemoRequest)
     case retryMemo(id: String, request: RetryMemoRequest)
     case routeMemo(id: String, request: RouteRequest)
+    case setFlags(id: String, done: Bool?, favorite: Bool?, archived: Bool?)
+    case deleteMemo(id: String)
+    case restoreMemo(id: String)
     case listMemos(ListMemosQuery)
     case memo(id: String)
     case listThreads(ListThreadsQuery)
@@ -28,6 +34,7 @@ public actor FakeAPIClient: APIClient {
   /// The endpoints a failure can be scripted for.
   public enum Endpoint: Hashable, Sendable {
     case health, whoami, createMemo, createTextMemo, uploadSegment, completeMemo, retryMemo, routeMemo
+    case setFlags, deleteMemo, restoreMemo
     case listMemos, memo, listThreads, thread, result
     case registerDevice, setActivityToken, herd, stats
   }
@@ -217,18 +224,76 @@ public actor FakeAPIClient: APIClient {
     return detail.memo
   }
 
+  /// Soft-deletes (`DELETE`), flags (`PATCH`) and restores like the server; a deleted memo past `purgeWindow` is gone
+  /// the next time anything looks, which is the server's purge.
+  public func setFlags(id: String, done: Bool?, favorite: Bool?, archived: Bool?) async throws -> Memo {
+    calls.append(.setFlags(id: id, done: done, favorite: favorite, archived: archived))
+    try failIfScripted(.setFlags)
+    purgeExpired()
+    guard var detail = memos[id] else { throw notFound("memo not found") }
+    guard done != nil || favorite != nil || archived != nil else {
+      throw APIError.server(
+        status: 400, body: ErrorBody(error: .badRequest, message: "set at least one of done, favorite, archived"))
+    }
+    guard !detail.memo.isDeleted else { throw badState("memo \(id) is deleted") }
+    if let done { detail.memo.done = done }
+    if let favorite { detail.memo.favorite = favorite }
+    if let archived { detail.memo.archived = archived }
+    detail.memo.updatedAt = now()
+    store(detail)
+    return detail.memo
+  }
+
+  public func deleteMemo(id: String) async throws -> Memo {
+    calls.append(.deleteMemo(id: id))
+    try failIfScripted(.deleteMemo)
+    purgeExpired()
+    guard var detail = memos[id] else { throw notFound("memo not found") }
+    if detail.memo.isDeleted { return detail.memo }
+    guard detail.memo.state.isDeletable else {
+      throw badState("memo \(id) is \(detail.memo.state.rawValue), only settled memos can be deleted")
+    }
+    let timestamp = now()
+    detail.memo.deletedAt = timestamp
+    detail.memo.purgeAt = timestamp.addingTimeInterval(Self.purgeWindow)
+    detail.memo.updatedAt = timestamp
+    store(detail)
+    return detail.memo
+  }
+
+  public func restoreMemo(id: String) async throws -> Memo {
+    calls.append(.restoreMemo(id: id))
+    try failIfScripted(.restoreMemo)
+    purgeExpired()
+    guard var detail = memos[id] else { throw notFound("memo not found") }
+    guard detail.memo.isDeleted else { throw badState("memo \(id) is not deleted") }
+    detail.memo.deletedAt = nil
+    detail.memo.purgeAt = nil
+    detail.memo.updatedAt = now()
+    store(detail)
+    return detail.memo
+  }
+
+  /// Mirrors the server's list rules: deleted memos never show, archived ones only with `archived`, and an open
+  /// `needs_route` memo (not `done`) is pinned on the first page instead of paged.
   public func listMemos(_ query: ListMemosQuery) async throws -> MemoPage {
     calls.append(.listMemos(query))
     try failIfScripted(.listMemos)
+    purgeExpired()
     let matching = memos.values.map(\.memo)
       .filter { memo in
-        (query.route.map { memo.route == $0.rawValue } ?? true)
+        !memo.isDeleted && memo.archived == query.archived && (!query.favorite || memo.favorite)
+          && (query.route.map { memo.route == $0.rawValue } ?? true)
           && (query.state.map { memo.state == $0 } ?? true)
+          && (query.kind.map { threads[memo.threadId ?? ""]?.thread.kind == $0 } ?? true)
           && Self.matches(memo, search: query.q)
       }
       .sorted { ($0.createdAt, $0.id) > ($1.createdAt, $1.id) }
-    let pinned = query.cursor == nil ? Array(matching.filter { $0.state == .needsRoute }.prefix(50)) : []
-    let newestFirst = matching.filter { $0.state != .needsRoute }
+    let isOpen: (Memo) -> Bool = { $0.state == .needsRoute && !$0.done }
+    let pinned =
+      query.cursor == nil && (query.state == nil || query.state == .needsRoute)
+      ? Array(matching.filter(isOpen).prefix(50)) : []
+    let newestFirst = matching.filter { !isOpen($0) }
     let start = query.cursor.flatMap(Int.init) ?? 0
     let limit = query.limit ?? 50
     guard start < newestFirst.count else { return MemoPage(items: [], pinned: pinned) }
@@ -253,6 +318,7 @@ public actor FakeAPIClient: APIClient {
   public func memo(id: String) async throws -> MemoDetail {
     calls.append(.memo(id: id))
     try failIfScripted(.memo)
+    purgeExpired()
     guard let detail = memos[id] else { throw notFound("memo not found") }
     return detail
   }
@@ -355,6 +421,22 @@ public actor FakeAPIClient: APIClient {
     detail.thread.updatedAt = memo.updatedAt
     detail.thread.lastMemoId = memo.id
     threads[threadId] = detail
+  }
+
+  private func store(_ detail: MemoDetail) {
+    memos[detail.id] = detail
+  }
+
+  /// The server's purger: a memo deleted longer ago than `purgeWindow` is gone.
+  private func purgeExpired() {
+    let cutoff = now()
+    for (id, detail) in memos {
+      if let purgeAt = detail.memo.purgeAt, purgeAt <= cutoff { memos[id] = nil }
+    }
+  }
+
+  private func badState(_ message: String) -> APIError {
+    .server(status: 409, body: ErrorBody(error: .badState, message: message))
   }
 
   private func notFound(_ message: String) -> APIError {
