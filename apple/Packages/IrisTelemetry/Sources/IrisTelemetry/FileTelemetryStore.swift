@@ -3,7 +3,11 @@ import os
 
 /// JSON-lines crash file: one `StoredEntry` per line, appended per record. A torn last line after a crash is skipped
 /// on load. The file lives wherever the app puts it (typically Application Support); the directory is created lazily.
-public struct FileTelemetryStore: TelemetryStore {
+///
+/// An actor so every operation is atomic with respect to the others: `removeThrough` reads, filters and rewrites the
+/// file, and no `append` may land between the read and the write. The private helpers are synchronous, so no
+/// operation suspends mid-way.
+public actor FileTelemetryStore: TelemetryStore {
   private let fileURL: URL
 
   public init(fileURL: URL) {
@@ -26,6 +30,23 @@ public struct FileTelemetryStore: TelemetryStore {
   }
 
   public func load() async throws -> [StoredEntry] {
+    try loadEntries()
+  }
+
+  public func removeThrough(sequence: UInt64) async throws {
+    let remaining = try loadEntries().filter { $0.sequence > sequence }
+    guard !remaining.isEmpty else {
+      try removeFile()
+      return
+    }
+    try Self.encodeLines(remaining).write(to: fileURL, options: .atomic)
+  }
+
+  public func clear() async throws {
+    try removeFile()
+  }
+
+  private func loadEntries() throws -> [StoredEntry] {
     guard FileManager.default.fileExists(atPath: fileURL.path) else { return [] }
     let data = try Data(contentsOf: fileURL)
     let decoder = TelemetryCoding.makeDecoder()
@@ -44,16 +65,7 @@ public struct FileTelemetryStore: TelemetryStore {
     return entries.sorted { $0.sequence < $1.sequence }
   }
 
-  public func removeThrough(sequence: UInt64) async throws {
-    let remaining = try await load().filter { $0.sequence > sequence }
-    guard !remaining.isEmpty else {
-      try await clear()
-      return
-    }
-    try Self.encodeLines(remaining).write(to: fileURL, options: .atomic)
-  }
-
-  public func clear() async throws {
+  private func removeFile() throws {
     guard FileManager.default.fileExists(atPath: fileURL.path) else { return }
     try FileManager.default.removeItem(at: fileURL)
   }

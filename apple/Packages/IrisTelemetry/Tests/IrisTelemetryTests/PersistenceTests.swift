@@ -133,4 +133,33 @@ struct PersistenceTests {
     #expect(try await store.load().isEmpty)
     try await store.clear()
   }
+
+  /// Regression: `removeThrough` reads the file, filters and rewrites it. When the store was a struct, nothing
+  /// serialized that read-modify-write against `append`, so an entry appended between the read and the atomic write
+  /// was overwritten and lost from disk. As an actor the whole operation is one unit. Appended sequences sit above
+  /// every removal threshold, so all of them must survive however the calls interleave.
+  @Test func concurrentAppendAndRemoveNeverLoseAnAppendedEntry() async throws {
+    let fileURL = Fixtures.temporaryFileURL()
+    defer { Fixtures.remove(fileURL) }
+    let store = FileTelemetryStore(fileURL: fileURL)
+    let iterations = 200
+    let appendBase = UInt64(10_000)
+    try await store.append((1...iterations).map { StoredEntry(sequence: UInt64($0), entry: .log(Fixtures.log($0))) })
+
+    await withTaskGroup(of: Void.self) { group in
+      for index in 1...iterations {
+        group.addTask {
+          let entry = StoredEntry(sequence: appendBase + UInt64(index), entry: .log(Fixtures.log(index)))
+          try? await store.append([entry])
+        }
+        group.addTask {
+          try? await store.removeThrough(sequence: UInt64(index))
+        }
+      }
+    }
+    try await store.removeThrough(sequence: UInt64(iterations))
+
+    let sequences = try await store.load().map(\.sequence)
+    #expect(sequences == (1...iterations).map { appendBase + UInt64($0) })
+  }
 }
