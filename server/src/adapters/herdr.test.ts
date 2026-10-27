@@ -192,13 +192,72 @@ describe("herdr destination", () => {
 
   it("does not press Enter when the text was refused", async () => {
     const requests = serveWrites(
-      (r) => `${JSON.stringify({ id: r.id, error: { code: "pane_not_found" } })}\n`,
+      (r) => `${JSON.stringify({ id: r.id, error: { code: "boom" } })}\n`,
     );
     await expect(deliver("w2:t1")).rejects.toMatchObject({
       code: "unavailable",
       message: expect.stringContaining("pane.send_text failed"),
     });
     expect(requests.map((r) => r.method)).toEqual(["session.snapshot", "pane.send_text"]);
+  });
+
+  it.each(["pane.send_text", "pane.send_keys"])(
+    "maps a pane_not_found answer from %s to TabGoneError",
+    async (method) => {
+      serveWrites((r) =>
+        r.method === method
+          ? `${JSON.stringify({ id: r.id, error: { code: "pane_not_found", message: "gone" } })}\n`
+          : ok(r.id),
+      );
+      const error = await deliver("w2:t1").catch((e: unknown) => e);
+      expect(error).toBeInstanceOf(TabGoneError);
+      expect(error).toMatchObject({ tab: "w2:t1" });
+    },
+  );
+
+  it("keeps one delivery's text and Enter contiguous when two memos target the same pane", async () => {
+    const log: string[] = [];
+    server = Bun.listen({
+      unix: socketPath(),
+      socket: {
+        data(socket, chunk) {
+          const r = JSON.parse(chunk.toString().trim()) as {
+            id: string;
+            method: string;
+            params: { text?: string };
+          };
+          if (r.method === "session.snapshot") return void socket.write(reply(r.id));
+          log.push(r.method === "pane.send_text" ? `text:${r.params.text}` : "enter");
+          // Slow writes: an unserialised second delivery would slip its text in before the first Enter.
+          setTimeout(() => socket.write(ok(r.id)), 30);
+        },
+      },
+    });
+    const deliverTo = createHerdrDestination({ socketPath: socketPath(), timeoutMs: 2000 });
+    await Promise.all(
+      ["first", "second"].map((transcript) =>
+        deliverTo.deliver({ memoId: transcript, transcript, tab: "w2:t1" }),
+      ),
+    );
+    expect(log).toEqual(["text:first", "enter", "text:second", "enter"]);
+  });
+
+  it("does not hold up a pane behind a failed delivery", async () => {
+    let failNext = true;
+    serveWrites((r) => {
+      if (r.method === "pane.send_text" && failNext) {
+        failNext = false;
+        return `${JSON.stringify({ id: r.id, error: { code: "boom" } })}\n`;
+      }
+      return ok(r.id);
+    });
+    const deliverTo = createHerdrDestination({ socketPath: socketPath(), timeoutMs: 2000 });
+    const results = await Promise.allSettled(
+      ["a", "b"].map((transcript) =>
+        deliverTo.deliver({ memoId: transcript, transcript, tab: "w2:t1" }),
+      ),
+    );
+    expect(results.map((r) => r.status)).toEqual(["rejected", "fulfilled"]);
   });
 
   it("is unavailable when nothing listens, and gives up on a silent socket", async () => {

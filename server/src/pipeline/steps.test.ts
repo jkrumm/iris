@@ -2,7 +2,7 @@ import { describe, expect, it } from "bun:test";
 import { createMemoEvents } from "../memo/events.js";
 import { bindNeedsRouteAlerts } from "../notify/needs-route.js";
 import { createRunner } from "../memo/runner.js";
-import { fakeAudio, seedMemo, testStore } from "../memo/test-support.js";
+import { captureLogs, fakeAudio, seedMemo, testStore } from "../memo/test-support.js";
 import { TabGoneError, type Destination, type Destinations } from "../ports/destination.js";
 import {
   fakeDecider,
@@ -358,6 +358,26 @@ describe("summarize: templated routes", () => {
     expect(summary?.detail.endsWith("…")).toBe(true);
   });
 
+  it("logs when the herd cannot be read for the tab name", async () => {
+    const { store, handlers } = setup({ herd: fakeHerd({ failWith: new Error("down") }) });
+    const memo = {
+      ...seedMemo(store, "acted"),
+      route: "herdr",
+      destinationRef: "w1:t1",
+      transcript: "x",
+    };
+    const { lines } = await captureLogs(async () => {
+      await handlers.summarize?.({ memo });
+    });
+    expect(lines).toContainEqual(
+      expect.objectContaining({
+        event: "summarize.herd_unavailable",
+        memo: memo.id,
+        error: "down",
+      }),
+    );
+  });
+
   it("strips a spoken prefix from the excerpt", async () => {
     const { store, handlers } = setup({ summarizer: null });
     const memo = {
@@ -667,10 +687,48 @@ describe("herdr act", () => {
     expect(hermes.calls[0]).toEqual({ memoId: id, transcript: "hello iris" });
   });
 
-  it("fails the step when a herdr route has no tab", async () => {
-    const { store, handlers } = setup({ destinations: { herdr: fakeDestination() } });
+  it("parks a herdr route that names no tab instead of failing the step", async () => {
+    const herdr = fakeDestination();
+    const { store, handlers } = setup({ destinations: { herdr } });
     const memo = { ...seedMemo(store, "routed"), transcript: "t", route: "herdr" };
-    await expect(handlers.act?.({ memo })).rejects.toThrow("herdr route has no tab");
+    const result = await handlers.act?.({ memo });
+    expect(herdr.calls).toEqual([]);
+    expect(result).toEqual({
+      outcome: "needs_route",
+      patch: {
+        routeDecision: {
+          source: "default",
+          outcome: "needs_route",
+          destination: "herdr",
+          tab: null,
+          confidence: null,
+          model: null,
+          costUsd: null,
+          reason: "which tab?",
+        },
+      },
+    });
+  });
+
+  it("with herdr as the only destination routes to the one live tab, or parks at route", async () => {
+    const one = fakeHerd({
+      tabs: [
+        { id: "w1:t1", repo: "iris", label: "server", agentState: "idle", lastActivity: null },
+      ],
+    });
+    const herdr = fakeDestination();
+    const a = setup({ destinations: { herdr }, herd: one });
+    const first = seedWithSegments(a.store, [0]);
+    await a.runner.drive(first.id);
+    expect(herdr.calls).toEqual([{ memoId: first.id, transcript: "hello iris", tab: "w1:t1" }]);
+
+    const b = setup({ destinations: { herdr: fakeDestination() }, herd });
+    const second = seedWithSegments(b.store, [0]);
+    await b.runner.drive(second.id);
+    expect(b.store.getMemo(second.id)).toMatchObject({
+      state: "needs_route",
+      routeReason: "which tab?",
+    });
   });
 
   it("parks a vanished tab, alerts once, and delivers after the answer names another tab", async () => {

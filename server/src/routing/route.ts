@@ -10,6 +10,8 @@ export const CONFIDENCE_THRESHOLD = 0.8;
 /** Transcript characters the decision model sees. */
 const STATE_TRANSCRIPT_MAX = 4000;
 const REASON_MAX = 200;
+/** The park reason of a herdr route that names no tab and has no single live tab to default to. */
+export const WHICH_TAB = "which tab?";
 
 const DESCRIPTIONS: Record<DestinationName, string> = {
   journal:
@@ -57,8 +59,8 @@ function decision(
 }
 
 /**
- * The live tab a spoken name points at: it matches a tab label, a workspace (repo) label or "repo label",
- * ignoring case and diacritics. Without a name (mode `tab`) the only live tab is the answer. Anything but
+ * The live tab a spoken name points at: it matches a tab label or a workspace (repo) label, ignoring case
+ * and diacritics. The spoken name is one word (see `parsePrefix`), so a label with a space never matches. Without a name (mode `tab`) the only live tab is the answer. Anything but
  * exactly one match is a reason to park.
  */
 async function resolveTab(params: {
@@ -75,18 +77,21 @@ async function resolveTab(params: {
       ? tabs
       : tabs.filter((tab) => {
           const name = fold(spoken);
-          return [tab.label, tab.repo, `${tab.repo} ${tab.label}`].some((c) => fold(c) === name);
+          return [tab.label, tab.repo].some((c) => fold(c) === name);
         });
   const [first] = matches;
   if (first && matches.length === 1) return { tab: first.id };
-  if (spoken === null) return { reason: "which tab?" };
+  if (spoken === null) return { reason: WHICH_TAB };
   const what = clip(`"${spoken}"`);
   return { reason: matches.length === 0 ? `no tab named ${what}` : `several tabs match ${what}` };
 }
 
-/** A destination named by mode or prefix: routed when registered, else parked with a reason. */
+/**
+ * A destination named by mode, prefix or as the only one registered: routed when registered, else parked with a
+ * reason. Herdr needs a tab on every one of these paths.
+ */
 async function named(params: {
-  source: "mode" | "prefix";
+  source: "mode" | "prefix" | "default";
   destination: DestinationName;
   spokenTab: string | null;
   registered: readonly DestinationName[];
@@ -214,7 +219,14 @@ export async function route(input: RouteInput): Promise<RouteDecision> {
         reason: "no destination available",
       });
     }
-    return decision({ source: "default", outcome: "routed", destination: only, confidence: 1 });
+    return named({
+      source: "default",
+      destination: only,
+      spokenTab: null,
+      registered: destinations,
+      herd: input.herd,
+      memoId: input.memoId,
+    });
   }
   if (!input.decider) {
     return decision({

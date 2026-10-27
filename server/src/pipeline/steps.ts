@@ -13,7 +13,7 @@ import type { Herd } from "../ports/herd.js";
 import type { Notifier } from "../ports/notifier.js";
 import type { Summarizer } from "../ports/summarizer.js";
 import type { Transcriber } from "../ports/transcriber.js";
-import { deliveredTranscript, route } from "../routing/index.js";
+import { deliveredTranscript, route, WHICH_TAB } from "../routing/index.js";
 import { log } from "../telemetry/log.js";
 import { getActiveSpan } from "../telemetry/otel.js";
 
@@ -45,6 +45,8 @@ function templatedSummary(params: {
     spoken: `Sent to ${tab ? `${tab.repo} ${tab.label}` : "the tab"}.`,
   };
 }
+
+const errorMessage = (err: unknown) => (err instanceof Error ? err.message : String(err));
 
 function required<T>(value: T | null, what: string, step: HandlerStep): T {
   if (value === null) throw new Error(`${step}: memo has no ${what}`);
@@ -152,7 +154,22 @@ export function createStepHandlers(deps: {
         .listRouteDecisions(memo.id)
         .findLast((d) => d.outcome === "routed" && d.source !== "correction");
       const tab = name === "herdr" ? (routedBy?.tab ?? undefined) : undefined;
-      if (name === "herdr" && tab === undefined) throw new Error("act: herdr route has no tab");
+      // Both ways a herdr memo cannot be delivered park it for a new answer: no tab on the route, or a tab that is gone.
+      const park = (reason: string, parkedTab: string | null) => {
+        log("act.parked", { memo: memo.id, tab: parkedTab, reason });
+        const parked: RouteDecisionInput = {
+          source: routedBy?.source ?? "default",
+          outcome: "needs_route",
+          destination: name,
+          tab: parkedTab,
+          confidence: null,
+          model: null,
+          costUsd: null,
+          reason,
+        };
+        return { outcome: "needs_route" as const, patch: { routeDecision: parked } };
+      };
+      if (name === "herdr" && tab === undefined) return park(WHICH_TAB, null);
 
       let delivery;
       try {
@@ -162,19 +179,8 @@ export function createStepHandlers(deps: {
           ...(tab !== undefined && { tab }),
         });
       } catch (err) {
-        if (!(err instanceof TabGoneError) || !routedBy) throw err;
-        log("act.tab_gone", { memo: memo.id, tab: err.tab });
-        const parked: RouteDecisionInput = {
-          source: routedBy.source,
-          outcome: "needs_route",
-          destination: name,
-          tab: err.tab,
-          confidence: null,
-          model: null,
-          costUsd: null,
-          reason: err.message,
-        };
-        return { outcome: "needs_route" as const, patch: { routeDecision: parked } };
+        if (err instanceof TabGoneError) return park(err.message, err.tab);
+        throw err;
       }
       getActiveSpan().setAttributes({
         reply_chars: delivery.replyText.length,
@@ -188,13 +194,24 @@ export function createStepHandlers(deps: {
     };
   }
 
+  /** The herd for a summary's tab name; a herd that cannot be read only costs the name. */
+  const liveTabs = async (memoId: string) => {
+    if (!herd) return [];
+    try {
+      return await herd.snapshot();
+    } catch (err) {
+      log("summarize.herd_unavailable", { memo: memoId, error: errorMessage(err) });
+      return [];
+    }
+  };
+
   // Always present: journal and herdr are summarized from a template, only the model-backed routes need the port.
   handlers.summarize = async ({ memo }) => {
     const name = required(memo.route, "route", "summarize");
     const transcript = delivered(memo, "summarize");
     if (name === "journal" || name === "herdr") {
-      const tabs = name === "herdr" ? await herd?.snapshot().catch(() => []) : [];
-      const tab = tabs?.find((t) => t.id === memo.destinationRef) ?? null;
+      const tabs = name === "herdr" ? await liveTabs(memo.id) : [];
+      const tab = tabs.find((t) => t.id === memo.destinationRef) ?? null;
       return { patch: { summary: templatedSummary({ destination: name, transcript, tab }) } };
     }
     if (!summarizer) throw new Error(`summarize: no summarizer configured for route "${name}"`);
