@@ -149,7 +149,9 @@ Lands in `~/SourceRoot/dotfiles` (direct-to-master, its own AGENTS.md and `make`
 targets), not in iris. It is reusable for every future Apple repo (shutterflow and WeatherOrb
 apps later). Read `docs/research/2026-10-27-agent-dev-tooling.md` and
 `docs/research/2026-10-27-swiftui-design.md` first. Follow `dotfiles/docs/agents-md.md` and the
-density rule of the global CLAUDE.md (every line changes a decision).
+density rule of the global CLAUDE.md (every line changes a decision). Before editing
+dotfiles, run `rd agents` and `git -C ~/SourceRoot/dotfiles status`. If another agent is working in
+dotfiles or its tree is dirty, touch only your own new files and commit only those paths.
 - [ ] `dotfiles/rules/swift.md`, lazy, with `paths: ["**/*.swift", "**/Package.swift",
       "**/project.yml", "**/*.xcconfig"]`. It covers:
   - Swift 6 language mode with complete concurrency checking, MainActor default for app
