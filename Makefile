@@ -16,8 +16,11 @@ LINES        ?= 100
 help: ## List targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  make %-14s %s\n", $$1, $$2}'
 
+# check-apple needs Xcode; it joins `check` only where xcodebuild exists (the Linux CI job has none, apple.yml runs it).
+CHECK_APPLE := $(if $(shell command -v xcodebuild 2>/dev/null),check-apple)
+
 .PHONY: check
-check: check-server check-contracts guard ## Everything CI runs except e2e (check-apple joins when apple/ exists)
+check: check-server check-contracts guard $(CHECK_APPLE) ## Everything CI runs except e2e (check-apple joins where Xcode exists)
 
 .PHONY: check-server
 check-server: ## oxlint, oxfmt --check, tsc --noEmit, bun test
@@ -128,3 +131,50 @@ smoke: ## Send a real German recording end to end (IRIS_URL=https://iris.mini.<d
 .PHONY: e2e
 e2e: ## Pipeline end to end against a fake-booted server
 	bun scripts/e2e.ts
+
+# --- Apple (apple/project.yml, apple/Packages/*); toolchain recipes: .claude/skills/apple-dev ---
+# The pinned simulator: snapshots only match on the runtime that recorded them (TDD §9). Change both together and re-record.
+SIM_NAME   ?= iPhone 17
+SIM_OS     ?= 27.0
+SIM_DEST   := platform=iOS Simulator,name=$(SIM_NAME),OS=$(SIM_OS)
+APPLE_DIR  := apple
+PACKAGES   := IrisCore IrisCapture IrisUI IrisTelemetry
+SWIFT_DIRS := $(APPLE_DIR)/Iris $(APPLE_DIR)/IrisWidgets $(APPLE_DIR)/IrisNotifications $(APPLE_DIR)/IrisMac $(APPLE_DIR)/Tests \
+              $(foreach p,$(PACKAGES),$(APPLE_DIR)/Packages/$(p)/Sources $(APPLE_DIR)/Packages/$(p)/Tests)
+XCB        := xcodebuild -project $(APPLE_DIR)/Iris.xcodeproj -derivedDataPath $(APPLE_DIR)/.dd CODE_SIGNING_ALLOWED=NO
+
+.PHONY: generate
+generate: ## xcodegen: apple/project.yml -> apple/Iris.xcodeproj (gitignored)
+	cd $(APPLE_DIR) && xcodegen generate --spec project.yml
+
+.PHONY: theme
+theme: ## Regenerate IrisUI/Theme from the pinned basalt-ui tokens
+	cd $(APPLE_DIR)/tools && bun install --frozen-lockfile && bun gen-theme.ts
+
+.PHONY: lint-apple
+lint-apple: ## swift format lint --strict over every Swift source
+	swift format lint --strict -r $(SWIFT_DIRS)
+
+.PHONY: test-packages
+test-packages: ## swift test per package (macOS host; the iOS-only snapshot tests run in `snapshots`)
+	@for p in $(PACKAGES); do echo "== $$p"; (cd $(APPLE_DIR)/Packages/$$p && swift test) || exit 1; done
+
+.PHONY: build-apple
+build-apple: generate ## xcodebuild build of every app scheme (Iris incl. both extensions on the simulator, IrisMac)
+	$(XCB) -scheme Iris -destination '$(SIM_DEST)' build
+	$(XCB) -scheme IrisMac -destination 'platform=macOS' build
+
+.PHONY: check-apple
+check-apple: ## Theme drift, swift format lint, swift test per package, build of all schemes
+	cd $(APPLE_DIR)/tools && bun install --frozen-lockfile && bun gen-theme.ts --check
+	$(MAKE) lint-apple
+	$(MAKE) test-packages
+	$(MAKE) build-apple
+
+.PHONY: snapshots
+snapshots: ## IrisUI snapshot tests on the pinned simulator (RECORD=1 make snapshots re-records the references)
+	cd $(APPLE_DIR)/Packages/IrisUI && TEST_RUNNER_RECORD=$(RECORD) xcodebuild test -scheme IrisUI -destination '$(SIM_DEST)' -derivedDataPath .dd
+
+.PHONY: uitest
+uitest: generate ## XCUITest smoke flows on the pinned simulator (launches with -IrisFakeCapture)
+	$(XCB) -scheme Iris -destination '$(SIM_DEST)' test
