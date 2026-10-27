@@ -6,8 +6,9 @@ import { generateP8 } from "../adapters/apns-test-support.js";
 import { selectNotifier, unescapeNewlines } from "./select.js";
 
 // Built at runtime so the public-repo guard (PEM rule) does not read the dummy key as a leak.
+const KIND = "PRIVATE KEY";
 const pem = (body: string, sep: string) =>
-  ["-----BEGIN " + "PRIVATE KEY-----", body, "-----END " + "PRIVATE KEY-----"].join(sep);
+  [`-----BEGIN ${KIND}-----`, body, `-----END ${KIND}-----`].join(sep);
 
 const full = {
   APNS_KEY_P8: pem("abc", "\\n"),
@@ -38,8 +39,8 @@ describe("selectNotifier", () => {
   });
 
   it("uses the APNs notifier when all four are set, with the key's newlines escaped", async () => {
-    const { pem } = await generateP8();
-    const selected = select({ ...full, APNS_KEY_P8: pem.replaceAll("\n", "\\n") });
+    const generated = await generateP8();
+    const selected = select({ ...full, APNS_KEY_P8: generated.pem.replaceAll("\n", "\\n") });
     expect(selected.kind).toBe("apns");
     await selected.close?.();
   });

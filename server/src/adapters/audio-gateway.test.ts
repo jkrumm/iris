@@ -147,6 +147,10 @@ describe.skipIf(!Bun.which("ffmpeg") || !Bun.which("ffprobe"))("ffmpegConcat (re
     expect(bytes.length).toBeGreaterThan(500);
     // An MP4 container starts with a size box followed by the `ftyp` marker.
     expect(new TextDecoder().decode(bytes.slice(4, 8))).toBe("ftyp");
+    // +faststart: the moov atom precedes the media data so the scrubber can stream.
+    const text = new TextDecoder("latin1").decode(bytes);
+    expect(text.indexOf("moov")).toBeGreaterThan(0);
+    expect(text.indexOf("moov")).toBeLessThan(text.indexOf("mdat"));
     expect(await concatDirs()).toEqual(before);
   });
 

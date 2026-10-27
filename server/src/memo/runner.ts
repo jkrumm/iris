@@ -67,6 +67,8 @@ export function createRunner(deps: {
   const driveAlls = new Set<Promise<void>>();
   const rerun = new Set<string>();
   let stopping = false;
+  // `stopping` flips from `stop()` while a loop awaits; reading it through a call keeps that visible to the linter.
+  const isStopping = () => stopping;
   const warnedNoHandler = new Set<HandlerStep>();
 
   const publish = (id: string, step: Step | null) => {
@@ -155,7 +157,7 @@ export function createRunner(deps: {
       do {
         rerun.delete(id);
         await pass(id);
-      } while (rerun.has(id) && !stopping);
+      } while (rerun.has(id) && !isStopping());
     } finally {
       // Same tick as the rerun check: no drive() can slip in between and be dropped.
       inflight.delete(id);
@@ -180,7 +182,7 @@ export function createRunner(deps: {
     async driveAll() {
       const queue = store.listNonTerminal().map((memo) => memo.id);
       const worker = async () => {
-        for (let id = queue.shift(); id !== undefined && !stopping; id = queue.shift()) {
+        for (let id = queue.shift(); id !== undefined && !isStopping(); id = queue.shift()) {
           await drive(id).catch(logDriveFailure(id));
         }
       };

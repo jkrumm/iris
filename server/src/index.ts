@@ -1,44 +1,23 @@
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { createFsAudioStore } from "./adapters/audio-fs.js";
-import { createAudioGatewayTranscriber, ffmpegCombiner } from "./adapters/audio-gateway.js";
-import { createAudioGatewaySpeaker } from "./adapters/audio-gateway-speaker.js";
-import { createAgwSummarizer } from "./adapters/agw.js";
-import { createHerdrHerd } from "./adapters/herdr.js";
-import { createHermesDestination } from "./adapters/hermes.js";
 import { createSqliteMemoStore, openDatabase } from "./adapters/sqlite.js";
 import { createSqliteDeviceStore } from "./adapters/sqlite-devices.js";
-import { createFsSpeechCache } from "./adapters/speech-fs.js";
 import { createApp } from "./app.js";
-import { composeFakes } from "./compose-fakes.js";
+import { compose } from "./compose.js";
 import { env } from "./env.js";
-import { parseDeviceTokens } from "./http/auth.js";
 import { createMemoEvents } from "./memo/events.js";
 import { createMemoMedia } from "./memo/media.js";
 import { createRunner } from "./memo/runner.js";
 import { createMemoService } from "./memo/service.js";
 import { createNotifyLifecycle } from "./notify/lifecycle.js";
 import { bindPhaseUpdates } from "./notify/phases.js";
-import { selectNotifier } from "./notify/select.js";
 import { createStepHandlers } from "./pipeline/steps.js";
 import { systemClock } from "./ports/clock.js";
 import { log } from "./telemetry/log.js";
 import { flushOtel } from "./telemetry/otel.js";
 
-const degraded: string[] = [];
-if (!env.OTEL_EXPORTER_OTLP_ENDPOINT) degraded.push("otel");
-
-// IRIS_FAKES=1 (make e2e): every downstream port is an in-memory fake; env URLs and tokens are ignored.
-const fakes = env.IRIS_FAKES ? composeFakes() : undefined;
-if (fakes) {
-  degraded.push("fakes");
-  log("server.fakes_mode", { warning: "ALL DOWNSTREAMS ARE FAKES: NOT FOR PRODUCTION" });
-}
-
-const deviceTokens = parseDeviceTokens(env.IRIS_DEVICE_TOKENS);
-if (deviceTokens.size === 0) degraded.push("device-tokens");
-
-// Production composition: the one place adapters meet ports.
+// Production composition: the one place adapters meet ports is `compose`; this file is process concerns.
 mkdirSync(env.IRIS_DATA, { recursive: true });
 const db = openDatabase(join(env.IRIS_DATA, "iris.db"));
 const clock = systemClock;
@@ -48,61 +27,26 @@ const events = createMemoEvents();
 const audio = createFsAudioStore(join(env.IRIS_DATA, "audio"));
 
 // A missing downstream leaves its step without a handler: memos park there and /health says so.
-const transcriber = fakes
-  ? fakes.transcriber
-  : env.AUDIO_GATEWAY_URL
-    ? createAudioGatewayTranscriber({ baseUrl: env.AUDIO_GATEWAY_URL })
-    : undefined;
-if (!transcriber) degraded.push("transcribe");
-const destination = fakes
-  ? fakes.destination
-  : env.HERMES_URL && env.HERMES_TOKEN
-    ? createHermesDestination({ baseUrl: env.HERMES_URL, token: env.HERMES_TOKEN })
-    : undefined;
-if (!destination) degraded.push("act");
-const summarizer = fakes
-  ? fakes.summarizer
-  : env.AGW_URL
-    ? createAgwSummarizer({ baseUrl: env.AGW_URL })
-    : undefined;
-if (!summarizer) degraded.push("summarize");
-
-const speaker = fakes
-  ? fakes.speaker
-  : env.AUDIO_GATEWAY_URL
-    ? createAudioGatewaySpeaker({ baseUrl: env.AUDIO_GATEWAY_URL })
-    : undefined;
-if (!speaker) degraded.push("speech");
-const herd = fakes
-  ? fakes.herd
-  : env.HERDR_SOCKET
-    ? createHerdrHerd({ socketPath: env.HERDR_SOCKET })
-    : undefined;
-if (!herd) degraded.push("herd");
-
-// APNs when all four APNS_* are set, else the log stand-in (intended until enrolment, so not `degraded`).
-const {
-  notifier,
-  kind: notifierKind,
-  close: closeApns,
-} = fakes
-  ? { notifier: fakes.notifier, kind: "fakes", close: undefined }
-  : selectNotifier({ apns: env, devices, clock });
-log("notifier.selected", { kind: notifierKind });
+const { ports, degraded, deviceTokens, notifier, closeTransport } = compose({
+  env,
+  devices,
+  clock,
+  dataDir: env.IRIS_DATA,
+});
 
 const handlers = createStepHandlers({
   store,
   audio,
-  transcriber,
-  destination,
-  summarizer,
+  transcriber: ports.transcriber,
+  destination: ports.destination,
+  summarizer: ports.summarizer,
   notifier,
 });
 log("runner.handlers_registered", { steps: Object.keys(handlers) });
 const runner = createRunner({ store, handlers, events, clock });
 const notifyLifecycle = createNotifyLifecycle({
   phases: bindPhaseUpdates({ events, store, devices, notifier }),
-  closeTransport: closeApns,
+  closeTransport,
 });
 const memos = createMemoService({
   store,
@@ -116,9 +60,9 @@ const memos = createMemoService({
 const media = createMemoMedia({
   store,
   audio,
-  combiner: fakes ? fakes.combiner : ffmpegCombiner,
-  speaker,
-  speechCache: fakes ? fakes.speechCache : createFsSpeechCache(join(env.IRIS_DATA, "speech")),
+  combiner: ports.combiner,
+  speaker: ports.speaker,
+  speechCache: ports.speechCache,
 });
 
 const app = createApp({
@@ -127,7 +71,7 @@ const app = createApp({
   memos,
   devices,
   media,
-  herd,
+  herd: ports.herd,
   inflight: () => runner.inflightIds().length,
 }).listen({
   port: env.PORT,

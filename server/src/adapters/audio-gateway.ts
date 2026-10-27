@@ -77,6 +77,8 @@ export const ffmpegConcat: ConcatFn = async (paths) => {
       "aac",
       "-b:a",
       "32k",
+      "-movflags",
+      "+faststart",
       out,
     ]);
     if (ffmpeg.code !== 0) throw failure("ffmpeg", ffmpeg.stderr, ffmpeg.code);

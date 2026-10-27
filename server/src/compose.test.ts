@@ -1,8 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import { createSqliteDeviceStore } from "./adapters/sqlite-devices.js";
 import { createApp } from "./app.js";
-import { composeFakes } from "./compose-fakes.js";
-import { parseDeviceTokens } from "./http/auth.js";
+import { compose, type ComposeEnv } from "./compose.js";
 import { call, PHONE } from "./http/test-support.js";
 import { createMemoEvents } from "./memo/events.js";
 import { createMemoMedia } from "./memo/media.js";
@@ -10,11 +9,26 @@ import { createRunner } from "./memo/runner.js";
 import { createMemoService } from "./memo/service.js";
 import { fakeAudio, testStore } from "./memo/test-support.js";
 import { createStepHandlers } from "./pipeline/steps.js";
-import { fakeCombiner } from "./ports/fakes.js";
+import { fakeCombiner, type fakeNotifier } from "./ports/fakes.js";
+
+const DEVICE_TOKENS = "tok-phone=iphone";
+
+function build(env: ComposeEnv, combiner = fakeCombiner()) {
+  const { store, clock, db } = testStore();
+  const devices = createSqliteDeviceStore({ db, clock });
+  const composed = compose({ env, devices, clock, dataDir: "/nonexistent/iris-data", combiner });
+  return { composed, store, clock, db, devices };
+}
 
 function fakesApp() {
-  const fakes = composeFakes({ combiner: fakeCombiner() });
-  const { store, clock, db } = testStore();
+  const { composed, store, clock, devices } = build({
+    IRIS_FAKES: true,
+    IRIS_DEVICE_TOKENS: DEVICE_TOKENS,
+  });
+  const fakes = {
+    ...composed.ports,
+    notifier: composed.notifier as ReturnType<typeof fakeNotifier>,
+  };
   const events = createMemoEvents();
   const audio = fakeAudio();
   const handlers = createStepHandlers({
@@ -42,17 +56,17 @@ function fakesApp() {
     speechCache: fakes.speechCache,
   });
   const app = createApp({
-    deviceTokens: parseDeviceTokens("tok-phone=iphone"),
+    deviceTokens: composed.deviceTokens,
     degraded: ["fakes"],
     memos,
-    devices: createSqliteDeviceStore({ db, clock }),
+    devices,
     media,
     herd: fakes.herd,
   });
   return { app, fakes };
 }
 
-describe("composeFakes", () => {
+describe("compose with IRIS_FAKES", () => {
   it("drives a memo to notified and answers every R1 endpoint", async () => {
     const { app, fakes } = fakesApp();
     const id = crypto.randomUUID();
@@ -103,5 +117,66 @@ describe("composeFakes", () => {
       json: { name: "Test Phone", platform: "ios" },
     });
     expect(register.status).toBe(200);
+  });
+});
+
+describe("compose", () => {
+  it("fakes mode builds every port, ignores downstream env and lists only fakes", () => {
+    const { composed } = build({
+      IRIS_FAKES: true,
+      IRIS_DEVICE_TOKENS: DEVICE_TOKENS,
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://127.0.0.1:4318",
+      AUDIO_GATEWAY_URL: "http://127.0.0.1:1",
+    });
+    const { transcriber, destination, summarizer, speaker, herd } = composed.ports;
+    for (const port of [transcriber, destination, summarizer, speaker, herd]) {
+      expect(port).toBeDefined();
+    }
+    expect(composed.degraded).toEqual(["fakes"]);
+    expect(composed.notifierKind).toBe("fakes");
+    expect(composed.closeTransport).toBeUndefined();
+  });
+
+  it("an empty env builds no downstream and reports each missing one in order", () => {
+    const { composed } = build({});
+    const { transcriber, destination, summarizer, speaker, herd } = composed.ports;
+    for (const port of [transcriber, destination, summarizer, speaker, herd]) {
+      expect(port).toBeUndefined();
+    }
+    expect(composed.degraded).toEqual([
+      "otel",
+      "device-tokens",
+      "transcribe",
+      "act",
+      "summarize",
+      "speech",
+      "herd",
+    ]);
+    expect(composed.notifierKind).toBe("log");
+    expect(composed.deviceTokens.size).toBe(0);
+  });
+
+  it("env URLs build the real adapters without touching the network", () => {
+    const { composed } = build({
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://127.0.0.1:1",
+      IRIS_DEVICE_TOKENS: DEVICE_TOKENS,
+      AUDIO_GATEWAY_URL: "http://127.0.0.1:1",
+      AGW_URL: "http://127.0.0.1:1",
+      HERMES_URL: "http://127.0.0.1:1",
+      HERMES_TOKEN: "token",
+      HERDR_SOCKET: "/nonexistent/herdr.sock",
+    });
+    const { transcriber, destination, summarizer, speaker, herd } = composed.ports;
+    for (const port of [transcriber, destination, summarizer, speaker, herd]) {
+      expect(port).toBeDefined();
+    }
+    expect(composed.degraded).toEqual([]);
+    expect(composed.notifierKind).toBe("log");
+  });
+
+  it("Hermes needs both its URL and token", () => {
+    const { composed } = build({ HERMES_URL: "http://127.0.0.1:1" });
+    expect(composed.ports.destination).toBeUndefined();
+    expect(composed.degraded).toContain("act");
   });
 });
