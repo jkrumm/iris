@@ -50,6 +50,7 @@ describe("POST /v1/memos/text", () => {
       state: "transcribed",
       transcript: "kauf Milch",
       segmentCount: null,
+      typed: true,
       device: "iphone",
     });
     expect((await createText(app, { id, text: "kauf Milch" })).status).toBe(202);
@@ -63,8 +64,10 @@ describe("POST /v1/memos/text", () => {
       { text: "" },
       { text: "   " },
       { text: "x".repeat(20_001) },
+      { text: "😀".repeat(20_001) },
       { text: undefined },
       { mode: "nope" },
+      { mode: undefined },
       { id: "../x" },
     ]) {
       const res = await createText(app, bad);
@@ -73,6 +76,11 @@ describe("POST /v1/memos/text", () => {
         400,
       ]);
     }
+  });
+
+  it("counts code points: 20 000 emoji are accepted", async () => {
+    const { app } = testApp({ handlers: fakeHandlers });
+    expect((await createText(app, { text: "😀".repeat(20_000) })).status).toBe(202);
   });
 
   it("drives the memo to notified without ingest or transcribe rows", async () => {
@@ -87,6 +95,7 @@ describe("POST /v1/memos/text", () => {
     };
     expect(detail.steps.map((s) => s.step)).toEqual(["route", "act", "summarize", "notify"]);
     expect(detail.segmentCount).toBe(0);
+    expect(detail).toMatchObject({ typed: true });
   });
 
   it("409s GET /audio: a typed memo has no recording", async () => {
@@ -133,6 +142,21 @@ describe("POST /v1/memos", () => {
     });
     const again = await create(app, id);
     expect(again.status).toBe(200);
+  });
+
+  it("400s a missing or unknown mode instead of defaulting to auto, and marks no recording typed", async () => {
+    const { app } = testApp();
+    const startedAt = "2026-01-01T00:00:00.000Z";
+    for (const mode of [undefined, "nope"]) {
+      const res = await call(app, {
+        method: "POST",
+        path: "/v1/memos",
+        json: { id: newId(), mode, startedAt },
+      });
+      expect([mode, res.status]).toEqual([mode, 400]);
+    }
+    const recorded = await create(app);
+    expect(await recorded.json()).not.toHaveProperty("typed");
   });
 
   it("409s for another device", async () => {

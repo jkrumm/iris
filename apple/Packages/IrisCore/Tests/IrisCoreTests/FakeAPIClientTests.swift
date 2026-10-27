@@ -39,6 +39,19 @@ struct FakeAPIClientTests {
     await #expect(throws: APIError.self) { try await fake.createTextMemo(other) }
   }
 
+  @Test("createTextMemo counts Unicode code points, not Characters")
+  func textMemoCodePoints() async throws {
+    let fake = FakeAPIClient()
+    // A family emoji is one Character but five code points.
+    let family = "👨‍👩‍👧"
+    let fits = String(repeating: family, count: CreateTextMemoRequest.maxTextCharacters / 5)
+    _ = try await fake.createTextMemo(CreateTextMemoRequest(id: "t3", mode: .auto, startedAt: started, text: fits))
+    await #expect(throws: APIError.self) {
+      try await fake.createTextMemo(
+        CreateTextMemoRequest(id: "t4", mode: .auto, startedAt: started, text: fits + family))
+    }
+  }
+
   @Test("createTextMemo rejects empty and oversized text with a 400")
   func textMemoValidation() async throws {
     let fake = FakeAPIClient()

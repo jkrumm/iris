@@ -50,7 +50,7 @@ async function makeTone(seconds: number) {
 describe("parseCliArgs", () => {
   it("applies defaults and reads the token from the env", () => {
     expect(parseCliArgs(["a.m4a"], { IRIS_TOKEN: "t" })).toEqual({
-      file: "a.m4a",
+      source: { kind: "file", path: "a.m4a" },
       url: "http://127.0.0.1:7730",
       token: "t",
       mode: "auto",
@@ -83,7 +83,7 @@ describe("parseCliArgs", () => {
   it("takes --text instead of a file, and not both", () => {
     expect(parseCliArgs(["--text", "kauf Milch", "--mode", "hermes"], { IRIS_TOKEN: "t" })).toEqual(
       {
-        text: "kauf Milch",
+        source: { kind: "text", text: "kauf Milch" },
         url: "http://127.0.0.1:7730",
         token: "t",
         mode: "hermes",
@@ -288,7 +288,7 @@ async function run(fake: FakeOptions, overrides: Partial<Options> = {}) {
   const server = startFake(fake);
   try {
     const options: Options = {
-      file: await makeTone(25),
+      source: { kind: "file", path: await makeTone(25) },
       url: server.url,
       token: TOKEN,
       mode: "hermes",
@@ -307,7 +307,7 @@ describe("sendMemo --text against a fake server", () => {
     const server = startFake({ finalState: "notified" });
     try {
       const code = await sendMemo({
-        text: "kauf Milch",
+        source: { kind: "text", text: "kauf Milch" },
         url: server.url,
         token: TOKEN,
         mode: "hermes",
@@ -358,7 +358,7 @@ describe.skipIf(!hasFfmpeg)("sendMemo against a fake server", () => {
     const server = startFake({ finalState: "notified" });
     try {
       const options: Options = {
-        file: await makeTone(5),
+        source: { kind: "file", path: await makeTone(5) },
         url: server.url,
         token: "wrong",
         mode: "auto",

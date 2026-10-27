@@ -161,6 +161,13 @@ describe("createTextMemo", () => {
     expect(
       await codeOf(() => service.createTextMemo(typed(undefined, `  ${"x".repeat(20_000)}  `))),
     ).toBe("none");
+    // The limit counts code points: an emoji is two UTF-16 units but one character.
+    expect(await codeOf(() => service.createTextMemo(typed(undefined, "😀".repeat(20_001))))).toBe(
+      "bad_request",
+    );
+    expect(await codeOf(() => service.createTextMemo(typed(undefined, "😀".repeat(20_000))))).toBe(
+      "none",
+    );
     expect(await codeOf(() => service.createTextMemo(typed("../x")))).toBe("bad_request");
     expect(await codeOf(() => service.createTextMemo({ ...typed(), mode: "nope" as never }))).toBe(
       "bad_request",

@@ -111,7 +111,7 @@ public actor FakeAPIClient: APIClient {
     calls.append(.createTextMemo(request))
     try failIfScripted(.createTextMemo)
     let text = request.text.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard !text.isEmpty, text.count <= CreateTextMemoRequest.maxTextCharacters else {
+    guard !text.isEmpty, text.unicodeScalars.count <= CreateTextMemoRequest.maxTextCharacters else {
       throw APIError.server(
         status: 400, body: ErrorBody(error: .badRequest, message: "text must be 1-20000 characters"))
     }
@@ -127,7 +127,7 @@ public actor FakeAPIClient: APIClient {
     let timestamp = now()
     let memo = Memo(
       id: request.id, mode: request.mode, device: deviceID, startedAt: request.startedAt, state: .transcribed,
-      transcript: text, createdAt: timestamp, updatedAt: timestamp)
+      transcript: text, isTyped: true, createdAt: timestamp, updatedAt: timestamp)
     memos[request.id] = MemoDetail(memo: memo, steps: [])
     return memo
   }

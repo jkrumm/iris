@@ -56,6 +56,14 @@ export interface Memo {
   updatedAt: string;
 }
 
+/**
+ * Typed instead of spoken: such a memo is created past `receiving` and never passes `received`, so it
+ * has no segment count. The one definition; the wire carries it as `typed`.
+ */
+export function isTyped(memo: Pick<Memo, "segmentCount" | "state">): boolean {
+  return memo.segmentCount === null && memo.state !== "receiving";
+}
+
 export const ROUTE_SOURCES = [
   "mode",
   "prefix",

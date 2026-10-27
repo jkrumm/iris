@@ -17,6 +17,8 @@ import { AGENT_STATES } from "../ports/herd.js";
 const Int = t.Number({ multipleOf: 1 });
 const Nullable = t.Nullable;
 const Step = t.UnionEnum([...STEPS]);
+// `UnionEnum` defaults a missing value to its first member; a missing request `mode` must be a 400, not "auto".
+const RequestMode = t.UnionEnum([...MEMO_MODES], { default: undefined });
 
 // ── Errors ───────────────────────────────────────────────────────────────────
 
@@ -56,6 +58,8 @@ const memoFields = {
   destinationRef: Nullable(t.String()),
   replyText: Nullable(t.String()),
   summary: Nullable(Summary),
+  // Present (and `true`) only for a typed memo, one created from text; omitted for a recording.
+  typed: t.Optional(t.Literal(true)),
   // Present only while the memo is `needs_route`: why it parked, and the model's guess on a low-confidence park.
   routeReason: t.Optional(t.String()),
   routeSuggestion: t.Optional(t.String()),
@@ -92,15 +96,18 @@ export const SegmentParams = t.Object({
 
 export const CreateMemoBody = t.Object({
   id: t.String(),
-  mode: t.UnionEnum([...MEMO_MODES]),
+  mode: RequestMode,
   startedAt: t.String(),
 });
-/** `text` is trimmed server-side; empty after trimming or longer than 20 000 characters is a 400. */
 export const CreateTextMemoBody = t.Object({
   id: t.String(),
-  mode: t.UnionEnum([...MEMO_MODES]),
+  mode: RequestMode,
   startedAt: t.String(),
-  text: t.String(),
+  // No minLength/maxLength: the rule applies to the trimmed text, counted in Unicode code points, which a
+  // schema length on the raw string cannot express. The service answers 400 for 0 or more than 20 000.
+  text: t.String({
+    description: "Trimmed server-side; 1 to 20000 Unicode code points after trimming, else 400.",
+  }),
 });
 export const CompleteBody = t.Object({ segmentCount: Int });
 // `UnionEnum` defaults a missing value to its first member; a missing `from` must be a 400, not "ingest".

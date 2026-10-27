@@ -8,6 +8,7 @@ import { memoEvent, type MemoEvents, type MemoListener } from "./events.js";
 import {
   isCorrectable,
   isResultReady,
+  isTyped,
   MEMO_MODES,
   type Memo,
   type MemoMode,
@@ -70,12 +71,10 @@ export interface MemoService {
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MAX_SEGMENTS = 1_000_000; // matches the six-digit file names of the audio store
+/** The limit on a typed memo's trimmed text, in Unicode code points. */
 export const MAX_TEXT_CHARS = 20_000;
 const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 100;
-
-/** Typed memos never pass `received`, so they are the ones past `receiving` with no segment count. */
-const isTyped = (memo: Memo) => memo.segmentCount === null && memo.state !== "receiving";
 
 function assertSegment(params: { index: number; bytes: Uint8Array; maxBytes: number }) {
   const { index, bytes, maxBytes } = params;
@@ -161,7 +160,7 @@ export function createMemoService(deps: {
       }
       const trimmed = text.trim();
       if (trimmed === "") throw new MemoError("bad_request", "text must not be empty");
-      if (trimmed.length > MAX_TEXT_CHARS) {
+      if ([...trimmed].length > MAX_TEXT_CHARS) {
         throw new MemoError("bad_request", `text exceeds ${MAX_TEXT_CHARS} characters`);
       }
       const result = store.createTextMemo({ id, mode, device, startedAt, text: trimmed });

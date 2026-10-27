@@ -126,14 +126,21 @@ struct FixtureConformanceTests {
     #expect(!encoded.contains("routeReason") && !encoded.contains("routeSuggestion"))
   }
 
-  @Test("A typed memo decodes as transcribed with no segment count")
+  @Test("`typed` is explicit: true on a typed memo, absent on a recording, in a memo and in the detail")
   func typedMemo() throws {
-    let memo = try IrisJSON.makeDecoder().decode(Memo.self, from: Contracts.fixtureData("memos.text.response"))
+    let decoder = IrisJSON.makeDecoder()
+    let memo = try decoder.decode(Memo.self, from: Contracts.fixtureData("memos.text.response"))
     #expect(memo.state == .transcribed)
-    #expect(memo.segmentCount == nil)
     #expect(memo.isTyped)
-    let recorded = try IrisJSON.makeDecoder().decode(Memo.self, from: Contracts.fixtureData("memos.create.response"))
+
+    let detail = try decoder.decode(MemoDetail.self, from: Contracts.fixtureData("memos.detail.response.typed"))
+    #expect(detail.memo.segmentCount == 0)
+    #expect(detail.memo.isTyped)
+
+    let recorded = try decoder.decode(Memo.self, from: Contracts.fixtureData("memos.create.response"))
     #expect(!recorded.isTyped)
+    let encoded = String(decoding: try IrisJSON.makeEncoder().encode(recorded), as: UTF8.self)
+    #expect(!encoded.contains("\"typed\""))
   }
 
   @Test("Result-ready states match the server")

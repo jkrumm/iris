@@ -219,6 +219,10 @@
         }
       ]
     },
+    "typed": {
+      "const": true,
+      "type": "boolean"
+    },
     "updatedAt": {
       "type": "string"
     }

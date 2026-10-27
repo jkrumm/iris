@@ -14,8 +14,8 @@ public struct MemoSummary: Codable, Hashable, Sendable {
 }
 
 /// A memo as returned by create, complete, retry, route, result and list. Every key is always present on the
-/// wire, unset ones as explicit `null`, which `encode(to:)` reproduces; the two exceptions are `routeReason`
-/// and `routeSuggestion`, which are omitted when `nil`.
+/// wire, unset ones as explicit `null`, which `encode(to:)` reproduces; the exceptions are `routeReason`,
+/// `routeSuggestion` and `typed`, which are omitted when `nil` / `false`.
 public struct Memo: Codable, Hashable, Sendable, Identifiable {
   public var id: String
   public var mode: MemoMode
@@ -38,9 +38,9 @@ public struct Memo: Codable, Hashable, Sendable, Identifiable {
   public var createdAt: Date
   public var updatedAt: Date
 
-  /// Typed instead of spoken (`POST /v1/memos/text`): it never passed `received`, so past `receiving` it has no
-  /// `segmentCount`. Such a memo has no recording (`GET /audio` has nothing to serve).
-  public var isTyped: Bool { segmentCount == nil && state != .receiving }
+  /// Typed instead of spoken (`POST /v1/memos/text`), the wire's `typed`: present and `true` only then. Such a
+  /// memo has no recording (`GET /audio` is a 409). Read it from here, never derive it from `segmentCount`.
+  public var isTyped: Bool
 
   public init(
     id: String,
@@ -59,6 +59,7 @@ public struct Memo: Codable, Hashable, Sendable, Identifiable {
     summary: MemoSummary? = nil,
     routeReason: String? = nil,
     routeSuggestion: String? = nil,
+    isTyped: Bool = false,
     createdAt: Date,
     updatedAt: Date
   ) {
@@ -78,8 +79,38 @@ public struct Memo: Codable, Hashable, Sendable, Identifiable {
     self.summary = summary
     self.routeReason = routeReason
     self.routeSuggestion = routeSuggestion
+    self.isTyped = isTyped
     self.createdAt = createdAt
     self.updatedAt = updatedAt
+  }
+
+  private enum CodingKeys: String, CodingKey {
+    case id, mode, device, startedAt, state, failedStep, error, segmentCount, audioSeconds, transcript, route
+    case destinationRef, replyText, summary, routeReason, routeSuggestion, createdAt, updatedAt
+    case isTyped = "typed"
+  }
+
+  public init(from decoder: any Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    id = try container.decode(String.self, forKey: .id)
+    mode = try container.decode(MemoMode.self, forKey: .mode)
+    device = try container.decode(String.self, forKey: .device)
+    startedAt = try container.decode(Date.self, forKey: .startedAt)
+    state = try container.decode(MemoState.self, forKey: .state)
+    failedStep = try container.decode(MemoStep?.self, forKey: .failedStep)
+    error = try container.decode(String?.self, forKey: .error)
+    segmentCount = try container.decode(Int?.self, forKey: .segmentCount)
+    audioSeconds = try container.decode(Double?.self, forKey: .audioSeconds)
+    transcript = try container.decode(String?.self, forKey: .transcript)
+    route = try container.decode(String?.self, forKey: .route)
+    destinationRef = try container.decode(String?.self, forKey: .destinationRef)
+    replyText = try container.decode(String?.self, forKey: .replyText)
+    summary = try container.decode(MemoSummary?.self, forKey: .summary)
+    routeReason = try container.decodeIfPresent(String.self, forKey: .routeReason)
+    routeSuggestion = try container.decodeIfPresent(String.self, forKey: .routeSuggestion)
+    isTyped = try container.decodeIfPresent(Bool.self, forKey: .isTyped) ?? false
+    createdAt = try container.decode(Date.self, forKey: .createdAt)
+    updatedAt = try container.decode(Date.self, forKey: .updatedAt)
   }
 
   public func encode(to encoder: any Encoder) throws {
@@ -100,6 +131,7 @@ public struct Memo: Codable, Hashable, Sendable, Identifiable {
     try container.encode(summary, forKey: .summary)
     try container.encodeIfPresent(routeReason, forKey: .routeReason)
     try container.encodeIfPresent(routeSuggestion, forKey: .routeSuggestion)
+    if isTyped { try container.encode(true, forKey: .isTyped) }
     try container.encode(createdAt, forKey: .createdAt)
     try container.encode(updatedAt, forKey: .updatedAt)
   }
