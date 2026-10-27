@@ -47,6 +47,11 @@ format: ## Apply oxfmt
 guard: ## Public-repo guard: no IPs, tailnet/real hostnames or token shapes in tracked files
 	bun scripts/public-guard.ts
 
+.PHONY: mockups
+mockups: ## Regenerate docs/design tokens.css and render every mockup to docs/design/renders/ (headless Chrome)
+	bun docs/design/mockups/gen-tokens.ts
+	bun docs/design/render.ts
+
 .PHONY: mini-setup
 mini-setup: ## Clone/update the deploy clone, install deps, install the LaunchAgents
 	@mkdir -p "$(DATA_DIR)"

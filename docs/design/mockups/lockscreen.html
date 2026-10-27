@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en" data-default-v="recording">
+<head>
+<meta charset="utf-8">
+<title>Iris — Lock Screen</title>
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="mock.css">
+<link rel="stylesheet" href="la.css">
+<script src="mock.js"></script>
+<style>
+  .date { position: absolute; top: 74px; left: 0; right: 0; text-align: center; font-size: 20px; font-weight: 600; opacity: .9; }
+  .time { position: absolute; top: 96px; left: 0; right: 0; text-align: center; font-size: 100px; font-weight: 600; letter-spacing: -.02em; line-height: 1.05; }
+  .stack { position: absolute; left: 12px; right: 12px; top: 268px; display: flex; flex-direction: column; gap: 10px; }
+  .note { border-radius: 24px; padding: 12px 14px; display: flex; gap: 12px; align-items: flex-start; color: #fff; }
+  [data-scheme="light"] .note { color: #14161c; }
+  .note .app { width: 38px; height: 38px; border-radius: 9px; background: var(--accent-fill); color: #fff; display: grid; place-items: center; font-size: 20px; flex: none; }
+  .note .tx { flex: 1; min-width: 0; }
+  .note .tx .r { display: flex; justify-content: space-between; font-size: var(--text-md); font-weight: 600; }
+  .note .tx .r span:last-child { font-weight: 400; opacity: .6; font-size: var(--text-sm); }
+  .note .tx p { font-size: var(--text-md); opacity: .9; margin-top: 1px; }
+  .bottom { position: absolute; left: 0; right: 0; bottom: 46px; padding: 0 46px; display: flex; justify-content: space-between; }
+  .ctl { width: 54px; height: 54px; border-radius: 50%; display: grid; place-items: center; font-size: 24px; color: #fff; }
+  [data-scheme="light"] .ctl { color: #14161c; }
+  .ctl.on { background: color-mix(in srgb, var(--status-bad) 85%, transparent); color: #fff; }
+  .ctl.iris { background: color-mix(in srgb, var(--accent-fill) 70%, transparent); color: #fff; }
+  .ring { position: absolute; inset: -5px; border-radius: 50%; border: 2px solid var(--status-bad); opacity: .55; animation: pulse 1.6s infinite; }
+</style>
+</head>
+<body>
+<div class="screen on-wall">
+  <div class="wall"></div>
+  <div class="statusbar"><span></span><span class="right"><svg viewBox="0 0 18 12"><path d="M1 8h2.5v3H1zM5.5 6h2.5v5H5.5zM10 3.5h2.5V11H10zM14.5 1H17v10h-2.5z"/></svg><svg viewBox="0 0 27 12"><rect x=".5" y=".5" width="22" height="11" rx="3.5" fill="none" stroke="currentColor" opacity=".4"/><rect x="2" y="2" width="17" height="8" rx="2"/></svg></span></div>
+  <div class="island"></div>
+
+  <div class="date">Tuesday, 27 October</div>
+  <div class="time num">9:41</div>
+
+  <div class="stack">
+
+    <!-- recording -->
+    <div class="la glass" data-v="recording">
+      <div class="hd"><span class="app"><i data-i="wave"></i></span>Iris<span class="sp"></span><span class="chip"><span class="dot live"></span>iPhone Microphone</span></div>
+      <div class="row"><div class="timer num">12:48</div><div class="wave" data-bars="22" data-h="30" data-seed="9" data-live></div></div>
+      <div class="sub" style="margin-top:-6px">Auto · 77 of 77 segments uploaded</div>
+      <div class="btns">
+        <div class="btn stop"><i data-i="stop" class="fill"></i>Stop</div>
+        <div class="btn"><i data-i="mic"></i>Switch mic</div>
+        <div class="btn icon"><i data-i="pause" class="fill"></i></div>
+      </div>
+    </div>
+
+    <!-- processing -->
+    <div class="la glass" data-v="processing">
+      <div class="hd"><span class="app"><i data-i="wave"></i></span>Iris<span class="sp"></span><span class="chip"><span class="dot hermes"></span>Hermes</span></div>
+      <div class="row"><div class="spin"></div><div><div class="title">Hermes is working on it</div><div class="sub">Recorded 2 min 12 s · Transcript ready</div></div></div>
+      <div><div class="prog"><s class="on"></s><s class="on"></s><s class="cur"></s><s></s></div><div class="stp" style="margin-top:6px"><span>Upload</span><span>Transcribe</span><span><b>Act</b></span><span>Summarize</span></div></div>
+    </div>
+
+    <!-- done -->
+    <div class="la glass" data-v="done">
+      <div class="hd"><span class="app"><i data-i="wave"></i></span>Iris<span class="sp"></span><span class="chip"><span class="dot hermes"></span>Hermes</span><span style="font-weight:400;opacity:.7">now</span></div>
+      <div class="row" style="align-items:flex-start"><span class="ok" style="margin-top:1px"><i data-i="check"></i></span><div><div class="title">Wochenplan abgestimmt, Release am Donnerstag</div><div class="sub">38 s · $0.047 · 3 tasks, 1 open</div></div></div>
+      <div class="btns">
+        <div class="btn go"><i data-i="play" class="fill"></i>Play</div>
+        <div class="btn"><i data-i="reply"></i>Reply</div>
+        <div class="btn"><i data-i="open"></i>Open</div>
+      </div>
+    </div>
+
+    <!-- needs route -->
+    <div class="la glass" data-v="needs-route">
+      <div class="hd"><span class="app"><i data-i="wave"></i></span>Iris<span class="sp"></span><span class="chip"><span class="dot wait"></span>Needs route</span></div>
+      <div class="row" style="align-items:flex-start"><span class="q" style="margin-top:1px">?</span><div><div class="title">Where should this go?</div><div class="sub">“Router bestellen und Netzwerkplan prüfen”</div></div></div>
+      <div class="btns">
+        <div class="btn"><i data-i="book"></i>Journal</div>
+        <div class="btn"><i data-i="bubble"></i>Hermes</div>
+        <div class="btn"><i data-i="term"></i>dotfiles</div>
+      </div>
+    </div>
+
+    <!-- idle: the previous result, as a normal notification -->
+    <div class="note glass" data-v="idle">
+      <span class="app"><i data-i="wave"></i></span>
+      <div class="tx"><div class="r"><span>Hermes</span><span>9:21</span></div><p>Wochenplan abgestimmt, Release am Donnerstag</p></div>
+    </div>
+    <div class="note glass" data-v="idle">
+      <span class="app"><i data-i="wave"></i></span>
+      <div class="tx"><div class="r"><span>Journal</span><span>8:02</span></div><p>Spaziergang: Idee für das Retry-Fenster der Outbox</p></div>
+    </div>
+  </div>
+
+  <div class="bottom">
+    <div class="ctl glass"><i data-i="flash"></i></div>
+    <div class="ctl glass iris" data-v="idle processing done needs-route"><i data-i="mic"></i></div>
+    <div class="ctl glass on" data-v="recording" style="position:relative"><span class="ring"></span><i data-i="stop" class="fill"></i></div>
+  </div>
+  <div class="home-indicator"></div>
+</div>
+</body>
+</html>

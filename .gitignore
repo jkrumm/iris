@@ -16,3 +16,7 @@ DerivedData/
 .artifacts/
 *.xcresult
 apple/tools/node_modules/
+
+# Design mockups: PNG renders and presigned links stay local (the repo is public)
+docs/design/renders/
+docs/design/links.local.*

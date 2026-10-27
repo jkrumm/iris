@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Iris — History</title>
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="mock.css">
+<script src="mock.js"></script>
+<style>
+  .list { position: absolute; inset: 0; overflow: hidden; padding: 62px 0 0; }
+  h1 { font-size: var(--text-display); font-weight: 700; letter-spacing: -.01em; padding: 18px 20px 6px; }
+  .sub { padding: 0 20px 6px; color: var(--faint); font-size: var(--text-sm); }
+  .sec { padding: 14px 20px 6px; }
+  .row { display: grid; grid-template-columns: 1fr auto; gap: 3px 12px; padding: 12px 20px; position: relative; }
+  .row + .row::before { content: ""; position: absolute; top: 0; left: 20px; right: 0; height: .5px; background: var(--divider); }
+  .row .meta { display: flex; align-items: center; gap: 7px; font-size: var(--text-xs); color: var(--muted); grid-column: 1 / 2; }
+  .row .meta .route { font-weight: 600; color: var(--ink2); }
+  .row .time { font-size: var(--text-xs); color: var(--faint); text-align: right; }
+  .row .head { grid-column: 1 / -1; font-size: var(--text-lg); font-weight: 600; line-height: 1.28; color: var(--ink); text-wrap: pretty;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .row .detail { grid-column: 1 / -1; font-size: var(--text-sm); color: var(--muted); display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden; }
+  .row .state { display: inline-flex; align-items: center; gap: 5px; }
+  .row .state.wait { color: var(--status-warn); font-weight: 600; }
+  .row .state.fail { color: var(--status-bad); font-weight: 600; }
+  .row .state.busy { color: var(--accent); font-weight: 600; }
+  .row.attn { background: color-mix(in srgb, var(--status-warn) 7%, transparent); }
+  .steps { display: inline-flex; gap: 2px; margin-left: 2px; }
+  .steps s { width: 10px; height: 3px; border-radius: 2px; background: var(--surface-border); text-decoration: none; }
+  .steps s.on { background: var(--accent); }
+  .steps s.cur { background: var(--accent); animation: pulse 1.4s infinite; }
+
+  /* Floating glass: tab pill + search + record. Content scrolls under them. */
+  .dock { position: absolute; z-index: 20; left: 14px; right: 14px; bottom: 26px; display: flex; gap: 10px; align-items: center; }
+  .tabs { flex: 1; height: 62px; border-radius: 99px; display: flex; align-items: center; justify-content: space-around; padding: 0 8px; }
+  .tab { display: flex; flex-direction: column; align-items: center; gap: 2px; font-size: var(--text-micro); font-weight: 600; color: var(--muted); padding: 7px 14px; border-radius: 99px; }
+  .tab i[data-i] { font-size: 22px; }
+  .tab.on { color: var(--accent); background: color-mix(in srgb, var(--accent) 13%, transparent); }
+  .rec { width: 62px; height: 62px; border-radius: 50%; display: grid; place-items: center; font-size: 26px; }
+  .searchbar { position: absolute; z-index: 20; left: 14px; right: 14px; bottom: 100px; height: 44px; border-radius: 99px; display: flex; align-items: center; gap: 8px; padding: 0 16px; color: var(--muted); font-size: var(--text-lg); }
+  .fade { position: absolute; z-index: 10; left: 0; right: 0; bottom: 0; height: 70px; background: linear-gradient(to top, color-mix(in srgb, var(--surface-bg) 70%, transparent), transparent); pointer-events: none; }
+</style>
+</head>
+<body>
+<div class="screen" id="screen">
+  <div class="statusbar"><span>9:41</span><span class="right"><svg viewBox="0 0 18 12"><path d="M1 8h2.5v3H1zM5.5 6h2.5v5H5.5zM10 3.5h2.5V11H10zM14.5 1H17v10h-2.5z"/></svg><svg viewBox="0 0 17 12"><path d="M8.5 2.5c2.3 0 4.4.9 6 2.4l1-1.1A10.5 10.5 0 0 0 8.5 1 10.5 10.5 0 0 0 1.5 3.8l1 1.1a8.9 8.9 0 0 1 6-2.4zm0 3.3c1.4 0 2.700.5 3.700 1.400l1-1.100a7.200 7.200 0 0 0-9.400 0l1 1.100c1-.9 2.300-1.400 3.700-1.400zM8.500 9a2.500 2.500 0 0 1 1.600.6L8.500 11l-1.600-1.400A2.500 2.500 0 0 1 8.500 9z"/></svg><svg viewBox="0 0 27 12"><rect x=".5" y=".5" width="22" height="11" rx="3.500" fill="none" stroke="currentColor" opacity=".4"/><rect x="2" y="2" width="17" height="8" rx="2"/><path d="M24 4v4c.8-.3 1.500-1.100 1.500-2S24.800 4.300 24 4z" opacity=".5"/></svg></span></div>
+  <div class="island"></div>
+
+  <div class="list">
+    <h1>History</h1>
+    <div class="sub num">6 memos today · $0.12 · 4 min 52 s of audio</div>
+
+    <div class="label sec">Today</div>
+
+    <div class="row attn" data-v="*">
+      <div class="meta"><span class="state wait"><span class="dot wait"></span>Needs route</span></div>
+      <div class="time num">9:48</div>
+      <div class="head">Where does “Router bestellen und Netzwerkplan prüfen” go?</div>
+      <div class="detail">Journal, Hermes or tab dotfiles — tap to decide</div>
+    </div>
+
+    <div class="row">
+      <div class="meta"><span class="state busy"><span class="dot hermes"></span><span class="route">Hermes</span> · Acting</span><span class="steps"><s class="on"></s><s class="on"></s><s class="cur"></s><s></s><s></s></span></div>
+      <div class="time num">9:46</div>
+      <div class="head">Which Postgres index fits the herd snapshot query?</div>
+    </div>
+
+    <div class="row">
+      <div class="meta"><span class="state fail"><span class="dot fail"></span>Failed · summarize</span></div>
+      <div class="time num">9:31</div>
+      <div class="head">Prompt an Tab dotfiles: Brewfile um xcodegen ergänzen</div>
+      <div class="detail">agw job failed (upstream 503) — retry from summarize</div>
+    </div>
+
+    <div class="row">
+      <div class="meta"><span class="dot hermes"></span><span class="route">Hermes</span><span>·</span><span class="num">38 s</span><span>·</span><span class="num">$0.047</span></div>
+      <div class="time num">9:21</div>
+      <div class="head">Wochenplan abgestimmt, Release am Donnerstag</div>
+      <div class="detail">Montag PR-Review, Mittwoch Feature-Freeze, Donnerstag Release</div>
+    </div>
+
+    <div class="row">
+      <div class="meta"><span class="dot journal"></span><span class="route">Journal</span><span>·</span><span class="num">2 min 12 s</span><span>·</span><span class="num">$0.006</span></div>
+      <div class="time num">8:02</div>
+      <div class="head">Spaziergang: Idee für das Retry-Fenster der Outbox</div>
+    </div>
+
+    <div class="label sec">Yesterday</div>
+
+    <div class="row">
+      <div class="meta"><span class="dot herdr"></span><span class="route">dotfiles · factory-w1a</span><span>·</span><span class="num">21 s</span></div>
+      <div class="time num">17:40</div>
+      <div class="head">Delivered to tab dotfiles: run make check, then push</div>
+    </div>
+    <div class="row">
+      <div class="meta"><span class="dot journal"></span><span class="route">Journal</span><span>·</span><span class="num">41 min</span></div>
+      <div class="time num">14:05</div>
+      <div class="head">Brain dump: Q4 plan, Iris release order, what to cut</div>
+    </div>
+  </div>
+
+  <div class="fade"></div>
+  <div class="searchbar glass"><i data-i="search"></i><span>Search transcripts</span></div>
+  <div class="dock">
+    <div class="tabs glass">
+      <div class="tab on"><i data-i="clock"></i>History</div>
+      <div class="tab"><i data-i="bubble"></i>Threads</div>
+      <div class="tab"><i data-i="gear"></i>Settings</div>
+    </div>
+    <div class="rec glass tint"><i data-i="mic"></i></div>
+  </div>
+  <div class="home-indicator"></div>
+</div>
+</body>
+</html>

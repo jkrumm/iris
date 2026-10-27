@@ -1,0 +1,32 @@
+/* Live Activity content shared by the Lock Screen and Dynamic Island mockups. The Live Activity is system
+   chrome: Apple's corner shapes and material, our tokens for type, color and the route dot. */
+.la { border-radius: 28px; padding: 14px 16px 16px; display: flex; flex-direction: column; gap: 12px; color: #fff; }
+[data-scheme="light"] .la { color: #14161c; }
+.la .hd { display: flex; align-items: center; gap: 8px; font-size: var(--text-sm); font-weight: 600; opacity: .85; }
+.la .hd .app { width: 20px; height: 20px; border-radius: 6px; background: var(--accent-fill); color: #fff; display: grid; place-items: center; font-size: 12px; }
+.la .hd .sp { flex: 1; }
+.la .hd .chip { height: 24px; font-size: var(--text-xs); padding: 0 9px; color: inherit; background: rgb(255 255 255 / .14); box-shadow: inset 0 0 0 .5px rgb(255 255 255 / .2); }
+[data-scheme="light"] .la .hd .chip { background: rgb(0 0 0 / .06); box-shadow: inset 0 0 0 .5px rgb(0 0 0 / .08); }
+.la .timer { font-size: 44px; font-weight: 300; letter-spacing: -.01em; line-height: 1; }
+.la .row { display: flex; align-items: center; gap: 14px; }
+.la .row .wave { flex: 1; justify-content: flex-end; gap: 3px; }
+.la .row .wave b { width: 3px; background: currentColor; opacity: .75; }
+.la .title { font-size: var(--text-xl); font-weight: 600; line-height: 1.25; text-wrap: pretty; }
+.la .sub { font-size: var(--text-sm); opacity: .72; margin-top: 2px; }
+.la .btns { display: flex; gap: 8px; }
+.la .btns .btn { flex: 1; height: 38px; font-size: var(--text-md); color: inherit; background: rgb(255 255 255 / .16); box-shadow: inset 0 0 0 .5px rgb(255 255 255 / .22); }
+[data-scheme="light"] .la .btns .btn { background: rgb(0 0 0 / .06); box-shadow: inset 0 0 0 .5px rgb(0 0 0 / .08); }
+.la .btns .btn.stop { background: color-mix(in srgb, var(--status-bad) 85%, transparent); color: #fff; box-shadow: none; }
+.la .btns .btn.go { background: var(--accent-fill); color: #fff; box-shadow: none; }
+.la .prog { display: flex; gap: 4px; }
+.la .prog s { flex: 1; height: 4px; border-radius: 2px; background: currentColor; opacity: .22; text-decoration: none; }
+.la .prog s.on { opacity: .95; background: var(--accent); }
+[data-scheme="dark"] .la .prog s.on { background: #a2c3f0; }
+.la .prog s.cur { opacity: 1; background: var(--accent); animation: pulse 1.4s infinite; }
+.la .stp { display: flex; justify-content: space-between; font-size: var(--text-xs); opacity: .75; }
+.la .spin { width: 22px; height: 22px; border-radius: 50%; border: 2.5px solid rgb(255 255 255 / .25); border-top-color: #fff; }
+[data-scheme="light"] .la .spin { border-color: rgb(0 0 0 / .12); border-top-color: #14161c; }
+.la .ok { width: 22px; height: 22px; border-radius: 50%; background: var(--status-good); color: #fff; display: grid; place-items: center; font-size: 13px; }
+.la .q { width: 22px; height: 22px; border-radius: 50%; background: var(--status-warn); color: #fff; display: grid; place-items: center; font-size: 13px; font-weight: 800; }
+.la .btns .btn { white-space: nowrap; padding: 0 10px; }
+.la .btns .btn.icon { flex: 0 0 56px; }

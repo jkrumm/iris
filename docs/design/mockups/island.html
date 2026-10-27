@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en" data-default-v="">
+<head>
+<meta charset="utf-8">
+<title>Iris — Dynamic Island</title>
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="mock.css">
+<link rel="stylesheet" href="la.css">
+<script src="mock.js"></script>
+<style>
+  .board { position: relative; width: 402px; min-height: 1060px; overflow: hidden; color: #fff; padding-top: 0; }
+  .blk { position: relative; padding-top: 11px; margin-bottom: 26px; }
+  .cap { margin: 9px 16px 8px; font-size: var(--text-xs); color: rgb(255 255 255 / .6); letter-spacing: .04em; text-transform: uppercase; font-weight: 600; }
+  .cap em { font-style: normal; color: #fff; }
+  .pill { position: relative; margin: 0 auto; width: 232px; height: 37px; border-radius: 20px; background: #000; display: flex; align-items: center; justify-content: space-between; padding: 0 12px; font-size: var(--text-sm); font-weight: 600; }
+  .pill .l, .pill .r { display: flex; align-items: center; gap: 6px; }
+  .exp { position: relative; margin: 0 12px; background: #000; border-radius: 42px; padding: 16px 20px 18px; display: flex; flex-direction: column; gap: 12px; }
+  .exp .top { height: 37px; display: flex; align-items: center; justify-content: space-between; margin: -5px -4px 0; }
+  .exp .top .chip { background: rgb(255 255 255 / .14); box-shadow: none; color: #fff; height: 26px; font-size: var(--text-xs); }
+  .exp .time { font-size: 38px; font-weight: 300; line-height: 1; }
+  .exp .wave { flex: 1; justify-content: flex-end; gap: 3px; } .exp .wave b { width: 3px; background: #a2c3f0; }
+  .exp .btns { display: flex; gap: 8px; } .exp .btn { flex: 1; height: 36px; font-size: var(--text-md); color: #fff; background: rgb(255 255 255 / .16); white-space: nowrap; padding: 0 8px; }
+  .exp .btn.stop { background: var(--status-bad); } .exp .btn.go { background: var(--accent-fill); } .exp .btn.icon { flex: 0 0 52px; }
+  .ttl { font-size: var(--text-xl); font-weight: 600; line-height: 1.25; } .sb { font-size: var(--text-sm); opacity: .7; margin-top: 2px; }
+  .glyph { color: #fff; }
+  .rdot { width: 9px; height: 9px; border-radius: 50%; background: var(--status-bad); animation: pulse 1.6s infinite; }
+  .tick { color: var(--status-good); font-size: 16px; }
+  .q { width: 18px; height: 18px; border-radius: 50%; background: var(--status-warn); color: #000; display: grid; place-items: center; font-size: 12px; font-weight: 800; }
+  .prog { display: flex; gap: 4px; } .prog s { flex: 1; height: 4px; border-radius: 2px; background: rgb(255 255 255 / .22); text-decoration: none; } .prog s.on { background: #a2c3f0; } .prog s.cur { background: #a2c3f0; animation: pulse 1.4s infinite; }
+  .spin { width: 16px; height: 16px; border-radius: 50%; border: 2.5px solid rgb(255 255 255 / .25); border-top-color: #fff; }
+</style>
+</head>
+<body>
+<div class="board">
+  <div class="wall"></div>
+
+  <!-- Recording -->
+  <div class="blk" style="top:0">
+    <div class="pill"><span class="l"><span class="rdot"></span></span><span class="r num">12:48</span></div>
+    <div class="cap"><em>Recording</em> · compact, then expanded</div>
+  
+    <div class="exp">
+      <div class="top"><span class="chip"><span class="dot live"></span>iPhone Microphone</span><span class="num" style="font-size:var(--text-sm);opacity:.7">Auto</span></div>
+      <div style="display:flex;align-items:center;gap:14px"><div class="time num">12:48</div><div class="wave" data-bars="22" data-h="28" data-seed="9" data-live></div></div>
+      <div class="btns"><div class="btn stop"><i data-i="stop" class="fill"></i>Stop</div><div class="btn"><i data-i="mic"></i>Switch mic</div><div class="btn icon"><i data-i="pause" class="fill"></i></div></div>
+    </div>
+  </div>
+
+  <!-- Processing -->
+  <div class="blk">
+    <div class="pill"><span class="l"><span class="spin"></span></span><span class="r"><span class="dot hermes"></span>Hermes</span></div>
+    <div class="cap"><em>Processing</em></div>
+  
+    <div class="exp">
+      <div class="top"><span class="chip"><span class="dot hermes"></span>Hermes</span><span class="num" style="font-size:var(--text-sm);opacity:.7">0:07</span></div>
+      <div><div class="ttl">Hermes is working on it</div><div class="sb">2 min 12 s recorded · Transcript ready</div></div>
+      <div class="prog"><s class="on"></s><s class="on"></s><s class="cur"></s><s></s></div>
+    </div>
+  </div>
+
+  <!-- Done -->
+  <div class="blk">
+    <div class="pill"><span class="l"><i data-i="check" class="tick"></i></span><span class="r"><span class="dot hermes"></span>Hermes</span></div>
+    <div class="cap"><em>Done</em></div>
+  
+    <div class="exp">
+      <div class="top"><span class="chip"><span class="dot hermes"></span>Hermes</span><span class="num" style="font-size:var(--text-sm);opacity:.7">now</span></div>
+      <div><div class="ttl">Wochenplan abgestimmt, Release am Donnerstag</div><div class="sb">38 s · $0.047</div></div>
+      <div class="btns"><div class="btn go"><i data-i="play" class="fill"></i>Play</div><div class="btn"><i data-i="reply"></i>Reply</div><div class="btn"><i data-i="open"></i>Open</div></div>
+    </div>
+  </div>
+
+  <!-- Needs route -->
+  <div class="blk">
+    <div class="pill"><span class="l"><span class="q">?</span></span><span class="r">Route</span></div>
+    <div class="cap"><em>Needs route</em></div>
+  
+    <div class="exp" style="gap:10px;padding-bottom:16px">
+      <div class="top"><span class="chip"><span class="dot wait"></span>Needs route</span><span class="num" style="font-size:var(--text-sm);opacity:.7">now</span></div>
+      <div><div class="ttl" style="font-size:var(--text-lg)">Where should this go?</div></div>
+      <div class="btns"><div class="btn"><i data-i="book"></i>Journal</div><div class="btn"><i data-i="bubble"></i>Hermes</div><div class="btn"><i data-i="term"></i>dotfiles</div></div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

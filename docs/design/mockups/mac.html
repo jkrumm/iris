@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en" data-default-v="panel">
+<head>
+<meta charset="utf-8">
+<title>Iris — Mac</title>
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="mock.css">
+<script src="mock.js"></script>
+<style>
+  .desk { position: relative; width: 1440px; height: 900px; overflow: hidden; color: #fff; }
+  [data-scheme="light"] .desk { color: #14161c; }
+  .menubar { position: absolute; top: 0; left: 0; right: 0; height: 34px; display: flex; align-items: center; justify-content: space-between; padding: 0 14px; font-size: 14px; font-weight: 500; background: rgb(20 20 30 / .28); -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px); }
+  [data-scheme="light"] .menubar { background: rgb(255 255 255 / .35); }
+  .menubar .l, .menubar .r { display: flex; align-items: center; gap: 20px; }
+  .menubar .r { gap: 16px; }
+  .menubar i[data-i] { font-size: 17px; }
+  .extra { display: grid; place-items: center; width: 30px; height: 24px; border-radius: 7px; }
+  .extra.on { background: rgb(255 255 255 / .28); }
+  [data-scheme="light"] .extra.on { background: rgb(0 0 0 / .14); }
+  .extra.rec { background: var(--status-bad); color: #fff; }
+  .win { position: absolute; left: 90px; top: 96px; width: 920px; height: 600px; border-radius: 14px; background: var(--surface-panel); color: var(--ink); box-shadow: 0 24px 60px rgb(0 0 0 / .35), inset 0 0 0 .5px var(--surface-border); overflow: hidden; }
+  .win .tb { height: 40px; display: flex; align-items: center; gap: 8px; padding: 0 14px; background: var(--surface-subtle); border-bottom: .5px solid var(--divider); font-size: var(--text-sm); color: var(--muted); }
+  .win .tb s { width: 12px; height: 12px; border-radius: 50%; background: #ff5f57; text-decoration: none; } .win .tb s + s { background: #febc2e; } .win .tb s + s + s { background: #28c840; }
+  .win .tb span { margin-left: 14px; }
+  .win pre { padding: 16px 20px; font: 13px/1.6 ui-monospace, "SF Mono", Menlo, monospace; color: var(--ink2); }
+  .win pre i { font-style: normal; color: var(--accent); } .win pre u { text-decoration: none; color: var(--status-good); } .win pre em { font-style: normal; color: var(--faint); }
+
+  /* Floating non-activating panel for the take */
+  .panel { position: absolute; left: 540px; top: 120px; width: 360px; border-radius: 26px; padding: 16px 18px 16px; display: flex; flex-direction: column; gap: 12px; color: var(--ink); }
+  .panel .hd { display: flex; align-items: center; gap: 8px; font-size: var(--text-sm); font-weight: 600; color: var(--status-bad); text-transform: uppercase; letter-spacing: .04em; }
+  .panel .hd .sp { flex: 1; } .panel .hd .kb { color: var(--faint); text-transform: none; letter-spacing: 0; font-weight: 500; }
+  .panel .tm { font-size: 54px; font-weight: 300; letter-spacing: -.02em; line-height: 1; }
+  .panel .tm small { font-size: var(--text-md); color: var(--faint); margin-left: 4px; }
+  .panel .lvl { height: 38px; display: flex; align-items: center; } .panel .lvl .wave { width: 100%; justify-content: space-between; gap: 0; } .panel .lvl .wave b { width: 3px; }
+  .panel .ft { display: flex; align-items: center; gap: 8px; }
+  .panel .ft .chip { height: 30px; font-size: var(--text-sm); }
+  .panel .ft .sp { flex: 1; }
+  .panel .btn { height: 34px; padding: 0 14px; }
+
+  /* MenuBarExtra window */
+  .menu { position: absolute; right: 56px; top: 42px; width: 340px; border-radius: 22px; padding: 12px; color: var(--ink); display: flex; flex-direction: column; gap: 2px; }
+  .menu .top { display: flex; align-items: center; justify-content: space-between; padding: 4px 6px 10px; }
+  .menu .top b { font-size: var(--text-lg); }
+  .menu .m { display: grid; grid-template-columns: 1fr auto; gap: 1px 10px; padding: 9px 10px; border-radius: 12px; font-size: var(--text-md); }
+  .menu .m.hl { background: color-mix(in srgb, var(--accent) 14%, transparent); }
+  .menu .m .s { grid-column: 1 / -1; font-size: var(--text-xs); color: var(--muted); display: flex; gap: 6px; align-items: center; }
+  .menu .m .t { font-size: var(--text-xs); color: var(--faint); }
+  .menu .m b { font-weight: 600; display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden; }
+  .menu hr { border: 0; height: .5px; background: var(--divider); margin: 6px 6px; }
+  .menu .ln { display: flex; justify-content: space-between; padding: 7px 10px; font-size: var(--text-md); border-radius: 8px; }
+  .menu .ln span:last-child { color: var(--faint); font-size: var(--text-sm); }
+  .menu .st { display: flex; gap: 6px; align-items: center; padding: 6px 10px 2px; font-size: var(--text-xs); color: var(--faint); }
+
+  /* Native notification banner */
+  .banner { position: absolute; right: 18px; top: 46px; width: 372px; border-radius: 22px; padding: 12px 14px; display: flex; gap: 12px; color: var(--ink); }
+  .banner .app { width: 40px; height: 40px; border-radius: 10px; background: var(--accent-fill); color: #fff; display: grid; place-items: center; font-size: 22px; flex: none; }
+  .banner .tx { flex: 1; min-width: 0; }
+  .banner .r { display: flex; justify-content: space-between; font-size: var(--text-md); font-weight: 600; } .banner .r span:last-child { font-weight: 400; color: var(--faint); font-size: var(--text-sm); }
+  .banner p { font-size: var(--text-md); color: var(--ink2); margin-top: 1px; line-height: 1.3; }
+  .banner .ac { display: flex; gap: 8px; margin-top: 10px; } .banner .btn { height: 28px; padding: 0 12px; font-size: var(--text-sm); }
+</style>
+</head>
+<body>
+<div class="desk">
+  <div class="wall"></div>
+  <div class="menubar">
+    <div class="l"><i data-i="spark" class="fill"></i><b>Terminal</b><span>Shell</span><span>Edit</span><span>View</span><span>Window</span></div>
+    <div class="r">
+      <span class="extra rec" data-v="panel"><i data-i="wave"></i></span>
+      <span class="extra on" data-v="menu"><i data-i="wave"></i></span>
+      <span class="extra" data-v="notify"><i data-i="wave"></i></span>
+      <i data-i="sig"></i><i data-i="search"></i><span class="num">Tue 27 Oct&nbsp;&nbsp;9:41</span>
+    </div>
+  </div>
+
+  <div class="win">
+    <div class="tb"><s></s><s></s><s></s><span>dotfiles — factory-w1a</span></div>
+<pre><em>$</em> make check
+<u>ok</u>   format      <em>0.8 s</em>
+<u>ok</u>   lint        <em>2.1 s</em>
+<u>ok</u>   typecheck   <em>4.4 s</em>
+<u>ok</u>   test        <em>9.7 s</em>  <i>184 passed</i>
+<em>$</em> git push origin master
+<em>remote: Resolving deltas: 100% (3/3)</em>
+<em>   a41c9de..7be02f1  master -&gt; master</em>
+<em>$</em> _</pre>
+  </div>
+
+  <div class="panel glass strong" data-v="panel">
+    <div class="hd"><span class="dot live"></span>Recording<span class="sp"></span><span class="kb">⌥ Space to stop</span></div>
+    <div class="tm num">03:12<small>min</small></div>
+    <div class="lvl"><div class="wave" data-bars="56" data-h="34" data-seed="21" data-live></div></div>
+    <div class="ft">
+      <span class="chip glass"><i data-i="laptop"></i>MacBook Pro Microphone<i data-i="down"></i></span>
+      <span class="sp"></span>
+      <span class="btn glass red"><i data-i="stop" class="fill"></i>Stop</span>
+    </div>
+    <div class="ft" style="margin-top:-2px"><span class="chip glass"><i data-i="spark"></i>Auto</span><span class="chip glass">Journal</span><span class="chip glass">Hermes</span><span class="chip glass">dotfiles</span></div>
+  </div>
+
+  <div class="menu glass strong" data-v="menu">
+    <div class="top"><b>Iris</b><span class="btn glass tint sm"><i data-i="mic"></i>Record&nbsp;&nbsp;<span style="opacity:.7;font-weight:500">⌥ Space</span></span></div>
+    <div class="m hl"><div><b>Where does “Router bestellen…” go?</b></div><span class="t num">9:48</span><div class="s"><span class="dot wait"></span>Needs route</div></div>
+    <div class="m"><div><b>Which Postgres index fits the herd snapshot query?</b></div><span class="t num">9:46</span><div class="s"><span class="dot hermes"></span>Hermes · acting</div></div>
+    <div class="m"><div><b>Wochenplan abgestimmt, Release am Donnerstag</b></div><span class="t num">9:21</span><div class="s"><span class="dot hermes"></span>Hermes · 38 s · $0.047</div></div>
+    <div class="m"><div><b>Spaziergang: Idee für das Retry-Fenster der Outbox</b></div><span class="t num">8:02</span><div class="s"><span class="dot journal"></span>Journal · 2 min 12 s</div></div>
+    <hr>
+    <div class="ln"><span>Open history</span><span>⌘ H</span></div>
+    <div class="ln"><span>Settings…</span><span>⌘ ,</span></div>
+    <div class="st"><span class="dot journal"></span>Connected · live updates on</div>
+  </div>
+
+  <div class="banner glass strong" data-v="notify">
+    <span class="app"><i data-i="wave"></i></span>
+    <div class="tx">
+      <div class="r"><span>Hermes</span><span>now</span></div>
+      <p>Wochenplan abgestimmt, Release am Donnerstag</p>
+      <div class="ac"><span class="btn glass tint sm"><i data-i="play" class="fill"></i>Play</span><span class="btn glass sm"><i data-i="open"></i>Open</span></div>
+    </div>
+  </div>
+</div>
+</body>
+</html>
