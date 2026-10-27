@@ -19,7 +19,7 @@ import {
   type Summary,
   type ThreadUpsert,
 } from "../memo/memo.js";
-import type { AnswerDecision, MemoStore, ThreadStore } from "../memo/store.js";
+import { PINNED_LIMIT, type AnswerDecision, type MemoStore, type ThreadStore } from "../memo/store.js";
 import type { Clock } from "../ports/clock.js";
 import { log } from "../telemetry/log.js";
 import { MIGRATIONS } from "./sqlite-migrations.js";
@@ -138,6 +138,19 @@ const MEMO_SELECT = `memos.*,
     (SELECT reason FROM route_decisions d WHERE d.memo_id = memos.id ORDER BY d.id DESC LIMIT 1) END AS park_reason,
   CASE WHEN memos.state = 'needs_route' THEN
     (SELECT destination FROM route_decisions d WHERE d.memo_id = memos.id ORDER BY d.id DESC LIMIT 1) END AS park_destination`;
+
+/**
+ * The FTS5 MATCH expression for a user's search text: every term quoted (embedded quotes doubled, so input
+ * never reaches the MATCH syntax as an operator) and prefix-matched, terms ANDed. `undefined`: no search
+ * (blank text). `null`: text without a single letter or digit, which matches nothing.
+ */
+function ftsMatch(q: string): string | null | undefined {
+  const words = q.split(/\s+/).filter(Boolean);
+  if (words.length === 0) return undefined;
+  const terms = words.filter((word) => /[\p{L}\p{N}]/u.test(word));
+  if (terms.length === 0) return null;
+  return terms.map((term) => `"${term.replaceAll('"', '""')}"*`).join(" ");
+}
 
 const toRouteDecision = (row: RouteDecisionRow): RouteDecisionRecord => ({
   id: row.id,
@@ -321,7 +334,7 @@ export function createSqliteMemoStore(params: { db: Database; clock: Clock }): M
         .run(id, mode, device, startedAt, threadId ?? null, at, at);
       const row = memoById(id);
       if (!row) throw new Error(`memo ${id} vanished after insert`);
-      return { memo: toMemo(row), created: inserted.changes === 1 };
+      return { memo: toMemo(row), created: inserted.changes > 0 };
     },
 
     createTextMemo({ id, mode, device, startedAt, text, threadId }) {
@@ -334,7 +347,7 @@ export function createSqliteMemoStore(params: { db: Database; clock: Clock }): M
         .run(id, mode, device, startedAt, text, threadId ?? null, at, at);
       const row = memoById(id);
       if (!row) throw new Error(`memo ${id} vanished after insert`);
-      return { memo: toMemo(row), created: inserted.changes === 1 };
+      return { memo: toMemo(row), created: inserted.changes > 0 };
     },
 
     getMemo(id) {
@@ -342,7 +355,7 @@ export function createSqliteMemoStore(params: { db: Database; clock: Clock }): M
       return row ? toMemo(row) : null;
     },
 
-    listMemos({ limit, cursor }) {
+    listMemos({ limit, cursor, q, route, state }) {
       let before: number | null = null;
       if (cursor) {
         before = Number(cursor);
@@ -350,15 +363,48 @@ export function createSqliteMemoStore(params: { db: Database; clock: Clock }): M
           throw new MemoError("bad_request", "invalid cursor");
         }
       }
-      const rows = db
-        .query<MemoRow, [number | null, number | null, number]>(
-          `SELECT ${MEMO_SELECT} FROM memos WHERE (? IS NULL OR seq < ?) ORDER BY seq DESC LIMIT ?`,
-        )
-        .all(before, before, limit + 1);
+      const filters: string[] = [];
+      const args: (string | number)[] = [];
+      if (route) {
+        filters.push("memos.route = ?");
+        args.push(route);
+      }
+      if (state) {
+        filters.push("memos.state = ?");
+        args.push(state);
+      }
+      const match = q === undefined ? undefined : ftsMatch(q);
+      if (match === null) filters.push("0");
+      else if (match !== undefined) {
+        filters.push("memos.seq IN (SELECT rowid FROM memo_fts WHERE memo_fts MATCH ?)");
+        args.push(match);
+      }
+      const select = (extra: string[], tail: string, tailArgs: (string | number)[]) =>
+        db
+          .query<MemoRow, (string | number)[]>(
+            `SELECT ${MEMO_SELECT} FROM memos WHERE ${[...filters, ...extra].join(" AND ") || "1"} ${tail}`,
+          )
+          .all(...args, ...tailArgs);
+
+      const pinned =
+        before === null && (!state || state === "needs_route")
+          ? select(["memos.state = 'needs_route'"], "ORDER BY seq DESC LIMIT ?", [PINNED_LIMIT])
+          : [];
+      if (state === "needs_route")
+        return { memos: [], pinned: pinned.map(toMemo), nextCursor: null };
+
+      const rows =
+        before === null
+          ? select(["memos.state != 'needs_route'"], "ORDER BY seq DESC LIMIT ?", [limit + 1])
+          : select(["memos.state != 'needs_route'", "memos.seq < ?"], "ORDER BY seq DESC LIMIT ?", [
+              before,
+              limit + 1,
+            ]);
       const page = rows.slice(0, limit);
       const last = page.at(-1);
       return {
         memos: page.map(toMemo),
+        pinned: pinned.map(toMemo),
         nextCursor: rows.length > limit && last ? String(last.seq) : null,
       };
     },

@@ -6,6 +6,32 @@
     },
     "limit": {
       "type": "number"
+    },
+    "q": {
+      "maxLength": 200,
+      "type": "string"
+    },
+    "route": {
+      "enum": [
+        "hermes",
+        "journal",
+        "herdr"
+      ],
+      "type": "string"
+    },
+    "state": {
+      "enum": [
+        "receiving",
+        "received",
+        "transcribed",
+        "routed",
+        "needs_route",
+        "acted",
+        "summarized",
+        "notified",
+        "failed"
+      ],
+      "type": "string"
     }
   },
   "title": "memos.list.query",

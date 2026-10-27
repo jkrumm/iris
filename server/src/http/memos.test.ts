@@ -579,11 +579,82 @@ describe("POST /v1/memos/:id/route", () => {
     const { app, store } = testApp();
     parkMemo(store, { reason: "low confidence (0.62)", destination: "hermes" });
     const res = await call(app, { path: "/v1/memos" });
-    const { items } = (await res.json()) as { items: Record<string, unknown>[] };
-    expect(items[0]).toMatchObject({
+    const { items, pinned } = (await res.json()) as {
+      items: Record<string, unknown>[];
+      pinned: Record<string, unknown>[];
+    };
+    expect(items).toEqual([]);
+    expect(pinned[0]).toMatchObject({
       state: "needs_route",
       routeReason: "low confidence (0.62)",
       routeSuggestion: "hermes",
     });
+  });
+});
+
+describe("GET /v1/memos filters", () => {
+  const list = async (app: ReturnType<typeof testApp>["app"], query = "") => {
+    const res = await call(app, { path: `/v1/memos${query}` });
+    return {
+      res,
+      body: (await res.json()) as { items: { id: string }[]; pinned: { id: string }[] },
+    };
+  };
+
+  it("searches, filters and pins over HTTP", async () => {
+    const { app, store } = testApp();
+    const hit = seedMemo(store, "notified").id;
+    store.completeStep({
+      id: hit,
+      step: "transcribe",
+      from: "notified",
+      to: "notified",
+      patch: { transcript: "Trag den Termin in den Kalender ein", route: "hermes" },
+    });
+    seedMemo(store, "notified");
+    const parked = parkMemo(store, { reason: "unsure" }, "Kalender Termin");
+
+    const found = await list(app, "?q=Kalend&route=hermes&state=notified");
+    expect(found.body.items.map((m) => m.id)).toEqual([hit]);
+    expect(found.body.pinned).toEqual([]);
+
+    const all = await list(app, "?q=kalender");
+    expect(all.body.items.map((m) => m.id)).toEqual([hit]);
+    expect(all.body.pinned.map((m) => m.id)).toEqual([parked]);
+
+    const onlyParked = await list(app, "?state=needs_route");
+    expect(onlyParked.body.items).toEqual([]);
+    expect(onlyParked.body.pinned.map((m) => m.id)).toEqual([parked]);
+  });
+
+  it("sends pinned as an empty array on later pages", async () => {
+    const { app, store } = testApp();
+    seedMemo(store, "notified");
+    seedMemo(store, "notified");
+    parkMemo(store, { reason: "unsure" });
+    const first = await list(app, "?limit=1");
+    expect(first.body.pinned).toHaveLength(1);
+    const cursor = (
+      (await (await call(app, { path: "/v1/memos?limit=1" })).json()) as {
+        nextCursor: string;
+      }
+    ).nextCursor;
+    const second = await list(app, `?limit=1&cursor=${cursor}`);
+    expect(second.body.pinned).toEqual([]);
+  });
+
+  it("answers 400 for an unknown route or state and an over-long q", async () => {
+    const { app } = testApp();
+    for (const query of [
+      "?route=nope",
+      "?state=nope",
+      `?q=${"x".repeat(201)}`,
+      "?route=",
+      "?state=",
+    ]) {
+      const { res } = await list(app, query);
+      expect([query, res.status]).toEqual([query, 400]);
+    }
+    expect((await list(app, "?route=herdr")).res.status).toBe(200);
   });
 });

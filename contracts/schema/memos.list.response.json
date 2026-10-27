@@ -202,10 +202,203 @@
           "type": "null"
         }
       ]
+    },
+    "pinned": {
+      "items": {
+        "properties": {
+          "audioSeconds": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "destinationRef": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "device": {
+            "type": "string"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "failedStep": {
+            "anyOf": [
+              {
+                "enum": [
+                  "ingest",
+                  "transcribe",
+                  "route",
+                  "act",
+                  "summarize",
+                  "notify"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "mode": {
+            "enum": [
+              "auto",
+              "journal",
+              "hermes",
+              "tab",
+              "chat"
+            ],
+            "type": "string"
+          },
+          "replyText": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "route": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "routeReason": {
+            "type": "string"
+          },
+          "routeSuggestion": {
+            "type": "string"
+          },
+          "segmentCount": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "startedAt": {
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "receiving",
+              "received",
+              "transcribed",
+              "routed",
+              "needs_route",
+              "acted",
+              "summarized",
+              "notified",
+              "failed"
+            ],
+            "type": "string"
+          },
+          "summary": {
+            "anyOf": [
+              {
+                "properties": {
+                  "detail": {
+                    "type": "string"
+                  },
+                  "headline": {
+                    "type": "string"
+                  },
+                  "spoken": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "headline",
+                  "detail",
+                  "spoken"
+                ],
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "threadId": {
+            "type": "string"
+          },
+          "transcript": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "typed": {
+            "const": true,
+            "type": "boolean"
+          },
+          "updatedAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "mode",
+          "device",
+          "startedAt",
+          "state",
+          "failedStep",
+          "error",
+          "segmentCount",
+          "audioSeconds",
+          "transcript",
+          "route",
+          "destinationRef",
+          "replyText",
+          "summary",
+          "createdAt",
+          "updatedAt"
+        ],
+        "type": "object"
+      },
+      "type": "array"
     }
   },
   "required": [
     "items",
+    "pinned",
     "nextCursor"
   ],
   "title": "memos.list.response",

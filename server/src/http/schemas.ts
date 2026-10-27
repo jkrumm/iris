@@ -124,7 +124,15 @@ export const ThreadDetail = t.Object({
   messages: t.Array(ThreadMessage),
 });
 
-export const MemoList = t.Object({ items: t.Array(Memo), nextCursor: Nullable(t.String()) });
+/**
+ * One page of history. `pinned` is every `needs_route` memo matching the filters (newest first, at most 50) on the
+ * first page and `[]` on later ones; `items` never holds a `needs_route` memo.
+ */
+export const MemoList = t.Object({
+  items: t.Array(Memo),
+  pinned: t.Array(Memo),
+  nextCursor: Nullable(t.String()),
+});
 
 export const MemoIdParams = t.Object({ id: t.String() });
 export const SegmentParams = t.Object({
@@ -163,6 +171,11 @@ export const RouteBody = t.Object({
 export const ListQuery = t.Object({
   limit: t.Optional(t.Numeric()),
   cursor: t.Optional(t.String()),
+  // Search text: transcript and summary headline, case/umlaut-insensitive, each term a prefix, terms ANDed.
+  q: t.Optional(t.String({ maxLength: 200 })),
+  // `UnionEnum` defaults a missing value to its first member; an absent filter must stay absent.
+  route: t.Optional(t.UnionEnum([...DESTINATION_NAMES], { default: undefined })),
+  state: t.Optional(t.UnionEnum([...MEMO_STATES], { default: undefined })),
 });
 export const ThreadIdParams = t.Object({ id: t.String() });
 // `default: undefined`: a missing `kind` must stay missing, not become the first member.
