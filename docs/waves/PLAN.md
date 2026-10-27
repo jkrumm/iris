@@ -339,29 +339,45 @@ the outbox persists absolute file URLs and never deletes uploaded segment files 
 (English defaults only); `IrisUI` has en/de. (8) TDD §3 is still stale vs the server (Wave 5 list); Wave 8's doc pass amends it. (9) `xcodebuild`
 leaves `apple/.dd` and per-package `.dd`/`.build` (all gitignored).
 
-## Wave 8 — Iris agent tooling + verification harness            <!-- status: active -->
-- [ ] No MCP (TDD D17). Add `scripts/mbm`, a wrapper around a pinned
+## Wave 8 — Iris agent tooling + verification harness            <!-- status: done -->
+- [x] No MCP (TDD D17). Add `scripts/mbm`, a wrapper around a pinned
       `npx -y mobilebuildmcp@<version>` CLI (`--style minimal`, Sentry telemetry off), plus
       Make targets: `sim` (boot the pinned simulator + `bootstatus -b`), `run-sim`
       (build, install, launch), `screenshot` (writes to `.artifacts/`) and `ui-snapshot`.
       Every one of them has actually been run against Xcode 27.1 on the mini.
-- [ ] `.claude/rules/apple.md` (paths `apple/**`): Iris invariants only (generic Swift
+- [x] `.claude/rules/apple.md` (paths `apple/**`): Iris invariants only (generic Swift
       lives in `.claude/rules/swift.md`): never `AVAudioRecorder`, the segment rotation and outbox
       contract, the Live Activity 4 KB / headline ≤ 60 rules, contract fixtures as the API source
       of truth, `FakeCapture` for UI tests, no real hosts in fixtures. Add
       `.claude/rules/server.md` (paths `server/**`) the same way. Each points at its TDD section.
-- [ ] Own skills (TDD §10): `iris-server`, `ios-verify`, `device`, `memo-debug`,
+- [x] Own skills (TDD §10): `iris-server`, `ios-verify`, `device`, `memo-debug`,
       `apple-capture-notes`. Each has a short SKILL.md whose commands were actually run (or,
       without local Xcode, marked `unverified until Xcode` in one line).
-- [ ] `fixtures/audio/de-90s.m4a` already exists (Wave 4, 96 s, audio-gateway TTS); keep it,
+- [x] `fixtures/audio/de-90s.m4a` already exists (Wave 4, 96 s, audio-gateway TTS); keep it,
       and document how it was generated. Used by `make e2e` and `make smoke`. Write
       `docs/spikes/device-checklist.md` (TDD §9, hardware-only rows) and the S1–S3 spike
       briefs in `docs/spikes/`.
-- [ ] Rewrite AGENTS.md for the monorepo: layout, the full Validate matrix, the public-repo
+- [x] Rewrite AGENTS.md for the monorepo: layout, the full Validate matrix, the public-repo
       rule, the Xcode/CLI tooling setup, an index of the repo's skills and rules, Gotchas. Point it at TDD/PRD.
-**Left behind:**
+**Left behind:** All five steps shipped. **Tooling:** `scripts/mbm` (pinned `mobilebuildmcp@2.7.1`, `--style minimal`, `MOBILEBUILDMCP_SENTRY_DISABLED=true`) and the Make targets
+`sim`, `run-sim`, `screenshot` (`NAME=`), `ui-snapshot` (`UI_SETTLE`, default 8 s), all run on the mini against Xcode 27.1 on the pinned iPhone 17 / iOS 27.0
+(the UDID is resolved from `SIM_NAME`/`SIM_OS` with `simctl -j` + `jq`). `run-sim` builds, installs and launches with `-IrisFakeCapture`; the screenshot shows the
+fake-data History. `snapshot-ui` lists the rows by `history.row`; `tap` navigated to the detail (`BackButton` in the next snapshot) only with
+`--element-ref` and `--post-delay 2` (the first tap without the delay reported success but did not navigate). `type-text` and `swipe` are not driven (no
+text field yet). **Rules:** `.claude/rules/apple.md` (34 lines, `apple/**`) and `.claude/rules/server.md` (27 lines, `server/**`), each pointing at its TDD
+section. **Skills** in `.claude/skills/`: `iris-server` (`make e2e` run), `ios-verify` (every target run), `device` (`devicectl list` and `usbmux list` run, the
+rest marked `unverified until a phone is paired`), `memo-debug` (health, memo list, memo detail run against the live loopback instance with the smoke token;
+the HyperDX query is from Wave 4 and `retry` is unverified live, both said so in the skill), `apple-capture-notes` (summary of TDD §4 and the two research notes; every
+Apple row is un-device-verified and says so; the capture/session/interruption/EU rows are TDD claims with no research note behind them). **Fixtures and spikes:**
+`fixtures/audio/README.md` documents how `de-90s.m4a` was made (audio-gateway TTS, voice `Charon`, synthetic; the recipe was re-run with a short input, the original script
+was not kept), `docs/spikes/{README,S1-lock-screen-start,S2-mic-switch,S3-apns-live-activity,device-checklist}.md`. **Docs:** AGENTS.md rewritten for the monorepo
+(layout, rules and skills index, tooling, Validate matrix, public-repo rule, server details kept, Apple gotchas); TDD §3 amended to the shipped code (data model, HTTP API,
+modules, pipeline notes, token refresh, mbm env var), planned items marked as planned. Gate: `make check` green (see the Wave-8 commit), no `/review`: the diff is docs,
+rules, skills, a six-line wrapper and four Make targets, each run by hand. Carry forward: (1) `make run-sim` and `screenshot` leave the simulator booted (`xcrun simctl shutdown` when done); (2) Wave 5's carry-forward items 2-5 (composition dedupe,
+`MEMO_NEEDS_ROUTE`, `+faststart`, lint warnings) and Wave 7's items (LiveActivityPhase client phases, package dependencies on `IrisCore`, `POST /v1/telemetry`, `.xcstrings`)
+remain open for the fleet. Stopped: the next wave (9, mockups) is spawned by the orchestrator tab.
 
-## Wave 9 — UI mockup round            <!-- status: pending -->
+## Wave 9 — UI mockup round            <!-- status: active -->
 - [ ] `docs/design/mockups/`: static HTML using the basalt-ui tokens (the same values as
       `IrisUI/Theme`), styled to read as iOS 26 Liquid Glass. Surfaces: History, Memo detail
       (step timeline, cost, retry), Record (timer, waveform, mic picker, mode/tab picker),
