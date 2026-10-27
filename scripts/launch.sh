@@ -59,7 +59,8 @@ fi
 
 # Templates can't expand $HOME.
 export IRIS_DATA="$HOME/.iris/data"
-export HERDR_SOCKET="$HOME/.config/herdr/herdr.sock"
+# Registers the herdr destination and the herd; left unset when herdr is not running, so neither is half-registered.
+[[ -S "$HOME/.config/herdr/herdr.sock" ]] && export HERDR_SOCKET="$HOME/.config/herdr/herdr.sock"
 # Registers the journal destination; left unset when the checkout is missing, so the server still boots.
 [[ -d "$HOME/SourceRoot/brain" ]] && export BRAIN_DIR="$HOME/SourceRoot/brain"
 
