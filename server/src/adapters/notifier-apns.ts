@@ -9,6 +9,7 @@ import type { ApnsMessage, ApnsResult, ApnsTransport } from "../ports/apns.js";
 import type { Clock } from "../ports/clock.js";
 import type { ApnsEnv, DeviceStore } from "../ports/devices.js";
 import type { Notifier } from "../ports/notifier.js";
+import { TransientError } from "../ports/transient.js";
 import { log } from "../telemetry/log.js";
 
 type Failure = Extract<ApnsResult, { ok: false }>;
@@ -134,7 +135,9 @@ export function createApnsNotifier(deps: {
 
       const results = await Promise.all(pushes);
       const transient = results.find((r): r is Failure => !r.ok && isTransient(r));
-      if (transient) throw new Error(`apns: ${transient.status} ${transient.reason}`);
+      if (transient) {
+        throw new TransientError(`apns: ${transient.status} ${transient.reason}`, "after_send");
+      }
     },
 
     async needsRoute({ memo, reason }) {

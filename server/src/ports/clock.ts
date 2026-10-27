@@ -23,3 +23,8 @@ export function manualClock(start: Date | string = "2026-01-01T00:00:00.000Z"): 
     },
   };
 }
+
+/** Waits `ms`; injected so a retry's backoff costs a test no time. */
+export type Sleep = (ms: number) => Promise<void>;
+
+export const systemSleep: Sleep = (ms) => Bun.sleep(ms);

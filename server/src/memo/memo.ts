@@ -243,6 +243,8 @@ export interface StepRecord {
   error: string | null;
   usage: unknown;
   costUsd: number | null;
+  /** Tries the step has used, 1 when it never needed a retry. */
+  attempts: number;
 }
 
 interface Transition {

@@ -188,6 +188,8 @@ public struct StepEntry: Codable, Hashable, Sendable {
   public var error: String?
   public var usage: JSONValue?
   public var costUsd: Double?
+  /// Tries the step has used (1 unless the server retried a transient failure).
+  public var attempts: Int
 
   public init(
     step: MemoStep,
@@ -196,7 +198,8 @@ public struct StepEntry: Codable, Hashable, Sendable {
     finishedAt: Date? = nil,
     error: String? = nil,
     usage: JSONValue? = nil,
-    costUsd: Double? = nil
+    costUsd: Double? = nil,
+    attempts: Int = 1
   ) {
     self.step = step
     self.status = status
@@ -205,10 +208,11 @@ public struct StepEntry: Codable, Hashable, Sendable {
     self.error = error
     self.usage = usage
     self.costUsd = costUsd
+    self.attempts = attempts
   }
 
   private enum CodingKeys: String, CodingKey {
-    case step, status, startedAt, finishedAt, error, usage, costUsd
+    case step, status, startedAt, finishedAt, error, usage, costUsd, attempts
   }
 
   public init(from decoder: any Decoder) throws {
@@ -222,6 +226,7 @@ public struct StepEntry: Codable, Hashable, Sendable {
     let usage = try container.decodeIfPresent(JSONValue.self, forKey: .usage)
     self.usage = usage == .null ? nil : usage
     costUsd = try container.decodeIfPresent(Double.self, forKey: .costUsd)
+    attempts = try container.decodeIfPresent(Int.self, forKey: .attempts) ?? 1
   }
 
   public func encode(to encoder: any Encoder) throws {
@@ -233,6 +238,7 @@ public struct StepEntry: Codable, Hashable, Sendable {
     try container.encode(error, forKey: .error)
     try container.encode(usage ?? .null, forKey: .usage)
     try container.encode(costUsd, forKey: .costUsd)
+    try container.encode(attempts, forKey: .attempts)
   }
 }
 

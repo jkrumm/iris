@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { Summarization, Summarizer } from "../ports/summarizer.js";
+import { fetchFailure, transientKind } from "../ports/transient.js";
 import { log } from "../telemetry/log.js";
 import { withSpan } from "../telemetry/otel.js";
 
@@ -106,14 +107,25 @@ export function createAgwJobRunner(opts: AgwClientOptions) {
   const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const base = opts.baseUrl.replace(/\/+$/, "");
   const request = (path: string, init?: RequestInit) =>
-    doFetch(`${base}${path}`, { ...init, signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
+    doFetch(`${base}${path}`, { ...init, signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) }).catch(
+      (err: unknown) => {
+        throw fetchFailure(err);
+      },
+    );
 
   async function submit(memoId: string, tool: string, params: unknown): Promise<string> {
     return withSpan("agw.submit", { memo_id: memoId, downstream: "agw" }, async (span) => {
+      // A submit that may have reached the gateway (timeout, reset, 5xx) may have created a paid job: only a
+      // submit that provably never left (refused, DNS) is transient, the rest fails the step like any other error.
       const res = await request("/api/jobs", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ tool, params, caller: CALLER }),
+      }).catch((err: unknown) => {
+        if (err instanceof Error && transientKind(err) === "after_send") {
+          throw new Error(err.message, { cause: err });
+        }
+        throw err;
       });
       span.setAttributes({ status: res.status });
       if (!res.ok) throw new Error(`agw submit failed: ${res.status} ${await failureBody(res)}`);

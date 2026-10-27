@@ -32,7 +32,8 @@
       "usage": {
         "audioSeconds": 38.4
       },
-      "costUsd": 0.0038
+      "costUsd": 0.0038,
+      "attempts": 1
     },
     {
       "step": "route",
@@ -41,7 +42,8 @@
       "finishedAt": "2026-03-14T09:21:00.712Z",
       "error": null,
       "usage": null,
-      "costUsd": null
+      "costUsd": null,
+      "attempts": 1
     },
     {
       "step": "act",
@@ -54,7 +56,8 @@
         "outputTokens": 212,
         "totalTokens": 2052
       },
-      "costUsd": 0.0412
+      "costUsd": 0.0412,
+      "attempts": 1
     },
     {
       "step": "summarize",
@@ -67,7 +70,8 @@
         "outputTokens": 148,
         "totalTokens": 1058
       },
-      "costUsd": 0.0021
+      "costUsd": 0.0021,
+      "attempts": 1
     },
     {
       "step": "notify",
@@ -76,7 +80,8 @@
       "finishedAt": "2026-03-14T09:21:19.860Z",
       "error": null,
       "usage": null,
-      "costUsd": null
+      "costUsd": null,
+      "attempts": 1
     }
   ]
 }

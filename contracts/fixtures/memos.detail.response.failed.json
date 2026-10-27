@@ -26,7 +26,8 @@
       "finishedAt": "2026-03-13T17:44:31.630Z",
       "error": "audio-gateway transcribe failed: 502",
       "usage": null,
-      "costUsd": null
+      "costUsd": null,
+      "attempts": 3
     }
   ]
 }

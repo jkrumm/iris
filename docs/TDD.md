@@ -155,8 +155,29 @@ any step ──error──> failed(step)   ──retry(from)──> <step>
   | triage | hang guard (30 min) |
   | APNs | 10 s |
 
-- **Retries:** two automatic retries with backoff on transient errors (5xx,
-  timeout). Anything else goes to `failed`.
+- **Retries (built):** a transient failure is retried in-process twice, after 2 s and then 8 s (three tries in all; the delays go
+  through an injected `Sleep`, so tests never wait), before the step goes `failed`. Adapters mark a transient failure with a
+  `TransientError` (`ports/transient.ts`, the one place that classifies: an HTTP 5xx, a timeout or abort, a connection error such as
+  ECONNREFUSED / ECONNRESET / `fetch failed`); the runner decides. Everything else (4xx, validation, an off-schema answer, an explicit
+  throw) fails at once. A `TransientError` is `before_send` when the request provably never reached the destination (connection
+  refused, DNS) and `after_send` otherwise (a timeout, a reset, a 5xx, an unrecognised `fetch failed`: it may have been delivered).
+
+  | Step | Retried on |
+  |-|-|
+  | transcribe, route (decide), summarize, notify | every transient failure |
+  | act | `before_send` only: Hermes may already have run the turn after a timeout or 5xx, so those fail and `POST /retry` is the (human) decision |
+
+  The agent-gateway job submit (`summarize`, `route` decide) is the exception inside those steps: a timeout, reset or 5xx on the submit
+  may have created a paid job, so only a submit that provably never left (refused, DNS) is transient; any other submit failure is a plain
+  error and fails the step. Failures while polling an accepted job are handled as before (three polls in a row cancel the job and fail
+  the step). `stop()` (shutdown) during a backoff cuts the wait short and runs nothing more: the step stays `running`, not `failed`,
+  and the next boot's `driveAll` re-runs it from `attempts` 1. Each try bumps
+  `memo_steps.attempts`; while the runner waits to retry, the row stays `running` with `error` set to the failure it is retrying
+  (clients read `status`, never `error != null`, as failure), and the error clears on success. No `memo.updated` event goes out for a
+  retry (the event is per state change); `attempts` shows on the next event or detail fetch. Every try is its own `memo.<step>`
+  span (attribute `attempt`) and each wait a `memo.retry_wait` span under the `memo` root, and each retry logs `step.retry`
+  (`memo_id`, `step`, `attempt` = the try about to start, `delay_ms`, `error`). `POST /retry` still resets the row, so the re-run
+  starts at `attempts` 1.
 - **Retention:** audio is deleted 30 days after `notified`; rows are kept.
 
 ### Data model (SQLite, WAL, append-only migrations in `server/src/adapters/sqlite-migrations.ts`, `PRAGMA user_version`)
@@ -167,7 +188,7 @@ Shipped (Waves 5, 10 and 12). Step results are columns on `memos`, not a separat
 |-|-|
 | `memos` | `seq` (autoincrement), `id` (uuid, client-minted), `mode` (auto/journal/hermes/tab/chat), `device` (authenticated device name), `state`, `failed_step`, `error`, `started_at`, `segment_count`, `audio_seconds`, `transcript`, `route`, `destination_ref`, `reply_text`, `summary_json`, `thread_id` (the Hermes session the memo belongs to: set by `act`, or at creation for a memo that continues a thread; NULL before then), `done` (0/1), `favorite` (0/1), `archived_at` (nullable ISO), `deleted_at` (nullable ISO; the soft delete), `created_at`, `updated_at` |
 | `segments` | `memo_id`, `idx`, `bytes`, `sha256`, `received_at`: PK (`memo_id`, `idx`) |
-| `memo_steps` | `memo_id`, `step`, `status`, `started_at`, `finished_at`, `error`, `usage_json`, `cost_usd`: PK (`memo_id`, `step`), no `attempt` (a retry resets the row) |
+| `memo_steps` | `memo_id`, `step`, `status`, `started_at`, `finished_at`, `error`, `usage_json`, `cost_usd`, `attempts` (INTEGER NOT NULL DEFAULT 1: tries used, see Retries; on the wire as `attempts` ≥ 1): PK (`memo_id`, `step`); `POST /retry` deletes the rows from the step on, so the re-run counts from 1 |
 | `devices` | `device` (PK, the token-map name), `name` (display label), `platform` (ios/macos), `apns_token`, `apns_env` (sandbox/production), `push_to_start_token`, `last_seen_at`, `updated_at` |
 | `activity_tokens` | `memo_id` (PK, cascades), `token`, `updated_at` |
 | `threads` | `id` (PK, the Hermes session id), `kind` (chat/hermes), `title` (the first ~60 characters of the first transcript, whitespace collapsed), `created_at`, `updated_at`, `last_memo_id`. The destination names the thread in its `Delivery` (`thread: {id, kind, title}`; Hermes: the session id, `chat` or `hermes`, the first ~60 characters of the transcript); `act` persists what it gets, upserting the row and setting `memos.thread_id` in the transaction of `completeStep` (`patch.thread`; `thread_id` is an `act`-owned column). An existing thread keeps its kind and title and moves `updated_at` / `last_memo_id`. A retry from `act` clears `thread_id` when it is the memo's own session (equal to the memo id) until the re-run sets it again, and keeps it for a memo created to continue a thread (its `thread_id` is never its own id: `continuedThread` in `memo.ts`); the thread row stays. The migration backfilled one `hermes` thread per distinct `destination_ref` of an existing hermes memo. `GET /v1/threads` and `/v1/threads/:id` read it (§HTTP API); the queries sit behind the `ThreadStore` port (`adapters/sqlite-threads.ts`, composed into the memo store) |
@@ -254,8 +275,8 @@ the exported JSON Schema matches `contracts/schema`.
 
 Shipped as five runner steps: `transcribe` (includes the concat below), `route`, `act`, `summarize`, `notify`. The journal and herdr
 destinations are registered by `compose()` from `BRAIN_DIR` and `HERDR_SOCKET`. The timeouts follow `agent-limits.md`
-(idle watchdogs and 30-minute hang guards, not the budgets sketched earlier). Retention (audio deleted 30 days after `notified`) and automatic
-retries of transient errors are not built; recover with `POST /retry`.
+(idle watchdogs and 30-minute hang guards, not the budgets sketched earlier). Transient failures are retried automatically (§Memo state
+machine, Retries); retention (audio deleted 30 days after `notified`) is not built. Recover a `failed` memo with `POST /retry`.
 
 1. **concat:** `ffmpeg -f concat` over the segments → decode → mono 16 kHz
    AAC. Records `audio_seconds`.

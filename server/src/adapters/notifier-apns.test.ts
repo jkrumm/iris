@@ -3,6 +3,7 @@ import { seedMemo, testStore } from "../memo/test-support.js";
 import type { Summary } from "../memo/memo.js";
 import { fixedClock } from "../ports/clock.js";
 import { fakeApnsTransport } from "../ports/fakes.js";
+import { TransientError } from "../ports/transient.js";
 import type { ApnsResult } from "../ports/apns.js";
 import type { ApnsEnv } from "../ports/devices.js";
 import { createApnsNotifier } from "./notifier-apns.js";
@@ -241,7 +242,9 @@ describe("notify", () => {
     const { notifier, memo, devices } = setup({ results: [{ ok: false, status, reason }] });
     devices.registerDevice({ ...phone, apnsToken: "aa11" });
 
-    await expect(notifier.notify({ memo, summary })).rejects.toThrow(`apns: ${status} ${reason}`);
+    const error = await notifier.notify({ memo, summary }).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(TransientError);
+    expect((error as Error).message).toBe(`apns: ${status} ${reason}`);
     expect(devices.getDevice("iphone")?.apnsToken).toBe("aa11");
   });
 

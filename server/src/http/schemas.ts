@@ -89,6 +89,7 @@ export const StepRecord = t.Object({
   error: Nullable(t.String()),
   usage: t.Unknown(),
   costUsd: Nullable(t.Number()),
+  attempts: t.Number({ multipleOf: 1, minimum: 1 }),
 });
 
 /** The memo plus its step timeline; `segmentCount` is never null here. */

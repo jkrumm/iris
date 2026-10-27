@@ -88,6 +88,7 @@ interface StepRow {
   error: string | null;
   usage_json: string | null;
   cost_usd: number | null;
+  attempts: number;
 }
 
 interface RouteDecisionRow {
@@ -206,6 +207,7 @@ const toStepRecord = (row: StepRow): StepRecord => ({
   error: row.error,
   usage: row.usage_json === null ? null : (JSON.parse(row.usage_json) as unknown),
   costUsd: row.cost_usd,
+  attempts: row.attempts,
 });
 
 export function createSqliteMemoStore(params: { db: Database; clock: Clock }): MemoStore {
@@ -502,6 +504,22 @@ export function createSqliteMemoStore(params: { db: Database; clock: Clock }): M
         `INSERT OR REPLACE INTO memo_steps (memo_id, step, status, started_at)
          VALUES (?, ?, 'running', ?)`,
       ).run(id, step, stamp());
+    },
+
+    markStepRetrying({ id, step, error }) {
+      const result = db
+        .query(
+          "UPDATE memo_steps SET attempts = attempts + 1, error = ? WHERE memo_id = ? AND step = ? AND status = 'running'",
+        )
+        .run(error, id, step);
+      if (result.changes !== 1) return null;
+      return (
+        db
+          .query<{ attempts: number }, [string, string]>(
+            "SELECT attempts FROM memo_steps WHERE memo_id = ? AND step = ?",
+          )
+          .get(id, step)?.attempts ?? null
+      );
     },
 
     markStepDone({ id, step, usage, costUsd }) {

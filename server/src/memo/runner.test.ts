@@ -2,7 +2,8 @@ import { describe, expect, it } from "bun:test";
 import { MemoError } from "./errors.js";
 import { createMemoEvents, type MemoEvent } from "./events.js";
 import type { HandlerStep } from "./memo.js";
-import { createRunner, type StepHandler } from "./runner.js";
+import { TransientError } from "../ports/transient.js";
+import { createRunner, RETRY_DELAYS_MS, type StepHandler } from "./runner.js";
 import { captureLogs, deferred, seedMemo, testStore } from "./test-support.js";
 
 const STEPS: HandlerStep[] = ["transcribe", "route", "act", "summarize", "notify"];
@@ -470,5 +471,209 @@ describe("stop", () => {
     await waiting;
     await all;
     expect(store.listNonTerminal()).toEqual([]);
+  });
+});
+
+/** A handler that throws `failure` for its first `failures` calls, then succeeds. */
+function failingTimes(failures: number, failure: Error) {
+  const state = { calls: 0 };
+  const handler: StepHandler = async () => {
+    state.calls += 1;
+    if (state.calls <= failures) throw failure;
+    return {};
+  };
+  return { state, handler };
+}
+
+function setupRetry(step: HandlerStep, handler: StepHandler) {
+  const { store, clock } = testStore();
+  const events = createMemoEvents();
+  const delays: number[] = [];
+  const handlers: Partial<Record<HandlerStep, StepHandler>> = {};
+  for (const name of STEPS) handlers[name] = async () => ({});
+  handlers[step] = handler;
+  const runner = createRunner({
+    store,
+    handlers,
+    events,
+    clock,
+    sleep: async (ms) => {
+      delays.push(ms);
+    },
+  });
+  return { store, runner, delays };
+}
+
+const stepRecord = (store: ReturnType<typeof testStore>["store"], id: string, step: HandlerStep) =>
+  store.listStepRecords(id).find((r) => r.step === step);
+
+describe("automatic retries", () => {
+  it("succeeds on the third try after two transient failures, backing off 2 s then 8 s", async () => {
+    const { state, handler } = failingTimes(2, new TransientError("gateway 503", "after_send"));
+    const { store, runner, delays } = setupRetry("transcribe", handler);
+    const { id } = seedMemo(store, "received");
+    const { lines } = await captureLogs(() => runner.drive(id));
+
+    expect(store.getMemo(id)?.state).toBe("notified");
+    expect(state.calls).toBe(3);
+    expect(delays).toEqual([...RETRY_DELAYS_MS]);
+    expect(stepRecord(store, id, "transcribe")).toMatchObject({
+      status: "done",
+      attempts: 3,
+      error: null,
+    });
+    expect(stepRecord(store, id, "route")?.attempts).toBe(1);
+    expect(lines.filter((l) => l["event"] === "step.retry")).toEqual([
+      expect.objectContaining({
+        memo_id: id,
+        step: "transcribe",
+        attempt: 2,
+        delay_ms: 2000,
+        error: "gateway 503",
+      }),
+      expect.objectContaining({ step: "transcribe", attempt: 3, delay_ms: 8000 }),
+    ]);
+  });
+
+  it("fails after three transient failures, keeping the last error and attempts 3", async () => {
+    const { state, handler } = failingTimes(99, new TransientError("gateway 503", "after_send"));
+    const { store, runner, delays } = setupRetry("summarize", handler);
+    const { id } = seedMemo(store, "acted");
+    await runner.drive(id);
+
+    expect(state.calls).toBe(3);
+    expect(delays).toEqual([2000, 8000]);
+    expect(store.getMemo(id)).toMatchObject({
+      state: "failed",
+      failedStep: "summarize",
+      error: "gateway 503",
+    });
+    expect(stepRecord(store, id, "summarize")).toMatchObject({
+      status: "failed",
+      attempts: 3,
+      error: "gateway 503",
+    });
+  });
+
+  it("does not retry a non-transient error", async () => {
+    const { state, handler } = failingTimes(99, new Error("400 bad request"));
+    const { store, runner, delays } = setupRetry("transcribe", handler);
+    const { id } = seedMemo(store, "received");
+    await runner.drive(id);
+
+    expect(state.calls).toBe(1);
+    expect(delays).toEqual([]);
+    expect(store.getMemo(id)?.state).toBe("failed");
+    expect(stepRecord(store, id, "transcribe")).toMatchObject({ status: "failed", attempts: 1 });
+  });
+
+  it("does not retry act after a request that may have been delivered", async () => {
+    const { state, handler } = failingTimes(
+      99,
+      new TransientError("hermes timed out", "after_send"),
+    );
+    const { store, runner, delays } = setupRetry("act", handler);
+    const { id } = seedMemo(store, "routed");
+    await runner.drive(id);
+
+    expect(state.calls).toBe(1);
+    expect(delays).toEqual([]);
+    expect(store.getMemo(id)).toMatchObject({ state: "failed", failedStep: "act" });
+    expect(stepRecord(store, id, "act")).toMatchObject({ status: "failed", attempts: 1 });
+  });
+
+  it("retries act when the request provably never left", async () => {
+    const { state, handler } = failingTimes(1, new TransientError("ECONNREFUSED", "before_send"));
+    const { store, runner, delays } = setupRetry("act", handler);
+    const { id } = seedMemo(store, "routed");
+    await runner.drive(id);
+
+    expect(state.calls).toBe(2);
+    expect(delays).toEqual([2000]);
+    expect(store.getMemo(id)?.state).toBe("notified");
+    expect(stepRecord(store, id, "act")?.attempts).toBe(2);
+  });
+
+  it("retries notify on an after-send transient failure", async () => {
+    const { state, handler } = failingTimes(1, new TransientError("apns 503", "after_send"));
+    const { store, runner } = setupRetry("notify", handler);
+    const { id } = seedMemo(store, "summarized");
+    await runner.drive(id);
+
+    expect(state.calls).toBe(2);
+    expect(stepRecord(store, id, "notify")?.attempts).toBe(2);
+  });
+
+  it("stop() during a backoff re-runs nothing and leaves the step running, not failed", async () => {
+    const { state, handler } = failingTimes(99, new TransientError("gateway 503", "after_send"));
+    const { store, clock } = testStore();
+    const events = createMemoEvents();
+    const waiting = deferred();
+    const handlers: Partial<Record<HandlerStep, StepHandler>> = { transcribe: handler };
+    const runner = createRunner({
+      store,
+      handlers,
+      events,
+      clock,
+      sleep: () => {
+        waiting.resolve();
+        return new Promise<void>(() => {});
+      },
+    });
+    const { id } = seedMemo(store, "received");
+    const driving = runner.drive(id);
+    await waiting.promise;
+    runner.stop();
+    await driving;
+
+    expect(state.calls).toBe(1);
+    expect(store.getMemo(id)?.state).toBe("received");
+    expect(stepRecord(store, id, "transcribe")).toMatchObject({
+      status: "running",
+      attempts: 2,
+      error: "gateway 503",
+    });
+    expect(store.listNonTerminal().map((m) => m.id)).toEqual([id]);
+  });
+
+  it("does not retry when stop() was called before the failure", async () => {
+    let stop: () => void = () => {};
+    const state = { calls: 0 };
+    const { store, clock } = testStore();
+    const runner = createRunner({
+      store,
+      handlers: {
+        transcribe: async () => {
+          state.calls += 1;
+          stop();
+          throw new TransientError("gateway 503", "after_send");
+        },
+      },
+      events: createMemoEvents(),
+      clock,
+      sleep: async () => {},
+    });
+    stop = () => runner.stop();
+    const { id } = seedMemo(store, "received");
+    await runner.drive(id);
+
+    expect(state.calls).toBe(1);
+    expect(store.getMemo(id)?.state).toBe("received");
+    expect(stepRecord(store, id, "transcribe")?.status).toBe("running");
+  });
+
+  it("starts a manual retry from attempts 1", async () => {
+    const { state, handler } = failingTimes(3, new TransientError("gateway 503", "after_send"));
+    const { store, runner } = setupRetry("transcribe", handler);
+    const { id } = seedMemo(store, "received");
+    await runner.drive(id);
+    expect(stepRecord(store, id, "transcribe")?.attempts).toBe(3);
+
+    runner.retry({ id, from: "transcribe" });
+    await runner.idle();
+
+    expect(state.calls).toBe(4);
+    expect(store.getMemo(id)?.state).toBe("notified");
+    expect(stepRecord(store, id, "transcribe")).toMatchObject({ status: "done", attempts: 1 });
   });
 });

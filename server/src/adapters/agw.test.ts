@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { z } from "zod";
+import { transientKind } from "../ports/transient.js";
 import { SUMMARY_JSON_SCHEMA, buildPrompt, createAgwSummarizer } from "./agw.js";
 
 const MEMO_ID = "0f8fad5b-d9cb-469f-a165-70867728950e";
@@ -55,6 +56,13 @@ function setup(opts: {
   });
   return { calls, sleeps, summarizer };
 }
+
+const submitFailureKind = async (status: number) =>
+  transientKind(
+    await setup({ jobs: [], submit: () => new Response("x", { status }) })
+      .summarizer.summarize(params)
+      .catch((e: unknown) => e),
+  );
 
 describe("agw summarizer", () => {
   it("submits the triage job, polls until done and returns the summary with usage and cost", async () => {
@@ -210,6 +218,37 @@ describe("agw summarizer", () => {
       await expect(summarizer.summarize(params)).rejects.toThrow();
       expect(calls.some((c) => c.path.endsWith("/cancel"))).toBe(false);
     }
+  });
+
+  it("never marks a 5xx or a 4xx submit transient: the gateway may have created the job", async () => {
+    expect(await submitFailureKind(503)).toBeNull();
+    expect(await submitFailureKind(400)).toBeNull();
+  });
+
+  it("fails a submit that timed out after acceptance with one submit and no transient mark", async () => {
+    const { calls, summarizer } = setup({
+      jobs: [],
+      submit: () => {
+        throw new DOMException("timed out", "TimeoutError");
+      },
+    });
+    const error = await summarizer.summarize(params).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(Error);
+    expect(transientKind(error)).toBeNull();
+    expect(calls.filter((c) => c.path === "/api/jobs" && c.method === "POST")).toHaveLength(1);
+  });
+
+  it("keeps a submit that never left the machine transient", async () => {
+    const { summarizer } = setup({
+      jobs: [],
+      submit: () => {
+        throw Object.assign(new TypeError("fetch failed"), {
+          cause: Object.assign(new Error("connect"), { code: "ECONNREFUSED" }),
+        });
+      },
+    });
+    const error = await summarizer.summarize(params).catch((e: unknown) => e);
+    expect(transientKind(error)).toBe("before_send");
   });
 
   it("throws with the status and body on a non-2xx submit", async () => {

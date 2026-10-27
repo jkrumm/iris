@@ -102,6 +102,11 @@ export interface MemoStore extends ThreadStore {
 
   /** Replaces any earlier row for the step, so a re-run starts a clean timeline entry. */
   markStepStarted(params: { id: string; step: Step }): void;
+  /**
+   * A transient failure the runner will retry: counts the next try on the running step row and records the failure as its
+   * `error` (cleared again when a try succeeds). Returns the new attempt number, null when the step is not running.
+   */
+  markStepRetrying(params: { id: string; step: Step; error: string }): number | null;
   markStepDone(params: {
     id: string;
     step: Step;

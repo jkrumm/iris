@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { threadTitle } from "../memo/memo.js";
 import type { Delivery, Destination } from "../ports/destination.js";
+import { fetchFailure, httpFailure, TransientError } from "../ports/transient.js";
 import { log } from "../telemetry/log.js";
 import { withSpan } from "../telemetry/otel.js";
 import { SseIdleError, readSseFrames, type SseFrame } from "./sse.js";
@@ -99,12 +100,15 @@ export function createHermesDestination(opts: HermesDestinationOptions): Destina
             headers,
             body: JSON.stringify({ id: sessionId, source: chat ? SOURCE_CHAT : SOURCE_MEMO }),
             signal: AbortSignal.timeout(SESSION_TIMEOUT_MS),
+          }).catch((err: unknown) => {
+            throw fetchFailure(err);
           });
           span.setAttributes({ status: res.status });
           // 409 session_exists is fine: a retried memo reuses its session.
           if (res.status === 201 || res.status === 409) return;
-          throw new Error(
+          throw httpFailure(
             `hermes session create failed: ${res.status} ${await failureMessage(res)}`,
+            res.status,
           );
         });
       }
@@ -128,14 +132,18 @@ export function createHermesDestination(opts: HermesDestinationOptions): Destina
           signal: controller.signal,
         })
           .catch((err: unknown) => {
-            if (controller.signal.aborted)
-              throw new Error(`hermes did not respond within ${idleMs} ms`);
-            throw err;
+            if (controller.signal.aborted) {
+              throw new TransientError(`hermes did not respond within ${idleMs} ms`, "after_send");
+            }
+            throw fetchFailure(err);
           })
           .finally(() => clearTimeout(timer));
         span.setAttributes({ status: res.status });
         if (res.status !== 200 || !res.body) {
-          throw new Error(`hermes chat failed: ${res.status} ${await failureMessage(res)}`);
+          throw httpFailure(
+            `hermes chat failed: ${res.status} ${await failureMessage(res)}`,
+            res.status,
+          );
         }
 
         let reply: { content: string; interrupted: boolean } | null = null;
@@ -167,7 +175,9 @@ export function createHermesDestination(opts: HermesDestinationOptions): Destina
           }
         } catch (err) {
           if (err instanceof SseIdleError)
-            throw new Error(`hermes stream idle for ${idleMs} ms`, { cause: err });
+            throw new TransientError(`hermes stream idle for ${idleMs} ms`, "after_send", {
+              cause: err,
+            });
           throw err;
         }
 

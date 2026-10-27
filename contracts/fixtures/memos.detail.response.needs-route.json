@@ -29,7 +29,8 @@
       "usage": {
         "audioSeconds": 14.9
       },
-      "costUsd": 0.0015
+      "costUsd": 0.0015,
+      "attempts": 1
     },
     {
       "step": "route",
@@ -38,7 +39,8 @@
       "finishedAt": "2026-03-14T08:02:27.100Z",
       "error": null,
       "usage": null,
-      "costUsd": null
+      "costUsd": null,
+      "attempts": 1
     }
   ]
 }

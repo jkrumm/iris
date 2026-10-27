@@ -347,8 +347,27 @@ describe("step records", () => {
         error: null,
         usage: { tokens: 5 },
         costUsd: 0.01,
+        attempts: 1,
       },
     ]);
+  });
+
+  it("counts a retried try, keeps the last error until the step is done and restarts at 1 on a re-run", () => {
+    const { store } = testStore();
+    const { id } = seedMemo(store, "received");
+    store.markStepStarted({ id, step: "transcribe" });
+    expect(store.markStepRetrying({ id, step: "transcribe", error: "503" })).toBe(2);
+    expect(store.markStepRetrying({ id, step: "transcribe", error: "502" })).toBe(3);
+    expect(store.listStepRecords(id)[0]).toMatchObject({
+      status: "running",
+      attempts: 3,
+      error: "502",
+    });
+    store.markStepDone({ id, step: "transcribe" });
+    expect(store.listStepRecords(id)[0]).toMatchObject({ attempts: 3, error: null });
+    expect(store.markStepRetrying({ id, step: "transcribe", error: "late" })).toBeNull();
+    store.markStepStarted({ id, step: "transcribe" });
+    expect(store.listStepRecords(id)[0]?.attempts).toBe(1);
   });
 
   it("replaces the row when a step runs again and lists in pipeline order", () => {

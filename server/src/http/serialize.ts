@@ -48,6 +48,7 @@ const stepJson = (record: StepRecord) => ({
   error: record.error,
   usage: record.usage,
   costUsd: record.costUsd,
+  attempts: record.attempts,
 });
 
 export const detailJson = ({ memo, steps, segmentCount }: MemoDetail) => ({
