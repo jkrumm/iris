@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "accepted": {
+      "properties": {
+        "logs": {
+          "type": "integer"
+        },
+        "spans": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "spans",
+        "logs"
+      ],
+      "type": "object"
+    }
+  },
+  "required": [
+    "accepted"
+  ],
+  "title": "telemetry.response",
+  "type": "object"
+}

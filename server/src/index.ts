@@ -29,7 +29,7 @@ const events = createMemoEvents();
 const audio = createFsAudioStore(join(env.IRIS_DATA, "audio"));
 
 // A missing downstream leaves its step without a handler: memos park there and /health says so.
-const { ports, degraded, deviceTokens, notifier, closeTransport } = compose({
+const { ports, degraded, deviceTokens, notifier, closeTransport, telemetry } = compose({
   env,
   devices,
   clock,
@@ -78,6 +78,7 @@ const app = createApp({
   devices,
   media,
   herd: ports.herd,
+  telemetry,
   inflight: () => runner.inflightIds().length,
 }).listen({
   port: env.PORT,

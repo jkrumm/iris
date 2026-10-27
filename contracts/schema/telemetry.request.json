@@ -1,0 +1,162 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "dropped": {
+      "minimum": 0,
+      "type": "integer"
+    },
+    "logs": {
+      "items": {
+        "properties": {
+          "attributes": {
+            "patternProperties": {
+              "^(.*)$": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "boolean"
+                  }
+                ]
+              }
+            },
+            "type": "object"
+          },
+          "body": {
+            "type": "string"
+          },
+          "severity": {
+            "enum": [
+              "info",
+              "warn",
+              "error"
+            ],
+            "type": "string"
+          },
+          "timestamp": {
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,9})?Z$",
+            "type": "string"
+          },
+          "traceId": {
+            "pattern": "^[0-9a-f]{32}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "timestamp",
+          "severity",
+          "body",
+          "attributes"
+        ],
+        "type": "object"
+      },
+      "maxItems": 500,
+      "type": "array"
+    },
+    "resource": {
+      "properties": {
+        "appVersion": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "deviceName": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "serviceName": {
+          "enum": [
+            "iris-ios",
+            "iris-macos"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "serviceName",
+        "deviceName",
+        "appVersion"
+      ],
+      "type": "object"
+    },
+    "spans": {
+      "items": {
+        "properties": {
+          "attributes": {
+            "patternProperties": {
+              "^(.*)$": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "boolean"
+                  }
+                ]
+              }
+            },
+            "type": "object"
+          },
+          "endTime": {
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,9})?Z$",
+            "type": "string"
+          },
+          "name": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "parentSpanId": {
+            "pattern": "^[0-9a-f]{16}$",
+            "type": "string"
+          },
+          "spanId": {
+            "pattern": "^[0-9a-f]{16}$",
+            "type": "string"
+          },
+          "startTime": {
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,9})?Z$",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "unset",
+              "ok",
+              "error"
+            ],
+            "type": "string"
+          },
+          "traceId": {
+            "pattern": "^[0-9a-f]{32}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "traceId",
+          "spanId",
+          "name",
+          "startTime",
+          "endTime",
+          "status",
+          "attributes"
+        ],
+        "type": "object"
+      },
+      "maxItems": 500,
+      "type": "array"
+    }
+  },
+  "required": [
+    "resource",
+    "spans",
+    "logs",
+    "dropped"
+  ],
+  "title": "telemetry.request",
+  "type": "object"
+}

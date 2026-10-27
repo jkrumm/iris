@@ -73,7 +73,7 @@ function normalizeAttrValue(raw: unknown): AttrValue | undefined {
 
 type OtlpAttribute = { key: string; value: OtlpValue };
 
-function toOtlpAttributes(attrs: Record<string, unknown>): OtlpAttribute[] {
+export function toOtlpAttributes(attrs: Record<string, unknown>): OtlpAttribute[] {
   const out: OtlpAttribute[] = [];
   for (const [key, raw] of Object.entries(attrs)) {
     const value = normalizeAttrValue(raw);
@@ -150,7 +150,7 @@ export type SpanKind = "internal" | "server" | "client";
 const KIND_CODE: Record<SpanKind, number> = { internal: 1, server: 2, client: 3 };
 
 export type StatusCode = "unset" | "ok" | "error";
-const STATUS_CODE: Record<StatusCode, number> = { unset: 0, ok: 1, error: 2 };
+export const STATUS_CODE: Record<StatusCode, number> = { unset: 0, ok: 1, error: 2 };
 
 // ── Span ─────────────────────────────────────────────────────────────────────
 
@@ -419,10 +419,10 @@ let lastFailureLogAt = 0;
  * exits on top of exactly the deploy-time batch this feature exists to preserve), and it
  * bounds concurrency — see MAX_IN_FLIGHT in `flush`.
  */
-const inFlight = new Set<Promise<void>>();
+const inFlight = new Set<Promise<unknown>>();
 
 /** Register a batch post for the lifetime of its fetch. The returned promise never rejects. */
-function trackPost(post: Promise<void>): Promise<void> {
+function trackPost(post: Promise<unknown>): Promise<unknown> {
   const tracked = post.finally(() => {
     inFlight.delete(tracked);
   });
@@ -431,12 +431,12 @@ function trackPost(post: Promise<void>): Promise<void> {
 }
 
 /**
- * POST one OTLP JSON batch. Never throws — a non-ok response or a network failure is
+ * POST one OTLP JSON batch; true when the collector accepted it. Never throws — a non-ok response or a network failure is
  * rate-limited (at most once a minute) to `console.error` directly, deliberately bypassing
  * `log.ts` (which itself feeds `emitOtelLog`) so an export failure can never route back
  * through the exporter it is reporting on.
  */
-async function postBatch(url: string, body: unknown): Promise<void> {
+async function postBatch(url: string, body: unknown): Promise<boolean> {
   try {
     const res = await fetch(url, {
       method: "POST",
@@ -444,10 +444,12 @@ async function postBatch(url: string, body: unknown): Promise<void> {
       body: JSON.stringify(body),
       signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
     });
-    if (!res.ok) reportExportFailure(`export rejected: ${res.status} ${res.statusText}`);
+    if (res.ok) return true;
+    reportExportFailure(`export rejected: ${res.status} ${res.statusText}`);
   } catch (err) {
     reportExportFailure(`export failed: ${err instanceof Error ? err.message : String(err)}`);
   }
+  return false;
 }
 
 function reportExportFailure(message: string): void {
@@ -469,12 +471,29 @@ async function flush(force = false): Promise<void> {
   if (!force && inFlight.size >= MAX_IN_FLIGHT) return;
   const spans = spanQueue.splice(0, spanQueue.length);
   const logs = logQueue.splice(0, logQueue.length);
-  const tasks: Promise<void>[] = [];
+  const tasks: Promise<unknown>[] = [];
   if (spans.length) {
     tasks.push(trackPost(postBatch(`${ENDPOINT}/v1/traces`, buildTracesPayload(spans))));
   }
   if (logs.length) tasks.push(trackPost(postBatch(`${ENDPOINT}/v1/logs`, buildLogsPayload(logs))));
   if (tasks.length) await Promise.allSettled(tasks);
+}
+
+/**
+ * Send one already-built OTLP JSON payload (the client relay's, with its own resource) to the collector.
+ * Registered with the in-flight set synchronously, so `flushOtel` at shutdown waits for it. Resolves when
+ * the endpoint is unset (nothing to send) and rejects when the collector is unreachable or refuses the
+ * batch, so the caller can count the failure; it never throws synchronously.
+ */
+export async function exportOtlp(signal: "traces" | "logs", payload: object): Promise<void> {
+  if (!ENDPOINT) return;
+  let accepted = false;
+  await trackPost(
+    postBatch(`${ENDPOINT}/v1/${signal}`, payload).then((ok) => {
+      accepted = ok;
+    }),
+  );
+  if (!accepted) throw new Error(`collector did not accept the ${signal} batch`);
 }
 
 function exportSpan(data: InternalSpanData): void {
@@ -485,8 +504,12 @@ function exportSpan(data: InternalSpanData): void {
   if (spanQueue.length >= BATCH_MAX) void flush();
 }
 
-const SEVERITY_NUMBER: Record<LogSeverity, number> = { info: 9, warn: 13, error: 17 };
-const SEVERITY_TEXT: Record<LogSeverity, string> = { info: "INFO", warn: "WARN", error: "ERROR" };
+export const SEVERITY_NUMBER: Record<LogSeverity, number> = { info: 9, warn: 13, error: 17 };
+export const SEVERITY_TEXT: Record<LogSeverity, string> = {
+  info: "INFO",
+  warn: "WARN",
+  error: "ERROR",
+};
 
 /**
  * Ships one `log()` call to ClickStack over OTLP, in addition to the console line `log.ts`

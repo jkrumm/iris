@@ -18,6 +18,8 @@ import {
   ResultQuery,
   RetryBody,
   RouteBody,
+  TelemetryBatch,
+  TelemetryResponse,
   TooLargeError,
   WhoamiResponse,
 } from "../http/schemas.js";
@@ -47,6 +49,8 @@ export const CONTRACT_SCHEMAS: Record<string, TSchema> = {
   "memos.activity-token.request": ActivityTokenBody,
   "devices.register.request": RegisterDeviceBody,
   "devices.register.response": Device,
+  "telemetry.request": TelemetryBatch,
+  "telemetry.response": TelemetryResponse,
   "herd.response": HerdResponse,
   "health.response": HealthResponse,
   "whoami.response": WhoamiResponse,

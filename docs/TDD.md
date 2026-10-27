@@ -110,7 +110,7 @@ The server is a few deep modules behind ports, in email-gateway's style.
 | `routing/` | Prefix parser, the `decide` call, confidence policy; the decision log is written by `MemoStore.completeStep` | `route({memoId, mode, transcript, destinations, herd?, decider?}) → RouteDecision`, `parsePrefix` |
 | `devices/` | Device tokens, APNs and push-to-start tokens, Live Activity tokens | `authenticate`, `register`, `tokensFor` |
 | `notify/` | Payload building (alert, Live Activity), APNs transport | `Notifier` port |
-| `telemetry/` | `otel.ts`, `otel-format.ts`, `log.ts`, the client relay | `withRootSpan`, `withSpan`, `log`, `relay` |
+| `telemetry/` | `otel.ts`, `otel-format.ts`, `log.ts`, `relay.ts` (the client relay) | `withRootSpan`, `withSpan`, `log`, `relay`, `OtlpExporter` |
 
 **Shipped through Wave 11:** `memo/`, `pipeline/` (`steps.ts`), `notify/`, `telemetry/`, `http/`, `adapters/`, `ports/`, `routing/`. The
 journal, herdr and hermes destinations are all registered in `compose()`; `devices/` is the `DeviceStore` port plus `adapters/sqlite-devices.ts`. The module and
@@ -185,6 +185,7 @@ Shipped; the authoritative list is `contracts/manifest.json` and the table in `A
 | Method + path | Purpose |
 |-|-|
 | `POST /v1/devices/register` | `{name, platform, apnsToken?, apnsEnv?, pushToStartToken?}`; upsert by the authenticated device |
+| `POST /v1/telemetry` | The client span/log relay (§8): `{resource: {serviceName: iris-ios\|iris-macos, deviceName, appVersion}, spans, logs, dropped}`. 202 `{accepted: {spans, logs}}`; 413 over 256 KiB; 400 for a schema violation, a timestamp that is not a date, or more than 500 spans and logs together; 503 when the relay is not wired. The records are exported in the background, so an unreachable collector never changes the answer |
 | `POST /v1/memos` | `{id, mode, startedAt}`, idempotent |
 | `POST /v1/memos/text` | `{id, mode, startedAt, text}`: a typed memo. `text` is trimmed, 1 to 20 000 characters, counted as Unicode code points (else 400). A missing or unknown `mode` is 400. Created directly in `transcribed` with `transcript = text` and driven from `route`: 202 + memo, on a replay too. Idempotent by id: the same body returns the memo, another body, another device or a recorded memo with that id is 409 `conflict` |
 | `PUT /v1/memos/:id/segments/:n` | Raw m4a bytes, idempotent by `n` (same sha → 200, different → 409) |
@@ -204,8 +205,7 @@ A separate route rather than a `text` field on `POST /v1/memos`: that route answ
 
 While a memo is `needs_route`, the memo shape carries `routeReason` (the latest decision's reason) and, on a low-confidence park, `routeSuggestion` (the model's best guess); both are omitted, never null, in every other state.
 
-**Planned, not built:** `GET /v1/threads` and `/threads/:id` (R3), `POST /v1/telemetry`
-(client span/log relay, §8; the Swift `TelemetryBatch` shape is a proposal), `?q` transcript search, and the `targetTab` / `threadId` / `language`
+**Planned, not built:** `GET /v1/threads` and `/threads/:id` (R3), `?q` transcript search, and the `targetTab` / `threadId` / `language`
 fields of `POST /v1/memos`.
 
 Every request and response body has a schema and a fixture in `contracts/`.
@@ -495,7 +495,24 @@ the `IrisCore` dependency when R1 wires them together.
   for crash survival) and flushes batches to `POST /v1/telemetry` every 10 s,
   on background, and on launch.
   - The server re-emits them as OTLP with `service.name=iris-ios|iris-macos`,
-    device name and app version.
+    `device.name` and `service.version` (the app version) as resource attributes.
+    The memo trace id is kept as sent, so a phone span and the server's `memo`
+    span share a trace.
+  - **Wire shape (final):** the TypeBox `TelemetryBatch` in `http/schemas.ts` is
+    the contract, the Swift `TelemetryBatch` encodes it. Dates are ISO 8601 UTC
+    (milliseconds from the clients), ids lowercase hex (32 trace, 16 span),
+    attribute values plain scalars. `dropped` is the client's overflow count
+    since its previous batch; the server logs it (`telemetry.relayed`) and does
+    not turn it into a metric.
+  - **Bounds:** body over 256 KiB is 413 `too_large` (cut off while streaming,
+    after the bearer check); more than 500 spans and logs together is 400.
+  - **Delivery:** the answer does not wait for the collector. A failed export
+    is counted in a `telemetry.relay_failed` log line (signal, record count,
+    error) and the batch is dropped; the client does not retry on it. Delivery
+    from the client is at-least-once and the server does not de-duplicate, so a
+    resent batch shows twice (`(traceId, spanId)` identifies a span). The export
+    is part of the OTel flush at shutdown. Without `OTEL_EXPORTER_OTLP_ENDPOINT`
+    the batch is accepted and discarded (`degraded` already lists `otel`).
   - On iOS, MetricKit crash and hang diagnostics are relayed on the next launch.
 - **Propagation:** audio-gateway and agw don't accept `traceparent` (factory
   ADR-006 plans it), so Iris spans carry the memo id as an attribute on every
