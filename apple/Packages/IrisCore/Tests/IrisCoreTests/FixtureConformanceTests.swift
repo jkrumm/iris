@@ -43,6 +43,8 @@ let fixtureTypes: [String: RoundTrip] = [
   "memos.result.response": roundTrip(Memo.self),
   "memos.retry.request": roundTrip(RetryMemoRequest.self),
   "memos.retry.response": roundTrip(Memo.self),
+  "memos.route.request": roundTrip(RouteRequest.self),
+  "memos.route.response": roundTrip(Memo.self),
   "push.alert": roundTrip(PushAlert.self),
   "whoami.response": roundTrip(Whoami.self),
 ]
@@ -106,6 +108,20 @@ struct FixtureConformanceTests {
     #expect(cleared.apnsToken == .clear)
     #expect(cleared.apnsEnv == .clear)
     #expect(full.apnsEnv == .set(.sandbox))
+  }
+
+  @Test("A parked memo carries routeReason and routeSuggestion; other memos omit them on encode")
+  func routeDetails() throws {
+    let decoder = IrisJSON.makeDecoder()
+    let parked = try decoder.decode(
+      Memo.self, from: Contracts.fixtureData("memos.result.response.needs-route-suggestion"))
+    #expect(parked.routeReason == "low confidence (0.62)")
+    #expect(parked.routeSuggestion == "hermes")
+
+    let routed = try decoder.decode(Memo.self, from: Contracts.fixtureData("memos.route.response"))
+    #expect(routed.routeReason == nil)
+    let encoded = String(decoding: try IrisJSON.makeEncoder().encode(routed), as: UTF8.self)
+    #expect(!encoded.contains("routeReason") && !encoded.contains("routeSuggestion"))
   }
 
   @Test("Result-ready states match the server")

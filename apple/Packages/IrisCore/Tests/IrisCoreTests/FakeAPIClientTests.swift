@@ -75,6 +75,54 @@ struct FakeAPIClientTests {
     #expect(try await fake.result(id: "m1", query: MemoResultQuery()) == .ready(done))
   }
 
+  private func parked(_ fake: FakeAPIClient) async throws -> Memo {
+    var memo = try await create(fake)
+    memo.state = .needsRoute
+    memo.routeReason = "journal not available"
+    await fake.seed(MemoDetail(memo: memo, steps: []))
+    return memo
+  }
+
+  @Test("routeMemo routes a parked memo and clears the park details")
+  func routeAnswer() async throws {
+    let fake = FakeAPIClient()
+    _ = try await parked(fake)
+    let routed = try await fake.routeMemo(id: "m1", request: RouteRequest(destination: .hermes))
+    #expect(routed.state == .routed)
+    #expect(routed.route == "hermes")
+    #expect(routed.routeReason == nil)
+    #expect(await fake.calls.last == .routeMemo(id: "m1", request: RouteRequest(destination: .hermes)))
+  }
+
+  @Test("routeMemo after act leaves the memo as it is; other states and a second answer are 409")
+  func routeCorrectionAndConflict() async throws {
+    let fake = FakeAPIClient()
+    var memo = try await create(fake)
+    memo.state = .notified
+    await fake.seed(MemoDetail(memo: memo, steps: []))
+    #expect(try await fake.routeMemo(id: "m1", request: RouteRequest(destination: .hermes)) == memo)
+
+    memo.state = .transcribed
+    await fake.seed(MemoDetail(memo: memo, steps: []))
+    await #expect(
+      throws: APIError.server(
+        status: 409, body: ErrorBody(error: .badState, message: "only parked or acted memos take a route"))
+    ) {
+      try await fake.routeMemo(id: "m1", request: RouteRequest(destination: .hermes))
+    }
+  }
+
+  @Test("routeMemo wants a tab for herdr and only for herdr")
+  func routeTabRule() async throws {
+    let fake = FakeAPIClient()
+    _ = try await parked(fake)
+    for request in [RouteRequest(destination: .herdr), RouteRequest(destination: .hermes, tab: "w1:t1")] {
+      await #expect(throws: APIError.self) { try await fake.routeMemo(id: "m1", request: request) }
+    }
+    #expect(
+      try await fake.routeMemo(id: "m1", request: RouteRequest(destination: .herdr, tab: "w1:t1")).route == "herdr")
+  }
+
   @Test("list pages newest first with a cursor")
   func listing() async throws {
     let fake = FakeAPIClient(now: { Date(timeIntervalSince1970: 1_773_480_100) })

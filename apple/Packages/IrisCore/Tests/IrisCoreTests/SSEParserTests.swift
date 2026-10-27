@@ -83,7 +83,7 @@ struct SSEParserTests {
     let ready = events.filter { $0 == .ready }.count
     let updated = events.filter { if case .memoUpdated = $0 { true } else { false } }.count
     let done = events.filter { if case .memoDone = $0 { true } else { false } }.count
-    #expect((ready, updated, done) == (1, 3, 2))
+    #expect((ready, updated, done) == (1, 4, 2))
   }
 
   @Test("Comments and keepalives yield nothing")

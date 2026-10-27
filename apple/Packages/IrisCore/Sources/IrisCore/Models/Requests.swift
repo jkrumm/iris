@@ -28,6 +28,18 @@ public struct RetryMemoRequest: Codable, Hashable, Sendable {
   }
 }
 
+/// Body of `POST /v1/memos/:id/route`. `tab` is required for `herdr` and rejected for the others; it is
+/// omitted when `nil`.
+public struct RouteRequest: Codable, Hashable, Sendable {
+  public var destination: RouteDestination
+  public var tab: String?
+
+  public init(destination: RouteDestination, tab: String? = nil) {
+    self.destination = destination
+    self.tab = tab
+  }
+}
+
 public struct ActivityTokenRequest: Codable, Hashable, Sendable {
   /// The Live Activity push token, hex-encoded (at most 1024 characters).
   public var token: String
