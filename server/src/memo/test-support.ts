@@ -1,26 +1,37 @@
 import { Database } from "bun:sqlite";
 import { createSqliteMemoStore } from "../adapters/sqlite.js";
-import type { AudioStore } from "../ports/audio.js";
+import { bytesRecording, type AudioStore } from "../ports/audio.js";
 import { manualClock } from "../ports/clock.js";
 import type { Memo, MemoState } from "./memo.js";
 import type { MemoStore } from "./store.js";
 
 export interface FakeAudio extends AudioStore {
   files: Map<string, Uint8Array>;
+  combined: Map<string, Uint8Array>;
 }
 
 const key = ({ id, index }: { id: string; index: number }) => `${id}/${index}`;
 
 export function fakeAudio(): FakeAudio {
   const files = new Map<string, Uint8Array>();
+  const combined = new Map<string, Uint8Array>();
   return {
     files,
+    combined,
     async put({ id, index, bytes }) {
       files.set(key({ id, index }), bytes);
     },
     path: (params) => `/fake/${key(params)}.m4a`,
     async remove(id) {
       for (const k of Array.from(files.keys())) if (k.startsWith(`${id}/`)) files.delete(k);
+      combined.delete(id);
+    },
+    async readCombined(id) {
+      const bytes = combined.get(id);
+      return bytes ? bytesRecording(bytes) : null;
+    },
+    async putCombined({ id, bytes }) {
+      combined.set(id, bytes);
     },
   };
 }

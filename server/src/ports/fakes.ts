@@ -1,6 +1,9 @@
 import type { Memo, Summary } from "../memo/memo.js";
+import type { AudioCombiner } from "./audio.js";
 import type { Delivery, Destination } from "./destination.js";
+import type { Herd, HerdTab } from "./herd.js";
 import type { Notifier } from "./notifier.js";
+import type { Speaker, Speech, SpeechCache } from "./speaker.js";
 import type { Summarization, Summarizer } from "./summarizer.js";
 import type { Transcriber, TranscriptionResult } from "./transcriber.js";
 
@@ -64,4 +67,65 @@ export function fakeNotifier(
       if (options.failWith) throw options.failWith;
     },
   };
+}
+
+export function fakeCombiner(
+  options: { bytes?: Uint8Array; failWith?: Error } = {},
+): AudioCombiner & Calls<string[]> {
+  const calls: string[][] = [];
+  return {
+    calls,
+    async combine(segmentPaths) {
+      calls.push(segmentPaths);
+      if (options.failWith) throw options.failWith;
+      return options.bytes ?? new Uint8Array(Array.from({ length: 100 }, (_, i) => i));
+    },
+  };
+}
+
+export function fakeSpeaker(
+  options: Options<Speech> = {},
+): Speaker & Calls<Parameters<Speaker["speak"]>[0]> {
+  const calls: Parameters<Speaker["speak"]>[0][] = [];
+  return {
+    calls,
+    async speak(params) {
+      calls.push(params);
+      if (options.failWith) throw options.failWith;
+      return { bytes: new TextEncoder().encode(`mp3:${params.text}`), ...options.result };
+    },
+  };
+}
+
+/** In-memory cache keyed by memo id; one entry per memo, replaced when the text changes. */
+export function fakeSpeechCache(): SpeechCache {
+  const entries = new Map<string, { text: string; bytes: Uint8Array }>();
+  return {
+    async get({ memoId, text }) {
+      const entry = entries.get(memoId);
+      return entry?.text === text ? entry.bytes : null;
+    },
+    async put({ memoId, text, bytes }) {
+      entries.set(memoId, { text, bytes });
+    },
+  };
+}
+
+const DEFAULT_TABS: HerdTab[] = [
+  { id: "w1:t1", repo: "iris", label: "server", agentState: "working", lastActivity: null },
+  { id: "w2:t1", repo: "dotfiles", label: "1", agentState: "idle", lastActivity: null },
+];
+
+export function fakeHerd(
+  options: { tabs?: HerdTab[]; failWith?: Error } = {},
+): Herd & { calls: number } {
+  const herd = {
+    calls: 0,
+    async snapshot() {
+      herd.calls++;
+      if (options.failWith) throw options.failWith;
+      return options.tabs ?? DEFAULT_TABS;
+    },
+  };
+  return herd;
 }

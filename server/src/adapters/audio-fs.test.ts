@@ -39,4 +39,25 @@ describe("fs AudioStore", () => {
     await expect(audio.put({ id, index: -1, bytes: new Uint8Array([1]) })).rejects.toThrow();
     expect(() => audio.path({ id, index: 1.5 })).toThrow();
   });
+
+  it("stores the combined recording next to the segments and reads it back as a sliceable file", async () => {
+    const audio = createFsAudioStore(root);
+    expect(await audio.readCombined(id)).toBeNull();
+    await audio.putCombined({ id, bytes: new Uint8Array([1, 2, 3, 4, 5]) });
+    await audio.putCombined({ id, bytes: new Uint8Array([10, 11, 12, 13, 14]) });
+    expect(await readdir(join(root, id))).toEqual(["combined.m4a"]);
+
+    const combined = await audio.readCombined(id);
+    expect(combined?.size).toBe(5);
+    const part = new Response(combined?.slice(1, 3));
+    expect([...new Uint8Array(await part.arrayBuffer())]).toEqual([11, 12]);
+  });
+
+  it("drops the combined recording with the segments", async () => {
+    const audio = createFsAudioStore(root);
+    await audio.put({ id, index: 0, bytes: new Uint8Array([1]) });
+    await audio.putCombined({ id, bytes: new Uint8Array([1]) });
+    await audio.remove(id);
+    expect(await audio.readCombined(id)).toBeNull();
+  });
 });

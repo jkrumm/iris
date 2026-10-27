@@ -1,9 +1,13 @@
 import { createApp } from "../app.js";
+import { createSqliteDeviceStore } from "../adapters/sqlite-devices.js";
 import { createMemoEvents, type MemoEvents } from "../memo/events.js";
 import type { HandlerStep } from "../memo/memo.js";
 import { createRunner, type StepHandler } from "../memo/runner.js";
+import { createMemoMedia } from "../memo/media.js";
 import { createMemoService } from "../memo/service.js";
 import { fakeAudio, testStore } from "../memo/test-support.js";
+import type { HerdTab } from "../ports/herd.js";
+import { fakeCombiner, fakeHerd, fakeSpeaker, fakeSpeechCache } from "../ports/fakes.js";
 import { parseDeviceTokens } from "./auth.js";
 
 export const TOKENS = "tok-phone=iphone,tok-mac=macbook";
@@ -16,6 +20,12 @@ export function testApp(
     handlers?: Partial<Record<HandlerStep, StepHandler>>;
     maxSegmentBytes?: number;
     sseKeepaliveMs?: number;
+    /** `false` leaves speech unconfigured (503). */
+    speaker?: ReturnType<typeof fakeSpeaker> | false;
+    /** `false` leaves herd unconfigured (503). */
+    herd?: ReturnType<typeof fakeHerd> | false;
+    herdTabs?: HerdTab[];
+    combiner?: ReturnType<typeof fakeCombiner>;
   } = {},
 ) {
   const { store, clock, db } = testStore();
@@ -42,12 +52,43 @@ export function testApp(
     clock,
     maxSegmentBytes: options.maxSegmentBytes ?? 1024,
   });
+  const devices = createSqliteDeviceStore({ db, clock });
+  const combiner = options.combiner ?? fakeCombiner();
+  const speaker = options.speaker === false ? undefined : (options.speaker ?? fakeSpeaker());
+  const herd =
+    options.herd === false
+      ? undefined
+      : (options.herd ?? fakeHerd(options.herdTabs && { tabs: options.herdTabs }));
+  const media = createMemoMedia({
+    store,
+    audio,
+    combiner,
+    speaker,
+    speechCache: fakeSpeechCache(),
+  });
   const app = createApp({
     deviceTokens: parseDeviceTokens(TOKENS),
     memos,
+    devices,
+    media,
+    herd,
     sseKeepaliveMs: options.sseKeepaliveMs,
   });
-  return { app, db, store, clock, events, audio, runner, memos, listenerCount: () => listeners };
+  return {
+    app,
+    db,
+    store,
+    clock,
+    events,
+    audio,
+    runner,
+    memos,
+    devices,
+    combiner,
+    speaker,
+    herd,
+    listenerCount: () => listeners,
+  };
 }
 
 export type TestApp = ReturnType<typeof testApp>["app"];

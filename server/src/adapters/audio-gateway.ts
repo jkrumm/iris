@@ -2,6 +2,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
+import type { AudioCombiner } from "../ports/audio.js";
 import type { Transcriber, TranscriptionResult } from "../ports/transcriber.js";
 import { log } from "../telemetry/log.js";
 import { withSpan } from "../telemetry/otel.js";
@@ -100,6 +101,13 @@ export const ffmpegConcat: ConcatFn = async (paths) => {
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
+};
+
+/** The scrubber serves the same mono 16 kHz m4a the transcriber receives. */
+export const ffmpegCombiner: AudioCombiner = {
+  async combine(paths) {
+    return (await ffmpegConcat(paths)).bytes;
+  },
 };
 
 export function createAudioGatewayTranscriber(opts: AudioGatewayTranscriberOptions): Transcriber {

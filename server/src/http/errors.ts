@@ -8,6 +8,7 @@ const STATUS: Record<MemoErrorCode, number> = {
   missing_segments: 422,
   too_large: 413,
   bad_request: 400,
+  unavailable: 503,
 };
 
 /**

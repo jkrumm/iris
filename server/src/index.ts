@@ -1,15 +1,20 @@
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { createFsAudioStore } from "./adapters/audio-fs.js";
-import { createAudioGatewayTranscriber } from "./adapters/audio-gateway.js";
+import { createAudioGatewayTranscriber, ffmpegCombiner } from "./adapters/audio-gateway.js";
+import { createAudioGatewaySpeaker } from "./adapters/audio-gateway-speaker.js";
 import { createAgwSummarizer } from "./adapters/agw.js";
+import { createHerdrHerd } from "./adapters/herdr.js";
 import { createHermesDestination } from "./adapters/hermes.js";
 import { createLogNotifier } from "./adapters/notifier-log.js";
 import { createSqliteMemoStore, openDatabase } from "./adapters/sqlite.js";
+import { createSqliteDeviceStore } from "./adapters/sqlite-devices.js";
+import { createFsSpeechCache } from "./adapters/speech-fs.js";
 import { createApp } from "./app.js";
 import { env } from "./env.js";
 import { parseDeviceTokens } from "./http/auth.js";
 import { createMemoEvents } from "./memo/events.js";
+import { createMemoMedia } from "./memo/media.js";
 import { createRunner } from "./memo/runner.js";
 import { createMemoService } from "./memo/service.js";
 import { createStepHandlers } from "./pipeline/steps.js";
@@ -28,6 +33,7 @@ mkdirSync(env.IRIS_DATA, { recursive: true });
 const db = openDatabase(join(env.IRIS_DATA, "iris.db"));
 const clock = systemClock;
 const store = createSqliteMemoStore({ db, clock });
+const devices = createSqliteDeviceStore({ db, clock });
 const events = createMemoEvents();
 const audio = createFsAudioStore(join(env.IRIS_DATA, "audio"));
 
@@ -43,6 +49,13 @@ const destination =
 if (!destination) degraded.push("act");
 const summarizer = env.AGW_URL ? createAgwSummarizer({ baseUrl: env.AGW_URL }) : undefined;
 if (!summarizer) degraded.push("summarize");
+
+const speaker = env.AUDIO_GATEWAY_URL
+  ? createAudioGatewaySpeaker({ baseUrl: env.AUDIO_GATEWAY_URL })
+  : undefined;
+if (!speaker) degraded.push("speech");
+const herd = env.HERDR_SOCKET ? createHerdrHerd({ socketPath: env.HERDR_SOCKET }) : undefined;
+if (!herd) degraded.push("herd");
 
 const handlers = createStepHandlers({
   store,
@@ -63,10 +76,21 @@ const memos = createMemoService({
   maxSegmentBytes: env.IRIS_MAX_SEGMENT_BYTES,
 });
 
+const media = createMemoMedia({
+  store,
+  audio,
+  combiner: ffmpegCombiner,
+  speaker,
+  speechCache: createFsSpeechCache(join(env.IRIS_DATA, "speech")),
+});
+
 const app = createApp({
   deviceTokens,
   degraded,
   memos,
+  devices,
+  media,
+  herd,
   inflight: () => runner.inflightIds().length,
 }).listen({
   port: env.PORT,

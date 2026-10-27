@@ -53,6 +53,7 @@ fi
 
 # Templates can't expand $HOME.
 export IRIS_DATA="$HOME/.iris/data"
+export HERDR_SOCKET="$HOME/.config/herdr/herdr.sock"
 
 # HERMES_URL is composed here: the host is a secret, the port is not.
 exec "$SECRETS_RUN" run --env-file="$TPL_BASE" --env-file="$TPL_MINI" "${OTEL_ARGS[@]}" -- \

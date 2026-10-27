@@ -49,4 +49,23 @@ export const MIGRATIONS: readonly string[] = [
   ALTER TABLE memos ADD COLUMN reply_text TEXT;
   ALTER TABLE memos ADD COLUMN summary_json TEXT;
   `,
+  // Registered clients (keyed by the authenticated device name) and per-memo Live Activity tokens.
+  `
+  CREATE TABLE devices (
+    device TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    platform TEXT NOT NULL,
+    apns_token TEXT,
+    apns_env TEXT,
+    push_to_start_token TEXT,
+    last_seen_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+
+  CREATE TABLE activity_tokens (
+    memo_id TEXT PRIMARY KEY REFERENCES memos (id) ON DELETE CASCADE,
+    token TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+  `,
 ];

@@ -1,6 +1,7 @@
 import type { MemoEvent } from "../memo/events.js";
 import type { Memo, StepRecord } from "../memo/memo.js";
 import type { MemoDetail } from "../memo/service.js";
+import type { Device } from "../ports/devices.js";
 
 // The wire format is camelCase (docs/TDD.md §3). Every response shape is spelled out here, in
 // the one file, so a domain rename can never change a contract by accident.
@@ -47,4 +48,15 @@ export const eventJson = (event: MemoEvent) => ({
   failedStep: event.failedStep,
   error: event.error,
   at: event.at,
+});
+
+/** Token presence, never the tokens: a registration response is not a place to echo credentials. */
+export const deviceJson = (device: Device) => ({
+  device: device.device,
+  name: device.name,
+  platform: device.platform,
+  apnsEnv: device.apnsEnv,
+  hasApnsToken: device.apnsToken !== null,
+  hasPushToStartToken: device.pushToStartToken !== null,
+  registeredAt: device.updatedAt,
 });

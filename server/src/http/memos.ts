@@ -1,8 +1,22 @@
-import { Elysia, t } from "elysia";
+import { Elysia } from "elysia";
 import { MemoError } from "../memo/errors.js";
-import { MEMO_MODES, STEPS } from "../memo/memo.js";
 import type { MemoService } from "../memo/service.js";
 import type { deviceAuth } from "./auth.js";
+import {
+  CompleteBody,
+  CreateMemoBody,
+  ErrorBody,
+  ListQuery,
+  MemoDetail,
+  MemoIdParams,
+  MemoList,
+  Memo,
+  MissingSegmentsError,
+  ResultQuery,
+  RetryBody,
+  SegmentParams,
+  TooLargeError,
+} from "./schemas.js";
 import { detailJson, memoJson } from "./serialize.js";
 
 const DEFAULT_WAIT_SECONDS = 0;
@@ -46,7 +60,6 @@ const clampWait = (wait: number | undefined) =>
 /** `/memos/*`. Takes the guard instance so handlers see the derived `device`. */
 export function memoRoutes(deps: { memos: MemoService; auth: ReturnType<typeof deviceAuth> }) {
   const { memos, auth } = deps;
-  const id = t.Object({ id: t.String() });
 
   return new Elysia({ prefix: "/memos" })
     .use(auth)
@@ -63,11 +76,8 @@ export function memoRoutes(deps: { memos: MemoService; auth: ReturnType<typeof d
         return memoJson(memo);
       },
       {
-        body: t.Object({
-          id: t.String(),
-          mode: t.UnionEnum([...MEMO_MODES]),
-          startedAt: t.String(),
-        }),
+        body: CreateMemoBody,
+        response: { 200: Memo, 201: Memo, 400: ErrorBody, 409: ErrorBody },
       },
     )
     .put(
@@ -84,7 +94,8 @@ export function memoRoutes(deps: { memos: MemoService; auth: ReturnType<typeof d
       {
         // Raw bytes: no JSON/form parser may touch the body, the handler streams it itself.
         parse: "none",
-        params: t.Object({ id: t.String(), n: t.String({ pattern: "^[0-9]{1,7}$" }) }),
+        params: SegmentParams,
+        response: { 400: ErrorBody, 404: ErrorBody, 409: ErrorBody, 413: TooLargeError },
       },
     )
     .post(
@@ -94,7 +105,17 @@ export function memoRoutes(deps: { memos: MemoService; auth: ReturnType<typeof d
         set.status = 202;
         return memoJson(memo);
       },
-      { params: id, body: t.Object({ segmentCount: t.Integer() }) },
+      {
+        params: MemoIdParams,
+        body: CompleteBody,
+        response: {
+          202: Memo,
+          400: ErrorBody,
+          404: ErrorBody,
+          409: ErrorBody,
+          422: MissingSegmentsError,
+        },
+      },
     )
     .post(
       "/:id/retry",
@@ -103,7 +124,11 @@ export function memoRoutes(deps: { memos: MemoService; auth: ReturnType<typeof d
         set.status = 202;
         return memoJson(memo);
       },
-      { params: id, body: t.Object({ from: t.UnionEnum([...STEPS]) }) },
+      {
+        params: MemoIdParams,
+        body: RetryBody,
+        response: { 202: Memo, 400: ErrorBody, 404: ErrorBody, 409: ErrorBody },
+      },
     )
     .get(
       "/",
@@ -114,9 +139,12 @@ export function memoRoutes(deps: { memos: MemoService; auth: ReturnType<typeof d
         });
         return { items: items.map(memoJson), nextCursor };
       },
-      { query: t.Object({ limit: t.Optional(t.Numeric()), cursor: t.Optional(t.String()) }) },
+      { query: ListQuery, response: { 200: MemoList, 400: ErrorBody } },
     )
-    .get("/:id", ({ params }) => detailJson(memos.get(params.id)), { params: id })
+    .get("/:id", ({ params }) => detailJson(memos.get(params.id)), {
+      params: MemoIdParams,
+      response: { 200: MemoDetail, 404: ErrorBody },
+    })
     .get(
       "/:id/result",
       async ({ params, query, request, server, set }) => {
@@ -130,6 +158,10 @@ export function memoRoutes(deps: { memos: MemoService; auth: ReturnType<typeof d
         set.status = ready ? 200 : 202;
         return memoJson(memo);
       },
-      { params: id, query: t.Object({ wait: t.Optional(t.Numeric()) }) },
+      {
+        params: MemoIdParams,
+        query: ResultQuery,
+        response: { 200: Memo, 202: Memo, 404: ErrorBody },
+      },
     );
 }
