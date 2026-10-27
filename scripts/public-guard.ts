@@ -15,7 +15,7 @@
  * Usage: `bun scripts/public-guard.ts` (all tracked files) | `--staged` (staged blobs, pre-commit).
  * Exit 1 lists `path:line: rule (first 4 chars…)`; matched values are never printed in full.
  */
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -141,6 +141,8 @@ function collect(staged: boolean): Array<{ path: string; text: string }> {
     : splitNul(git(["ls-files", "-z"]));
   const files: Array<{ path: string; text: string }> = [];
   for (const path of paths) {
+    // A tracked symlink to a directory (the vendored skills carry them) has no content to scan.
+    if (!staged && !statSync(path).isFile()) continue;
     const blob = staged ? git(["show", `:${path}`]) : readFileSync(path);
     if (isBinary(blob)) continue;
     files.push({ path, text: blob.toString("utf8") });
