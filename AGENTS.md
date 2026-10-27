@@ -237,9 +237,9 @@ Push to master deploys. LaunchAgent `com.jkrumm.iris` (KeepAlive, `ExitTimeOut` 
   nor `act` is registered and the memo waits at `transcribed`. Every outcome is one `route_decisions` row written by `completeStep` with the step
   (`patch.routeDecision`); the park reason is the latest row's `reason` (`store.listRouteDecisions`), a low-confidence park keeps the model's guess
   in `destination`. Because the transcript is never rewritten, a retry from `route` routes by the same prefix again.
-  A spoken tab name (`tab <name>`, one word) matches a tab label, a workspace label or "repo label" (case and diacritics folded) on the live herd and stores the
+  A spoken tab name (`tab <name>`, one word) matches a tab label or a workspace label (case and diacritics folded) on the live herd and stores the
   tab id; none or several matches park naming the spoken name, an unreadable herd parks as "herd unavailable". Mode `tab` has no name: the only live tab, else
-  "which tab?". `act` passes the routing decision's tab to `Destination.deliver({tab})`; a tab that has vanished by then (`TabGoneError`) parks the memo
+  "which tab?"; so does herdr as the only registered destination (source `default`). A multi-word tab name cannot be spoken (one-word limit of the prefix). `act` passes the routing decision's tab to `Destination.deliver({tab})`; a route with no tab, or a tab that has vanished by then (`TabGoneError`, also herdr's `pane_not_found` on a write), parks the memo
   at `needs_route` again (a decision row, reason "tab <id> is gone", the routing decision's source), `act` being the second step that may park.
   `summarize` for journal and herdr is a template (no model call, no summarizer needed).
 - **Answering a park** (`POST /memos/:id/route`, `MemoService.route`): `store.answerRoute` is one transaction (`needs_route` → `routed` compare-and-set,
@@ -251,7 +251,8 @@ Push to master deploys. LaunchAgent `com.jkrumm.iris` (KeepAlive, `ExitTimeOut` 
   While `needs_route` the memo wire shape carries `routeReason` (latest decision's `reason`) and, for a low-confidence park, `routeSuggestion` (its `destination`);
   derived by the store's `SELECT`, omitted (never null) in every other state. Elysia's `t.UnionEnum` defaults a missing value to its first member, so `RouteBody.destination` and `RetryBody.from` set `default: undefined` (a missing field is a 400).
 - **`act` is at-least-once:** a crash or restart mid-`act` replays the step, which posts a second turn
-  into the same Hermes session. Shutdown keeps the window small: `app.stop(true)`, `runner.stop()` (the
+  into the same Hermes session; a retry from `act` after a failed Enter re-types the transcript into the herdr tab (the text from the first attempt is
+  already in the pane). The herdr destination serialises deliveries per pane. Shutdown keeps the window small: `app.stop(true)`, `runner.stop()` (the
   running step finishes, no further step or queued memo starts), `notifyLifecycle.stop()`, `await runner.idle()` + the in-flight
   Live Activity pushes under one 30 s drain deadline (`shutdown.drain_timeout` logs the in-flight memo ids), the APNs transport `close()`, `db.close()`, then a separate 2 s OTel
   flush deadline. The LaunchAgent's `ExitTimeOut` is 60 s to cover it.

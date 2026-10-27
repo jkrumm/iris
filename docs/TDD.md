@@ -227,13 +227,14 @@ retries of transient errors are not built; recover with `POST /retry`.
    - Otherwise the prefix parser matches "journal|tagebuch", "an hermes|hermes", "tab <name>", case- and diacritic-insensitive, with the
      phrase starting within the first 6 words. Everything up to and including the phrase, plus trailing punctuation, is
      cut from the text `act` and `summarize` receive (`deliveredTranscript`, derived from the raw transcript whenever a `prefix` decision exists;
-     kept whole when nothing else was said). `memos.transcript` stays the raw speech-to-text, so a retry from `route` routes the same way. Source `prefix`; the spoken name is a single word.
+     kept whole when nothing else was said). `memos.transcript` stays the raw speech-to-text, so a retry from `route` routes the same way. Source `prefix`; the spoken name is a single word, so a tab whose label contains a space cannot be addressed by voice (known limit; it can still be chosen by the decide path or an answer).
    - **Spoken tab resolution:** a spoken tab name is resolved against the live `Herd` to a tab id, which is what the decision stores. It matches
-     a tab label, a workspace (repo) label or "repo label", ignoring case and diacritics. Exactly one match routes; none or several park with a
+     a tab label or a workspace (repo) label, ignoring case and diacritics. Exactly one match routes; none or several park with a
      reason that names the spoken name (`no tab named "x"`, `several tabs match "x"`); a herd that cannot be read parks as "herd unavailable".
      Every park of this kind carries `destination: herdr`.
    - A mode or prefix that names an unregistered destination parks at `needs_route` with the reason "<destination> not available".
-   - With fewer than two registered destinations the step stops here: it routes to the only one (source `default`, confidence 1, no spend).
+   - With fewer than two registered destinations the step stops here: it routes to the only one (source `default`, confidence 1, no spend). When that
+     one is herdr it needs a tab like mode `tab` does: the only live tab, else a park with "which tab?" (or "herd unavailable").
    - Otherwise call `decide` through the `Decider` port (agw `decide` job, hang guard like `triage`) with state = transcript (first 4k chars) + one line
      per live tab, and questions `destination: choice[<registered>]`, plus `tab: choice[...]` when herdr is registered and there are live
      tabs. A failing `Herd` call omits the tab lines and the question. Source `decide`.
@@ -245,14 +246,14 @@ retries of transient errors are not built; recover with `POST /retry`.
      `route.source`, `route.confidence`; log `route.decided`.
 4. **act:** dispatches on `memo.route`; a route without a registered destination fails the step. For `herdr` the tab comes from the latest
    routed decision (`store.listRouteDecisions`, not a `correction`) and is passed to `Destination.deliver` as `tab`; a herdr route without one
-   fails the step. A `TabGoneError` from the destination parks the memo instead of failing it: `act` returns `needs_route` with a decision
-   row (outcome `needs_route`, destination `herdr`, the tab, reason "tab <id> is gone", the source of the decision that routed it), and the
-   answer re-runs `act`. Any other delivery failure fails the step as before.
+   parks the memo (reason "which tab?"). A `TabGoneError` from the destination parks it instead of failing it too. Either way `act` returns
+   `needs_route` with a decision row (outcome `needs_route`, destination `herdr`, the tab or null, the reason, the source of the decision that
+   routed it), and the answer re-runs `act`. Any other delivery failure fails the step as before.
 
    | Destination | Action |
    |-|-|
    | journal | Write `brain/Inbox/<YYYY-MM-DD>-<slug>.md` (frontmatter `title`, `date`, `tags: [journal, iris]`, `source: iris`, `memo`) under the brain-sync lock (`brain/docs/brain-access.md`), then commit and push following that doc |
-   | herdr | `pane.send_text` (the transcript) + `pane.send_keys ["enter"]` on the tab's agent pane over the herdr socket (the pane comes from `session.snapshot`: the tab's agent, else its only pane). A tab missing from the snapshot is `TabGoneError`, which leads to `needs_route`. `ref` is the tab id, `reply_text` stays empty |
+   | herdr | `pane.send_text` (the transcript) + `pane.send_keys ["enter"]` on the tab's agent pane over the herdr socket (the pane comes from `session.snapshot`: the tab's agent, else its only pane). A tab missing from the snapshot, or a `pane_not_found` answer to either write (the tab closed in between), is `TabGoneError`, which leads to `needs_route`. Deliveries to one pane are serialised in the adapter, so text and Enter of two memos never interleave. `ref` is the tab id, `reply_text` stays empty |
    | hermes | `POST /api/sessions {id: thread_id ?? new, source: "iris"}` (201/409 = OK) → `POST /api/sessions/:id/chat/stream {message}`. Collect the final assistant text from the SSE, store it as `reply_text`, and upsert `threads` |
 5. **summarize:** agw `triage` with the schema
    `{headline (≤60), detail (≤240), spoken (≤2 sentences)}` over the

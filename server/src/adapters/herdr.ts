@@ -63,7 +63,10 @@ const Snapshot = z.object({
 });
 type SnapshotData = z.infer<typeof Snapshot>;
 
-const Response = z.object({ result: z.unknown().optional(), error: z.unknown().optional() });
+const Response = z.object({
+  result: z.unknown().optional(),
+  error: z.object({ code: z.string().optional() }).passthrough().optional(),
+});
 
 const KNOWN_STATES: ReadonlySet<string> = new Set(AGENT_STATES);
 const toState = (status: string): AgentState =>
@@ -126,6 +129,9 @@ function request(params: {
   });
 }
 
+/** herdr answered `{error: {code: "pane_not_found"}}` (verified against 0.9.3): the pane closed since the snapshot. */
+class NotFoundAnswer extends Error {}
+
 /** One request; resolves with `result`, throws `unavailable` on an `error` answer or an off-schema line. */
 async function call(params: {
   socketPath: string;
@@ -135,8 +141,10 @@ async function call(params: {
 }): Promise<unknown> {
   const parsed = Response.safeParse(await request(params));
   if (!parsed.success) throw unavailable(`unexpected ${params.method} response`);
-  if (parsed.data.error !== undefined) {
-    throw unavailable(`${params.method} failed: ${JSON.stringify(parsed.data.error)}`);
+  const { error } = parsed.data;
+  if (error !== undefined) {
+    if (error.code?.endsWith("_not_found")) throw new NotFoundAnswer(params.method);
+    throw unavailable(`${params.method} failed: ${JSON.stringify(error)}`);
   }
   return parsed.data.result;
 }
@@ -194,11 +202,29 @@ function agentPane(snapshot: SnapshotData, tab: string): { pane: string } | "gon
 
 /**
  * Types the transcript into the agent pane of a tab and presses Enter. The reply is not awaited: the
- * agent answers in its own terminal, so `replyText` is empty. A tab missing from the live snapshot throws
- * `TabGoneError`; any other failure is `unavailable`, which fails the step and can be retried.
+ * agent answers in its own terminal, so `replyText` is empty. A tab missing from the live snapshot, or a
+ * pane herdr no longer finds when writing (the tab closed in between), throws `TabGoneError`; any other
+ * failure is `unavailable`, which fails the step and can be retried. Deliveries to one pane are serialised,
+ * so two memos never interleave their text and Enter.
  */
 export function createHerdrDestination(opts: HerdrDestinationOptions): Destination {
   const { socketPath, timeoutMs = TIMEOUT_MS } = opts;
+  // The tail of each pane's queue; it never rejects, so one failed delivery does not block the next.
+  const queues = new Map<string, Promise<void>>();
+
+  /** Runs `task` after every earlier task of the same pane has settled. */
+  function serialized<T>(pane: string, task: () => Promise<T>): Promise<T> {
+    const run = (queues.get(pane) ?? Promise.resolve()).then(task);
+    const tail = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    queues.set(pane, tail);
+    void tail.then(() => {
+      if (queues.get(pane) === tail) queues.delete(pane);
+    });
+    return run;
+  }
 
   return {
     deliver({ transcript, tab }): Promise<Delivery> {
@@ -210,17 +236,21 @@ export function createHerdrDestination(opts: HerdrDestinationOptions): Destinati
         if (target === "ambiguous") throw unavailable(`tab ${tab} has no single agent pane`);
 
         const pane_id = target.pane;
-        await call({
-          socketPath,
-          timeoutMs,
-          method: "pane.send_text",
-          params: { pane_id, text: transcript },
-        });
-        await call({
-          socketPath,
-          timeoutMs,
-          method: "pane.send_keys",
-          params: { pane_id, keys: ["enter"] },
+        await serialized(pane_id, async () => {
+          await call({
+            socketPath,
+            timeoutMs,
+            method: "pane.send_text",
+            params: { pane_id, text: transcript },
+          });
+          await call({
+            socketPath,
+            timeoutMs,
+            method: "pane.send_keys",
+            params: { pane_id, keys: ["enter"] },
+          });
+        }).catch((err: unknown) => {
+          throw err instanceof NotFoundAnswer ? new TabGoneError(tab) : err;
         });
         return { ref: tab, replyText: "" };
       });

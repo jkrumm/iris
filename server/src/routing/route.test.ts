@@ -373,6 +373,32 @@ describe("route: spoken tab", () => {
   });
 });
 
+const only = (herd: ReturnType<typeof fakeHerd> | undefined) =>
+  route(input({ destinations: ["herdr"], herd }));
+
+describe("route: herdr as the only destination", () => {
+  it("routes to the only live tab, like mode tab", async () => {
+    const decision = await only(fakeHerd({ tabs: [tab("w1:t1", "iris", "server")] }));
+    expect(decision).toMatchObject({
+      source: "default",
+      outcome: "routed",
+      destination: "herdr",
+      tab: "w1:t1",
+      confidence: 1,
+    });
+  });
+
+  it("parks with 'which tab?' when there are several, and as 'herd unavailable' without a herd", async () => {
+    expect(await only(fakeHerd({ tabs: HERD }))).toMatchObject({
+      source: "default",
+      outcome: "needs_route",
+      destination: "herdr",
+      reason: "which tab?",
+    });
+    expect(await only(undefined)).toMatchObject({ reason: "herd unavailable" });
+  });
+});
+
 describe("route: mode tab", () => {
   it("routes to the only live tab", async () => {
     const decision = await modeTab(fakeHerd({ tabs: [tab("w1:t1", "iris", "server")] }));
