@@ -91,6 +91,7 @@ describe("hermes destination", () => {
     expect(delivery).toEqual({
       ref: MEMO_ID,
       replyText: "Done, milk is on the list.",
+      thread: { id: MEMO_ID, kind: "hermes", title: "buy milk" },
       usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
     });
 
@@ -129,20 +130,17 @@ describe("hermes destination", () => {
     expect(CHAT_SYSTEM_MESSAGE).toContain("NO actions with side effects");
   });
 
-  it("continues the given thread instead of the memo's own session", async () => {
-    const { calls, destination } = fakeHermes({
-      chat: () => sseResponse([completed("and again"), done]),
+  it("names the thread: the session id, its kind and a title from the transcript", async () => {
+    const { destination } = fakeHermes({ chat: () => sseResponse([completed("ok"), done]) });
+    const long = `${"word ".repeat(30)}end`;
+    const chat = await destination.deliver({ memoId: MEMO_ID, transcript: long, chat: true });
+    expect(chat.thread).toEqual({
+      id: MEMO_ID,
+      kind: "chat",
+      title: `${"word ".repeat(11)}word…`,
     });
-    const delivery = await destination.deliver({
-      memoId: MEMO_ID,
-      transcript: "go on",
-      chat: true,
-      threadId: "thread-1",
-    });
-    expect(delivery.ref).toBe("thread-1");
-    expect(JSON.parse(String(calls[0]?.init.body))).toMatchObject({ id: "thread-1" });
-    expect(calls[1]?.url).toBe("http://127.0.0.1:1234/api/sessions/thread-1/chat/stream");
-    expect(JSON.parse(String(calls[1]?.init.body))).toHaveProperty("system_message");
+    const plain = await destination.deliver({ memoId: MEMO_ID, transcript: " a\n b " });
+    expect(plain.thread).toEqual({ id: MEMO_ID, kind: "hermes", title: "a b" });
   });
 
   it("reassembles frames split across chunks and omits usage when run.completed has none", async () => {
@@ -156,7 +154,7 @@ describe("hermes destination", () => {
     ];
     const { destination } = fakeHermes({ chat: () => sseResponse(chunks) });
     const delivery = await deliver(destination);
-    expect(delivery).toEqual({ ref: MEMO_ID, replyText: "split reply" });
+    expect(delivery).toMatchObject({ ref: MEMO_ID, replyText: "split reply" });
     expect("usage" in delivery).toBe(false);
   });
 

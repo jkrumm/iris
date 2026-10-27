@@ -97,5 +97,24 @@ export const MIGRATIONS: readonly string[] = [
   );
   ALTER TABLE memos ADD COLUMN thread_id TEXT;
   CREATE INDEX memos_thread ON memos (thread_id);
+
+  -- Existing hermes memos each ran in their own session (the memo id): one thread per distinct destination_ref,
+  -- titled from the first memo's transcript like the adapter does (newlines and tabs flattened; runs of spaces are kept).
+  WITH first_memo AS (
+    SELECT f.destination_ref AS ref, f.created_at AS created_at,
+      trim(replace(replace(replace(COALESCE(f.transcript, ''), char(10), ' '), char(13), ' '), char(9), ' ')) AS text
+    FROM memos f
+    WHERE f.route = 'hermes' AND f.destination_ref IS NOT NULL
+      AND f.seq = (SELECT MIN(x.seq) FROM memos x WHERE x.route = 'hermes' AND x.destination_ref = f.destination_ref)
+  )
+  INSERT INTO threads (id, kind, title, created_at, updated_at, last_memo_id)
+  SELECT ref, 'hermes',
+    CASE WHEN length(text) > 60 THEN rtrim(substr(text, 1, 59)) || '…' ELSE text END,
+    created_at,
+    (SELECT MAX(x.updated_at) FROM memos x WHERE x.route = 'hermes' AND x.destination_ref = first_memo.ref),
+    (SELECT x.id FROM memos x WHERE x.route = 'hermes' AND x.destination_ref = first_memo.ref
+       ORDER BY x.updated_at DESC, x.seq DESC LIMIT 1)
+  FROM first_memo;
+  UPDATE memos SET thread_id = destination_ref WHERE route = 'hermes' AND destination_ref IS NOT NULL;
   `,
 ];

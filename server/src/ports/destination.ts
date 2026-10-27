@@ -1,3 +1,5 @@
+import type { ThreadUpsert } from "../memo/memo.js";
+
 export interface Delivery {
   /** Where the message landed, e.g. the Hermes session id. */
   ref: string;
@@ -5,20 +7,21 @@ export interface Delivery {
   replyText: string;
   usage?: unknown;
   costUsd?: number;
+  /** The conversation the message landed in, when the destination keeps one (Hermes). The destination names it; `act` only persists it. */
+  thread?: ThreadUpsert;
 }
 
 export interface Destination {
   /**
    * Hands the transcript to the destination and waits for its reply. `tab` is the resolved herdr tab id
-   * and only set for `herdr`. Throws `TabGoneError` when that tab no longer exists. `chat` (Hermes only) opens or continues a
-   * side-effect-free conversation instead of a task; `threadId` continues that existing Hermes session, else a new one named after the memo.
+   * and only set for `herdr`. Throws `TabGoneError` when that tab no longer exists. `chat` (Hermes only) opens a
+   * side-effect-free conversation instead of a task.
    */
   deliver(params: {
     memoId: string;
     transcript: string;
     tab?: string;
     chat?: boolean;
-    threadId?: string;
   }): Promise<Delivery>;
 }
 

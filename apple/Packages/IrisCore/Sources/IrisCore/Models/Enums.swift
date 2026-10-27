@@ -19,12 +19,22 @@ public enum MemoState: String, Codable, Hashable, Sendable, CaseIterable {
   public var isResultReady: Bool { isTerminal || self == .needsRoute }
 }
 
+/// The one tolerant enum: a mode this build does not know decodes to `.unknown` instead of failing the whole page
+/// (an older client reading a list that holds memos of a newer mode). `.unknown` is not a mode to send and is not in `allCases`.
 public enum MemoMode: String, Codable, Hashable, Sendable, CaseIterable {
   case auto
   case journal
   case hermes
   case tab
   case chat
+  case unknown
+
+  public static var allCases: [MemoMode] { [.auto, .journal, .hermes, .tab, .chat] }
+
+  public init(from decoder: any Decoder) throws {
+    let raw = try decoder.singleValueContainer().decode(String.self)
+    self = MemoMode(rawValue: raw) ?? .unknown
+  }
 }
 
 /// A pipeline step, in execution order.
