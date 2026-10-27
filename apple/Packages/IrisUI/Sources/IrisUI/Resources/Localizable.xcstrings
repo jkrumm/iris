@@ -1,0 +1,23 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "Audio route: %@" : {
+      "comment" : "VoiceOver label of the route chip. The placeholder is the input device name.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Audioroute: %@"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Audio route: %@"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

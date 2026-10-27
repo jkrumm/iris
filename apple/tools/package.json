@@ -1,0 +1,8 @@
+{
+  "name": "iris-apple-tools",
+  "private": true,
+  "type": "module",
+  "devDependencies": {
+    "basalt-ui": "2.29.0"
+  }
+}
