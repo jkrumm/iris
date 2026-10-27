@@ -477,24 +477,59 @@ decide path stores herd ids); `herdr` and `journal` join the registry in `compos
 lessons: `rd merge` fails on a draft PR (`gh pr ready` first); `agw review` CLI prints only the summary — the findings are in
 `GET /api/jobs/<id>` `.job.result`; a contract change must include the Swift `IrisCore` follow-up in the same brief.
 
-## Wave 11 — R2 destinations, Chat mode, typed memos (server)            <!-- status: active -->
+## Wave 11 — R2 destinations, Chat mode, typed memos (server)            <!-- status: done -->
 The second half of backlog 4. Chat reading **confirmed by the owner 2026-10-27**: Chat = a Hermes session (`source` marks it
 as chat) opened with a no-side-effects system message, its answer stored as the reply and threaded.
-- [ ] **Journal destination:** write `brain/Inbox/<YYYY-MM-DD>-<slug>.md` (TDD §3 act table) under the brain-sync lock,
+- [x] **Journal destination:** write `brain/Inbox/<YYYY-MM-DD>-<slug>.md` (TDD §3 act table) under the brain-sync lock,
       commit and push per `brain/docs/brain-access.md`; templated summary (no model spend). Its smoke must not leave test
       notes in the real brain (a fake brain dir in e2e; on the mini, a dedicated smoke path or a cleanup the lead defines).
-- [ ] **herdr destination:** `pane.send_text` + `send_keys Enter` on the resolved tab; a vanished tab → `needs_route`;
+- [x] **herdr destination:** `pane.send_text` + `send_keys Enter` on the resolved tab; a vanished tab → `needs_route`;
       templated summary. Spoken tab names (prefix `tab <name>`, mode `tab`) are resolved against the live herd in `route`
       (Wave 10 stores them unchecked); no match → `needs_route` with the reason.
-- [ ] **Chat mode:** mode `chat` per the confirmed reading; thread upsert (the `threads` table if it is not there yet).
-- [ ] **Typed memos:** create a memo from text (skips `transcribe`), same modes and pipeline; contract + fixtures.
-- [ ] **agw `caller`:** agent-gateway accepts a `caller` field and attributes usage to it (its own commit in that repo);
+- [x] **Chat mode:** mode `chat` per the confirmed reading; thread upsert (the `threads` table if it is not there yet).
+- [x] **Typed memos:** create a memo from text (skips `transcribe`), same modes and pipeline; contract + fixtures.
+- [x] **agw `caller`:** agent-gateway accepts a `caller` field and attributes usage to it (its own commit in that repo);
       iris sends `caller: iris` on decide/triage.
-- [ ] Deploy, `make verify` + `make smoke`, one real memo per new destination through production; TDD and AGENTS.md amended.
+- [x] Deploy, `make verify` + `make smoke`, one real memo per new destination through production; TDD and AGENTS.md amended.
       Registering journal + herdr in `compose()` turns `decide` on, so `make smoke` pins `--mode hermes` (an auto smoke memo
       must never land in the real brain or a live tab). The agent-gateway change: check `rd agents` for a live agent in that
       checkout first and work in a worktree if one is there.
-**Left behind:**
+**Left behind:** Six iris PRs, each merged by the train after a green full `make check` and an `agw review` (CLI) with blocking
+findings resolved: #5 journal, #6 herdr, #7 typed memos, #8 journal runner flake, #9 wiring, #10 chat. agent-gateway `2f6bb11` (`caller`)
+was pushed direct to master (that repo forbids PRs), reviewed on its branch, and deployed with `make deploy` (verify OK). Iris `f5da34c` is
+deployed: `make verify` healthy, `degraded: []`, `make smoke` `notified` (hermes pinned). Real production memos: journal (a note committed and
+pushed, then removed by the lead with `journal: remove the Iris Wave 11 test note` under the brain-sync lock), chat (a `chat` thread, reply
+"Canberra."), herdr (prefix `tab irissmoke` into a scratch shell tab the lead created and closed; the command ran), and auto (`decide` →
+hermes at 0.99). The decide and triage agw jobs carry `caller=iris`. The production DB was backed up before the threads migration:
+`~/.iris/data/iris.db.pre-w11-threads.bak` (delete it once Wave 12 has run cleanly).
+**Journal (#5, #8, #9):** `adapters/journal.ts`. The lock follows brain-sync.sh's protocol exactly: the `pid` file, a live/EPERM holder waits,
+a dead pid or a pidless lock at least 60 s old is reclaimed, and the lock is released only while the pid is still ours. Only the note's own
+path is committed. The push runs outside the lock, bounded and fail-soft. The git runner kills the process group on timeout and tolerates
+EPERM from a zombie group leader; that macOS behaviour was the train flake. The note is written atomically (tmp + `link`), and a retry is
+idempotent through the `memo:` frontmatter. Umlauts are spelled out in the slug (ä→ae).
+**herdr (#6):** `createHerdrDestination` sends `pane.send_text` and then `pane.send_keys ["enter"]`, verified against herdr 0.9.3. It targets
+the tab's agent pane, or the only pane. Deliveries to one pane are serialised. `act` may now park (`routed → needs_route`): a vanished tab, a
+`pane_not_found` error or a herdr route without a tab writes a decision row that reuses the routing source (no migration). Spoken tab names
+match a label or a repo case- and diacritic-insensitively, and only one word is captured, so multi-word labels cannot be spoken (in TDD). Mode
+`tab`, or a default route to herdr, takes the single live tab, else parks with "which tab?". The `summarize` handler is always present:
+journal and herdr use templates, and a hermes memo with no summarizer now FAILS at summarize instead of waiting at `acted`. A retry from `act`
+after a failed Enter re-types the transcript (AGENTS.md gotcha).
+**Typed (#7):** `POST /v1/memos/text {id, mode, startedAt, text}` creates the memo in `transcribed`, max 20 000 code points, and replays are
+idempotent. The memo wire carries an explicit `typed`. `/audio` answers 409 and a retry from `transcribe` answers 400. Found and fixed on the
+way: a missing `mode` on `POST /v1/memos` was silently accepted as `auto` (the `t.UnionEnum` default trap again); it is now 400.
+`send-memo.ts --text`, Swift `createTextMemo` / `Memo.isTyped`.
+**Wiring (#9):** `compose()` registers journal (`BRAIN_DIR`, exported by launch.sh when the checkout exists), herdr (`HERDR_SOCKET`, only when
+the socket exists) and hermes, so `decide` is live. Fakes register all three. e2e probes cover journal, tab, decided, typed, chat and route.
+**Chat (#10):** mode `chat` maps to hermes. A per-turn `system_message` carries the no-side-effects policy, and the session is created with
+`source: "iris-chat"`, BUT Hermes' api_server rewrites any source not on its allow-list to `api_server`. Hermes therefore cannot see the chat
+marker; `threads.kind` is the marker (documented in TDD). The `threads` table and `memos.thread_id` come from migration 6, which backfilled
+existing hermes memos. `Delivery.thread` names the thread and `act` persists it. Swift `MemoMode.chat` (+ a tolerant `.unknown`) and
+`Memo.threadId`. Not built: continuing a thread (`threadId` on create), which is R3.
+**For the next wave:** thread continuation and the `GET /v1/threads` endpoints (R3, backlog 7); the multi-word spoken tab names. The owner may
+want Hermes' source allow-list widened for `iris-chat`, which would be a change in the third-party hermes-agent. Lead lessons: rebase
+conflicts between parallel workers sharing `memo.ts` and `TDD.md` hunks never materialised (the train's rebase handled them); `mini-deploy`
+waits for the CI `check` run, so `make deploy` right after a merge only logs "waiting for CI". Watch `gh run watch` first. The agent-gateway
+check has one pre-existing mini-only failure (`GIT_DENY_CREDENTIALS_ENV` vs the global osxkeychain helper), which reproduces on a clean master.
 
 ## Fleet backlog (for the long-running fleet: mother → lead → workers)
 
