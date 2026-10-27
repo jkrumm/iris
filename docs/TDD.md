@@ -507,8 +507,9 @@ the `IrisCore` dependency when R1 wires them together.
   - **Bounds:** body over 256 KiB is 413 `too_large` (cut off while streaming,
     after the bearer check); more than 500 spans and logs together is 400.
   - **Delivery:** the answer does not wait for the collector. A failed export
-    is counted in a `telemetry.relay_failed` log line (signal, record count,
-    error) and the batch is dropped; the client does not retry on it. Delivery
+    (or one refused because 4 exports are already in flight, so a slow collector
+    cannot pile up posts) is counted in a `telemetry.relay_failed` log line
+    (signal, record count, error) and the batch is dropped; the client does not retry on it. Delivery
     from the client is at-least-once and the server does not de-duplicate, so a
     resent batch shows twice (`(traceId, spanId)` identifies a span). The export
     is part of the OTel flush at shutdown. Without `OTEL_EXPORTER_OTLP_ENDPOINT`
