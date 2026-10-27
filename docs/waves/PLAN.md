@@ -1,16 +1,18 @@
-# iris-server — the server half of Phase 1
+# Iris — foundation chain (server R0 + monorepo setup)
 
-**Goal:** `iris-server` runs on the mini as a LaunchAgent behind `iris.mini.<domain>`. A
-memo pushed by a test script (no phone) is received as 10 s segments, concatenated,
-transcribed by audio-gateway, sent to a Hermes session, summarized by agent-gateway
-`triage`, and handed to a log-only `Notifier`. The whole memo is one trace in HyperDX.
-**Gate:** `make check` (oxlint, oxfmt --check, `tsc --noEmit`, `bun test`) green, then
-`/review` with its findings resolved. From Wave 4 on, `make verify` too.
+**Goal:** `iris-server` runs on the mini behind `iris.mini.<domain>` and passes a real
+end-to-end memo, with the trace visible in HyperDX. The monorepo also carries the
+contracts, the Apple scaffold (XcodeGen + local packages + CI), the agent tooling
+(skills, MCP, verification harness), and an HTML mockup round of the UI, ready for the
+long-running fleet that builds R1–R5.
+**Gate:** `make check` green (it grows: server → contracts → apple), then `/review` with its
+findings resolved. From Wave 4 on, `make verify` too. Apple waves without a local Xcode
+gate on the `apple.yml` CI run instead.
 
-Design source: `docs/PLAN.md`. Read it first, especially §System design, §iris-server
-modules, §Telemetry. It wins over anything here except the step lists. The Apple apps
-are out of scope for this chain: no `apple/` directory and no Xcode. The mini has no
-Xcode yet.
+Design source: **`docs/TDD.md`**, which wins over anything here except the step lists.
+`docs/PRD.md` is the product. `docs/PLAN.md` is superseded. **Public repo:** no real
+hostnames, IPs, tailnet names, tokens or emails in any tracked file. Use placeholders
+(`<domain>`, `iris.mini.<domain>`); `op://` references in `.env*.tpl` are fine.
 
 Conventions to copy, not invent (paths are relative to `~/SourceRoot`):
 - **Lint and format:** `agent-gateway/.oxlintrc.json`, `.oxfmtrc.json`. Tests are colocated `*.test.ts`.
@@ -23,25 +25,11 @@ Conventions to copy, not invent (paths are relative to `~/SourceRoot`):
 - **Mini service lifecycle:** `research-gateway/deploy/MINI.md`, `scripts/launch.sh`,
   `launchd/*.plist.template`, `Makefile` (check/deploy/verify/logs, `.DEFAULT_GOAL := help`).
 - **Repo contract:** `dotfiles/docs/agents-md.md` (AGENTS.md only, the required sections).
-  CI template: `rb/.github/workflows/check.yml` with `runs-on: [self-hosted, vps]`.
+  CI runs on hosted runners (public repo).
 
-Downstream facts, verified 2026-10-27. Re-check them where a wave depends on one:
-- **audio-gateway STT:** `POST /v1/audio/transcriptions`, synchronous multipart,
-  OpenAI-compatible. Model `voxtral-mini-transcribe-3-0`, with `language` and `context_bias`
-  (Voxtral-only). Response `{text}`. Send the `x-audio-source: iris` header. It is reachable
-  from the mini on the VPS instance over the tailnet (`audio-gateway/README.md`). The mini's
-  own `:7719` instance is podcast-only.
-- **Hermes:** `:8642` on the mini's tailnet IP, `Authorization: Bearer` from
-  `op://hermes/gateway/api-server-key`. Call `POST /api/sessions {id, source}`; a 201 or 409
-  both mean OK. Then `POST /api/sessions/{id}/chat/stream {message}`, which returns SSE with
-  named events. Reference client: `argo/apps/api/src/lib/hermes-upstream.ts`.
-- **agent-gateway:** `POST http://127.0.0.1:7705/api/jobs {tool:"triage"|"decide", params}`
-  returns a job id. Then `GET /api/jobs/:id` (`agent-gateway/server/routes/jobs.ts`). The
-  triage contract is in `agent-gateway/AGENTS.md` (search for "triage").
-- **ffmpeg:** at `/opt/homebrew/bin/ffmpeg`. It concatenates segments with the concat
-  demuxer, `-c copy`, AAC in m4a.
-- **Secrets:** use `secrets-run`, never `op`, on the mini. New refs go into
-  `dotfiles-private/headless.refs`. Seeding is `ask-human.sh ask … --cmd 'make secrets-seed'`.
+Downstream facts: `docs/TDD.md` §3 "Downstream facts". Secrets: use `secrets-run`, never
+`op`, on the mini. New refs go into `dotfiles-private/headless.refs`. Seeding is
+`~/SourceRoot/dotfiles/scripts/ask-human.sh ask … --cmd 'make secrets-seed'`.
 
 ## Wave 1 — Repo foundation            <!-- status: done -->
 - [x] `gh repo create jkrumm/iris --private --source . --push`, then
@@ -104,7 +92,8 @@ standing contract says deploys are routine. So Wave 3 spawns this wave with
 - [ ] `scripts/launch.sh` plus `.env.local.tpl` / `.env.mini.tpl` / `.env.mini.otel.tpl`
       (research-gateway pattern). Add the new refs to `dotfiles-private/headless.refs`
       and seed them. The device tokens are generated, stored in 1Password `tkrumm`, and
-      never written into the repo.
+      never written into the repo. `APNS_*` stays unset: the log `Notifier` runs until
+      enrollment completes.
 - [ ] Deploy clone `~/.iris/app`, data in `~/.iris/data`. Add `launchd/` templates for
       `com.jkrumm.iris` (KeepAlive) and `com.jkrumm.iris-deploy` (a 120 s poller, CI-green
       and idle gated), plus the `make launchd-install` and `mini-setup` targets.
@@ -115,5 +104,117 @@ standing contract says deploys are routine. So Wave 3 spawns this wave with
 - [ ] End to end: run `scripts/send-memo.ts` against `https://iris.mini.<domain>` with a
       real German voice recording of more than 60 s. The memo must reach `notified`, a
       Hermes session must hold the message, and the trace must be visible in HyperDX
-      (`/otel`). Fill in AGENTS.md Deploy and Verify & Monitor.
+      (`/otel`). Wrap it as `make smoke`. Fill in AGENTS.md Deploy and Verify & Monitor.
 **Left behind:**
+
+## Wave 5 — Contracts + server completion for R1            <!-- status: pending -->
+- [ ] `contracts/`: a JSON Schema and a fixture for every `/v1` request, response and SSE
+      event that exists (TDD §3 API, D9). Elysia TypeBox schemas export to JSON Schema.
+      `make check-contracts` asserts that the export equals `contracts/schema` and that the
+      fixtures validate. It joins `make check` and CI.
+- [ ] `IRIS_FAKES=1` boot mode, where every port uses its fake. `make e2e` runs
+      `send-memo.ts` against a fake-booted server, in CI.
+- [ ] The missing R1 endpoints from TDD §3: `devices/register`, `memos/:id/activity-token`,
+      `memos/:id/audio`, `memos/:id/speech` (TTS cached), `GET /v1/herd` (herdr adapter,
+      snapshot only).
+- [ ] APNs `Notifier` (TDD D6): `@parse/node-apn` on Bun `node:http2` with in-flight
+      streams capped at 10, the ES256 provider token refreshed every 50 min, the
+      alert payload, and the Live Activity update/end payloads (TDD §3 notify). Unit tests
+      use a fake transport. Selected only when `APNS_*` is set; otherwise the log Notifier.
+      Read `docs/research/2026-10-27-apns-from-bun.md` first.
+- [ ] Public-repo guard: a pre-commit hook (lefthook) plus a CI step that rejects IPv4s,
+      `*.ts.net`, the real domain pattern and token shapes in tracked files.
+**Left behind:**
+
+## Wave 6 — Apple monorepo scaffold            <!-- status: pending -->
+Check `xcodebuild -version` first. If Xcode 27.1 is installed locally, gate locally too.
+Otherwise the `apple.yml` CI run is the gate (`gh run watch`).
+- [ ] `apple/project.yml` (XcodeGen 2.46+, `brew install xcodegen` if missing): targets
+      `Iris`, `IrisWidgets`, `IrisNotifications`, `IrisMac`. Bundle ids, App Group
+      `group.com.jkrumm.iris`, entitlements, Info.plist keys (`UIBackgroundModes: audio`,
+      `NSSupportsLiveActivities`, `NSMicrophoneUsageDescription`, `LSUIElement` for Mac),
+      iOS/macOS 26.0 minimum, Swift 6 mode, and MainActor default isolation for the app
+      targets. **Verify the build-setting spelling against the installed toolchain or
+      the CI image, and record it in TDD §6.** `.xcodeproj` is gitignored.
+- [ ] Local packages `apple/Packages/{IrisCore,IrisCapture,IrisUI,IrisTelemetry}` with
+      their public interfaces stubbed per TDD §4–§8:
+  - `IrisCore`: models, an API client, an SSE parser, and decoding tests over every
+    `contracts/fixtures` file;
+  - `IrisCapture`: protocols for `AudioSessionController`, `RouteManager`,
+    `SegmentRecorder` and `Outbox`, plus `FakeCapture`, with segment-rotation and outbox
+    state-machine tests on fakes;
+  - `IrisUI`: `Theme` generated from basalt-ui tokens by a script, plus a swift-snapshot-
+    testing setup with one reference;
+  - `IrisTelemetry`: a buffer plus a relay exporter.
+- [ ] Thin app targets that compile and launch to a placeholder history (fed from fake
+      data). The widget extension has a placeholder Control and Live Activity; the
+      notification extension has a placeholder card. The Mac target is a MenuBarExtra
+      placeholder.
+- [ ] `.swift-format` + `swift format lint --strict`, and Make targets `generate`,
+      `check-apple` (lint, `swift test` per package, `xcodebuild build` of all schemes for
+      the simulator), `snapshots` (`RECORD=1`), and `uitest`. Add
+      `.github/workflows/apple.yml` on `runs-on: xcode-27` (TDD D14; fall back to `macos-26`
+      only if the image queues for more than 30 min). `check-apple` joins `make check` when
+      `xcodebuild` exists locally.
+**Left behind:**
+
+## Wave 7 — Agent tooling + verification harness            <!-- status: pending -->
+- [ ] `.mcp.json` with MobileBuildMCP pinned to an exact version (TDD §10). Document the
+      per-machine `claude mcp add --transport stdio xcode -- xcrun mcpbridge`, and the one-time
+      Xcode setting it needs, in AGENTS.md.
+- [ ] Vendor `swiftui-pro`, `swift-concurrency-pro` and `swift-testing-pro` from `twostraws/*`
+      into `.claude/skills/`. Check each LICENSE is MIT and copy it alongside. Pin commits in
+      `.claude/skills/VENDORED.md`.
+- [ ] Own skills (TDD §10): `iris-server`, `ios-verify`, `device`, `memo-debug`,
+      `apple-capture-notes`. Each has a short SKILL.md whose commands were actually run (or,
+      without local Xcode, marked `unverified until Xcode` in one line).
+- [ ] `fixtures/audio/de-90s.m4a`: a German sample generated through audio-gateway TTS
+      (`x-audio-source: iris`), used by `make e2e` and `make smoke`. Write
+      `docs/spikes/device-checklist.md` (TDD §9, hardware-only rows) and the S1–S3 spike
+      briefs in `docs/spikes/`.
+- [ ] Rewrite AGENTS.md for the monorepo: layout, the full Validate matrix, the public-repo
+      rule, Xcode/MCP setup, the skills index, Gotchas. Point it at TDD/PRD.
+**Left behind:**
+
+## Wave 8 — UI mockup round            <!-- status: pending -->
+- [ ] `docs/design/mockups/`: static HTML using the basalt-ui tokens (the same values as
+      `IrisUI/Theme`), styled to read as iOS 26 Liquid Glass. Surfaces: History, Memo detail
+      (step timeline, cost, retry), Record (timer, waveform, mic picker, mode/tab picker),
+      Live Activity (recording / processing / done / needs-route, Lock Screen + Dynamic
+      Island), the notification card, the Mac panel. Use realistic German and English
+      sample content.
+- [ ] Render each surface to PNG (chrome-devtools screenshot at device sizes), upload via
+      `/img` as private presigned links, and list them in `docs/design/README.md`.
+- [ ] Stop here: the owner reviews the mockups. Write "stopped: owner reviews mockups;
+      then the fleet starts R1 from the Fleet backlog" into **Left behind** and do not
+      spawn.
+**Left behind:**
+
+## Fleet backlog (for the long-running fleet: mother → lead → workers)
+
+Not waves of this chain. The fleet's mother turns these into active waves, one at a time,
+refining scope from TDD/PRD. Releases are named in PRD §Release plan.
+
+1. **Spikes S1–S3** on the iPhone: these need the owner's hands, Xcode on the mini and
+   phone pairing. S1: Lock Screen control → `AudioRecordingIntent` → Live Activity → a
+   30-min take while switching apps and locking. S2: a mic switch mid-take, built-in mic
+   while connected to the car. S3: APNs Live Activity update + [Play] from a suspended
+   app. Findings go to `docs/spikes/`, and TDD gets amended.
+2. **R1 capture:** `IrisCapture` for real (session, routes, segment recorder, outbox),
+   `StartMemoIntent` + Control + Live Activity, the Record screen, `-IrisFakeCapture` UI
+   tests.
+3. **R1 results:** APNs registration, notification categories + content extension, the
+   result long-poll backstop, Live Activity remote updates. TestFlight pipeline
+   (`make testflight`) once enrolled.
+4. **R2 routing (server):** prefix parser, `decide`, journal + herdr destinations,
+   `needs_route`, corrections, templated summaries, agw `caller` field (a small change in
+   agent-gateway).
+5. **R2 routing (iOS):** mode/tab picker, needs-route actions, [Play] via `PlayReplyIntent`,
+   per-route mic rules, spoken-replies setting.
+6. **R3 history:** history + search, memo detail (timeline, cost, retry, scrubber), SSE live
+   updates.
+7. **R3 threads:** the Hermes thread view (Textual), reply by voice into a thread.
+8. **R4 Mac:** the menu-bar app, hotkey, panel, capture on the Mac, SSE notifications.
+9. **R5 polish:** on-device live preview (`SpeechTranscriber`, German checked at runtime),
+   widgets, spoken-replies mode, alerts + health probe (TDD §8 Later).
+
