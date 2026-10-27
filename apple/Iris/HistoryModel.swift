@@ -17,7 +17,8 @@ final class HistoryModel {
 
   func load() async {
     do {
-      memos = try await client.listMemos(ListMemosQuery(limit: 50)).items
+      let page = try await client.listMemos(ListMemosQuery(limit: 50))
+      memos = page.pinned + page.items
       loadFailed = false
     } catch is CancellationError {
       return
