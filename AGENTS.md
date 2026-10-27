@@ -55,7 +55,7 @@ Never start dev servers for a human to look at; simulators are fine, shut them d
 - `server/src/memo/` — domain: `memo.ts` (states, steps, transitions), `store.ts` (port), `runner.ts`
   (idempotent step runner, concurrency-bounded `driveAll`, `idle()`), `service.ts` (`MemoService`, what HTTP calls), `media.ts`
   (`MemoMedia`: the combined recording and the spoken result, both disk-cached and single-flight), `events.ts` (in-process
-  pub/sub), `errors.ts` (`MemoError` codes, `configured()` for optional subsystems), `test-support.ts` (fake audio, seeded memos).
+  pub/sub), `errors.ts` (`MemoError` codes, `configured()` for optional subsystems), `test-support.ts` (fake audio, seeded and parked memos).
 - `server/src/pipeline/steps.ts` — `createStepHandlers`: the five step handlers, each a pure function
   of (memo, ports); a handler is registered only when its port is provided (`route` and `act` need at least one registered destination;
   `act` dispatches on `memo.route`).
@@ -72,7 +72,7 @@ Never start dev servers for a human to look at; simulators are fine, shut them d
   `herd.ts`, `destination.ts` (+ `Destinations`, the registry of act adapters), `decider.ts`, `summarizer.ts`, `notifier.ts` (`notify` + best-effort `phase`),
   `apns.ts` (`ApnsTransport`), `fakes.ts` (in-memory fakes of the ports, incl. `fakeApnsTransport`).
 - `server/src/notify/` — `payloads.ts` (pure alert / Live Activity builders), `phases.ts` (`bindPhaseUpdates`: memo events →
-  `notifier.phase`), `select.ts` (`selectNotifier`: APNs or log, plus the transport's `close`),
+  `notifier.phase`), `needs-route.ts` (`bindNeedsRouteAlerts`: entering `needs_route` → `notifier.needsRoute`), `select.ts` (`selectNotifier`: APNs or log, plus the transport's `close`),
   `lifecycle.ts` (`createNotifyLifecycle`: stop / idle / close for shutdown).
 - `server/src/http/` — `auth.ts` (device-token guard), `memos.ts`, `devices.ts`, `media.ts` (audio + speech, `Range`),
   `herd.ts` and `events.ts` (route plugins), `schemas.ts` (every request/response shape as pure TypeBox, exported for the
@@ -104,6 +104,7 @@ All under `/v1`, `Authorization: Bearer <token>`. Errors: `{error: <code>, messa
 | `PUT /memos/:id/segments/:n` raw `audio/mp4` bytes | 200, idempotent by sha256 (same sha no-op, different sha 409); 413 over `IRIS_MAX_SEGMENT_BYTES`; 409 after `complete` |
 | `POST /memos/:id/complete` `{segmentCount}` | 202 memo (repeat too); 422 `missing_segments` + `missing: [...]` |
 | `POST /memos/:id/retry` `{from}` | 202 memo; 409 unless `failed` |
+| `POST /memos/:id/route` `{destination: hermes\|journal\|herdr, tab?}` | `needs_route`: 202 memo, routed and driven on (400 `<dest> not available` when unregistered; `tab` iff herdr); after `act` (`acted`/`summarized`/`notified`): 200 memo, a `correction` is only logged; other states and a second answer 409; 404 unknown |
 | `GET /memos?limit&cursor` | `{items, nextCursor}`, newest first |
 | `GET /memos/:id` | memo + `steps` timeline + `segmentCount`; 404 unknown |
 | `GET /memos/:id/result?wait=<s>` | 200 once result-ready, else 202 after the wait (0..600, default 0) |
@@ -236,6 +237,14 @@ Push to master deploys. LaunchAgent `com.jkrumm.iris` (KeepAlive, `ExitTimeOut` 
   nor `act` is registered and the memo waits at `transcribed`. Every outcome is one `route_decisions` row written by `completeStep` with the step
   (`patch.routeDecision`); the park reason is the latest row's `reason` (`store.listRouteDecisions`), a low-confidence park keeps the model's guess
   in `destination`. Because the transcript is never rewritten, a retry from `route` routes by the same prefix again.
+- **Answering a park** (`POST /memos/:id/route`, `MemoService.route`): `store.answerRoute` is one transaction (`needs_route` → `routed` compare-and-set,
+  `memos.route` set, an `answer` decision row), then `memo.updated` (`routed`, step `route`) is published and the runner drives on with `act`. A second answer
+  while the first drives is 409 `bad_state` (the memo left `needs_route`), which is the idempotency story. After `act`, `store.recordCorrection` only appends a
+  `correction` row (log `route.decided {source: "correction", corrected: true}`), no re-act, no event. `act` and `summarize` still cut a spoken prefix after an answer
+  (`deliveredTranscript` looks for any `prefix` row), so a prefix park answered with another destination delivers the text without the prefix word. The
+  destinations an answer may pick are the registered ones (`createMemoService({destinations})`, from `compose()`); `tab` is not checked against the herd.
+  While `needs_route` the memo wire shape carries `routeReason` (latest decision's `reason`) and, for a low-confidence park, `routeSuggestion` (its `destination`);
+  derived by the store's `SELECT`, omitted (never null) in every other state. Elysia's `t.UnionEnum` defaults a missing value to its first member, so `RouteBody` sets `default: undefined`.
 - **`act` is at-least-once:** a crash or restart mid-`act` replays the step, which posts a second turn
   into the same Hermes session. Shutdown keeps the window small: `app.stop(true)`, `runner.stop()` (the
   running step finishes, no further step or queued memo starts), `notifyLifecycle.stop()`, `await runner.idle()` + the in-flight
@@ -271,6 +280,11 @@ Push to master deploys. LaunchAgent `com.jkrumm.iris` (KeepAlive, `ExitTimeOut` 
   Transient failures (status 0, 408, 429, 5xx, 403 ExpiredProviderToken) throw, so notify fails and `POST /retry` re-drives
   it (a retry re-sends both pushes; the alert carries `apns-collapse-id` = memo id, so a re-send replaces the banner instead of duplicating it). `phase` (Live Activity `update`, priority 5) is bound to memo events by
   `bindPhaseUpdates`: not for `receiving` or `notified`, serialised per memo, latest state wins, errors logged only.
+  **Needs-route alert:** `bindNeedsRouteAlerts` calls `notifier.needsRoute({memo, reason})` once when a memo enters `needs_route` (skipped when it was already
+  answered): one alert, priority 10, `category: MEMO_NEEDS_ROUTE`, `thread-id: memo`, `mutable-content: 1`, `apns-collapse-id` = memo id, title "Where should this go?",
+  body the park reason (never transcript or reply). Alert only: the Live Activity `needsRoute` update is the phase binding's, so nothing is sent twice. Best effort, never
+  throws (`notify.needs_route_failed`, `notify.apns_*`); no alert token logs `notify.no_token`; the log notifier logs `notify.needs_route_log`. It is part of the
+  shutdown drain (`createNotifyLifecycle({alerts})`). The finished memo's `MEMO_DONE` alert has the same collapse id and replaces the banner.
 - **APNs transport:** node-apn builds the ES256 JWT with `jsonwebtoken` and regenerates it when its `iat` is 3300 s (55 min)
   old, checked per request (Apple: not <20, not >60 min); it retries 408/429/5xx and ExpiredProviderToken 3x. We cap in-flight
   streams at 10 (Bun ignores `peerMaxConcurrentStreams`) and send the first request per environment alone (Apple allows one
@@ -280,8 +294,8 @@ Push to master deploys. LaunchAgent `com.jkrumm.iris` (KeepAlive, `ExitTimeOut` 
 - **Live Activity contract (Swift side):** payload `aps` is `{timestamp, event, "content-state"}` (+ `dismissal-date` on `end`,
   now + 15 min). `ContentState` is plain camelCase Codable: `phase` (`processing` | `needsRoute` | `done` | `failed`),
   `routeChip?`, `headline?` (≤ 60), `hasReply`. `inputName` is never sent: the client keeps it device-side and must declare it
-  optional. Alerts carry the route chip + headline only (never transcript or reply), `category: MEMO_DONE`, `thread-id: memo`,
-  `mutable-content: 1` and a top-level `memo` id.
+  optional. Alerts carry the route chip + headline only (never transcript or reply), `category: MEMO_DONE` (or `MEMO_NEEDS_ROUTE`: generic title,
+  the park reason as body), `thread-id: memo`, `mutable-content: 1` and a top-level `memo` id.
 - **Bookkeeping failures** (`completeStep` throws after a handler ran) log `runner.bookkeeping_failed`
   and propagate; the step row stays `running` and the memo keeps its state until the next `driveAll`.
 - A stored `summary_json` that fails the zod `Summary` schema reads as `null` with a `memo.summary_invalid` log.

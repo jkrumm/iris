@@ -61,6 +61,42 @@ export function seedMemo(store: MemoStore, state: MemoState = "receiving", devic
   return store.getMemo(memo.id) as Memo;
 }
 
+/** Walks a fresh memo through `route` into `needs_route`, with the decision row the route step writes. */
+export function parkMemo(
+  store: MemoStore,
+  decision: { source?: "mode" | "prefix" | "decide"; destination?: string | null; reason: string },
+  transcript = "kauf bitte Milch",
+) {
+  const memo = seedMemo(store, "transcribed");
+  store.completeStep({
+    id: memo.id,
+    step: "transcribe",
+    from: "transcribed",
+    to: "transcribed",
+    patch: { transcript },
+  });
+  store.markStepStarted({ id: memo.id, step: "route" });
+  store.completeStep({
+    id: memo.id,
+    step: "route",
+    from: "transcribed",
+    to: "needs_route",
+    patch: {
+      routeDecision: {
+        source: decision.source ?? "decide",
+        destination: decision.destination ?? null,
+        tab: null,
+        confidence: null,
+        model: null,
+        costUsd: null,
+        reason: decision.reason,
+        outcome: "needs_route",
+      },
+    },
+  });
+  return memo.id;
+}
+
 export function deferred<T = void>() {
   let resolve!: (value: T) => void;
   let reject!: (reason: unknown) => void;

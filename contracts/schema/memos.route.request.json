@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "destination": {
+      "enum": [
+        "hermes",
+        "journal",
+        "herdr"
+      ],
+      "type": "string"
+    },
+    "tab": {
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "required": [
+    "destination"
+  ],
+  "title": "memos.route.request",
+  "type": "object"
+}

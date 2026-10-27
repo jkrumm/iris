@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test";
-import { call, testApp } from "./test-support.js";
+import { parkMemo } from "../memo/test-support.js";
+import { call, fakeHandlers, testApp } from "./test-support.js";
 
 /** Reads decoded chunks from an SSE body until `done` says enough, or the deadline passes. */
 async function readUntil(
@@ -85,5 +86,37 @@ describe("GET /v1/events", () => {
     await Bun.sleep(10);
     expect(listenerCount()).toBe(0);
     await res.body?.cancel().catch(() => undefined);
+  });
+
+  it("streams memo.updated (routed) when a parked memo is answered, then memo.done at notified", async () => {
+    const { app, store, runner } = testApp({ sseKeepaliveMs: 1000, handlers: fakeHandlers });
+    const id = parkMemo(store, { reason: "decide refused" });
+    const res = await call(app, { path: "/v1/events" });
+    const reader = (res.body as ReadableStream<Uint8Array>).getReader();
+
+    await call(app, {
+      method: "POST",
+      path: `/v1/memos/${id}/route`,
+      json: { destination: "hermes" },
+    });
+    await runner.idle();
+
+    const text = await readUntil(reader, (t) => t.includes("memo.done"));
+    const frames = text
+      .split("\n\n")
+      .map((block) => block.split("\n"))
+      .filter((lines) => lines[0]?.startsWith("event: memo."))
+      .map(([name, data]) => [
+        (name as string).slice(7),
+        (JSON.parse((data as string).slice(6)) as { state: string }).state,
+      ]);
+    expect(frames).toEqual([
+      ["memo.updated", "routed"],
+      ["memo.updated", "acted"],
+      ["memo.updated", "summarized"],
+      ["memo.updated", "notified"],
+      ["memo.done", "notified"],
+    ]);
+    await reader.cancel();
   });
 });

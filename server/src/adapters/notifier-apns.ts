@@ -1,5 +1,10 @@
 import type { Memo } from "../memo/memo.js";
-import { buildAlert, buildLiveActivityEnd, buildLiveActivityUpdate } from "../notify/payloads.js";
+import {
+  buildAlert,
+  buildLiveActivityEnd,
+  buildLiveActivityUpdate,
+  buildNeedsRouteAlert,
+} from "../notify/payloads.js";
 import type { ApnsMessage, ApnsResult, ApnsTransport } from "../ports/apns.js";
 import type { Clock } from "../ports/clock.js";
 import type { ApnsEnv, DeviceStore } from "../ports/devices.js";
@@ -7,7 +12,7 @@ import type { Notifier } from "../ports/notifier.js";
 import { log } from "../telemetry/log.js";
 
 type Failure = Extract<ApnsResult, { ok: false }>;
-type Kind = "alert" | "live_activity_update" | "live_activity_end";
+type Kind = "alert" | "needs_route_alert" | "live_activity_update" | "live_activity_end";
 
 /** Worth a retry: no response, throttled, APNs-side trouble, or a provider token node-apn could not refresh. */
 const isTransient = ({ status, reason }: Failure) =>
@@ -130,6 +135,25 @@ export function createApnsNotifier(deps: {
       const results = await Promise.all(pushes);
       const transient = results.find((r): r is Failure => !r.ok && isTransient(r));
       if (transient) throw new Error(`apns: ${transient.status} ${transient.reason}`);
+    },
+
+    async needsRoute({ memo, reason }) {
+      try {
+        const token = devices.getDevice(memo.device)?.apnsToken ?? null;
+        if (!token) {
+          logger("notify.no_token", { memo_id: memo.id, device: memo.device, kind: "needs_route" });
+          return;
+        }
+        await push({
+          kind: "needs_route_alert",
+          memo,
+          token,
+          message: buildNeedsRouteAlert({ topic, memo, reason }),
+          clearToken: clearDeviceToken(memo, token),
+        });
+      } catch (err) {
+        logger("notify.needs_route_failed", { memo_id: memo.id, error: String(err) });
+      }
     },
 
     async phase({ memo }) {

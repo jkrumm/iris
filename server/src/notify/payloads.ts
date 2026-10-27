@@ -29,12 +29,15 @@ export const ContentState = t.Object({
 });
 export type LiveActivityContentState = typeof ContentState.static;
 
-/** The whole alert body: Apple's `aps` dict plus the custom `memo` key (the memo id) the app routes on. */
+/**
+ * The whole alert body: Apple's `aps` dict plus the custom `memo` key (the memo id) the app routes on.
+ * `MEMO_DONE` announces a finished memo, `MEMO_NEEDS_ROUTE` one that waits for the user's destination choice.
+ */
 export const AlertPayload = t.Object({
   aps: t.Object({
     alert: t.Object({ title: t.String(), body: t.String() }),
     "mutable-content": t.Literal(1),
-    category: t.Literal("MEMO_DONE"),
+    category: t.UnionEnum(["MEMO_DONE", "MEMO_NEEDS_ROUTE"]),
     "thread-id": t.Literal("memo"),
     sound: t.Literal("default"),
   }),
@@ -143,6 +146,38 @@ export function buildAlert(params: { topic: string; memo: Memo; summary: Summary
       },
       "mutable-content": 1,
       category: "MEMO_DONE",
+      "thread-id": "memo",
+      sound: "default",
+    },
+    memo: memo.id,
+  };
+  return {
+    headers: { topic, pushType: "alert", priority: 10, collapseId: memo.id },
+    payload,
+  };
+}
+
+const NEEDS_ROUTE_TITLE = "Where should this go?";
+const NEEDS_ROUTE_FALLBACK_BODY = "Choose a destination to continue.";
+
+/**
+ * The needs-route alert: generic title plus the park reason, never transcript or reply text. Same
+ * collapse id as the done alert, so the finished memo replaces this banner.
+ */
+export function buildNeedsRouteAlert(params: {
+  topic: string;
+  memo: Memo;
+  reason: string | null;
+}): ApnsMessage {
+  const { topic, memo, reason } = params;
+  const payload: AlertPayloadBody = {
+    aps: {
+      alert: {
+        title: NEEDS_ROUTE_TITLE,
+        body: reason ? truncate(reason, ALERT_BODY_MAX) : NEEDS_ROUTE_FALLBACK_BODY,
+      },
+      "mutable-content": 1,
+      category: "MEMO_NEEDS_ROUTE",
       "thread-id": "memo",
       sound: "default",
     },

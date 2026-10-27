@@ -5,6 +5,7 @@ import {
   buildAlert,
   buildLiveActivityEnd,
   buildLiveActivityUpdate,
+  buildNeedsRouteAlert,
   MAX_PAYLOAD_BYTES,
   phaseOf,
   routeChip,
@@ -173,5 +174,49 @@ describe("helpers", () => {
     expect(routeChip("hermes")).toBe("Hermes");
     expect(routeChip(null)).toBeNull();
     expect(routeChip("")).toBeNull();
+  });
+});
+
+describe("needs-route alert", () => {
+  it("is a priority-10 MEMO_NEEDS_ROUTE alert with the memo id, collapsing with the done alert", () => {
+    const memo = memoWith({ state: "needs_route", route: null });
+    const message = buildNeedsRouteAlert({ topic: TOPIC, memo, reason: "journal not available" });
+    expect(message).toEqual({
+      headers: { topic: TOPIC, pushType: "alert", priority: 10, collapseId: memo.id },
+      payload: {
+        aps: {
+          alert: { title: "Where should this go?", body: "journal not available" },
+          "mutable-content": 1,
+          category: "MEMO_NEEDS_ROUTE",
+          "thread-id": "memo",
+          sound: "default",
+        },
+        memo: memo.id,
+      },
+    });
+    expect(message.headers.collapseId).toBe(
+      buildAlert({ topic: TOPIC, memo, summary }).headers.collapseId,
+    );
+  });
+
+  it("falls back to a generic body, caps a long reason and never leaks transcript or reply", () => {
+    const memo = memoWith({
+      state: "needs_route",
+      transcript: "secret transcript text",
+      replyText: "secret reply text",
+    });
+    const bare = buildNeedsRouteAlert({ topic: TOPIC, memo, reason: null });
+    const long = buildNeedsRouteAlert({ topic: TOPIC, memo, reason: "r".repeat(500) });
+    expect((bare.payload["aps"] as { alert: { body: string } }).alert.body).toBe(
+      "Choose a destination to continue.",
+    );
+    expect(
+      Array.from((long.payload["aps"] as { alert: { body: string } }).alert.body),
+    ).toHaveLength(200);
+    for (const message of [bare, long]) {
+      const text = JSON.stringify(message);
+      expect(text).not.toContain("secret");
+      expect(bytes(message.payload)).toBeLessThan(MAX_PAYLOAD_BYTES);
+    }
   });
 });

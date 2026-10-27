@@ -2,7 +2,7 @@ import { Database } from "bun:sqlite";
 import { describe, expect, it } from "bun:test";
 import { MemoError } from "../memo/errors.js";
 import type { MemoPatch, MemoState, Step } from "../memo/memo.js";
-import { captureLogs, seedMemo, testStore } from "../memo/test-support.js";
+import { captureLogs, parkMemo, seedMemo, testStore } from "../memo/test-support.js";
 import { createSqliteMemoStore, migrate } from "./sqlite.js";
 import { MIGRATIONS } from "./sqlite-migrations.js";
 
@@ -505,5 +505,80 @@ describe("migrations", () => {
       0,
     );
     expect(db.query("SELECT name FROM sqlite_master WHERE name = 'a'").get()).toBeNull();
+  });
+});
+
+describe("answering and correcting a route", () => {
+  const answer = {
+    source: "answer" as const,
+    destination: "hermes",
+    tab: null,
+    confidence: null,
+    model: null,
+    costUsd: null,
+    reason: null,
+    outcome: "routed" as const,
+  };
+
+  it("exposes the park reason and suggestion only while the memo is needs_route", () => {
+    const { store } = testStore();
+    const id = parkMemo(store, { reason: "low confidence (0.60)", destination: "journal" });
+    expect(store.getMemo(id)).toMatchObject({
+      routeReason: "low confidence (0.60)",
+      routeSuggestion: "journal",
+    });
+    expect(store.listMemos({ limit: 5 }).memos[0]).toMatchObject({
+      routeReason: "low confidence (0.60)",
+    });
+
+    const plain = parkMemo(store, { reason: "journal not available" });
+    const memo = store.getMemo(plain);
+    expect(memo?.routeReason).toBe("journal not available");
+    expect(memo).not.toHaveProperty("routeSuggestion");
+
+    store.answerRoute({ id, decision: answer });
+    const answered = store.getMemo(id);
+    expect(answered).not.toHaveProperty("routeReason");
+    expect(answered).not.toHaveProperty("routeSuggestion");
+  });
+
+  it("answerRoute moves needs_route to routed, sets the route and logs in one step", () => {
+    const { store } = testStore();
+    const id = parkMemo(store, { reason: "decide refused" });
+    expect(store.answerRoute({ id, decision: answer })).toBe(true);
+    expect(store.getMemo(id)).toMatchObject({ state: "routed", route: "hermes" });
+    expect(store.listRouteDecisions(id).map((d) => [d.source, d.outcome])).toEqual([
+      ["decide", "needs_route"],
+      ["answer", "routed"],
+    ]);
+  });
+
+  it("answerRoute writes nothing unless the memo is needs_route", () => {
+    const { store } = testStore();
+    const { id } = seedMemo(store, "transcribed");
+    expect(store.answerRoute({ id, decision: answer })).toBe(false);
+    const parked = parkMemo(store, { reason: "decide refused" });
+    expect(store.answerRoute({ id: parked, decision: answer })).toBe(true);
+    expect(store.answerRoute({ id: parked, decision: answer })).toBe(false);
+    expect(store.listRouteDecisions(id)).toEqual([]);
+    expect(store.listRouteDecisions(parked).filter((d) => d.source === "answer")).toHaveLength(1);
+  });
+
+  it("recordCorrection logs without touching the memo, only from acted onwards", () => {
+    const { store } = testStore();
+    const correction = { ...answer, source: "correction" as const };
+    for (const state of ["transcribed", "routed"] as const) {
+      const { id } = seedMemo(store, state);
+      expect(store.recordCorrection({ id, decision: correction })).toBe(false);
+      expect(store.listRouteDecisions(id)).toEqual([]);
+    }
+    for (const state of ["acted", "summarized", "notified"] as const) {
+      const { id } = seedMemo(store, state);
+      const before = store.getMemo(id);
+      expect(store.recordCorrection({ id, decision: correction })).toBe(true);
+      expect(store.getMemo(id)).toEqual(before);
+      expect(store.listRouteDecisions(id)).toMatchObject([{ source: "correction" }]);
+    }
+    expect(store.recordCorrection({ id: crypto.randomUUID(), decision: correction })).toBe(false);
   });
 });

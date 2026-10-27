@@ -9,6 +9,7 @@ import {
   type MemoColumnPatch,
   type MemoMode,
   type MemoState,
+  type RouteDecisionInput,
   type RouteDecisionRecord,
   type RouteOutcome,
   type RouteSource,
@@ -61,6 +62,9 @@ interface MemoRow {
   summary_json: string | null;
   created_at: string;
   updated_at: string;
+  /** The latest decision's reason and destination, only while the memo is `needs_route`. */
+  park_reason: string | null;
+  park_destination: string | null;
 }
 
 interface StepRow {
@@ -117,9 +121,18 @@ const toMemo = (row: MemoRow): Memo => ({
   destinationRef: row.destination_ref,
   replyText: row.reply_text,
   summary: parseSummary(row),
+  ...(row.park_reason !== null && { routeReason: row.park_reason }),
+  ...(row.park_destination !== null && { routeSuggestion: row.park_destination }),
   createdAt: row.created_at,
   updatedAt: row.updated_at,
 });
+
+/** `SELECT` list for a memo row: the columns plus the park details of the latest routing decision. */
+const MEMO_SELECT = `memos.*,
+  CASE WHEN memos.state = 'needs_route' THEN
+    (SELECT reason FROM route_decisions d WHERE d.memo_id = memos.id ORDER BY d.id DESC LIMIT 1) END AS park_reason,
+  CASE WHEN memos.state = 'needs_route' THEN
+    (SELECT destination FROM route_decisions d WHERE d.memo_id = memos.id ORDER BY d.id DESC LIMIT 1) END AS park_destination`;
 
 const toRouteDecision = (row: RouteDecisionRow): RouteDecisionRecord => ({
   id: row.id,
@@ -153,6 +166,9 @@ const STEP_COLUMNS: Partial<Record<Step, (keyof MemoColumnPatch)[]>> = {
   summarize: ["summary"],
 };
 
+/** States after `act`, where a routing correction is only a log entry. */
+const CORRECTABLE: readonly MemoState[] = ["acted", "summarized", "notified"];
+
 const toStepRecord = (row: StepRow): StepRecord => ({
   step: row.step as Step,
   status: row.status as StepRecord["status"],
@@ -170,7 +186,7 @@ export function createSqliteMemoStore(params: { db: Database; clock: Clock }): M
 
   const stamp = () => clock.now().toISOString();
   const memoById = (id: string) =>
-    db.query<MemoRow, [string]>("SELECT * FROM memos WHERE id = ?").get(id);
+    db.query<MemoRow, [string]>(`SELECT ${MEMO_SELECT} FROM memos WHERE id = ?`).get(id);
 
   const markStepFailed = db.transaction((id: string, step: Step, error: string) => {
     const at = stamp();
@@ -204,6 +220,46 @@ export function createSqliteMemoStore(params: { db: Database; clock: Clock }): M
     return true;
   });
 
+  const insertRouteDecision = (id: string, at: string, decision: RouteDecisionInput) => {
+    db.query(
+      `INSERT INTO route_decisions
+         (memo_id, created_at, source, destination, tab, confidence, model, cost_usd, reason, outcome)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      id,
+      at,
+      decision.source,
+      decision.destination,
+      decision.tab,
+      decision.confidence,
+      decision.model,
+      decision.costUsd,
+      decision.reason,
+      decision.outcome,
+    );
+  };
+
+  const answerRoute = db.transaction((id: string, decision: RouteDecisionInput): boolean => {
+    const at = stamp();
+    const moved = db
+      .query(
+        "UPDATE memos SET state = 'routed', route = ?, updated_at = ? WHERE id = ? AND state = 'needs_route'",
+      )
+      .run(decision.destination, at, id);
+    if (moved.changes === 0) return false;
+    insertRouteDecision(id, at, decision);
+    return true;
+  });
+
+  const recordCorrection = db.transaction((id: string, decision: RouteDecisionInput): boolean => {
+    const row = db
+      .query<{ state: string }, [string]>("SELECT state FROM memos WHERE id = ?")
+      .get(id);
+    if (!row || !CORRECTABLE.includes(row.state as MemoState)) return false;
+    insertRouteDecision(id, stamp(), decision);
+    return true;
+  });
+
   const completeStep = db.transaction(
     (input: Parameters<MemoStore["completeStep"]>[0]): boolean => {
       const { id, step, from, to, usage, costUsd, patch } = input;
@@ -216,25 +272,7 @@ export function createSqliteMemoStore(params: { db: Database; clock: Clock }): M
         `UPDATE memo_steps SET status = 'done', finished_at = ?, error = NULL, usage_json = ?, cost_usd = ?
          WHERE memo_id = ? AND step = ?`,
       ).run(at, usage === undefined ? null : JSON.stringify(usage), costUsd ?? null, id, step);
-      const decision = patch?.routeDecision;
-      if (decision) {
-        db.query(
-          `INSERT INTO route_decisions
-             (memo_id, created_at, source, destination, tab, confidence, model, cost_usd, reason, outcome)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        ).run(
-          id,
-          at,
-          decision.source,
-          decision.destination,
-          decision.tab,
-          decision.confidence,
-          decision.model,
-          decision.costUsd,
-          decision.reason,
-          decision.outcome,
-        );
-      }
+      if (patch?.routeDecision) insertRouteDecision(id, at, patch.routeDecision);
       const fields = (Object.keys(PATCH_COLUMNS) as (keyof MemoColumnPatch)[]).filter(
         (field) => patch?.[field] !== undefined,
       );
@@ -280,7 +318,7 @@ export function createSqliteMemoStore(params: { db: Database; clock: Clock }): M
       }
       const rows = db
         .query<MemoRow, [number | null, number | null, number]>(
-          "SELECT * FROM memos WHERE (? IS NULL OR seq < ?) ORDER BY seq DESC LIMIT ?",
+          `SELECT ${MEMO_SELECT} FROM memos WHERE (? IS NULL OR seq < ?) ORDER BY seq DESC LIMIT ?`,
         )
         .all(before, before, limit + 1);
       const page = rows.slice(0, limit);
@@ -381,10 +419,18 @@ export function createSqliteMemoStore(params: { db: Database; clock: Clock }): M
         .map(toRouteDecision);
     },
 
+    answerRoute({ id, decision }) {
+      return answerRoute(id, decision);
+    },
+
+    recordCorrection({ id, decision }) {
+      return recordCorrection(id, decision);
+    },
+
     listNonTerminal() {
       return db
         .query<MemoRow, []>(
-          `SELECT * FROM memos
+          `SELECT ${MEMO_SELECT} FROM memos
            WHERE state NOT IN ('receiving', 'notified', 'failed', 'needs_route') ORDER BY seq`,
         )
         .all()

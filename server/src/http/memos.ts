@@ -14,6 +14,7 @@ import {
   MissingSegmentsError,
   ResultQuery,
   RetryBody,
+  RouteBody,
   SegmentParams,
   TooLargeError,
 } from "./schemas.js";
@@ -128,6 +129,23 @@ export function memoRoutes(deps: { memos: MemoService; auth: ReturnType<typeof d
         params: MemoIdParams,
         body: RetryBody,
         response: { 202: Memo, 400: ErrorBody, 404: ErrorBody, 409: ErrorBody },
+      },
+    )
+    .post(
+      "/:id/route",
+      ({ params, body, set }) => {
+        const { memo, accepted } = memos.route({
+          id: params.id,
+          destination: body.destination,
+          tab: body.tab,
+        });
+        set.status = accepted ? 202 : 200;
+        return memoJson(memo);
+      },
+      {
+        params: MemoIdParams,
+        body: RouteBody,
+        response: { 200: Memo, 202: Memo, 400: ErrorBody, 404: ErrorBody, 409: ErrorBody },
       },
     )
     .get(

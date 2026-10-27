@@ -6,6 +6,7 @@ import { createRunner, type StepHandler } from "../memo/runner.js";
 import { createMemoMedia } from "../memo/media.js";
 import { createMemoService } from "../memo/service.js";
 import { fakeAudio, testStore } from "../memo/test-support.js";
+import type { DestinationName } from "../ports/destination.js";
 import type { HerdTab } from "../ports/herd.js";
 import { fakeCombiner, fakeHerd, fakeSpeaker, fakeSpeechCache } from "../ports/fakes.js";
 import { parseDeviceTokens } from "./auth.js";
@@ -26,6 +27,8 @@ export function testApp(
     herd?: ReturnType<typeof fakeHerd> | false;
     herdTabs?: HerdTab[];
     combiner?: ReturnType<typeof fakeCombiner>;
+    /** The destinations an answer may pick; default `hermes` only. */
+    destinations?: DestinationName[];
   } = {},
 ) {
   const { store, clock, db } = testStore();
@@ -51,6 +54,7 @@ export function testApp(
     audio,
     clock,
     maxSegmentBytes: options.maxSegmentBytes ?? 1024,
+    destinations: options.destinations ?? ["hermes"],
   });
   const devices = createSqliteDeviceStore({ db, clock });
   const combiner = options.combiner ?? fakeCombiner();

@@ -62,4 +62,34 @@ describe("notify lifecycle", () => {
 
     await setup().lifecycle.close();
   });
+
+  it("also waits for, and stops, the needs-route alerts", async () => {
+    const gate = deferred();
+    let stopped = false;
+    const alerts = {
+      stop: () => {
+        stopped = true;
+      },
+      idle: () => gate.promise,
+    };
+    const { phases } = (() => {
+      const { db, clock, store } = testStore();
+      const devices = createSqliteDeviceStore({ db, clock });
+      return {
+        phases: bindPhaseUpdates({
+          events: createMemoEvents(),
+          store,
+          devices,
+          notifier: fakeNotifier(),
+        }),
+      };
+    })();
+    const lifecycle = createNotifyLifecycle({ phases, alerts });
+    const idle = lifecycle.idle();
+    expect(await settled(idle)).toBe(false);
+    gate.resolve();
+    expect(await settled(idle)).toBe(true);
+    lifecycle.stop();
+    expect(stopped).toBe(true);
+  });
 });

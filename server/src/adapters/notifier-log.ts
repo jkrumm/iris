@@ -14,5 +14,8 @@ export function createLogNotifier(opts: { logger?: typeof log } = {}): Notifier 
       });
     },
     async phase() {},
+    async needsRoute({ memo, reason }) {
+      logger("notify.needs_route_log", { memo_id: memo.id, device: memo.device, reason });
+    },
   };
 }

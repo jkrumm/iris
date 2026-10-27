@@ -303,3 +303,65 @@ describe("phase", () => {
     ]);
   });
 });
+
+describe("needsRoute", () => {
+  it("sends one alert with the needs-route payload to the device's environment, and no Live Activity push", async () => {
+    const { notifier, memo, transport, devices } = setup({ apnsEnv: "production" });
+    devices.registerDevice({ ...phone, apnsToken: "aa11" });
+    devices.setActivityToken({ memoId: memo.id, token: "bb22" });
+
+    await notifier.needsRoute({ memo, reason: "low confidence (0.60)" });
+
+    expect(transport.calls).toHaveLength(1);
+    expect(transport.calls[0]).toEqual({
+      headers: { topic: TOPIC, pushType: "alert", priority: 10, collapseId: memo.id },
+      payload: {
+        aps: {
+          alert: { title: "Where should this go?", body: "low confidence (0.60)" },
+          "mutable-content": 1,
+          category: "MEMO_NEEDS_ROUTE",
+          "thread-id": "memo",
+          sound: "default",
+        },
+        memo: memo.id,
+      },
+      environment: "production",
+      deviceToken: "aa11",
+    });
+  });
+
+  it("logs notify.no_token and sends nothing without an alert token", async () => {
+    const { notifier, memo, transport, devices, lines } = setup();
+    devices.setActivityToken({ memoId: memo.id, token: "bb22" });
+    await notifier.needsRoute({ memo, reason: null });
+    expect(transport.calls).toEqual([]);
+    expect(events(lines)).toEqual(["notify.no_token"]);
+  });
+
+  it("never throws: a transient failure is logged, a dead token cleared, a thrown send swallowed", async () => {
+    const { notifier, memo, transport, devices, lines } = setup({
+      results: [
+        { ok: false, status: 503, reason: "ServiceUnavailable" },
+        { ok: false, status: 410, reason: "Unregistered" },
+      ],
+    });
+    devices.registerDevice({ ...phone, apnsToken: "aa11" });
+
+    await notifier.needsRoute({ memo, reason: "decide refused" });
+    expect(devices.getDevice("iphone")?.apnsToken).toBe("aa11");
+    await notifier.needsRoute({ memo, reason: "decide refused" });
+    expect(devices.getDevice("iphone")?.apnsToken).toBeNull();
+
+    devices.registerDevice({ ...phone, apnsToken: "cc33" });
+    transport.send = async () => {
+      throw new Error("boom");
+    };
+    await notifier.needsRoute({ memo, reason: "decide refused" });
+
+    expect(events(lines)).toEqual([
+      "notify.apns_transient",
+      "notify.apns_rejected",
+      "notify.needs_route_failed",
+    ]);
+  });
+});

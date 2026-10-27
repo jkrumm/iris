@@ -1,14 +1,28 @@
 import { describe, expect, it } from "bun:test";
 import { MemoError, type MemoErrorCode } from "./errors.js";
 import { createMemoEvents, type MemoEvent, type MemoEvents } from "./events.js";
-import type { HandlerStep } from "./memo.js";
+import type { HandlerStep, Memo } from "./memo.js";
+import { createStepHandlers } from "../pipeline/steps.js";
+import { fakeDestination, fakeNotifier, fakeSummarizer } from "../ports/fakes.js";
+import type { DestinationName } from "../ports/destination.js";
 import { createRunner, type StepHandler } from "./runner.js";
 import { createMemoService } from "./service.js";
-import { deferred, fakeAudio, seedMemo, testStore } from "./test-support.js";
+import {
+  captureLogs,
+  deferred,
+  fakeAudio,
+  parkMemo as park,
+  seedMemo,
+  testStore,
+} from "./test-support.js";
 
 const bytes = (n = 4) => new Uint8Array(n).fill(7);
 
-function setup(handlers: Partial<Record<HandlerStep, StepHandler>> = {}, maxSegmentBytes = 16) {
+function setup(
+  handlers: Partial<Record<HandlerStep, StepHandler>> = {},
+  maxSegmentBytes = 16,
+  destinations: DestinationName[] = ["hermes"],
+) {
   const { store, clock } = testStore();
   const base = createMemoEvents();
   let listeners = 0;
@@ -25,7 +39,15 @@ function setup(handlers: Partial<Record<HandlerStep, StepHandler>> = {}, maxSegm
   };
   const audio = fakeAudio();
   const runner = createRunner({ store, handlers, events, clock });
-  const service = createMemoService({ store, runner, events, audio, clock, maxSegmentBytes });
+  const service = createMemoService({
+    store,
+    runner,
+    events,
+    audio,
+    clock,
+    maxSegmentBytes,
+    destinations,
+  });
   return { store, clock, events, audio, runner, service, listenerCount: () => listeners };
 }
 
@@ -352,5 +374,158 @@ describe("subscribe", () => {
     off();
     service.createMemo(input());
     expect(seen).toHaveLength(1);
+  });
+});
+
+describe("route", () => {
+  const rest: Record<"act" | "summarize" | "notify", StepHandler> = {
+    act: async () => ({ patch: { destinationRef: "s-1", replyText: "ok" } }),
+    summarize: async () => ({
+      patch: { summary: { headline: "h", detail: "d", spoken: "s" } },
+    }),
+    notify: async () => ({}),
+  };
+
+  it("answers a parked memo: routes it atomically, publishes, then the runner finishes it", async () => {
+    const { store, service, events, runner } = setup(rest);
+    const id = park(store, { reason: "low confidence (0.60)", destination: "journal" });
+    const seen: MemoEvent[] = [];
+    events.subscribe((e) => seen.push(e));
+
+    const { memo, accepted } = service.route({ id, destination: "hermes" });
+    expect(accepted).toBe(true);
+    expect(memo).toMatchObject({ state: "routed", route: "hermes" });
+    expect(memo.routeReason).toBeUndefined();
+    expect(store.listRouteDecisions(id).at(-1)).toMatchObject({
+      source: "answer",
+      destination: "hermes",
+      tab: null,
+      outcome: "routed",
+    });
+    expect(seen[0]).toMatchObject({ id, state: "routed", step: "route" });
+
+    await runner.idle();
+    expect(store.getMemo(id)?.state).toBe("notified");
+    expect(seen.map((e) => e.state)).toEqual(["routed", "acted", "summarized", "notified"]);
+  });
+
+  it("rejects an unregistered destination and a wrong tab without touching the memo", () => {
+    const { store, service } = setup(rest);
+    const id = park(store, { reason: "journal not available" });
+    const attempts = [
+      { destination: "journal" as const },
+      { destination: "herdr" as const },
+      { destination: "herdr" as const, tab: "w1:t1" },
+      { destination: "hermes" as const, tab: "w1:t1" },
+    ];
+    for (const attempt of attempts) {
+      expect(() => service.route({ id, ...attempt })).toThrow(MemoError);
+    }
+    expect(store.getMemo(id)?.state).toBe("needs_route");
+    expect(store.listRouteDecisions(id)).toHaveLength(1);
+    try {
+      service.route({ id, destination: "journal" });
+    } catch (err) {
+      expect(err).toMatchObject({ code: "bad_request", message: "journal not available" });
+    }
+  });
+
+  it("takes a herdr answer with a tab once herdr is registered", () => {
+    const { store, service } = setup({}, 16, ["hermes", "herdr"]);
+    const id = park(store, { reason: "decide refused" });
+    service.route({ id, destination: "herdr", tab: "w1:t1" });
+    expect(store.listRouteDecisions(id).at(-1)).toMatchObject({
+      source: "answer",
+      destination: "herdr",
+      tab: "w1:t1",
+    });
+  });
+
+  it("409s a second answer: the memo has left needs_route", async () => {
+    const gate = deferred();
+    const { store, service, runner } = setup({
+      ...rest,
+      act: async () => {
+        await gate.promise;
+        return {};
+      },
+    });
+    const id = park(store, { reason: "decide refused" });
+    service.route({ id, destination: "hermes" });
+    expect(await codeOf(() => service.route({ id, destination: "hermes" }))).toBe("bad_state");
+    expect(store.listRouteDecisions(id).filter((d) => d.source === "answer")).toHaveLength(1);
+    gate.resolve();
+    await runner.idle();
+  });
+
+  it("logs a correction after act and leaves the memo as it is", async () => {
+    const { store, service, events } = setup();
+    const seen: MemoEvent[] = [];
+    for (const state of ["acted", "summarized", "notified"] as const) {
+      const memo = seedMemo(store, state);
+      const before = store.getMemo(memo.id) as Memo;
+      events.subscribe((e) => seen.push(e));
+      const { result, lines } = await captureLogs(async () =>
+        service.route({ id: memo.id, destination: "hermes" }),
+      );
+      expect(result.accepted).toBe(false);
+      expect(result.memo).toEqual(before);
+      expect(store.listRouteDecisions(memo.id)).toMatchObject([
+        { source: "correction", destination: "hermes", outcome: "routed" },
+      ]);
+      expect(lines.find((l) => l["event"] === "route.decided")).toMatchObject({
+        source: "correction",
+        corrected: true,
+      });
+    }
+    expect(seen).toEqual([]);
+  });
+
+  it("409s receiving, received, transcribed, routed and failed, 404s unknown", async () => {
+    const { store, service } = setup();
+    for (const state of ["receiving", "received", "transcribed", "routed"] as const) {
+      const { id } = seedMemo(store, state);
+      expect(await codeOf(() => service.route({ id, destination: "hermes" }))).toBe("bad_state");
+    }
+    const failed = seedMemo(store, "transcribed");
+    store.markStepFailed({ id: failed.id, step: "route", error: "boom" });
+    expect(await codeOf(() => service.route({ id: failed.id, destination: "hermes" }))).toBe(
+      "bad_state",
+    );
+    expect(
+      await codeOf(() => service.route({ id: crypto.randomUUID(), destination: "hermes" })),
+    ).toBe("not_found");
+  });
+
+  it("delivers the transcript without the spoken prefix after an answer to a prefix park", async () => {
+    const { store, clock, events, audio } = setup();
+    const destination = fakeDestination();
+    const handlers = createStepHandlers({
+      store,
+      audio,
+      destinations: { hermes: destination },
+      summarizer: fakeSummarizer(),
+      notifier: fakeNotifier(),
+    });
+    const runner = createRunner({ store, handlers, events, clock });
+    const service = createMemoService({
+      store,
+      runner,
+      events,
+      audio,
+      clock,
+      maxSegmentBytes: 16,
+      destinations: ["hermes"],
+    });
+    // "journal" is spoken but not registered: the prefix parks the memo, the user picks hermes.
+    const id = park(
+      store,
+      { source: "prefix", reason: "journal not available" },
+      "Tagebuch: heute war gut",
+    );
+    service.route({ id, destination: "hermes" });
+    await runner.idle();
+    expect(store.getMemo(id)?.state).toBe("notified");
+    expect(destination.calls.map((c) => c.transcript)).toEqual(["heute war gut"]);
   });
 });

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test";
-import { call, MAC, PHONE, testApp } from "./test-support.js";
+import { parkMemo, seedMemo } from "../memo/test-support.js";
+import { call, fakeHandlers, MAC, PHONE, testApp } from "./test-support.js";
 
 const bytes = (n = 4) => new Uint8Array(n).fill(7);
 const newId = () => crypto.randomUUID();
@@ -342,5 +343,123 @@ describe("GET /v1/memos/:id/result", () => {
     ]);
     expect(outcome).not.toBe("stuck");
     expect(listenerCount()).toBe(0);
+  });
+});
+
+const route = (app: ReturnType<typeof testApp>["app"], id: string, json: unknown) =>
+  call(app, { method: "POST", path: `/v1/memos/${id}/route`, json });
+
+describe("POST /v1/memos/:id/route", () => {
+  it("answers a parked memo with 202, routes it and lets the pipeline finish", async () => {
+    const { app, store, runner } = testApp({ handlers: fakeHandlers });
+    const id = parkMemo(store, { reason: "journal not available" });
+    const parked = await call(app, { path: `/v1/memos/${id}` });
+    expect(await parked.json()).toMatchObject({
+      state: "needs_route",
+      routeReason: "journal not available",
+    });
+
+    const res = await route(app, id, { destination: "hermes" });
+    expect(res.status).toBe(202);
+    const body = await res.json();
+    expect(body).toMatchObject({ id, state: "routed", route: "hermes" });
+    expect(body).not.toHaveProperty("routeReason");
+    await runner.idle();
+    expect(store.getMemo(id)?.state).toBe("notified");
+    expect(store.listRouteDecisions(id).at(-1)).toMatchObject({ source: "answer" });
+  });
+
+  it("409s a second answer while the first is still driving", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const { app, store, runner } = testApp({
+      handlers: {
+        ...fakeHandlers,
+        act: async () => {
+          await gate;
+          return {};
+        },
+      },
+    });
+    const id = parkMemo(store, { reason: "decide refused" });
+    expect((await route(app, id, { destination: "hermes" })).status).toBe(202);
+    const again = await route(app, id, { destination: "hermes" });
+    expect(again.status).toBe(409);
+    expect(await again.json()).toMatchObject({ error: "bad_state" });
+    release();
+    await runner.idle();
+  });
+
+  it("400s an unregistered destination, a missing or stray tab and an unknown destination", async () => {
+    const { app, store } = testApp({ handlers: fakeHandlers });
+    const id = parkMemo(store, { reason: "decide refused" });
+    const unavailable = await route(app, id, { destination: "journal" });
+    expect(unavailable.status).toBe(400);
+    expect(await unavailable.json()).toEqual({
+      error: "bad_request",
+      message: "journal not available",
+    });
+    for (const json of [
+      { destination: "hermes", tab: "w1:t1" },
+      { destination: "nope" },
+      { destination: "hermes", tab: "" },
+      {},
+    ]) {
+      expect([json, (await route(app, id, json)).status]).toEqual([json, 400]);
+    }
+    const wrongTab = testApp({ destinations: ["hermes", "herdr"] });
+    const parked = parkMemo(wrongTab.store, { reason: "decide refused" });
+    expect((await route(wrongTab.app, parked, { destination: "herdr" })).status).toBe(400);
+    expect((await route(wrongTab.app, parked, { destination: "herdr", tab: "w1:t1" })).status).toBe(
+      202,
+    );
+    expect(store.getMemo(id)?.state).toBe("needs_route");
+  });
+
+  it("records a correction after act with 200 and leaves the memo unchanged", async () => {
+    const { app, store } = testApp();
+    const { id } = seedMemo(store, "notified");
+    const before = await (await call(app, { path: `/v1/memos/${id}` })).json();
+    const res = await route(app, id, { destination: "hermes" });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ id, state: "notified" });
+    expect(store.getMemo(id)?.updatedAt).toBe((before as { updatedAt: string }).updatedAt);
+    expect(store.listRouteDecisions(id)).toMatchObject([{ source: "correction" }]);
+  });
+
+  it("409s the other states, 404s unknown memos, 401s without a token", async () => {
+    const { app, store } = testApp();
+    for (const state of ["receiving", "received", "transcribed", "routed"] as const) {
+      const { id } = seedMemo(store, state);
+      expect([state, (await route(app, id, { destination: "hermes" })).status]).toEqual([
+        state,
+        409,
+      ]);
+    }
+    const failed = seedMemo(store, "transcribed");
+    store.markStepFailed({ id: failed.id, step: "route", error: "boom" });
+    expect((await route(app, failed.id, { destination: "hermes" })).status).toBe(409);
+    expect((await route(app, newId(), { destination: "hermes" })).status).toBe(404);
+    const anon = await call(app, {
+      method: "POST",
+      path: `/v1/memos/${failed.id}/route`,
+      headers: {},
+      json: { destination: "hermes" },
+    });
+    expect(anon.status).toBe(401);
+  });
+
+  it("lists a parked memo with its reason and suggestion", async () => {
+    const { app, store } = testApp();
+    parkMemo(store, { reason: "low confidence (0.62)", destination: "hermes" });
+    const res = await call(app, { path: "/v1/memos" });
+    const { items } = (await res.json()) as { items: Record<string, unknown>[] };
+    expect(items[0]).toMatchObject({
+      state: "needs_route",
+      routeReason: "low confidence (0.62)",
+      routeSuggestion: "hermes",
+    });
   });
 });

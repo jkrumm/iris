@@ -78,15 +78,22 @@ export function fakeSummarizer(
   };
 }
 
-/** `calls` records `notify`, `phaseCalls` records `phase`; `failWith` fails `notify` only. */
-export function fakeNotifier(
-  options: { failWith?: Error } = {},
-): Notifier & Calls<{ memo: Memo; summary: Summary }> & { phaseCalls: { memo: Memo }[] } {
+/** `calls` records `notify`, `phaseCalls` `phase`, `needsRouteCalls` `needsRoute`; `failWith` fails `notify` only. */
+export function fakeNotifier(options: { failWith?: Error } = {}): Notifier &
+  Calls<{ memo: Memo; summary: Summary }> & {
+    phaseCalls: { memo: Memo }[];
+    needsRouteCalls: { memo: Memo; reason: string | null }[];
+  } {
   const calls: { memo: Memo; summary: Summary }[] = [];
   const phaseCalls: { memo: Memo }[] = [];
+  const needsRouteCalls: { memo: Memo; reason: string | null }[] = [];
   return {
     calls,
     phaseCalls,
+    needsRouteCalls,
+    async needsRoute(params) {
+      needsRouteCalls.push(params);
+    },
     async notify(params) {
       calls.push(params);
       if (options.failWith) throw options.failWith;
