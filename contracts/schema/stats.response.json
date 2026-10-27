@@ -1,0 +1,117 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "costPerRoute": {
+      "items": {
+        "properties": {
+          "costUsd": {
+            "type": "number"
+          },
+          "memos": {
+            "type": "integer"
+          },
+          "route": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "route",
+          "costUsd",
+          "memos"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "days": {
+      "type": "integer"
+    },
+    "from": {
+      "type": "string"
+    },
+    "perDay": {
+      "items": {
+        "properties": {
+          "count": {
+            "type": "integer"
+          },
+          "date": {
+            "type": "string"
+          },
+          "route": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "date",
+          "route",
+          "count"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "perWeek": {
+      "items": {
+        "properties": {
+          "count": {
+            "type": "integer"
+          },
+          "weekStart": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "weekStart",
+          "count"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "stepMedians": {
+      "items": {
+        "properties": {
+          "medianMs": {
+            "type": "integer"
+          },
+          "samples": {
+            "type": "integer"
+          },
+          "step": {
+            "enum": [
+              "ingest",
+              "transcribe",
+              "route",
+              "act",
+              "summarize",
+              "notify"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "step",
+          "medianMs",
+          "samples"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "to": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "days",
+    "from",
+    "to",
+    "perDay",
+    "perWeek",
+    "stepMedians",
+    "costPerRoute"
+  ],
+  "title": "stats.response",
+  "type": "object"
+}

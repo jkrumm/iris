@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { createFsAudioStore } from "./adapters/audio-fs.js";
 import { createSqliteMemoStore, openDatabase } from "./adapters/sqlite.js";
 import { createSqliteDeviceStore } from "./adapters/sqlite-devices.js";
+import { createSqliteStatsStore } from "./adapters/sqlite-stats.js";
 import { createApp } from "./app.js";
 import { compose } from "./compose.js";
 import { env } from "./env.js";
@@ -25,6 +26,7 @@ const db = openDatabase(join(env.IRIS_DATA, "iris.db"));
 const clock = systemClock;
 const store = createSqliteMemoStore({ db, clock });
 const devices = createSqliteDeviceStore({ db, clock });
+const stats = createSqliteStatsStore({ db, clock });
 const events = createMemoEvents();
 const audio = createFsAudioStore(join(env.IRIS_DATA, "audio"));
 
@@ -75,6 +77,7 @@ const app = createApp({
   deviceTokens,
   degraded,
   memos,
+  stats,
   devices,
   media,
   herd: ports.herd,

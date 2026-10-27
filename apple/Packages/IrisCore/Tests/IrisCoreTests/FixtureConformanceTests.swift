@@ -48,6 +48,8 @@ let fixtureTypes: [String: RoundTrip] = [
   "memos.route.request": roundTrip(RouteRequest.self),
   "memos.route.response": roundTrip(Memo.self),
   "push.alert": roundTrip(PushAlert.self),
+  "stats.query": roundTrip(StatsQuery.self),
+  "stats.response": roundTrip(Stats.self),
   "threads.detail.response": roundTrip(ThreadDetail.self),
   "threads.list.query": roundTrip(ListThreadsQuery.self),
   "threads.list.response": roundTrip(ThreadPage.self),

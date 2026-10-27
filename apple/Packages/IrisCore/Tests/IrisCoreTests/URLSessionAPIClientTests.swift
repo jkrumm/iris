@@ -294,6 +294,26 @@ struct URLSessionAPIClientTests {
     #expect(server.request?.url.path == "/v1/herd")
   }
 
+  @Test("stats decodes the aggregates and sends days as a query item")
+  func stats() async throws {
+    let server = StubServer { _ in try .json(fixture: "stats.response") }
+    let stats = try await server.makeClient().stats(StatsQuery(days: 7))
+    #expect(stats.days == 7)
+    #expect(stats.perDay.contains(StatsDayCount(date: "2026-03-12", route: "unrouted", count: 1)))
+    #expect(stats.stepMedians.map(\.step) == [.transcribe, .route, .act, .summarize, .notify])
+    #expect(stats.costPerRoute.first { $0.route == "hermes" }?.costUsd == 0.0421)
+    #expect(server.request?.url.path == "/v1/stats")
+    #expect(server.request?.queryItems == [URLQueryItem(name: "days", value: "7")])
+  }
+
+  @Test("stats without days sends no query and decodes an empty window")
+  func statsEmpty() async throws {
+    let server = StubServer { _ in try .json(fixture: "stats.response.empty") }
+    let stats = try await server.makeClient().stats(StatsQuery())
+    #expect(stats.perDay.isEmpty && stats.perWeek.isEmpty && stats.stepMedians.isEmpty && stats.costPerRoute.isEmpty)
+    #expect(server.request?.url.query == nil)
+  }
+
   // MARK: Error mapping
 
   struct ErrorCase: Sendable, CustomTestStringConvertible {

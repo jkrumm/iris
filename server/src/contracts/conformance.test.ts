@@ -385,6 +385,12 @@ describe("flows: every response conforms", () => {
       ((await conformingBody({ route: "GET /v1/herd", res: empty })) as { tabs: [] }).tabs,
     ).toEqual([]);
 
+    const stats = await call(app, { path: "/v1/stats" });
+    await conformingBody({ route: "GET /v1/stats", res: stats });
+    const badDays = await call(app, { path: "/v1/stats?days=0" });
+    expect(badDays.status).toBe(400);
+    await conformingBody({ route: "GET /v1/stats", res: badDays });
+
     const health = await app.handle(new Request("http://iris.test/health"));
     expect(await conformingBody({ route: "GET /health", res: health })).toMatchObject({
       status: "ok",
@@ -671,6 +677,11 @@ describe("request fixtures are accepted by the server", () => {
     for (const f of fixturesOf("threads.list.query")) {
       const res = await call(app, { path: `/v1/threads?${query(f.stem)}` });
       expect([f.stem, res.status]).toEqual([f.stem, 200]);
+    }
+    for (const f of fixturesOf("stats.query")) {
+      const res = await call(app, { path: `/v1/stats?${query(f.stem)}` });
+      expect([f.stem, res.status]).toEqual([f.stem, 200]);
+      await conformingBody({ route: "GET /v1/stats", res });
     }
     for (const f of fixturesOf("memos.result.query")) {
       const res = await call(app, { path: `/v1/memos/${toComplete}/result?${query(f.stem)}` });

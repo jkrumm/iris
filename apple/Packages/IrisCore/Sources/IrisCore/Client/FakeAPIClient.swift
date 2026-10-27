@@ -22,13 +22,14 @@ public actor FakeAPIClient: APIClient {
     case registerDevice(RegisterDeviceRequest)
     case setActivityToken(memoID: String, request: ActivityTokenRequest)
     case herd
+    case stats(StatsQuery)
   }
 
   /// The endpoints a failure can be scripted for.
   public enum Endpoint: Hashable, Sendable {
     case health, whoami, createMemo, createTextMemo, uploadSegment, completeMemo, retryMemo, routeMemo
     case listMemos, memo, listThreads, thread, result
-    case registerDevice, setActivityToken, herd
+    case registerDevice, setActivityToken, herd, stats
   }
 
   public private(set) var calls: [Call] = []
@@ -39,6 +40,7 @@ public actor FakeAPIClient: APIClient {
   public var deviceID: String
   public var healthResponse = Health(status: .ok, degraded: [], inflight: 0)
   public var herdResponse = Herd(tabs: [])
+  public var statsResponse = Stats(days: 30, from: "1970-01-01", to: "1970-01-30")
 
   private let now: @Sendable () -> Date
   private var failures: [Endpoint: [APIError]] = [:]
@@ -77,6 +79,8 @@ public actor FakeAPIClient: APIClient {
   public func setHealth(_ health: Health) { healthResponse = health }
 
   public func setHerd(_ herd: Herd) { herdResponse = herd }
+
+  public func setStats(_ stats: Stats) { statsResponse = stats }
 
   /// Pushes an event to the consumer of `events()`. The stream has a single consumer.
   public nonisolated func emit(_ event: ServerEvent) {
@@ -285,6 +289,12 @@ public actor FakeAPIClient: APIClient {
     calls.append(.herd)
     try failIfScripted(.herd)
     return herdResponse
+  }
+
+  public func stats(_ query: StatsQuery) async throws -> Stats {
+    calls.append(.stats(query))
+    try failIfScripted(.stats)
+    return statsResponse
   }
 
   public nonisolated func events() -> AsyncThrowingStream<ServerEvent, any Error> {

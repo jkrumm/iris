@@ -113,11 +113,11 @@ The server is a few deep modules behind ports, in email-gateway's style.
 | `telemetry/` | `otel.ts`, `otel-format.ts`, `log.ts`, `relay.ts` (the client relay) | `withRootSpan`, `withSpan`, `log`, `relay`, `OtlpExporter` |
 
 **Shipped through Wave 11:** `memo/`, `pipeline/` (`steps.ts`), `notify/`, `telemetry/`, `http/`, `adapters/`, `ports/`, `routing/`. The
-journal, herdr and hermes destinations are all registered in `compose()`; `devices/` is the `DeviceStore` port plus `adapters/sqlite-devices.ts`. The module and
+journal, herdr and hermes destinations are all registered in `compose()`; `devices/` is the `DeviceStore` port plus `adapters/sqlite-devices.ts`; `GET /v1/stats` is the read-only `StatsStore` port plus `adapters/sqlite-stats.ts`. The module and
 file map of the code is in `AGENTS.md` §Layout.
 
 Ports, each with a production adapter and an in-memory fake (shipped: `Transcriber`, `Speaker`, `Summarizer`, `Destination` (hermes, journal, herdr),
-`Notifier`, `Herd`, `DeviceStore`, `AudioStore`, `AudioCombiner`, `Clock`, `Decider`; `Ids` is unused). `Destinations` is the registry
+`Notifier`, `Herd`, `DeviceStore`, `StatsStore` (SQLite only, no fake), `AudioStore`, `AudioCombiner`, `Clock`, `Decider`; `Ids` is unused). `Destinations` is the registry
 of the registered act adapters (`Partial<Record<"hermes" | "journal" | "herdr", Destination>>`; each is registered by its own env, see §Configuration):
 - `Transcriber`
 - `Speaker`
@@ -202,6 +202,7 @@ Shipped; the authoritative list is `contracts/manifest.json` and the table in `A
 | `GET /v1/memos/:id/speech` | TTS of `summary.spoken` (or `replyText`), cached as an mp3 |
 | `GET /v1/events` | SSE: `ready`, `memo.updated`, `memo.done` (for the Mac and the foreground iOS app) |
 | `GET /v1/herd` | herdr tabs `{id, repo, label, agentState, lastActivity}` (snapshot; `lastActivity` is always null) |
+| `GET /v1/stats?days=<n>` | `days` 1..365, default 30, else 400 `bad_request`. `{days, from, to, perDay: [{date, route, count}], perWeek: [{weekStart, count}], stepMedians: [{step, medianMs, samples}], costPerRoute: [{route, costUsd, memos}]}`. Read-only aggregates over `memos` (by `created_at`) and `memo_steps`; no migration, no spend; 503 when the app is composed without a `StatsStore`. The window is the last `days` **local days of the server** (today included, `from`/`to` are `YYYY-MM-DD`); `date` and Monday-start `weekStart` use the same zone, and the first week only counts the days inside the window. A null `route` is reported as `unrouted`. `stepMedians` covers `done` step records whose `started_at` is in the window, in pipeline order (even counts average the two middle values, rounded to ms; a step without samples is absent). `costPerRoute` sums `memo_steps.cost_usd` per route (routing-decision spend is on the `route` step row), `memos` counts the memos once. The memo detail waterfall compares its step durations to `stepMedians`. Day bucketing and medians run in the adapter, not with SQLite's `localtime`, so the window and the days share the process time zone |
 
 A separate route rather than a `text` field on `POST /v1/memos`: that route answers 201/200 for a memo that is still `receiving` and waits for segments, a typed memo is complete on arrival and its replay must compare a body, so sharing the handler would branch every line of it. A typed memo has no ingest or transcribe row in its timeline. The memo shape carries `typed: true` for a typed memo and omits it for a recording (one predicate, `isTyped` in `memo.ts`: past `receiving` with no segment count; `GET /memos/:id` reports `segmentCount` 0 there, so clients read `typed`). `POST /retry` from `transcribe` on a typed memo is 400: the text is its only transcript. `GET /audio` on a typed memo is 409 `bad_state` (no recording); `/speech` works as for any memo.
 

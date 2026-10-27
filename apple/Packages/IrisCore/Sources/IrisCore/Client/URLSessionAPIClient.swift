@@ -90,6 +90,10 @@ public struct URLSessionAPIClient: APIClient {
     try await decode(Herd.self, from: makeRequest("GET", ["v1", "herd"]))
   }
 
+  public func stats(_ query: StatsQuery) async throws -> Stats {
+    try await decode(Stats.self, from: makeRequest("GET", ["v1", "stats"], query: query.queryItems))
+  }
+
   public func events() -> AsyncThrowingStream<ServerEvent, any Error> {
     let session = session
     let request: URLRequest

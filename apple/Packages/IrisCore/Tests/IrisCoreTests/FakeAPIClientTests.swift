@@ -217,6 +217,18 @@ struct FakeAPIClientTests {
     }
   }
 
+  @Test("stats answers the scripted value, records the query and can be scripted to fail")
+  func stats() async throws {
+    let fake = FakeAPIClient()
+    let scripted = Stats(days: 7, from: "2026-03-08", to: "2026-03-14")
+    await fake.setStats(scripted)
+    #expect(try await fake.stats(StatsQuery(days: 7)) == scripted)
+    #expect(await fake.calls.last == .stats(StatsQuery(days: 7)))
+
+    await fake.enqueueFailure(.unexpectedStatus(500), for: .stats)
+    await #expect(throws: APIError.unexpectedStatus(500)) { try await fake.stats(StatsQuery()) }
+  }
+
   @Test("routeMemo wants a tab for herdr and only for herdr")
   func routeTabRule() async throws {
     let fake = FakeAPIClient()

@@ -1,5 +1,6 @@
 import { createApp } from "../app.js";
 import { createSqliteDeviceStore } from "../adapters/sqlite-devices.js";
+import { createSqliteStatsStore } from "../adapters/sqlite-stats.js";
 import { createMemoEvents, type MemoEvents } from "../memo/events.js";
 import type { HandlerStep } from "../memo/memo.js";
 import { createRunner, type StepHandler } from "../memo/runner.js";
@@ -91,6 +92,7 @@ export function testApp(
   const app = createApp({
     deviceTokens: parseDeviceTokens(TOKENS),
     memos,
+    stats: createSqliteStatsStore({ db, clock }),
     devices,
     media,
     herd,

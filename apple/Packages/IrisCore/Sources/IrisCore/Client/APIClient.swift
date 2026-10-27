@@ -40,6 +40,8 @@ public protocol APIClient: Sendable {
   func setActivityToken(memoID: String, request: ActivityTokenRequest) async throws
   /// `GET /v1/herd`.
   func herd() async throws -> Herd
+  /// `GET /v1/stats`: aggregates over the last `query.days` local days of the server (default 30).
+  func stats(_ query: StatsQuery) async throws -> Stats
   /// `GET /v1/events`: opens the SSE stream. It ends when the consumer stops iterating or the connection
   /// drops (the stream then throws); there is no replay, so a consumer refetches the list on reconnect.
   func events() -> AsyncThrowingStream<ServerEvent, any Error>
