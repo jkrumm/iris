@@ -87,23 +87,42 @@ keep rows and files forever; Phase-1 retention (purge after N days vs. keep for 
 upload racing `complete` can leave one orphan file (harmless, no row). Untouched on purpose: the `http://` OTLP
 endpoint with an auth header (Wave 4).
 
-## Wave 3 — Pipeline            <!-- status: active -->
-- [ ] `ports/` (Transcriber, Destination, Summarizer, Notifier; `Clock` and `AudioStore` already exist) plus fakes for tests.
-- [ ] Adapters:
+## Wave 3 — Pipeline            <!-- status: done -->
+- [x] `ports/` (Transcriber, Destination, Summarizer, Notifier; `Clock` and `AudioStore` already exist) plus fakes for tests.
+- [x] Adapters:
   - `audio-gateway.ts`: concatenates with ffmpeg, then STT.
   - `hermes.ts`: the sessions API, collecting the final assistant text from the SSE.
   - `agw.ts`: triage with the schema `{headline ≤60, detail ≤240, spoken ≤2 sentences}`,
     job submit plus poll with a timeout.
   - `notifier-log.ts`: log-only.
-- [ ] Wire the steps into the runner. In this chain the route is always `hermes` (the
+- [x] Wire the steps into the runner. In this chain the route is always `hermes` (the
       `decide` routing is Phase 2). Each step is a child span of `withRootSpan("memo")`.
       Store the per-step `usage`/`cost` from the responses on the memo.
-- [ ] `scripts/send-memo.ts <audio-file>`: splits a file into 10 s m4a segments with
+- [x] `scripts/send-memo.ts <audio-file>`: splits a file into 10 s m4a segments with
       ffmpeg and drives the HTTP API exactly like the phone will. It is the end-to-end
       harness for this chain and for later debugging.
-**Left behind:**
+**Left behind:** Pipeline is wired end to end; `make check` green (220 tests), `/review` run via the `agw review` CLI (the MCP
+child timed out; the senior-dev and backend angles were denied a shell in both runs, so only concurrency/resilience/
+architect/typescript/adversary angles reported). Layout: `ports/{transcriber,destination,summarizer,notifier,fakes}.ts`,
+`adapters/{audio-gateway,hermes,agw,notifier-log,sse}.ts`, `pipeline/steps.ts` (`createStepHandlers`, a port left out means no
+handler and the memo parks; `index.ts` marks it `degraded`). Memo data lives in columns on `memos` (transcript, route,
+audioSeconds, destinationRef, replyText, summary) and is returned by `GET /v1/memos/:id/result`. `store.completeStep` is one
+transaction (CAS, step done, patch); `Runner.stop()/idle()/inflightIds()`; `driveAll` is capped at 3. Shutdown: stop, drain up
+to 30 s, close DB, flush OTel (2 s), so **Wave 4's LaunchAgent needs `ExitTimeOut` >= 45 s**. New env: `AUDIO_GATEWAY_URL`,
+`AGW_URL`, `HERMES_URL`, `HERMES_TOKEN` (all optional). Timeouts follow `agent-limits.md`: Hermes idle watchdog 5 min, 30 min
+hang guards on STT and the agw poll. `scripts/send-memo.ts` (`IRIS_URL`, `IRIS_TOKEN`, `--mode`, `--wait`) works against an
+in-process fake in tests only; it has never run against real downstreams.
+Carry into Wave 4: (1) Hermes request shape is unverified live: the adapter sends `{message}` only (no `system_message`) with
+the session id = memo id and `source: "iris"`; `make smoke` is the first real test, adjust if Hermes rejects it. (2) `act` is
+at-least-once: a crash after the Hermes turn replays it (documented in AGENTS.md). (3) A downstream that is down at boot turns the
+memo `failed` (no automatic retry of transient errors; recover with `POST /retry`); consider boot ordering in launchd. (4) An
+agw triage job orphaned by a crash is resubmitted (small cost). (5) Not done on purpose: dedupe of `SummarySchema` between
+`sqlite.ts` and `agw.ts`, removing the unused `markStepDone` from the port, a step-to-patch-field map. (6) `server`'s `bun test`
+does not run `scripts/*.test.ts`; lint/format/tsc do cover `scripts/`. `fallow audit` reports 3 complexity advisories
+(not in the gate). (7) The retention question for stuck `receiving` memos is still open.
 
-## Wave 4 — Run it on the mini            <!-- status: pending -->
+
+## Wave 4 — Run it on the mini            <!-- status: active -->
 The owner pre-authorized this deploy on 2026-10-27: it is his own repo, mini-only, and the
 standing contract says deploys are routine. So Wave 3 spawns this wave with
 `RD_ORCHESTRATED=1 rd wave iris '…'`.
