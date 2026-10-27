@@ -68,4 +68,21 @@ export const MIGRATIONS: readonly string[] = [
     updated_at TEXT NOT NULL
   );
   `,
+  // The routing decision log: one row per route outcome (and, later, per answer or correction).
+  `
+  CREATE TABLE route_decisions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    memo_id TEXT NOT NULL REFERENCES memos (id) ON DELETE CASCADE,
+    created_at TEXT NOT NULL,
+    source TEXT NOT NULL CHECK (source IN ('mode', 'prefix', 'decide', 'default', 'answer', 'correction')),
+    destination TEXT,
+    tab TEXT,
+    confidence REAL,
+    model TEXT,
+    cost_usd REAL,
+    reason TEXT,
+    outcome TEXT NOT NULL CHECK (outcome IN ('routed', 'needs_route'))
+  );
+  CREATE INDEX route_decisions_memo ON route_decisions (memo_id, id);
+  `,
 ];

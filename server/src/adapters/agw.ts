@@ -50,13 +50,15 @@ const JobResponse = z.object({
 
 const TERMINAL = new Set(["done", "failed", "interrupted", "cancelled"]);
 
-export interface AgwSummarizerOptions {
+export interface AgwClientOptions {
   baseUrl: string;
   fetch?: typeof fetch;
   sleep?: (ms: number) => Promise<void>;
   pollIntervalMs?: number;
   timeoutMs?: number;
 }
+
+export type AgwSummarizerOptions = AgwClientOptions;
 
 const excerpt = (text: string) =>
   text.length > EXCERPT_MAX ? `${text.slice(0, EXCERPT_MAX)}\n[truncated]` : text;
@@ -90,7 +92,11 @@ async function failureBody(res: Response): Promise<string> {
   return (await res.text().catch(() => "")).slice(0, BODY_MAX);
 }
 
-export function createAgwSummarizer(opts: AgwSummarizerOptions): Summarizer {
+/**
+ * Submits one agent-gateway job and polls it to its result: three consecutive poll failures or the
+ * timeout cancel the job (it would otherwise keep running, and billing, unread) and throw.
+ */
+export function createAgwJobRunner(opts: AgwClientOptions) {
   const doFetch = opts.fetch ?? fetch;
   const sleep = opts.sleep ?? ((ms: number) => Bun.sleep(ms));
   const pollIntervalMs = opts.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
@@ -99,15 +105,12 @@ export function createAgwSummarizer(opts: AgwSummarizerOptions): Summarizer {
   const request = (path: string, init?: RequestInit) =>
     doFetch(`${base}${path}`, { ...init, signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
 
-  async function submit(memoId: string, prompt: string): Promise<string> {
+  async function submit(memoId: string, tool: string, params: unknown): Promise<string> {
     return withSpan("agw.submit", { memo_id: memoId, downstream: "agw" }, async (span) => {
       const res = await request("/api/jobs", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          tool: "triage",
-          params: { prompt, schema: SUMMARY_JSON_SCHEMA },
-        }),
+        body: JSON.stringify({ tool, params }),
       });
       span.setAttributes({ status: res.status });
       if (!res.ok) throw new Error(`agw submit failed: ${res.status} ${await failureBody(res)}`);
@@ -145,64 +148,85 @@ export function createAgwSummarizer(opts: AgwSummarizerOptions): Summarizer {
     }
   }
 
+  /** The `result` of the finished job; throws with the tool name when it ends any other way. */
+  return async function run(params: {
+    memoId: string;
+    tool: string;
+    params: unknown;
+  }): Promise<unknown> {
+    const { memoId, tool } = params;
+    const jobId = await submit(memoId, tool, params.params);
+
+    const start = Date.now();
+    let waited = 0;
+    let pollErrors = 0;
+    for (;;) {
+      let job: Awaited<ReturnType<typeof poll>> | null = null;
+      try {
+        job = await poll(memoId, jobId);
+        pollErrors = 0;
+      } catch (err) {
+        pollErrors += 1;
+        log("agw.poll_error", {
+          memo_id: memoId,
+          job_id: jobId,
+          consecutive: pollErrors,
+          error: err instanceof Error ? err.message : String(err),
+        });
+        if (pollErrors >= MAX_POLL_ERRORS) {
+          // The job would otherwise keep running (and billing) with nobody reading its answer.
+          await cancel(memoId, jobId);
+          throw new Error(
+            `agw poll failed ${pollErrors} times in a row, job ${jobId} cancelled: ${err instanceof Error ? err.message : String(err)}`,
+            { cause: err },
+          );
+        }
+      }
+
+      if (job && TERMINAL.has(job.status)) {
+        if (job.status !== "done") {
+          throw new Error(`agw ${tool} ${job.status}: ${job.error ?? "no error reported"}`);
+        }
+        return job.result;
+      }
+
+      // `waited` keeps the clock deterministic under an injected sleep; wall time still counts.
+      if (Math.max(waited, Date.now() - start) >= timeoutMs) {
+        await cancel(memoId, jobId);
+        throw new Error(`agw ${tool} timed out after ${timeoutMs} ms (job ${jobId})`);
+      }
+      await sleep(pollIntervalMs);
+      waited += pollIntervalMs;
+    }
+  };
+}
+
+export function createAgwSummarizer(opts: AgwSummarizerOptions): Summarizer {
+  const run = createAgwJobRunner(opts);
   return {
     async summarize({ memoId, route, transcript, replyText }): Promise<Summarization> {
-      const jobId = await submit(memoId, buildPrompt({ route, transcript, replyText }));
-
-      const start = Date.now();
-      let waited = 0;
-      let pollErrors = 0;
-      for (;;) {
-        let job: Awaited<ReturnType<typeof poll>> | null = null;
-        try {
-          job = await poll(memoId, jobId);
-          pollErrors = 0;
-        } catch (err) {
-          pollErrors += 1;
-          log("agw.poll_error", {
-            memo_id: memoId,
-            job_id: jobId,
-            consecutive: pollErrors,
-            error: err instanceof Error ? err.message : String(err),
-          });
-          if (pollErrors >= MAX_POLL_ERRORS) {
-            // The job would otherwise keep running (and billing) with nobody reading its answer.
-            await cancel(memoId, jobId);
-            throw new Error(
-              `agw poll failed ${pollErrors} times in a row, job ${jobId} cancelled: ${err instanceof Error ? err.message : String(err)}`,
-              { cause: err },
-            );
-          }
-        }
-
-        if (job && TERMINAL.has(job.status)) {
-          if (job.status !== "done") {
-            throw new Error(`agw triage ${job.status}: ${job.error ?? "no error reported"}`);
-          }
-          const parsed = TriageResult.safeParse(job.result);
-          if (!parsed.success) {
-            const issues = parsed.error.issues
-              .map((issue) => `${issue.path.join(".") || "result"}: ${issue.message}`)
-              .join("; ");
-            throw new Error(`agw triage result does not match the summary schema: ${issues}`);
-          }
-          const { result, usage } = parsed.data;
-          const costUsd = usage?.costUsd ?? undefined;
-          return {
-            summary: result,
-            ...(usage ? { usage } : {}),
-            ...(costUsd !== undefined ? { costUsd } : {}),
-          };
-        }
-
-        // `waited` keeps the clock deterministic under an injected sleep; wall time still counts.
-        if (Math.max(waited, Date.now() - start) >= timeoutMs) {
-          await cancel(memoId, jobId);
-          throw new Error(`agw triage timed out after ${timeoutMs} ms (job ${jobId})`);
-        }
-        await sleep(pollIntervalMs);
-        waited += pollIntervalMs;
+      const result = await run({
+        memoId,
+        tool: "triage",
+        params: {
+          prompt: buildPrompt({ route, transcript, replyText }),
+          schema: SUMMARY_JSON_SCHEMA,
+        },
+      });
+      const parsed = TriageResult.safeParse(result);
+      if (!parsed.success) {
+        const issues = parsed.error.issues
+          .map((issue) => `${issue.path.join(".") || "result"}: ${issue.message}`)
+          .join("; ");
+        throw new Error(`agw triage result does not match the summary schema: ${issues}`);
       }
+      const { result: summary, usage } = parsed.data;
+      const costUsd = usage?.costUsd ?? undefined;
+      return {
+        summary,
+        ...(usage ? { usage } : {}),
+        ...(costUsd !== undefined ? { costUsd } : {}),
+      };
     },
   };
 }

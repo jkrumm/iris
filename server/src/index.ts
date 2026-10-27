@@ -38,7 +38,9 @@ const handlers = createStepHandlers({
   store,
   audio,
   transcriber: ports.transcriber,
-  destination: ports.destination,
+  destinations: ports.destinations,
+  herd: ports.herd,
+  decider: ports.decider,
   summarizer: ports.summarizer,
   notifier,
 });

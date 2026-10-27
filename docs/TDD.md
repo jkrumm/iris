@@ -107,20 +107,21 @@ The server is a few deep modules behind ports, in email-gateway's style.
 |-|-|-|
 | `memo/` | The state machine, `MemoStore` (SQLite), the step runner | `createMemo`, `putSegment`, `complete`, `get`, `list`, `retry`, `events` (an async iterator) |
 | `pipeline/` | One file per step; each step is a pure function of (memo, ports) | `steps: Record<Step, StepFn>` |
-| `routing/` | Prefix parser, the `decide` call, confidence policy, decision log | `route(transcript, herd, mode) → RouteDecision` |
+| `routing/` | Prefix parser, the `decide` call, confidence policy; the decision log is written by `MemoStore.completeStep` | `route({memoId, mode, transcript, destinations, herd?, decider?}) → RouteDecision`, `parsePrefix` |
 | `devices/` | Device tokens, APNs and push-to-start tokens, Live Activity tokens | `authenticate`, `register`, `tokensFor` |
 | `notify/` | Payload building (alert, Live Activity), APNs transport | `Notifier` port |
 | `telemetry/` | `otel.ts`, `otel-format.ts`, `log.ts`, the client relay | `withRootSpan`, `withSpan`, `log`, `relay` |
 
-**Shipped through Wave 7:** `memo/`, `pipeline/` (`steps.ts`), `notify/`, `telemetry/`, `http/`, `adapters/`, `ports/`. `routing/` and the
-journal/herdr destinations are Phase 2 (R2); `devices/` is the `DeviceStore` port plus `adapters/sqlite-devices.ts`. The module and
+**Shipped through Wave 10 (B2):** `memo/`, `pipeline/` (`steps.ts`), `notify/`, `telemetry/`, `http/`, `adapters/`, `ports/`, `routing/`. The
+journal/herdr destinations are Wave 11; `devices/` is the `DeviceStore` port plus `adapters/sqlite-devices.ts`. The module and
 file map of the code is in `AGENTS.md` §Layout.
 
 Ports, each with a production adapter and an in-memory fake (shipped: `Transcriber`, `Speaker`, `Summarizer`, `Destination` (Hermes only),
-`Notifier`, `Herd`, `DeviceStore`, `AudioStore`, `AudioCombiner`, `Clock`; `Router` and `Ids` are R2 / unused):
+`Notifier`, `Herd`, `DeviceStore`, `AudioStore`, `AudioCombiner`, `Clock`, `Decider`; `Ids` is unused). `Destinations` is the registry
+of the registered act adapters (`Partial<Record<"hermes" | "journal" | "herdr", Destination>>`, today Hermes only):
 - `Transcriber`
 - `Speaker`
-- `Router` (`decide`)
+- `Decider` (`decide`, adapter `adapters/agw-decider.ts`)
 - `Summarizer` (`triage`)
 - `Herd`
 - `Destination` (journal | herdr | hermes)
@@ -155,7 +156,7 @@ any step ──error──> failed(step)   ──retry(from)──> <step>
 
 ### Data model (SQLite, WAL, append-only migrations in `server/src/adapters/sqlite-migrations.ts`, `PRAGMA user_version`)
 
-Shipped (Wave 5). Step results are columns on `memos`, not a separate table.
+Shipped (Waves 5 and 10). Step results are columns on `memos`, not a separate table.
 
 | Table | Columns (key ones) |
 |-|-|
@@ -164,8 +165,9 @@ Shipped (Wave 5). Step results are columns on `memos`, not a separate table.
 | `memo_steps` | `memo_id`, `step`, `status`, `started_at`, `finished_at`, `error`, `usage_json`, `cost_usd`: PK (`memo_id`, `step`), no `attempt` (a retry resets the row) |
 | `devices` | `device` (PK, the token-map name), `name` (display label), `platform` (ios/macos), `apns_token`, `apns_env` (sandbox/production), `push_to_start_token`, `last_seen_at`, `updated_at` |
 | `activity_tokens` | `memo_id` (PK, cascades), `token`, `updated_at` |
+| `route_decisions` | `id` (autoincrement), `memo_id` (cascades), `created_at`, `source` (mode/prefix/decide/default/answer/correction), `destination` (nullable), `tab`, `confidence`, `model`, `cost_usd`, `reason`, `outcome` (routed/needs_route). One row per route outcome, written in the transaction of the step's `completeStep`; read with `listRouteDecisions(memoId)`. `answer` and `correction` rows come with the answer endpoint (B3) |
 
-Planned for R2/R3, not built: `route_decisions` (decision log and corrections), `threads`, `memos.target_tab` / `thread_id` / `language` / `route_source`,
+Planned for R3, not built: `threads`, `memos.target_tab` / `thread_id` / `language` / `route_source`,
 and a transcript FTS index. Device tokens are not stored: the token map lives in `IRIS_DEVICE_TOKENS`.
 
 ### HTTP API (`/v1`, bearer = device token; `/health` is public)
@@ -198,8 +200,8 @@ the exported JSON Schema matches `contracts/schema`.
 
 ### Pipeline steps
 
-Shipped as five runner steps: `transcribe` (includes the concat below), `route` (always `hermes` until R2), `act`, `summarize`, `notify`.
-`decide`, the prefix parser, the journal/herdr destinations and `needs_route` from a model are R2. The timeouts follow `agent-limits.md`
+Shipped as five runner steps: `transcribe` (includes the concat below), `route`, `act`, `summarize`, `notify`. The journal/herdr
+destinations are Wave 11. The timeouts follow `agent-limits.md`
 (idle watchdogs and 30-minute hang guards, not the budgets sketched earlier). Retention (audio deleted 30 days after `notified`) and automatic
 retries of transient errors are not built; recover with `POST /retry`.
 
@@ -211,17 +213,22 @@ retries of transient errors are not built; recover with `POST /retry`.
      titles).
    - Header: `x-audio-source: iris`.
    - The gateway handles chunking up to about 2 h. A 413 is terminal.
-3. **route:**
-   - If the memo's mode is not auto, it wins.
-   - Otherwise the prefix parser matches "journal|tagebuch", "an hermes|hermes",
-     "tab <name>", case- and diacritic-insensitive, within the first 6 words.
-     The prefix is stripped from the transcript.
-   - Otherwise call `decide` with state = transcript (first 4k chars) + herd
-     summary, and questions: `destination: choice[journal, hermes, herdr]`,
-     plus `tab: choice[...]` when there are live tabs.
-   - At confidence ≥ 0.8 → `routed`; otherwise `needs_route`.
-   - Every outcome is written to `route_decisions`.
-4. **act:**
+3. **route:** only destinations with a registered act adapter are choices (`Destinations`; today Hermes only).
+   - If the memo's mode is not auto, it wins (`journal` → journal, `hermes` → hermes, `tab` → herdr). Source `mode`.
+   - Otherwise the prefix parser matches "journal|tagebuch", "an hermes|hermes", "tab <name>", case- and diacritic-insensitive, with the
+     phrase starting within the first 6 words. Everything up to and including the phrase, plus trailing punctuation, is stripped and the
+     stripped text becomes the stored transcript (kept whole when nothing else was said). Source `prefix`; the tab is the spoken name.
+   - A mode or prefix that names an unregistered destination parks at `needs_route` with the reason "<destination> not available".
+   - With fewer than two registered destinations the step stops here: it routes to the only one (source `default`, confidence 1, no spend).
+   - Otherwise call `decide` through the `Decider` port (agw `decide` job, 30 s budget) with state = transcript (first 4k chars) + one line
+     per live tab, and questions `destination: choice[<registered>]`, plus `tab: choice[...]` when herdr is registered and there are live
+     tabs. A failing `Herd` call omits the tab lines and the question. Source `decide`.
+   - At confidence ≥ 0.8 → `routed` (for herdr the weaker of destination and tab confidence, and a live tab is required); otherwise
+     `needs_route` with the model's best guess recorded as the decision's destination. A refusal, an unknown choice, a failed or timed-out
+     call and a missing decider ("decide unavailable") all park the same way; none fails the step.
+   - Every outcome is written to `route_decisions`; the step row records the `decide` cost and usage. Span attributes `route`,
+     `route.source`, `route.confidence`; log `route.decided`.
+4. **act:** dispatches on `memo.route`; a route without a registered destination fails the step.
 
    | Destination | Action |
    |-|-|

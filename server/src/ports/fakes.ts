@@ -1,6 +1,7 @@
 import type { Memo, Summary } from "../memo/memo.js";
 import type { ApnsResult, ApnsTransport } from "./apns.js";
 import type { AudioCombiner } from "./audio.js";
+import type { Decider, Decision } from "./decider.js";
 import type { Delivery, Destination } from "./destination.js";
 import type { Herd, HerdTab } from "./herd.js";
 import type { Notifier } from "./notifier.js";
@@ -37,6 +38,26 @@ export function fakeDestination(
       calls.push(params);
       if (options.failWith) throw options.failWith;
       return { ref: "session-1", replyText: "done", ...options.result };
+    },
+  };
+}
+
+/** Answers `hermes` at 0.9 unless told otherwise; `failWith` makes every call throw. */
+export function fakeDecider(
+  options: Options<Decision> = {},
+): Decider & Calls<Parameters<Decider["decide"]>[0]> {
+  const calls: Parameters<Decider["decide"]>[0][] = [];
+  return {
+    calls,
+    async decide(params) {
+      calls.push(params);
+      if (options.failWith) throw options.failWith;
+      return {
+        destination: { choice: "hermes", confidence: 0.9 },
+        tab: null,
+        model: "fake-decider",
+        ...options.result,
+      };
     },
   };
 }

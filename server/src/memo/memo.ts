@@ -41,7 +41,7 @@ export interface Memo {
   /** Written by the steps; null until the step that produces it has run. */
   audioSeconds: number | null;
   transcript: string | null;
-  /** Plain string today (`hermes`); the routing phase narrows it. */
+  /** The destination name (`hermes`, `journal`, `herdr`); null until the route step has routed it. */
   route: string | null;
   destinationRef: string | null;
   replyText: string | null;
@@ -50,10 +50,45 @@ export interface Memo {
   updatedAt: string;
 }
 
-/** The step-written memo fields a handler may set when its step completes. */
-export type MemoPatch = Partial<
+export const ROUTE_SOURCES = [
+  "mode",
+  "prefix",
+  "decide",
+  "default",
+  "answer",
+  "correction",
+] as const;
+export type RouteSource = (typeof ROUTE_SOURCES)[number];
+export const ROUTE_OUTCOMES = ["routed", "needs_route"] as const;
+export type RouteOutcome = (typeof ROUTE_OUTCOMES)[number];
+
+/** One row of the routing decision log, as a handler reports it. */
+export interface RouteDecisionInput {
+  source: RouteSource;
+  /** The chosen destination; on a low-confidence park the model's best guess, null when nothing was chosen. */
+  destination: string | null;
+  tab: string | null;
+  confidence: number | null;
+  model: string | null;
+  costUsd: number | null;
+  /** Why the memo parked; null when routed. */
+  reason: string | null;
+  outcome: RouteOutcome;
+}
+
+export interface RouteDecisionRecord extends RouteDecisionInput {
+  id: number;
+  memoId: string;
+  createdAt: string;
+}
+
+/** The memo columns a handler may set when its step completes. */
+export type MemoColumnPatch = Partial<
   Pick<Memo, "audioSeconds" | "transcript" | "route" | "destinationRef" | "replyText" | "summary">
 >;
+
+/** What a step writes atomically with its completion: memo columns, and for `route` its decision-log row. */
+export type MemoPatch = MemoColumnPatch & { routeDecision?: RouteDecisionInput };
 
 export interface StepRecord {
   step: Step;
