@@ -156,4 +156,8 @@ export const MIGRATIONS: readonly string[] = [
   ALTER TABLE memos ADD COLUMN deleted_at TEXT;
   CREATE INDEX memos_deleted_at ON memos (deleted_at) WHERE deleted_at IS NOT NULL;
   `,
+  // Automatic retries of transient step failures: how many tries the step has used (a manual retry deletes the row).
+  `
+  ALTER TABLE memo_steps ADD COLUMN attempts INTEGER NOT NULL DEFAULT 1;
+  `,
 ];

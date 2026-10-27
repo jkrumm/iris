@@ -31,7 +31,8 @@
       "finishedAt": "2026-03-14T09:45:12.271Z",
       "error": null,
       "usage": null,
-      "costUsd": null
+      "costUsd": null,
+      "attempts": 1
     },
     {
       "step": "act",
@@ -44,7 +45,8 @@
         "outputTokens": 64,
         "totalTokens": 484
       },
-      "costUsd": 0.0102
+      "costUsd": 0.0102,
+      "attempts": 1
     },
     {
       "step": "summarize",
@@ -57,7 +59,8 @@
         "outputTokens": 52,
         "totalTokens": 362
       },
-      "costUsd": 0.0011
+      "costUsd": 0.0011,
+      "attempts": 1
     },
     {
       "step": "notify",
@@ -66,7 +69,8 @@
       "finishedAt": "2026-03-14T09:45:19.860Z",
       "error": null,
       "usage": null,
-      "costUsd": null
+      "costUsd": null,
+      "attempts": 1
     }
   ]
 }

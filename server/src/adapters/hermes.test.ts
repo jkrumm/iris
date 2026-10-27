@@ -1,4 +1,5 @@
 import { describe, expect, it } from "bun:test";
+import { transientKind } from "../ports/transient.js";
 import { CHAT_SYSTEM_MESSAGE, createHermesDestination } from "./hermes.js";
 
 const MEMO_ID = "0f8fad5b-d9cb-469f-a165-70867728950e";
@@ -284,6 +285,39 @@ describe("hermes destination", () => {
         }),
     });
     await expect(deliver(destination)).rejects.toThrow("hermes did not respond within 30 ms");
+  });
+});
+
+const kindOf = async (chat: (init: RequestInit) => Response | Promise<Response>) => {
+  const { destination } = fakeHermes({ chat, idleMs: 30 });
+  return transientKind(await deliver(destination).catch((e: unknown) => e));
+};
+
+describe("hermes destination, transient failures", () => {
+  it("marks a refused connection before_send", async () => {
+    const refused = Object.assign(new TypeError("fetch failed"), {
+      cause: Object.assign(new Error("connect"), { code: "ECONNREFUSED" }),
+    });
+    expect(await kindOf(() => Promise.reject(refused))).toBe("before_send");
+  });
+
+  it("marks a 5xx and an idle timeout after_send", async () => {
+    expect(await kindOf(() => new Response("down", { status: 503 }))).toBe("after_send");
+    expect(
+      await kindOf(
+        (init) =>
+          new Promise<Response>((_, reject) => {
+            init.signal?.addEventListener("abort", () => reject(new Error("aborted")));
+          }),
+      ),
+    ).toBe("after_send");
+  });
+
+  it("leaves a 4xx and an error event final", async () => {
+    expect(await kindOf(() => new Response("nope", { status: 404 }))).toBeNull();
+    expect(
+      await kindOf(() => sseResponse([frame("error", { message: "overloaded" }), done])),
+    ).toBeNull();
   });
 });
 

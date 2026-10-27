@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
 import type { AudioCombiner } from "../ports/audio.js";
+import { fetchFailure, httpFailure } from "../ports/transient.js";
 import type { Transcriber, TranscriptionResult } from "../ports/transcriber.js";
 import { log } from "../telemetry/log.js";
 import { withSpan } from "../telemetry/otel.js";
@@ -136,12 +137,17 @@ export function createAudioGatewayTranscriber(opts: AudioGatewayTranscriberOptio
             headers: { "x-audio-source": "iris" },
             body: form,
             signal: AbortSignal.timeout(TIMEOUT_MS),
+          }).catch((err: unknown) => {
+            throw fetchFailure(err);
           });
           span.setAttributes({ status: res.status });
           if (!res.ok) {
             const body = (await res.text().catch(() => "")).slice(0, BODY_MAX);
             const kind = res.status === 413 ? " (413 is terminal: the audio is too large)" : "";
-            throw new Error(`audio-gateway transcription failed: ${res.status}${kind} ${body}`);
+            throw httpFailure(
+              `audio-gateway transcription failed: ${res.status}${kind} ${body}`,
+              res.status,
+            );
           }
 
           const parsed = TranscriptionResponse.safeParse(await res.json().catch(() => null));

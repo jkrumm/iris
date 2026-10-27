@@ -218,6 +218,17 @@ struct FixtureConformanceTests {
     #expect(!encoded.contains("\"typed\""))
   }
 
+  @Test("each step carries `attempts`: 3 on the step that exhausted its automatic retries, 1 elsewhere")
+  func stepAttempts() throws {
+    let decoder = IrisJSON.makeDecoder()
+    let failed = try decoder.decode(MemoDetail.self, from: Contracts.fixtureData("memos.detail.response.failed"))
+    #expect(failed.steps.map(\.attempts) == [3])
+    let notified = try decoder.decode(MemoDetail.self, from: Contracts.fixtureData("memos.detail.response"))
+    #expect(notified.steps.allSatisfy { $0.attempts == 1 })
+    let encoded = String(decoding: try IrisJSON.makeEncoder().encode(failed), as: UTF8.self)
+    #expect(encoded.contains("\"attempts\":3"))
+  }
+
   @Test("`threadId` is present on a chat memo's detail and omitted on a memo without one")
   func threadId() throws {
     let decoder = IrisJSON.makeDecoder()

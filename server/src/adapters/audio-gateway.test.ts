@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { transientKind } from "../ports/transient.js";
 import { createAudioGatewayTranscriber, ffmpegConcat, type ConcatFn } from "./audio-gateway.js";
 
 const MEMO_ID = "0f8fad5b-d9cb-469f-a165-70867728950e";
@@ -74,6 +75,27 @@ describe("audio-gateway transcriber", () => {
     const error = await transcriber.transcribe(params).catch((e: Error) => e);
     expect((error as Error).message).toBe(
       `audio-gateway transcription failed: 502 ${"y".repeat(300)}`,
+    );
+  });
+
+  it("marks a 5xx and a lost connection transient, a 4xx final", async () => {
+    const kind = async (respond: () => Response) =>
+      transientKind(
+        await setup(respond)
+          .transcriber.transcribe(params)
+          .catch((e: unknown) => e),
+      );
+    expect(await kind(() => new Response("down", { status: 502 }))).toBe("after_send");
+    expect(await kind(() => new Response("no", { status: 400 }))).toBeNull();
+    expect(await kind(() => new Response("big", { status: 413 }))).toBeNull();
+    const refused = Object.assign(new TypeError("fetch failed"), {
+      cause: Object.assign(new Error("connect"), { code: "ECONNREFUSED" }),
+    });
+    const gone = setup(() => {
+      throw refused;
+    }).transcriber;
+    expect(transientKind(await gone.transcribe(params).catch((e: unknown) => e))).toBe(
+      "before_send",
     );
   });
 

@@ -132,6 +132,10 @@
     "steps": {
       "items": {
         "properties": {
+          "attempts": {
+            "minimum": 1,
+            "type": "integer"
+          },
           "costUsd": {
             "anyOf": [
               {
@@ -193,7 +197,8 @@
           "finishedAt",
           "error",
           "usage",
-          "costUsd"
+          "costUsd",
+          "attempts"
         ],
         "type": "object"
       },

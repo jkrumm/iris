@@ -1,4 +1,5 @@
-import type { Clock } from "../ports/clock.js";
+import { systemSleep, type Clock, type Sleep } from "../ports/clock.js";
+import { transientKind, type TransientKind } from "../ports/transient.js";
 import { log } from "../telemetry/log.js";
 import { traceIdFromMemoId, withRootSpan, withSpan } from "../telemetry/otel.js";
 import { MemoError } from "./errors.js";
@@ -51,6 +52,16 @@ export interface Runner {
 
 const MAX_CONCURRENT_DRIVES = 3;
 
+/** Backoff before each automatic retry of a transient failure: two retries, so three tries in all. */
+export const RETRY_DELAYS_MS = [2_000, 8_000] as const;
+
+/**
+ * Whether a transient failure is worth another try. `act` delivers a side effect (a Hermes turn), so it only retries
+ * when the request provably never reached the destination; every other step is safe to repeat.
+ */
+const retryable = (step: HandlerStep, kind: TransientKind | null) =>
+  kind !== null && (step !== "act" || kind === "before_send");
+
 const errorMessage = (err: unknown) => (err instanceof Error ? err.message : String(err));
 
 const logDriveFailure = (id: string) => (err: unknown) =>
@@ -61,12 +72,16 @@ export function createRunner(deps: {
   handlers: Partial<Record<HandlerStep, StepHandler>>;
   events: MemoEvents;
   clock: Clock;
+  /** Waits out a retry's backoff; tests inject an instant one. */
+  sleep?: Sleep;
 }): Runner {
-  const { store, handlers, events, clock } = deps;
+  const { store, handlers, events, clock, sleep = systemSleep } = deps;
   const inflight = new Map<string, Promise<void>>();
   const driveAlls = new Set<Promise<void>>();
   const rerun = new Set<string>();
   let stopping = false;
+  // Cuts a retry's backoff short when `stop()` is called.
+  const stopped = Promise.withResolvers<void>();
   // `stopping` flips from `stop()` while a loop awaits; reading it through a call keeps that visible to the linter.
   const isStopping = () => stopping;
   const warnedNoHandler = new Set<HandlerStep>();
@@ -95,16 +110,45 @@ export function createRunner(deps: {
   }
 
   /**
+   * Runs the handler, repeating it after a backoff while it keeps failing transiently; the last error propagates. Null
+   * when `stop()` interrupted a retry: the step is neither done nor failed, and the next boot's `driveAll` re-runs it.
+   */
+  async function attempt(params: { memo: Memo; step: HandlerStep; handler: StepHandler }) {
+    const { memo, step, handler } = params;
+    for (let tries = 1; ; tries++) {
+      try {
+        return await withSpan(`memo.${step}`, { memo_id: memo.id, step, attempt: tries }, () =>
+          handler({ memo }),
+        );
+      } catch (err) {
+        const delayMs = RETRY_DELAYS_MS[tries - 1];
+        if (delayMs === undefined || !retryable(step, transientKind(err))) throw err;
+        if (stopping) return null;
+        const error = errorMessage(err);
+        if (store.markStepRetrying({ id: memo.id, step, error }) === null) throw err;
+        log("step.retry", { memo_id: memo.id, step, attempt: tries + 1, delay_ms: delayMs, error });
+        await withSpan(
+          "memo.retry_wait",
+          { memo_id: memo.id, step, attempt: tries + 1, delay_ms: delayMs, error },
+          () => Promise.race([sleep(delayMs), stopped.promise]),
+        );
+        if (isStopping()) return null;
+      }
+    }
+  }
+
+  /**
    * Returns false when the memo failed, or lost its state to a concurrent writer. Only the handler
    * (and the outcome check) can fail the step; a store error is bookkeeping and propagates.
    */
   async function runStep(params: { memo: Memo; step: HandlerStep; handler: StepHandler }) {
     const { memo, step, handler } = params;
     store.markStepStarted({ id: memo.id, step });
-    let result: StepResult;
+    let result: StepResult | null;
     let to: MemoState;
     try {
-      result = await withSpan(`memo.${step}`, { memo_id: memo.id, step }, () => handler({ memo }));
+      result = await attempt({ memo, step, handler });
+      if (result === null) return false;
       to = advance({ state: memo.state, step, outcome: result.outcome });
     } catch (err) {
       store.markStepFailed({ id: memo.id, step, error: errorMessage(err) });
@@ -199,6 +243,7 @@ export function createRunner(deps: {
 
     stop() {
       stopping = true;
+      stopped.resolve();
     },
 
     inflightIds: () => Array.from(inflight.keys()),
