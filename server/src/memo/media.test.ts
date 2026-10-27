@@ -27,6 +27,29 @@ function setup(speaker: Speaker) {
   return { media, memo, withReply };
 }
 
+describe("recording", () => {
+  it("refuses a typed memo: it has no segments to combine", async () => {
+    const { store } = testStore();
+    const combiner = fakeCombiner();
+    const media = createMemoMedia({
+      store,
+      audio: fakeAudio(),
+      combiner,
+      speechCache: fakeSpeechCache(),
+    });
+    const { memo } = store.createTextMemo({
+      id: crypto.randomUUID(),
+      mode: "auto",
+      device: "iphone",
+      startedAt: "2026-01-01T00:00:00.000Z",
+      text: "kauf Milch",
+    });
+    const error = await media.recording(memo.id).catch((err: unknown) => err);
+    expect(error).toMatchObject({ code: "bad_state" });
+    expect(combiner.calls).toEqual([]);
+  });
+});
+
 describe("speech", () => {
   it("gives concurrent callers with different text their own audio", async () => {
     const started: string[] = [];
