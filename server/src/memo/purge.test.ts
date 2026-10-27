@@ -101,6 +101,33 @@ describe("sweep", () => {
   });
 });
 
+describe("a pass that cannot list", () => {
+  it("rejects sweep() and the timer logs memo.sweep_failed, then keeps ticking", async () => {
+    const { store, clock, audio, speechCache } = setup();
+    let calls = 0;
+    const failing = {
+      ...store,
+      listPurgeable: (): string[] => {
+        calls++;
+        throw new Error("db locked");
+      },
+    };
+    const purger = createPurger({ store: failing, audio, speechCache, clock, intervalMs: 20 });
+    await expect(purger.sweep()).rejects.toThrow("db locked");
+
+    const { lines } = await captureLogs(async () => {
+      purger.start();
+      await Bun.sleep(60);
+      purger.stop();
+      await purger.idle();
+    });
+    const failed = lines.filter((l) => l["event"] === "memo.sweep_failed");
+    expect(failed.length).toBeGreaterThanOrEqual(2);
+    expect(failed[0]).toMatchObject({ error: "Error: db locked" });
+    expect(calls).toBeGreaterThanOrEqual(3);
+  });
+});
+
 describe("start and stop", () => {
   it("sweeps on start and on every interval until stopped", async () => {
     const { store, clock, purger, deletedMemo } = setup();

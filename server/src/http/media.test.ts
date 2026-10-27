@@ -126,6 +126,19 @@ describe("GET /v1/memos/:id/audio", () => {
     expect(await body(res)).toEqual(BYTES);
   });
 
+  it("409s a soft-deleted memo until it is restored", async () => {
+    const h = testApp();
+    const id = received(h);
+    h.store.markDeleted({ id, at: "2026-01-01T00:00:00.000Z" });
+    const res = await audio(h, id);
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({ error: "bad_state" });
+    expect(h.combiner.calls).toHaveLength(0);
+
+    h.store.restore(id);
+    expect((await audio(h, id)).status).toBe(200);
+  });
+
   it("404s an unknown memo and 409s one that is still receiving", async () => {
     const h = testApp();
     const missing = await audio(h, crypto.randomUUID());
@@ -237,6 +250,20 @@ describe("GET /v1/memos/:id/speech", () => {
     const res = await speech(h, id);
     expect(await res.text()).toBe("mp3:Second.");
     expect(h.speaker?.calls).toHaveLength(2);
+  });
+
+  it("409s a soft-deleted memo until it is restored", async () => {
+    const h = testApp();
+    const { id } = seedMemo(h.store, "notified");
+    h.db.query("UPDATE memos SET reply_text = 'First.' WHERE id = ?").run(id);
+    h.store.markDeleted({ id, at: "2026-01-01T00:00:00.000Z" });
+    const res = await speech(h, id);
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({ error: "bad_state" });
+    expect(h.speaker?.calls).toHaveLength(0);
+
+    h.store.restore(id);
+    expect((await speech(h, id)).status).toBe(200);
   });
 
   it("404s an unknown memo and 409s one with nothing to say yet", async () => {
