@@ -121,9 +121,9 @@ async function probeRoute(base: string) {
   );
   assert((await park.exited) === 2, "send-memo --mode tab parks at needs_route (exit 2)");
 
-  const list = (await (await call("/memos?limit=1")).json()) as { items: { id: string }[] };
-  const id = list.items[0]?.id;
-  assert(id, "GET /memos?limit=1 returns the parked memo");
+  const list = (await (await call("/memos?limit=1")).json()) as { pinned: { id: string }[] };
+  const id = list.pinned[0]?.id;
+  assert(id, "GET /memos?limit=1 pins the parked memo");
   const parked = (await (await call(`/memos/${id}`)).json()) as {
     state: string;
     routeReason?: string;
