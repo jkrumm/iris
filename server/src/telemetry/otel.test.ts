@@ -238,6 +238,51 @@ describe("postBatch", () => {
   });
 });
 
+describe("postCounted", () => {
+  const url = "http://collector.invalid/v1/traces";
+
+  it("rejects without a fetch once MAX_IN_FLIGHT posts are outstanding, and recovers when they settle", async () => {
+    const pending: Array<(res: unknown) => void> = [];
+    let fetches = 0;
+    await withStubbedFetch(
+      () => {
+        fetches++;
+        return new Promise((resolve) => pending.push(resolve));
+      },
+      async () => {
+        const held = Array.from({ length: _test.maxInFlight }, () =>
+          _test.postCounted(url, "traces", {}),
+        );
+        expect(fetches).toBe(_test.maxInFlight);
+
+        await expect(_test.postCounted(url, "traces", {})).rejects.toThrow(
+          `traces export skipped: ${_test.maxInFlight} posts already in flight`,
+        );
+        expect(fetches).toBe(_test.maxInFlight);
+
+        for (const resolve of pending) resolve({ ok: true, status: 200, statusText: "OK" });
+        await Promise.all(held);
+
+        const after = _test.postCounted(url, "traces", {});
+        expect(fetches).toBe(_test.maxInFlight + 1);
+        pending.at(-1)?.({ ok: true, status: 200, statusText: "OK" });
+        await expect(after).resolves.toBeUndefined();
+      },
+    );
+  });
+
+  it("rejects when the collector refuses the batch", async () => {
+    await withStubbedFetch(
+      () => Promise.resolve({ ok: false, status: 503, statusText: "Service Unavailable" }),
+      async () => {
+        await expect(_test.postCounted(url, "logs", {})).rejects.toThrow(
+          "collector did not accept the logs batch",
+        );
+      },
+    );
+  });
+});
+
 describe("flushOtel", () => {
   // The shutdown path index.ts races against a 2s deadline: it must neither reject nor hang,
   // including while a batch post is still in flight.

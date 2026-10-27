@@ -480,20 +480,33 @@ async function flush(force = false): Promise<void> {
 }
 
 /**
- * Send one already-built OTLP JSON payload (the client relay's, with its own resource) to the collector.
- * Registered with the in-flight set synchronously, so `flushOtel` at shutdown waits for it. Resolves when
- * the endpoint is unset (nothing to send) and rejects when the collector is unreachable or refuses the
- * batch, so the caller can count the failure; it never throws synchronously.
+ * POST one already-built payload and tell the caller whether the collector took it. Honours the same
+ * MAX_IN_FLIGHT bound as `flush`: at the cap it rejects at once, without a fetch, so a slow or unreachable
+ * collector cannot pile up concurrent posts behind the relay. Registered with the in-flight set
+ * synchronously, so `flushOtel` at shutdown waits for it.
  */
-export async function exportOtlp(signal: "traces" | "logs", payload: object): Promise<void> {
-  if (!ENDPOINT) return;
+async function postCounted(url: string, signal: "traces" | "logs", payload: object): Promise<void> {
+  if (inFlight.size >= MAX_IN_FLIGHT) {
+    throw new Error(`${signal} export skipped: ${MAX_IN_FLIGHT} posts already in flight`);
+  }
   let accepted = false;
   await trackPost(
-    postBatch(`${ENDPOINT}/v1/${signal}`, payload).then((ok) => {
+    postBatch(url, payload).then((ok) => {
       accepted = ok;
     }),
   );
   if (!accepted) throw new Error(`collector did not accept the ${signal} batch`);
+}
+
+/**
+ * Send one already-built OTLP JSON payload (the client relay's, with its own resource) to the collector.
+ * Resolves when the endpoint is unset (nothing to send) and rejects when the collector is unreachable, refuses
+ * the batch or MAX_IN_FLIGHT posts are already outstanding, so the caller can count the failure; it never
+ * throws synchronously.
+ */
+export async function exportOtlp(signal: "traces" | "logs", payload: object): Promise<void> {
+  if (!ENDPOINT) return;
+  await postCounted(`${ENDPOINT}/v1/${signal}`, signal, payload);
 }
 
 function exportSpan(data: InternalSpanData): void {
@@ -580,4 +593,6 @@ export const _test = {
     logHook = hook;
   },
   postBatch,
+  postCounted,
+  maxInFlight: MAX_IN_FLIGHT,
 };
