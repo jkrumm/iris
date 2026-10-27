@@ -1,0 +1,355 @@
+{
+  "description": "Every route the iris server serves, with the schema names of its bodies. Schemas: contracts/schema/<name>.json. Fixtures: contracts/fixtures/<name>.json and <name>.<variant>.json, each valid against schema <name>. Maintained by hand; `make check-contracts` fails when it and the app's routes disagree.",
+  "unauthorized": {
+    "status": 401,
+    "mediaType": "text/plain",
+    "body": "Unauthorized"
+  },
+  "routes": [
+    {
+      "method": "GET",
+      "path": "/health",
+      "auth": "none",
+      "responses": {
+        "200": {
+          "mediaType": "application/json",
+          "schema": "health.response"
+        }
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/v1/whoami",
+      "auth": "bearer",
+      "responses": {
+        "200": {
+          "mediaType": "application/json",
+          "schema": "whoami.response"
+        }
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/v1/memos",
+      "auth": "bearer",
+      "request": {
+        "mediaType": "application/json",
+        "schema": "memos.create.request"
+      },
+      "responses": {
+        "201": {
+          "mediaType": "application/json",
+          "schema": "memos.create.response"
+        },
+        "200": {
+          "mediaType": "application/json",
+          "schema": "memos.create.response"
+        },
+        "400": {
+          "mediaType": "application/json",
+          "schema": "error"
+        },
+        "409": {
+          "mediaType": "application/json",
+          "schema": "error"
+        }
+      }
+    },
+    {
+      "method": "PUT",
+      "path": "/v1/memos/:id/segments/:n",
+      "auth": "bearer",
+      "request": {
+        "mediaType": "audio/mp4",
+        "description": "Raw m4a bytes of segment n (application/octet-stream is accepted too). Idempotent by sha256."
+      },
+      "responses": {
+        "200": {
+          "mediaType": "none",
+          "description": "Empty body."
+        },
+        "400": {
+          "mediaType": "application/json",
+          "schema": "error"
+        },
+        "404": {
+          "mediaType": "application/json",
+          "schema": "error"
+        },
+        "409": {
+          "mediaType": "application/json",
+          "schema": "error"
+        },
+        "413": {
+          "mediaType": "application/json",
+          "schema": "error.too-large"
+        }
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/v1/memos/:id/complete",
+      "auth": "bearer",
+      "request": {
+        "mediaType": "application/json",
+        "schema": "memos.complete.request"
+      },
+      "responses": {
+        "202": {
+          "mediaType": "application/json",
+          "schema": "memos.complete.response"
+        },
+        "400": {
+          "mediaType": "application/json",
+          "schema": "error"
+        },
+        "404": {
+          "mediaType": "application/json",
+          "schema": "error"
+        },
+        "409": {
+          "mediaType": "application/json",
+          "schema": "error"
+        },
+        "422": {
+          "mediaType": "application/json",
+          "schema": "error.missing-segments"
+        }
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/v1/memos/:id/retry",
+      "auth": "bearer",
+      "request": {
+        "mediaType": "application/json",
+        "schema": "memos.retry.request"
+      },
+      "responses": {
+        "202": {
+          "mediaType": "application/json",
+          "schema": "memos.retry.response"
+        },
+        "400": {
+          "mediaType": "application/json",
+          "schema": "error"
+        },
+        "404": {
+          "mediaType": "application/json",
+          "schema": "error"
+        },
+        "409": {
+          "mediaType": "application/json",
+          "schema": "error"
+        }
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/v1/memos",
+      "auth": "bearer",
+      "query": "memos.list.query",
+      "responses": {
+        "200": {
+          "mediaType": "application/json",
+          "schema": "memos.list.response"
+        },
+        "400": {
+          "mediaType": "application/json",
+          "schema": "error"
+        }
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/v1/memos/:id",
+      "auth": "bearer",
+      "responses": {
+        "200": {
+          "mediaType": "application/json",
+          "schema": "memos.detail.response"
+        },
+        "404": {
+          "mediaType": "application/json",
+          "schema": "error"
+        }
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/v1/memos/:id/result",
+      "auth": "bearer",
+      "query": "memos.result.query",
+      "responses": {
+        "200": {
+          "mediaType": "application/json",
+          "schema": "memos.result.response"
+        },
+        "202": {
+          "mediaType": "application/json",
+          "schema": "memos.result.response"
+        },
+        "404": {
+          "mediaType": "application/json",
+          "schema": "error"
+        }
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/v1/devices/register",
+      "auth": "bearer",
+      "request": {
+        "mediaType": "application/json",
+        "schema": "devices.register.request"
+      },
+      "responses": {
+        "200": {
+          "mediaType": "application/json",
+          "schema": "devices.register.response"
+        },
+        "400": {
+          "mediaType": "application/json",
+          "schema": "error"
+        },
+        "503": {
+          "mediaType": "application/json",
+          "schema": "error"
+        }
+      }
+    },
+    {
+      "method": "PUT",
+      "path": "/v1/memos/:id/activity-token",
+      "auth": "bearer",
+      "request": {
+        "mediaType": "application/json",
+        "schema": "memos.activity-token.request"
+      },
+      "responses": {
+        "204": {
+          "mediaType": "none",
+          "description": "Empty body."
+        },
+        "400": {
+          "mediaType": "application/json",
+          "schema": "error"
+        },
+        "404": {
+          "mediaType": "application/json",
+          "schema": "error"
+        },
+        "503": {
+          "mediaType": "application/json",
+          "schema": "error"
+        }
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/v1/memos/:id/audio",
+      "auth": "bearer",
+      "responses": {
+        "200": {
+          "mediaType": "audio/mp4",
+          "description": "The concatenated recording. Honours Range."
+        },
+        "206": {
+          "mediaType": "audio/mp4",
+          "description": "A byte range of the recording, with Content-Range."
+        },
+        "416": {
+          "mediaType": "none",
+          "description": "Unsatisfiable Range; Content-Range: bytes */size."
+        },
+        "404": {
+          "mediaType": "application/json",
+          "schema": "error"
+        },
+        "409": {
+          "mediaType": "application/json",
+          "schema": "error"
+        },
+        "503": {
+          "mediaType": "application/json",
+          "schema": "error"
+        }
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/v1/memos/:id/speech",
+      "auth": "bearer",
+      "responses": {
+        "200": {
+          "mediaType": "audio/mpeg",
+          "description": "Speech of the summary's spoken text."
+        },
+        "404": {
+          "mediaType": "application/json",
+          "schema": "error"
+        },
+        "409": {
+          "mediaType": "application/json",
+          "schema": "error"
+        },
+        "503": {
+          "mediaType": "application/json",
+          "schema": "error"
+        }
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/v1/herd",
+      "auth": "bearer",
+      "responses": {
+        "200": {
+          "mediaType": "application/json",
+          "schema": "herd.response"
+        },
+        "503": {
+          "mediaType": "application/json",
+          "schema": "error"
+        }
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/v1/events",
+      "auth": "bearer",
+      "responses": {
+        "200": {
+          "mediaType": "text/event-stream",
+          "description": "SSE. Events listed in `events`; `: keepalive` comment lines every 15 s; no replay."
+        }
+      },
+      "events": [
+        {
+          "name": "ready",
+          "schema": "events.ready"
+        },
+        {
+          "name": "memo.updated",
+          "schema": "events.memo-updated"
+        },
+        {
+          "name": "memo.done",
+          "schema": "events.memo-done"
+        }
+      ]
+    }
+  ],
+  "push": [
+    {
+      "name": "liveactivity.content-state",
+      "schema": "liveactivity.content-state",
+      "notes": "aps.content-state of a Live Activity update or end push. inputName is never sent: the device knows it, and the Swift ContentState declares it optional. routeChip and headline are omitted, not null, while unknown."
+    },
+    {
+      "name": "push.alert",
+      "schema": "push.alert",
+      "notes": "The whole alert body. The custom memo key is the memo id the app opens on tap."
+    }
+  ]
+}

@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "error": {
+      "const": "too_large",
+      "type": "string"
+    },
+    "maxBytes": {
+      "type": "integer"
+    },
+    "message": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "error",
+    "message",
+    "maxBytes"
+  ],
+  "title": "error.too-large",
+  "type": "object"
+}

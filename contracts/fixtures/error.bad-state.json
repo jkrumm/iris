@@ -1,0 +1,4 @@
+{
+  "error": "bad_state",
+  "message": "retry needs a failed memo"
+}

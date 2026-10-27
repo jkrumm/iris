@@ -1,0 +1,22 @@
+{
+  "id": "0b6d1f4e-3a52-4c1d-9f0e-7a2c5d8e1b34",
+  "mode": "hermes",
+  "device": "iphone",
+  "startedAt": "2026-03-14T09:20:41.000Z",
+  "state": "notified",
+  "failedStep": null,
+  "error": null,
+  "segmentCount": 4,
+  "audioSeconds": 38.4,
+  "transcript": "Erinnere mich bitte daran, am Montag die offenen Pull Requests durchzugehen, am Mittwoch den Feature-Freeze zu machen und am Donnerstag das Release zu bauen. Die Datenbankmigration ist noch offen.",
+  "route": "hermes",
+  "destinationRef": "iris-0b6d1f4e-3a52-4c1d-9f0e-7a2c5d8e1b34",
+  "replyText": "Alles notiert. Montag: Pull Requests prüfen. Mittwoch: Feature-Freeze. Donnerstag: Release. Die Datenbankmigration bleibt als offener Punkt.",
+  "summary": {
+    "headline": "Wochenplan abgestimmt, Release am Donnerstag",
+    "detail": "Der Plan für die Woche steht: Montag Review der offenen Pull Requests, Mittwoch Feature-Freeze, Donnerstag Release. Offen bleibt nur die Migration der Datenbank.",
+    "spoken": "Der Wochenplan steht. Release ist am Donnerstag, offen ist nur noch die Datenbankmigration."
+  },
+  "createdAt": "2026-03-14T09:20:41.512Z",
+  "updatedAt": "2026-03-14T09:21:19.870Z"
+}

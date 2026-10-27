@@ -1,0 +1,5 @@
+{
+  "error": "too_large",
+  "message": "segment exceeds 1048576 bytes",
+  "maxBytes": 1048576
+}

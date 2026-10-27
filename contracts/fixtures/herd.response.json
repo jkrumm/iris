@@ -1,0 +1,18 @@
+{
+  "tabs": [
+    {
+      "id": "w1:t2",
+      "repo": "iris",
+      "label": "wave 5",
+      "agentState": "working",
+      "lastActivity": "2026-03-14T09:18:44.000Z"
+    },
+    {
+      "id": "w3:t1",
+      "repo": "dotfiles",
+      "label": "docs",
+      "agentState": "idle",
+      "lastActivity": null
+    }
+  ]
+}

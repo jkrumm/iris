@@ -1,0 +1,18 @@
+{
+  "id": "0b6d1f4e-3a52-4c1d-9f0e-7a2c5d8e1b34",
+  "mode": "hermes",
+  "device": "iphone",
+  "startedAt": "2026-03-14T09:20:41.000Z",
+  "state": "receiving",
+  "failedStep": null,
+  "error": null,
+  "segmentCount": null,
+  "audioSeconds": null,
+  "transcript": null,
+  "route": null,
+  "destinationRef": null,
+  "replyText": null,
+  "summary": null,
+  "createdAt": "2026-03-14T09:20:41.512Z",
+  "updatedAt": "2026-03-14T09:20:41.512Z"
+}

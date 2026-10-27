@@ -1,0 +1,81 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "at": {
+      "type": "string"
+    },
+    "error": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "failedStep": {
+      "anyOf": [
+        {
+          "enum": [
+            "ingest",
+            "transcribe",
+            "route",
+            "act",
+            "summarize",
+            "notify"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "id": {
+      "type": "string"
+    },
+    "state": {
+      "enum": [
+        "receiving",
+        "received",
+        "transcribed",
+        "routed",
+        "needs_route",
+        "acted",
+        "summarized",
+        "notified",
+        "failed"
+      ],
+      "type": "string"
+    },
+    "step": {
+      "anyOf": [
+        {
+          "enum": [
+            "ingest",
+            "transcribe",
+            "route",
+            "act",
+            "summarize",
+            "notify"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "required": [
+    "id",
+    "state",
+    "step",
+    "failedStep",
+    "error",
+    "at"
+  ],
+  "title": "events.memo-updated",
+  "type": "object"
+}

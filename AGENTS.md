@@ -35,6 +35,12 @@ come later under `apple/`.
 - `server/src/telemetry/` — `otel.ts`, `otel-format.ts`, `log.ts`, copied from research-gateway
   (hand-rolled OTLP JSON, no SDK). The trace id is the memo UUID with dashes stripped.
 - `server/src/env.ts` — the only place `process.env` is parsed.
+- `server/src/contracts/` — `registry.ts` (contract name → TypeBox schema), `export.ts` (TypeBox → JSON Schema),
+  `manifest.ts` (zod shape of `contracts/manifest.json`), `routes.ts` (the real app's route table),
+  `check.ts` (`checkContracts`), `cli.ts` (`export` | `check`), `conformance.test.ts` (live app vs contracts).
+- `contracts/` — the wire contract Swift decodes: `schema/<name>.json` (generated, JSON Schema 2020-12),
+  `fixtures/<name>[.<variant>].json` (hand-written, valid against schema `<name>`), `manifest.json` (every route
+  with its schema names, status codes and media types; binary and SSE routes included).
 - `server/src/compose-fakes.ts` — `composeFakes()`: every downstream port as an in-memory fake (`IRIS_FAKES=1`).
 - `scripts/` — `send-memo.ts` (driver), `e2e.ts` (`make e2e`), `smoke.sh`, `launch.sh` (LaunchAgent entry), `mini-deploy.sh` (poller tick);
   `launchd/` — plist templates; `fixtures/audio/` — the German smoke recording.
@@ -76,6 +82,10 @@ with `failed(step)` as a side state.
 **`IRIS_FAKES=1`** (boolean-ish, empty = off) builds every port from `composeFakes()`, ignoring downstream env, and keeps the
 real ffmpeg combiner. `/health` is `degraded` with `"fakes"`, boot logs `server.fakes_mode`, and `scripts/launch.sh`
 refuses to start when `IRIS_FAKES` is set. Never set it in production.
+
+`make check-contracts` — the exported JSON Schemas equal `contracts/schema` byte for byte, every fixture validates
+(ajv 2020, strict), and `manifest.json` lists exactly the routes `createApp(...).routes` serves. `make contracts`
+regenerates `contracts/schema`. `make check` and CI do not run it yet (the contract tests run inside `bun test`).
 
 Tests are colocated `*.test.ts`. Ports and adapters: dependencies are injected, tests use
 in-memory SQLite and fake ports, no `mock.module` / `spyOn`, HTTP via `app.handle(new Request())`.
@@ -121,6 +131,12 @@ Push to master deploys. LaunchAgent `com.jkrumm.iris` (KeepAlive, `ExitTimeOut` 
 
 ## Gotchas
 
+- **Contracts:** change a route or schema → `make contracts`, update the fixtures (every variant a client must
+  decode), `make check-contracts`. A new route needs a `manifest.json` entry or the check fails. Fixtures are the
+  Swift side's source of truth: realistic, camelCase, fixed ids and timestamps, no real hosts or tokens.
+  `liveactivity.content-state` has no `inputName`: the device knows it and the Swift `ContentState` declares it
+  optional. `routeChip` and `headline` are omitted, never null. Elysia mutates the shared TypeBox objects when it
+  composes routes (adds `additionalProperties: false`), so `export.ts` strips that keyword to stay order-independent.
 - **Auth:** `/v1/*` requires `Authorization: Bearer <token>`; `IRIS_DEVICE_TOKENS` is
   `token=device,token=device`. Empty means every `/v1` call is 401. Real tokens live in
   1Password, never in the repo.

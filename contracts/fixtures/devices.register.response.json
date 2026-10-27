@@ -1,0 +1,9 @@
+{
+  "device": "iphone",
+  "name": "Johannes' iPhone",
+  "platform": "ios",
+  "apnsEnv": "sandbox",
+  "hasApnsToken": true,
+  "hasPushToStartToken": true,
+  "registeredAt": "2026-03-14T09:12:03.221Z"
+}

@@ -1,0 +1,8 @@
+{
+  "status": "degraded",
+  "degraded": [
+    "otel",
+    "summarize"
+  ],
+  "inflight": 1
+}

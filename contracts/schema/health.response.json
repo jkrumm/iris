@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "degraded": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "inflight": {
+      "type": "integer"
+    },
+    "status": {
+      "enum": [
+        "ok",
+        "degraded"
+      ],
+      "type": "string"
+    }
+  },
+  "required": [
+    "status",
+    "degraded",
+    "inflight"
+  ],
+  "title": "health.response",
+  "type": "object"
+}

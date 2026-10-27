@@ -1,8 +1,10 @@
+import { t } from "elysia";
 import type { Memo, MemoState, Summary } from "../memo/memo.js";
 import type { ApnsMessage } from "../ports/apns.js";
 
-// Pure payload builders: no library, no clock, no network. Apple limits both an alert and a
-// Live Activity push to 4 KB; every free-text field is capped far below that.
+// Pure payload builders: no clock, no network. Apple limits both an alert and a Live Activity
+// push to 4 KB; every free-text field is capped far below that. The two TypeBox schemas below are
+// the push shapes the Swift clients decode; `contracts/` exports them.
 
 export const MAX_PAYLOAD_BYTES = 4096;
 /** How long an ended Live Activity stays on the Lock Screen. */
@@ -12,18 +14,33 @@ const HEADLINE_MAX = 60;
 const ALERT_BODY_MAX = 200;
 const ROUTE_CHIP_MAX = 30;
 
-export type LiveActivityPhase = "processing" | "needsRoute" | "done" | "failed";
+export const LIVE_ACTIVITY_PHASES = ["processing", "needsRoute", "done", "failed"] as const;
+export type LiveActivityPhase = (typeof LIVE_ACTIVITY_PHASES)[number];
 
 /**
  * The client's `MemoAttributes.ContentState` as plain camelCase JSON (Apple: no custom encoding
  * strategies). `inputName` is deliberately absent: the device knows it and the Swift side declares it optional.
  */
-export interface LiveActivityContentState {
-  phase: LiveActivityPhase;
-  routeChip?: string;
-  headline?: string;
-  hasReply: boolean;
-}
+export const ContentState = t.Object({
+  phase: t.UnionEnum([...LIVE_ACTIVITY_PHASES]),
+  routeChip: t.Optional(t.String()),
+  headline: t.Optional(t.String()),
+  hasReply: t.Boolean(),
+});
+export type LiveActivityContentState = typeof ContentState.static;
+
+/** The whole alert body: Apple's `aps` dict plus the custom `memo` key (the memo id) the app routes on. */
+export const AlertPayload = t.Object({
+  aps: t.Object({
+    alert: t.Object({ title: t.String(), body: t.String() }),
+    "mutable-content": t.Literal(1),
+    category: t.Literal("MEMO_DONE"),
+    "thread-id": t.Literal("memo"),
+    sound: t.Literal("default"),
+  }),
+  memo: t.String(),
+});
+export type AlertPayloadBody = typeof AlertPayload.static;
 
 /** Cuts to `max` code points with an ellipsis, never splitting a surrogate pair. */
 export function truncate(text: string, max: number): string {
@@ -115,20 +132,18 @@ export function buildLiveActivityEnd(params: {
 /** Headline only, never transcript or reply text (TDD §12). */
 export function buildAlert(params: { topic: string; memo: Memo; summary: Summary }): ApnsMessage {
   const { topic, memo, summary } = params;
-  return {
-    headers: { topic, pushType: "alert", priority: 10 },
-    payload: {
-      aps: {
-        alert: {
-          title: routeChip(memo.route) ?? "Iris",
-          body: truncate(summary.headline, ALERT_BODY_MAX),
-        },
-        "mutable-content": 1,
-        category: "MEMO_DONE",
-        "thread-id": "memo",
-        sound: "default",
+  const payload: AlertPayloadBody = {
+    aps: {
+      alert: {
+        title: routeChip(memo.route) ?? "Iris",
+        body: truncate(summary.headline, ALERT_BODY_MAX),
       },
-      memo: memo.id,
+      "mutable-content": 1,
+      category: "MEMO_DONE",
+      "thread-id": "memo",
+      sound: "default",
     },
+    memo: memo.id,
   };
+  return { headers: { topic, pushType: "alert", priority: 10 }, payload };
 }

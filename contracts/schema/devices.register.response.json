@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "apnsEnv": {
+      "anyOf": [
+        {
+          "enum": [
+            "sandbox",
+            "production"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "device": {
+      "type": "string"
+    },
+    "hasApnsToken": {
+      "type": "boolean"
+    },
+    "hasPushToStartToken": {
+      "type": "boolean"
+    },
+    "name": {
+      "type": "string"
+    },
+    "platform": {
+      "enum": [
+        "ios",
+        "macos"
+      ],
+      "type": "string"
+    },
+    "registeredAt": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "device",
+    "name",
+    "platform",
+    "apnsEnv",
+    "hasApnsToken",
+    "hasPushToStartToken",
+    "registeredAt"
+  ],
+  "title": "devices.register.response",
+  "type": "object"
+}

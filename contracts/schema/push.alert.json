@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "aps": {
+      "properties": {
+        "alert": {
+          "properties": {
+            "body": {
+              "type": "string"
+            },
+            "title": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "title",
+            "body"
+          ],
+          "type": "object"
+        },
+        "category": {
+          "const": "MEMO_DONE",
+          "type": "string"
+        },
+        "mutable-content": {
+          "const": 1,
+          "type": "number"
+        },
+        "sound": {
+          "const": "default",
+          "type": "string"
+        },
+        "thread-id": {
+          "const": "memo",
+          "type": "string"
+        }
+      },
+      "required": [
+        "alert",
+        "mutable-content",
+        "category",
+        "thread-id",
+        "sound"
+      ],
+      "type": "object"
+    },
+    "memo": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "aps",
+    "memo"
+  ],
+  "title": "push.alert",
+  "type": "object"
+}

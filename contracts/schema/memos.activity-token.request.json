@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "token": {
+      "maxLength": 1024,
+      "pattern": "^[0-9a-fA-F]+$",
+      "type": "string"
+    }
+  },
+  "required": [
+    "token"
+  ],
+  "title": "memos.activity-token.request",
+  "type": "object"
+}

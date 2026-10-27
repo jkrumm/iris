@@ -1,0 +1,18 @@
+{
+  "id": "e41a8c73-2b9d-4f06-8d35-6a7b0c1e9f22",
+  "mode": "auto",
+  "device": "iphone",
+  "startedAt": "2026-03-14T09:30:00.000Z",
+  "state": "receiving",
+  "failedStep": null,
+  "error": null,
+  "segmentCount": null,
+  "audioSeconds": null,
+  "transcript": null,
+  "route": null,
+  "destinationRef": null,
+  "replyText": null,
+  "summary": null,
+  "createdAt": "2026-03-14T09:30:00.118Z",
+  "updatedAt": "2026-03-14T09:30:00.118Z"
+}

@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "hasReply": {
+      "type": "boolean"
+    },
+    "headline": {
+      "type": "string"
+    },
+    "phase": {
+      "enum": [
+        "processing",
+        "needsRoute",
+        "done",
+        "failed"
+      ],
+      "type": "string"
+    },
+    "routeChip": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "phase",
+    "hasReply"
+  ],
+  "title": "liveactivity.content-state",
+  "type": "object"
+}

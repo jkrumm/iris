@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "segmentCount": {
+      "type": "integer"
+    }
+  },
+  "required": [
+    "segmentCount"
+  ],
+  "title": "memos.complete.request",
+  "type": "object"
+}

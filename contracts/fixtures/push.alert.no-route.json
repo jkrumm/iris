@@ -1,0 +1,13 @@
+{
+  "aps": {
+    "alert": {
+      "title": "Iris",
+      "body": "Notiz verarbeitet"
+    },
+    "mutable-content": 1,
+    "category": "MEMO_DONE",
+    "thread-id": "memo",
+    "sound": "default"
+  },
+  "memo": "2f8d5b06-9c1e-4a73-b4d8-0e6a3c7f1d95"
+}

@@ -1,0 +1,13 @@
+{
+  "aps": {
+    "alert": {
+      "title": "Hermes",
+      "body": "Wochenplan abgestimmt, Release am Donnerstag"
+    },
+    "mutable-content": 1,
+    "category": "MEMO_DONE",
+    "thread-id": "memo",
+    "sound": "default"
+  },
+  "memo": "0b6d1f4e-3a52-4c1d-9f0e-7a2c5d8e1b34"
+}

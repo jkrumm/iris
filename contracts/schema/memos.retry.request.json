@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "from": {
+      "enum": [
+        "ingest",
+        "transcribe",
+        "route",
+        "act",
+        "summarize",
+        "notify"
+      ],
+      "type": "string"
+    }
+  },
+  "required": [
+    "from"
+  ],
+  "title": "memos.retry.request",
+  "type": "object"
+}

@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "device": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "device"
+  ],
+  "title": "whoami.response",
+  "type": "object"
+}

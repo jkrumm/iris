@@ -1,0 +1,9 @@
+{
+  "device": "macbook",
+  "name": "MacBook",
+  "platform": "macos",
+  "apnsEnv": null,
+  "hasApnsToken": false,
+  "hasPushToStartToken": false,
+  "registeredAt": "2026-03-12T19:40:55.007Z"
+}

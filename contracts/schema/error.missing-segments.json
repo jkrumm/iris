@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "error": {
+      "const": "missing_segments",
+      "type": "string"
+    },
+    "message": {
+      "type": "string"
+    },
+    "missing": {
+      "items": {
+        "type": "integer"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "error",
+    "message",
+    "missing"
+  ],
+  "title": "error.missing-segments",
+  "type": "object"
+}

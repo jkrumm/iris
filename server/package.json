@@ -10,7 +10,9 @@
     "format": "cd .. && oxfmt -c server/.oxfmtrc.json server/src scripts --write",
     "format:check": "cd .. && oxfmt -c server/.oxfmtrc.json server/src scripts --check",
     "typecheck": "tsc --noEmit",
-    "test": "bun test"
+    "test": "bun test",
+    "contracts:export": "bun src/contracts/cli.ts export",
+    "contracts:check": "bun src/contracts/cli.ts check"
   },
   "dependencies": {
     "@parse/node-apn": "8.1.0",
@@ -19,6 +21,7 @@
   },
   "devDependencies": {
     "@types/bun": "1.4.2",
+    "ajv": "8.20.0",
     "eslint-plugin-zod": "4.14.2",
     "oxfmt": "0.73.0",
     "oxlint": "1.88.0",

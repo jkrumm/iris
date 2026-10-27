@@ -1,0 +1,40 @@
+{
+  "id": "2f8d5b06-9c1e-4a73-b4d8-0e6a3c7f1d95",
+  "mode": "auto",
+  "device": "iphone",
+  "startedAt": "2026-03-14T08:02:10.000Z",
+  "state": "needs_route",
+  "failedStep": null,
+  "error": null,
+  "segmentCount": 2,
+  "audioSeconds": 14.9,
+  "transcript": "Schreib das bitte in mein Journal und gib mir morgen früh eine Zusammenfassung.",
+  "route": null,
+  "destinationRef": null,
+  "replyText": null,
+  "summary": null,
+  "createdAt": "2026-03-14T08:02:10.301Z",
+  "updatedAt": "2026-03-14T08:02:27.115Z",
+  "steps": [
+    {
+      "step": "transcribe",
+      "status": "done",
+      "startedAt": "2026-03-14T08:02:14.000Z",
+      "finishedAt": "2026-03-14T08:02:22.480Z",
+      "error": null,
+      "usage": {
+        "audioSeconds": 14.9
+      },
+      "costUsd": 0.0015
+    },
+    {
+      "step": "route",
+      "status": "done",
+      "startedAt": "2026-03-14T08:02:22.540Z",
+      "finishedAt": "2026-03-14T08:02:27.100Z",
+      "error": null,
+      "usage": null,
+      "costUsd": null
+    }
+  ]
+}

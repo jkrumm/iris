@@ -1,0 +1,7 @@
+{
+  "name": "Johannes' iPhone",
+  "platform": "ios",
+  "apnsToken": "13805d2b7a4f1e9c6308d5b1a7e4c2f9",
+  "apnsEnv": "sandbox",
+  "pushToStartToken": "9f2c4e7a1b5d8036c9e1f4a7b2d50831"
+}
