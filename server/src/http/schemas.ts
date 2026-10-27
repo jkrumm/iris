@@ -231,7 +231,7 @@ export const StatsResponse = t.Object({
   to: t.String(),
   perDay: t.Array(t.Object({ date: t.String(), route: t.String(), count: Int })),
   perWeek: t.Array(t.Object({ weekStart: t.String(), count: Int })),
-  stepMedians: t.Array(t.Object({ step: Step, medianMs: Int, samples: Int })),
+  stepMedians: t.Array(t.Object({ step: Step, route: t.String(), medianMs: Int, samples: Int })),
   costPerRoute: t.Array(t.Object({ route: t.String(), costUsd: t.Number(), memos: Int })),
 });
 

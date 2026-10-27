@@ -23,7 +23,7 @@ public struct Stats: Codable, Hashable, Sendable {
   public var perDay: [StatsDayCount]
   /// Weeks start on Monday; the first week only counts the days inside the window.
   public var perWeek: [StatsWeekCount]
-  /// Median duration of done step records, in pipeline order; a step without samples is absent.
+  /// Median duration of done step records per step and route, in pipeline order then route; a pair without samples is absent.
   public var stepMedians: [StatsStepMedian]
   public var costPerRoute: [StatsRouteCost]
 
@@ -64,13 +64,18 @@ public struct StatsWeekCount: Codable, Hashable, Sendable {
   }
 }
 
+/// The median duration of one step for memos of one route: the baseline the memo detail waterfall compares
+/// against. `samples` is the n behind it; the client decides how many are enough to show a faster/slower hint.
 public struct StatsStepMedian: Codable, Hashable, Sendable {
   public var step: MemoStep
+  /// A destination name, or `"unrouted"`.
+  public var route: String
   public var medianMs: Int
   public var samples: Int
 
-  public init(step: MemoStep, medianMs: Int, samples: Int) {
+  public init(step: MemoStep, route: String, medianMs: Int, samples: Int) {
     self.step = step
+    self.route = route
     self.medianMs = medianMs
     self.samples = samples
   }

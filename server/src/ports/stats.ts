@@ -11,7 +11,8 @@ export interface Stats {
   perDay: { date: string; route: string; count: number }[];
   /** Weeks start on Monday; the first week of the window only counts the days inside it. */
   perWeek: { weekStart: string; count: number }[];
-  stepMedians: { step: Step; medianMs: number; samples: number }[];
+  /** Per step and route; `samples` is the n behind the median, the client decides when it is enough to show. */
+  stepMedians: { step: Step; route: string; medianMs: number; samples: number }[];
   costPerRoute: { route: string; costUsd: number; memos: number }[];
 }
 
