@@ -382,9 +382,21 @@ access group), recent results and settings.
 | `IrisTelemetry` | IrisCore | Swift Testing: batching, relay payload shape, drop-on-overflow |
 
 Swift settings: Swift 6 language mode and complete strict concurrency; app
-targets use MainActor default isolation (SE-0466). The exact build-setting
-spelling is verified in the setup wave, because the research couldn't confirm
-it.
+targets use MainActor default isolation (SE-0466). Verified against Xcode 27.1
+(Wave 7, `apple/project.yml`, all schemes build warning-free):
+
+| Setting | Value |
+|-|-|
+| `SWIFT_VERSION` | `6.0` (the Swift 6 language mode; the compiler is 6.4) |
+| `SWIFT_STRICT_CONCURRENCY` | `complete` |
+| `SWIFT_DEFAULT_ACTOR_ISOLATION` | `MainActor` (values: `nonisolated`, `MainActor`) |
+| `SWIFT_APPROACHABLE_CONCURRENCY` | `YES` |
+
+The UI test bundle sets `SWIFT_DEFAULT_ACTOR_ISOLATION: nonisolated`. Local
+packages are `nonisolated` by default (`swiftLanguageModes: [.v6]`, tools 6.2).
+Packages never depend on each other except through `IrisCore`; `IrisCapture`,
+`IrisUI` and `IrisTelemetry` currently define what they need locally and gain
+the `IrisCore` dependency when R1 wires them together.
 
 ## 7. UI system
 
