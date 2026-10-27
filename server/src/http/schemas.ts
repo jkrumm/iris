@@ -96,7 +96,8 @@ export const CreateMemoBody = t.Object({
   startedAt: t.String(),
 });
 export const CompleteBody = t.Object({ segmentCount: Int });
-export const RetryBody = t.Object({ from: Step });
+// `UnionEnum` defaults a missing value to its first member; a missing `from` must be a 400, not "ingest".
+export const RetryBody = t.Object({ from: t.UnionEnum([...STEPS], { default: undefined }) });
 /** `tab` is required for `herdr` and rejected for the others (400 `bad_request`). */
 export const RouteBody = t.Object({
   // `UnionEnum` defaults a missing value to its first member; a missing destination must be a 400, not "hermes".
