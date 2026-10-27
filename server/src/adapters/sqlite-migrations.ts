@@ -148,4 +148,12 @@ export const MIGRATIONS: readonly string[] = [
 
   INSERT INTO memo_fts (memo_fts) VALUES ('rebuild');
   `,
+  // Memo flags (swipe actions): done, favorite, archive and soft delete. Times are ISO text like the other time columns.
+  `
+  ALTER TABLE memos ADD COLUMN done INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE memos ADD COLUMN favorite INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE memos ADD COLUMN archived_at TEXT;
+  ALTER TABLE memos ADD COLUMN deleted_at TEXT;
+  CREATE INDEX memos_deleted_at ON memos (deleted_at) WHERE deleted_at IS NOT NULL;
+  `,
 ];

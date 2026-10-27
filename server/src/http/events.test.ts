@@ -77,6 +77,24 @@ describe("GET /v1/events", () => {
     await reader.cancel();
   });
 
+  it("sends memo.updated and no memo.done for a flag change on a finished memo", async () => {
+    const { app, events } = testApp({ sseKeepaliveMs: 1000 });
+    const res = await call(app, { path: "/v1/events" });
+    const reader = (res.body as ReadableStream<Uint8Array>).getReader();
+    const base = { id: crypto.randomUUID(), step: null, failedStep: null, error: null, at: "t" };
+    events.publish({ ...base, state: "notified", flagChange: true });
+    events.publish({ ...base, state: "received" });
+
+    const text = await readUntil(reader, (t) => t.split("memo.updated").length > 2);
+    const names = text
+      .split("\n")
+      .filter((l) => l.startsWith("event: "))
+      .map((l) => l.slice(7));
+    expect(names).toEqual(["ready", "memo.updated", "memo.updated"]);
+    expect(text).not.toContain("flagChange");
+    await reader.cancel();
+  });
+
   it("releases when the request aborts", async () => {
     const { app, listenerCount } = testApp({ sseKeepaliveMs: 20 });
     const controller = new AbortController();

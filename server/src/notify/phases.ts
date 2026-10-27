@@ -34,7 +34,7 @@ export function bindPhaseUpdates(deps: {
   }
 
   const unsubscribe = events.subscribe((event: MemoEvent) => {
-    if (event.state === "receiving" || event.state === "notified") return;
+    if (event.state === "receiving" || event.state === "notified" || event.flagChange) return;
     const running = active.get(event.id);
     if (running) {
       running.dirty = true;

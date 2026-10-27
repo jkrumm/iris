@@ -57,8 +57,36 @@ export interface Memo {
    */
   routeReason?: string;
   routeSuggestion?: string;
+  /** User flags (swipe actions): handled, starred, and when it was archived. None of them affects the pipeline. */
+  done: boolean;
+  favorite: boolean;
+  archivedAt: string | null;
+  /** Soft delete: set by `DELETE`, cleared by restore; the sweeper purges the memo `PURGE_AFTER_MS` later. */
+  deletedAt: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+/** How long a soft-deleted memo stays restorable before the sweeper purges it. The one definition. */
+export const PURGE_AFTER_MS = 10 * 60 * 1000;
+
+/** When a soft-deleted memo is purged (ISO), or null for a memo that is not deleted. */
+export function purgeAt(memo: Pick<Memo, "deletedAt">): string | null {
+  return memo.deletedAt === null
+    ? null
+    : new Date(Date.parse(memo.deletedAt) + PURGE_AFTER_MS).toISOString();
+}
+
+/** Only a memo the pipeline is done with may be deleted: the runner never touches it again. */
+export function isDeletable(state: MemoState): boolean {
+  return state === "notified" || state === "failed" || state === "needs_route";
+}
+
+/** The user flags `PATCH /memos/:id` sets; an absent key is left as it is. */
+export interface MemoFlags {
+  done?: boolean | undefined;
+  favorite?: boolean | undefined;
+  archived?: boolean | undefined;
 }
 
 /**

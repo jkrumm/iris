@@ -40,6 +40,17 @@ describe("bindNeedsRouteAlerts", () => {
     expect(notifier.needsRouteCalls).toEqual([]);
   });
 
+  it("does not alert again for a flag change on a parked memo", async () => {
+    const { store, events, notifier, binding } = setup();
+    const id = parkMemo(store, { reason: "unsure" });
+    const clock = { now: () => new Date() };
+    events.publish(
+      memoEvent({ memo: store.getMemo(id) as Memo, step: null, clock, flagChange: true }),
+    );
+    await binding.idle();
+    expect(notifier.needsRouteCalls).toEqual([]);
+  });
+
   it("skips a memo that was answered before the push went out", async () => {
     const { store, notifier, binding, publish } = setup();
     const id = parkMemo(store, { reason: "decide refused" });

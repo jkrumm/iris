@@ -18,6 +18,9 @@
     "spoken": "Ein Mutex hat einen Halter, ein Semaphor zählt freie Plätze."
   },
   "threadId": "9d4f2b68-1e73-4a85-b0c6-5f8a3e7d2c10",
+  "done": false,
+  "favorite": false,
+  "archived": false,
   "createdAt": "2026-03-14T09:20:41.512Z",
   "updatedAt": "2026-03-14T09:21:19.870Z",
   "steps": [

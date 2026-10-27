@@ -11,6 +11,11 @@ export interface MemoEvent {
   error: string | null;
   /** ISO timestamp. */
   at: string;
+  /**
+   * The memo changed without its pipeline moving (a flag, a delete, a restore): clients refetch it, but nothing keyed
+   * to a state entering (`memo.done`, alerts, Live Activity pushes) fires again. Not on the wire.
+   */
+  flagChange?: true;
 }
 
 export type MemoListener = (event: MemoEvent) => void;
@@ -20,8 +25,13 @@ export interface MemoEvents {
   subscribe(listener: MemoListener): () => void;
 }
 
-export function memoEvent(params: { memo: Memo; step: Step | null; clock: Clock }): MemoEvent {
-  const { memo, step, clock } = params;
+export function memoEvent(params: {
+  memo: Memo;
+  step: Step | null;
+  clock: Clock;
+  flagChange?: true;
+}): MemoEvent {
+  const { memo, step, clock, flagChange } = params;
   return {
     id: memo.id,
     state: memo.state,
@@ -29,6 +39,7 @@ export function memoEvent(params: { memo: Memo; step: Step | null; clock: Clock 
     failedStep: memo.failedStep,
     error: memo.error,
     at: clock.now().toISOString(),
+    ...(flagChange && { flagChange }),
   };
 }
 

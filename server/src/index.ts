@@ -9,6 +9,7 @@ import { compose } from "./compose.js";
 import { env } from "./env.js";
 import { createMemoEvents } from "./memo/events.js";
 import { createMemoMedia } from "./memo/media.js";
+import { createPurger } from "./memo/purge.js";
 import { createRunner } from "./memo/runner.js";
 import { createMemoService } from "./memo/service.js";
 import { createNotifyLifecycle } from "./notify/lifecycle.js";
@@ -65,6 +66,8 @@ const memos = createMemoService({
   destinations: registeredDestinations(ports.destinations ?? {}),
 });
 
+const purger = createPurger({ store, audio, speechCache: ports.speechCache, clock });
+
 const media = createMemoMedia({
   store,
   audio,
@@ -90,6 +93,9 @@ const app = createApp({
 
 log("server.start", { port: env.PORT, host: env.HOST, degraded });
 
+// Soft-deleted memos past their undo window: on boot, then every minute.
+purger.start();
+
 // Resume memos that were mid-pipeline when the process stopped; never blocks listen.
 runner.driveAll().catch((err: unknown) => log("runner.drive_all_failed", { error: String(err) }));
 
@@ -112,9 +118,10 @@ async function shutdown(code: number): Promise<void> {
   try {
     await app.stop(true);
     runner.stop();
+    purger.stop();
     notifyLifecycle.stop();
     const drained = await Promise.race([
-      Promise.all([runner.idle(), notifyLifecycle.idle()]).then(() => "drained"),
+      Promise.all([runner.idle(), notifyLifecycle.idle(), purger.idle()]).then(() => "drained"),
       after(DRAIN_DEADLINE_MS),
     ]);
     if (drained === "timeout") {

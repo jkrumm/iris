@@ -14,6 +14,9 @@
   "replyText": null,
   "summary": null,
   "typed": true,
+  "done": false,
+  "favorite": false,
+  "archived": false,
   "createdAt": "2026-03-14T09:45:12.204Z",
   "updatedAt": "2026-03-14T09:45:12.204Z"
 }

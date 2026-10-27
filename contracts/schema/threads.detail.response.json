@@ -4,6 +4,9 @@
     "memos": {
       "items": {
         "properties": {
+          "archived": {
+            "type": "boolean"
+          },
           "audioSeconds": {
             "anyOf": [
               {
@@ -15,6 +18,9 @@
             ]
           },
           "createdAt": {
+            "type": "string"
+          },
+          "deletedAt": {
             "type": "string"
           },
           "destinationRef": {
@@ -29,6 +35,9 @@
           },
           "device": {
             "type": "string"
+          },
+          "done": {
+            "type": "boolean"
           },
           "error": {
             "anyOf": [
@@ -58,6 +67,9 @@
               }
             ]
           },
+          "favorite": {
+            "type": "boolean"
+          },
           "id": {
             "type": "string"
           },
@@ -69,6 +81,9 @@
               "tab",
               "chat"
             ],
+            "type": "string"
+          },
+          "purgeAt": {
             "type": "string"
           },
           "replyText": {
@@ -186,6 +201,9 @@
           "destinationRef",
           "replyText",
           "summary",
+          "done",
+          "favorite",
+          "archived",
           "createdAt",
           "updatedAt"
         ],

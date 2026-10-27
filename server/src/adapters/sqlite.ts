@@ -69,6 +69,10 @@ interface MemoRow {
   reply_text: string | null;
   summary_json: string | null;
   thread_id: string | null;
+  done: number;
+  favorite: number;
+  archived_at: string | null;
+  deleted_at: string | null;
   created_at: string;
   updated_at: string;
   /** The latest decision's reason and destination, only while the memo is `needs_route`. */
@@ -133,6 +137,10 @@ const toMemo = (row: MemoRow): Memo => ({
   threadId: row.thread_id,
   ...(row.park_reason !== null && { routeReason: row.park_reason }),
   ...(row.park_destination !== null && { routeSuggestion: row.park_destination }),
+  done: row.done === 1,
+  favorite: row.favorite === 1,
+  archivedAt: row.archived_at,
+  deletedAt: row.deleted_at,
   createdAt: row.created_at,
   updatedAt: row.updated_at,
 });
@@ -328,6 +336,28 @@ export function createSqliteMemoStore(params: { db: Database; clock: Clock }): M
     },
   );
 
+  const purge = db.transaction((id: string): boolean => {
+    const row = db
+      .query<{ thread_id: string | null }, [string]>(
+        "SELECT thread_id FROM memos WHERE id = ? AND deleted_at IS NOT NULL",
+      )
+      .get(id);
+    if (!row) return false;
+    // Children (steps, segments, decisions, activity tokens) go with the row by ON DELETE CASCADE.
+    db.query("DELETE FROM memos WHERE id = ?").run(id);
+    const threadId = row.thread_id;
+    if (threadId !== null) {
+      db.query(
+        `UPDATE threads SET last_memo_id = (SELECT m.id FROM memos m WHERE m.thread_id = threads.id ORDER BY m.seq DESC LIMIT 1)
+         WHERE id = ? AND last_memo_id = ?`,
+      ).run(threadId, id);
+      db.query(
+        "DELETE FROM threads WHERE id = ? AND NOT EXISTS (SELECT 1 FROM memos m WHERE m.thread_id = threads.id)",
+      ).run(threadId);
+    }
+    return true;
+  });
+
   const memoStore: Omit<MemoStore, keyof ThreadStore> = {
     createMemo({ id, mode, device, startedAt, threadId }) {
       const at = stamp();
@@ -360,7 +390,7 @@ export function createSqliteMemoStore(params: { db: Database; clock: Clock }): M
       return row ? toMemo(row) : null;
     },
 
-    listMemos({ limit, cursor, q, route, state }) {
+    listMemos({ limit, cursor, q, route, state, favorite, archived, kind }) {
       let before: number | null = null;
       if (cursor) {
         before = Number(cursor);
@@ -368,8 +398,16 @@ export function createSqliteMemoStore(params: { db: Database; clock: Clock }): M
           throw new MemoError("bad_request", "invalid cursor");
         }
       }
-      const filters: string[] = [];
+      const filters: string[] = [
+        "memos.deleted_at IS NULL",
+        archived ? "memos.archived_at IS NOT NULL" : "memos.archived_at IS NULL",
+      ];
       const args: (string | number)[] = [];
+      if (favorite) filters.push("memos.favorite = 1");
+      if (kind) {
+        filters.push("memos.thread_id IN (SELECT id FROM threads WHERE kind = ?)");
+        args.push(kind);
+      }
       if (route) {
         filters.push("memos.route = ?");
         args.push(route);
@@ -391,17 +429,17 @@ export function createSqliteMemoStore(params: { db: Database; clock: Clock }): M
           )
           .all(...args, ...tailArgs);
 
+      // A parked memo that is `done` is no open question: it is paged like any other memo instead of pinned.
+      const open = "(memos.state = 'needs_route' AND memos.done = 0)";
       const pinned =
         before === null && (!state || state === "needs_route")
-          ? select(["memos.state = 'needs_route'"], "ORDER BY seq DESC LIMIT ?", [PINNED_LIMIT])
+          ? select([open], "ORDER BY seq DESC LIMIT ?", [PINNED_LIMIT])
           : [];
-      if (state === "needs_route")
-        return { memos: [], pinned: pinned.map(toMemo), nextCursor: null };
 
       const rows =
         before === null
-          ? select(["memos.state != 'needs_route'"], "ORDER BY seq DESC LIMIT ?", [limit + 1])
-          : select(["memos.state != 'needs_route'", "memos.seq < ?"], "ORDER BY seq DESC LIMIT ?", [
+          ? select([`NOT ${open}`], "ORDER BY seq DESC LIMIT ?", [limit + 1])
+          : select([`NOT ${open}`, "memos.seq < ?"], "ORDER BY seq DESC LIMIT ?", [
               before,
               limit + 1,
             ]);
@@ -510,6 +548,62 @@ export function createSqliteMemoStore(params: { db: Database; clock: Clock }): M
 
     recordCorrection({ id, decision }) {
       return recordCorrection(id, decision);
+    },
+
+    setFlags({ id, done, favorite, archived }) {
+      const sets: string[] = [];
+      const args: (string | number)[] = [];
+      const at = stamp();
+      if (done !== undefined) {
+        sets.push("done = ?");
+        args.push(done ? 1 : 0);
+      }
+      if (favorite !== undefined) {
+        sets.push("favorite = ?");
+        args.push(favorite ? 1 : 0);
+      }
+      if (archived === true) {
+        sets.push("archived_at = COALESCE(archived_at, ?)");
+        args.push(at);
+      } else if (archived === false) {
+        sets.push("archived_at = NULL");
+      }
+      if (sets.length === 0) return memoById(id) !== null;
+      const result = db
+        .query(
+          `UPDATE memos SET ${sets.join(", ")}, updated_at = ? WHERE id = ? AND deleted_at IS NULL`,
+        )
+        .run(...args, at, id);
+      return result.changes === 1;
+    },
+
+    markDeleted({ id, at }) {
+      db.query(
+        "UPDATE memos SET deleted_at = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL",
+      ).run(at, stamp(), id);
+      return memoById(id) !== null;
+    },
+
+    restore(id) {
+      const result = db
+        .query(
+          "UPDATE memos SET deleted_at = NULL, updated_at = ? WHERE id = ? AND deleted_at IS NOT NULL",
+        )
+        .run(stamp(), id);
+      return result.changes === 1;
+    },
+
+    listPurgeable(cutoff) {
+      return db
+        .query<{ id: string }, [string]>(
+          "SELECT id FROM memos WHERE deleted_at IS NOT NULL AND deleted_at <= ? ORDER BY deleted_at, seq",
+        )
+        .all(cutoff)
+        .map((row) => row.id);
+    },
+
+    purge(id) {
+      return purge(id);
     },
 
     listNonTerminal() {

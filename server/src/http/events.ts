@@ -41,7 +41,8 @@ export function eventRoutes(params: {
         const unsubscribe = memos.subscribe((event) => {
           const data = JSON.stringify(eventJson(event));
           send(`event: memo.updated\ndata: ${data}\n\n`);
-          if (isResultReady(event.state)) send(`event: memo.done\ndata: ${data}\n\n`);
+          if (isResultReady(event.state) && !event.flagChange)
+            send(`event: memo.done\ndata: ${data}\n\n`);
         });
         const timer = setInterval(() => send(": keepalive\n\n"), keepaliveMs);
         cleanup = () => {
