@@ -436,6 +436,26 @@
     },
     {
       "method": "GET",
+      "path": "/v1/stats",
+      "auth": "bearer",
+      "query": "stats.query",
+      "responses": {
+        "200": {
+          "mediaType": "application/json",
+          "schema": "stats.response"
+        },
+        "400": {
+          "mediaType": "application/json",
+          "schema": "error"
+        },
+        "503": {
+          "mediaType": "application/json",
+          "schema": "error"
+        }
+      }
+    },
+    {
+      "method": "GET",
       "path": "/v1/events",
       "auth": "bearer",
       "responses": {

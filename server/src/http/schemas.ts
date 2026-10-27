@@ -220,6 +220,21 @@ export const HerdTab = t.Object({
 });
 export const HerdResponse = t.Object({ tabs: t.Array(HerdTab) });
 
+// ── Stats ────────────────────────────────────────────────────────────────────
+
+/** `days` is checked in the handler (integer, 1..365, default 30): a 400 `bad_request`. Elysia coerces the query text. */
+export const StatsQuery = t.Object({ days: t.Optional(t.Number()) });
+export const StatsResponse = t.Object({
+  days: Int,
+  /** First and last local day of the window (server time zone), `YYYY-MM-DD`, inclusive. */
+  from: t.String(),
+  to: t.String(),
+  perDay: t.Array(t.Object({ date: t.String(), route: t.String(), count: Int })),
+  perWeek: t.Array(t.Object({ weekStart: t.String(), count: Int })),
+  stepMedians: t.Array(t.Object({ step: Step, medianMs: Int, samples: Int })),
+  costPerRoute: t.Array(t.Object({ route: t.String(), costUsd: t.Number(), memos: Int })),
+});
+
 // ── Service ──────────────────────────────────────────────────────────────────
 
 export const HealthResponse = t.Object({

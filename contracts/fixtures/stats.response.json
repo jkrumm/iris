@@ -1,0 +1,28 @@
+{
+  "days": 7,
+  "from": "2026-03-08",
+  "to": "2026-03-14",
+  "perDay": [
+    { "date": "2026-03-12", "route": "hermes", "count": 3 },
+    { "date": "2026-03-12", "route": "unrouted", "count": 1 },
+    { "date": "2026-03-14", "route": "herdr", "count": 2 },
+    { "date": "2026-03-14", "route": "journal", "count": 1 }
+  ],
+  "perWeek": [
+    { "weekStart": "2026-03-02", "count": 4 },
+    { "weekStart": "2026-03-09", "count": 3 }
+  ],
+  "stepMedians": [
+    { "step": "transcribe", "medianMs": 4120, "samples": 7 },
+    { "step": "route", "medianMs": 1850, "samples": 7 },
+    { "step": "act", "medianMs": 2310, "samples": 6 },
+    { "step": "summarize", "medianMs": 6400, "samples": 5 },
+    { "step": "notify", "medianMs": 180, "samples": 5 }
+  ],
+  "costPerRoute": [
+    { "route": "herdr", "costUsd": 0, "memos": 2 },
+    { "route": "hermes", "costUsd": 0.0421, "memos": 3 },
+    { "route": "journal", "costUsd": 0.0107, "memos": 1 },
+    { "route": "unrouted", "costUsd": 0.0032, "memos": 1 }
+  ]
+}

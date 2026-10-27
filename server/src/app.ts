@@ -10,9 +10,11 @@ import { mediaRoutes } from "./http/media.js";
 import { memoRoutes } from "./http/memos.js";
 import { threadRoutes } from "./http/threads.js";
 import { HealthResponse, WhoamiResponse } from "./http/schemas.js";
+import { statsRoutes } from "./http/stats.js";
 import { telemetryRoutes } from "./http/telemetry.js";
 import type { DeviceStore } from "./ports/devices.js";
 import type { Herd } from "./ports/herd.js";
+import type { StatsStore } from "./ports/stats.js";
 import type { TelemetryRelay } from "./telemetry/relay.js";
 
 export interface AppDeps {
@@ -23,6 +25,7 @@ export interface AppDeps {
   media?: MemoMedia | undefined;
   herd?: Herd | undefined;
   telemetry?: TelemetryRelay | undefined;
+  stats?: StatsStore | undefined;
   /** Names of optional subsystems that are not configured; surfaced on /health. */
   degraded?: string[];
   /** Memos with a step running right now; surfaced on /health so the deploy poller can wait for idle. */
@@ -35,7 +38,7 @@ export interface AppDeps {
 export function createApp(deps: AppDeps) {
   const degraded = deps.degraded ?? [];
   const auth = deviceAuth(deps.deviceTokens);
-  const { memos, devices, media, herd, telemetry } = deps;
+  const { memos, stats, devices, media, herd, telemetry } = deps;
   return new Elysia()
     .use(httpErrors)
     .get(
@@ -59,6 +62,7 @@ export function createApp(deps: AppDeps) {
         .use(telemetryRoutes({ telemetry, auth }))
         .use(mediaRoutes({ media, auth }))
         .use(herdRoutes({ herd, auth }))
+        .use(statsRoutes({ stats, auth }))
         .use(eventRoutes({ memos, auth, keepaliveMs: deps.sseKeepaliveMs })),
     );
 }

@@ -1,0 +1,10 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "days": {
+      "type": "number"
+    }
+  },
+  "title": "stats.query",
+  "type": "object"
+}
