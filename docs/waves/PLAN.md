@@ -208,13 +208,13 @@ missing port a compile error; the speech cache is only faked in one branch); `ME
 partial transient failure re-sends the Live Activity `end` on retry (harmless). (4) Pre-existing lint warnings in untouched files remain
 (`runner.ts`, `test-support.ts`). (5) Apple/CI-only gaps: first real push needs enrollment and a device token; the `apple.yml` workflow is Wave 7.
 
-## Wave 6 — Swift / Apple dev layer (in iris)            <!-- status: active -->
+## Wave 6 — Swift / Apple dev layer (in iris)            <!-- status: done -->
 Iris is the owner's only Swift project (shutterflow and WeatherOrb will use Tauri / React
 Native with basalt-ui), so the generic Swift layer lives in this repo's `.claude/`, not in
 dotfiles. Only machine toolchain setup goes into dotfiles. Read
 `docs/research/2026-10-27-agent-dev-tooling.md` and `docs/research/2026-10-27-swiftui-design.md`
 first.
-- [ ] `.claude/rules/swift.md`, lazy, with `paths: ["**/*.swift", "**/Package.swift",
+- [x] `.claude/rules/swift.md`, lazy, with `paths: ["**/*.swift", "**/Package.swift",
       "**/project.yml", "**/*.xcconfig"]`. It covers:
   - Swift 6 language mode with complete concurrency checking, MainActor default for app
     targets, and actors / `Sendable` instead of locks;
@@ -227,12 +227,12 @@ first.
   - research-first for any iOS 26/27 / macOS 26 API (the training cutoff predates them);
   - the vendored skills to load.
   Keep it ≤ 80 lines and modelled on `~/SourceRoot/dotfiles/rules/typescript.md`.
-- [ ] Vendor `twostraws/SwiftUI-Agent-Skill` (`swiftui-pro`) and the sibling
+- [x] Vendor `twostraws/SwiftUI-Agent-Skill` (`swiftui-pro`) and the sibling
       `swift-concurrency-pro`, `swift-testing-pro` and `swiftdata-pro` skills (see
       `twostraws/Swift-Agent-Skills`) into `.claude/skills/<name>/`. Verify each LICENSE is MIT
       and copy it in, pinning commit SHAs in `.claude/skills/VENDORED.md` with an update
       procedure.
-- [ ] `.claude/skills/apple-dev/SKILL.md`: the mini's Apple toolchain and recipes, each
+- [x] `.claude/skills/apple-dev/SKILL.md`: the mini's Apple toolchain and recipes, each
       command actually run once on the mini:
   - Xcode via `xcodes` at `~/.local/bin` (brew build broken), `xcode-select`, simulator
     runtimes (`xcodes runtimes`), XcodeGen;
@@ -244,7 +244,7 @@ first.
   - headless signing (`security set-key-partition-list`), TCC + stable signing identity
     for Mac apps, snapshot runtime pinning, TestFlight upload (mark as unverified until
     enrollment).
-- [ ] Machine toolchain in dotfiles, the only dotfiles change:
+- [x] Machine toolchain in dotfiles, the only dotfiles change:
   - add `xcodegen` (and `pymobiledevice3` via dotfiles' usual Python tool installer) to the
     Brewfile or equivalent manifest;
   - add `scripts/install-xcodes.sh`, which fetches the pinned signed `xcodes` release binary
@@ -252,9 +252,29 @@ first.
   Before editing, run `rd agents` and `git -C ~/SourceRoot/dotfiles status`. If dotfiles is
   busy or dirty, commit only your own paths. Push dotfiles. No global CLAUDE.md, rules or
   skills changes.
-**Left behind:**
+**Left behind:** All four steps shipped. `make check` is green (exit 0; no Swift in the repo yet, so nothing Swift is gated), no `/review` run: the
+diff is a rule, vendored upstream files and docs, plus a small dotfiles script that was exercised by hand (happy path, checksum
+mismatch, signature check, all in a temp `HOME`). **Rule:** `.claude/rules/swift.md` (67 lines, lazy `paths:`). The build-setting
+spellings are verified against the 27.1 `Swift.xcspec` and a green `xcodebuild`: `SWIFT_VERSION=6.0`, `SWIFT_STRICT_CONCURRENCY=complete`,
+`SWIFT_DEFAULT_ACTOR_ISOLATION=MainActor` (values `nonisolated | MainActor`), `SWIFT_APPROACHABLE_CONCURRENCY=YES`; Wave 7 should still
+record them in TDD §6. The SwiftPM spelling `.defaultIsolation(MainActor.self)` in the rule is from SE-0466, not yet compiled.
+**Skills:** `swiftui-pro`, `swift-concurrency-pro`, `swift-testing-pro`, `swiftdata-pro` in `.claude/skills/` with their MIT LICENSE; pins and the
+update procedure are in `.claude/skills/VENDORED.md`. The three siblings live in their own repos (`twostraws/Swift-*-Agent-Skill`), not in
+`Swift-Agent-Skills`, which is only a link directory. **apple-dev:** `.claude/skills/apple-dev/SKILL.md`. Run on the mini against a throwaway XcodeGen app
+(deleted): `xcodegen`, `xcodebuild build/test/-only-testing/archive` (unsigned), `simctl` boot, `bootstatus -b` (40 s cold), install, launch, `io screenshot`
+(glass pill rendered), `openurl`, `push`, `devicectl list devices`, the `mobilebuildmcp@2.7.1` CLI (`build-and-run`, `snapshot-ui`, `screenshot`), and
+`pymobiledevice3` help/`usbmux list`. Findings: `simctl push` needs notification permission first (`UNErrorDomain 2003`); `snapshot-ui` right after
+boot or launch times out, wait ~8 s; `mobilebuildmcp --style minimal` and `MOBILEBUILDMCP_SENTRY_DISABLED=true` work (Wave 8's `scripts/mbm`).
+**Marked unverified in the skill:** signed archive and `-allowProvisioningUpdates`, `security set-key-partition-list`, TCC with a stable identity, TestFlight
+upload, `devicectl` install/launch and `pymobiledevice3` screenshot on a real phone, `tap`/`type-text` (the scratch app had no controls), runtime
+installs (both 27.0 and 27.1 were already present), Live Activity push through `simctl`. **Dotfiles** (commit `465eae1`, pushed; only my paths, the tree was
+clean): `Brewfile` gained `xcodegen`; `scripts/install-xcodes.sh` (pinned 2.1.0, sha256 of the release zip plus the Developer ID team check,
+idempotent); `make _setup-tools` runs it and installs `pymobiledevice3==11.45.0` as a uv tool (there is no brew formula and no existing Python tool
+installer, so it follows the fallow/ocr pin pattern). The mini now has `xcodegen`, `xcodes` 2.1.0 and `pymobiledevice3` 11.45.0. Not done on purpose:
+`swiftlint` (the plan names only `swift format`); `rules/apple.md` and `rules/server.md` (Wave 8); an AGENTS.md index of the new rules and skills (Wave 8
+rewrites it). `security find-identity` shows 0 codesigning identities on the mini; Wave 7's simulator builds do not need one (`CODE_SIGNING_ALLOWED=NO`).
 
-## Wave 7 — Apple monorepo scaffold            <!-- status: pending -->
+## Wave 7 — Apple monorepo scaffold            <!-- status: active -->
 Xcode 27.1 is installed on the mini (`xcodebuild -version`). Gate locally *and* on the
 `apple.yml` CI run (`gh run watch`). If the simulator runtime is still missing, install it
 with `xcodes runtimes install`. Follow `.claude/rules/swift.md` and the vendored
