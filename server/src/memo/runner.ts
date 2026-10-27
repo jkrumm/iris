@@ -18,7 +18,7 @@ import {
 import type { MemoStore } from "./store.js";
 
 export interface StepResult {
-  /** `route` only: park the memo in `needs_route` instead of advancing it. */
+  /** `route` and `act`: park the memo in `needs_route` instead of advancing it. */
   outcome?: StepOutcome;
   usage?: unknown;
   costUsd?: number;

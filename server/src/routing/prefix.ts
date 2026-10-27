@@ -20,7 +20,8 @@ interface Word {
   end: number;
 }
 
-const fold = (text: string) => text.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase();
+/** Lowercased with diacritics removed: the comparison form of any spoken or labelled name. */
+export const fold = (text: string) => text.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase();
 
 const edgePunctuation = /^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu;
 

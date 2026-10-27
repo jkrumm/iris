@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { MemoError } from "../memo/errors.js";
+import { TabGoneError, type Delivery, type Destination } from "../ports/destination.js";
 import { AGENT_STATES, type AgentState, type Herd, type HerdTab } from "../ports/herd.js";
 import { withSpan } from "../telemetry/otel.js";
 
@@ -12,6 +13,8 @@ export interface HerdrHerdOptions {
   socketPath: string;
   timeoutMs?: number;
 }
+
+export type HerdrDestinationOptions = HerdrHerdOptions;
 
 /**
  * Verified against a live herdr 0.9.3 (protocol 22) socket, read-only. Newline-delimited JSON, ONE
@@ -31,22 +34,36 @@ export interface HerdrHerdOptions {
  * only a `state_change_seq` counter on agents, so `lastActivity` is always null.
  *
  * A HerdTab is one tab of a real workspace: `repo` is the workspace label, `label` the tab label.
+ *
+ * Delivery (request shapes from `herdr api schema --json`, protocol 22; the snapshot rows below read from a
+ * live socket, the two writes exercised once against a scratch tab that was closed afterwards). The
+ * snapshot's `panes` are `{pane_id, tab_id, workspace_id, agent_status, ...}` and its `agents` are the
+ * panes herdr recognised an agent in, `{pane_id, tab_id, agent, interactive_ready, ...}`:
+ *
+ *   -> {"id","method":"pane.send_text","params":{"pane_id":"w2:p1","text":"<transcript>"}}\n
+ *   -> {"id","method":"pane.send_keys","params":{"pane_id":"w2:p1","keys":["enter"]}}\n
+ *   <- {"id","result":{...}}\n   or   {"id","error":{"code","message"}}\n
+ *
+ * `send_text` types the text literally; the separate Enter submits it, so a multi-line transcript is one
+ * prompt, not several. The agent pane of a tab is its `agents` entry; a tab without one but with a single
+ * pane gets that pane; anything else is ambiguous and not delivered.
  */
 const Snapshot = z.object({
-  result: z.object({
-    snapshot: z.object({
-      workspaces: z.array(z.object({ workspace_id: z.string(), label: z.string() })),
-      tabs: z.array(
-        z.object({
-          tab_id: z.string(),
-          workspace_id: z.string(),
-          label: z.string(),
-          agent_status: z.string(),
-        }),
-      ),
+  workspaces: z.array(z.object({ workspace_id: z.string(), label: z.string() })),
+  tabs: z.array(
+    z.object({
+      tab_id: z.string(),
+      workspace_id: z.string(),
+      label: z.string(),
+      agent_status: z.string(),
     }),
-  }),
+  ),
+  panes: z.array(z.object({ pane_id: z.string(), tab_id: z.string() })).default([]),
+  agents: z.array(z.object({ pane_id: z.string(), tab_id: z.string() })).default([]),
 });
+type SnapshotData = z.infer<typeof Snapshot>;
+
+const Response = z.object({ result: z.unknown().optional(), error: z.unknown().optional() });
 
 const KNOWN_STATES: ReadonlySet<string> = new Set(AGENT_STATES);
 const toState = (status: string): AgentState =>
@@ -58,6 +75,7 @@ const unavailable = (detail: string) => new MemoError("unavailable", `herdr: ${d
 function request(params: {
   socketPath: string;
   method: string;
+  params?: Record<string, unknown>;
   timeoutMs: number;
 }): Promise<unknown> {
   const { socketPath, method, timeoutMs } = params;
@@ -85,7 +103,9 @@ function request(params: {
             return;
           }
           socket = s;
-          s.write(`${JSON.stringify({ id: crypto.randomUUID(), method, params: {} })}\n`);
+          s.write(
+            `${JSON.stringify({ id: crypto.randomUUID(), method, params: params.params ?? {} })}\n`,
+          );
         },
         data(_s, chunk) {
           buffer += decoder.decode(chunk, { stream: true });
@@ -106,17 +126,38 @@ function request(params: {
   });
 }
 
+/** One request; resolves with `result`, throws `unavailable` on an `error` answer or an off-schema line. */
+async function call(params: {
+  socketPath: string;
+  method: string;
+  params?: Record<string, unknown>;
+  timeoutMs: number;
+}): Promise<unknown> {
+  const parsed = Response.safeParse(await request(params));
+  if (!parsed.success) throw unavailable(`unexpected ${params.method} response`);
+  if (parsed.data.error !== undefined) {
+    throw unavailable(`${params.method} failed: ${JSON.stringify(parsed.data.error)}`);
+  }
+  return parsed.data.result;
+}
+
+async function readSnapshot(opts: {
+  socketPath: string;
+  timeoutMs: number;
+}): Promise<SnapshotData> {
+  const result = await call({ ...opts, method: "session.snapshot" });
+  const parsed = z.object({ snapshot: Snapshot }).safeParse(result);
+  if (!parsed.success) throw unavailable("unexpected session.snapshot response");
+  return parsed.data.snapshot;
+}
+
 export function createHerdrHerd(opts: HerdrHerdOptions): Herd {
   const { socketPath, timeoutMs = TIMEOUT_MS } = opts;
 
   return {
     snapshot(): Promise<HerdTab[]> {
       return withSpan("herdr.snapshot", { downstream: "herdr" }, async () => {
-        const raw = await request({ socketPath, method: "session.snapshot", timeoutMs });
-        const parsed = Snapshot.safeParse(raw);
-        if (!parsed.success) throw unavailable("unexpected session.snapshot response");
-
-        const { workspaces, tabs } = parsed.data.result.snapshot;
+        const { workspaces, tabs } = await readSnapshot({ socketPath, timeoutMs });
         const repos = new Map(
           workspaces
             .filter((w) => !w.label.startsWith(SEPARATOR_PREFIX))
@@ -135,6 +176,53 @@ export function createHerdrHerd(opts: HerdrHerdOptions): Herd {
             },
           ];
         });
+      });
+    },
+  };
+}
+
+/** The pane that takes the memo: the tab's agent, else its only pane; null when the tab is gone or ambiguous. */
+function agentPane(snapshot: SnapshotData, tab: string): { pane: string } | "gone" | "ambiguous" {
+  if (!snapshot.tabs.some((t) => t.tab_id === tab)) return "gone";
+  const agent = snapshot.agents.find((a) => a.tab_id === tab);
+  if (agent) return { pane: agent.pane_id };
+  const panes = snapshot.panes.filter((p) => p.tab_id === tab);
+  const [only] = panes;
+  if (only && panes.length === 1) return { pane: only.pane_id };
+  return "ambiguous";
+}
+
+/**
+ * Types the transcript into the agent pane of a tab and presses Enter. The reply is not awaited: the
+ * agent answers in its own terminal, so `replyText` is empty. A tab missing from the live snapshot throws
+ * `TabGoneError`; any other failure is `unavailable`, which fails the step and can be retried.
+ */
+export function createHerdrDestination(opts: HerdrDestinationOptions): Destination {
+  const { socketPath, timeoutMs = TIMEOUT_MS } = opts;
+
+  return {
+    deliver({ transcript, tab }): Promise<Delivery> {
+      return withSpan("herdr.deliver", { downstream: "herdr" }, async () => {
+        if (tab === undefined) throw unavailable("deliver needs a tab");
+        const snapshot = await readSnapshot({ socketPath, timeoutMs });
+        const target = agentPane(snapshot, tab);
+        if (target === "gone") throw new TabGoneError(tab);
+        if (target === "ambiguous") throw unavailable(`tab ${tab} has no single agent pane`);
+
+        const pane_id = target.pane;
+        await call({
+          socketPath,
+          timeoutMs,
+          method: "pane.send_text",
+          params: { pane_id, text: transcript },
+        });
+        await call({
+          socketPath,
+          timeoutMs,
+          method: "pane.send_keys",
+          params: { pane_id, keys: ["enter"] },
+        });
+        return { ref: tab, replyText: "" };
       });
     },
   };

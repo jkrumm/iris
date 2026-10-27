@@ -1,4 +1,4 @@
-import type { HandlerStep, Memo } from "../memo/memo.js";
+import type { HandlerStep, Memo, RouteDecisionInput, Summary } from "../memo/memo.js";
 import type { StepHandler } from "../memo/runner.js";
 import type { MemoStore } from "../memo/store.js";
 import type { AudioStore } from "../ports/audio.js";
@@ -6,6 +6,7 @@ import type { Decider } from "../ports/decider.js";
 import {
   isDestinationName,
   registeredDestinations,
+  TabGoneError,
   type Destinations,
 } from "../ports/destination.js";
 import type { Herd } from "../ports/herd.js";
@@ -18,6 +19,32 @@ import { getActiveSpan } from "../telemetry/otel.js";
 
 // Each step is a pure function of (memo, ports): it reads what earlier steps stored on the memo,
 // returns its own result as a patch and never writes the store itself, so it is safe to re-run.
+
+const HEADLINE_MAX = 60;
+const DETAIL_MAX = 240;
+
+const clip = (text: string, max: number) =>
+  text.length > max ? `${text.slice(0, max - 1).trimEnd()}…` : text;
+
+/** Journal and herdr never produce an answer worth a model call: the summary is a fixed phrase plus an excerpt. */
+function templatedSummary(params: {
+  destination: "journal" | "herdr";
+  transcript: string;
+  /** The herdr tab the memo went to, as far as the live herd still knows it. */
+  tab: { repo: string; label: string } | null;
+}): Summary {
+  const { destination, transcript, tab } = params;
+  const detail = clip(transcript.replace(/\s+/g, " ").trim(), DETAIL_MAX);
+  if (destination === "journal") {
+    return { headline: "Saved to journal", detail, spoken: "Saved to your journal." };
+  }
+  const target = tab ? `${tab.repo} / ${tab.label}` : "tab";
+  return {
+    headline: clip(`Sent to ${target}`, HEADLINE_MAX),
+    detail,
+    spoken: `Sent to ${tab ? `${tab.repo} ${tab.label}` : "the tab"}.`,
+  };
+}
 
 function required<T>(value: T | null, what: string, step: HandlerStep): T {
   if (value === null) throw new Error(`${step}: memo has no ${what}`);
@@ -119,7 +146,36 @@ export function createStepHandlers(deps: {
       const name = required(memo.route, "route", "act");
       const destination = isDestinationName(name) ? destinations[name] : undefined;
       if (!destination) throw new Error(`act: no destination registered for route "${name}"`);
-      const delivery = await destination.deliver({ memoId: memo.id, transcript });
+
+      // The decision that routed the memo names the tab; an answer to a park replaces the one before it.
+      const routedBy = store
+        .listRouteDecisions(memo.id)
+        .findLast((d) => d.outcome === "routed" && d.source !== "correction");
+      const tab = name === "herdr" ? (routedBy?.tab ?? undefined) : undefined;
+      if (name === "herdr" && tab === undefined) throw new Error("act: herdr route has no tab");
+
+      let delivery;
+      try {
+        delivery = await destination.deliver({
+          memoId: memo.id,
+          transcript,
+          ...(tab !== undefined && { tab }),
+        });
+      } catch (err) {
+        if (!(err instanceof TabGoneError) || !routedBy) throw err;
+        log("act.tab_gone", { memo: memo.id, tab: err.tab });
+        const parked: RouteDecisionInput = {
+          source: routedBy.source,
+          outcome: "needs_route",
+          destination: name,
+          tab: err.tab,
+          confidence: null,
+          model: null,
+          costUsd: null,
+          reason: err.message,
+        };
+        return { outcome: "needs_route" as const, patch: { routeDecision: parked } };
+      }
       getActiveSpan().setAttributes({
         reply_chars: delivery.replyText.length,
         cost_usd: delivery.costUsd,
@@ -132,25 +188,32 @@ export function createStepHandlers(deps: {
     };
   }
 
-  if (summarizer) {
-    handlers.summarize = async ({ memo }) => {
-      const result = await summarizer.summarize({
-        memoId: memo.id,
-        route: required(memo.route, "route", "summarize"),
-        transcript: delivered(memo, "summarize"),
-        replyText: memo.replyText,
-      });
-      getActiveSpan().setAttributes({
-        summary_chars: result.summary.headline.length + result.summary.detail.length,
-        cost_usd: result.costUsd,
-      });
-      return {
-        patch: { summary: result.summary },
-        usage: result.usage,
-        ...(result.costUsd !== undefined && { costUsd: result.costUsd }),
-      };
+  // Always present: journal and herdr are summarized from a template, only the model-backed routes need the port.
+  handlers.summarize = async ({ memo }) => {
+    const name = required(memo.route, "route", "summarize");
+    const transcript = delivered(memo, "summarize");
+    if (name === "journal" || name === "herdr") {
+      const tabs = name === "herdr" ? await herd?.snapshot().catch(() => []) : [];
+      const tab = tabs?.find((t) => t.id === memo.destinationRef) ?? null;
+      return { patch: { summary: templatedSummary({ destination: name, transcript, tab }) } };
+    }
+    if (!summarizer) throw new Error(`summarize: no summarizer configured for route "${name}"`);
+    const result = await summarizer.summarize({
+      memoId: memo.id,
+      route: name,
+      transcript,
+      replyText: memo.replyText,
+    });
+    getActiveSpan().setAttributes({
+      summary_chars: result.summary.headline.length + result.summary.detail.length,
+      cost_usd: result.costUsd,
+    });
+    return {
+      patch: { summary: result.summary },
+      usage: result.usage,
+      ...(result.costUsd !== undefined && { costUsd: result.costUsd }),
     };
-  }
+  };
 
   handlers.notify = async ({ memo }: { memo: Memo }) => {
     const summary = required(memo.summary, "summary", "notify");

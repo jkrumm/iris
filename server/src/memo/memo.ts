@@ -19,7 +19,7 @@ export type Step = (typeof STEPS)[number];
 /** Steps a handler implements; `ingest` is driven by the upload `complete` call. */
 export type HandlerStep = Exclude<Step, "ingest">;
 
-/** A handler can park the memo instead of advancing it; only `route` may. */
+/** A handler can park the memo instead of advancing it; only `route` and `act` may. */
 export type StepOutcome = "needs_route";
 
 /** The triage result: a notification headline, a longer detail line and 1–2 spoken sentences. */
@@ -93,7 +93,7 @@ export type MemoColumnPatch = Partial<
   Pick<Memo, "audioSeconds" | "transcript" | "route" | "destinationRef" | "replyText" | "summary">
 >;
 
-/** What a step writes atomically with its completion: memo columns, and for `route` its decision-log row. */
+/** What a step writes atomically with its completion: memo columns, and for a step that routes or parks (`route`, `act`) a decision-log row. */
 export type MemoPatch = MemoColumnPatch & { routeDecision?: RouteDecisionInput };
 
 export interface StepRecord {
@@ -117,7 +117,7 @@ const TRANSITIONS: Record<Step, Transition> = {
   ingest: { from: "receiving", to: "received" },
   transcribe: { from: "received", to: "transcribed" },
   route: { from: "transcribed", to: "routed", park: "needs_route" },
-  act: { from: "routed", to: "acted" },
+  act: { from: "routed", to: "acted", park: "needs_route" },
   summarize: { from: "acted", to: "summarized" },
   notify: { from: "summarized", to: "notified" },
 };

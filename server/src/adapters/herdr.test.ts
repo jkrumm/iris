@@ -2,7 +2,8 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createHerdrHerd } from "./herdr.js";
+import { TabGoneError } from "../ports/destination.js";
+import { createHerdrDestination, createHerdrHerd } from "./herdr.js";
 
 // A real unix socket server standing in for herdr: ndjson in, one response line out.
 
@@ -49,6 +50,14 @@ const snapshot = {
     { tab_id: "w3:t4", workspace_id: "w3", label: "wave", agent_status: "mystery" },
     { tab_id: "w9:t1", workspace_id: "w9", label: "orphan", agent_status: "idle" },
   ],
+  panes: [
+    { pane_id: "w2:p1", tab_id: "w2:t1" },
+    { pane_id: "w2:p2", tab_id: "w2:t1" },
+    { pane_id: "w2:p3", tab_id: "w2:t2" },
+    { pane_id: "w3:p1", tab_id: "w3:t4" },
+    { pane_id: "w3:p2", tab_id: "w3:t4" },
+  ],
+  agents: [{ pane_id: "w2:p2", tab_id: "w2:t1" }],
 };
 
 const reply = (id: string) =>
@@ -94,7 +103,7 @@ describe("herdr herd", () => {
     serve((r) => [`${JSON.stringify({ id: r.id, error: { code: "boom" } })}\n`]);
     await expect(createHerdrHerd({ socketPath: socketPath() }).snapshot()).rejects.toMatchObject({
       code: "unavailable",
-      message: "herdr: unexpected session.snapshot response",
+      message: expect.stringContaining("session.snapshot failed"),
     });
   });
 
@@ -127,5 +136,77 @@ describe("herdr herd", () => {
       .catch((e: unknown) => e);
     expect(error).toMatchObject({ code: "unavailable", message: "herdr: no answer within 100 ms" });
     expect(Date.now() - started).toBeLessThan(2000);
+  });
+});
+
+const ok = (id: string) => `${JSON.stringify({ id, result: { type: "ok" } })}\n`;
+
+/** Answers the snapshot, then every write with ok (or the given response). */
+function serveWrites(write: (r: { id: string; method: string }) => string = (r) => ok(r.id)) {
+  return serve((r) => [r.method === "session.snapshot" ? reply(r.id) : write(r)]);
+}
+
+const deliver = (tab: string | undefined, transcript = "run the tests\nthen push") =>
+  createHerdrDestination({ socketPath: socketPath(), timeoutMs: 500 }).deliver({
+    memoId: "memo-1",
+    transcript,
+    ...(tab !== undefined && { tab }),
+  });
+
+describe("herdr destination", () => {
+  it("types the transcript into the agent pane, then presses Enter", async () => {
+    const requests = serveWrites();
+    expect(await deliver("w2:t1")).toEqual({ ref: "w2:t1", replyText: "" });
+    expect(requests.map(({ method, params }) => ({ method, params }))).toEqual([
+      { method: "session.snapshot", params: {} },
+      { method: "pane.send_text", params: { pane_id: "w2:p2", text: "run the tests\nthen push" } },
+      { method: "pane.send_keys", params: { pane_id: "w2:p2", keys: ["enter"] } },
+    ]);
+  });
+
+  it("uses the only pane of a tab without a recognised agent", async () => {
+    const requests = serveWrites();
+    await deliver("w2:t2");
+    expect(requests[1]).toMatchObject({ params: { pane_id: "w2:p3" } });
+  });
+
+  it("does not guess between several panes without an agent", async () => {
+    const requests = serveWrites();
+    await expect(deliver("w3:t4")).rejects.toMatchObject({ code: "unavailable" });
+    expect(requests.map((r) => r.method)).toEqual(["session.snapshot"]);
+  });
+
+  it("throws TabGoneError for a tab that is not in the snapshot, sending nothing", async () => {
+    const requests = serveWrites();
+    const error = await deliver("w2:tX").catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(TabGoneError);
+    expect(error).toMatchObject({ tab: "w2:tX", message: "tab w2:tX is gone" });
+    expect(requests.map((r) => r.method)).toEqual(["session.snapshot"]);
+  });
+
+  it("is unavailable without a tab", async () => {
+    const requests = serveWrites();
+    await expect(deliver(undefined)).rejects.toMatchObject({ code: "unavailable" });
+    expect(requests).toEqual([]);
+  });
+
+  it("does not press Enter when the text was refused", async () => {
+    const requests = serveWrites(
+      (r) => `${JSON.stringify({ id: r.id, error: { code: "pane_not_found" } })}\n`,
+    );
+    await expect(deliver("w2:t1")).rejects.toMatchObject({
+      code: "unavailable",
+      message: expect.stringContaining("pane.send_text failed"),
+    });
+    expect(requests.map((r) => r.method)).toEqual(["session.snapshot", "pane.send_text"]);
+  });
+
+  it("is unavailable when nothing listens, and gives up on a silent socket", async () => {
+    await expect(deliver("w2:t1")).rejects.toMatchObject({ code: "unavailable" });
+    serve(() => []);
+    const error = await createHerdrDestination({ socketPath: socketPath(), timeoutMs: 100 })
+      .deliver({ memoId: "m", transcript: "t", tab: "w2:t1" })
+      .catch((e: unknown) => e);
+    expect(error).toMatchObject({ code: "unavailable", message: "herdr: no answer within 100 ms" });
   });
 });

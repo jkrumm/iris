@@ -2,10 +2,25 @@ import { describe, expect, it } from "bun:test";
 import { captureLogs } from "../memo/test-support.js";
 import type { DestinationName } from "../ports/destination.js";
 import { fakeDecider, fakeHerd } from "../ports/fakes.js";
+import type { HerdTab } from "../ports/herd.js";
 import { route, type RouteInput } from "./route.js";
 
 const BOTH: DestinationName[] = ["hermes", "journal"];
 const ALL: DestinationName[] = ["hermes", "journal", "herdr"];
+
+const tab = (id: string, repo: string, label: string): HerdTab => ({
+  id,
+  repo,
+  label,
+  agentState: "idle",
+  lastActivity: null,
+});
+const HERD = [
+  tab("w1:t1", "iris", "server"),
+  tab("w1:t2", "iris", "Éins"),
+  tab("w2:t1", "dotfiles", "1"),
+  tab("w3:t1", "vps", "1"),
+];
 
 const input = (overrides: Partial<RouteInput> = {}): RouteInput => ({
   memoId: "memo-1",
@@ -22,7 +37,8 @@ describe("route: mode", () => {
     ["tab", "herdr"],
   ] as const)("mode %s routes to %s without asking anyone", async (mode, destination) => {
     const decider = fakeDecider();
-    const decision = await route(input({ mode, destinations: ALL, decider }));
+    const herd = fakeHerd({ tabs: [tab("w1:t1", "iris", "server")] });
+    const decision = await route(input({ mode, destinations: ALL, decider, herd }));
     expect(decision).toMatchObject({
       source: "mode",
       outcome: "routed",
@@ -64,14 +80,21 @@ describe("route: prefix", () => {
     expect(decider.calls).toEqual([]);
   });
 
-  it("carries the spoken tab name", async () => {
+  it("resolves a spoken tab label to the tab id", async () => {
     const decision = await route(
-      input({ transcript: "tab server mach weiter", destinations: ALL }),
+      input({
+        transcript: "tab server mach weiter",
+        destinations: ALL,
+        herd: fakeHerd({ tabs: HERD }),
+      }),
     );
     expect(decision).toMatchObject({
       source: "prefix",
+      outcome: "routed",
       destination: "herdr",
-      tab: "server",
+      tab: "w1:t1",
+      confidence: 1,
+      reason: null,
     });
   });
 
@@ -289,5 +312,85 @@ describe("route: decide with herdr", () => {
     const herd = fakeHerd({ tabs });
     await route(input({ decider: fakeDecider(), herd }));
     expect(herd.calls).toBe(0);
+  });
+});
+
+const spoken = (transcript: string, herd = fakeHerd({ tabs: HERD })) =>
+  route(input({ transcript, destinations: ALL, herd }));
+
+const modeTab = (herd: ReturnType<typeof fakeHerd> | undefined) =>
+  route(input({ mode: "tab", destinations: ALL, herd }));
+
+describe("route: spoken tab", () => {
+  it("matches a tab label ignoring case and diacritics", async () => {
+    expect(await spoken("TAB eins bitte")).toMatchObject({ outcome: "routed", tab: "w1:t2" });
+  });
+
+  it("matches a workspace label that has exactly one tab", async () => {
+    expect(await spoken("tab dotfiles mach das")).toMatchObject({
+      outcome: "routed",
+      tab: "w2:t1",
+    });
+  });
+
+  it("parks naming the spoken name when several tabs match", async () => {
+    expect(await spoken("tab 1 mach das")).toMatchObject({
+      source: "prefix",
+      outcome: "needs_route",
+      destination: "herdr",
+      tab: null,
+      confidence: null,
+      reason: 'several tabs match "1"',
+    });
+    expect(await spoken("tab iris mach das")).toMatchObject({
+      reason: 'several tabs match "iris"',
+    });
+  });
+
+  it("parks naming the spoken name when no tab matches", async () => {
+    expect(await spoken("tab nirgends mach das")).toMatchObject({
+      outcome: "needs_route",
+      destination: "herdr",
+      reason: 'no tab named "nirgends"',
+    });
+  });
+
+  it("parks as 'herd unavailable' when the herd fails or is absent", async () => {
+    const failing = fakeHerd({ failWith: new Error("socket gone") });
+    const { result } = await captureLogs(() => spoken("tab server los", failing));
+    expect(result).toMatchObject({ outcome: "needs_route", reason: "herd unavailable" });
+    const decision = await route(input({ transcript: "tab server los", destinations: ALL }));
+    expect(decision).toMatchObject({ outcome: "needs_route", reason: "herd unavailable" });
+  });
+
+  it("logs why the herd was unavailable", async () => {
+    const { lines } = await captureLogs(() =>
+      spoken("tab server los", fakeHerd({ failWith: new Error("socket gone") })),
+    );
+    expect(lines).toContainEqual(
+      expect.objectContaining({ event: "route.herd_unavailable", error: "socket gone" }),
+    );
+  });
+});
+
+describe("route: mode tab", () => {
+  it("routes to the only live tab", async () => {
+    const decision = await modeTab(fakeHerd({ tabs: [tab("w1:t1", "iris", "server")] }));
+    expect(decision).toMatchObject({ source: "mode", outcome: "routed", tab: "w1:t1" });
+  });
+
+  it("parks with 'which tab?' when there are several or none", async () => {
+    expect(await modeTab(fakeHerd({ tabs: HERD }))).toMatchObject({
+      outcome: "needs_route",
+      destination: "herdr",
+      reason: "which tab?",
+    });
+    expect(await modeTab(fakeHerd({ tabs: [] }))).toMatchObject({ reason: "which tab?" });
+  });
+
+  it("parks as 'herd unavailable' without a readable herd", async () => {
+    expect(await modeTab(undefined)).toMatchObject({ reason: "herd unavailable" });
+    const { result } = await captureLogs(() => modeTab(fakeHerd({ failWith: new Error("down") })));
+    expect(result).toMatchObject({ reason: "herd unavailable" });
   });
 });

@@ -8,8 +8,19 @@ export interface Delivery {
 }
 
 export interface Destination {
-  /** Hands the transcript to the destination and waits for its reply. */
-  deliver(params: { memoId: string; transcript: string }): Promise<Delivery>;
+  /**
+   * Hands the transcript to the destination and waits for its reply. `tab` is the resolved herdr tab id
+   * and only set for `herdr`. Throws `TabGoneError` when that tab no longer exists.
+   */
+  deliver(params: { memoId: string; transcript: string; tab?: string }): Promise<Delivery>;
+}
+
+/** The tab a memo was routed to has been closed since: the memo needs a new route, retrying cannot help. */
+export class TabGoneError extends Error {
+  constructor(readonly tab: string) {
+    super(`tab ${tab} is gone`);
+    this.name = "TabGoneError";
+  }
 }
 
 export const DESTINATION_NAMES = ["hermes", "journal", "herdr"] as const;
@@ -18,7 +29,7 @@ export type DestinationName = (typeof DESTINATION_NAMES)[number];
 export const isDestinationName = (value: string): value is DestinationName =>
   (DESTINATION_NAMES as readonly string[]).includes(value);
 
-/** The registered act adapters; only these are routing choices. Journal and herdr arrive in Wave 11. */
+/** The registered act adapters; only these are routing choices. */
 export type Destinations = Partial<Record<DestinationName, Destination>>;
 
 /** The names with an adapter behind them; only these are routing choices. */
