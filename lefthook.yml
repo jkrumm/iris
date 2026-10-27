@@ -1,0 +1,6 @@
+# Pre-commit: keep secrets and private infrastructure details out of this public repo.
+# The guard reads extra forbidden literals from the untracked ~/.config/iris/guard-extra.txt.
+pre-commit:
+  commands:
+    public-guard:
+      run: bun scripts/public-guard.ts --staged

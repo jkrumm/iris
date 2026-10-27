@@ -31,6 +31,10 @@ check-server: ## oxlint, oxfmt --check, tsc --noEmit, bun test
 format: ## Apply oxfmt
 	cd server && bun run format
 
+.PHONY: guard
+guard: ## Public-repo guard: no IPs, tailnet/real hostnames or token shapes in tracked files
+	bun scripts/public-guard.ts
+
 .PHONY: mini-setup
 mini-setup: ## Clone/update the deploy clone, install deps, install the LaunchAgents
 	@mkdir -p "$(DATA_DIR)"
