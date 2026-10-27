@@ -10,7 +10,7 @@ findings resolved. From Wave 4 on, `make verify` too. Apple waves without a loca
 gate on the `apple.yml` CI run instead.
 
 Design source: **`docs/TDD.md`**, which wins over anything here except the step lists.
-`docs/PRD.md` is the product. `docs/PLAN.md` is superseded. **Public repo:** no real
+`docs/PRD.md` is the product. **Public repo:** no real
 hostnames, IPs, tailnet names, tokens or emails in any tracked file. Use placeholders
 (`<domain>`, `iris.mini.<domain>`); `op://` references in `.env*.tpl` are fine.
 
@@ -163,26 +163,52 @@ Wave 8 inherits `fixtures/audio/de-90s.m4a` (actually 96 s, generated with the a
 `x-audio-source: iris`, so it is TTS and not a human voice); its remaining Wave-8 work is the doc and spike items. Not done on
 purpose: `jobrun` reports a CI-red tick as success (exit 0, same as research-gateway); `make e2e` is Wave 5.
 
-## Wave 5 — Contracts + server completion for R1            <!-- status: active -->
-- [ ] `contracts/`: a JSON Schema and a fixture for every `/v1` request, response and SSE
+## Wave 5 — Contracts + server completion for R1            <!-- status: done -->
+- [x] `contracts/`: a JSON Schema and a fixture for every `/v1` request, response and SSE
       event that exists (TDD §3 API, D9). Elysia TypeBox schemas export to JSON Schema.
       `make check-contracts` asserts that the export equals `contracts/schema` and that the
       fixtures validate. It joins `make check` and CI.
-- [ ] `IRIS_FAKES=1` boot mode, where every port uses its fake. `make e2e` runs
+- [x] `IRIS_FAKES=1` boot mode, where every port uses its fake. `make e2e` runs
       `send-memo.ts` against a fake-booted server, in CI.
-- [ ] The missing R1 endpoints from TDD §3: `devices/register`, `memos/:id/activity-token`,
+- [x] The missing R1 endpoints from TDD §3: `devices/register`, `memos/:id/activity-token`,
       `memos/:id/audio`, `memos/:id/speech` (TTS cached), `GET /v1/herd` (herdr adapter,
       snapshot only).
-- [ ] APNs `Notifier` (TDD D6): `@parse/node-apn` on Bun `node:http2` with in-flight
+- [x] APNs `Notifier` (TDD D6): `@parse/node-apn` on Bun `node:http2` with in-flight
       streams capped at 10, the ES256 provider token refreshed every 50 min, the
       alert payload, and the Live Activity update/end payloads (TDD §3 notify). Unit tests
       use a fake transport. Selected only when `APNS_*` is set; otherwise the log Notifier.
       Read `docs/research/2026-10-27-apns-from-bun.md` first.
-- [ ] Public-repo guard: a pre-commit hook (lefthook) plus a CI step that rejects IPv4s,
+- [x] Public-repo guard: a pre-commit hook (lefthook) plus a CI step that rejects IPv4s,
       `*.ts.net`, the real domain pattern and token shapes in tracked files.
-**Left behind:**
+**Left behind:** All five steps shipped; `make check` (server, contracts, guard; 382 tests) and `make e2e` are green locally, CI runs
+`make check` then `make e2e` (job still named `check`, the deploy poller gates on it). `/review` (deep, agw MCP) found 1 blocking +
+5 improvements; all fixed except the composition refactor below. **Contracts:** `contracts/{schema,fixtures,manifest.json}` (25 schemas,
+54 fixtures) are generated from `server/src/http/schemas.ts` (`make contracts`, `make check-contracts`); the check enumerates the real
+app's routes, so a new `/v1` route fails until it has a manifest entry; fixtures are validated with ajv and key-compared with live
+responses. Fixture variants are `<name>.<variant>.json`; Wave 7 decodes every file. **Endpoints:** `devices/register`,
+`memos/:id/activity-token` (204), `memos/:id/audio` (cached concat, Range 206), `memos/:id/speech` (cached mp3, sidecar `.txt`), `GET /v1/herd`
+(herdr `session.snapshot`, `lastActivity` always null: the snapshot has no timestamps); new `unavailable` 503 code, `DeviceStore` port
+(devices keyed by auth device name, activity tokens per memo). **APNs:** `@parse/node-apn` 8.1.0 (library refreshes the JWT every 55 min,
+inside Apple's window; TDD says 50), our transport caps in-flight streams at 10 and sends the first request alone; verified against a local
+`node:http2` TLS server on Bun (ES256 raw r||s verifies via WebCrypto, headers, 10-stream cap); NOT verified: real Apple hosts/cert chain, GOAWAY
+parsing, the 4 KB limit at Apple. Selected only when all four `APNS_*` are set, not listed in `degraded` (log notifier is intended until
+enrollment). A BadDeviceToken only clears a token when `apnsEnv` was registered explicitly; the alert carries `apns-collapse-id` = memo id so a
+notify retry replaces the banner. **Swift-side contract for Wave 7:** Live Activity `ContentState` is `{phase, routeChip?, headline?, hasReply}` plain
+camelCase; `inputName` is never sent, so the client must declare it optional; alert category is always `MEMO_DONE`, custom key `memo` = memo id.
+**Fakes:** `IRIS_FAKES=1` (`server/src/compose-fakes.ts`, `/health` lists `fakes`, `launch.sh` refuses to start with it set). **Guard:**
+`scripts/public-guard.ts` (`make guard`, lefthook pre-commit, in `make check`); the real-domain literals live in untracked
+`~/.config/iris/guard-extra.txt` (seeded on the mini; CI relies on the generic infra-host rule only, so other machines need the file or
+`IRIS_GUARD_EXTRA`). `scripts/launch.sh` now exports `HERDR_SOCKET`; this is not deployed yet, the deploy poller picks it up after push.
+Carry forward: (1) TDD §3 is stale vs the shipped code (data model: `devices` keyed by device name, no `route_decisions`/`threads`/`steps` tables,
+`memo_steps` has no `attempt`; API table lists routes that do not exist: `/route`, `/threads*`, `/telemetry`, `?q`; `POST /memos` takes no `targetTab`/
+`threadId`/`language`; the token refresh value) and §11 names `server.yml` where the workflow is `check.yml`: Wave 8's AGENTS/doc pass should amend
+it. (2) Not done on purpose: dedupe of production and fakes composition in `index.ts`/`compose-fakes.ts` (a `downstreams(env, {fakes})` record would make a
+missing port a compile error; the speech cache is only faked in one branch); `MEMO_NEEDS_ROUTE` alert category (unreachable until Phase 2 routing);
+`+faststart` on the concat output (AVPlayer's first seek is slower with `moov` at the end). (3) Alert + Live Activity `end` still go out in parallel, so a
+partial transient failure re-sends the Live Activity `end` on retry (harmless). (4) Pre-existing lint warnings in untouched files remain
+(`runner.ts`, `test-support.ts`). (5) Apple/CI-only gaps: first real push needs enrollment and a device token; the `apple.yml` workflow is Wave 7.
 
-## Wave 6 — Swift / Apple dev layer (in iris)            <!-- status: pending -->
+## Wave 6 — Swift / Apple dev layer (in iris)            <!-- status: active -->
 Iris is the owner's only Swift project (shutterflow and WeatherOrb will use Tauri / React
 Native with basalt-ui), so the generic Swift layer lives in this repo's `.claude/`, not in
 dotfiles. Only machine toolchain setup goes into dotfiles. Read
