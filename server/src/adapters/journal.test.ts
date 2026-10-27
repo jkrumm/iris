@@ -1,10 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fixedClock } from "../ports/clock.js";
 import {
   bunGitRunner,
+  createGitRunner,
   createJournalDestination,
   journalSlug,
   journalTitle,
@@ -210,6 +211,46 @@ describe("journal destination", () => {
     expect(seen).toEqual([1234]);
   });
 
+  it("releases the lock before it pushes", async () => {
+    const lockHeldAtPush: boolean[] = [];
+    await journal({
+      git: async (args, cwd, opts) => {
+        if (args[0] === "push")
+          lockHeldAtPush.push((await readdir(vault.root)).includes("brain-sync.lock"));
+        return bunGitRunner(args, cwd, opts);
+      },
+    }).deliver({ memoId: MEMO_A, transcript: "Call Anna." });
+    expect(lockHeldAtPush).toEqual([false]);
+  });
+
+  it("leaves no temp file behind and ignores one left by an interrupted write", async () => {
+    await mkdir(join(vault.brain, "Inbox"));
+    await writeFile(
+      join(vault.brain, "Inbox", "2026-03-05-call-anna.md.tmp-1"),
+      `---\nmemo: ${MEMO_A}\n---\n`,
+    );
+    const { ref } = await journal().deliver({ memoId: MEMO_A, transcript: "Call Anna." });
+    expect(ref).toBe("Inbox/2026-03-05-call-anna.md");
+    expect((await readdir(join(vault.brain, "Inbox"))).toSorted()).toEqual([
+      "2026-03-05-call-anna.md",
+      "2026-03-05-call-anna.md.tmp-1",
+    ]);
+  });
+
+  it("fails on an unreadable Inbox instead of writing a second note", async () => {
+    const inbox = join(vault.brain, "Inbox");
+    await mkdir(inbox);
+    await chmod(inbox, 0o000);
+    try {
+      await expect(journal().deliver({ memoId: MEMO_A, transcript: "Call Anna." })).rejects.toThrow(
+        /EACCES|permission denied/i,
+      );
+    } finally {
+      await chmod(inbox, 0o755);
+    }
+    expect(await readdir(vault.root)).not.toContain("brain-sync.lock");
+  });
+
   it("waits for a busy lock and proceeds once it is released", async () => {
     await mkdir(vault.lockDir);
     setTimeout(() => void rm(vault.lockDir, { recursive: true }), 20);
@@ -232,5 +273,90 @@ describe("journal destination", () => {
     expect(await readdir(vault.brain)).not.toContain("Inbox");
     expect(await commitCount(vault.brain)).toBe(before);
     expect((await readdir(vault.root)).includes("brain-sync.lock")).toBe(true);
+  });
+});
+
+const isAlive = (pid: number): boolean => {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+async function waitUntilDead(pid: number): Promise<void> {
+  for (let i = 0; i < 50 && isAlive(pid); i++) await Bun.sleep(20);
+}
+
+describe("git runner timeout", () => {
+  let dir: string;
+  const pids: number[] = [];
+
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), "iris-journal-git-"));
+  });
+
+  afterEach(async () => {
+    for (const pid of pids.splice(0)) {
+      try {
+        process.kill(pid, "SIGKILL");
+      } catch {
+        // already gone
+      }
+    }
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  /** A stand-in for `git` that starts `sleep` in the background (inheriting stdout and stderr), then runs `rest`. */
+  async function fakeGit(
+    rest: string,
+    preamble = "",
+  ): Promise<{ run: ReturnType<typeof createGitRunner>; pidFile: string }> {
+    const bin = join(dir, "fake-git.sh");
+    const pidFile = join(dir, "child.pid");
+    await writeFile(bin, `#!/bin/sh\n${preamble}\nsleep 30 &\necho $! > "${pidFile}"\n${rest}\n`, {
+      mode: 0o755,
+    });
+    return { run: createGitRunner(bin), pidFile };
+  }
+
+  const childPid = async (pidFile: string): Promise<number> => {
+    const pid = Number((await readFile(pidFile, "utf8")).trim());
+    pids.push(pid);
+    return pid;
+  };
+
+  it("kills the whole process group when git hangs on a child holding the pipes", async () => {
+    const { run, pidFile } = await fakeGit("wait");
+    const started = Date.now();
+    const result = await run(["push"], dir, { timeoutMs: 1_000 });
+
+    expect(result.code).toBe(124);
+    expect(result.stderr).toContain("git push timed out after 1000ms");
+    expect(Date.now() - started).toBeLessThan(5_000);
+    const pid = await childPid(pidFile);
+    await waitUntilDead(pid);
+    expect(isAlive(pid)).toBe(false);
+  });
+
+  it("escalates to SIGKILL when the group ignores SIGTERM", async () => {
+    const { run, pidFile } = await fakeGit("wait", "trap '' TERM");
+    const result = await run(["push"], dir, { timeoutMs: 1_000 });
+
+    expect(result.code).toBe(124);
+    const pid = await childPid(pidFile);
+    await waitUntilDead(pid);
+    expect(isAlive(pid)).toBe(false);
+  }, 10_000);
+
+  it("returns once git exits even though a child still holds stderr", async () => {
+    const { run, pidFile } = await fakeGit("echo done; exit 3");
+    const started = Date.now();
+    const result = await run(["status"], dir, { timeoutMs: 10_000 });
+
+    expect(result).toMatchObject({ code: 3, stdout: "done\n" });
+    expect(Date.now() - started).toBeLessThan(2_000);
+    await childPid(pidFile);
   });
 });

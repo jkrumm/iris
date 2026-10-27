@@ -1,4 +1,4 @@
-import { mkdir, readdir, rm, writeFile } from "node:fs/promises";
+import { link, mkdir, readdir, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { Clock } from "../ports/clock.js";
@@ -21,6 +21,11 @@ const LOCK_MAX_DELAY_MS = 10_000;
 const DEFAULT_PUSH_TIMEOUT_MS = 30_000;
 const GIT_TIMEOUT_MS = 60_000;
 const GIT_TIMEOUT_CODE = 124;
+// After SIGTERM the process group gets this long to exit before SIGKILL.
+const KILL_GRACE_MS = 2_000;
+// After git exits, a grandchild (ssh) may still hold the pipes; output is not awaited past this.
+const PIPE_DRAIN_MS = 250;
+const STDERR_BRIEF_MAX = 300;
 
 export interface GitResult {
   code: number;
@@ -35,26 +40,92 @@ export type GitRunner = (
   opts?: { timeoutMs?: number },
 ) => Promise<GitResult>;
 
-export const bunGitRunner: GitRunner = async (args, cwd, opts) => {
-  const proc = Bun.spawn(["git", ...args], { cwd, stdout: "pipe", stderr: "pipe" });
-  let timedOut = false;
-  const timer = setTimeout(() => {
-    timedOut = true;
-    proc.kill();
-  }, opts?.timeoutMs ?? GIT_TIMEOUT_MS);
-  try {
-    const [stdout, stderr, code] = await Promise.all([
-      new Response(proc.stdout).text(),
-      new Response(proc.stderr).text(),
-      proc.exited,
-    ]);
-    return timedOut
-      ? { code: GIT_TIMEOUT_CODE, stdout, stderr: `${stderr}timed out after ${opts?.timeoutMs}ms` }
-      : { code, stdout, stderr };
-  } finally {
-    clearTimeout(timer);
-  }
+/** The `code` of a Node-style system error, if `err` is one. */
+function errnoCode(err: unknown): unknown {
+  return err instanceof Error && "code" in err ? err.code : undefined;
+}
+
+const isMissing = (err: unknown): boolean => {
+  const code = errnoCode(err);
+  return code === "ENOENT" || code === "ENOTDIR";
 };
+
+const briefStderr = (stderr: string): string => stderr.trim().slice(0, STDERR_BRIEF_MAX);
+
+/** Reads a pipe into a string without making the caller wait for EOF. */
+function collect(stream: ReadableStream<Uint8Array>) {
+  const reader = stream.getReader();
+  const decoder = new TextDecoder();
+  let text = "";
+  const done = (async () => {
+    for (;;) {
+      const chunk = await reader.read();
+      if (chunk.done) return;
+      text += decoder.decode(chunk.value, { stream: true });
+    }
+  })().catch(() => {});
+  return {
+    done,
+    text: () => text,
+    stop: () => void reader.cancel().catch(() => {}),
+  };
+}
+
+/**
+ * Runs git in its own process group. On timeout the whole group gets SIGTERM, then SIGKILL after a
+ * grace period, so an ssh child of `git push` cannot outlive the call; the pipes are never waited
+ * on past the exit of git, because a surviving grandchild would keep them open.
+ */
+export function createGitRunner(gitBinary = "git"): GitRunner {
+  return async (args, cwd, opts) => {
+    const timeoutMs = opts?.timeoutMs ?? GIT_TIMEOUT_MS;
+    const proc = Bun.spawn([gitBinary, ...args], {
+      cwd,
+      stdout: "pipe",
+      stderr: "pipe",
+      detached: true,
+    });
+    const killGroup = (signal: NodeJS.Signals): void => {
+      try {
+        process.kill(-proc.pid, signal);
+      } catch (err) {
+        if (errnoCode(err) !== "ESRCH") throw err;
+      }
+    };
+    const out = collect(proc.stdout);
+    const err = collect(proc.stderr);
+
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<"timeout">((resolve) => {
+      timer = setTimeout(() => resolve("timeout"), timeoutMs);
+    });
+    const first = await Promise.race([proc.exited, timeout]);
+    clearTimeout(timer);
+
+    let code = GIT_TIMEOUT_CODE;
+    if (first === "timeout") {
+      killGroup("SIGTERM");
+      await Promise.race([proc.exited, Bun.sleep(KILL_GRACE_MS)]);
+      killGroup("SIGKILL");
+      await Promise.race([proc.exited, Bun.sleep(KILL_GRACE_MS)]);
+    } else {
+      code = first;
+    }
+
+    await Promise.race([Promise.all([out.done, err.done]), Bun.sleep(PIPE_DRAIN_MS)]);
+    out.stop();
+    err.stop();
+    const stderr =
+      first === "timeout"
+        ? [err.text().trimEnd(), `git ${args[0]} timed out after ${timeoutMs}ms`]
+            .filter(Boolean)
+            .join("\n")
+        : err.text();
+    return { code, stdout: out.text(), stderr };
+  };
+}
+
+export const bunGitRunner: GitRunner = createGitRunner();
 
 export interface JournalDestinationOptions {
   /** Root of the brain git checkout; notes land in `<brainDir>/Inbox/`. */
@@ -101,7 +172,7 @@ export function journalSlug(title: string): string {
     .replace(/ü/g, "ue")
     .replace(/ß/g, "ss")
     .normalize("NFKD")
-    .replace(/[̀-ͯ]/g, "")
+    .replace(/[\u0300-\u036f]/g, "")
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
     .slice(0, SLUG_MAX)
@@ -130,15 +201,24 @@ function memoOf(head: string): string | undefined {
 }
 
 async function readMemoId(path: string): Promise<string | undefined> {
-  const head = await Bun.file(path).slice(0, FRONTMATTER_READ_BYTES).text();
-  return memoOf(head);
+  try {
+    return memoOf(await Bun.file(path).slice(0, FRONTMATTER_READ_BYTES).text());
+  } catch (err) {
+    // The note vanished between the listing and the read; anything else is a real failure.
+    if (isMissing(err)) return undefined;
+    throw err;
+  }
 }
 
 /** The Inbox note already written for this memo, by frontmatter; a retry reuses it. */
 async function findNoteOf(inboxDir: string, memoId: string): Promise<string | undefined> {
-  const names = await readdir(inboxDir).catch(() => [] as string[]);
+  const names = await readdir(inboxDir).catch((err: unknown): string[] => {
+    if (isMissing(err)) return [];
+    throw err;
+  });
+  // Only `.md` files: the `<name>.md.tmp-<pid>` of an interrupted write is not a note.
   for (const name of names.filter((n) => n.endsWith(".md")).toSorted()) {
-    if ((await readMemoId(join(inboxDir, name)).catch(() => undefined)) === memoId) return name;
+    if ((await readMemoId(join(inboxDir, name))) === memoId) return name;
   }
   return undefined;
 }
@@ -149,7 +229,7 @@ async function acquireLock(lockDir: string, attempts: number, baseDelayMs: numbe
       await mkdir(lockDir);
       return;
     } catch (err) {
-      if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw err;
+      if (errnoCode(err) !== "EEXIST") throw err;
       if (attempt >= attempts) {
         throw new Error(
           `journal: brain-sync lock is busy after ${attempts + 1} attempts (${lockDir})`,
@@ -176,7 +256,7 @@ export function createJournalDestination(opts: JournalDestinationOptions): Desti
   async function mustGit(args: string[]): Promise<GitResult> {
     const result = await git(args, opts.brainDir);
     if (result.code !== 0) {
-      throw new Error(`journal: git ${args[0]} failed: ${result.stderr.trim().slice(0, 300)}`);
+      throw new Error(`journal: git ${args[0]} failed: ${briefStderr(result.stderr)}`);
     }
     return result;
   }
@@ -194,53 +274,62 @@ export function createJournalDestination(opts: JournalDestinationOptions): Desti
     if (await Bun.file(join(inboxDir, name)).exists()) {
       name = `${base}-${memoId.slice(0, 8)}.md`;
     }
-    // `wx`: never overwrite someone else's note, whatever raced us.
-    await writeFile(join(inboxDir, name), renderNote({ title, date, memoId, body: transcript }), {
-      flag: "wx",
-    });
+    // Write aside, then link into place: a note is never visible half-written, and `link` never
+    // overwrites whatever raced us to the name.
+    const target = join(inboxDir, name);
+    const tmp = `${target}.tmp-${process.pid}`;
+    try {
+      await writeFile(tmp, renderNote({ title, date, memoId, body: transcript }));
+      await link(tmp, target);
+    } finally {
+      await rm(tmp, { force: true });
+    }
     return name;
+  }
+
+  /** Under the brain-sync lock: the note on disk and committed. Returns its ref. */
+  async function commitNote(
+    memoId: string,
+    transcript: string,
+    title: string,
+  ): Promise<{ ref: string; committed: boolean }> {
+    await acquireLock(
+      lockDir,
+      opts.lockAttempts ?? DEFAULT_LOCK_ATTEMPTS,
+      opts.lockBaseDelayMs ?? DEFAULT_LOCK_BASE_DELAY_MS,
+    );
+    try {
+      const ref = `${INBOX}/${await ensureNote(memoId, transcript, title)}`;
+      await mustGit(["add", "--", ref]);
+      const pending = await mustGit(["status", "--porcelain", "--", ref]);
+      if (pending.stdout.trim() === "") return { ref, committed: false };
+      await mustGit(["commit", "-m", `journal: ${title}`, "--", ref]);
+      return { ref, committed: true };
+    } finally {
+      await rm(lockDir, { recursive: true, force: true }).catch(() => {});
+    }
   }
 
   return {
     deliver({ memoId, transcript }): Promise<Delivery> {
       return withSpan("journal.write", { memo_id: memoId, downstream: "journal" }, async (span) => {
-        const title = journalTitle(transcript);
+        const { ref, committed } = await commitNote(memoId, transcript, journalTitle(transcript));
+        span.setAttributes({ ref, committed });
 
-        await acquireLock(
-          lockDir,
-          opts.lockAttempts ?? DEFAULT_LOCK_ATTEMPTS,
-          opts.lockBaseDelayMs ?? DEFAULT_LOCK_BASE_DELAY_MS,
-        );
-        try {
-          const name = await ensureNote(memoId, transcript, title);
-          const ref = `${INBOX}/${name}`;
-          span.setAttributes({ ref });
-
-          await mustGit(["add", "--", ref]);
-          const pending = await mustGit(["status", "--porcelain", "--", ref]);
-          if (pending.stdout.trim() === "") {
-            span.setAttributes({ committed: false });
-          } else {
-            await mustGit(["commit", "-m", `journal: ${title}`, "--", ref]);
-            span.setAttributes({ committed: true });
-          }
-
-          const push = await git(["push"], opts.brainDir, {
-            timeoutMs: opts.pushTimeoutMs ?? DEFAULT_PUSH_TIMEOUT_MS,
+        // Outside the lock: a slow remote must not hold brain-sync off. Fail-soft, brain-sync pushes later.
+        const push = await git(["push"], opts.brainDir, {
+          timeoutMs: opts.pushTimeoutMs ?? DEFAULT_PUSH_TIMEOUT_MS,
+        });
+        if (push.code !== 0) {
+          log("journal.push_failed", {
+            memo_id: memoId,
+            code: push.code,
+            stderr: briefStderr(push.stderr),
           });
-          if (push.code !== 0) {
-            log("journal.push_failed", {
-              memo_id: memoId,
-              code: push.code,
-              stderr: push.stderr.trim().slice(0, 300),
-            });
-          }
-
-          log("journal.written", { memo_id: memoId, ref });
-          return { ref, replyText: "" };
-        } finally {
-          await rm(lockDir, { recursive: true, force: true }).catch(() => {});
         }
+
+        log("journal.written", { memo_id: memoId, ref });
+        return { ref, replyText: "" };
       });
     },
   };
