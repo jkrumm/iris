@@ -232,6 +232,17 @@ describe("POST /v1/memos/:id/retry", () => {
     expect(await res.json()).toMatchObject({ id });
   });
 
+  it("400s a missing from instead of defaulting it", async () => {
+    const { app } = testApp();
+    const res = await call(app, {
+      method: "POST",
+      path: `/v1/memos/${newId()}/retry`,
+      json: {},
+    });
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({ error: "bad_request" });
+  });
+
   it("400s an unknown step name", async () => {
     const { app } = testApp();
     const res = await call(app, {
