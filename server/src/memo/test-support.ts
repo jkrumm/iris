@@ -74,6 +74,8 @@ export function deferred<T = void>() {
 /** Runs `fn` with `console.log` captured as parsed JSON log lines (restored afterwards). */
 export async function captureLogs<T>(fn: () => Promise<T>) {
   const lines: Record<string, unknown>[] = [];
+  // telemetry/log.ts writes through console.log, so that is the sink to intercept.
+  /* eslint-disable no-console */
   const original = console.log;
   console.log = (line: unknown) => {
     lines.push(JSON.parse(String(line)) as Record<string, unknown>);
@@ -83,4 +85,5 @@ export async function captureLogs<T>(fn: () => Promise<T>) {
   } finally {
     console.log = original;
   }
+  /* eslint-enable no-console */
 }

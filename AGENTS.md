@@ -50,7 +50,7 @@ Never start dev servers for a human to look at; simulators are fine, shut them d
 ## Server (`server/`)
 
 - `server/src/app.ts` — `createApp({deviceTokens, memos, degraded?, sseKeepaliveMs?})`: mounts routes, no env/fs.
-- `server/src/index.ts` — entry point and production composition (SQLite, audio-fs, runner, service),
+- `server/src/index.ts` — entry point: SQLite, audio-fs, runner, service, then `compose()` for the downstream ports,
   listen, background `driveAll`, signals, DB close, OTel flush.
 - `server/src/memo/` — domain: `memo.ts` (states, steps, transitions), `store.ts` (port), `runner.ts`
   (idempotent step runner, concurrency-bounded `driveAll`, `idle()`), `service.ts` (`MemoService`, what HTTP calls), `media.ts`
@@ -83,7 +83,9 @@ Never start dev servers for a human to look at; simulators are fine, shut them d
 - `contracts/` — the wire contract Swift decodes: `schema/<name>.json` (generated, JSON Schema 2020-12),
   `fixtures/<name>[.<variant>].json` (hand-written, valid against schema `<name>`), `manifest.json` (every route
   with its schema names, status codes and media types; binary and SSE routes included).
-- `server/src/compose-fakes.ts` — `composeFakes()`: every downstream port as an in-memory fake (`IRIS_FAKES=1`).
+- `server/src/compose.ts` — `compose({env, devices, clock, dataDir})`: the one place a downstream port is chosen (fake under
+  `IRIS_FAKES=1`, real adapter when its env is set, else absent and named in `degraded`); also the notifier and the device tokens.
+  A new port is one entry there, its fake in `fakePorts`, and its env var in `env.ts`.
 - `scripts/` — `send-memo.ts` (driver), `e2e.ts` (`make e2e`), `smoke.sh`, `launch.sh` (LaunchAgent entry), `mini-deploy.sh` (poller tick);
   `launchd/` — plist templates; `fixtures/audio/` — the German smoke recording.
 
@@ -139,7 +141,7 @@ the real-domain literals live in untracked `~/.config/iris/guard-extra.txt`). Us
 `IRIS_FAKES=1` and a temp `IRIS_DATA`, runs `send-memo.ts` on the smoke recording (must reach `notified`), then probes
 `/devices/register`, `/activity-token`, `/audio` (Range 206), `/speech` (audio/mpeg) and `/herd`. The server is always killed.
 
-**`IRIS_FAKES=1`** (boolean-ish, empty = off) builds every port from `composeFakes()`, ignoring downstream env, and keeps the
+**`IRIS_FAKES=1`** (boolean-ish, empty = off) builds every port from `compose()`'s fakes, ignoring downstream env, and keeps the
 real ffmpeg combiner. `/health` is `degraded` with `"fakes"`, boot logs `server.fakes_mode`, and `scripts/launch.sh`
 refuses to start when `IRIS_FAKES` is set. Never set it in production.
 

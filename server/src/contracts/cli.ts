@@ -7,6 +7,8 @@ import { exportAll } from "./export.js";
 
 const root = join(import.meta.dir, "../../../contracts");
 const command = process.argv[2];
+const out = (line: string) => process.stdout.write(`${line}\n`);
+const err = (line: string) => process.stderr.write(`${line}\n`);
 
 if (command === "export") {
   const dir = join(root, SCHEMA_DIR);
@@ -14,16 +16,16 @@ if (command === "export") {
   for (const file of readdirSync(dir)) rmSync(join(dir, file));
   const schemas = exportAll();
   for (const [file, text] of schemas) writeFileSync(join(dir, file), text);
-  console.log(`contracts: wrote ${schemas.size} schemas to contracts/${SCHEMA_DIR}`);
+  out(`contracts: wrote ${schemas.size} schemas to contracts/${SCHEMA_DIR}`);
 } else if (command === "check") {
   const problems = checkContracts({ root });
-  for (const problem of problems) console.error(`contracts: ${problem}`);
+  for (const problem of problems) err(`contracts: ${problem}`);
   if (problems.length > 0) {
-    console.error(`contracts: ${problems.length} problem(s)`);
+    err(`contracts: ${problems.length} problem(s)`);
     process.exit(1);
   }
-  console.log("contracts: ok");
+  out("contracts: ok");
 } else {
-  console.error("usage: bun src/contracts/cli.ts export|check");
+  err("usage: bun src/contracts/cli.ts export|check");
   process.exit(2);
 }
