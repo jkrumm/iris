@@ -23,6 +23,32 @@ struct FakeAPIClientTests {
     #expect(await fake.calls.count == 2)
   }
 
+  @Test("createTextMemo creates a transcribed typed memo, idempotent for the same body, 409 for another")
+  func textMemo() async throws {
+    let fake = FakeAPIClient()
+    let request = CreateTextMemoRequest(id: "t1", mode: .hermes, startedAt: started, text: "  kauf Milch \n")
+    let memo = try await fake.createTextMemo(request)
+    #expect(memo.state == .transcribed)
+    #expect(memo.transcript == "kauf Milch")
+    #expect(memo.isTyped)
+    #expect(try await fake.createTextMemo(request) == memo)
+    #expect(await fake.calls.last == .createTextMemo(request))
+
+    var other = request
+    other.text = "etwas anderes"
+    await #expect(throws: APIError.self) { try await fake.createTextMemo(other) }
+  }
+
+  @Test("createTextMemo rejects empty and oversized text with a 400")
+  func textMemoValidation() async throws {
+    let fake = FakeAPIClient()
+    for text in ["", "  \n ", String(repeating: "x", count: CreateTextMemoRequest.maxTextCharacters + 1)] {
+      await #expect(throws: APIError.self) {
+        try await fake.createTextMemo(CreateTextMemoRequest(id: "t2", mode: .auto, startedAt: started, text: text))
+      }
+    }
+  }
+
   @Test("complete reports missing segments, then succeeds once they are uploaded")
   func completeFlow() async throws {
     let fake = FakeAPIClient()

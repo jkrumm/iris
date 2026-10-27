@@ -38,6 +38,10 @@ public struct Memo: Codable, Hashable, Sendable, Identifiable {
   public var createdAt: Date
   public var updatedAt: Date
 
+  /// Typed instead of spoken (`POST /v1/memos/text`): it never passed `received`, so past `receiving` it has no
+  /// `segmentCount`. Such a memo has no recording (`GET /audio` has nothing to serve).
+  public var isTyped: Bool { segmentCount == nil && state != .receiving }
+
   public init(
     id: String,
     mode: MemoMode,

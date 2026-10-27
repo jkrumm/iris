@@ -301,6 +301,19 @@ export function createSqliteMemoStore(params: { db: Database; clock: Clock }): M
       return { memo: toMemo(row), created: inserted.changes === 1 };
     },
 
+    createTextMemo({ id, mode, device, startedAt, text }) {
+      const at = stamp();
+      const inserted = db
+        .query(
+          `INSERT INTO memos (id, mode, device, started_at, state, transcript, created_at, updated_at)
+           VALUES (?, ?, ?, ?, 'transcribed', ?, ?, ?) ON CONFLICT (id) DO NOTHING`,
+        )
+        .run(id, mode, device, startedAt, text, at, at);
+      const row = memoById(id);
+      if (!row) throw new Error(`memo ${id} vanished after insert`);
+      return { memo: toMemo(row), created: inserted.changes === 1 };
+    },
+
     getMemo(id) {
       const row = memoById(id);
       return row ? toMemo(row) : null;

@@ -39,6 +39,8 @@ let fixtureTypes: [String: RoundTrip] = [
   "memos.detail.response": roundTrip(MemoDetail.self),
   "memos.list.query": roundTrip(ListMemosQuery.self),
   "memos.list.response": roundTrip(MemoPage.self),
+  "memos.text.request": roundTrip(CreateTextMemoRequest.self),
+  "memos.text.response": roundTrip(Memo.self),
   "memos.result.query": roundTrip(MemoResultQuery.self),
   "memos.result.response": roundTrip(Memo.self),
   "memos.retry.request": roundTrip(RetryMemoRequest.self),
@@ -122,6 +124,16 @@ struct FixtureConformanceTests {
     #expect(routed.routeReason == nil)
     let encoded = String(decoding: try IrisJSON.makeEncoder().encode(routed), as: UTF8.self)
     #expect(!encoded.contains("routeReason") && !encoded.contains("routeSuggestion"))
+  }
+
+  @Test("A typed memo decodes as transcribed with no segment count")
+  func typedMemo() throws {
+    let memo = try IrisJSON.makeDecoder().decode(Memo.self, from: Contracts.fixtureData("memos.text.response"))
+    #expect(memo.state == .transcribed)
+    #expect(memo.segmentCount == nil)
+    #expect(memo.isTyped)
+    let recorded = try IrisJSON.makeDecoder().decode(Memo.self, from: Contracts.fixtureData("memos.create.response"))
+    #expect(!recorded.isTyped)
   }
 
   @Test("Result-ready states match the server")

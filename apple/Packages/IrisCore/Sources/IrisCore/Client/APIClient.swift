@@ -9,6 +9,10 @@ public protocol APIClient: Sendable {
   func whoami() async throws -> Whoami
   /// `POST /v1/memos`: idempotent by `request.id`.
   func createMemo(_ request: CreateMemoRequest) async throws -> Memo
+  /// `POST /v1/memos/text`: a memo typed instead of spoken. It is created `transcribed` with the text as its
+  /// transcript and driven from `route`; there is no upload and no `complete`. Idempotent by `request.id`:
+  /// the same body returns the memo, another body for the id throws a 409 `APIError.server`.
+  func createTextMemo(_ request: CreateTextMemoRequest) async throws -> Memo
   /// `PUT /v1/memos/:id/segments/:n`: raw m4a bytes, idempotent by content.
   func uploadSegment(memoID: String, index: Int, data: Data) async throws
   /// `POST /v1/memos/:id/complete`. Throws `APIError.missingSegments` while segments are absent.

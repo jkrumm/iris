@@ -80,6 +80,20 @@ describe("parseCliArgs", () => {
     });
   });
 
+  it("takes --text instead of a file, and not both", () => {
+    expect(parseCliArgs(["--text", "kauf Milch", "--mode", "hermes"], { IRIS_TOKEN: "t" })).toEqual(
+      {
+        text: "kauf Milch",
+        url: "http://127.0.0.1:7730",
+        token: "t",
+        mode: "hermes",
+        waitSeconds: 300,
+      },
+    );
+    expect(() => parseCliArgs(["a.m4a", "--text", "x"], { IRIS_TOKEN: "t" })).toThrow(UsageError);
+    expect(() => parseCliArgs(["--text", "  "], { IRIS_TOKEN: "t" })).toThrow(UsageError);
+  });
+
   it("rejects bad usage", () => {
     expect(() => parseCliArgs(["a.m4a"], {})).toThrow(UsageError);
     expect(() => parseCliArgs([], { IRIS_TOKEN: "t" })).toThrow(UsageError);
@@ -183,7 +197,7 @@ const json = (body: unknown, status = 200) => Response.json(body, { status });
 function startFake(fake: FakeOptions) {
   const segments = new Map<number, number>();
   const log: string[] = [];
-  let created: { id: string; mode: string } | null = null;
+  let created: { id: string; mode: string; text?: string } | null = null;
   let completeCount = 0;
   let polls = 0;
   let puts1 = 0;
@@ -200,6 +214,10 @@ function startFake(fake: FakeOptions) {
       if (route === "POST /v1/memos") {
         created = (await request.json()) as { id: string; mode: string };
         return json({ ...created, state: "receiving" }, 201);
+      }
+      if (route === "POST /v1/memos/text") {
+        created = (await request.json()) as { id: string; mode: string; text: string };
+        return json({ ...created, state: "transcribed" }, 202);
       }
       const put = /^PUT \/v1\/memos\/:id\/segments\/(\d+)$/.exec(route);
       if (put) {
@@ -283,6 +301,27 @@ async function run(fake: FakeOptions, overrides: Partial<Options> = {}) {
     server.stop();
   }
 }
+
+describe("sendMemo --text against a fake server", () => {
+  it("posts the text to /memos/text, uploads nothing, and exits 0 on notified", async () => {
+    const server = startFake({ finalState: "notified" });
+    try {
+      const code = await sendMemo({
+        text: "kauf Milch",
+        url: server.url,
+        token: TOKEN,
+        mode: "hermes",
+        waitSeconds: 30,
+      });
+      expect(code).toBe(0);
+      expect(server.created()).toMatchObject({ mode: "hermes", text: "kauf Milch" });
+      expect(server.log.filter((r) => r.startsWith("PUT") || r.endsWith("/complete"))).toEqual([]);
+      expect(server.log).toContain("POST /v1/memos/text");
+    } finally {
+      server.stop();
+    }
+  });
+});
 
 describe.skipIf(!hasFfmpeg)("sendMemo against a fake server", () => {
   it("uploads all segments 0-based, completes and exits 0 on notified", async () => {

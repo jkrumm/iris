@@ -5,6 +5,7 @@ import type { deviceAuth } from "./auth.js";
 import {
   CompleteBody,
   CreateMemoBody,
+  CreateTextMemoBody,
   ErrorBody,
   ListQuery,
   MemoDetail,
@@ -79,6 +80,24 @@ export function memoRoutes(deps: { memos: MemoService; auth: ReturnType<typeof d
       {
         body: CreateMemoBody,
         response: { 200: Memo, 201: Memo, 400: ErrorBody, 409: ErrorBody },
+      },
+    )
+    .post(
+      "/text",
+      ({ body, device, set }) => {
+        const { memo } = memos.createTextMemo({
+          id: body.id,
+          mode: body.mode,
+          device: device as string,
+          startedAt: body.startedAt,
+          text: body.text,
+        });
+        set.status = 202;
+        return memoJson(memo);
+      },
+      {
+        body: CreateTextMemoBody,
+        response: { 202: Memo, 400: ErrorBody, 409: ErrorBody },
       },
     )
     .put(

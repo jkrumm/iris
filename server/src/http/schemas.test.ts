@@ -25,6 +25,7 @@ describe("schemas", () => {
       "MemoDetail",
       "MemoList",
       "CreateMemoBody",
+      "CreateTextMemoBody",
       "CompleteBody",
       "RetryBody",
       "ResultQuery",

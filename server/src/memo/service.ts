@@ -31,6 +31,17 @@ export interface MemoService {
     memo: Memo;
     created: boolean;
   };
+  /**
+   * A memo typed instead of spoken: created in `transcribed` with `transcript = text` and driven from
+   * `route`. Idempotent by id: the same body returns the memo, any other body (or device) is a conflict.
+   */
+  createTextMemo(params: {
+    id: string;
+    mode: MemoMode;
+    device: string;
+    startedAt: string;
+    text: string;
+  }): { memo: Memo; created: boolean };
   putSegment(params: { id: string; index: number; bytes: Uint8Array }): Promise<void>;
   complete(params: { id: string; segmentCount: number }): Memo;
   retry(params: { id: string; from: Step }): Memo;
@@ -59,8 +70,12 @@ export interface MemoService {
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MAX_SEGMENTS = 1_000_000; // matches the six-digit file names of the audio store
+export const MAX_TEXT_CHARS = 20_000;
 const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 100;
+
+/** Typed memos never pass `received`, so they are the ones past `receiving` with no segment count. */
+const isTyped = (memo: Memo) => memo.segmentCount === null && memo.state !== "receiving";
 
 function assertSegment(params: { index: number; bytes: Uint8Array; maxBytes: number }) {
   const { index, bytes, maxBytes } = params;
@@ -107,6 +122,11 @@ export function createMemoService(deps: {
     }
   };
 
+  const drive = (id: string) =>
+    runner
+      .drive(id)
+      .catch((err: unknown) => log("memo.drive_failed", { memo_id: id, error: String(err) }));
+
   const mustGet = (id: string) => {
     const memo = store.getMemo(id);
     if (!memo) throw new MemoError("not_found", `memo ${id} not found`);
@@ -130,6 +150,36 @@ export function createMemoService(deps: {
         return result;
       }
       events.publish(memoEvent({ memo: result.memo, step: null, clock }));
+      return result;
+    },
+
+    createTextMemo({ id, mode, device, startedAt, text }) {
+      if (!UUID.test(id)) throw new MemoError("bad_request", "id must be a UUID");
+      if (!MEMO_MODES.includes(mode)) throw new MemoError("bad_request", `unknown mode ${mode}`);
+      if (Number.isNaN(Date.parse(startedAt))) {
+        throw new MemoError("bad_request", "startedAt must be an ISO timestamp");
+      }
+      const trimmed = text.trim();
+      if (trimmed === "") throw new MemoError("bad_request", "text must not be empty");
+      if (trimmed.length > MAX_TEXT_CHARS) {
+        throw new MemoError("bad_request", `text exceeds ${MAX_TEXT_CHARS} characters`);
+      }
+      const result = store.createTextMemo({ id, mode, device, startedAt, text: trimmed });
+      if (!result.created) {
+        const { memo } = result;
+        if (memo.device !== device) {
+          throw new MemoError("conflict", `memo ${id} belongs to another device`);
+        }
+        const same =
+          isTyped(memo) &&
+          memo.mode === mode &&
+          memo.startedAt === startedAt &&
+          memo.transcript === trimmed;
+        if (!same) throw new MemoError("conflict", `memo ${id} already exists with another body`);
+        return result;
+      }
+      events.publish(memoEvent({ memo: result.memo, step: null, clock }));
+      void drive(id);
       return result;
     },
 
@@ -177,13 +227,20 @@ export function createMemoService(deps: {
       }
       const received = mustGet(id);
       events.publish(memoEvent({ memo: received, step: "ingest", clock }));
-      runner
-        .drive(id)
-        .catch((err: unknown) => log("memo.drive_failed", { memo_id: id, error: String(err) }));
+      void drive(id);
       return received;
     },
 
-    retry: (params) => runner.retry(params),
+    retry(params) {
+      // A typed memo has no audio to transcribe again: `transcribe` would clear its only text.
+      if (params.from === "transcribe") {
+        const memo = store.getMemo(params.id);
+        if (memo && isTyped(memo)) {
+          throw new MemoError("bad_request", "a typed memo has no recording, retry from route");
+        }
+      }
+      return runner.retry(params);
+    },
 
     route({ id, destination, tab }) {
       const memo = mustGet(id);
@@ -225,9 +282,7 @@ export function createMemoService(deps: {
       });
       if (isAnswer) {
         events.publish(memoEvent({ memo: mustGet(id), step: "route", clock }));
-        runner
-          .drive(id)
-          .catch((err: unknown) => log("memo.drive_failed", { memo_id: id, error: String(err) }));
+        void drive(id);
       }
       return { memo: mustGet(id), accepted: isAnswer };
     },

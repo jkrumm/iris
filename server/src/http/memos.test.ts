@@ -21,6 +21,86 @@ const put = (
   headers: Record<string, string> = { ...PHONE, "content-type": "audio/mp4" },
 ) => call(app, { method: "PUT", path: `/v1/memos/${id}/segments/${n}`, headers, body });
 
+const createText = (
+  app: ReturnType<typeof testApp>["app"],
+  json: Record<string, unknown> = {},
+  headers = PHONE,
+) =>
+  call(app, {
+    method: "POST",
+    path: "/v1/memos/text",
+    headers,
+    json: {
+      id: newId(),
+      mode: "auto",
+      startedAt: "2026-01-01T00:00:00.000Z",
+      text: "kauf Milch",
+      ...json,
+    },
+  });
+
+describe("POST /v1/memos/text", () => {
+  it("answers 202 with a transcribed memo, replays the same body and 409s another", async () => {
+    const { app } = testApp({ handlers: fakeHandlers });
+    const id = newId();
+    const first = await createText(app, { id, text: "  kauf Milch " });
+    expect(first.status).toBe(202);
+    expect(await first.json()).toMatchObject({
+      id,
+      state: "transcribed",
+      transcript: "kauf Milch",
+      segmentCount: null,
+      device: "iphone",
+    });
+    expect((await createText(app, { id, text: "kauf Milch" })).status).toBe(202);
+    expect((await createText(app, { id, text: "etwas anderes" })).status).toBe(409);
+    expect((await createText(app, { id }, MAC)).status).toBe(409);
+  });
+
+  it("400s empty, whitespace-only and oversized text, a missing field and a bad mode", async () => {
+    const { app } = testApp({ handlers: fakeHandlers });
+    for (const bad of [
+      { text: "" },
+      { text: "   " },
+      { text: "x".repeat(20_001) },
+      { text: undefined },
+      { mode: "nope" },
+      { id: "../x" },
+    ]) {
+      const res = await createText(app, bad);
+      expect([JSON.stringify(bad).slice(0, 40), res.status]).toEqual([
+        JSON.stringify(bad).slice(0, 40),
+        400,
+      ]);
+    }
+  });
+
+  it("drives the memo to notified without ingest or transcribe rows", async () => {
+    const { app } = testApp({ handlers: fakeHandlers });
+    const id = newId();
+    await createText(app, { id });
+    const result = await call(app, { path: `/v1/memos/${id}/result?wait=5` });
+    expect(await result.json()).toMatchObject({ state: "notified", transcript: "kauf Milch" });
+    const detail = (await (await call(app, { path: `/v1/memos/${id}` })).json()) as {
+      steps: { step: string }[];
+      segmentCount: number;
+    };
+    expect(detail.steps.map((s) => s.step)).toEqual(["route", "act", "summarize", "notify"]);
+    expect(detail.segmentCount).toBe(0);
+  });
+
+  it("requires a device token", async () => {
+    const { app } = testApp();
+    const res = await call(app, {
+      method: "POST",
+      path: "/v1/memos/text",
+      headers: {},
+      json: { id: newId(), mode: "auto", startedAt: "2026-01-01T00:00:00.000Z", text: "x" },
+    });
+    expect(res.status).toBe(401);
+  });
+});
+
 describe("POST /v1/memos", () => {
   it("creates with 201 and a snake_case memo, then repeats with 200", async () => {
     const { app } = testApp();
