@@ -579,10 +579,16 @@ then the simulator-testable parts of 2, 5, 8). Items 1, 3 and the device exit ch
    Chats, Needs route; archived/deleted hidden by default); **automatic retries** of transient step failures (two, with
    exponential backoff; TDD §3 says they are not built, round 2 assumes they are) with the attempt count on the wire per
    step; whatever Wave 12 left behind (threads from Iris's own memos, per-step-and-route baselines with n); a reply
-   stream for chat/thread views if the thread view needs live tokens (final answer only, smooth). Swift `IrisCore` follow-up.
+   stream for chat/thread views if the thread view needs live tokens (final answer only, smooth). **Mermaid via Pele**
+   (`obsidianmd/pele`, MIT, sync TS): when a reply is stored, render each Mermaid block to an SVG themed for light and dark
+   plus rasterized PNGs for the native views, served as reply assets; confirm the rasterizer with `/research` (Bun-compatible,
+   maintained) and record it in TDD §3. **Speech-ready variant** of every answer, produced next to the rendered reply: code,
+   diagrams, tables and URLs stripped or summarized; a long answer speaks the `triage` `spoken` summary plus "details on
+   screen"; `/speech` (and so [Play] and spoken replies) speaks this variant. Swift `IrisCore` follow-up.
 5. **R2 routing (iOS):** the mode picker incl. Chat, needs-route actions, [Play] via
    `PlayReplyIntent`, per-route mic rules, spoken-replies setting. (The cost-on-Lock-Screen toggle is dropped by round 2.)
-6. **R3 history (iOS):** tabs **History · Stats · Settings** (no Threads tab). History is the one list of everything:
+6. **R3 history (iOS):** tabs **History · Stats · Settings** (no Threads tab, owner-confirmed; the freed slot stays empty,
+   reserved for PRD §Later surfaces, which are not built now). History is the one list of everything:
    rows like round 1, **swipe actions** (right: done, further right: favorite; left: archive, further left: delete with
    undo), **quick-filter chips** (Favorites, Chats, Needs route, …) next to search and the bottom-sheet filter, SSE live
    updates. Memo detail per round 2: round 1's player (play/pause, scrub, one 10 s-back icon, no speed), the full-width
@@ -591,9 +597,9 @@ then the simulator-testable parts of 2, 5, 8). Items 1, 3 and the device exit ch
    Diagnostics row (copy the memo id, animated "Copied"). Motion explains state (steps advancing, copy, queue), subtle;
    colour earns its place. Snapshot tests on the pinned simulator.
 7. **R3 conversations (iOS):** a Chat or multi-turn Hermes memo is a History row that opens the **thread view**; the
-   Chats quick filter lists them. Rendering: markdown, syntax-highlighted code, **Mermaid** (research the options with
-   `/research` first, incl. the Obsidian-related library the owner mentioned; native vs WebView is a TDD decision), SVG,
-   tables collapsing to cards on narrow widths; smooth final-answer streaming. Reply by voice or text into a thread; the
+   Chats quick filter lists them. **Scope = what Hermes actually streams, nothing more:** text, lists, links,
+   syntax-highlighted code, tables (cards on narrow widths) and Mermaid as the server-rendered images from 4b (tap opens a
+   zoomable full view); smooth final-answer streaming. Reply by voice or text into a thread; the
    **iPhone reply flow** (new surface: render it and send it for async owner review while building).
 8. **R4 Mac:** the menu-bar app (its **history rows match mobile History**), hotkey (configurable, default distinct from
    the owner's dictation key), panel, capture on the Mac, SSE notifications with Reply.
