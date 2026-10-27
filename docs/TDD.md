@@ -112,7 +112,12 @@ The server is a few deep modules behind ports, in email-gateway's style.
 | `notify/` | Payload building (alert, Live Activity), APNs transport | `Notifier` port |
 | `telemetry/` | `otel.ts`, `otel-format.ts`, `log.ts`, the client relay | `withRootSpan`, `withSpan`, `log`, `relay` |
 
-Ports, each with a production adapter and an in-memory fake:
+**Shipped through Wave 7:** `memo/`, `pipeline/` (`steps.ts`), `notify/`, `telemetry/`, `http/`, `adapters/`, `ports/`. `routing/` and the
+journal/herdr destinations are Phase 2 (R2); `devices/` is the `DeviceStore` port plus `adapters/sqlite-devices.ts`. The module and
+file map of the code is in `AGENTS.md` §Layout.
+
+Ports, each with a production adapter and an in-memory fake (shipped: `Transcriber`, `Speaker`, `Summarizer`, `Destination` (Hermes only),
+`Notifier`, `Herd`, `DeviceStore`, `AudioStore`, `AudioCombiner`, `Clock`; `Router` and `Ids` are R2 / unused):
 - `Transcriber`
 - `Speaker`
 - `Router` (`decide`)
@@ -148,44 +153,55 @@ any step ──error──> failed(step)   ──retry(from)──> <step>
   timeout). Anything else goes to `failed`.
 - **Retention:** audio is deleted 30 days after `notified`; rows are kept.
 
-### Data model (SQLite, WAL, migrations in `server/src/memo/migrations/`)
+### Data model (SQLite, WAL, append-only migrations in `server/src/adapters/sqlite-migrations.ts`, `PRAGMA user_version`)
+
+Shipped (Wave 5). Step results are columns on `memos`, not a separate table.
 
 | Table | Columns (key ones) |
 |-|-|
-| `devices` | `id`, `name`, `platform` (ios/macos), `token_hash`, `apns_token`, `apns_env` (sandbox/production), `push_to_start_token`, `last_seen_at` |
-| `memos` | `id` (uuid, client-minted), `device_id`, `mode` (auto/journal/hermes/tab), `target_tab`, `thread_id`, `state`, `failed_step`, `error`, `language`, `started_at`, `completed_at`, `segment_count`, `audio_seconds`, `transcript`, `route`, `route_source` (prefix/decide/manual/mode), `destination_ref`, `reply_text`, `summary` (json), `cost_usd` |
-| `segments` | `memo_id`, `idx`, `bytes`, `sha256`, `received_at` — PK (`memo_id`, `idx`) |
-| `steps` | `memo_id`, `step`, `attempt`, `started_at`, `ended_at`, `status`, `error`, `usage` (json), `cost_usd` |
-| `route_decisions` | `memo_id`, `source`, `destination`, `tab`, `confidence`, `probabilities` (json), `corrected_to`, `created_at` |
-| `activity_tokens` | `memo_id`, `token`, `updated_at` |
-| `threads` | `id` (the Hermes session id), `title`, `created_at`, `last_memo_id` |
+| `memos` | `seq` (autoincrement), `id` (uuid, client-minted), `mode` (auto/journal/hermes/tab), `device` (authenticated device name), `state`, `failed_step`, `error`, `started_at`, `segment_count`, `audio_seconds`, `transcript`, `route`, `destination_ref`, `reply_text`, `summary_json`, `created_at`, `updated_at` |
+| `segments` | `memo_id`, `idx`, `bytes`, `sha256`, `received_at`: PK (`memo_id`, `idx`) |
+| `memo_steps` | `memo_id`, `step`, `status`, `started_at`, `finished_at`, `error`, `usage_json`, `cost_usd`: PK (`memo_id`, `step`), no `attempt` (a retry resets the row) |
+| `devices` | `device` (PK, the token-map name), `name` (display label), `platform` (ios/macos), `apns_token`, `apns_env` (sandbox/production), `push_to_start_token`, `last_seen_at`, `updated_at` |
+| `activity_tokens` | `memo_id` (PK, cascades), `token`, `updated_at` |
+
+Planned for R2/R3, not built: `route_decisions` (decision log and corrections), `threads`, `memos.target_tab` / `thread_id` / `language` / `route_source`,
+and a transcript FTS index. Device tokens are not stored: the token map lives in `IRIS_DEVICE_TOKENS`.
 
 ### HTTP API (`/v1`, bearer = device token; `/health` is public)
+
+Shipped; the authoritative list is `contracts/manifest.json` and the table in `AGENTS.md`.
 
 | Method + path | Purpose |
 |-|-|
 | `POST /v1/devices/register` | `{name, platform, apnsToken?, apnsEnv?, pushToStartToken?}`; upsert by the authenticated device |
-| `POST /v1/memos` | `{id, mode, targetTab?, threadId?, startedAt, language?}`, idempotent |
+| `POST /v1/memos` | `{id, mode, startedAt}`, idempotent |
 | `PUT /v1/memos/:id/segments/:n` | Raw m4a bytes, idempotent by `n` (same sha → 200, different → 409) |
 | `POST /v1/memos/:id/complete` | `{segmentCount}`. A 422 lists the missing indices |
-| `PUT /v1/memos/:id/activity-token` | The Live Activity push token for this memo |
-| `POST /v1/memos/:id/route` | `{destination, tab?}`, answering `needs_route`; logged as a correction |
-| `POST /v1/memos/:id/retry` | `{from: Step}` |
-| `GET /v1/memos?cursor&q` | History, paged, transcript search (FTS5) |
-| `GET /v1/memos/:id` | Memo + step timeline + decisions + cost |
-| `GET /v1/memos/:id/result?wait=<s>` | Long-poll until terminal (≤ 600 s) |
-| `GET /v1/memos/:id/audio` | The concatenated audio for the scrubber |
-| `GET /v1/memos/:id/speech` | TTS of `summary.spoken` (or `reply_text`), cached as an mp3 |
-| `GET /v1/events` | SSE: `memo.updated`, `memo.done` (for the Mac and the foreground iOS app) |
-| `GET /v1/herd` | Live herdr tabs `{id, repo, label, agentState, lastActivity}` for the Tab picker |
-| `GET /v1/threads`, `GET /v1/threads/:id` | Iris-created Hermes sessions and their transcript |
-| `POST /v1/telemetry` | Client span/log batches → re-emitted as OTLP (§8) |
+| `PUT /v1/memos/:id/activity-token` | The Live Activity push token for this memo (204) |
+| `POST /v1/memos/:id/retry` | `{from: Step}`, only for a `failed` memo |
+| `GET /v1/memos?limit&cursor` | History, paged, newest first |
+| `GET /v1/memos/:id` | Memo + step timeline |
+| `GET /v1/memos/:id/result?wait=<s>` | Long-poll until result-ready (≤ 600 s) |
+| `GET /v1/memos/:id/audio` | The concatenated audio for the scrubber (`Range`) |
+| `GET /v1/memos/:id/speech` | TTS of `summary.spoken` (or `replyText`), cached as an mp3 |
+| `GET /v1/events` | SSE: `ready`, `memo.updated`, `memo.done` (for the Mac and the foreground iOS app) |
+| `GET /v1/herd` | herdr tabs `{id, repo, label, agentState, lastActivity}` (snapshot; `lastActivity` is always null) |
+
+**Planned, not built:** `POST /v1/memos/:id/route` (answer `needs_route`, R2), `GET /v1/threads` and `/threads/:id` (R3), `POST /v1/telemetry`
+(client span/log relay, §8; the Swift `TelemetryBatch` shape is a proposal), `?q` transcript search, and the `targetTab` / `threadId` / `language`
+fields of `POST /v1/memos`.
 
 Every request and response body has a schema and a fixture in `contracts/`.
 Elysia routes declare TypeBox schemas, and `make check-contracts` asserts that
 the exported JSON Schema matches `contracts/schema`.
 
 ### Pipeline steps
+
+Shipped as five runner steps: `transcribe` (includes the concat below), `route` (always `hermes` until R2), `act`, `summarize`, `notify`.
+`decide`, the prefix parser, the journal/herdr destinations and `needs_route` from a model are R2. The timeouts follow `agent-limits.md`
+(idle watchdogs and 30-minute hang guards, not the budgets sketched earlier). Retention (audio deleted 30 days after `notified`) and automatic
+retries of transient errors are not built; recover with `POST /retry`.
 
 1. **concat:** `ffmpeg -f concat` over the segments → decode → mono 16 kHz
    AAC. Records `audio_seconds`.
@@ -232,7 +248,7 @@ the exported JSON Schema matches `contracts/schema`.
 | agent-gateway | `POST :7705/api/jobs {tool, params}` → id; `GET /api/jobs/:id`; loopback, no auth; results carry `usage`, `model`, `latencyMs` | `agent-gateway/server/routes/jobs.ts`, AGENTS.md |
 | Hermes | Bearer from `op://hermes/gateway/api-server-key`; SSE named events | `argo/apps/api/src/lib/hermes-upstream.ts` |
 | herdr | Newline-delimited JSON over `~/.config/herdr/herdr.sock`: `session.snapshot`, `pane.send_text`, `pane.send_keys` | collie `HERDR_API.md` |
-| APNs | HTTP/2 `api.push.apple.com` / `api.sandbox.push.apple.com`. ES256 provider JWT, refreshed every 20–60 min (we use 50). Live Activity: `apns-push-type: liveactivity`, topic `<bundle>.push-type.liveactivity`, `aps.{timestamp, event, content-state}`. Priority 5 doesn't consume the budget, 10 does | `docs/research/2026-10-27-apns-from-bun.md` |
+| APNs | HTTP/2 `api.push.apple.com` / `api.sandbox.push.apple.com`. ES256 provider JWT, refreshed every 20–60 min (`@parse/node-apn` regenerates it at 55 min, inside the window). Live Activity: `apns-push-type: liveactivity`, topic `<bundle>.push-type.liveactivity`, `aps.{timestamp, event, content-state}`. Priority 5 doesn't consume the budget, 10 does | `docs/research/2026-10-27-apns-from-bun.md` |
 
 ### Configuration and secrets
 
@@ -481,7 +497,7 @@ the `IrisCore` dependency when R1 wires them together.
   directly. UI automation goes through
   `scripts/mbm` → `npx -y mobilebuildmcp@<pinned> <workflow> <tool>`, with
   `--style minimal` and its Sentry telemetry disabled through the environment
-  (verify the variable name at setup).
+  (`MOBILEBUILDMCP_SENTRY_DISABLED=true`, verified on 2.7.1).
 - **Swift layer, repo-local** (Iris is the only Swift project; other apps will
   use Tauri / React Native):
   - `.claude/rules/swift.md`;

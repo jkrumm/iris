@@ -1,13 +1,53 @@
 # iris — Agent Instructions
 
-Voice channel into the agent platform. A memo recorded on a phone is uploaded as 10 s segments,
-transcribed, routed to Hermes, summarized and notified. **`docs/TDD.md` is the design**
-(system design, modules, telemetry; `docs/PRD.md` is the product); `docs/waves/PLAN.md` is the implementation chain.
-`server/` is Bun + Elysia + `bun:sqlite` (TypeScript strict). `apple/` holds the XcodeGen project
-(`apple/project.yml`: `Iris`, `IrisWidgets`, `IrisNotifications`, `IrisMac`), the local packages
-`apple/Packages/{IrisCore,IrisCapture,IrisUI,IrisTelemetry}` and `apple/tools/` (basalt-ui Theme generator).
+Voice channel into the agent platform. A memo recorded on a phone is uploaded as 10 s segments, transcribed, routed to Hermes,
+summarized and notified. A public monorepo: `server/` (Bun + Elysia + `bun:sqlite`, runs on the mini), `apple/` (iOS app, Mac app, packages),
+`contracts/` (the wire contract both sides test against). **`docs/TDD.md` is the design, `docs/PRD.md` is the product, `docs/waves/PLAN.md` is
+the implementation chain** (foundation waves, then the fleet backlog). Read the TDD section named by a rule before changing that area.
 
 ## Layout
+
+| Path | Holds |
+|-|-|
+| `server/` | iris-server: memo domain, HTTP, adapters, telemetry (detail below) |
+| `contracts/` | `schema/*.json` (generated), `fixtures/*.json` (hand-written, Swift decodes every one), `manifest.json` (every route) |
+| `apple/project.yml` | XcodeGen spec: `Iris`, `IrisWidgets`, `IrisNotifications`, `IrisMac`, `IrisUITests`; `Iris.xcodeproj` is generated and gitignored |
+| `apple/Packages/` | `IrisCore` (models, API client, SSE), `IrisCapture` (session, rotation, outbox), `IrisUI` (Theme from basalt-ui, components), `IrisTelemetry` |
+| `apple/{Iris,IrisWidgets,IrisNotifications,IrisMac}` | thin app targets; `apple/Tests/UITests` XCUITest smoke; `apple/tools/` Theme generator (Bun) |
+| `scripts/` | `send-memo.ts` (driver), `e2e.ts`, `smoke.sh`, `launch.sh`, `mini-deploy.sh`, `public-guard.ts`, `mbm` (mobilebuildmcp CLI wrapper) |
+| `launchd/` | LaunchAgent plist templates for the mini |
+| `fixtures/audio/` | the German smoke recording and how it was made |
+| `.claude/rules/`, `.claude/skills/` | rules and skills, indexed below |
+| `docs/` | `PRD.md`, `TDD.md`, `research/`, `spikes/` (S1-S3 briefs, device checklist), `waves/PLAN.md` |
+
+## Rules and skills
+
+| Rule (lazy, by path) | Covers |
+|-|-|
+| `.claude/rules/swift.md` | generic Swift: Swift 6 mode, `@Observable`, Swift Testing, `os.Logger` |
+| `.claude/rules/apple.md` (`apple/**`) | Iris invariants: no `AVAudioRecorder`, segment rotation + outbox, Live Activity limits, fixtures as truth |
+| `.claude/rules/server.md` (`server/**`) | ports and adapters, the pure state machine, contracts, idempotency, telemetry |
+
+| Skill | Use when |
+|-|-|
+| `iris-server` | changing the server, an adapter, a step, or the API contract |
+| `ios-verify` | proving an Apple change: build, run, screenshot, UI tree, tap, snapshots, UI test |
+| `apple-dev` | any `xcodebuild` / `simctl` / `xcodegen` / signing question on the mini |
+| `device` | the paired iPhone: install, launch, screenshot, the hardware checklist |
+| `memo-debug` | one memo: timeline, HyperDX trace, retry |
+| `apple-capture-notes` | before touching capture, intents or the Live Activity (verified and unverified iOS facts) |
+| `swiftui-pro`, `swift-concurrency-pro`, `swift-testing-pro`, `swiftdata-pro` | vendored MIT skills (pins: `.claude/skills/VENDORED.md`) |
+
+## Tooling setup (mini)
+
+Xcode 27.1 via `xcodes` (`~/.local/bin/xcodes`, installed by `dotfiles/scripts/install-xcodes.sh`), XcodeGen, `pymobiledevice3` (uv tool);
+all from dotfiles (`make _setup-tools`). No MCP servers anywhere (TDD D17): UI automation is `scripts/mbm` (a pinned `mobilebuildmcp` CLI via
+`npx`, Sentry off), Apple's own CLIs do the rest. Pinned simulator: iPhone 17, iOS 27.0 (`SIM_NAME` / `SIM_OS`, Makefile). Agent verification
+targets: `make sim`, `make run-sim`, `make screenshot`, `make ui-snapshot` (artifacts in `.artifacts/`, gitignored); recipes in `ios-verify`.
+Without Xcode (Linux, CI `check` job) the Apple targets are skipped; the `apple.yml` run on the hosted `xcode-27` image is the Apple gate.
+Never start dev servers for a human to look at; simulators are fine, shut them down after.
+
+## Server (`server/`)
 
 - `server/src/app.ts` — `createApp({deviceTokens, memos, degraded?, sseKeepaliveMs?})`: mounts routes, no env/fs.
 - `server/src/index.ts` — entry point and production composition (SQLite, audio-fs, runner, service),
@@ -47,6 +87,7 @@ transcribed, routed to Hermes, summarized and notified. **`docs/TDD.md` is the d
 - `scripts/` — `send-memo.ts` (driver), `e2e.ts` (`make e2e`), `smoke.sh`, `launch.sh` (LaunchAgent entry), `mini-deploy.sh` (poller tick);
   `launchd/` — plist templates; `fixtures/audio/` — the German smoke recording.
 
+
 ## HTTP API
 
 All under `/v1`, `Authorization: Bearer <token>`. Errors: `{error: <code>, message}`.
@@ -72,16 +113,27 @@ Wire JSON is camelCase.
 States: `receiving → received → transcribed → routed | needs_route → acted → summarized → notified`,
 with `failed(step)` as a side state.
 
+
 ## Validate
 
-`make check` — `check-server` (oxlint, `oxfmt --check`, `tsc --noEmit`, `bun test`), `check-contracts` and
-`guard` (public-repo scan). CI runs `make check` then `make e2e` on `ubuntu-latest` (public repo, hosted
-runners). `make format` applies oxfmt.
+| Target | Runs | Where |
+|-|-|-|
+| `make check` | `check-server` (oxlint, `oxfmt --check`, `tsc --noEmit`, `bun test`), `check-contracts`, `guard`, and `check-apple` wherever `xcodebuild` exists | mini, CI (`check.yml`, no Apple on Linux) |
+| `make e2e` | the pipeline against a fake-booted server (needs ffmpeg) | mini, CI after `check` |
+| `make check-apple` | Theme drift, `swift format lint --strict`, `swift test` per package (macOS host), `xcodebuild build` of `Iris` + extensions (simulator) and `IrisMac` | mini, CI (`apple.yml`) |
+| `make snapshots` | IrisUI snapshot tests on the pinned simulator (`RECORD=1` re-records) | mini, `apple.yml` |
+| `make uitest` | XCUITest smoke (`-IrisFakeCapture`) | mini, `apple.yml` |
+| `make guard` | public-repo scan (IPs, tailnet/real hostnames, token shapes) | mini, CI, lefthook pre-commit |
+| `make verify` / `make smoke` | production health / a real recording through production | mini only, after deploy |
 
-`check-apple` joins `make check` wherever `xcodebuild` exists: Theme drift (`gen-theme.ts --check`), `swift format lint --strict`,
-`swift test` per package (macOS host), `xcodebuild build` of `Iris` (simulator, with both extensions) and `IrisMac`. Also
-`make snapshots` (`RECORD=1` re-records) and `make uitest`, both on the pinned simulator (`SIM_NAME`/`SIM_OS`, iPhone 17 on
-iOS 27.0). `apple.yml` runs all three on the hosted `xcode-27` image. Toolchain recipes: `.claude/skills/apple-dev`.
+`make format` applies oxfmt. `make generate` builds `apple/Iris.xcodeproj`; `make theme` regenerates `IrisUI/Theme`. Toolchain recipes: `apple-dev`.
+Fix errors in changed files only. A change to the API runs `make contracts` first (skill `iris-server`).
+
+**Public repo:** no real hostnames, IPs, tailnet names, tokens or personal emails in any tracked file (`make guard` + the pre-commit hook enforce it;
+the real-domain literals live in untracked `~/.config/iris/guard-extra.txt`). Use `<domain>`, `iris.mini.<domain>`, `example.com`; `op://` refs in
+`.env*.tpl` are fine. The CI runs on hosted runners.
+
+### Server and pipeline details
 
 `make e2e` (`scripts/e2e.ts`, CI after `check`, needs ffmpeg) boots `server/src/index.ts` on a free port with
 `IRIS_FAKES=1` and a temp `IRIS_DATA`, runs `send-memo.ts` on the smoke recording (must reach `notified`), then probes
@@ -93,7 +145,7 @@ refuses to start when `IRIS_FAKES` is set. Never set it in production.
 
 `make check-contracts` — the exported JSON Schemas equal `contracts/schema` byte for byte, every fixture validates
 (ajv 2020, strict), and `manifest.json` lists exactly the routes `createApp(...).routes` serves. `make contracts`
-regenerates `contracts/schema`. `make check` and CI do not run it yet (the contract tests run inside `bun test`).
+regenerates `contracts/schema`. It is part of `make check` and of CI.
 
 Tests are colocated `*.test.ts`. Ports and adapters: dependencies are injected, tests use
 in-memory SQLite and fake ports, no `mock.module` / `spyOn`, HTTP via `app.handle(new Request())`.
@@ -125,6 +177,7 @@ Push to master deploys. LaunchAgent `com.jkrumm.iris` (KeepAlive, `ExitTimeOut` 
   MacBook, `make launchd-restart`. `APNS_*` is unset (no `op://` ref yet, so not in `.env.mini.tpl`; add both at enrolment), so the log notifier runs.
 - `HERMES_URL` is composed in `launch.sh` from `HERMES_HOST` + `HERMES_PORT`.
 
+
 ## Verify & Monitor
 
 - `make verify` — exit 0 iff `GET /health` answers `status: ok` (public; `{status, degraded[], inflight}`).
@@ -136,6 +189,7 @@ Push to master deploys. LaunchAgent `com.jkrumm.iris` (KeepAlive, `ExitTimeOut` 
   `make launchd-status`, `make launchd-restart` (refuses while `inflight > 0`, `FORCE=1` overrides).
 - Traces and logs: HyperDX, `service.name=iris-server`, trace id = memo UUID without dashes. Root span
   `memo`, a child per step. Query via `/otel` (prod).
+
 
 ## Gotchas
 
@@ -219,3 +273,10 @@ Push to master deploys. LaunchAgent `com.jkrumm.iris` (KeepAlive, `ExitTimeOut` 
 - **Long polls and SSE** call `server.timeout(request, 0)` to escape Bun's idle timeout.
 - **Secrets on the mini:** `secrets-run`, never `op`.
 - `server/package.json` is imported by `telemetry/otel.ts` for `service.version`; keep it there.
+- **Apple build artifacts:** `xcodebuild` leaves `apple/.dd` and per-package `.dd` / `.build`, and `make screenshot` writes `.artifacts/`; all gitignored.
+  `Iris.xcodeproj` is generated: edit `apple/project.yml`, never the project.
+- **Snapshots** only compare on the pinned simulator; a diff on a clean tree means a different runtime. They do not render the glass layer.
+- **`scripts/mbm tap`** needs `--element-ref` from the latest `snapshot-ui` and `--post-delay 2`; `snapshot-ui` straight after a launch times out
+  (`make ui-snapshot` waits first). Live Activity, widgets, the notification card and the Mac panel compile but have never been rendered; the
+  AVAudioEngine recorder and the interruption paths have never run on a device (`docs/spikes/device-checklist.md`).
+- **TDD is the design, code is the truth for shipped behaviour:** §3 was amended in Wave 8 to match the server; planned-but-unbuilt items are marked there.
