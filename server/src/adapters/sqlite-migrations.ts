@@ -160,4 +160,9 @@ export const MIGRATIONS: readonly string[] = [
   `
   ALTER TABLE memo_steps ADD COLUMN attempts INTEGER NOT NULL DEFAULT 1;
   `,
+  // The stats reads filter on `memos.created_at >= ?` and `memo_steps.started_at >= ?`.
+  `
+  CREATE INDEX memos_created_at ON memos (created_at);
+  CREATE INDEX memo_steps_started_at ON memo_steps (started_at);
+  `,
 ];

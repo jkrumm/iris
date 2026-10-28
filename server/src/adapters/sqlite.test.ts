@@ -856,6 +856,23 @@ describe("migrations", () => {
     expect(store.getMemo(id)?.state).toBe("transcribed");
   });
 
+  it("indexes the columns the stats reads filter on", () => {
+    const db = new Database(":memory:");
+    createSqliteMemoStore({ db, clock: testStore().clock });
+    const plan = (sql: string) =>
+      db
+        .query<{ detail: string }, []>(`EXPLAIN QUERY PLAN ${sql}`)
+        .all()
+        .map((row) => row.detail)
+        .join("\n");
+    expect(plan("SELECT created_at FROM memos WHERE created_at >= 'x'")).toContain(
+      "memos_created_at",
+    );
+    expect(plan("SELECT step FROM memo_steps WHERE started_at >= 'x'")).toContain(
+      "memo_steps_started_at",
+    );
+  });
+
   it("applies only the migrations beyond the stored version", () => {
     const db = new Database(":memory:");
     migrate(db, ["CREATE TABLE a (x INTEGER);"]);
