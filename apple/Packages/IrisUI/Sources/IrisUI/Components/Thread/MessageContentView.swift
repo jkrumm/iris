@@ -11,7 +11,7 @@ public struct MessageContentView: View {
 
   public init(markdown: String, mermaid: [Int: MermaidAsset] = [:], onOpenImage: @escaping (CGImage) -> Void = { _ in })
   {
-    blocks = MessageBlock.split(markdown)
+    blocks = MessageBlockCache.blocks(for: markdown)
     self.mermaid = mermaid
     self.onOpenImage = onOpenImage
   }

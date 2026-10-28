@@ -25,6 +25,10 @@ final class ThreadModel {
 
   let route: ThreadRoute
   private(set) var detail: ThreadDetail?
+  /// The document, derived once per change of ``detail`` (not per render).
+  private(set) var turns: [Turn] = []
+  /// How many questions the thread holds, for the header.
+  private(set) var questionCount = 0
   private(set) var loadFailed = false
   /// When the take in progress began; `nil` when idle.
   private(set) var voiceStartedAt: Date?
@@ -36,6 +40,10 @@ final class ThreadModel {
   private let now: () -> Date
   private let logger = Logger(subsystem: "com.jkrumm.iris", category: "thread")
   private var beginTask: Task<Bool, Never>?
+  /// A take is being stopped and sent: a new hold must wait, the capture is still busy with the last one.
+  private var isEndingVoice = false
+  /// Bumped by every fetch and every local change; a fetch that is no longer the latest drops its answer.
+  private var generation = 0
 
   /// A hold shorter than this is a touch, not a take.
   static let minimumTake: TimeInterval = 0.8
@@ -51,14 +59,14 @@ final class ThreadModel {
   var title: String { detail?.thread.title ?? route.title ?? "" }
   var kind: ThreadKind { detail?.thread.kind ?? .chat }
   var memoIDs: [String] { detail?.memos.map(\.id) ?? [] }
-  var canRecordVoice: Bool { voice.isAvailable }
+  var canRecordVoice: Bool { voice.isAvailable && !isEndingVoice }
 
   /// The mode a reply is created in: a chat keeps its marker, every other thread continues through Hermes.
   var replyMode: MemoMode { ComposerRequest.reply(toThread: route.id, kind: kind).mode }
 
   // MARK: Turns
 
-  var turns: [Turn] {
+  private static func makeTurns(_ detail: ThreadDetail?) -> [Turn] {
     guard let detail else { return [] }
     var users: [String: ThreadMessage] = [:]
     var replies: [String: ThreadMessage] = [:]
@@ -90,19 +98,27 @@ final class ThreadModel {
     return turns
   }
 
+  private func apply(_ fresh: ThreadDetail) {
+    detail = fresh
+    turns = Self.makeTurns(fresh)
+    questionCount = turns.count { if case .user = $0.content { true } else { false } }
+  }
+
   // MARK: Loading
 
   /// Fetches the thread. A failure keeps what is on screen.
   func load() async {
+    generation += 1
+    let mine = generation
     do {
       let fresh = try await client.thread(id: route.id)
-      guard !Task.isCancelled else { return }
-      detail = fresh
+      guard !Task.isCancelled, mine == generation else { return }
+      apply(fresh)
       loadFailed = false
     } catch is CancellationError {
       return
     } catch {
-      guard !Task.isCancelled else { return }
+      guard !Task.isCancelled, mine == generation else { return }
       logger.error("thread load failed: \(String(describing: error), privacy: .public)")
       loadFailed = detail == nil
     }
@@ -117,14 +133,15 @@ final class ThreadModel {
       current.messages.append(
         ThreadMessage(memoId: memo.id, role: .user, content: transcript, createdAt: memo.createdAt))
     }
-    detail = current
+    generation += 1
+    apply(current)
   }
 
   // MARK: Voice
 
   /// Hold began. The state flips at once; the capture starts behind it, and ``endVoice(cancelled:)`` waits for that.
   func beginVoice() {
-    guard voiceStartedAt == nil, voice.isAvailable else { return }
+    guard voiceStartedAt == nil, !isEndingVoice, voice.isAvailable else { return }
     voiceStartedAt = now()
     let request = VoiceReplyRequest(threadId: route.id, mode: replyMode)
     beginTask = Task {
@@ -146,6 +163,8 @@ final class ThreadModel {
   func endVoice(cancelled: Bool) async -> Memo? {
     guard let beginTask else { return nil }
     let startedAt = voiceStartedAt ?? now()
+    isEndingVoice = true
+    defer { isEndingVoice = false }
     let started = await beginTask.value
     self.beginTask = nil
     let tooShort = now().timeIntervalSince(startedAt) < Self.minimumTake
