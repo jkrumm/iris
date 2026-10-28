@@ -1,14 +1,16 @@
+import IrisCore
 import IrisUI
 import SwiftUI
 
 /// History · Stats · Settings. Threads are not a tab: a conversation is a History row (round 2).
 struct RootView: View {
   let history: HistoryModel
+  let makeDetail: (Memo) -> MemoDetailModel
 
   var body: some View {
     TabView {
       Tab(String(localized: "History", comment: "Tab title"), systemImage: "clock") {
-        HistoryView(model: history)
+        HistoryView(model: history, makeDetail: makeDetail)
       }
       Tab(String(localized: "Stats", comment: "Tab title"), systemImage: "chart.bar") {
         PlaceholderTab(title: String(localized: "Stats", comment: "Navigation title of the Stats placeholder"))

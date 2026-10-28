@@ -36,11 +36,12 @@ enum SampleData {
             detail: "Montag Review der offenen Pull Requests, Mittwoch Feature-Freeze, Donnerstag Release.",
             spoken: "Der Wochenplan steht. Release ist am Donnerstag."),
           createdAt: now.addingTimeInterval(-5_399), updatedAt: now.addingTimeInterval(-5_360)),
-        steps: [
-          StepEntry(
-            step: .transcribe, status: .done, startedAt: now.addingTimeInterval(-5_395),
-            finishedAt: now.addingTimeInterval(-5_387), costUsd: 0.0038)
-        ]),
+        steps: timeline(
+          from: now.addingTimeInterval(-5_395),
+          [
+            (.transcribe, 8.5, 0.0038), (.route, 0.012, nil), (.act, 11.4, 0.0412), (.summarize, 5.7, 0.0021),
+            (.notify, 1.9, nil),
+          ])),
       MemoDetail(
         memo: Memo(
           id: "5a1c7e92-8d3f-4b60-a2e4-9c0b1d6f3a77", mode: .tab, device: "iphone",
@@ -65,13 +66,65 @@ enum SampleData {
             step: .transcribe, status: .failed, startedAt: now.addingTimeInterval(-89_995),
             finishedAt: now.addingTimeInterval(-89_970), error: "transcribe failed: 502")
         ]),
+      // In flight: summarize is running, so History shows three finished dashes and the detail a live bar.
+      MemoDetail(
+        memo: Memo(
+          id: "3d7b9a41-6e20-4c85-b1f3-8a4e2c6d0f19", mode: .hermes, device: "iphone",
+          startedAt: now.addingTimeInterval(-26), state: .acted, segmentCount: 2, audioSeconds: 9.8,
+          transcript: "Which Postgres index fits the herd snapshot query?", route: "hermes",
+          destinationRef: "iris-3d7b9a41-6e20-4c85-b1f3-8a4e2c6d0f19",
+          replyText: "A **partial index** on `(repo, last_activity)` covers it.",
+          createdAt: now.addingTimeInterval(-25), updatedAt: now.addingTimeInterval(-11)),
+        steps: timeline(
+          from: now.addingTimeInterval(-24), [(.transcribe, 3.2, 0.0012), (.route, 0.01, nil), (.act, 9.5, 0.0301)])
+          + [StepEntry(step: .summarize, status: .running, startedAt: now.addingTimeInterval(-10.5))]),
+      // Failed at summarize: the detail offers a retry from that step.
+      MemoDetail(
+        memo: Memo(
+          id: "9e2c4b70-1a58-4d36-8f07-5b3a6d1c8e24", mode: .tab, device: "iphone",
+          startedAt: now.addingTimeInterval(-3_200), state: .failed, failedStep: .summarize,
+          error: "agw job failed: upstream 503", segmentCount: 1, audioSeconds: 14.2,
+          transcript: "An Tab dotfiles: ergänze bitte xcodegen im Brewfile und lass danach make check laufen.",
+          route: "tab", destinationRef: "dotfiles",
+          createdAt: now.addingTimeInterval(-3_199), updatedAt: now.addingTimeInterval(-3_180)),
+        steps: timeline(
+          from: now.addingTimeInterval(-3_195), [(.transcribe, 3.1, 0.0012), (.route, 0.009, nil), (.act, 2.2, nil)])
+          + [
+            StepEntry(
+              step: .summarize, status: .failed, startedAt: now.addingTimeInterval(-3_189.5),
+              finishedAt: now.addingTimeInterval(-3_182.5), error: "agw job failed: upstream 503", attempts: 3)
+          ]),
     ]
   }
+
+  /// Back-to-back finished steps starting at `start`: (step, seconds, cost), each 70 ms after the one before.
+  private static func timeline(from start: Date, _ steps: [(MemoStep, Double, Double?)]) -> [StepEntry] {
+    var cursor = start
+    return steps.map { step, seconds, cost in
+      defer { cursor = cursor.addingTimeInterval(seconds + 0.07) }
+      return StepEntry(
+        step: step, status: .done, startedAt: cursor, finishedAt: cursor.addingTimeInterval(seconds), costUsd: cost)
+    }
+  }
+
+  /// What "usual" means for the sample memos: the Hermes steps have enough samples to compare against, the tab
+  /// route's summarize median does not (three samples), so the failed memo shows no faster/slower tags.
+  static let stats = Stats(
+    days: 30, from: "2026-09-28", to: "2026-10-27",
+    stepMedians: [
+      StatsStepMedian(step: .transcribe, route: "hermes", medianMs: 7_900, samples: 30),
+      StatsStepMedian(step: .route, route: "hermes", medianMs: 11, samples: 30),
+      StatsStepMedian(step: .act, route: "hermes", medianMs: 8_200, samples: 30),
+      StatsStepMedian(step: .summarize, route: "hermes", medianMs: 6_900, samples: 30),
+      StatsStepMedian(step: .notify, route: "hermes", medianMs: 2_100, samples: 30),
+      StatsStepMedian(step: .summarize, route: "tab", medianMs: 6_800, samples: 3),
+    ])
 
   /// Fills a `FakeAPIClient` with the sample memos.
   static func seed(_ client: FakeAPIClient) async {
     for detail in details() {
       await client.seed(detail)
     }
+    await client.setStats(stats)
   }
 }

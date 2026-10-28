@@ -4,8 +4,8 @@ import SwiftUI
 public enum HistoryRowStatus: Equatable {
   /// A routed memo: `● Route · duration`.
   case settled(route: String, dot: Color, duration: String?)
-  /// The pipeline is still driving it: `● Route · Acting`.
-  case inFlight(route: String, dot: Color, label: String)
+  /// The pipeline is still driving it: `● Route · Acting ▬▬▬▭▭`, the dashes being one per step, filled as steps finish.
+  case inFlight(route: String, dot: Color, label: String, progress: StepProgress? = nil)
   /// Needs the user (Needs route, Failed): the coloured state replaces the route.
   case alert(label: String, color: Color)
 }
@@ -88,7 +88,7 @@ public struct HistoryRow: View {
         }
       }
       .foregroundStyle(Theme.Ink.muted)
-    case .inFlight(let route, let dot, let label):
+    case .inFlight(let route, let dot, let label, let progress):
       HStack(spacing: Theme.Spacing.sm) {
         Dot(color: dot)
         Text(verbatim: route)
@@ -99,6 +99,7 @@ public struct HistoryRow: View {
         Text(verbatim: label)
           .fontWeight(.semibold)
           .foregroundStyle(Theme.Accent.tint)
+        if let progress { StepProgressDashes(progress: progress) }
       }
     case .alert(let label, let color):
       HStack(spacing: Theme.Spacing.sm) {
@@ -121,6 +122,12 @@ public struct HistoryRow: View {
       parts.append(
         String(
           localized: "Favorite", bundle: #bundle, comment: "VoiceOver value of a History row the user favorited."))
+    }
+    if case .inFlight(_, _, _, let progress?) = status {
+      parts.append(
+        String(
+          localized: "\(progress.completed) of \(progress.total) steps done", bundle: #bundle,
+          comment: "VoiceOver value of an in-flight History row: finished steps of all steps."))
     }
     return parts.formatted()
   }

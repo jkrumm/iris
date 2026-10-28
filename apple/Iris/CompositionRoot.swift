@@ -8,15 +8,22 @@ struct CompositionRoot {
   let api: FakeAPIClient
   let fakeCapture: FakeCapture?
   let history: HistoryModel
+  private let media: any MemoMediaSource
 
   init(arguments: [String] = ProcessInfo.processInfo.arguments) {
     let api = FakeAPIClient()
     self.api = api
     history = HistoryModel(client: api)
+    media = FakeMediaSource()
     fakeCapture =
       FakeCapture.isRequested(arguments: arguments)
       ? FakeCapture(directory: FileManager.default.temporaryDirectory.appending(path: "iris-fake-capture"))
       : nil
+  }
+
+  /// The model behind one open memo detail.
+  func detailModel(for memo: Memo) -> MemoDetailModel {
+    MemoDetailModel(memo: memo, client: api, media: media)
   }
 
   /// Seeds the sample memos, loads the list, then follows the server's events until the app's task is cancelled.

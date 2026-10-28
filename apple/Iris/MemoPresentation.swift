@@ -59,8 +59,24 @@ extension Memo {
       .settled(route: routeLabel, dot: routeDotColor, duration: audioSeconds.map(DurationText.string(seconds:)))
     default:
       .inFlight(
-        route: routeLabel, dot: routeDotColor, label: String(localized: "Acting", comment: "History row status"))
+        route: routeLabel, dot: routeDotColor, label: String(localized: "Acting", comment: "History row status"),
+        progress: stepProgress)
     }
+  }
+
+  /// How many of the pipeline's steps the memo's state says are done: the list wire carries no step timeline, and
+  /// the state is enough for the dashes on an in-flight row.
+  var stepProgress: StepProgress {
+    let completed =
+      switch state {
+      case .receiving, .received, .failed: 0
+      case .transcribed, .needsRoute: 1
+      case .routed: 2
+      case .acted: 3
+      case .summarized: 4
+      case .notified: PipelineSteps.shown.count
+      }
+    return StepProgress(completed: completed, total: PipelineSteps.shown.count)
   }
 
   /// The grey line under the headline: what to do about a failure or a parked memo, else the summary's first line.
@@ -74,6 +90,24 @@ extension Memo {
       return String(localized: "Tap to decide", comment: "History row hint on a memo that needs a route")
     default:
       return summary?.detail.split(whereSeparator: \.isNewline).first.map(String.init)
+    }
+  }
+}
+
+/// The steps the UI shows, in order: the timeline's handler steps (`ingest` is the upload, not a step of work).
+nonisolated enum PipelineSteps {
+  static let shown: [MemoStep] = [.transcribe, .route, .act, .summarize, .notify]
+}
+
+extension MemoStep {
+  var title: String {
+    switch self {
+    case .ingest: String(localized: "Upload", comment: "Pipeline step")
+    case .transcribe: String(localized: "Transcribe", comment: "Pipeline step")
+    case .route: String(localized: "Route", comment: "Pipeline step")
+    case .act: String(localized: "Act", comment: "Pipeline step")
+    case .summarize: String(localized: "Summarize", comment: "Pipeline step")
+    case .notify: String(localized: "Notify", comment: "Pipeline step")
     }
   }
 }

@@ -4,6 +4,8 @@ import SwiftUI
 
 struct HistoryView: View {
   @Bindable var model: HistoryModel
+  /// Builds the detail model of a tapped row (the composition root owns the client and the media source).
+  let makeDetail: (Memo) -> MemoDetailModel
   @State private var showingFilters = false
 
   var body: some View {
@@ -43,7 +45,7 @@ struct HistoryView: View {
       .navigationTitle(String(localized: "History", comment: "Navigation title of the memo list"))
       .navigationSubtitle(HistoryDaySection.subtitle(for: model.memos) ?? "")
       .navigationDestination(for: Memo.self) { memo in
-        MemoDetailView(memo: memo)
+        MemoDetailView(model: makeDetail(memo), refreshToken: { model.revision(of: memo.id) })
       }
       .searchable(
         text: $model.filters.searchText,
