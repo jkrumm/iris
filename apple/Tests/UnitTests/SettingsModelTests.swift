@@ -7,6 +7,9 @@ import Testing
 private struct StaticQueue: QueuedItemSource {
   var items: [QueuedItem]
   func queuedItems() async -> [QueuedItem] { items }
+  func changes() async -> AsyncStream<Void> { AsyncStream { $0.finish() } }
+  func retry(id: String) async {}
+  func discard(id: String) async {}
 }
 
 @MainActor

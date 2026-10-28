@@ -3,15 +3,17 @@ import IrisUI
 import SwiftUI
 
 /// The typed-memo composer as a sheet: mode chips, the text field, Send. `onSent` gets the created memo before the
-/// sheet closes, so History can show it at once.
+/// sheet closes, so History can show it at once; `onQueued` says the memo waits in the outbox instead.
 struct ComposerView: View {
   @State private var model: ComposerModel
   private let onSent: (Memo) -> Void
+  private let onQueued: () -> Void
   @Environment(\.dismiss) private var dismiss
 
-  init(model: ComposerModel, onSent: @escaping (Memo) -> Void) {
+  init(model: ComposerModel, onSent: @escaping (Memo) -> Void, onQueued: @escaping () -> Void = {}) {
     _model = State(initialValue: model)
     self.onSent = onSent
+    self.onQueued = onQueued
   }
 
   var body: some View {
@@ -27,12 +29,6 @@ struct ComposerView: View {
           placeholder: String(localized: "What should Iris do?", comment: "Composer placeholder"),
           counter: counter, isOverLimit: model.isOverLimit)
         hint
-        if let failure = model.failure {
-          Text(verbatim: failure)
-            .themeFont(.footnote)
-            .foregroundStyle(Theme.Status.bad)
-            .accessibilityIdentifier("composer.error")
-        }
         Spacer(minLength: 0)
       }
       .padding(Theme.Spacing.lg)
@@ -90,8 +86,11 @@ struct ComposerView: View {
   }
 
   private func send() async {
-    guard let memo = await model.send() else { return }
-    onSent(memo)
+    guard let outcome = await model.send() else { return }
+    switch outcome {
+    case .sent(let memo): onSent(memo)
+    case .queued: onQueued()
+    }
     dismiss()
   }
 }

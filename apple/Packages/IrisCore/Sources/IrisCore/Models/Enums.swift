@@ -87,7 +87,12 @@ public enum AgentState: String, Codable, Hashable, Sendable, CaseIterable {
   case unknown
 }
 
+/// The phase of the Live Activity. `recording`, `paused` and `uploading` are the client's own, set locally while the take
+/// is on the phone; the server's pushes only ever carry `processing`, `needsRoute`, `done` and `failed`.
 public enum LiveActivityPhase: String, Codable, Hashable, Sendable, CaseIterable {
+  case recording
+  case paused
+  case uploading
   case processing
   case needsRoute
   case done

@@ -28,6 +28,8 @@ actor TestUploader: SegmentUploader {
   }
 
   private(set) var attempts: [SegmentKey: Int] = [:]
+  private(set) var created: [OutboxItem] = []
+  private(set) var createAttempts = 0
   private(set) var uploaded: [SegmentKey] = []
   private(set) var completed: [CompleteCall] = []
   private(set) var maxInFlight = 0
@@ -37,6 +39,8 @@ actor TestUploader: SegmentUploader {
 
   private var failuresLeft: [SegmentKey: Int] = [:]
   private var completeFailuresLeft = 0
+  private var createFailuresLeft = 0
+  private var createsArePermanent = false
   private var inFlight = 0
   private var isHolding = false
   private var held: [CheckedContinuation<Void, Never>] = []
@@ -45,6 +49,12 @@ actor TestUploader: SegmentUploader {
 
   func failNext(_ times: Int, for key: SegmentKey) { failuresLeft[key] = times }
   func failNextCompletes(_ times: Int) { completeFailuresLeft = times }
+
+  /// The next `times` creates throw: `PermanentTransferError` when `permanent`, else a plain error that is retried.
+  func failNextCreates(_ times: Int, permanent: Bool = false) {
+    createFailuresLeft = times
+    createsArePermanent = permanent
+  }
   func hold() { isHolding = true }
 
   func releaseAll() {
@@ -62,6 +72,17 @@ actor TestUploader: SegmentUploader {
   func waitUntilAttempts(_ count: Int, for key: SegmentKey) async {
     guard attempts[key, default: 0] < count else { return }
     await withCheckedContinuation { attemptWaiters.append((key, count, $0)) }
+  }
+
+  func create(_ item: OutboxItem) async throws {
+    createAttempts += 1
+    if createFailuresLeft > 0 {
+      createFailuresLeft -= 1
+      if createsArePermanent { throw PermanentTransferError("refused") }
+      throw UploadFailure()
+    }
+    created.append(item)
+    log.append("create")
   }
 
   func upload(_ segment: ClosedSegment) async throws {
@@ -110,11 +131,26 @@ struct OutboxHarness {
     record: OutboxRecord = OutboxRecord(),
     policy: OutboxPolicy = OutboxPolicy(jitter: { 0 }),
     clock: ManualClock = ManualClock(),
-    uploader: TestUploader = TestUploader()
+    uploader: TestUploader = TestUploader(),
+    deletesFilesWhenDone: Bool = true
   ) async throws {
     store = InMemoryOutboxStore(record: record)
     self.uploader = uploader
     self.clock = clock
-    outbox = try await Outbox(store: store, uploader: uploader, clock: clock, policy: policy)
+    outbox = try await Outbox(
+      store: store, uploader: uploader, clock: clock, policy: policy, deletesFilesWhenDone: deletesFilesWhenDone)
   }
+}
+
+func textItem(
+  _ id: MemoID, text: String = "hello", mode: String = "auto", threadID: String? = nil,
+  queuedAt: Date = Date(timeIntervalSince1970: 1_000_000)
+) -> OutboxItem {
+  OutboxItem(
+    memoID: id, kind: .text(text), mode: mode, threadID: threadID, startedAt: queuedAt, queuedAt: queuedAt, title: text)
+}
+
+func voiceItem(_ id: MemoID, queuedAt: Date = Date(timeIntervalSince1970: 1_000_000)) -> OutboxItem {
+  OutboxItem(
+    memoID: id, kind: .voice, mode: "auto", startedAt: queuedAt, queuedAt: queuedAt, title: "Voice memo")
 }

@@ -124,6 +124,43 @@ public actor FakeAPIClient: APIClient {
     threads[thread.id] = thread
   }
 
+  /// Moves a stored memo through the pipeline the way a running server would, without a runner: the memo takes `state`
+  /// and, when given, the transcript, reply and summary; its thread (when it has one) follows with the user and assistant
+  /// messages; `memo.updated` (and `memo.done` once result-ready) is emitted. An unknown id is a 404.
+  public func advance(
+    _ id: String, to state: MemoState, transcript: String? = nil, replyText: String? = nil, summary: MemoSummary? = nil
+  ) throws {
+    guard var detail = memos[id] else { throw notFound("memo not found") }
+    let timestamp = now()
+    detail.memo.state = state
+    if let transcript { detail.memo.transcript = transcript }
+    if let replyText { detail.memo.replyText = replyText }
+    if let summary { detail.memo.summary = summary }
+    detail.memo.updatedAt = timestamp
+    store(detail)
+    follow(detail.memo, transcript: transcript, replyText: replyText)
+    let event = MemoEvent(id: id, state: state, at: timestamp)
+    eventContinuation.yield(.memoUpdated(event))
+    if state.isResultReady { eventContinuation.yield(.memoDone(event)) }
+  }
+
+  /// Mirrors a memo's new state into its thread: the memo itself, then its messages.
+  private func follow(_ memo: Memo, transcript: String?, replyText: String?) {
+    guard let threadId = memo.threadId, var thread = threads[threadId] else { return }
+    if let index = thread.memos.firstIndex(where: { $0.id == memo.id }) { thread.memos[index] = memo }
+    if let transcript, !thread.messages.contains(where: { $0.memoId == memo.id && $0.role == .user }) {
+      thread.messages.append(
+        ThreadMessage(memoId: memo.id, role: .user, content: transcript, createdAt: memo.createdAt))
+    }
+    if let replyText, !thread.messages.contains(where: { $0.memoId == memo.id && $0.role == .assistant }) {
+      thread.messages.append(
+        ThreadMessage(memoId: memo.id, role: .assistant, content: replyText, createdAt: memo.updatedAt))
+    }
+    thread.thread.updatedAt = memo.updatedAt
+    thread.thread.lastMemoId = memo.id
+    threads[threadId] = thread
+  }
+
   public func setHealth(_ health: Health) { healthResponse = health }
 
   public func setHerd(_ herd: Herd) { herdResponse = herd }

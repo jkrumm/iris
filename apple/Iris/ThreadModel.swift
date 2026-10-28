@@ -190,18 +190,34 @@ final class ThreadModel {
     voiceStartedAt = nil
     guard started else { return nil }
     do {
-      let memo = try await voice.end(cancelled: cancelled || tooShort)
+      let outcome = try await voice.end(cancelled: cancelled || tooShort)
       if tooShort && !cancelled {
         showFailure(
           String(localized: "Hold the button while you speak", comment: "Toast after a too-short voice reply"))
       }
-      if let memo { didSend(memo) }
-      return memo
+      switch outcome {
+      case .sent(let memo):
+        didSend(memo)
+        return memo
+      case .queued:
+        didQueue()
+        return nil
+      case .discarded:
+        return nil
+      }
     } catch {
       logger.error("voice reply failed: \(String(describing: error), privacy: .public)")
       showFailure(String(localized: "Could not send the voice reply", comment: "Toast when a voice reply failed"))
       return nil
     }
+  }
+
+  /// A reply (typed or spoken) went to the outbox instead of the server: it joins the thread once it is sent.
+  func didQueue() {
+    showFailure(
+      String(
+        localized: "Queued. It is sent as soon as the server answers.",
+        comment: "Toast after a reply went to the outbox"))
   }
 
   func dismissFailure() {

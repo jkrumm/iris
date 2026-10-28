@@ -36,6 +36,25 @@ final class SettingsModel {
     if let credentials, credentials.load() == nil { connection = .notConfigured }
   }
 
+  /// Follows the queue for as long as the screen is up: every change of the outbox refreshes the list.
+  func observeQueue() async {
+    queue = await source.queuedItems()
+    for await _ in await source.changes() {
+      guard !Task.isCancelled else { return }
+      queue = await source.queuedItems()
+    }
+  }
+
+  /// Sends a failed or stalled item again now.
+  func retry(_ item: QueuedItem) async {
+    await source.retry(id: item.id)
+  }
+
+  /// Drops an item from the queue, with what was recorded for it.
+  func discard(_ item: QueuedItem) async {
+    await source.discard(id: item.id)
+  }
+
   func load() async {
     generation += 1
     let current = generation
