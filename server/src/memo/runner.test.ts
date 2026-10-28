@@ -2,6 +2,7 @@ import { describe, expect, it } from "bun:test";
 import { MemoError } from "./errors.js";
 import { createMemoEvents, type MemoEvent } from "./events.js";
 import type { HandlerStep } from "./memo.js";
+import { createAgwSummarizer } from "../adapters/agw.js";
 import { TransientError } from "../ports/transient.js";
 import { createRunner, RETRY_DELAYS_MS, type StepHandler } from "./runner.js";
 import { captureLogs, deferred, seedMemo, testStore } from "./test-support.js";
@@ -565,6 +566,42 @@ describe("automatic retries", () => {
     expect(delays).toEqual([]);
     expect(store.getMemo(id)?.state).toBe("failed");
     expect(stepRecord(store, id, "transcribe")).toMatchObject({ status: "failed", attempts: 1 });
+  });
+
+  it("fails a summarize that hangs past the guard on attempt 1", async () => {
+    let polls = 0;
+    const summarizer = createAgwSummarizer({
+      baseUrl: "http://agw.test",
+      timeoutMs: 3000,
+      sleep: async () => {},
+      fetch: (async (input: string | URL | Request, init?: RequestInit) => {
+        const path = new URL(String(input)).pathname;
+        if (init?.method === "POST" && path === "/api/jobs") {
+          return Response.json({ ok: true, job: { id: "job-1" } });
+        }
+        if (init?.method === "POST") return Response.json({ ok: true, job: { id: "job-1" } });
+        polls += 1;
+        return Response.json({ ok: true, job: { status: "running" } });
+      }) as typeof fetch,
+    });
+    const handler: StepHandler = async () => {
+      await summarizer.summarize({
+        memoId: "m",
+        route: "hermes",
+        transcript: "t",
+        replyText: null,
+      });
+      return {};
+    };
+    const { store, runner, delays } = setupRetry("summarize", handler);
+    const { id } = seedMemo(store, "acted");
+    await runner.drive(id);
+
+    expect(polls).toBeGreaterThan(0);
+    expect(delays).toEqual([]);
+    expect(store.getMemo(id)).toMatchObject({ state: "failed", failedStep: "summarize" });
+    expect(stepRecord(store, id, "summarize")).toMatchObject({ status: "failed", attempts: 1 });
+    expect(stepRecord(store, id, "summarize")?.error).toContain("timed out after 3000 ms");
   });
 
   it("does not retry act after a request that may have been delivered", async () => {

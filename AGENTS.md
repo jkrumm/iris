@@ -260,7 +260,7 @@ Push to master deploys. LaunchAgent `com.jkrumm.iris` (KeepAlive, `ExitTimeOut` 
   with fewer than two registered destinations the only one wins (`default`, confidence 1, no spend); two or more (production since Wave 11: journal, herdr, hermes; `IRIS_FAKES` registers all three) turn the decider on; otherwise `Decider` (agw `decide`, the job runner's hang guard): confidence ≥ 0.8 routes, else `needs_route`. A mode or prefix
   naming an unregistered destination (an unset `BRAIN_DIR`, `HERDR_SOCKET` or `HERMES_*`), a refusal, an unknown choice, herdr without a live tab, low confidence and a missing
   decider (`decide` in `/health` `degraded`, only with ≥ 2 destinations) park at `needs_route`. A decide infrastructure failure (transport error, hang-guard
-  timeout, off-schema answer) throws: the route step fails and `POST /retry {from: route}` recovers it. With no destination at all neither `route`
+  timeout, off-schema answer) throws; a hang guard is a plain error, never `TransientError` (`hangGuardFailure`, TDD §3 Retries), so the route step fails after one window and `POST /retry {from: route}` recovers it. With no destination at all neither `route`
   nor `act` is registered and the memo waits at `transcribed`. Every outcome is one `route_decisions` row written by `completeStep` with the step
   (`patch.routeDecision`); the park reason is the latest row's `reason` (`store.listRouteDecisions`), a low-confidence park keeps the model's guess
   in `destination`. Because the transcript is never rewritten, a retry from `route` routes by the same prefix again.

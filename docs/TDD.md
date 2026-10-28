@@ -162,6 +162,12 @@ any step ──error──> failed(step)   ──retry(from)──> <step>
   throw) fails at once. A `TransientError` is `before_send` when the request provably never reached the destination (connection
   refused, DNS) and `after_send` otherwise (a timeout, a reset, a 5xx, an unrecognised `fetch failed`: it may have been delivered).
 
+  **A hang guard is not transient.** The 30-minute guard of a model call (the agw job runner behind decide and triage, STT) and the
+  idle watchdogs (Hermes: no response, or a stream gone idle, within the idle window) mean the downstream is wedged, so a retry would only
+  wait out the same window again (~90 minutes for three tries). They throw a plain error (`hangGuardFailure`, or `fetchFailure(err,
+  {hangGuard: true})` for an aborted `fetch`): the step fails after one window and `POST /retry` is the decision. A short request
+  timeout that means "try again" (the 15 s agw request, the 30 s Hermes session create) stays transient, as do 5xx and connection errors.
+
   | Step | Retried on |
   |-|-|
   | transcribe, route (decide), summarize, notify | every transient failure |
