@@ -176,6 +176,7 @@ describe("route", () => {
     expect(result?.patch).toEqual({
       routeDecision: {
         source: "prefix",
+        prefixWords: 1,
         destination: null,
         tab: null,
         confidence: null,
