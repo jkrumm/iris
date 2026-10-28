@@ -915,6 +915,78 @@ describe("a memo that continues a thread", () => {
     ]);
   });
 
+  describe("turns into one session", () => {
+    /** A Hermes whose turns finish only when the test says so, recording how many ran at once. */
+    function gatedHermes() {
+      const state = { running: 0, peak: 0, started: [] as string[] };
+      const gates: Array<() => void> = [];
+      const destination: Destination = {
+        async deliver({ memoId, threadId }) {
+          state.started.push(memoId);
+          state.running++;
+          state.peak = Math.max(state.peak, state.running);
+          await new Promise<void>((release) => gates.push(release));
+          state.running--;
+          return { ref: threadId ?? memoId, replyText: "ok" };
+        },
+      };
+      return { state, gates, destination };
+    }
+
+    function twoTurns(threads: [string, string]) {
+      const hermes = gatedHermes();
+      const ctx = setup({ destinations: { hermes: hermes.destination } });
+      const memos = threads.map((threadId, i) => {
+        ctx.db
+          .query(
+            "INSERT OR IGNORE INTO threads (id, kind, title, created_at, updated_at) VALUES (?, 'hermes', 'earlier', 'c', 'u')",
+          )
+          .run(threadId);
+        const { memo } = ctx.store.createTextMemo({
+          id: crypto.randomUUID(),
+          mode: "auto",
+          device: "iphone",
+          startedAt: "2026-01-01T00:00:00.000Z",
+          text: `turn ${i}`,
+          threadId,
+        });
+        return { ...memo, route: "hermes" as const };
+      });
+      return { ...hermes, handlers: ctx.handlers, memos };
+    }
+
+    const tick = () => new Promise((resolve) => setTimeout(resolve, 5));
+
+    it("makes the second memo of a thread wait for the first, without failing it", async () => {
+      const { handlers, memos, state, gates } = twoTurns([THREAD, THREAD]);
+      const ids = memos.map((memo) => memo.id);
+      const [first, second] = memos.map((memo) => handlers.act?.({ memo })) as [
+        Promise<unknown>,
+        Promise<unknown>,
+      ];
+      await tick();
+      expect(state.started).toEqual(ids.slice(0, 1));
+
+      gates[0]?.();
+      await first;
+      await tick();
+      expect(state.started).toEqual(ids);
+
+      gates[1]?.();
+      await expect(second).resolves.toMatchObject({ patch: { destinationRef: THREAD } });
+      expect(state.peak).toBe(1);
+    });
+
+    it("does not make different threads wait for each other", async () => {
+      const { handlers, memos, state, gates } = twoTurns([THREAD, "other-thread"]);
+      const running = memos.map((memo) => handlers.act?.({ memo }));
+      await tick();
+      expect(state.peak).toBe(2);
+      for (const gate of gates) gate();
+      await Promise.all(running);
+    });
+  });
+
   it("does not send the thread to a destination that keeps none", async () => {
     const journal = fakeDestination({ threads: false, result: { ref: "note.md", replyText: "" } });
     const ctx = setup({ destinations: { hermes: fakeDestination(), journal } });
