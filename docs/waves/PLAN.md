@@ -587,29 +587,63 @@ at a time and resolve the additive conflicts in the lead (fast); briefing anchor
 SIGTERMed (twice in the train); rerun. A backgrounded `agw review` CLI stops printing when its shell exits; read `GET /api/jobs/<id>` instead, and
 one job returned a degenerate result (`summary: placeholder`) whose single finding was still real.
 
-## Wave 13 — R3 server completion (flags, auto retries, debt) ∥ iOS History shell            <!-- status: active -->
+## Wave 13 — R3 server completion (flags, auto retries, debt) ∥ iOS History shell            <!-- status: done -->
 Backlog 4b (minus Pele and speech, which are Wave 14) plus the first slice of backlog 6. Design is binding:
 `docs/design/feedback-round-1.md` + `feedback-round-2.md` (round 2 wins). Two tracks: **S** (`server/**`, `contracts/**`,
 `scripts/**`, plus the `IrisCore` follow-up for each contract) and **I** (`apple/**` app and `IrisUI`). Wave 12's lessons apply:
 land server PRs one at a time and resolve additive conflicts (AGENTS.md, TDD, registry, conformance, FakeAPIClient) in the lead;
 run `make e2e` before the train for any server-behaviour PR; only one worker runs `xcodebuild` at a time.
-- [ ] **S1. Memo flags:** done, favorite, archived, and delete as a soft delete with an undo window, then purge (audio and speech files
+- [x] **S1. Memo flags:** done, favorite, archived, and delete as a soft delete with an undo window, then purge (audio and speech files
       too). Endpoints the swipe actions call, list filters for the quick-filter chips (Favorites, Chats, Needs route; archived and
       deleted hidden by default, an Archived filter shows them), SSE `memo.updated` on every flag change. Contract + fixtures + `IrisCore`.
-- [ ] **S2. Automatic retries:** transient step failures (5xx, timeout, connection errors) retry twice with exponential backoff before
+- [x] **S2. Automatic retries:** transient step failures (5xx, timeout, connection errors) retry twice with exponential backoff before
       `failed`; the attempt count per step is on the memo wire (round 2: the UI shows attempts per step). TDD §3 states it as built.
-- [ ] **S3. Wave 12 debt:** `getThread` N+1 → one query; a continuation while hermes is unregistered is rejected at create (not a
+- [x] **S3. Wave 12 debt:** `getThread` N+1 → one query; a continuation while hermes is unregistered is rejected at create (not a
       route failure); turns into one Hermes session serialised; indexes on `memos.created_at` and `memo_steps.started_at`; the stats
       store composed in `compose()`; `pinned` signals when the 50 cap truncates. Multi-word spoken tab names stay out (Left behind).
-- [ ] **I1. iOS History shell** (simulator, `-IrisFakeCapture` / fake API client): tabs **History · Stats · Settings** (no Threads tab;
+- [x] **I1. iOS History shell** (simulator, `-IrisFakeCapture` / fake API client): tabs **History · Stats · Settings** (no Threads tab;
       the freed slot stays empty). History: round-1 rows (route chip · state · headline · relative time), pinned needs-route rows on top
       (tinted), de-duplicated by id across pages, search, **quick-filter chips**, the bottom-sheet filter (route, state), SSE live updates,
       and **swipe actions** wired to S1 (right: done, further right: favorite; left: archive, further left: delete with undo). Stats and
       Settings tabs are placeholders here (Wave 14 fills them). Snapshot tests (light + dark), a UI test of a swipe, screenshots via
       `make screenshot` checked against the round-2 renders.
-- [ ] Deploy and prove: `make verify` + `make smoke`, production probes of each new route with the smoke token (flag, undo, purge on a
+- [x] Deploy and prove: `make verify` + `make smoke`, production probes of each new route with the smoke token (flag, undo, purge on a
       smoke memo only); `apple.yml` green; TDD and AGENTS.md amended. Delete `~/.iris/data/iris.db.pre-w12-fts.bak` once this deploy runs cleanly.
-**Left behind:**
+**Left behind:** Five PRs, each landed by the train after a green full `make check` (S PRs also `make e2e`): #16 flags, #17 retries, #18 debt,
+#19 History shell, #20 UI-test fix. `agw review` (job API) on #16–#19, every blocking finding fixed before merge (#16: the purger dropped sweep
+errors silently, media routes served a deleted memo; #17: `stop()` during a backoff re-ran the handler, a timed-out agw submit was re-submitted;
+#18: `APIErrorCode` lacked `destination_unavailable`; #19: a stale flag completion resurrected a deleted row, a failed load after a filter change
+left the old filter's rows and cursor). #20 is a test-only timing fix (no review: two-file diff, `make uitest` green). Deployed `c39eb6a` (server;
+#19/#20 are apple-only): `make verify` healthy, `make smoke` `notified`. Production probes with the smoke token: PATCH flags (favorite/done/archived),
+`favorite=true` / `archived=true` lists, archived hidden by default, unknown key and `favorite=false` → 400, DELETE → `deletedAt`/`purgeAt` (+10 min),
+deleted memo readable, PATCH and `/audio` on it → 409, restore, second restore → 409; purge of a second smoke memo after the window: 404, audio dir
+and row gone, `memo.purged` logged; `attempts` on every step, `pinnedTruncated` (false on page 1 and 2), thread detail unchanged, unknown `threadId`
+→ 404, both new indexes present (user_version 10). `destination_unavailable` is test-only (hermes is registered in production). DB backed up before
+migration 9 at `~/.iris/data/iris.db.pre-w13-flags.bak` (already at 8: S1 had deployed; delete after Wave 14 runs cleanly); the w12 backup is deleted.
+apple.yml failed on `63360af` (undo toast expired before the UI test's tap on the hosted runner), fixed by #20 (`-IrisUndoSeconds`); `check` + `apple.yml` green on `225235e`.
+**S1 (#16):** columns `done`, `favorite`, `archived_at`, `deleted_at` (migration 8); wire `done`/`favorite`/`archived` + `deletedAt`/`purgeAt`;
+`PATCH /memos/:id` (unknown keys 400, parsed by the route: Elysia strips them), `DELETE` (settled states only, idempotent), `POST /restore` (404 past
+`purgeAt` even before the sweep, so it never races file removal); purger (`memo/purge.ts`, boot + 60 s, files before rows, thread repointed or
+deleted). List `favorite`/`archived`/`kind`; deleted memos hidden everywhere; a done `needs_route` memo is not pinned. Flag events are `memo.updated`
+with an internal `flagChange` marker so no `memo.done`/alert/Live Activity push re-fires. `manifest.ts` method enum gained PATCH/DELETE.
+**S2 (#17):** `TransientError` (`ports/transient.ts`) with `before_send`/`after_send`; 2 s / 8 s backoff via injected `Sleep`; `act` and agw
+submit retry only `before_send`; `memo_steps.attempts` (migration 9) on the wire; `step.retry` log + `memo.retry_wait` span; a retry publishes no
+event. Squashed to one commit at merge (its commits reformatted then un-reformatted TDD tables). Follow-up: a hang-guard timeout (decide/triage,
+30 min) also counts as transient, so a hung step can take ~90 min before `failed`.
+**S3 (#18):** `getThread` in a fixed number of queries; continuation without hermes → 409 `destination_unavailable`; per-thread `createKeyedQueue`
+around `deliver` (herdr's per-pane queue reuses it); indexes (migration 10); `compose()` builds the stats store; `pinnedTruncated`.
+Review improvements not taken: an unbounded wait in the per-thread queue (a hung Hermes turn holds the thread up to the act timeout).
+**I1 (#19):** tabs History · Stats · Settings (placeholders), rows per the render (dot · route · duration, coloured state, headline, grey secondary
+line; no cost: the list wire has none), day sections + "n memos today · audio" subtitle (counts the loaded, filtered list), search, chips
+(Favorites, Chats, Needs route, Archived; one at a time), filter sheet (route; state = Needs route/Failed/Done, one state per request), SSE updates
+(refetch on `memo.updated`), native `.swipeActions` (full swipe = done / archive, the second revealed button = favorite / delete, delete only for
+settled memos), 5 s undo toast (one at a time). New `IrisTests` unit target (model/filter tests vs FakeAPIClient); `HistoryFilters`/`HistoryToast`
+also compile into IrisMac. Follow-ups: two stale-completion tests cannot prove ordering (FakeAPIClient cannot delay a response: give it a gate);
+no step-progress dashes on in-flight rows; the dark-mode search field shows no placeholder in the screenshot; "Further right/left" is a second
+button, not a second full-swipe threshold (owner may want the latter).
+**For the next wave:** Wave 14 per its sketch. Lead lessons: `rd merge` needs a worktree holding the branch (`git worktree add` for a lead-made
+fix branch). A branch whose commits fight each other on rebase is faster squashed to its net diff. The `agw` CLI was renamed `agw-legacy`
+mid-wave (same commands). Account `me2` reached ~99 % of its window during I1.
 
 ## Wave 14 — Pele + speech-ready answers (server) ∥ memo detail, Stats, Settings, typed composer (iOS)            <!-- status: pending -->
 Backlog 4b's rendering half and the rest of backlog 6. Written in full by the mother when Wave 13 closes.
