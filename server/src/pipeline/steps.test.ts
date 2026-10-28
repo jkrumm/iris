@@ -852,6 +852,47 @@ describe("herdr act", () => {
   });
 });
 
+/** A Hermes whose turns finish only when the test says so, recording how many ran at once. */
+function gatedHermes() {
+  const state = { running: 0, peak: 0, started: [] as string[] };
+  const gates: Array<() => void> = [];
+  const destination: Destination = {
+    async deliver({ memoId, threadId }) {
+      state.started.push(memoId);
+      state.running++;
+      state.peak = Math.max(state.peak, state.running);
+      await new Promise<void>((release) => gates.push(release));
+      state.running--;
+      return { ref: threadId ?? memoId, replyText: "ok" };
+    },
+  };
+  return { state, gates, destination };
+}
+
+const tick = () => new Promise((resolve) => setTimeout(resolve, 5));
+
+function twoTurns(threads: [string, string]) {
+  const hermes = gatedHermes();
+  const ctx = setup({ destinations: { hermes: hermes.destination } });
+  const memos = threads.map((threadId, i) => {
+    ctx.db
+      .query(
+        "INSERT OR IGNORE INTO threads (id, kind, title, created_at, updated_at) VALUES (?, 'hermes', 'earlier', 'c', 'u')",
+      )
+      .run(threadId);
+    const { memo } = ctx.store.createTextMemo({
+      id: crypto.randomUUID(),
+      mode: "auto",
+      device: "iphone",
+      startedAt: "2026-01-01T00:00:00.000Z",
+      text: `turn ${i}`,
+      threadId,
+    });
+    return { ...memo, route: "hermes" as const };
+  });
+  return { ...hermes, handlers: ctx.handlers, memos };
+}
+
 describe("a memo that continues a thread", () => {
   const THREAD = "0b1f6c52-4a7d-4e90-8c13-9d2a5e7f1b34";
 
@@ -916,47 +957,6 @@ describe("a memo that continues a thread", () => {
   });
 
   describe("turns into one session", () => {
-    /** A Hermes whose turns finish only when the test says so, recording how many ran at once. */
-    function gatedHermes() {
-      const state = { running: 0, peak: 0, started: [] as string[] };
-      const gates: Array<() => void> = [];
-      const destination: Destination = {
-        async deliver({ memoId, threadId }) {
-          state.started.push(memoId);
-          state.running++;
-          state.peak = Math.max(state.peak, state.running);
-          await new Promise<void>((release) => gates.push(release));
-          state.running--;
-          return { ref: threadId ?? memoId, replyText: "ok" };
-        },
-      };
-      return { state, gates, destination };
-    }
-
-    function twoTurns(threads: [string, string]) {
-      const hermes = gatedHermes();
-      const ctx = setup({ destinations: { hermes: hermes.destination } });
-      const memos = threads.map((threadId, i) => {
-        ctx.db
-          .query(
-            "INSERT OR IGNORE INTO threads (id, kind, title, created_at, updated_at) VALUES (?, 'hermes', 'earlier', 'c', 'u')",
-          )
-          .run(threadId);
-        const { memo } = ctx.store.createTextMemo({
-          id: crypto.randomUUID(),
-          mode: "auto",
-          device: "iphone",
-          startedAt: "2026-01-01T00:00:00.000Z",
-          text: `turn ${i}`,
-          threadId,
-        });
-        return { ...memo, route: "hermes" as const };
-      });
-      return { ...hermes, handlers: ctx.handlers, memos };
-    }
-
-    const tick = () => new Promise((resolve) => setTimeout(resolve, 5));
-
     it("makes the second memo of a thread wait for the first, without failing it", async () => {
       const { handlers, memos, state, gates } = twoTurns([THREAD, THREAD]);
       const ids = memos.map((memo) => memo.id);
