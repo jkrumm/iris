@@ -25,6 +25,9 @@ nonisolated struct QueuedItem: Identifiable, Equatable, Sendable {
   var title: String
   var queuedAt: Date
   var state: State
+
+  /// A take that is still being recorded is ended by its own controls: dropping its row would leave the recorder running.
+  var canDiscard: Bool { state != .recording }
 }
 
 /// Where Settings reads the queue from, and what it can do to an item.

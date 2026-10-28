@@ -32,7 +32,7 @@ public actor Outbox: SegmentOutbox {
   private var idleWaiters: [CheckedContinuation<Void, Never>] = []
   private var finishing = 0
   private var isFlushing = false
-  private var flushWaiters: [CheckedContinuation<Void, Never>] = []
+  private var flushWaiters: [CheckedContinuation<Bool, Never>] = []
   private var isDirty = false
   private var isShutDown = false
   private var observers: [UUID: AsyncStream<Void>.Continuation] = [:]
@@ -71,10 +71,15 @@ public actor Outbox: SegmentOutbox {
   // MARK: Items
 
   /// Queues a whole memo or message and starts sending it. `false` when the memo id is already queued or done.
+  /// Throws `OutboxError.notSaved` when the queue could not be written (a full disk, an I/O error): the item is taken
+  /// back out, so nothing is "queued" that a kill would lose, and the caller keeps what the user typed.
   @discardableResult
-  public func enqueueItem(_ item: OutboxItem) async -> Bool {
+  public func enqueueItem(_ item: OutboxItem) async throws -> Bool {
     guard machine.enqueueItem(item) else { return false }
-    await persist()
+    guard await persist() else {
+      machine.withdrawItem(item.memoID)
+      throw OutboxError.notSaved
+    }
     await resume()
     return true
   }
@@ -247,19 +252,23 @@ public actor Outbox: SegmentOutbox {
   }
 
   /// Saves the latest state. Concurrent callers coalesce into one flush loop, so an older snapshot
-  /// can never overwrite a newer one; every caller returns after the latest state is saved.
-  private func persist() async {
+  /// can never overwrite a newer one; every caller returns after the latest state is saved, with whether the last
+  /// write landed.
+  @discardableResult
+  private func persist() async -> Bool {
     isDirty = true
     if isFlushing {
-      await withCheckedContinuation { flushWaiters.append($0) }
-      return
+      return await withCheckedContinuation { flushWaiters.append($0) }
     }
     isFlushing = true
+    var saved = true
     while isDirty {
       isDirty = false
       do {
         try await store.save(machine.record)
+        saved = true
       } catch {
+        saved = false
         Log.outbox.error("outbox save failed: \(String(describing: error), privacy: .public)")
       }
     }
@@ -267,8 +276,9 @@ public actor Outbox: SegmentOutbox {
     for observer in observers.values { observer.yield() }
     let waiters = flushWaiters
     flushWaiters = []
-    for waiter in waiters { waiter.resume() }
+    for waiter in waiters { waiter.resume(returning: saved) }
     resolveIdleWaiters()
+    return saved
   }
 
   private func resolveIdleWaiters() {

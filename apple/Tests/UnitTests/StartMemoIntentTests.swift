@@ -271,3 +271,88 @@ struct UnavailableQueueTests {
     }
   }
 }
+
+/// A store that cannot write (a full disk) until `heal()`.
+private actor UnwritableStore: OutboxStore {
+  struct DiskFull: Error {}
+
+  private var isHealthy = false
+  private var record = OutboxRecord()
+
+  func heal() { isHealthy = true }
+  func load() -> OutboxRecord { record }
+
+  func save(_ record: OutboxRecord) throws {
+    guard isHealthy else { throw DiskFull() }
+    self.record = record
+  }
+}
+
+/// A queue source that remembers what was asked of it.
+private final class RecordingQueue: QueuedItemSource, @unchecked Sendable {
+  // Invariant: only touched from the main actor in these tests.
+  private(set) var discarded: [String] = []
+
+  func queuedItems() async -> [QueuedItem] { [] }
+  func isAvailable() async -> Bool { true }
+  func changes() async -> AsyncStream<Void> { AsyncStream { $0.finish() } }
+  func retry(id: String) async {}
+  func discard(id: String) async { discarded.append(id) }
+}
+
+@MainActor
+@Suite("Queue persistence and the Settings rows")
+struct QueuePersistenceTests {
+  let client = FakeAPIClient(now: { MemoFactory.now })
+
+  private func submission(_ text: String = "keep me") -> TextSubmission {
+    TextSubmission(id: MemoID(), mode: .chat, text: text, threadId: nil, startedAt: MemoFactory.now)
+  }
+
+  @Test("a memo whose queue write failed is refused, not reported as queued, and the composer keeps the text")
+  func failedWriteIsRefused() async {
+    let store = UnwritableStore()
+    let rig = OutboxRig(client: client, store: store)
+    let composer = ComposerModel(request: ComposerRequest(), outbox: rig.service, now: { MemoFactory.now })
+    composer.text = "do not lose me"
+
+    #expect(await composer.send() == nil)
+    #expect(composer.failure != nil && composer.text == "do not lose me")
+    #expect(await rig.service.queuedItems().isEmpty)
+    #expect(await client.calls.isEmpty)
+
+    await store.heal()
+    #expect(await composer.send() != nil, "the disk works again: the same text goes through")
+  }
+
+  @Test("a queue file this build cannot decode keeps the outbox closed and is left on disk as it was")
+  func undecodableQueueStaysClosed() async throws {
+    let directory = FileManager.default.temporaryDirectory.appending(path: "iris-undecodable-\(UUID().uuidString)")
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let file = directory.appending(path: "outbox.json")
+    let original = Data(#"{"entries":[],"memos":[],"items":[{"kind":"from the future"}],"nextSequence":0}"#.utf8)
+    try original.write(to: file)
+    let rig = OutboxRig(client: client, store: JSONFileOutboxStore(fileURL: file))
+
+    #expect(await rig.service.submitText(submission()) == .refused)
+    #expect(await !rig.service.isAvailable())
+    #expect(try Data(contentsOf: file) == original)
+    #expect(try FileManager.default.contentsOfDirectory(atPath: directory.path) == ["outbox.json"])
+  }
+
+  @Test("a take that is still recording cannot be discarded from Settings")
+  func recordingRowCannotBeDiscarded() async {
+    let recording = QueuedItem(
+      id: "r", kind: .voiceMemo, title: "Voice memo", queuedAt: MemoFactory.now, state: .recording)
+    let failed = QueuedItem(
+      id: "f", kind: .typedMemo, title: "Typed", queuedAt: MemoFactory.now, state: .failed(retryAt: nil, reason: nil))
+    #expect(!recording.canDiscard && failed.canDiscard)
+
+    let source = RecordingQueue()
+    let model = SettingsModel(client: client, queue: source)
+    await model.discard(recording)
+    await model.discard(failed)
+    #expect(source.discarded == ["f"], "the recorder is only stopped by the take's own controls")
+  }
+}

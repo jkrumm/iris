@@ -546,7 +546,7 @@ and leaves no file. Revisit the resource loader only if recordings grow past a f
   - an engine configuration change restarts the engine and starts a new
     segment.
 - **`Outbox`** (Wave 15 I3): a persistent queue of **whole items**, in one JSON file (`Application Support/Iris/outbox.json`,
-  written atomically; an unreadable file is moved aside as `.corrupt` and the queue starts empty). Three kinds of work, all
+  written atomically). A file that cannot be read or decoded (including a newer build's enum case) is an **error, never an empty queue**: it is left on disk untouched and the outbox reports itself closed (below). An item whose write fails (a full disk) is taken back out and refused, so nothing is ever "queued" that a kill would lose. Three kinds of work, all
   idempotent on the server, so a retry after a lost answer is harmless:
   - **`create`**, one per memo or message (`OutboxItem`: memo id, mode, thread id, text or voice, queued-at). A typed memo or chat
     message is `POST /memos/text` and is done with that call; a take is `POST /memos`. A take is created once it has something to
@@ -570,7 +570,7 @@ and leaves no file. Revisit the resource loader only if recordings grow past a f
   take runs; `stop()` flushes the last segment and finishes the memo (a take that never closed a segment is dropped); `cancel()`
   discards the memo and deletes its files; an interruption pauses the recorder at a segment boundary and resumes it when the system
   recommends; `switchInput` rolls the segment. `updates()` is the state stream the UI and the Live Activity follow.
-  `start`, `stop` and `cancel` run one at a time through an internal FIFO gate, and `start` claims the take (phase `starting`) with no
+  `start`, `stop`, `cancel`, `pause`, `resume`, `switchInput` and the interruption handlers run one at a time through an internal FIFO gate (a late resume cannot write `recording` over a take that has stopped), and `start` claims the take (phase `starting`) with no
   suspension after the gate: a second start finds the first take and is rejected, a `cancel` that lands while the take is starting or
   stopping waits for that to finish and then ends it (so no microphone is left running with no state), and a stop's wait for the
   recorder's last event is never shared with another caller.
