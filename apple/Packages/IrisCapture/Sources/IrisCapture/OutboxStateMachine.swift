@@ -68,6 +68,11 @@ public struct OutboxStateMachine: Sendable {
     return true
   }
 
+  /// Takes an item back out without a trace (its write failed): unlike `discard`, the id may be queued again.
+  public mutating func withdrawItem(_ memoID: MemoID) {
+    items[memoID] = nil
+  }
+
   public mutating func createSucceeded(_ memoID: MemoID) {
     guard let item = items[memoID] else { return }
     switch item.kind {

@@ -273,7 +273,7 @@ struct OutboxTests {
 struct OutboxItemTests {
   @Test func aTextItemIsCreatedOnceAndLeavesTheQueue() async throws {
     let harness = try await OutboxHarness()
-    #expect(await harness.outbox.enqueueItem(textItem(memo(1), text: "order a router")))
+    #expect(try await harness.outbox.enqueueItem(textItem(memo(1), text: "order a router")))
     await harness.outbox.settled()
 
     #expect(await harness.uploader.created.map(\.memoID) == [memo(1)])
@@ -284,9 +284,9 @@ struct OutboxItemTests {
 
   @Test func theSameItemTwiceIsOneCreate() async throws {
     let harness = try await OutboxHarness()
-    #expect(await harness.outbox.enqueueItem(textItem(memo(1))))
+    #expect(try await harness.outbox.enqueueItem(textItem(memo(1))))
     await harness.outbox.settled()
-    #expect(await !harness.outbox.enqueueItem(textItem(memo(1))))
+    #expect(try await !harness.outbox.enqueueItem(textItem(memo(1))))
     await harness.outbox.settled()
     #expect(await harness.uploader.createAttempts == 1)
     await harness.outbox.shutdown()
@@ -295,7 +295,7 @@ struct OutboxItemTests {
   @Test func offlineQueuesTheItemAndTheRetryTimerSendsItWhenTheClockArrives() async throws {
     let harness = try await OutboxHarness()
     await harness.uploader.failNextCreates(1)
-    await harness.outbox.enqueueItem(textItem(memo(1)))
+    try await harness.outbox.enqueueItem(textItem(memo(1)))
     await harness.outbox.settled()
 
     let queued = await harness.outbox.queue()
@@ -316,7 +316,7 @@ struct OutboxItemTests {
   @Test func retryNowSendsAnItemBeforeItsDeadline() async throws {
     let harness = try await OutboxHarness()
     await harness.uploader.failNextCreates(1)
-    await harness.outbox.enqueueItem(textItem(memo(1)))
+    try await harness.outbox.enqueueItem(textItem(memo(1)))
     await harness.outbox.settled()
     #expect(await harness.uploader.created.isEmpty)
 
@@ -330,7 +330,7 @@ struct OutboxItemTests {
   @Test func aPermanentRefusalStallsUntilTheUserRetries() async throws {
     let harness = try await OutboxHarness()
     await harness.uploader.failNextCreates(1, permanent: true)
-    await harness.outbox.enqueueItem(textItem(memo(1)))
+    try await harness.outbox.enqueueItem(textItem(memo(1)))
     await harness.outbox.settled()
     #expect(await harness.outbox.queue().first?.status == .failed(retryAt: nil, reason: "refused"))
 
@@ -347,7 +347,7 @@ struct OutboxItemTests {
   @Test func aTakeCreatesTheMemoFirstThenUploadsThenCompletes() async throws {
     let harness = try await OutboxHarness()
     let id = memo(1)
-    await harness.outbox.enqueueItem(voiceItem(id))
+    try await harness.outbox.enqueueItem(voiceItem(id))
     for index in 0..<2 { await harness.outbox.enqueue(segment(id, index)) }
     await harness.outbox.finishMemo(id, segmentCount: 2)
     await harness.outbox.settled()
@@ -364,7 +364,7 @@ struct OutboxItemTests {
     let harness = try await OutboxHarness()
     let id = memo(1)
     await harness.uploader.failNextCreates(1)
-    await harness.outbox.enqueueItem(voiceItem(id))
+    try await harness.outbox.enqueueItem(voiceItem(id))
     await harness.outbox.enqueue(segment(id, 0))
     await harness.outbox.settled()
     #expect(await harness.uploader.uploaded.isEmpty, "the memo does not exist on the server yet")
@@ -378,7 +378,7 @@ struct OutboxItemTests {
   @Test func theQueueSurvivesARelaunch() async throws {
     let first = try await OutboxHarness()
     await first.uploader.failNextCreates(1)
-    await first.outbox.enqueueItem(textItem(memo(1), text: "survives"))
+    try await first.outbox.enqueueItem(textItem(memo(1), text: "survives"))
     await first.outbox.settled()
     let record = await first.store.load()
     await first.outbox.shutdown()
@@ -398,7 +398,7 @@ struct OutboxItemTests {
     try Data("x".utf8).write(to: file)
     let harness = try await OutboxHarness()
     await harness.uploader.failNextCreates(1)
-    await harness.outbox.enqueueItem(voiceItem(memo(1)))
+    try await harness.outbox.enqueueItem(voiceItem(memo(1)))
     await harness.outbox.enqueue(
       ClosedSegment(memoID: memo(1), index: 0, fileURL: file, byteCount: 1, duration: 1))
     await harness.outbox.settled()
@@ -427,7 +427,7 @@ struct OutboxItemTests {
     let harness = try await OutboxHarness()
     let changes = await harness.outbox.changes()
     await harness.uploader.failNextCreates(1)
-    await harness.outbox.enqueueItem(textItem(memo(1)))
+    try await harness.outbox.enqueueItem(textItem(memo(1)))
     await harness.outbox.settled()
     var iterator = changes.makeAsyncIterator()
     #expect(await iterator.next() != nil)
@@ -455,15 +455,50 @@ struct JSONFileOutboxStoreTests {
     #expect(loaded == OutboxRecord())
   }
 
-  @Test func anUnreadableFileIsMovedAsideAndTheQueueStartsEmpty() async throws {
+  @Test func anUndecodableFileIsRefusedAndLeftExactlyAsItWas() async throws {
     let directory = try temporaryDirectory()
     defer { try? FileManager.default.removeItem(at: directory) }
     let file = directory.appending(path: "outbox.json")
-    try Data("{not json".utf8).write(to: file)
+    let original = Data(#"{"entries":[],"memos":[],"items":[{"kind":"a case from the future"}],"nextSequence":0}"#.utf8)
+    try original.write(to: file)
 
-    let loaded = try await JSONFileOutboxStore(fileURL: file).load()
-    #expect(loaded == OutboxRecord())
-    #expect(!FileManager.default.fileExists(atPath: file.path))
-    #expect(FileManager.default.fileExists(atPath: file.appendingPathExtension("corrupt").path))
+    await #expect(throws: OutboxStoreError.undecodable) { try await JSONFileOutboxStore(fileURL: file).load() }
+    #expect(try Data(contentsOf: file) == original, "the queue on disk is not touched, moved or replaced")
+    let siblings = try FileManager.default.contentsOfDirectory(atPath: directory.path)
+    #expect(siblings == ["outbox.json"], "no quarantine copy overwrites anything")
+  }
+}
+
+/// A store that cannot write (a full disk, an I/O error) until `heal()`.
+private actor UnwritableStore: OutboxStore {
+  struct DiskFull: Error {}
+
+  private var isHealthy = false
+  private(set) var record = OutboxRecord()
+
+  func heal() { isHealthy = true }
+  func load() -> OutboxRecord { record }
+
+  func save(_ record: OutboxRecord) throws {
+    guard isHealthy else { throw DiskFull() }
+    self.record = record
+  }
+}
+
+struct OutboxPersistenceTests {
+  @Test func anItemThatCouldNotBeWrittenIsNotAccepted() async throws {
+    let store = UnwritableStore()
+    let uploader = TestUploader()
+    let outbox = try await Outbox(store: store, uploader: uploader, clock: ManualClock())
+
+    await #expect(throws: OutboxError.notSaved) { try await outbox.enqueueItem(textItem(memo(1))) }
+    #expect(await outbox.queue().isEmpty, "nothing is queued that a kill would lose")
+    #expect(await uploader.createAttempts == 0, "and nothing was sent either: the caller still has the text")
+
+    await store.heal()
+    #expect(try await outbox.enqueueItem(textItem(memo(1))), "the same id can be handed over again once the disk works")
+    await outbox.settled()
+    #expect(await uploader.created.map(\.memoID) == [memo(1)])
+    await outbox.shutdown()
   }
 }

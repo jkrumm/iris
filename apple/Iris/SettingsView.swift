@@ -136,8 +136,10 @@ struct SettingsView: View {
       }
     }
     .swipeActions(edge: .trailing) {
-      Button(String(localized: "Discard", comment: "Outbox action"), role: .destructive) {
-        Task { await model.discard(item) }
+      if item.canDiscard {
+        Button(String(localized: "Discard", comment: "Outbox action"), role: .destructive) {
+          Task { await model.discard(item) }
+        }
       }
     }
     .contextMenu {
@@ -146,8 +148,10 @@ struct SettingsView: View {
           Task { await model.retry(item) }
         }
       }
-      Button(String(localized: "Discard", comment: "Outbox action"), systemImage: "trash", role: .destructive) {
-        Task { await model.discard(item) }
+      if item.canDiscard {
+        Button(String(localized: "Discard", comment: "Outbox action"), systemImage: "trash", role: .destructive) {
+          Task { await model.discard(item) }
+        }
       }
     }
   }

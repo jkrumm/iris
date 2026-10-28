@@ -60,6 +60,25 @@ private struct BlockingClock: CaptureClock {
   func sleep(until deadline: Date) async throws { try await base.sleep(until: deadline) }
 }
 
+/// A recorder whose `resume()` waits for the test, to hold an interruption's resume in the middle.
+private struct BlockingResumeRecorder: SegmentRecorder {
+  let base: FakeSegmentRecorder
+  let latch: Latch
+
+  var events: AsyncStream<CaptureEvent> { base.events }
+  var levels: AsyncStream<Float> { base.levels }
+
+  func start(memoID: MemoID) async throws { try await base.start(memoID: memoID) }
+  func stop() async throws { try await base.stop() }
+  func rotate(for reason: RotationReason) async { await base.rotate(for: reason) }
+  func pause() async { await base.pause() }
+
+  func resume() async {
+    await latch.wait()
+    await base.resume()
+  }
+}
+
 /// A recorder whose `stop()` returns at once (and again, without throwing) but whose `.stopped` event only comes when the
 /// test calls `finishStop()`: the recorder's own drain is still running while the session is `.stopping`.
 private struct DeferredStopRecorder: SegmentRecorder {
@@ -176,6 +195,36 @@ struct CaptureSessionRaceTests {
     #expect((stopped ?? nil)?.segmentCount == 1)
     _ = await within(5) { await cancelling.value }
     #expect(await session.current == .idle)
+    await session.shutdown()
+    await harness.outbox.shutdown()
+  }
+
+  @Test func aStopArrivingWhileAnInterruptionResumeIsInFlightLeavesTheSessionIdle() async throws {
+    let directory = try temporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let harness = try await OutboxHarness()
+    let fake = FakeCapture(directory: directory, clock: harness.clock)
+    let latch = Latch()
+    let session = CaptureSession(
+      session: fake.session, routes: fake.routes, recorder: BlockingResumeRecorder(base: fake.recorder, latch: latch),
+      outbox: harness.outbox, clock: harness.clock)
+
+    try await session.start(request)
+    await fake.recorder.feed(frames: 3 * SegmentRotationPolicy().sampleRate)
+    await fake.session.deliver(.began)
+    for _ in 0..<200 where await session.current.phase != .paused { try await Task.sleep(for: .milliseconds(5)) }
+    await fake.session.deliver(.ended(shouldResume: true))
+    await latch.waitForArrival()  // the resume is suspended inside the recorder
+    let stopping = Task { try await session.stop() }
+    try await Task.sleep(for: .milliseconds(50))  // the stop has reached the session
+    await latch.open()
+
+    _ = await within(5) { try? await stopping.value }
+    try await Task.sleep(for: .milliseconds(100))
+    #expect(await session.current == .idle, "a late resume must not write `recording` over a finished take")
+    let again = try await session.start(request)
+    #expect(await session.current.memoID == again, "the session is usable, not stuck without a memo")
+    await session.cancel()
     await session.shutdown()
     await harness.outbox.shutdown()
   }

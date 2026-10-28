@@ -25,19 +25,17 @@ public struct JSONFileOutboxStore: OutboxStore {
     self.fileURL = fileURL
   }
 
-  /// A file that cannot be decoded is moved aside (`<name>.corrupt`) and the queue starts empty: an unreadable
-  /// queue must not keep the app from sending anything new.
+  /// A file that cannot be read or decoded is an error, never an empty queue: the queued memos and takes in it (and the
+  /// segment files they own) stay on disk untouched, and the app says its outbox cannot be opened. A build that reads a
+  /// newer build's file (an enum case it does not know) gets the same refusal instead of dropping the queue.
   public func load() async throws -> OutboxRecord {
     guard FileManager.default.fileExists(atPath: fileURL.path) else { return OutboxRecord() }
     let data = try Data(contentsOf: fileURL)
     do {
       return try JSONDecoder().decode(OutboxRecord.self, from: data)
     } catch {
-      Log.outbox.error("outbox file unreadable, starting empty: \(String(describing: error), privacy: .public)")
-      let aside = fileURL.appendingPathExtension("corrupt")
-      try? FileManager.default.removeItem(at: aside)
-      try FileManager.default.moveItem(at: fileURL, to: aside)
-      return OutboxRecord()
+      Log.outbox.error("outbox file cannot be decoded, left untouched: \(String(describing: error), privacy: .public)")
+      throw OutboxStoreError.undecodable
     }
   }
 
@@ -46,4 +44,9 @@ public struct JSONFileOutboxStore: OutboxStore {
       at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
     try JSONEncoder().encode(record).write(to: fileURL, options: .atomic)
   }
+}
+
+public enum OutboxStoreError: Error, Sendable, Equatable {
+  /// The saved queue is there but this build cannot read it; it is left as it is.
+  case undecodable
 }

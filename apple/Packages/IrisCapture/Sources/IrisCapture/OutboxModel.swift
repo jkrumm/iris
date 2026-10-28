@@ -187,3 +187,8 @@ public enum OutboxWork: Sendable, Equatable {
   case upload(ClosedSegment)
   case complete(MemoID, segmentCount: Int)
 }
+
+public enum OutboxError: Error, Sendable, Equatable {
+  /// The queue could not be written to disk, so the item was not accepted.
+  case notSaved
+}
