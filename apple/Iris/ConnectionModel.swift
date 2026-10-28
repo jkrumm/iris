@@ -12,6 +12,7 @@ final class ConnectionModel {
 
   enum Failure: Equatable {
     case invalid
+    case insecure
     case notStored
   }
 
@@ -30,8 +31,14 @@ final class ConnectionModel {
   var canSave: Bool { !urlText.isEmpty && !tokenText.isEmpty }
 
   func save() {
-    guard let credentials = ConnectionCredentials(urlText: urlText, token: tokenText) else {
+    let credentials: ConnectionCredentials
+    switch ConnectionCredentials.validate(urlText: urlText, token: tokenText) {
+    case .success(let valid): credentials = valid
+    case .failure(.invalid):
       failure = .invalid
+      return
+    case .failure(.insecure):
+      failure = .insecure
       return
     }
     do {

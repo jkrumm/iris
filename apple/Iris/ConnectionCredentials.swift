@@ -6,16 +6,41 @@ nonisolated struct ConnectionCredentials: Equatable, Sendable {
   let serverURL: URL
   let token: String
 
-  /// Parses what the connection form holds. The URL must be http(s) with a host; surrounding whitespace is dropped.
+  enum Problem: Error, Equatable {
+    /// Not a URL with a host, or no token.
+    case invalid
+    /// Plain http to a host other than this machine: the bearer token would travel in cleartext.
+    case insecure
+  }
+
+  private init(serverURL: URL, token: String) {
+    self.serverURL = serverURL
+    self.token = token
+  }
+
+  /// Parses what the connection form holds; nil when ``validate(urlText:token:)`` finds a problem.
   init?(urlText: String, token: String) {
+    guard case .success(let credentials) = Self.validate(urlText: urlText, token: token) else { return nil }
+    self = credentials
+  }
+
+  /// https with a host, or http only for this machine (the simulator's dev server); surrounding whitespace is dropped.
+  static func validate(urlText: String, token: String) -> Result<ConnectionCredentials, Problem> {
     let text = urlText.trimmingCharacters(in: .whitespacesAndNewlines)
     let token = token.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !token.isEmpty, let url = URL(string: text), let scheme = url.scheme?.lowercased(),
-      scheme == "http" || scheme == "https", url.host()?.isEmpty == false
-    else { return nil }
-    self.serverURL = url
-    self.token = token
+      let host = url.host()?.lowercased(), !host.isEmpty
+    else { return .failure(.invalid) }
+    switch scheme {
+    case "https": return .success(ConnectionCredentials(serverURL: url, token: token))
+    case "http" where Self.loopbackHosts.contains(host):
+      return .success(ConnectionCredentials(serverURL: url, token: token))
+    case "http": return .failure(.insecure)
+    default: return .failure(.invalid)
+    }
   }
+
+  private static let loopbackHosts: Set<String> = ["localhost", "127.0.0.1", "::1"]
 }
 
 /// Persistence for the connection. The token is a secret and lives in the Keychain; the URL is not.

@@ -8,15 +8,44 @@ import Testing
 @MainActor
 @Suite("Connection")
 struct ConnectionTests {
-  @Test("the form needs an http(s) URL with a host and a token; whitespace is trimmed")
+  @Test("the form needs an https URL with a host and a token; whitespace is trimmed")
   func parsing() {
     let ok = ConnectionCredentials(urlText: "  https://iris.example.com/ \n", token: " abc ")
     #expect(ok?.serverURL.absoluteString == "https://iris.example.com/" && ok?.token == "abc")
-    #expect(ConnectionCredentials(urlText: "http://192.0.2.1:3000", token: "t") != nil)
     #expect(ConnectionCredentials(urlText: "iris.example.com", token: "t") == nil)
     #expect(ConnectionCredentials(urlText: "ftp://iris.example.com", token: "t") == nil)
     #expect(ConnectionCredentials(urlText: "https://", token: "t") == nil)
     #expect(ConnectionCredentials(urlText: "https://iris.example.com", token: "  ") == nil)
+  }
+
+  @Test("plain http is accepted for this machine only, so the bearer token never crosses a network in cleartext")
+  func transport() {
+    for local in ["http://localhost:3000", "http://127.0.0.1:3000", "http://[::1]:3000", "http://LocalHost"] {
+      #expect(ConnectionCredentials(urlText: local, token: "t") != nil, "\(local)")
+    }
+    let remotes = [
+      "http://iris.example.com", "http://192.0.2.1:3000", "HTTP://iris.example.com", "http://localhost.example.com",
+    ]
+    for remote in remotes {
+      #expect(ConnectionCredentials.validate(urlText: remote, token: "t") == .failure(.insecure), "\(remote)")
+    }
+    #expect(ConnectionCredentials(urlText: "https://192.0.2.1:3000", token: "t") != nil)
+    #expect(ConnectionCredentials.validate(urlText: "ftp://iris.example.com", token: "t") == .failure(.invalid))
+  }
+
+  @Test("saving an http address to another host stores nothing and says why")
+  func insecureSave() {
+    let store = InMemoryCredentialStore()
+    var changes = 0
+    let model = ConnectionModel(store: store) { changes += 1 }
+    model.urlText = "http://iris.example.com"
+    model.tokenText = "t"
+    model.save()
+    #expect(model.failure == .insecure && store.load() == nil && changes == 0)
+
+    model.urlText = "http://localhost:3000"
+    model.save()
+    #expect(model.failure == nil && changes == 1 && store.load() != nil)
   }
 
   @Test("saving stores the connection and reports the change; a bad URL stores nothing")
