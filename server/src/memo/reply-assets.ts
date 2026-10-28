@@ -67,6 +67,8 @@ export interface ReplyAssets {
    * Never throws. Resolves with how many memos got assets.
    */
   backfill(params?: { limit?: number }): Promise<number>;
+  /** Ends a running or future `backfill` after the memo it is on; `sync` is unaffected. Call before `idle()` at shutdown. */
+  stop(): void;
   /** Resolves when the passes and discards that are running or queued have finished (shutdown drain). */
   idle(): Promise<void>;
 }
@@ -80,6 +82,7 @@ export function createReplyAssets(deps: {
   // Passes for one memo run one after another: a later pass's prune must not delete the files an earlier one just stored.
   const perMemo = createKeyedQueue();
   const running = new Set<Promise<unknown>>();
+  let stopped = false;
   const track = <T>(task: Promise<T>) => {
     running.add(task);
     const forget = () => running.delete(task);
@@ -201,14 +204,14 @@ export function createReplyAssets(deps: {
     let examined = 0;
     let beforeSeq: number | undefined;
     try {
-      while (examined < limit) {
+      while (examined < limit && !stopped) {
         const page = store.listReplyAssetCandidates({ beforeSeq, limit: 100 });
         if (page.length === 0) break;
         for (const candidate of page) {
           beforeSeq = candidate.seq;
           // The query matches the word; only a real top-level fence is work (and counts against the bound).
           if (extractMermaidBlocks(candidate.replyText).length === 0) continue;
-          if (examined >= limit) break;
+          if (examined >= limit || stopped) break;
           examined++;
           if (await perMemo(candidate.id, () => backfillOne(candidate.id, candidate.replyText))) {
             done++;
@@ -225,6 +228,9 @@ export function createReplyAssets(deps: {
 
   return {
     sync: ({ memoId, replyText }) => track(perMemo(memoId, () => run(memoId, replyText))),
+    stop: () => {
+      stopped = true;
+    },
     backfill: ({ limit = BACKFILL_LIMIT } = {}) => track(backfill(limit)),
     idle: async () => {
       while (running.size > 0) await Promise.allSettled(running);

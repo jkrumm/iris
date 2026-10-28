@@ -304,6 +304,22 @@ describe("backfill", () => {
     expect(store.getMemo(older)?.replyBlocks).toHaveLength(1);
   });
 
+  it("stop() ends a running sweep after the memo it is on, and a stopped one renders nothing", async () => {
+    const { store, replies, renderer } = setup();
+    for (const source of ["A-->B", "C-->D", "E-->F"]) committed(store, fence(source));
+    const render = renderer.render.bind(renderer);
+    renderer.render = (source) => {
+      replies.stop();
+      return render(source);
+    };
+
+    expect(await replies.backfill()).toBe(1);
+    expect(renderer.calls).toEqual(["E-->F"]);
+    expect(await replies.backfill()).toBe(0);
+    expect(renderer.calls).toEqual(["E-->F"]);
+    await replies.idle();
+  });
+
   it("leaves no files for a memo whose reply changed while it rendered", async () => {
     const { store, replies, assets, renderer } = setup();
     const id = committed(store, fence("A-->B"));

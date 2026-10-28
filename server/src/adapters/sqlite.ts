@@ -644,7 +644,14 @@ export function createSqliteMemoStore(params: { db: Database; clock: Clock }): M
     },
 
     resetForRetry({ id, from }) {
-      return resetForRetry(id, from);
+      const reset = resetForRetry(id, from);
+      // The transaction dropped the rows of a reply that is gone; no completeStep will settle its pending assets.
+      const pending = pendingAssets.get(id);
+      if (reset && pending && stepsFrom(from).includes("act")) {
+        pendingAssets.delete(id);
+        pending.onDiscard();
+      }
+      return reset;
     },
 
     listStepRecords(id) {

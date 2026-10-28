@@ -137,6 +137,8 @@ async function shutdown(code: number): Promise<void> {
     await app.stop(true);
     runner.stop();
     purger.stop();
+    // Before the drain: a 50-memo sweep must end after its current memo, not hold the deadline.
+    replyAssets.stop();
     notifyLifecycle.stop();
     const drained = await Promise.race([
       Promise.all([runner.idle(), notifyLifecycle.idle(), purger.idle(), replyAssets.idle()]).then(
