@@ -41,6 +41,18 @@ struct MemoDetailView: View {
     .navigationTitle(String(localized: "Memo", comment: "Navigation title of the memo detail"))
     .navigationBarTitleDisplayMode(.inline)
     .toolbarVisibility(.hidden, for: .tabBar)
+    .toolbar {
+      if let route = model.memo.threadRoute {
+        ToolbarItem(placement: .topBarTrailing) {
+          NavigationLink(value: route) {
+            Label(
+              String(localized: "Conversation", comment: "Opens the thread this memo belongs to"),
+              systemImage: "bubble.left.and.bubble.right")
+          }
+          .accessibilityIdentifier("detail.conversation")
+        }
+      }
+    }
     .task(id: refreshToken()) { await model.load() }
     .task(id: model.audioRequest) { await playback.recording.load(model.audioRequest) }
     .task(id: model.failure) {

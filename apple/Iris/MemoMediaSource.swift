@@ -17,6 +17,8 @@ nonisolated struct MediaRequest: Equatable, Sendable {
 nonisolated protocol MemoMediaSource: Sendable {
   func audio(for memo: Memo) -> MediaRequest?
   func speech(for memo: Memo) -> MediaRequest?
+  /// A rendered file of a reply (`GET /v1/memos/:id/assets/:assetId`): the PNG of a Mermaid diagram.
+  func asset(memoID: String, assetID: String) -> MediaRequest?
 }
 
 /// The server's media routes with the device token in the `Authorization` header (``MediaDownloader`` sends it; the
@@ -34,6 +36,13 @@ nonisolated struct AuthenticatedMediaSource: MemoMediaSource {
   func speech(for memo: Memo) -> MediaRequest? {
     guard memo.hasReply, !memo.isDeleted else { return nil }
     return request(memo, "speech", fileExtension: "mp3", isReusable: false)
+  }
+
+  func asset(memoID: String, assetID: String) -> MediaRequest? {
+    MediaRequest(
+      url: baseURL.appending(path: "v1/memos/\(memoID)/assets/\(assetID)"),
+      headers: ["Authorization": "Bearer \(bearerToken)"],
+      cacheName: "\(memoID).\(assetID).png", isReusable: true)
   }
 
   private func request(_ memo: Memo, _ route: String, fileExtension: String, isReusable: Bool) -> MediaRequest {
@@ -61,6 +70,20 @@ nonisolated struct FakeMediaSource: MemoMediaSource {
   func speech(for memo: Memo) -> MediaRequest? {
     guard memo.hasReply else { return nil }
     return clip(named: "\(memo.id).speech", seconds: 4)
+  }
+
+  /// A small diagram-like PNG (boxes and arrows) in the ink of the appearance the asset id names, drawn once per id.
+  func asset(memoID: String, assetID: String) -> MediaRequest? {
+    let url = directory.appending(path: "\(memoID).\(assetID).png")
+    if !FileManager.default.fileExists(atPath: url.path) {
+      do {
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try FakeDiagramImage.png(dark: assetID.hasSuffix("dark")).write(to: url)
+      } catch {
+        return nil
+      }
+    }
+    return MediaRequest(url: url, headers: [:])
   }
 
   private func clip(named name: String, seconds: Double) -> MediaRequest? {
@@ -100,4 +123,5 @@ extension Memo {
 nonisolated struct UnavailableMediaSource: MemoMediaSource {
   func audio(for memo: Memo) -> MediaRequest? { nil }
   func speech(for memo: Memo) -> MediaRequest? { nil }
+  func asset(memoID: String, assetID: String) -> MediaRequest? { nil }
 }

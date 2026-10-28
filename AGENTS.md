@@ -353,6 +353,11 @@ Push to master deploys. LaunchAgent `com.jkrumm.iris` (KeepAlive, `ExitTimeOut` 
   `MediaDownloader` and played from the file (no `AVURLAssetHTTPHeaderFieldsKey`, TDD §4 "Authenticated media"). `MemoPlayer` follows a periodic time
   observer; call `teardown()` when the screen goes away. The unsigned simulator build (`CODE_SIGNING_ALLOWED=NO`) has no Keychain (`-34018`): the
   Keychain round-trip unit test cancels there and is device-verified only. `StatsModel`/`SettingsModel`/`HistoryModel` `load()` drop a stale answer (generation guard).
+- **Thread view** (`ThreadView` / `ThreadModel`, TDD §4 "Thread view"): a History row of a chat or a continued thread (`Memo.opensThread`) pushes it; the model derives turns from
+  `GET /v1/threads/:id` (user, assistant, pending with step dashes, failed) and reloads on the memos' History revisions. Replies render through `IrisUI`'s `MessageContentView`: `MessageBlock.split`
+  cuts markdown into Textual text, a table (grid or cards via `ViewThatFits`) and Mermaid fences numbered like the server's `ReplyBlock.index`; diagrams are the PNG of the current appearance
+  through `ReplyImageStore` and the authenticated `MemoMediaSource.asset`. Textual is pinned `exact: 0.5.0` in `IrisUI` only. Voice replies go through the `VoiceReplyCapture` port (fake under
+  `-IrisFakeCapture`, unavailable in production until I3). The fake sample data holds a chat thread with every block type (`SampleData.chatThreadID`) and a Hermes thread with a turn in flight.
 - **Snapshots** only compare on the pinned simulator; a diff on a clean tree means a different runtime. They do not render the glass layer.
 - **`scripts/mbm tap`** needs `--element-ref` from the latest `snapshot-ui` and `--post-delay 2`; `snapshot-ui` straight after a launch times out
   (`make ui-snapshot` waits first). Live Activity, widgets, the notification card and the Mac panel compile but have never been rendered; the
