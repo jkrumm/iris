@@ -9,6 +9,11 @@ struct ComposerRequest: Identifiable, Equatable {
   var mode: MemoMode = .auto
   var threadId: String?
 
+  /// A reply into a thread screen: a chat stays a chat, anything else continues through Hermes.
+  static func reply(toThread id: String, kind: ThreadKind) -> ComposerRequest {
+    ComposerRequest(mode: kind == .chat ? .chat : .hermes, threadId: id)
+  }
+
   /// A reply to `memo`: its thread when it has one, else a fresh chat about it (a memo outside a thread has nothing
   /// to continue).
   static func reply(to memo: Memo) -> ComposerRequest {

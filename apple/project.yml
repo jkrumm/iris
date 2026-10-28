@@ -138,6 +138,7 @@ targets:
       - Iris/HistoryToast.swift
       - Iris/MemoPresentation.swift
       - Iris/SampleData.swift
+      - Iris/SampleThreads.swift
     entitlements:
       path: IrisMac/IrisMac.entitlements
       properties:

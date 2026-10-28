@@ -8,6 +8,8 @@ struct HistoryView: View {
   let makeDetail: (Memo) -> MemoDetailModel
   /// Builds the model of the composer sheet (the composition root owns the client).
   let makeComposer: (ComposerRequest) -> ComposerModel
+  /// Builds the model of a conversation screen.
+  let makeThread: (ThreadRoute) -> ThreadModel
   @State private var showingFilters = false
   @State private var composer: ComposerRequest?
 
@@ -48,9 +50,17 @@ struct HistoryView: View {
       .navigationTitle(String(localized: "History", comment: "Navigation title of the memo list"))
       .navigationSubtitle(HistoryDaySection.subtitle(for: model.memos) ?? "")
       .navigationDestination(for: Memo.self) { memo in
-        MemoDetailView(
-          model: makeDetail(memo), refreshToken: { model.revision(of: memo.id) },
-          onReply: { composer = .reply(to: $0) })
+        // A chat or a continued thread opens as a conversation; the rest is a single memo.
+        if memo.opensThread, let route = memo.threadRoute {
+          threadView(route)
+        } else {
+          MemoDetailView(
+            model: makeDetail(memo), refreshToken: { model.revision(of: memo.id) },
+            onReply: { composer = .reply(to: $0) })
+        }
+      }
+      .navigationDestination(for: ThreadRoute.self) { route in
+        threadView(route)
       }
       .searchable(
         text: $model.filters.searchText, placement: .navigationBarDrawer(displayMode: .always),
@@ -93,6 +103,17 @@ struct HistoryView: View {
         model.dismissToast(id: id)
       }
     }
+  }
+
+  private func threadView(_ route: ThreadRoute) -> some View {
+    ThreadView(
+      model: makeThread(route),
+      refreshToken: { threadId, ids in
+        // Any event for a memo of the thread, or a new memo of it showing up in the list (another device's turn).
+        let inThread = model.memos.count { $0.threadId == threadId }
+        return ids.reduce(inThread) { $0 &+ model.revision(of: $1) }
+      },
+      makeComposer: makeComposer, onSent: { model.insert($0) })
   }
 
   /// How long the undo toast stays; UI tests stretch it (`-IrisUndoSeconds 60`) so a slow runner can still tap Undo.

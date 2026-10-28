@@ -11,6 +11,7 @@ struct RootView: View {
   var connectionForm: ConnectionModel?
   let makeDetail: (Memo) -> MemoDetailModel
   let makeComposer: (ComposerRequest) -> ComposerModel
+  let makeThread: (ThreadRoute) -> ThreadModel
 
   /// The tab shown first and the one the app jumps to when the connection is missing.
   enum Section: Hashable {
@@ -22,7 +23,8 @@ struct RootView: View {
   init(
     history: HistoryModel, stats: StatsModel, settings: SettingsModel, diagnostics: DiagnosticsModel,
     connectionForm: ConnectionModel? = nil, startsOnSettings: Bool = false,
-    makeDetail: @escaping (Memo) -> MemoDetailModel, makeComposer: @escaping (ComposerRequest) -> ComposerModel
+    makeDetail: @escaping (Memo) -> MemoDetailModel, makeComposer: @escaping (ComposerRequest) -> ComposerModel,
+    makeThread: @escaping (ThreadRoute) -> ThreadModel
   ) {
     self.history = history
     self.stats = stats
@@ -31,13 +33,14 @@ struct RootView: View {
     self.connectionForm = connectionForm
     self.makeDetail = makeDetail
     self.makeComposer = makeComposer
+    self.makeThread = makeThread
     _selection = State(initialValue: startsOnSettings ? .settings : .history)
   }
 
   var body: some View {
     TabView(selection: $selection) {
       Tab(String(localized: "History", comment: "Tab title"), systemImage: "clock", value: Section.history) {
-        HistoryView(model: history, makeDetail: makeDetail, makeComposer: makeComposer)
+        HistoryView(model: history, makeDetail: makeDetail, makeComposer: makeComposer, makeThread: makeThread)
       }
       Tab(String(localized: "Stats", comment: "Tab title"), systemImage: "chart.bar", value: Section.stats) {
         StatsView(model: stats)

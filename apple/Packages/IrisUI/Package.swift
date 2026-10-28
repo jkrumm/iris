@@ -9,11 +9,13 @@ let package = Package(
     .library(name: "IrisUI", targets: ["IrisUI"])
   ],
   dependencies: [
-    .package(url: "https://github.com/pointfreeco/swift-snapshot-testing", exact: "1.19.7")
+    .package(url: "https://github.com/pointfreeco/swift-snapshot-testing", exact: "1.19.7"),
+    .package(url: "https://github.com/gonzalezreal/textual", exact: "0.5.0"),
   ],
   targets: [
     .target(
       name: "IrisUI",
+      dependencies: [.product(name: "Textual", package: "textual")],
       resources: [.process("Resources")]
     ),
     .testTarget(

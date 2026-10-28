@@ -17,9 +17,11 @@ struct ComposerView: View {
   var body: some View {
     NavigationStack {
       VStack(alignment: .leading, spacing: Theme.Spacing.lg) {
-        ChoiceChips(choices: Self.choices, selection: $model.mode)
-          .disabled(model.isSending)
-          .accessibilityIdentifier("composer.modes")
+        if model.threadId == nil {
+          ChoiceChips(choices: Self.choices, selection: $model.mode)
+            .disabled(model.isSending)
+            .accessibilityIdentifier("composer.modes")
+        }
         ComposerField(
           text: $model.text,
           placeholder: String(localized: "What should Iris do?", comment: "Composer placeholder"),

@@ -476,6 +476,32 @@ crosses a network in cleartext. With nothing saved the app opens on the Settings
 `APIError.unauthorized`, "token missing"); there is no fallback to the fake. Saving bumps `connectionRevision`, which restarts `start()`: reload
 Settings and Stats, load History, reopen the event stream.
 
+### Thread view
+
+A History row opens the conversation when `Memo.opensThread`: a chat (`mode == chat`) or a turn that continues a thread (`threadId != id`); a Hermes memo in its own
+session (`threadId == id`) is one answer and keeps the detail, which gets a Conversation button when it has a `threadId`. `ThreadModel` loads
+`GET /v1/threads/:id` and derives the turns from the memos and messages: a user turn per memo with a transcript, an assistant turn per reply, and for a memo that
+has no reply yet either a **pending** turn (the step dashes from the memo's state, a caption) or, for `failed`, the server's error. A `memo.updated` event for any
+memo of the thread bumps History's revision of it, the screen reloads, and the pending turn turns into the answer in the same place with a short fade and height
+animation (none under Reduce Motion). **No token stream**: Hermes is final-answer only and `act` stores the final text (mother, 2026-10-28), so the reveal is the
+client's, never a fake typing effect. A memo sent from the screen (`didSend`) shows at once, then the fetch replaces it with the server's version.
+
+**Textual** (`gonzalezreal/textual`, MIT, 0.5.0 released 2026-06-15, SwiftPM `https://github.com/gonzalezreal/textual` pinned `exact: "0.5.0"` in `IrisUI`; iOS 18 / macOS 15
+minimum, depends on `swiftui-math` and `swift-concurrency-extras`; checked against its README and `Package.swift` at that tag, not from memory). `StructuredText(markdown:)`
+renders headings, emphasis, links, lists, block quotes and fenced code with its Prism-based syntax highlighting (light and dark adapt on their own); code blocks scroll sideways
+inside their card, text is selectable. Its table label is opaque to a style, so a table cannot become cards through `TableStyle`. `MessageBlock.split` therefore cuts the reply
+into blocks first, with the server's fence rules (CommonMark: same character, at least as long, nothing after the closing fence; an unclosed fence runs to the end): markdown goes to
+Textual, a GitHub pipe table to `MarkdownTableView` (`ViewThatFits`: a grid while it fits the width, else one card per row titled by its first cell, never a sideways scroll), and
+the nth top-level ```` ```mermaid ```` fence to `MermaidImageView` with the same index as `ReplyBlock.index`. A fence the server did not render (no block with that index) stays code.
+The diagram is the PNG of the current appearance (`png.light` / `png.dark`, drawn at 2x), fetched through the I1 authenticated media path (`MemoMediaSource.asset`, `MediaDownloader`,
+file kept for good since an asset id is never reused) into `ReplyImageStore`, which loads each file once and keeps the decoded image; the card holds the diagram's aspect ratio while it
+loads and offers a retry when it failed. A tap opens `ZoomableImageView` full screen: pinch (1x to 6x), drag when zoomed, double-tap between fit and 2.5x, share the image.
+
+Reply by text is the composer sheet bound to `threadId` (mode `chat` for a chat, `hermes` otherwise, no mode chips: the server forces Hermes for a continuation). Reply by voice is
+`VoiceReplyCapture`, the thread's capture port: `begin(VoiceReplyRequest(threadId, mode))` on touch-down of the hold-to-talk pill, `end(cancelled:)` on release (slide up 70 pt to cancel;
+a hold under 0.8 s is a cancel with a hint). `FakeVoiceReplyCapture` (under `-IrisFakeCapture`) records through `FakeCapture` and creates the memo on the API; production has
+`UnavailableVoiceReplyCapture` (the pill is disabled) until the outbox and real capture land in I3. VoiceOver gets a tap to start and a tap to send instead of a hold.
+
 ### Authenticated media
 
 `GET /v1/memos/:id/audio` and `/speech` need the bearer header, and AVFoundation has no documented way to send one:
@@ -580,7 +606,7 @@ and leaves no file. Revisit the resource loader only if recordings grow past a f
 | Memo detail | Transcript, player (play/pause, scrubber, 10 s back, no speed), full-width step waterfall with one `duration · cost` chip per step, faster/slower vs the stats baseline only above a sample threshold, attempts, [Retry from step], icon-only actions (play reply, reply → composer, retry), the reply as markdown; SSE refresh |
 | Composer | Typed memo: mode picker (Auto, Journal, Hermes, Tab, Chat), text, send via `POST /v1/memos/text`; from a detail's reply it continues the memo's thread |
 | Stats | Volume per route per day / week (Swift Charts), tiles, per-route trends, from `GET /v1/stats` |
-| Thread | The Hermes transcript rendered with Textual, with hold-to-talk to append to this thread |
+| Thread | One conversation as a rendered document (`GET /v1/threads/:id`), opened by a History row of a chat or a continued thread (Wave 15 I2, "Thread view" below): question and answer turns, a pending answer with the step dashes, hold-to-talk and a keyboard button at the bottom |
 | Record | Full-screen take: timer, level waveform, mic picker (`AVInputPickerInteraction` + own list), mode/tab picker, [Stop] |
 | Settings | Diagnostics (copy a memo id, animated "Copied"), Connection (server URL + device token in the Keychain, status; "Not configured" until saved), outbox section (a `QueuedItemSource` port, empty until capture lands). Later: route mic rules, default mode, spoken replies |
 
@@ -605,7 +631,7 @@ and leaves no file. Revisit the resource loader only if recordings grow past a f
 |-|-|-|
 | `IrisCore` | Foundation | Swift Testing: fixture decoding from `contracts/fixtures`, API client against a `URLProtocol` stub, SSE parser |
 | `IrisCapture` | IrisCore, AVFAudio | Swift Testing: segment rotation and outbox state machine against a fake engine/clock; real audio only in device spikes |
-| `IrisUI` | IrisCore | swift-snapshot-testing (1.19.x, Swift Testing traits) for components and Live Activity views, pinned to one simulator runtime |
+| `IrisUI` | Textual (0.5.0) | swift-snapshot-testing (1.19.x, Swift Testing traits) for components and Live Activity views, pinned to one simulator runtime |
 | `IrisTelemetry` | IrisCore | Swift Testing: batching, relay payload shape, drop-on-overflow |
 
 Swift settings: Swift 6 language mode and complete strict concurrency; app

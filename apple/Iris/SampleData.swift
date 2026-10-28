@@ -5,6 +5,10 @@ import IrisCore
 /// relative to `now` so the history reads naturally. Shared with the Mac target until the real client lands.
 enum SampleData {
   static func details(now: Date = Date()) -> [MemoDetail] {
+    baseDetails(now: now) + threadDetails(now: now).flatMap(\.memos).map { MemoDetail(memo: $0, steps: []) }
+  }
+
+  private static func baseDetails(now: Date) -> [MemoDetail] {
     [
       MemoDetail(
         memo: Memo(
@@ -153,6 +157,9 @@ enum SampleData {
   static func seed(_ client: FakeAPIClient) async {
     for detail in details() {
       await client.seed(detail)
+    }
+    for thread in threadDetails() {
+      await client.seed(thread)
     }
     await client.setStats(stats())
   }

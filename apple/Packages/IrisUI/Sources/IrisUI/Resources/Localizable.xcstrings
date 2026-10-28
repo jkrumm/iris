@@ -69,6 +69,57 @@
         }
       }
     },
+    "Close" : {
+      "comment" : "Closes the full diagram view",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Schließen"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Close"
+          }
+        }
+      }
+    },
+    "Diagram" : {
+      "comment" : "VoiceOver label of a rendered Mermaid diagram",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Diagramm"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Diagram"
+          }
+        }
+      }
+    },
+    "Diagram unavailable. Tap to retry." : {
+      "comment" : "Shown when a diagram image failed",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Diagramm nicht verfügbar. Zum Wiederholen tippen."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Diagram unavailable. Tap to retry."
+          }
+        }
+      }
+    },
     "Done" : {
       "comment" : "VoiceOver state of a step that finished",
       "localizations" : {
@@ -120,6 +171,40 @@
         }
       }
     },
+    "Hold to talk" : {
+      "comment" : "The hold-to-talk button of a thread",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zum Sprechen halten"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hold to talk"
+          }
+        }
+      }
+    },
+    "Iris" : {
+      "comment" : "Who spoke a turn in a thread",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Iris"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Iris"
+          }
+        }
+      }
+    },
     "Marked done" : {
       "comment" : "VoiceOver value of a History row the user marked done.",
       "localizations" : {
@@ -133,6 +218,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Marked done"
+          }
+        }
+      }
+    },
+    "Opens the diagram full screen" : {
+      "comment" : "VoiceOver hint",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Öffnet das Diagramm im Vollbild"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Opens the diagram full screen"
           }
         }
       }
@@ -205,6 +307,40 @@
         }
       }
     },
+    "Release to cancel" : {
+      "comment" : "Hint while holding the talk button",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Loslassen zum Abbrechen"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Release to cancel"
+          }
+        }
+      }
+    },
+    "Release to send · slide up to cancel" : {
+      "comment" : "Hint while holding the talk button",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Loslassen zum Senden · nach oben wischen zum Abbrechen"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Release to send · slide up to cancel"
+          }
+        }
+      }
+    },
     "Reply" : {
       "comment" : "VoiceOver label of the button that answers the memo",
       "localizations" : {
@@ -218,6 +354,40 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Reply"
+          }
+        }
+      }
+    },
+    "Reply by text" : {
+      "comment" : "VoiceOver label of the keyboard button",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Per Text antworten"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reply by text"
+          }
+        }
+      }
+    },
+    "Reply by voice" : {
+      "comment" : "VoiceOver label of the hold-to-talk button",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Per Sprache antworten"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reply by voice"
           }
         }
       }
@@ -256,6 +426,23 @@
         }
       }
     },
+    "Stop and send" : {
+      "comment" : "VoiceOver label while a voice reply is recording",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Stoppen und senden"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Stop and send"
+          }
+        }
+      }
+    },
     "Stop reply" : {
       "comment" : "VoiceOver label of the stop button while the reply plays",
       "localizations" : {
@@ -286,6 +473,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Waiting"
+          }
+        }
+      }
+    },
+    "You" : {
+      "comment" : "Who spoke a turn in a thread",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Du"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "You"
           }
         }
       }

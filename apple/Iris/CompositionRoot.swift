@@ -1,6 +1,7 @@
 import Foundation
 import IrisCapture
 import IrisCore
+import IrisUI
 import Observation
 
 /// The one place that decides which adapters the app runs on. Launch arguments are read here, once.
@@ -28,6 +29,8 @@ final class CompositionRoot {
   let stats: StatsModel
   let settings: SettingsModel
   let diagnostics: DiagnosticsModel
+  /// The decoded images of every reply on screen (Mermaid diagrams), shared by all thread screens.
+  let replyImages: ReplyImageStore
   /// The editable connection; nil when running on fakes.
   private(set) var connectionForm: ConnectionModel?
   /// Bumped when the saved connection changes; `IrisApp` restarts ``start()`` on it.
@@ -37,6 +40,7 @@ final class CompositionRoot {
   private let fakeAPI: FakeAPIClient?
   private let credentials: (any CredentialStore)?
   private let reconfigurable: ReconfigurableAPIClient?
+  private let voiceReply: any VoiceReplyCapture
 
   init(
     arguments: [String] = ProcessInfo.processInfo.arguments,
@@ -55,7 +59,11 @@ final class CompositionRoot {
       history = HistoryModel(client: fake)
       stats = StatsModel(client: fake)
       settings = SettingsModel(client: fake)
-      fakeCapture = FakeCapture(directory: FileManager.default.temporaryDirectory.appending(path: "iris-fake-capture"))
+      replyImages = ReplyImageStore(
+        loader: MediaAssetLoader(source: { FakeMediaSource() }, downloader: MediaDownloader()))
+      let capture = FakeCapture(directory: FileManager.default.temporaryDirectory.appending(path: "iris-fake-capture"))
+      fakeCapture = capture
+      voiceReply = FakeVoiceReplyCapture(capture: capture, client: fake)
     } else {
       let saved = credentials.load()
       let client = ReconfigurableAPIClient(credentials: saved)
@@ -69,6 +77,10 @@ final class CompositionRoot {
       stats = StatsModel(client: client)
       settings = SettingsModel(client: client, credentials: credentials)
       fakeCapture = nil
+      voiceReply = UnavailableVoiceReplyCapture()
+      replyImages = ReplyImageStore(
+        loader: MediaAssetLoader(
+          source: { Self.mediaSource(for: credentials.load()) }, downloader: MediaDownloader()))
       connectionForm = ConnectionModel(store: credentials) { [unowned self] in connectionChanged() }
     }
   }
@@ -84,6 +96,11 @@ final class CompositionRoot {
   /// The model behind one open composer sheet.
   func composerModel(for request: ComposerRequest) -> ComposerModel {
     ComposerModel(request: request, client: api)
+  }
+
+  /// The model behind one open conversation.
+  func threadModel(for route: ThreadRoute) -> ThreadModel {
+    ThreadModel(route: route, client: api, voice: voiceReply)
   }
 
   /// Fakes: seeds the sample memos. Then, when there is a connection: loads the list and follows the server's events
@@ -103,10 +120,12 @@ final class CompositionRoot {
   private func mediaSource() -> any MemoMediaSource {
     switch mode {
     case .fake: FakeMediaSource()
-    case .production:
-      credentials?.load().map { AuthenticatedMediaSource(baseURL: $0.serverURL, bearerToken: $0.token) }
-        ?? UnavailableMediaSource()
+    case .production: Self.mediaSource(for: credentials?.load())
     }
+  }
+
+  private static func mediaSource(for saved: ConnectionCredentials?) -> any MemoMediaSource {
+    saved.map { AuthenticatedMediaSource(baseURL: $0.serverURL, bearerToken: $0.token) } ?? UnavailableMediaSource()
   }
 
   private func connectionChanged() {
