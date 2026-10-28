@@ -68,10 +68,6 @@ struct ThreadView: View {
     .navigationBarTitleDisplayMode(.inline)
     .toolbarVisibility(.hidden, for: .tabBar)
     .task(id: refreshToken(model.route.id, model.memoIDs)) { await model.load() }
-    .task(id: model.failure) {
-      guard model.failure != nil, (try? await Task.sleep(for: .seconds(4))) != nil else { return }
-      model.dismissFailure()
-    }
     .onDisappear { cancelVoice() }
     .onChange(of: scenePhase) {
       // `.inactive` too (Control Center, a call, a system alert): the finger is gone either way.
@@ -103,12 +99,10 @@ struct ThreadView: View {
           label: model.kind == .chat
             ? String(localized: "Chat", comment: "Thread kind") : String(localized: "Hermes", comment: "Thread kind"),
           systemImage: model.kind == .chat ? "bubble.left.and.bubble.right" : "arrow.triangle.branch")
-        if let detail = model.detail {
-          Text(
-            "\(model.turnCount) turns", comment: "Number of turns of a thread, in the header"
-          )
-          .themeFont(.footnote)
-          .foregroundStyle(Theme.Ink.muted)
+        if model.detail != nil {
+          Text(verbatim: ThreadCopy.turnCount(model.turnCount))
+            .themeFont(.footnote)
+            .foregroundStyle(Theme.Ink.muted)
         }
       }
       Text(verbatim: model.title)
@@ -169,7 +163,7 @@ struct ThreadView: View {
 
   @ViewBuilder private var failureToast: some View {
     if let failure = model.failure {
-      ToastBanner(message: failure)
+      ToastBanner(message: failure.message)
         .padding(.horizontal, Theme.Spacing.lg)
         .padding(.bottom, 96)
         .transition(.move(edge: .bottom).combined(with: .opacity))

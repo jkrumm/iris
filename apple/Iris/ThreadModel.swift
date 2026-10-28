@@ -32,28 +32,44 @@ final class ThreadModel {
   private(set) var loadFailed = false
   /// When the take in progress began; `nil` when idle.
   private(set) var voiceStartedAt: Date?
-  /// The words of the last failed action, shown as a toast and cleared by ``dismissFailure()``.
-  private(set) var failure: String?
+  /// A toast for the last failed action. The id tells two toasts with the same words apart.
+  struct Failure: Equatable, Identifiable {
+    let id: Int
+    let message: String
+  }
+
+  /// The toast on screen. It goes away after ``toastDuration``, or at ``dismissFailure()``, whichever comes first; a
+  /// newer toast takes over and its predecessor's timer is cancelled with it.
+  private(set) var failure: Failure?
 
   private let client: any APIClient
   private let voice: any VoiceReplyCapture
   private let now: () -> Date
+  private let toastDuration: Duration
+  private let sleep: @Sendable (Duration) async throws -> Void
   private let logger = Logger(subsystem: "com.jkrumm.iris", category: "thread")
   private var beginTask: Task<Bool, Never>?
   /// A take is being stopped and sent: a new hold must wait, the capture is still busy with the last one.
   private var isEndingVoice = false
   /// Bumped by every fetch and every local change; a fetch that is no longer the latest drops its answer.
   private var generation = 0
+  private var toastCount = 0
+  private var toastTimer: Task<Void, Never>?
 
   /// A hold shorter than this is a touch, not a take.
   static let minimumTake: TimeInterval = 0.8
 
-  init(route: ThreadRoute, client: any APIClient, voice: any VoiceReplyCapture, now: @escaping () -> Date = { Date() })
-  {
+  init(
+    route: ThreadRoute, client: any APIClient, voice: any VoiceReplyCapture, now: @escaping () -> Date = { Date() },
+    toastDuration: Duration = .seconds(4),
+    sleep: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
+  ) {
     self.route = route
     self.client = client
     self.voice = voice
     self.now = now
+    self.toastDuration = toastDuration
+    self.sleep = sleep
   }
 
   var title: String { detail?.thread.title ?? route.title ?? "" }
@@ -152,7 +168,7 @@ final class ThreadModel {
         return true
       } catch {
         logger.error("voice reply could not start: \(String(describing: error), privacy: .public)")
-        failure = String(localized: "Could not start recording", comment: "Toast when a voice reply could not start")
+        showFailure(String(localized: "Could not start recording", comment: "Toast when a voice reply could not start"))
         voiceStartedAt = nil
         return false
       }
@@ -176,18 +192,36 @@ final class ThreadModel {
     do {
       let memo = try await voice.end(cancelled: cancelled || tooShort)
       if tooShort && !cancelled {
-        failure = String(localized: "Hold the button while you speak", comment: "Toast after a too-short voice reply")
+        showFailure(
+          String(localized: "Hold the button while you speak", comment: "Toast after a too-short voice reply"))
       }
       if let memo { didSend(memo) }
       return memo
     } catch {
       logger.error("voice reply failed: \(String(describing: error), privacy: .public)")
-      failure = String(localized: "Could not send the voice reply", comment: "Toast when a voice reply failed")
+      showFailure(String(localized: "Could not send the voice reply", comment: "Toast when a voice reply failed"))
       return nil
     }
   }
 
   func dismissFailure() {
+    toastTimer?.cancel()
+    toastTimer = nil
     failure = nil
+  }
+
+  /// Shows `message` as the toast and starts its timer; the previous toast's timer is cancelled first, so it can
+  /// never hide this one.
+  private func showFailure(_ message: String) {
+    toastTimer?.cancel()
+    toastCount += 1
+    let toast = Failure(id: toastCount, message: message)
+    failure = toast
+    let duration = toastDuration
+    let sleep = sleep
+    toastTimer = Task { [weak self] in
+      guard (try? await sleep(duration)) != nil, !Task.isCancelled, self?.failure?.id == toast.id else { return }
+      self?.dismissFailure()
+    }
   }
 }

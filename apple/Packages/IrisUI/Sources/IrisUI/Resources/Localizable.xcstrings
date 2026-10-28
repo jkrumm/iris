@@ -35,6 +35,47 @@
         }
       }
     },
+    "%lld turns" : {
+      "comment" : "Number of turns (questions asked) of a thread, in its header",
+      "localizations" : {
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld turn"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld turns"
+                }
+              }
+            }
+          }
+        },
+        "de" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld Runde"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld Runden"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "Audio route: %@" : {
       "comment" : "VoiceOver label of the route chip. The placeholder is the input device name.",
       "localizations" : {
