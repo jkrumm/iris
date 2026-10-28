@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { createKeyedQueue } from "./keyed-queue.js";
+import { createKeyedQueue, KeyedQueueTimeout } from "./keyed-queue.js";
 
 describe("createKeyedQueue", () => {
   it("runs the tasks of one key in call order and the tasks of other keys alongside", async () => {
@@ -27,5 +27,125 @@ describe("createKeyedQueue", () => {
     const next = queue("a", () => Promise.resolve("ran"));
     await expect(failed).rejects.toThrow("boom");
     await expect(next).resolves.toBe("ran");
+  });
+});
+
+/** A sleep that only finishes when the test says so, per call. */
+function manualSleep() {
+  const waits: { ms: number; fire: () => void }[] = [];
+  const sleep = (ms: number) =>
+    new Promise<void>((resolve) => {
+      waits.push({ ms, fire: resolve });
+    });
+  return { sleep, waits };
+}
+
+const gate = () => {
+  let open!: () => void;
+  const opened = new Promise<void>((resolve) => (open = resolve));
+  return { opened, open };
+};
+
+describe("createKeyedQueue, bounded wait", () => {
+  it("starts no timer for a caller that does not wait", async () => {
+    const { sleep, waits } = manualSleep();
+    const queue = createKeyedQueue({ maxWaitMs: 100, sleep });
+    await expect(queue("a", () => Promise.resolve(1))).resolves.toBe(1);
+    expect(waits).toEqual([]);
+  });
+
+  it("lets a caller that is served in time run", async () => {
+    const { sleep, waits } = manualSleep();
+    const queue = createKeyedQueue({ maxWaitMs: 100, sleep });
+    const first = gate();
+    const a1 = queue("a", () => first.opened.then(() => "one"));
+    const a2 = queue("a", () => Promise.resolve("two"));
+    expect(waits.map((w) => w.ms)).toEqual([100]);
+    first.open();
+    await expect(Promise.all([a1, a2])).resolves.toEqual(["one", "two"]);
+    waits[0]?.fire();
+  });
+
+  it("fails a caller that waits past the bound, names the turn ahead and never runs its task", async () => {
+    const { sleep, waits } = manualSleep();
+    const queue = createKeyedQueue({ maxWaitMs: 1500, sleep });
+    const stuck = gate();
+    const ran: string[] = [];
+    const first = queue("thread-1", () => stuck.opened, "memo m1");
+    const second = queue("thread-1", async () => void ran.push("m2"), "memo m2");
+
+    waits[0]?.fire();
+    const err = await second.catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(KeyedQueueTimeout);
+    expect(err).toMatchObject({ key: "thread-1", waitedMs: 1500, ahead: "memo m1" });
+    expect((err as Error).message).toContain("memo m1");
+
+    stuck.open();
+    await first;
+    expect(ran).toEqual([]);
+  });
+
+  it("keeps the line consistent: a later caller still waits for the stuck turn, then runs", async () => {
+    const { sleep, waits } = manualSleep();
+    const queue = createKeyedQueue({ maxWaitMs: 1000, sleep });
+    const stuck = gate();
+    const order: string[] = [];
+    const first = queue(
+      "t",
+      async () => {
+        order.push("m1 start");
+        await stuck.opened;
+        order.push("m1 end");
+      },
+      "memo m1",
+    );
+    const second = queue("t", async () => void order.push("m2"), "memo m2");
+    waits[0]?.fire();
+    await expect(second).rejects.toBeInstanceOf(KeyedQueueTimeout);
+
+    const third = queue("t", async () => void order.push("m3"), "memo m3");
+    await Promise.resolve();
+    expect(order).toEqual(["m1 start"]);
+
+    stuck.open();
+    await Promise.all([first, third]);
+    expect(order).toEqual(["m1 start", "m1 end", "m3"]);
+  });
+
+  it("names the turn that is stuck, not one that already finished", async () => {
+    const { sleep, waits } = manualSleep();
+    const queue = createKeyedQueue({ maxWaitMs: 1000, sleep });
+    const stuck = gate();
+    const m1 = queue("t", () => Promise.resolve(), "memo m1");
+    const m2 = queue("t", () => stuck.opened, "memo m2");
+    const m3 = queue("t", () => Promise.resolve(), "memo m3");
+    await m1;
+    waits[1]?.fire();
+    await expect(m3).rejects.toMatchObject({ ahead: "memo m2" });
+    stuck.open();
+    await m2;
+  });
+
+  it("does not make other keys wait or time out", async () => {
+    const { sleep, waits } = manualSleep();
+    const queue = createKeyedQueue({ maxWaitMs: 1000, sleep });
+    const stuck = gate();
+    const a = queue("a", () => stuck.opened);
+    await expect(queue("b", () => Promise.resolve("b"))).resolves.toBe("b");
+    expect(waits).toEqual([]);
+    stuck.open();
+    await a;
+  });
+
+  it("is unbounded without maxWaitMs", async () => {
+    const { sleep, waits } = manualSleep();
+    const queue = createKeyedQueue({ sleep });
+    const first = gate();
+    const a1 = queue("a", () => first.opened);
+    const a2 = queue("a", () => Promise.resolve("two"));
+    expect(waits).toEqual([]);
+    first.open();
+    await a1;
+    await expect(a2).resolves.toBe("two");
   });
 });
