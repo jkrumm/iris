@@ -13,9 +13,45 @@ public struct MemoSummary: Codable, Hashable, Sendable {
   }
 }
 
+/// The server-rendered files of one value per colour scheme: asset ids for `GET /v1/memos/:id/assets/:assetId`.
+public struct SchemeAssets: Codable, Hashable, Sendable {
+  public var light: String
+  public var dark: String
+
+  public init(light: String, dark: String) {
+    self.light = light
+    self.dark = dark
+  }
+}
+
+/// A ```mermaid fence of a reply that the server rendered. `index` counts the reply's mermaid fences from zero in document
+/// order, so a fence that did not render leaves a gap and stays a code block. `width` and `height` are points; the PNGs are
+/// drawn at twice that (capped at 4096 px on the long edge). An asset id is never reused, so a fetched file can be cached for good.
+public struct ReplyBlock: Codable, Hashable, Sendable {
+  public enum Kind: String, Codable, Hashable, Sendable {
+    case mermaid
+  }
+
+  public var index: Int
+  public var kind: Kind
+  public var width: Int
+  public var height: Int
+  public var svg: SchemeAssets
+  public var png: SchemeAssets
+
+  public init(index: Int, kind: Kind = .mermaid, width: Int, height: Int, svg: SchemeAssets, png: SchemeAssets) {
+    self.index = index
+    self.kind = kind
+    self.width = width
+    self.height = height
+    self.svg = svg
+    self.png = png
+  }
+}
+
 /// A memo as returned by create, complete, retry, route, result and list. Every key is always present on the
 /// wire, unset ones as explicit `null`, which `encode(to:)` reproduces; the exceptions are `routeReason`,
-/// `routeSuggestion`, `threadId`, `typed`, `deletedAt` and `purgeAt`, which are omitted when `nil` / `false`.
+/// `routeSuggestion`, `threadId`, `typed`, `replyBlocks`, `deletedAt` and `purgeAt`, which are omitted when `nil` / `false` / empty.
 public struct Memo: Codable, Hashable, Sendable, Identifiable {
   public var id: String
   public var mode: MemoMode
@@ -30,6 +66,9 @@ public struct Memo: Codable, Hashable, Sendable, Identifiable {
   public var route: String?
   public var destinationRef: String?
   public var replyText: String?
+  /// The reply's Mermaid blocks that the server rendered (SVG and PNG, light and dark); empty when there are none, never
+  /// `null` on the wire, omitted then. A block that failed to render is absent and stays a code block in `replyText`.
+  public var replyBlocks: [ReplyBlock]
   public var summary: MemoSummary?
   /// The Hermes session (chat or not) the memo belongs to: set when `act` ran in it, or at creation for a memo that continues
   /// a thread (`CreateMemoRequest.threadId`); omitted (never `null`) otherwise.
@@ -71,6 +110,7 @@ public struct Memo: Codable, Hashable, Sendable, Identifiable {
     route: String? = nil,
     destinationRef: String? = nil,
     replyText: String? = nil,
+    replyBlocks: [ReplyBlock] = [],
     summary: MemoSummary? = nil,
     threadId: String? = nil,
     routeReason: String? = nil,
@@ -97,6 +137,7 @@ public struct Memo: Codable, Hashable, Sendable, Identifiable {
     self.route = route
     self.destinationRef = destinationRef
     self.replyText = replyText
+    self.replyBlocks = replyBlocks
     self.summary = summary
     self.threadId = threadId
     self.routeReason = routeReason
@@ -113,7 +154,7 @@ public struct Memo: Codable, Hashable, Sendable, Identifiable {
 
   private enum CodingKeys: String, CodingKey {
     case id, mode, device, startedAt, state, failedStep, error, segmentCount, audioSeconds, transcript, route
-    case destinationRef, replyText, summary, threadId, routeReason, routeSuggestion, createdAt, updatedAt
+    case destinationRef, replyText, replyBlocks, summary, threadId, routeReason, routeSuggestion, createdAt, updatedAt
     case done, favorite, archived, deletedAt, purgeAt
     case isTyped = "typed"
   }
@@ -133,6 +174,7 @@ public struct Memo: Codable, Hashable, Sendable, Identifiable {
     route = try container.decode(String?.self, forKey: .route)
     destinationRef = try container.decode(String?.self, forKey: .destinationRef)
     replyText = try container.decode(String?.self, forKey: .replyText)
+    replyBlocks = try container.decodeIfPresent([ReplyBlock].self, forKey: .replyBlocks) ?? []
     summary = try container.decode(MemoSummary?.self, forKey: .summary)
     threadId = try container.decodeIfPresent(String.self, forKey: .threadId)
     routeReason = try container.decodeIfPresent(String.self, forKey: .routeReason)
@@ -163,6 +205,7 @@ public struct Memo: Codable, Hashable, Sendable, Identifiable {
     try container.encode(route, forKey: .route)
     try container.encode(destinationRef, forKey: .destinationRef)
     try container.encode(replyText, forKey: .replyText)
+    if !replyBlocks.isEmpty { try container.encode(replyBlocks, forKey: .replyBlocks) }
     try container.encode(summary, forKey: .summary)
     try container.encodeIfPresent(threadId, forKey: .threadId)
     try container.encodeIfPresent(routeReason, forKey: .routeReason)
