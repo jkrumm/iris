@@ -36,7 +36,11 @@ struct ConnectionForm: View {
   private func message(for failure: ConnectionModel.Failure) -> String {
     switch failure {
     case .invalid:
-      String(localized: "Enter an http(s) address and a token.", comment: "Settings connection error")
+      String(localized: "Enter an https address and a token.", comment: "Settings connection error")
+    case .insecure:
+      String(
+        localized: "Use an https address. Plain http is only allowed for localhost.",
+        comment: "Settings connection error: the token would travel unencrypted")
     case .notStored:
       String(localized: "Could not store the token in the Keychain.", comment: "Settings connection error")
     }

@@ -471,7 +471,8 @@ The server URL and device token are typed in Settings → Connection. The token 
 `com.jkrumm.iris.device-token`, no explicit access group, so it lands in the first `keychain-access-groups` entry, the App Group's, which the
 widgets and the notification extension can read later); the URL, which is not a secret, is in `UserDefaults`. Every model holds the same
 `ReconfigurableAPIClient`, which forwards to the `URLSessionAPIClient` for the saved connection and is swapped on Save, so no model is rebuilt.
-With nothing saved the app opens on the Settings tab, shows "Not configured" with the form, and loads nothing (the client would answer
+The form accepts https only; plain http is accepted for `localhost`, `127.0.0.1` and `::1` (simulator dev), so the bearer token never
+crosses a network in cleartext. With nothing saved the app opens on the Settings tab, shows "Not configured" with the form, and loads nothing (the client would answer
 `APIError.unauthorized`, "token missing"); there is no fallback to the fake. Saving bumps `connectionRevision`, which restarts `start()`: reload
 Settings and Stats, load History, reopen the event stream.
 
