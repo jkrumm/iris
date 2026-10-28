@@ -89,7 +89,7 @@ Never start dev servers for a human to look at; simulators are fine, shut them d
 - `contracts/` — the wire contract Swift decodes: `schema/<name>.json` (generated, JSON Schema 2020-12),
   `fixtures/<name>[.<variant>].json` (hand-written, valid against schema `<name>`), `manifest.json` (every route
   with its schema names, status codes and media types; binary and SSE routes included).
-- `server/src/compose.ts` — `compose({env, devices, clock, dataDir})`: the one place a downstream port is chosen (fake under
+- `server/src/compose.ts` — `compose({env, db, devices, clock, dataDir})`: builds the stats store over `db` and is the one place a downstream port is chosen (fake under
   `IRIS_FAKES=1`, real adapter when its env is set, else absent and named in `degraded`); also the notifier and the device tokens.
   A new port is one entry there, its fake in `fakePorts`, and its env var in `env.ts`.
 - `scripts/` — `send-memo.ts` (driver), `e2e.ts` (`make e2e`), `smoke.sh`, `launch.sh` (LaunchAgent entry), `mini-deploy.sh` (poller tick);

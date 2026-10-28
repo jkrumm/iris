@@ -1,3 +1,4 @@
+import type { Database } from "bun:sqlite";
 import { join } from "node:path";
 import { createFsSpeechCache } from "./adapters/speech-fs.js";
 import { createAgwSummarizer } from "./adapters/agw.js";
@@ -7,6 +8,7 @@ import { createAudioGatewayTranscriber, ffmpegCombiner } from "./adapters/audio-
 import { createHerdrDestination, createHerdrHerd } from "./adapters/herdr.js";
 import { createHermesDestination } from "./adapters/hermes.js";
 import { createJournalDestination } from "./adapters/journal.js";
+import { createSqliteStatsStore } from "./adapters/sqlite-stats.js";
 import type { env as parsedEnv } from "./env.js";
 import { parseDeviceTokens } from "./http/auth.js";
 import { selectNotifier } from "./notify/select.js";
@@ -95,13 +97,15 @@ const fakePorts = () => ({
  */
 export function compose(deps: {
   env: ComposeEnv;
+  /** The memo database: the read-only stats store is built over it (always, fakes mode included). */
+  db: Database;
   devices: DeviceStore;
   clock: Clock;
   /** `IRIS_DATA`; the speech cache lives under `<dataDir>/speech`. */
   dataDir: string;
   combiner?: AudioCombiner;
 }) {
-  const { env, devices, clock, dataDir } = deps;
+  const { env, db, devices, clock, dataDir } = deps;
   const degraded: string[] = [];
   if (!env.OTEL_EXPORTER_OTLP_ENDPOINT) degraded.push("otel");
 
@@ -182,6 +186,7 @@ export function compose(deps: {
 
   return {
     ports: { ...ports, decider },
+    stats: createSqliteStatsStore({ db, clock }),
     telemetry,
     degraded,
     deviceTokens,

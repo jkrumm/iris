@@ -3,7 +3,6 @@ import { join } from "node:path";
 import { createFsAudioStore } from "./adapters/audio-fs.js";
 import { createSqliteMemoStore, openDatabase } from "./adapters/sqlite.js";
 import { createSqliteDeviceStore } from "./adapters/sqlite-devices.js";
-import { createSqliteStatsStore } from "./adapters/sqlite-stats.js";
 import { createApp } from "./app.js";
 import { compose } from "./compose.js";
 import { env } from "./env.js";
@@ -27,13 +26,13 @@ const db = openDatabase(join(env.IRIS_DATA, "iris.db"));
 const clock = systemClock;
 const store = createSqliteMemoStore({ db, clock });
 const devices = createSqliteDeviceStore({ db, clock });
-const stats = createSqliteStatsStore({ db, clock });
 const events = createMemoEvents();
 const audio = createFsAudioStore(join(env.IRIS_DATA, "audio"));
 
 // A missing downstream leaves its step without a handler: memos park there and /health says so.
-const { ports, degraded, deviceTokens, notifier, closeTransport, telemetry } = compose({
+const { ports, stats, degraded, deviceTokens, notifier, closeTransport, telemetry } = compose({
   env,
+  db,
   devices,
   clock,
   dataDir: env.IRIS_DATA,

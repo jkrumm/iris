@@ -16,7 +16,14 @@ const DEVICE_TOKENS = "tok-phone=iphone";
 function build(env: ComposeEnv, combiner = fakeCombiner()) {
   const { store, clock, db } = testStore();
   const devices = createSqliteDeviceStore({ db, clock });
-  const composed = compose({ env, devices, clock, dataDir: "/nonexistent/iris-data", combiner });
+  const composed = compose({
+    env,
+    db,
+    devices,
+    clock,
+    dataDir: "/nonexistent/iris-data",
+    combiner,
+  });
   return { composed, store, clock, db, devices };
 }
 
@@ -61,6 +68,7 @@ function fakesApp() {
     deviceTokens: composed.deviceTokens,
     degraded: ["fakes"],
     memos,
+    stats: composed.stats,
     devices,
     media,
     herd: fakes.herd,
@@ -112,6 +120,11 @@ describe("compose with IRIS_FAKES", () => {
 
     const herd = await call(app, { path: "/v1/herd" });
     expect(((await herd.json()) as { tabs: unknown[] }).tabs).toHaveLength(3);
+
+    // The stats store comes from compose(), over the same database as the memo store.
+    const stats = await call(app, { path: "/v1/stats" });
+    expect(stats.status).toBe(200);
+    expect(((await stats.json()) as { perDay: { count: number }[] }).perDay[0]?.count).toBe(1);
 
     const register = await call(app, {
       method: "POST",
