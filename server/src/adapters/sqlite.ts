@@ -126,6 +126,7 @@ interface RouteDecisionRow {
   cost_usd: number | null;
   reason: string | null;
   outcome: string;
+  prefix_words: number | null;
 }
 
 const SummarySchema = z.object({ headline: z.string(), detail: z.string(), spoken: z.string() });
@@ -230,6 +231,7 @@ const toRouteDecision = (row: RouteDecisionRow): RouteDecisionRecord => ({
   costUsd: row.cost_usd,
   reason: row.reason,
   outcome: row.outcome as RouteOutcome,
+  ...(row.prefix_words !== null && { prefixWords: row.prefix_words }),
 });
 
 /** Column behind each patchable memo field. */
@@ -312,8 +314,8 @@ export function createSqliteMemoStore(params: { db: Database; clock: Clock }): M
   const insertRouteDecision = (id: string, at: string, decision: RouteDecisionInput) => {
     db.query(
       `INSERT INTO route_decisions
-         (memo_id, created_at, source, destination, tab, confidence, model, cost_usd, reason, outcome)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         (memo_id, created_at, source, destination, tab, confidence, model, cost_usd, reason, outcome, prefix_words)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).run(
       id,
       at,
@@ -325,6 +327,7 @@ export function createSqliteMemoStore(params: { db: Database; clock: Clock }): M
       decision.costUsd,
       decision.reason,
       decision.outcome,
+      decision.prefixWords ?? null,
     );
   };
 
