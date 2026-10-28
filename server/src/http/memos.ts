@@ -198,6 +198,7 @@ export function memoRoutes(deps: { memos: MemoService; auth: ReturnType<typeof d
         const {
           memos: items,
           pinned,
+          pinnedTruncated,
           nextCursor,
         } = memos.list({
           ...(query.limit !== undefined && { limit: query.limit }),
@@ -209,7 +210,12 @@ export function memoRoutes(deps: { memos: MemoService; auth: ReturnType<typeof d
           archived: query.archived === "true" ? true : undefined,
           kind: query.kind,
         });
-        return { items: items.map(memoJson), pinned: pinned.map(memoJson), nextCursor };
+        return {
+          items: items.map(memoJson),
+          pinned: pinned.map(memoJson),
+          pinnedTruncated,
+          nextCursor,
+        };
       },
       { query: ListQuery, response: { 200: MemoList, 400: ErrorBody } },
     )

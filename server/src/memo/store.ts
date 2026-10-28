@@ -70,7 +70,7 @@ export interface MemoStore extends ThreadStore {
    * History, newest first. `q` searches the transcript and the summary headline (case, umlaut and prefix
    * insensitive, terms ANDed), `route` and `state` filter exactly; all combine. `needs_route` memos never
    * appear in `memos` (so the cursor survives one leaving that state): without a `cursor` they come back in
-   * `pinned` instead, every one matching the filters, newest first, at most `PINNED_LIMIT`. A `done` `needs_route`
+   * `pinned` instead, every one matching the filters, newest first, at most `PINNED_LIMIT` (`pinnedTruncated` says it was cut). A `done` `needs_route`
    * memo is no open question: it is never pinned and appears in `memos` at its seq position. Soft-deleted memos
    * never appear; archived ones only with `archived`, which then lists nothing else. `favorite` keeps the
    * favorites, `kind` the memos whose thread has that kind. `nextCursor` is null on the last page; cursors stay
@@ -88,6 +88,8 @@ export interface MemoStore extends ThreadStore {
   }): {
     memos: Memo[];
     pinned: Memo[];
+    /** More than `PINNED_LIMIT` memos match, so `pinned` is cut short; always false with a `cursor`. */
+    pinnedTruncated: boolean;
     nextCursor: string | null;
   };
 

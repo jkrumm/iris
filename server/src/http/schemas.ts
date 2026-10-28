@@ -138,13 +138,18 @@ export const ThreadDetail = t.Object({
  * first page and `[]` on later ones; `items` never holds a `needs_route` memo. A memo answered after page 1 left
  * `needs_route` and appears in `items` at its seq position, so a later page can repeat a memo already in `pinned`. A
  * `done` `needs_route` memo is no open question: it is never pinned and sits in `items` at its seq position. Soft-deleted
- * memos appear in neither; archived ones only when the `archived` filter is on.
+ * memos appear in neither; archived ones only when the `archived` filter is on. `pinnedTruncated` is true on the first
+ * page when more than 50 memos matched (the oldest are left out of `pinned`), false otherwise and on every later page.
  */
 export const MemoList = t.Object({
   items: t.Array(Memo),
   pinned: t.Array(Memo, {
     description:
       "needs_route memos matching the filters, newest first, at most 50; [] with a cursor. Clients de-duplicate by memo id across pinned and pages: a memo answered after page 1 reappears in items on a later page.",
+  }),
+  pinnedTruncated: t.Boolean({
+    description:
+      "true on the first page when more than 50 needs_route memos matched, so pinned holds only the newest 50; false otherwise and with a cursor.",
   }),
   nextCursor: Nullable(t.String()),
 });
