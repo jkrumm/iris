@@ -3,6 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { TabGoneError } from "../ports/destination.js";
+import { transientKind } from "../ports/transient.js";
 import { createHerdrDestination, createHerdrHerd } from "./herdr.js";
 
 // A real unix socket server standing in for herdr: ndjson in, one response line out.
@@ -258,6 +259,54 @@ describe("herdr destination", () => {
       ),
     );
     expect(results.map((r) => r.status)).toEqual(["rejected", "fulfilled"]);
+  });
+
+  it("fails a delivery past the pane's queue bound at once, not transient, and takes the rest in order", async () => {
+    const log: string[] = [];
+    const held: (() => void)[] = [];
+    server = Bun.listen({
+      unix: socketPath(),
+      socket: {
+        data(socket, chunk) {
+          const r = JSON.parse(chunk.toString().trim()) as {
+            id: string;
+            method: string;
+            params: { text?: string };
+          };
+          if (r.method === "session.snapshot") return void socket.write(reply(r.id));
+          log.push(r.method === "pane.send_text" ? `text:${r.params.text}` : "enter");
+          // The first text stays unanswered until the test lets go, so the line behind it fills up.
+          if (r.method === "pane.send_text" && held.length === 0) {
+            held.push(() => socket.write(ok(r.id)));
+            return;
+          }
+          socket.write(ok(r.id));
+        },
+      },
+    });
+    const deliverTo = createHerdrDestination({
+      socketPath: socketPath(),
+      timeoutMs: 2000,
+      maxPaneQueue: 2,
+    });
+    const send = (transcript: string) =>
+      deliverTo.deliver({ memoId: transcript, transcript, tab: "w2:t1" });
+    const first = send("first");
+    while (held.length === 0) await Bun.sleep(5);
+    const second = send("second");
+    await Bun.sleep(30);
+    const third = await send("third").catch((e: unknown) => e);
+
+    expect(third).toMatchObject({ code: "unavailable" });
+    expect((third as Error).message).toContain("herdr pane w2:p2 queue is full");
+    expect(transientKind(third)).toBeNull();
+    expect(log).toEqual(["text:first"]);
+
+    held[0]?.();
+    await Promise.all([first, second]);
+    expect(log).toEqual(["text:first", "enter", "text:second", "enter"]);
+    // The line drained, so the pane takes deliveries again.
+    await send("fourth");
   });
 
   it("is unavailable when nothing listens, and gives up on a silent socket", async () => {

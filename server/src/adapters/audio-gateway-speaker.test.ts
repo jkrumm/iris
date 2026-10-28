@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { MemoError } from "../memo/errors.js";
+import { transientKind } from "../ports/transient.js";
 import { createAudioGatewaySpeaker } from "./audio-gateway-speaker.js";
 
 const MEMO_ID = "0f8fad5b-d9cb-469f-a165-70867728950e";
@@ -80,6 +81,27 @@ describe("audio-gateway speaker", () => {
     await expect(speaker.speak({ memoId: MEMO_ID, text: "x" })).rejects.toMatchObject({
       code: "unavailable",
     });
+  });
+
+  it("fails once, not transient, when the gateway hangs past the timeout", async () => {
+    let attempts = 0;
+    const speaker = createAudioGatewaySpeaker({
+      baseUrl: "http://127.0.0.1:1234",
+      timeoutMs: 20,
+      fetch: (async (_input: string | URL | Request, init?: RequestInit) => {
+        attempts++;
+        await new Promise((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () => reject(init.signal?.reason), {
+            once: true,
+          });
+        });
+      }) as unknown as typeof fetch,
+    });
+    const error = await speaker.speak({ memoId: MEMO_ID, text: "x" }).catch((e: unknown) => e);
+    expect(error).toMatchObject({ code: "unavailable" });
+    expect((error as Error).message).toContain("speech synthesis unreachable");
+    expect(transientKind(error)).toBeNull();
+    expect(attempts).toBe(1);
   });
 
   it("fails as unavailable when the body stream breaks mid-download", async () => {

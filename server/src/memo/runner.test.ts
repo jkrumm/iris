@@ -340,6 +340,64 @@ describe("driveAll concurrency", () => {
     expect(ids.map((id) => store.getMemo(id)?.state)).toEqual(Array(5).fill("notified"));
   });
 
+  it("frees the slot of a memo parked on a busy thread so an unrelated memo still runs", async () => {
+    // Three slots, three memos waiting on one busy thread, one unrelated memo behind them.
+    const busy = deferred();
+    const ranUnrelated = deferred();
+    const waiting: string[] = [];
+    let unrelatedRan = false;
+    const { store, runner } = setup({
+      transcribe: async ({ memo, whileWaiting }) => {
+        if (memo.device === "unrelated") {
+          unrelatedRan = true;
+          ranUnrelated.resolve();
+          return {};
+        }
+        waiting.push(memo.id);
+        await (whileWaiting ?? ((wait) => wait))(busy.promise);
+        return {};
+      },
+    });
+    const parked = Array.from({ length: 3 }, () => seedMemo(store, "received", "thread").id);
+    const unrelated = seedMemo(store, "received", "unrelated").id;
+
+    const all = runner.driveAll();
+    await ranUnrelated.promise;
+    expect(waiting).toHaveLength(3);
+    expect(unrelatedRan).toBe(true);
+
+    busy.resolve();
+    await all;
+    expect([...parked, unrelated].map((id) => store.getMemo(id)?.state)).toEqual(
+      Array(4).fill("notified"),
+    );
+  });
+
+  it("takes the slot back before a woken waiter goes on, keeping the bound of three", async () => {
+    const busy = deferred();
+    let active = 0;
+    let peak = 0;
+    const { store, runner } = setup({
+      transcribe: async ({ memo, whileWaiting }) => {
+        if (memo.device === "waiter") await (whileWaiting ?? ((wait) => wait))(busy.promise);
+        active++;
+        peak = Math.max(peak, active);
+        await Bun.sleep(5);
+        active--;
+        return {};
+      },
+    });
+    seedMemo(store, "received", "waiter");
+    seedMemo(store, "received", "waiter");
+    for (let i = 0; i < 4; i++) seedMemo(store, "received", "plain");
+
+    const all = runner.driveAll();
+    await Bun.sleep(0);
+    busy.resolve();
+    await all;
+    expect(peak).toBeLessThanOrEqual(3);
+  });
+
   it("keeps going when one memo's drive rejects", async () => {
     const { store, clock, events, handlers } = setup();
     const first = seedMemo(store, "received");

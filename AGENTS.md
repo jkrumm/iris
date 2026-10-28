@@ -254,7 +254,7 @@ Push to master deploys. LaunchAgent `com.jkrumm.iris` (KeepAlive, `ExitTimeOut` 
   marker, not Hermes. The Hermes adapter names the thread in its `Delivery.thread` (`{id, kind, title}`, id = session id = `destination_ref`); `act` persists it
   (`patch.thread`: `completeStep` upserts the `threads` row and sets the `act`-owned `memos.thread_id`). The memo wire carries `threadId`, omitted when null.
   Continuing a thread: `threadId` on either create route (404 unknown thread, 409 `destination_unavailable` while hermes is not registered, 409 on a replay naming another; `continuedThread` in `memo.ts` tells a continuation from a memo's own
-  session, whose id is the memo id), the route step forces `hermes`, `deliver({threadId})` talks into the existing session and `chat` comes from the thread's kind. Turns into one thread run one at a time (`memo/keyed-queue.ts` in the `act` handler; the second waits, at most 30 min: then `act` fails "thread <id> is busy" naming the memo ahead and its task never runs, the line stays ordered; herdr's per-pane queue is unbounded). `/threads/:id`
+  session, whose id is the memo id), the route step forces `hermes`, `deliver({threadId})` talks into the existing session and `chat` comes from the thread's kind. Turns into one thread run one at a time (`memo/keyed-queue.ts` in the `act` handler; the second waits, at most 30 min: then `act` fails "thread <id> is busy" naming the memo ahead and its task never runs, the line stays ordered; a waiter parked there releases its `driveAll` slot through the handler's `whileWaiting` and takes one again when its turn comes; herdr's per-pane queue holds at most 8 deliveries (`maxPaneQueue`), the ninth fails "herdr pane <id> queue is full", not transient). `/threads/:id`
   builds its conversation from the thread's memos (transcript = user, `reply_text` = assistant), never from Hermes. Swift: `MemoMode` decodes an unknown value to `.unknown`.
 - **Routing** (`routing/`, TDD §3 step 3), in order: a mode other than `auto` wins (source `mode`); a spoken prefix within the first 6 words
   (`journal|tagebuch`, `an hermes|hermes`, `tab <name>`; case and diacritics folded) routes (`prefix`); `memo.transcript` stays the raw speech-to-text and `act` / `summarize` cut the prefix again via `deliveredTranscript`;
@@ -298,11 +298,12 @@ Push to master deploys. LaunchAgent `com.jkrumm.iris` (KeepAlive, `ExitTimeOut` 
   under `<IRIS_DATA>/assets/<memo>/<uuid>` with rows in `reply_assets`; the wire carries `replyBlocks` (omitted when empty: `{index, kind, width, height, svg, png}`, each
   `{light, dark}` asset ids; `index` counts the reply's mermaid fences from 0). A block Pele rejects stays a code block (`reply.render_failed`; a failed file write is `reply.store_failed`; more than 12 blocks `reply.blocks_capped`; no asset, never a step failure),
   a changed reply re-renders and prunes the old files, the purge removes files before rows. Library choice and why: TDD §3 "Reply assets".
+- **audio-gateway timeouts are hang guards:** the STT call (30 min) throws `hangGuardFailure` and the speech call (2 min) a plain 503; neither is retried (one window, then `POST /retry`).
 - **Speech request** to audio-gateway: `POST /v1/audio/speech {input, response_format: "mp3"}` with `x-audio-source: iris`.
   No `model` or `voice`: the gateway owns both and detects the language. A non-2xx is 503 `unavailable`.
 - **herdr:** one connection per request, newline-delimited JSON, `session.snapshot`, `pane.send_text`, `pane.send_keys` (verified on herdr 0.9.3,
   protocol 22; request shapes in the `adapters/herdr.ts` header). Delivery types the transcript into the tab's agent pane and presses `enter` (the agent's
-  answer stays in its terminal, `replyText` is empty).
+  answer stays in its terminal, `replyText` is empty). At most 8 deliveries wait per pane; the ninth fails "herdr pane <id> queue is full" (503, not transient).
   A HerdTab is a tab of a non-separator workspace (labels starting `── ` are sidebar dividers), `repo` is the workspace
   label, `agentState` is the tab's `agent_status` (unknown values become `unknown`). The snapshot has no timestamps, so
   `lastActivity` is always null. A 5 s hang guard, a refused connection or a bad answer is 503.

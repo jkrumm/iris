@@ -99,6 +99,27 @@ describe("audio-gateway transcriber", () => {
     );
   });
 
+  it("fails after one window when the gateway hangs past the timeout, not transient", async () => {
+    let attempts = 0;
+    const hangs = (async (_input: string | URL | Request, init?: RequestInit) => {
+      attempts++;
+      await new Promise((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(init.signal?.reason), { once: true });
+      });
+    }) as unknown as typeof fetch;
+    const transcriber = createAudioGatewayTranscriber({
+      baseUrl: "http://127.0.0.1:1234",
+      fetch: hangs,
+      concat: async () => ({ bytes: AUDIO, seconds: 1 }),
+      timeoutMs: 20,
+    });
+    const error = await transcriber.transcribe(params).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toBe("audio-gateway transcription timed out after 20 ms");
+    expect(transientKind(error)).toBeNull();
+    expect(attempts).toBe(1);
+  });
+
   it("calls a 413 terminal", async () => {
     const { transcriber } = setup(() =>
       Response.json({ error: { message: "too many chunks" } }, { status: 413 }),

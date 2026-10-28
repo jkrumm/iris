@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { MemoError } from "../memo/errors.js";
-import { createKeyedQueue } from "../memo/keyed-queue.js";
+import { createKeyedQueue, KeyedQueueFull } from "../memo/keyed-queue.js";
 import { TabGoneError, type Delivery, type Destination } from "../ports/destination.js";
 import { AGENT_STATES, type AgentState, type Herd, type HerdTab } from "../ports/herd.js";
 import { withSpan } from "../telemetry/otel.js";
@@ -9,13 +9,19 @@ import { withSpan } from "../telemetry/otel.js";
 const TIMEOUT_MS = 5_000;
 // A workspace the user names `── GROUP ──` is a sidebar separator, not a repo.
 const SEPARATOR_PREFIX = "── ";
+// Deliveries in line on one pane (the running one included). Each call is bounded by `TIMEOUT_MS`, but a pane that keeps
+// answering slowly would otherwise let memos pile up behind it without limit.
+const MAX_PANE_QUEUE = 8;
 
 export interface HerdrHerdOptions {
   socketPath: string;
   timeoutMs?: number;
 }
 
-export type HerdrDestinationOptions = HerdrHerdOptions;
+export interface HerdrDestinationOptions extends HerdrHerdOptions {
+  /** Deliveries allowed in line on one pane; past it a delivery fails at once, not transient. */
+  maxPaneQueue?: number;
+}
 
 /**
  * Verified against a live herdr 0.9.3 (protocol 22) socket, read-only. Newline-delimited JSON, ONE
@@ -206,11 +212,13 @@ function agentPane(snapshot: SnapshotData, tab: string): { pane: string } | "gon
  * agent answers in its own terminal, so `replyText` is empty. A tab missing from the live snapshot, or a
  * pane herdr no longer finds when writing (the tab closed in between), throws `TabGoneError`; any other
  * failure is `unavailable`, which fails the step and can be retried. Deliveries to one pane are serialised,
- * so two memos never interleave their text and Enter.
+ * so two memos never interleave their text and Enter. At most `maxPaneQueue` (8) deliveries
+ * are in line on a pane; the next fails at once as `unavailable` ("queue is full"), which is not transient, so the step
+ * fails after one try and `POST /retry` queues it again.
  */
 export function createHerdrDestination(opts: HerdrDestinationOptions): Destination {
-  const { socketPath, timeoutMs = TIMEOUT_MS } = opts;
-  const serialized = createKeyedQueue();
+  const { socketPath, timeoutMs = TIMEOUT_MS, maxPaneQueue = MAX_PANE_QUEUE } = opts;
+  const serialized = createKeyedQueue({ maxDepth: maxPaneQueue });
 
   return {
     deliver({ transcript, tab }): Promise<Delivery> {
@@ -236,7 +244,14 @@ export function createHerdrDestination(opts: HerdrDestinationOptions): Destinati
             params: { pane_id, keys: ["enter"] },
           });
         }).catch((err: unknown) => {
-          throw err instanceof NotFoundAnswer ? new TabGoneError(tab) : err;
+          if (err instanceof NotFoundAnswer) throw new TabGoneError(tab);
+          if (err instanceof KeyedQueueFull) {
+            throw new MemoError(
+              "unavailable",
+              `herdr pane ${pane_id} queue is full: ${err.depth} deliveries already in line`,
+            );
+          }
+          throw err;
         });
         return { ref: tab, replyText: "" };
       });
