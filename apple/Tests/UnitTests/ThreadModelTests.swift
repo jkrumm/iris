@@ -40,9 +40,11 @@ struct ThreadModelTests {
   }
 
   private func model(
-    voice: any VoiceReplyCapture = UnavailableVoiceReplyCapture(), now: @escaping () -> Date = { MemoFactory.now }
+    voice: any VoiceReplyCapture = UnavailableVoiceReplyCapture(), now: @escaping () -> Date = { MemoFactory.now },
+    sleep: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
   ) -> ThreadModel {
-    ThreadModel(route: ThreadRoute(id: threadID, title: "Row title"), client: client, voice: voice, now: now)
+    ThreadModel(
+      route: ThreadRoute(id: threadID, title: "Row title"), client: client, voice: voice, now: now, sleep: sleep)
   }
 
   // MARK: Turns
@@ -244,6 +246,59 @@ struct ThreadModelTests {
     #expect(voice.ends == 1)
   }
 
+  // MARK: Toast
+
+  /// Makes a failure toast with the same words every time: a touch shorter than the minimum take.
+  private func tooShortTake(_ thread: ThreadModel) async {
+    thread.beginVoice()
+    _ = await thread.endVoice(cancelled: false)
+  }
+
+  @Test("a newer toast is not hidden by the timer of the toast it replaced, even with the same words")
+  func newerToastKeepsItsOwnTimer() async {
+    await client.seed(detail([memo("a", age: 100, reply: "x")]))
+    let timers = ToastTimers()
+    let thread = model(voice: fakeVoice(), sleep: { try await timers.sleep($0) })
+    await thread.load()
+
+    await tooShortTake(thread)
+    let first = thread.failure
+    await tooShortTake(thread)
+    let second = thread.failure
+    #expect(first != nil && second != nil && first?.message == second?.message && first?.id != second?.id)
+    await timers.waitForSleeps(2)
+
+    timers.fire(0)
+    await timers.settle()
+    #expect(thread.failure == second, "the first toast's timer was cancelled with the toast")
+
+    timers.fire(1)
+    #expect(await timers.until { thread.failure == nil })
+  }
+
+  @Test("dismissing a toast cancels its timer, so it cannot hide the next one")
+  func dismissCancelsTheTimer() async {
+    await client.seed(detail([memo("a", age: 100, reply: "x")]))
+    let timers = ToastTimers()
+    let thread = model(voice: fakeVoice(), sleep: { try await timers.sleep($0) })
+    await thread.load()
+
+    await tooShortTake(thread)
+    await timers.waitForSleeps(1)
+    thread.dismissFailure()
+    #expect(thread.failure == nil)
+
+    await tooShortTake(thread)
+    let next = thread.failure
+    await timers.waitForSleeps(2)
+    timers.fire(0)
+    await timers.settle()
+    #expect(thread.failure == next)
+
+    timers.fire(1)
+    #expect(await timers.until { thread.failure == nil })
+  }
+
   @Test("a cancelled take sends nothing")
   func cancelledVoice() async {
     await client.seed(detail([memo("a", age: 100, reply: "x")]))
@@ -325,6 +380,42 @@ private final class GatedVoice: VoiceReplyCapture {
   }
 
   func finish() { releaseSignal.yield() }
+}
+
+/// The sleeps of the toast timers, each released by the test; a cancelled sleep throws, as `Task.sleep` does.
+private final class ToastTimers {
+  private var gates: [AsyncStream<Void>.Continuation] = []
+
+  func sleep(_ duration: Duration) async throws {
+    let (stream, gate) = AsyncStream<Void>.makeStream()
+    gates.append(gate)
+    for await _ in stream { return }
+    try Task.checkCancellation()
+  }
+
+  func fire(_ index: Int) {
+    gates[index].yield()
+  }
+
+  /// Waits until `count` sleeps have started; bounded, a missing sleep fails the test.
+  func waitForSleeps(_ count: Int, sourceLocation: SourceLocation = #_sourceLocation) async {
+    let reached = await until { gates.count >= count }
+    if !reached { Issue.record("fewer than \(count) toast timers started", sourceLocation: sourceLocation) }
+  }
+
+  /// Lets the main actor run what a fired or cancelled timer queued.
+  func settle() async {
+    for _ in 0..<20 { await Task.yield() }
+  }
+
+  /// Yields until `condition` holds, at most a few thousand times; the answer says whether it did.
+  func until(_ condition: () -> Bool) async -> Bool {
+    for _ in 0..<5_000 {
+      if condition() { return true }
+      await Task.yield()
+    }
+    return condition()
+  }
 }
 
 /// A clock the test moves by hand.
