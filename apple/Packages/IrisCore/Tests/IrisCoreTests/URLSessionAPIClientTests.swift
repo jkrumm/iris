@@ -426,6 +426,12 @@ struct URLSessionAPIClientTests {
         name: "503 unavailable", response: try .json(503, fixture: "error.unavailable"),
         expected: .server(status: 503, body: ErrorBody(error: .unavailable, message: "herd is not configured"))),
       ErrorCase(
+        name: "409 destination_unavailable", response: try .json(409, fixture: "error.destination-unavailable"),
+        expected: .server(
+          status: 409,
+          body: ErrorBody(
+            error: .destinationUnavailable, message: "hermes is not available, so a thread cannot be continued"))),
+      ErrorCase(
         name: "422 missing_segments", response: try .json(422, fixture: "error.missing-segments"),
         expected: .missingSegments(message: "segments missing: 1, 3", missing: [1, 3])),
       ErrorCase(

@@ -103,4 +103,5 @@ public enum APIErrorCode: String, Codable, Hashable, Sendable, CaseIterable {
   case tooLarge = "too_large"
   case badRequest = "bad_request"
   case unavailable
+  case destinationUnavailable = "destination_unavailable"
 }
