@@ -756,6 +756,15 @@ with `make e2e` before the train. Workers touching `IrisCapture`, intents or the
       block); a production thread probe (typed chat, then a continuation) reads back through `GET /v1/threads/:id`; `apple.yml` green;
       TDD and AGENTS.md amended.
 
+## Wave 16 — summarize optional (server) + next backlog            <!-- status: pending -->
+Sketch; written in full by the mother when Wave 15 closes. Fixed item, owner-confirmed 2026-10-28:
+- [ ] **Summarize is optional.** A failed `summarize` (agw `triage` error, e.g. the Requesty 402, after its retries) no longer fails the
+      memo: a Hermes memo whose `act` succeeded ends `done` without a summary. The step stays visible with its error and attempts (the
+      waterfall shows it as failed-but-optional, [Retry from step] still works and fills the summary in later); the History headline falls
+      back to the transcript; the speech variant past the length threshold falls back to the clipped cleaned reply instead of the `spoken`
+      summary. Existing `failed(summarize)` memos with a reply move to `done` (one migration or repair, idempotent). Contract + fixtures +
+      `IrisCore` if the step or memo wire changes; TDD and AGENTS.md amended. Proof: `make smoke` green with triage still on Requesty.
+
 ## Fleet backlog (for the long-running fleet: mother → lead → workers)
 
 Not waves of this chain. The fleet's mother turns these into active waves, one at a time,
