@@ -17,6 +17,40 @@
           }
         }
       }
+    },
+    "Favorite" : {
+      "comment" : "VoiceOver value of a History row the user favorited.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Favorit"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Favorite"
+          }
+        }
+      }
+    },
+    "Marked done" : {
+      "comment" : "VoiceOver value of a History row the user marked done.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Als erledigt markiert"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Marked done"
+          }
+        }
+      }
     }
   },
   "version" : "1.0"
