@@ -9,13 +9,14 @@ import type { Speaker, SpeechCache } from "../ports/speaker.js";
 import { log } from "../telemetry/log.js";
 import { MemoError } from "./errors.js";
 import { isTyped } from "./memo.js";
+import { speechVariant } from "./speech-text.js";
 import type { MemoStore } from "./store.js";
 
 /** What a memo can be played back as: its recording (for the scrubber) and its spoken result. */
 export interface MemoMedia {
   /** The concatenated recording, built on first use and then read from disk. */
   recording(id: string): Promise<Recording>;
-  /** mp3 of `summary.spoken`, else `replyText`; synthesized once per text and then read from disk. */
+  /** mp3 of the speech-ready variant of the answer (`speechVariant`); synthesized once per variant text and then read from disk. */
   speech(id: string): Promise<Uint8Array>;
 }
 
@@ -76,7 +77,8 @@ export function createMemoMedia(deps: {
     async speech(id) {
       const memo = mustGet(id);
       if (!speaker) throw new MemoError("unavailable", "speech is not configured");
-      const text = memo.summary?.spoken.trim() || memo.replyText?.trim();
+      // Derived on every call, never stored: a retry that changes the reply changes the text and so the cache key.
+      const text = speechVariant({ reply: memo.replyText, spoken: memo.summary?.spoken ?? null });
       if (!text)
         throw new MemoError("bad_state", `memo ${id} has no summary or reply to speak yet`);
       // Keyed like the cache (id + text): a caller must not join a synthesis of different text.

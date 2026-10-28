@@ -203,17 +203,36 @@ function withResult(h: Harness, patch: MemoPatch) {
 }
 
 describe("GET /v1/memos/:id/speech", () => {
-  it("speaks summary.spoken as audio/mpeg", async () => {
+  it("speaks summary.spoken plus 'details on screen' for a long reply, as audio/mpeg", async () => {
     const h = testApp();
     const id = withResult(h, {
       summary: { headline: "H", detail: "D", spoken: "Done and dusted." },
-      replyText: "long reply",
+      replyText: "This is a long sentence about the migration. ".repeat(30),
     });
     const res = await speech(h, id);
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toBe("audio/mpeg");
-    expect(new TextDecoder().decode(await res.arrayBuffer())).toBe("mp3:Done and dusted.");
-    expect(h.speaker?.calls).toEqual([{ memoId: id, text: "Done and dusted." }]);
+    expect(new TextDecoder().decode(await res.arrayBuffer())).toBe(
+      "mp3:Done and dusted. Details on screen.",
+    );
+    expect(h.speaker?.calls).toEqual([{ memoId: id, text: "Done and dusted. Details on screen." }]);
+  });
+
+  it("speaks a short reply instead of its summary, with the markdown stripped", async () => {
+    const h = testApp();
+    const id = withResult(h, {
+      summary: { headline: "H", detail: "D", spoken: "Done." },
+      replyText: "## Result\n\nIt is **fine**, see [docs](https://example.com).",
+    });
+    await speech(h, id);
+    expect(h.speaker?.calls[0]?.text).toBe("Result.\n\nIt is fine, see docs.");
+  });
+
+  it("speaks summary.spoken when there is no reply", async () => {
+    const h = testApp();
+    const id = withResult(h, { summary: { headline: "H", detail: "D", spoken: "Saved." } });
+    await speech(h, id);
+    expect(h.speaker?.calls[0]?.text).toBe("Saved.");
   });
 
   it("falls back to replyText when there is no summary", async () => {

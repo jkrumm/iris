@@ -254,7 +254,7 @@ Shipped; the authoritative list is `contracts/manifest.json` and the table in `A
 | `GET /v1/threads?kind=chat\|hermes&limit&cursor` | `{items: Thread[], nextCursor}`, newest `updatedAt` first; `Thread = {id, kind, title, createdAt, updatedAt, lastMemoId}`. The cursor is the last row's `(updated_at, id)`, so it stays valid as threads are added or updated. A malformed cursor or unknown `kind` is 400 |
 | `GET /v1/threads/:id` | `{thread, memos, messages}`: the memos that ran in the thread (oldest first) and the conversation built from them, `messages: [{memoId, role: user\|assistant, content (markdown), createdAt}]`: per memo its `transcript` (`user`, dated by the memo's `createdAt`) and its `reply_text` (`assistant`, dated by the end of its `act` step; omitted while empty). Iris's own record: Hermes is not consulted, so the response never depends on it. Read in a fixed number of queries (the thread, its memos, the `act` finish times), however long the thread is. Unknown thread 404 |
 | `GET /v1/memos/:id/audio` | The concatenated audio for the scrubber (`Range`); 409 `bad_state` for a soft-deleted memo |
-| `GET /v1/memos/:id/speech` | TTS of `summary.spoken` (or `replyText`), cached as an mp3; 409 `bad_state` for a soft-deleted memo |
+| `GET /v1/memos/:id/speech` | TTS of the speech-ready variant of the answer (below), cached as an mp3; 409 `bad_state` for a soft-deleted memo |
 | `GET /v1/events` | SSE: `ready`, `memo.updated`, `memo.done` (for the Mac and the foreground iOS app) |
 | `GET /v1/herd` | herdr tabs `{id, repo, label, agentState, lastActivity}` (snapshot; `lastActivity` is always null) |
 | `GET /v1/stats?days=<n>` | `days` 1..365, default 30, else 400 `bad_request`. `{days, from, to, perDay: [{date, route, count}], perWeek: [{weekStart, count}], stepMedians: [{step, route, medianMs, samples}], costPerRoute: [{route, costUsd, memos}]}`. Read-only aggregates over `memos` (by `created_at`) and `memo_steps` (both filter columns are indexed); no table of its own, no spend; 503 when the app is composed without a `StatsStore`. The window is the last `days` **local days of the server** (today included, `from`/`to` are `YYYY-MM-DD`); `date` and Monday-start `weekStart` use the same zone, and the first week only counts the days inside the window. A null `route` is reported as `unrouted`. `stepMedians` is the baseline of the memo detail waterfall's faster/slower hint, **per step and route** (a step's speed depends on where the memo went): `done` step records whose `started_at` is in the window, grouped by step and the memo's route (`unrouted` as above), in pipeline order then route (integer ms; even counts average the two middle values and round, no other interpolation; a pair without samples is absent). `samples` is the n behind each median. **The client owns the minimum-n threshold**, the server does not send a `minSamples`: the threshold is a presentation choice (a hint wants more evidence than a plain number, and it may differ per surface), changing it must not need a server deploy or a contract change, and the server stays a plain aggregate that reports n honestly. `costPerRoute` sums `memo_steps.cost_usd` per route (routing-decision spend is on the `route` step row), `memos` counts the memos once. The memo detail waterfall compares its step durations to `stepMedians`. Day bucketing and medians run in the adapter, not with SQLite's `localtime`, so the window and the days share the process time zone |
@@ -348,6 +348,19 @@ machine, Retries); retention (audio deleted 30 days after `notified`) is not bui
      collapse id (the memo id), so the done alert replaces the needs-route banner;
    - SSE `memo.done`;
    - a `log` stand-in when APNs is not configured.
+
+**Speech-ready variant** (`memo/speech-text.ts`, a pure function; no stored column, no migration, no wire change). `MemoMedia.speech` derives it on
+every `GET /v1/memos/:id/speech` from `replyText` and `summary.spoken`, so a retry that changes the reply changes the variant, and the text-keyed
+speech cache (and the single-flight key) re-synthesizes exactly then; a changed reply whose variant is unchanged hits the cache. It is the only
+synthesis path, so [Play] and spoken replies share it.
+- **Cleaning:** fenced code blocks become "a code block", Mermaid/PlantUML/DOT/D2 fences "a diagram", tables "a table with N rows" (data rows);
+  images keep their alt text, links their text, bare URLs, autolinks and reference definitions go; headings, emphasis, strikethrough, quotes,
+  list markers, task boxes, escapes, inline-code ticks and inline HTML are removed. Headings and list items get a full stop so the voice pauses.
+- **Language:** the summary phrases ("ein Codeblock", "Details auf dem Bildschirm.") follow the language of the reply, found by counting German
+  versus English function words outside code and URLs; German on a tie, since the transcripts are mostly German.
+- **Threshold:** a cleaned reply up to `SPEECH_MAX_CHARS` = 600 characters (about 40 s aloud) is spoken whole. Longer, the variant is
+  `summary.spoken` + "Details on screen." (the first whole sentences of the cleaned reply when there is no summary). Measured on the cleaned
+  text, so a long code block does not push a short answer past it. Without a reply the (cleaned) `summary.spoken` is spoken.
 
 ### Downstream facts (re-verify when touching an adapter)
 
