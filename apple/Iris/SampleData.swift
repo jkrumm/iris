@@ -108,23 +108,52 @@ enum SampleData {
   }
 
   /// What "usual" means for the sample memos: the Hermes steps have enough samples to compare against, the tab
-  /// route's summarize median does not (three samples), so the failed memo shows no faster/slower tags.
-  static let stats = Stats(
-    days: 30, from: "2026-09-28", to: "2026-10-27",
-    stepMedians: [
-      StatsStepMedian(step: .transcribe, route: "hermes", medianMs: 7_900, samples: 30),
-      StatsStepMedian(step: .route, route: "hermes", medianMs: 11, samples: 30),
-      StatsStepMedian(step: .act, route: "hermes", medianMs: 8_200, samples: 30),
-      StatsStepMedian(step: .summarize, route: "hermes", medianMs: 6_900, samples: 30),
-      StatsStepMedian(step: .notify, route: "hermes", medianMs: 2_100, samples: 30),
-      StatsStepMedian(step: .summarize, route: "tab", medianMs: 6_800, samples: 3),
-    ])
+  /// route's summarize median does not (three samples), so the failed memo shows no faster/slower tags. The volume
+  /// rows cover the last 56 days ending at `now` with a made-up but steady rhythm (busier on weekdays, Chat started
+  /// three weeks ago), so the Stats tab has something to draw.
+  static func stats(now: Date = Date(), windowDays: Int = 56) -> Stats {
+    var calendar = Calendar(identifier: .iso8601)
+    calendar.timeZone = .gmt
+    let key: (Date) -> String = { $0.formatted(.iso8601.year().month().day().dateSeparator(.dash)) }
+    let days = (0..<windowDays).reversed().compactMap { calendar.date(byAdding: .day, value: -$0, to: now) }
+
+    var perDay: [StatsDayCount] = []
+    var weeks: [String: Int] = [:]
+    for (index, day) in days.enumerated() {
+      let weekday = calendar.component(.weekday, from: day)
+      let weekend = weekday == 1 || weekday == 7
+      let rhythm = [(0, 3), (1, 2), (2, 1)]
+      for (offset, base) in rhythm {
+        let count = max(0, (base + (index * (offset + 2) + offset) % 3 - 1) - (weekend ? 2 : 0))
+        guard count > 0 else { continue }
+        perDay.append(StatsDayCount(date: key(day), route: ["hermes", "journal", "tab"][offset], count: count))
+        let monday = calendar.dateInterval(of: .weekOfYear, for: day)?.start ?? day
+        weeks[key(monday), default: 0] += count
+      }
+    }
+    return Stats(
+      days: windowDays, from: days.first.map(key) ?? "", to: key(now), perDay: perDay,
+      perWeek: weeks.keys.sorted().map { StatsWeekCount(weekStart: $0, count: weeks[$0] ?? 0) },
+      stepMedians: [
+        StatsStepMedian(step: .transcribe, route: "hermes", medianMs: 7_900, samples: 30),
+        StatsStepMedian(step: .route, route: "hermes", medianMs: 11, samples: 30),
+        StatsStepMedian(step: .act, route: "hermes", medianMs: 8_200, samples: 30),
+        StatsStepMedian(step: .summarize, route: "hermes", medianMs: 6_900, samples: 30),
+        StatsStepMedian(step: .notify, route: "hermes", medianMs: 2_100, samples: 30),
+        StatsStepMedian(step: .summarize, route: "tab", medianMs: 6_800, samples: 3),
+      ],
+      costPerRoute: [
+        StatsRouteCost(route: "hermes", costUsd: 1.18, memos: 64),
+        StatsRouteCost(route: "journal", costUsd: 0.31, memos: 41),
+        StatsRouteCost(route: "tab", costUsd: 0.13, memos: 22),
+      ])
+  }
 
   /// Fills a `FakeAPIClient` with the sample memos.
   static func seed(_ client: FakeAPIClient) async {
     for detail in details() {
       await client.seed(detail)
     }
-    await client.setStats(stats)
+    await client.setStats(stats())
   }
 }

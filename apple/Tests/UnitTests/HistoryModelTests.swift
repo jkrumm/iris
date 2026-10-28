@@ -196,42 +196,64 @@ struct HistoryModelTests {
     #expect(!model.memos[0].done)
   }
 
-  @Test("a flag change that completes after a delete does not bring the memo back")
+  @Test("a flag change whose answer arrives after a delete does not bring the memo back")
   func staleFlagsAfterDelete() async {
     await seed(MemoFactory.memo("a", age: 1), MemoFactory.memo("b", age: 2))
     await model.load()
     let flagged = model.memos[0]
+    let gate = await client.hold(.setFlags)
     let flags = Task { await model.toggleFavorite(flagged) }
-    await Task.yield()
+    await gate.waitUntilHeld()
     await model.delete(flagged)
+    gate.release()
     await flags.value
     #expect(ids == ["b"])
   }
 
-  @Test("a failed flag change that completes after a delete does not roll the row back")
+  @Test("a failed flag change whose answer arrives after a delete does not roll the row back")
   func staleRollbackAfterDelete() async {
     await seed(MemoFactory.memo("a", age: 1), MemoFactory.memo("b", age: 2))
     await model.load()
     await client.enqueueFailure(.unexpectedStatus(500), for: .setFlags)
     let flagged = model.memos[0]
+    let gate = await client.hold(.setFlags)
     let flags = Task { await model.toggleDone(flagged) }
-    await Task.yield()
+    await gate.waitUntilHeld()
     await model.delete(flagged)
+    gate.release()
     await flags.value
     #expect(ids == ["b"])
   }
 
-  @Test("an undo that finishes after a second delete does not show the memo")
-  func staleUndoAfterDelete() async throws {
+  @Test("an undo whose answer arrives after a second delete does not show the memo")
+  func staleUndoAfterDelete() async {
     await seed(MemoFactory.memo("a", age: 1), MemoFactory.memo("b", age: 2))
     await model.load()
     await model.delete(model.memos[0])
+    let gate = await client.hold(.restoreMemo)
     let undo = Task { await model.undoDelete() }
-    await Task.yield()
-    let held = try await serverFlags("a")
-    await model.delete(held)
+    await gate.waitUntilHeld()
+    // The restore has run on the server; a refresh shows the memo again and the user deletes it a second time
+    // before the first restore's answer lands.
+    await model.load()
+    #expect(ids == ["a", "b"])
+    await model.delete(model.memos[0])
+    gate.release()
     await undo.value
     #expect(ids == ["b"])
+  }
+
+  @Test("a memo created on this device shows at the top at once and is not doubled by the next refresh")
+  func insertCreated() async {
+    await seed(MemoFactory.memo("a", age: 100))
+    await model.load()
+    let created = MemoFactory.memo("typed", age: 1, typed: true)
+    model.insert(created)
+    #expect(ids == ["typed", "a"])
+
+    await seed(created)
+    await model.load()
+    #expect(ids == ["typed", "a"])
   }
 
   // MARK: Delete and undo

@@ -6,17 +6,15 @@ import SwiftUI
 /// actions at the bottom. It reloads when `refreshToken` changes (History bumps it on a `memo.updated` event).
 struct MemoDetailView: View {
   @State private var model: MemoDetailModel
-  @State private var audio: MemoPlayer
-  @State private var speech = MemoPlayer()
+  @State private var playback: MemoPlayback
   private let refreshToken: () -> Int
   private let onReply: (Memo) -> Void
 
-  /// - Parameter onReply: The reply hook. I3's composer opens from here, continuing `memo.threadId`; until it exists
-  ///   the default does nothing.
+  /// - Parameter onReply: The reply hook: History opens the composer from here, continuing `memo.threadId`.
   init(model: MemoDetailModel, refreshToken: @escaping () -> Int = { 0 }, onReply: @escaping (Memo) -> Void = { _ in })
   {
     _model = State(initialValue: model)
-    _audio = State(initialValue: MemoPlayer(duration: model.memo.audioSeconds ?? 0))
+    _playback = State(initialValue: MemoPlayback(recordingDuration: model.memo.audioSeconds ?? 0))
     self.refreshToken = refreshToken
     self.onReply = onReply
   }
@@ -44,17 +42,14 @@ struct MemoDetailView: View {
     .navigationBarTitleDisplayMode(.inline)
     .toolbarVisibility(.hidden, for: .tabBar)
     .task(id: refreshToken()) { await model.load() }
-    .task(id: model.audioRequest) { audio.load(model.audioRequest) }
-    .task(id: audio.isPlaying) { await audio.track() }
-    .task(id: speech.isPlaying) { await speech.track() }
+    .task(id: model.audioRequest) { playback.recording.load(model.audioRequest) }
+    .task(id: playback.recording.isPlaying) { await playback.recording.track() }
+    .task(id: playback.reply.isPlaying) { await playback.reply.track() }
     .task(id: model.failure) {
       guard model.failure != nil, (try? await Task.sleep(for: .seconds(4))) != nil else { return }
       model.dismissFailure()
     }
-    .onDisappear {
-      audio.pause()
-      speech.pause()
-    }
+    .onDisappear { playback.pauseAll() }
   }
 
   // MARK: Sections
@@ -89,13 +84,10 @@ struct MemoDetailView: View {
   }
 
   private var player: some View {
-    // Starting one voice stops the other: the recording and the spoken reply never overlap.
-    MemoPlayerBar(
+    let audio = playback.recording
+    return MemoPlayerBar(
       position: audio.position, duration: audio.duration, isPlaying: audio.isPlaying, isEnabled: audio.isLoaded,
-      onToggle: {
-        speech.pause()
-        audio.toggle()
-      },
+      onToggle: playback.toggleRecording,
       onSeek: { audio.seek(to: $0) },
       onSkipBack: { audio.skipBack() })
   }
@@ -168,23 +160,17 @@ struct MemoDetailView: View {
 
   private var actions: some View {
     DetailActionBar(
-      isPlayingReply: speech.isPlaying,
+      isPlayingReply: playback.reply.isPlaying,
       canPlayReply: model.canPlayReply,
       canReply: model.canReply,
       retryOptions: model.retrySteps.map { DetailRetryOption(id: $0.rawValue, title: $0.title) },
       primaryRetryID: model.primaryRetryStep?.rawValue,
-      onPlayReply: playReply,
+      onPlayReply: { playback.toggleReply(loading: model.speechRequest) },
       onReply: { onReply(model.memo) },
       onRetry: retry
     )
     .frame(maxWidth: .infinity)
     .padding(.vertical, Theme.Spacing.sm)
-  }
-
-  private func playReply() {
-    if !speech.isLoaded { speech.load(model.speechRequest) }
-    audio.pause()
-    speech.toggle()
   }
 
   private func retry(_ stepID: String) {

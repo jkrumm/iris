@@ -80,6 +80,12 @@ struct MemoPresentationTests {
     #expect(MemoFactory.memo("a", summary: summary).rowSecondary == "Montag PR-Review")
     #expect(MemoFactory.memo("a").rowSecondary == nil)
   }
+
+  @Test("a typed memo's pipeline skips transcribe, a spoken one runs every step")
+  func applicableSteps() {
+    #expect(PipelineSteps.applicable(to: MemoFactory.memo("a")) == [.transcribe, .route, .act, .summarize, .notify])
+    #expect(PipelineSteps.applicable(to: MemoFactory.memo("t", typed: true)) == [.route, .act, .summarize, .notify])
+  }
 }
 
 extension HistoryRowStatus {

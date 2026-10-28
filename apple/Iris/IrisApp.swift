@@ -6,8 +6,11 @@ struct IrisApp: App {
 
   var body: some Scene {
     WindowGroup {
-      RootView(history: root.history, makeDetail: root.detailModel(for:))
-        .task { await root.start() }
+      RootView(
+        history: root.history, stats: root.stats, settings: root.settings, diagnostics: root.diagnostics,
+        makeDetail: root.detailModel(for:), makeComposer: root.composerModel(for:)
+      )
+      .task { await root.start() }
     }
   }
 }
