@@ -239,7 +239,9 @@ struct FixtureConformanceTests {
     #expect(block.width == 486)
     #expect(block.height == 64)
     #expect(block.kind == .mermaid)
-    #expect(block.svg == SchemeAssets(light: "5b0e2f8a-3c41-4d7e-9a16-8f2d0c7b1e53", dark: "a4c19d62-7e08-4f35-b2a1-3d9e5f06c874"))
+    #expect(
+      block.svg
+        == SchemeAssets(light: "5b0e2f8a-3c41-4d7e-9a16-8f2d0c7b1e53", dark: "a4c19d62-7e08-4f35-b2a1-3d9e5f06c874"))
     #expect(block.png.dark == "2d84b6c9-0f17-4e3a-8b52-c6a9e1d37f40")
     #expect(detail.memo.replyText?.contains("```mermaid") == true)
 
