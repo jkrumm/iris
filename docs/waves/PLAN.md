@@ -411,6 +411,9 @@ The foundation chain (Waves 1–9) is complete. The fleet takes over: a mother (
 memory) turns the backlog below into Wave 10+ sections, one active at a time, each executed by a lead that fans out
 workers. The mother writes the next wave here.
 
+**Status: paused by owner 2026-10-28** (usage is tight, other projects have priority). Waves 10–14 are done; Wave 15 stays
+`pending` and nothing is spawned until the owner resumes. Resume point: `docs/waves/handoff/mother.md`.
+
 **Fleet gate (every wave):** each worker runs its cheap check; the lead runs `make check` at every merge (`rd merge`),
 `make e2e` for server changes, and `agw review` (CLI) on every non-docs diff with findings resolved. Server changes are
 pushed to master, the poller deploys, then `make verify` + `make smoke` on the mini. Apple changes gate on `apple.yml`.
