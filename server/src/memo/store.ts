@@ -100,7 +100,7 @@ export interface MemoStore extends ThreadStore {
   listSegmentIndices(id: string): number[];
   deleteSegments(id: string): void;
 
-  /** receiving → received compare-and-set; false when the memo is not `receiving`. */
+  /** receiving → received compare-and-set; false when the memo is not `receiving` or is soft-deleted. */
   markReceived(params: { id: string; segmentCount: number }): boolean;
   /** Compare-and-set on state; false when the memo is not in `from`. */
   transition(params: { id: string; from: MemoState; to: MemoState }): boolean;

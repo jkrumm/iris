@@ -4,29 +4,40 @@ import { createMemoEvents, type MemoEvent } from "./events.js";
 import { PURGE_AFTER_MS, type MemoState } from "./memo.js";
 import { createRunner } from "./runner.js";
 import { createMemoService } from "./service.js";
-import { fakeAudio, parkMemo, seedMemo, testStore } from "./test-support.js";
+import { deferred, fakeAudio, parkMemo, seedMemo, testStore } from "./test-support.js";
 
 function setup() {
   const { store, clock } = testStore();
   const events = createMemoEvents();
   const seen: MemoEvent[] = [];
   events.subscribe((e) => seen.push(e));
+  const audio = fakeAudio();
   const runner = createRunner({ store, handlers: {}, events, clock });
   const service = createMemoService({
     store,
     runner,
     events,
-    audio: fakeAudio(),
+    audio,
     clock,
     maxSegmentBytes: 16,
     destinations: ["hermes"],
   });
-  return { store, clock, seen, service };
+  return { store, clock, seen, service, audio };
 }
 
 const codeOf = (fn: () => unknown): MemoErrorCode | "no error" => {
   try {
     fn();
+  } catch (err) {
+    if (err instanceof MemoError) return err.code;
+    throw err;
+  }
+  return "no error";
+};
+
+const codeOfAsync = async (fn: () => Promise<unknown>): Promise<MemoErrorCode | "no error"> => {
+  try {
+    await fn();
   } catch (err) {
     if (err instanceof MemoError) return err.code;
     throw err;
@@ -81,9 +92,41 @@ describe("delete", () => {
     expect(service.delete(parked).deletedAt).not.toBeNull();
   });
 
+  it("deletes a memo still receiving and refuses its later segment and complete", async () => {
+    const { store, service, seen } = setup();
+    const { id } = seedMemo(store, "receiving");
+    store.recordSegment({ id, index: 0, bytes: 4, sha256: "x" });
+    const deleted = service.delete(id);
+    expect(deleted).toMatchObject({ state: "receiving" });
+    expect(deleted.deletedAt).not.toBeNull();
+    expect(seen).toEqual([expect.objectContaining({ id, flagChange: true })]);
+    expect(codeOf(() => service.complete({ id, segmentCount: 1 }))).toBe("bad_state");
+    expect(
+      await codeOfAsync(() => service.putSegment({ id, index: 1, bytes: new Uint8Array(4) })),
+    ).toBe("bad_state");
+    expect(store.markReceived({ id, segmentCount: 1 })).toBe(false);
+    expect(store.getMemo(id)?.state).toBe("receiving");
+  });
+
+  it("rejects a segment whose write was still in flight when the memo was deleted", async () => {
+    const { store, service, audio } = setup();
+    const { id } = seedMemo(store, "receiving");
+    const gate = deferred();
+    const put = audio.put.bind(audio);
+    audio.put = async (params) => {
+      await gate.promise;
+      return put(params);
+    };
+    const late = codeOfAsync(() => service.putSegment({ id, index: 0, bytes: new Uint8Array(4) }));
+    service.delete(id);
+    gate.resolve();
+    expect(await late).toBe("bad_state");
+    expect(store.listSegmentIndices(id)).toEqual([]);
+  });
+
   it("refuses a memo the pipeline is still working on", () => {
     const { store, service } = setup();
-    const states: MemoState[] = ["receiving", "received", "transcribed", "routed", "acted"];
+    const states: MemoState[] = ["received", "transcribed", "routed", "acted", "summarized"];
     for (const state of states) {
       const { id } = seedMemo(store, state);
       expect([state, codeOf(() => service.delete(id))]).toEqual([state, "bad_state"]);

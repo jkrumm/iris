@@ -3,7 +3,7 @@ import { PURGE_AFTER_MS } from "../memo/memo.js";
 import { createPurger } from "../memo/purge.js";
 import { parkMemo, seedMemo } from "../memo/test-support.js";
 import { fakeSpeechCache } from "../ports/fakes.js";
-import { call, MAC, testApp } from "./test-support.js";
+import { call, fakeHandlers, MAC, testApp } from "./test-support.js";
 
 type Ctx = ReturnType<typeof testApp>;
 type Json = Record<string, unknown>;
@@ -14,6 +14,15 @@ const del = (app: Ctx["app"], id: string) =>
   call(app, { method: "DELETE", path: `/v1/memos/${id}` });
 const restore = (app: Ctx["app"], id: string) =>
   call(app, { method: "POST", path: `/v1/memos/${id}/restore` });
+const put = (app: Ctx["app"], id: string, n: number) =>
+  call(app, {
+    method: "PUT",
+    path: `/v1/memos/${id}/segments/${n}`,
+    headers: { authorization: "Bearer tok-phone", "content-type": "audio/mp4" },
+    body: new Uint8Array([1, 2, 3]),
+  });
+const complete = (app: Ctx["app"], id: string, segmentCount = 1) =>
+  call(app, { method: "POST", path: `/v1/memos/${id}/complete`, json: { segmentCount } });
 const list = async (app: Ctx["app"], query = "") => {
   const res = await call(app, { path: `/v1/memos${query}` });
   const body = (await res.json()) as { items: { id: string }[]; pinned: { id: string }[] };
@@ -136,6 +145,100 @@ describe("DELETE /v1/memos/:id", () => {
     const again = (await (await del(app, failed)).json()) as Json;
     expect(again["deletedAt"]).toBe("2026-01-01T00:00:00.000Z");
     expect((await del(app, crypto.randomUUID())).status).toBe(404);
+  });
+});
+
+describe("DELETE /v1/memos/:id while receiving (a cancelled take)", () => {
+  /** Every step handler counts its calls: a deleted memo must never reach one. */
+  const counted = () => {
+    const calls: string[] = [];
+    const handlers = Object.fromEntries(
+      Object.entries(fakeHandlers).map(([step, handler]) => [
+        step,
+        (ctx: Parameters<typeof handler>[0]) => {
+          calls.push(step);
+          return handler(ctx);
+        },
+      ]),
+    ) as typeof fakeHandlers;
+    return { calls, handlers };
+  };
+
+  it("deletes a receiving memo, refuses its late segment and complete with 409, and runs no step", async () => {
+    const { calls, handlers } = counted();
+    const { app, store, runner } = testApp({ handlers });
+    const { id } = seedMemo(store, "receiving");
+    expect((await put(app, id, 0)).status).toBe(200);
+
+    const res = await del(app, id);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({
+      id,
+      state: "receiving",
+      deletedAt: "2026-01-01T00:00:00.000Z",
+      purgeAt: "2026-01-01T00:10:00.000Z",
+    });
+    expect((await list(app)).items).toEqual([]);
+
+    const late = await put(app, id, 1);
+    expect(late.status).toBe(409);
+    expect(((await late.json()) as Json)["error"]).toBe("bad_state");
+    // Even a complete naming exactly the stored segment does not start the pipeline.
+    const done = await complete(app, id, 1);
+    expect(done.status).toBe(409);
+    expect(((await done.json()) as Json)["error"]).toBe("bad_state");
+
+    await runner.driveAll();
+    await runner.idle();
+    expect(calls).toEqual([]);
+    expect(store.getMemo(id)).toMatchObject({ state: "receiving", segmentCount: null });
+    expect(store.listSegmentIndices(id)).toEqual([0]);
+  });
+
+  it("repeats idempotently with the first deletedAt and publishes the delete once", async () => {
+    const { app, store, clock, events } = testApp();
+    const { id } = seedMemo(store, "receiving");
+    const seen: unknown[] = [];
+    events.subscribe((e) => seen.push(e));
+    await del(app, id);
+    clock.advance(60_000);
+    const again = (await (await del(app, id)).json()) as Json;
+    expect(again["deletedAt"]).toBe("2026-01-01T00:00:00.000Z");
+    expect(seen).toEqual([expect.objectContaining({ id, state: "receiving", flagChange: true })]);
+  });
+
+  it("is purged with its segments once the undo window is over", async () => {
+    const { app, store, clock, audio, assets, db } = testApp();
+    const { id } = seedMemo(store, "receiving");
+    expect((await put(app, id, 0)).status).toBe(200);
+    expect(audio.files.size).toBe(1);
+    await del(app, id);
+    clock.advance(PURGE_AFTER_MS);
+    const purger = createPurger({ store, audio, speechCache: fakeSpeechCache(), assets, clock });
+    expect(await purger.sweep()).toEqual([id]);
+    expect(audio.files.size).toBe(0);
+    expect(db.query("SELECT id FROM memos WHERE id = ?").all(id)).toEqual([]);
+    expect(db.query("SELECT idx FROM segments WHERE memo_id = ?").all(id)).toEqual([]);
+    expect((await put(app, id, 1)).status).toBe(404);
+  });
+
+  it("takes uploads again after a restore", async () => {
+    const { app, store } = testApp();
+    const { id } = seedMemo(store, "receiving");
+    await del(app, id);
+    expect((await restore(app, id)).status).toBe(200);
+    expect((await put(app, id, 0)).status).toBe(200);
+    expect((await complete(app, id)).status).toBe(202);
+  });
+
+  it("still refuses a memo that is past receiving and mid-pipeline", async () => {
+    const { app, store } = testApp();
+    for (const state of ["received", "transcribed", "routed", "acted", "summarized"] as const) {
+      const { id } = seedMemo(store, state);
+      const res = await del(app, id);
+      expect(res.status).toBe(409);
+      expect(((await res.json()) as Json)["error"]).toBe("bad_state");
+    }
   });
 });
 

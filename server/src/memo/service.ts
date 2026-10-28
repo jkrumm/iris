@@ -87,7 +87,8 @@ export interface MemoService {
   setFlags(params: { id: string } & MemoFlags): Memo;
   /**
    * Soft delete: the memo stays readable and restorable until `purgeAt`, then the purger removes it. Only settled
-   * memos (`notified`, `failed`, `needs_route`) can be deleted, else `bad_state`. Repeatable: a second call returns
+   * memos (`notified`, `failed`, `needs_route`) and a memo still `receiving` (a cancelled take; its segments and
+   * `complete` are refused with `bad_state` from then on) can be deleted, else `bad_state`. Repeatable: a second call returns
    * the memo with its first `deletedAt` and publishes nothing.
    */
   delete(id: string): Memo;
@@ -281,6 +282,7 @@ export function createMemoService(deps: {
       if (memo.state !== "receiving") {
         throw new MemoError("bad_state", `memo ${id} is ${memo.state}, no longer receiving`);
       }
+      assertLive(memo);
       assertSegment({ index, bytes, maxBytes: maxSegmentBytes });
       const sha256 = createHash("sha256").update(bytes).digest("hex");
       // Uploads of one (memo, index) run one at a time, so a conflicting upload can never
@@ -289,11 +291,13 @@ export function createMemoService(deps: {
         const existing = store.getSegment({ id, index });
         if (existing) return assertSameSegment({ id, index, stored: existing.sha256, sha256 });
         await audio.put({ id, index, bytes });
-        // `complete` may have run while the write was in flight; the check and the insert below
-        // are synchronous, so no row can land after the memo left `receiving`.
-        if (mustGet(id).state !== "receiving") {
+        // `complete` or `delete` may have run while the write was in flight; the check and the insert below
+        // are synchronous, so no row can land after the memo left `receiving` or was deleted.
+        const current = mustGet(id);
+        if (current.state !== "receiving") {
           throw new MemoError("bad_state", `memo ${id} is no longer receiving`);
         }
+        assertLive(current);
         store.recordSegment({ id, index, bytes: bytes.byteLength, sha256 });
       });
     },
@@ -310,6 +314,7 @@ export function createMemoService(deps: {
           `memo ${id} was completed with ${memo.segmentCount} segments`,
         );
       }
+      assertLive(memo);
       const have = new Set(store.listSegmentIndices(id));
       const missing = Array.from({ length: segmentCount }, (_, i) => i).filter((i) => !have.has(i));
       if (missing.length > 0) {

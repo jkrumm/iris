@@ -587,7 +587,7 @@ export function createSqliteMemoStore(params: { db: Database; clock: Clock }): M
     markReceived({ id, segmentCount }) {
       const result = db
         .query(
-          "UPDATE memos SET state = 'received', segment_count = ?, updated_at = ? WHERE id = ? AND state = 'receiving'",
+          "UPDATE memos SET state = 'received', segment_count = ?, updated_at = ? WHERE id = ? AND state = 'receiving' AND deleted_at IS NULL",
         )
         .run(segmentCount, stamp(), id);
       return result.changes === 1;
