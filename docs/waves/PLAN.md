@@ -780,6 +780,10 @@ Sketch; written in full by the mother when Wave 15 closes. Fixed item, owner-con
       back to the transcript; the speech variant past the length threshold falls back to the clipped cleaned reply instead of the `spoken`
       summary. Existing `failed(summarize)` memos with a reply move to `done` (one migration or repair, idempotent). Contract + fixtures +
       `IrisCore` if the step or memo wire changes; TDD and AGENTS.md amended. Proof: `make smoke` green with triage still on Requesty.
+- [ ] **Follow-up from Wave 15 I3 (owner decision pending): reset the outbox.** Since #31 an undecodable `outbox.json` keeps the outbox
+      closed (Settings says it cannot be opened; the file is kept, never overwritten) until the file is removed; there is no in-app way out.
+      Candidate: a Settings "Reset outbox" action. It deletes the queued memos and their segment files, so whether and how it ships is
+      Johannes's product decision; build nothing before he decides.
 
 ## Fleet backlog (for the long-running fleet: mother → lead → workers)
 
