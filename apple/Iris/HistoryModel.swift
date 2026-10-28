@@ -216,6 +216,15 @@ final class HistoryModel {
     place(memo, force: true)
   }
 
+  /// A memo went to the outbox instead of the server: say so, it shows up here once it is sent.
+  func didQueue() {
+    toast = HistoryToast(
+      kind: .info,
+      message: String(
+        localized: "Queued. It is sent as soon as the server answers.", comment: "Toast after a memo went to the outbox"
+      ))
+  }
+
   func dismissToast(id: HistoryToast.ID) {
     if toast?.id == id { toast = nil }
   }

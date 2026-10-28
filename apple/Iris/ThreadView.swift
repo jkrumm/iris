@@ -79,7 +79,8 @@ struct ThreadView: View {
         onSent: { memo in
           model.didSend(memo)
           onSent(memo)
-        })
+        },
+        onQueued: { model.didQueue() })
     }
     .fullScreenCover(item: $zoomed) { item in
       ZoomableImageView(

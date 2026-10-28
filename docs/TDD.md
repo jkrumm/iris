@@ -464,7 +464,7 @@ access group), recent results and settings.
 
 | Mode | Selected by | API | Media | Connection |
 |-|-|-|-|-|
-| Fake | `-IrisFakeCapture` (all UI tests, `make run-sim`) | `FakeAPIClient` + `SampleData` | silent WAV clips | none; no Keychain |
+| Fake | `-IrisFakeCapture` (all UI tests, `make run-sim`); add `-IrisFakeOffline` and the first `createMemo` and `createTextMemo` fail with no network | `FakeAPIClient` + `SampleData`; the capture stack runs the real outbox and `CaptureSession` on `FakeCapture`, an in-memory queue, a silent microphone and `FakePipeline` (a completed take walks to `notified` with a fake transcript and answer) | silent WAV clips | none; no Keychain |
 | Production | no such argument | `ReconfigurableAPIClient` → `URLSessionAPIClient` | `AuthenticatedMediaSource` + `MediaDownloader` | Settings → Connection |
 
 The server URL and device token are typed in Settings → Connection. The token is a generic-password Keychain item (service
@@ -499,8 +499,10 @@ loads and offers a retry when it failed. A tap opens `ZoomableImageView` full sc
 
 Reply by text is the composer sheet bound to `threadId` (mode `chat` for a chat, `hermes` otherwise, no mode chips: the server forces Hermes for a continuation). Reply by voice is
 `VoiceReplyCapture`, the thread's capture port: `begin(VoiceReplyRequest(threadId, mode))` on touch-down of the hold-to-talk pill, `end(cancelled:)` on release (slide up 70 pt to cancel;
-a hold under 0.8 s is a cancel with a hint). `FakeVoiceReplyCapture` (under `-IrisFakeCapture`) records through `FakeCapture` and creates the memo on the API; production has
-`UnavailableVoiceReplyCapture` (the pill is disabled) until the outbox and real capture land in I3. VoiceOver gets a tap to start and a tap to send instead of a hold.
+a hold under 0.8 s is a cancel with a hint). Production and `-IrisFakeCapture` both use `OutboxVoiceReplyCapture`: the take runs through `CaptureSession`, the
+outbox creates the memo (bound to `threadId`), uploads and completes it, and `end` answers `sent(memo)` (the thread shows the pending turn at once), `queued` (a toast: it
+joins the thread once it is sent) or `discarded`. `UnavailableVoiceReplyCapture` (the pill is disabled) remains for a build whose recorder could not be created.
+A typed reply goes through the same outbox (`ComposerModel` → `OutboxService.submitText`). VoiceOver gets a tap to start and a tap to send instead of a hold.
 
 ### Authenticated media
 
@@ -543,23 +545,44 @@ and leaves no file. Revisit the resource loader only if recordings grow past a f
   - a level meter is fed from tap RMS;
   - an engine configuration change restarts the engine and starts a new
     segment.
-- **`Outbox`:**
-  - a persistent queue in the App Group container, one entry per
-    (memo, segment);
-  - during the take it uploads over a default `URLSession` (the app is alive
-    through background audio);
-  - after [Stop], the remainder plus `complete` go through a background
-    `URLSession`, followed by the `result?wait=600` long-poll as a background
-    download, a backstop to APNs;
-  - retries survive relaunches.
+- **`Outbox`** (Wave 15 I3): a persistent queue of **whole items**, in one JSON file (`Application Support/Iris/outbox.json`,
+  written atomically; an unreadable file is moved aside as `.corrupt` and the queue starts empty). Three kinds of work, all
+  idempotent on the server, so a retry after a lost answer is harmless:
+  - **`create`**, one per memo or message (`OutboxItem`: memo id, mode, thread id, text or voice, queued-at). A typed memo or chat
+    message is `POST /memos/text` and is done with that call; a take is `POST /memos`. A take is created once it has something to
+    send (its first closed segment, or its end), so a take cancelled early never reaches the server and leaves no stuck `receiving`
+    memo; the segments of a memo and its `complete` wait for its `create`;
+  - **segments** (`PUT /memos/:id/segments/:n`), one entry per (memo, segment), uploaded while the take runs, at most two in flight;
+  - **`complete {segmentCount}`**, only once the take is finished and every index is uploaded. A segment file is deleted only after
+    `complete` succeeded (or the user discards the item).
+  Retries back off `2 s · 2^(n-1)`, capped at 300 s, plus up to 25 % jitter, and the timer is a persisted `Date`, so it survives a
+  relaunch. After `maxAttempts` (10) failures, or at once for a refusal a retry cannot change (a 4xx other than 408/429: unknown
+  thread, 409 another body, 400 too long, 413), a transfer **stalls**: nothing is scheduled, the Settings row shows the reason, and
+  "retry now" (fresh attempt count) or "discard" is the way out. No network, a 5xx and a 401 (the token may still be fixed) stay on
+  the backoff. A take the app died in the middle of is finished with the segments it had (contiguous from 0), or dropped when it had none.
+  Everything runs on a default `URLSession` (`URLSessionAPIClient`); the background `URLSession` and the `result?wait=600`
+  long-poll as a background download are not built (device-only, below). The app side is `OutboxService` (submit text, await the
+  first attempt for six seconds and answer `sent(memo)` or `queued`, retry, discard, the queue for Settings) over a lazy
+  `CaptureStack` (the outbox and the `CaptureSession`), with `APIOutboxUploader` as the network adapter and
+  `CreatedMemoLog` as the hand-off of the memo the server returned.
+- **`CaptureSession`:** one take behind one handle. `start(TakeRequest)` mints the memo id, configures and activates the session,
+  applies the route rule, starts the recorder and registers the take with the outbox; closed segments go to the outbox while the
+  take runs; `stop()` flushes the last segment and finishes the memo (a take that never closed a segment is dropped); `cancel()`
+  discards the memo and deletes its files; an interruption pauses the recorder at a segment boundary and resumes it when the system
+  recommends; `switchInput` rolls the segment. `updates()` is the state stream the UI and the Live Activity follow.
 - **Memo ids** are minted at start: a UUID v4, which also serves as the trace
   id.
 
 ### Start paths
 
-- **The intent:** `StartMemoIntent: AudioRecordingIntent` (+ `LiveActivityIntent`
-  semantics) starts the engine and `Activity<MemoAttributes>.request(...)` in
-  `perform()`. Apple requires the Live Activity, or the recording stops.
+- **The intent:** `StartMemoIntent: AudioRecordingIntent` starts the engine and
+  `Activity<MemoAttributes>.request(...)` in `perform()`. Apple requires the Live Activity, or the recording stops.
+  Built (Wave 15 I3): the intent file lives in `Iris/Intents/` and is compiled into the app and the widget extension (the
+  `ControlWidget` names the type, the app performs it); `perform()` calls the `CaptureIntentHandler` the composition root
+  registered at launch (`startMemo()`: server saved, microphone permission, `CaptureSession.start` in `auto` mode, then the
+  Live Activity through `TakeLiveActivityCoordinator`). It compiles and runs in the unit tests on the simulator
+  (`StartMemoIntentTests`: the fake stack, a recording `TakeLiveActivity`); **pressing the Control and a real
+  `Activity.request` from the background are device-only** (S1 decides the `openAppWhenRun` fallback).
 - **Callers:** the `ControlWidget` button calls the intent. So do Siri ("Record
   with Iris") and Control Center.
 - **Fallback, accepted by the PRD:** if the system refuses to start a Live
@@ -574,7 +597,11 @@ and leaves no file. Revisit the resource loader only if recordings grow past a f
 
 - **Static:** `memoId`, `mode`, `startedAt`.
 - **`ContentState`** (well under the 4 KB limit):
-  - `phase` (recording/paused/uploading/processing/needsRoute/done/failed);
+  - `phase` (recording/paused/uploading/processing/needsRoute/done/failed). `recording`, `paused` and `uploading` are the
+    client's own (Wave 15 I3): `TakeLiveActivityCoordinator` sets them locally while the take is on the phone (recording while it
+    runs, paused during an interruption, uploading from the stop until the outbox has sent the memo), then `processing`, and the
+    server's pushes (`processing`, `needsRoute`, `done`, `failed`; the wire enum and fixtures are unchanged) carry it from there.
+    The widget renders all seven (timer for recording and processing); compiled, never rendered;
   - `inputName`;
   - `routeChip`;
   - `headline` (≤ 60 chars; the Lock Screen truncates around 160 pt);
@@ -608,7 +635,7 @@ and leaves no file. Revisit the resource loader only if recordings grow past a f
 | Stats | Volume per route per day / week (Swift Charts), tiles, per-route trends, from `GET /v1/stats` |
 | Thread | One conversation as a rendered document (`GET /v1/threads/:id`), opened by a History row of a chat or a continued thread (Wave 15 I2, "Thread view" below): question and answer turns, a pending answer with the step dashes, hold-to-talk and a keyboard button at the bottom |
 | Record | Full-screen take: timer, level waveform, mic picker (`AVInputPickerInteraction` + own list), mode/tab picker, [Stop] |
-| Settings | Diagnostics (copy a memo id, animated "Copied"), Connection (server URL + device token in the Keychain, status; "Not configured" until saved), outbox section (a `QueuedItemSource` port, empty until capture lands). Later: route mic rules, default mode, spoken replies |
+| Settings | Diagnostics (copy a memo id, animated "Copied"), Connection (server URL + device token in the Keychain, status; "Not configured" until saved), outbox section (the queue of whole items from `OutboxService`: kind, age, state, a retry time or the reason it stalled, retry now and discard; live through the outbox's change stream). Later: route mic rules, default mode, spoken replies |
 
 ## 5. macOS app (`IrisMac`)
 
@@ -736,7 +763,7 @@ the `IrisCore` dependency when R1 wires them together.
 | App flows | XCUITest smoke: launch → history → detail; Record screen with a fake recorder (`-IrisFakeCapture`); a launch without it lands on the connection form | mini, CI | `make uitest` |
 | Agent verification | `xcodebuild` build/test, `xcrun simctl` (boot + `bootstatus -b`, install, launch, `io screenshot`, `openurl`, `push` for simulated notifications), and the `mobilebuildmcp` CLI (`ui-automation snapshot-ui` / `tap` / `type-text` / `screenshot`) | mini | `@verifier` / the `ios-verify` skill |
 | Physical device | `devicectl device install app`; screenshots via `pymobiledevice3 developer core-device screen-capture screenshot` (devicectl has no screenshot verb) | mini → iPhone on LAN | `device` skill |
-| Hardware-only | A checklist in `docs/spikes/device-checklist.md`: Lock Screen control, a 30-min background take, a mic switch iPhone↔AirPods↔car, a phone-call interruption, APNs Live Activity update | my hands | before each R-release |
+| Hardware-only (not built or verified by Wave 15 I3) | A checklist in `docs/spikes/device-checklist.md`; also the background `URLSession` for the post-stop upload, background audio keeping the app alive, Bluetooth/car routes, the real `AVAudioEngine` recorder, the Control press and a Live Activity started from the background: Lock Screen control, a 30-min background take, a mic switch iPhone↔AirPods↔car, a phone-call interruption, APNs Live Activity update | my hands | before each R-release |
 
 - **Fakes, not mocks:** every port has a fake used by both unit tests and the
   e2e boot mode (`IRIS_FAKES=1`).

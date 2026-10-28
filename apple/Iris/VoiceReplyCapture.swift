@@ -8,55 +8,83 @@ struct VoiceReplyRequest: Equatable, Sendable {
   let mode: MemoMode
 }
 
-/// The capture port of the thread screen: one take bound to a thread. Production capture (the outbox, I3) fills it in;
-/// until then the app runs on ``FakeVoiceReplyCapture`` under `-IrisFakeCapture` and ``UnavailableVoiceReplyCapture``
-/// otherwise.
+/// How a voice take ended.
+enum VoiceReplyOutcome: Equatable {
+  /// Cancelled, or nothing was said: nothing is sent.
+  case discarded
+  /// The server has the memo (the recording is still on its way up).
+  case sent(Memo)
+  /// Recorded and kept in the outbox; it goes out by itself.
+  case queued
+}
+
+/// The capture port of the thread screen: one take bound to a thread. Production is ``OutboxVoiceReplyCapture`` (the real
+/// recorder through the outbox); `-IrisFakeCapture` runs the same stack on fake audio, and an unconfigured build has
+/// ``UnavailableVoiceReplyCapture``.
 protocol VoiceReplyCapture {
   /// `false` while nothing can record; the hold-to-talk control is then disabled.
   var isAvailable: Bool { get }
   /// Starts a take for the request.
   func begin(_ request: VoiceReplyRequest) async throws
-  /// Ends the take. Cancelled: nothing is sent and `nil` comes back. Otherwise the memo the take became.
-  func end(cancelled: Bool) async throws -> Memo?
+  /// Ends the take. Cancelled: nothing is sent and the outcome is `.discarded`.
+  func end(cancelled: Bool) async throws -> VoiceReplyOutcome
 }
 
 struct UnavailableVoiceReplyCapture: VoiceReplyCapture {
   var isAvailable: Bool { false }
   func begin(_ request: VoiceReplyRequest) async throws {}
-  func end(cancelled: Bool) async throws -> Memo? { nil }
+  func end(cancelled: Bool) async throws -> VoiceReplyOutcome { .discarded }
 }
 
-/// Records silence through `FakeCapture` and creates the voice memo on the API the way the outbox will: no segments,
-/// no upload, a memo that continues the thread. Every request is kept for the tests.
-final class FakeVoiceReplyCapture: VoiceReplyCapture {
+/// A take recorded through the capture session and handed to the outbox: the memo is created when the take starts, the
+/// segments go up while it runs, `complete` follows the stop. Under `-IrisFakeCapture` the same code runs on fake audio;
+/// `onBegan` / `willEnd` let that composition feed its silent microphone.
+final class OutboxVoiceReplyCapture: VoiceReplyCapture {
+  private let stack: CaptureStack
+  private let service: OutboxService
+  private let isRecorderAvailable: Bool
+  private let requestPermission: @Sendable () async -> Bool
+  private let onBegan: () -> Void
+  private let willEnd: () async -> Void
   private(set) var requests: [VoiceReplyRequest] = []
-  private let capture: FakeCapture
-  private let client: any APIClient
-  private let now: () -> Date
-  private var take: (request: VoiceReplyRequest, id: MemoID, startedAt: Date)?
 
-  init(capture: FakeCapture, client: any APIClient, now: @escaping () -> Date = { Date() }) {
-    self.capture = capture
-    self.client = client
-    self.now = now
+  init(
+    stack: CaptureStack, service: OutboxService, isAvailable: Bool = true,
+    requestPermission: @escaping @Sendable () async -> Bool = { true }, onBegan: @escaping () -> Void = {},
+    willEnd: @escaping () async -> Void = {}
+  ) {
+    self.stack = stack
+    self.service = service
+    isRecorderAvailable = isAvailable
+    self.requestPermission = requestPermission
+    self.onBegan = onBegan
+    self.willEnd = willEnd
   }
 
-  var isAvailable: Bool { true }
+  var isAvailable: Bool { isRecorderAvailable }
 
   func begin(_ request: VoiceReplyRequest) async throws {
     requests.append(request)
-    let id = try await capture.startTake()
-    take = (request, id, now())
+    guard await requestPermission() else { throw CaptureError.sessionFailure("microphone access was denied") }
+    let session = await stack.session()
+    try await session.start(
+      TakeRequest(
+        mode: request.mode.rawValue, threadID: request.threadId,
+        title: String(localized: "Voice reply", comment: "Outbox row of a recorded reply")))
+    onBegan()
   }
 
-  func end(cancelled: Bool) async throws -> Memo? {
-    guard let take else { return nil }
-    self.take = nil
-    try await capture.stopTake()
-    guard !cancelled else { return nil }
-    return try await client.createMemo(
-      CreateMemoRequest(
-        id: take.id.uuidString.lowercased(), mode: take.request.mode, startedAt: take.startedAt,
-        threadId: take.request.threadId))
+  func end(cancelled: Bool) async throws -> VoiceReplyOutcome {
+    await willEnd()
+    let session = await stack.session()
+    if cancelled {
+      await session.cancel()
+      return .discarded
+    }
+    guard let result = try await session.stop() else { return .discarded }
+    switch await service.awaitCreated(result.memoID) {
+    case .sent(let memo): return .sent(memo)
+    case .queued: return .queued
+    }
   }
 }

@@ -55,6 +55,7 @@ struct SettingsView: View {
       .background(Theme.Surface.background)
       .navigationTitle(String(localized: "Settings", comment: "Navigation title of the Settings tab"))
       .task { await model.load() }
+      .task { await model.observeQueue() }
       .refreshable { await model.load() }
     }
   }
@@ -101,22 +102,89 @@ struct SettingsView: View {
   }
 
   private func row(for item: QueuedItem) -> some View {
-    let status: OutboxItemRow.Status
-    let statusText: String
-    switch item.state {
-    case .waiting:
-      (status, statusText) = (.waiting, String(localized: "Waiting", comment: "Outbox item state"))
-    case .sending:
-      (status, statusText) = (.sending, String(localized: "Sending", comment: "Outbox item state"))
-    case .failed(let retryAt):
-      (status, statusText) = (
-        .failed,
-        retryAt.map { String(localized: "Retry \($0.formatted(.relative(presentation: .numeric)))") }
-          ?? String(localized: "Failed", comment: "Outbox item state")
+    let canRetry: Bool
+    if case .failed = item.state { canRetry = true } else { canRetry = false }
+    return VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
+      OutboxItemRow(
+        systemImage: item.kind.systemImage, title: item.title, detail: detail(of: item), status: item.state.status,
+        statusText: statusText(of: item.state)
       )
+      .accessibilityIdentifier("settings.outbox.row")
+      if canRetry {
+        HStack(spacing: Theme.Spacing.lg) {
+          Button(String(localized: "Retry now", comment: "Outbox action")) { Task { await model.retry(item) } }
+            .accessibilityIdentifier("settings.outbox.retry")
+          Button(String(localized: "Discard", comment: "Outbox action"), role: .destructive) {
+            Task { await model.discard(item) }
+          }
+          .accessibilityIdentifier("settings.outbox.discard")
+        }
+        .buttonStyle(.borderless)
+        .themeFont(.footnote, weight: .medium)
+      }
     }
-    return OutboxItemRow(
-      systemImage: item.kind == .voiceMemo ? "waveform" : "text.bubble", title: item.title,
-      detail: item.queuedAt.formatted(date: .omitted, time: .shortened), status: status, statusText: statusText)
+    .swipeActions(edge: .trailing) {
+      Button(String(localized: "Discard", comment: "Outbox action"), role: .destructive) {
+        Task { await model.discard(item) }
+      }
+    }
+    .contextMenu {
+      if canRetry {
+        Button(String(localized: "Retry now", comment: "Outbox action"), systemImage: "arrow.clockwise") {
+          Task { await model.retry(item) }
+        }
+      }
+      Button(String(localized: "Discard", comment: "Outbox action"), systemImage: "trash", role: .destructive) {
+        Task { await model.discard(item) }
+      }
+    }
+  }
+
+  /// What it is and how long it has waited: "Voice reply · 4 min ago".
+  private func detail(of item: QueuedItem) -> String {
+    let age = item.queuedAt.formatted(.relative(presentation: .named, unitsStyle: .abbreviated))
+    return "\(item.kind.title) · \(age)"
+  }
+
+  private func statusText(of state: QueuedItem.State) -> String {
+    switch state {
+    case .recording: String(localized: "Recording", comment: "Outbox item state")
+    case .waiting: String(localized: "Waiting", comment: "Outbox item state")
+    case .sending: String(localized: "Sending", comment: "Outbox item state")
+    case .failed(let retryAt?, _):
+      String(localized: "Retry \(retryAt.formatted(.relative(presentation: .numeric)))", comment: "Outbox item state")
+    case .failed(nil, let reason):
+      reason ?? String(localized: "Failed", comment: "Outbox item state")
+    }
+  }
+}
+
+extension QueuedItem.Kind {
+  fileprivate var systemImage: String {
+    switch self {
+    case .voiceMemo, .voiceReply: "waveform"
+    case .typedMemo: "square.and.pencil"
+    case .chatMessage, .textReply: "text.bubble"
+    }
+  }
+
+  fileprivate var title: String {
+    switch self {
+    case .voiceMemo: String(localized: "Voice memo", comment: "Outbox item kind")
+    case .voiceReply: String(localized: "Voice reply", comment: "Outbox item kind")
+    case .typedMemo: String(localized: "Typed memo", comment: "Outbox item kind")
+    case .chatMessage: String(localized: "Chat message", comment: "Outbox item kind")
+    case .textReply: String(localized: "Reply", comment: "Outbox item kind")
+    }
+  }
+}
+
+extension QueuedItem.State {
+  fileprivate var status: OutboxItemRow.Status {
+    switch self {
+    case .recording, .waiting: .waiting
+    case .sending: .sending
+    case .failed: .failed
+    }
   }
 }

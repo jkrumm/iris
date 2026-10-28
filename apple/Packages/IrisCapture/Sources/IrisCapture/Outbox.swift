@@ -8,14 +8,23 @@ import Foundation
 /// the retry timer this actor owns.
 public actor Outbox: SegmentOutbox {
   private enum TransferID: Hashable {
+    case creation(MemoID)
     case segment(SegmentKey)
     case completion(MemoID)
+
+    var memoID: MemoID {
+      switch self {
+      case .creation(let id), .completion(let id): id
+      case .segment(let key): key.memoID
+      }
+    }
   }
 
   private var machine: OutboxStateMachine
   private let store: any OutboxStore
   private let uploader: any SegmentUploader
   private let clock: any CaptureClock
+  private let deletesFilesWhenDone: Bool
 
   private var inFlight: [TransferID: Task<Void, Never>] = [:]
   private var wakeTask: Task<Void, Never>?
@@ -26,15 +35,19 @@ public actor Outbox: SegmentOutbox {
   private var flushWaiters: [CheckedContinuation<Void, Never>] = []
   private var isDirty = false
   private var isShutDown = false
+  private var observers: [UUID: AsyncStream<Void>.Continuation] = [:]
 
+  /// - Parameter deletesFilesWhenDone: Remove a memo's segment files once `complete` succeeded (tests that read them turn it off).
   /// Loads the persisted queue. Entries that were uploading when the app died return to pending.
   /// Call `resume()` to continue sending.
   public init(
     store: any OutboxStore,
     uploader: any SegmentUploader,
     clock: any CaptureClock,
-    policy: OutboxPolicy = OutboxPolicy()
+    policy: OutboxPolicy = OutboxPolicy(),
+    deletesFilesWhenDone: Bool = true
   ) async throws {
+    self.deletesFilesWhenDone = deletesFilesWhenDone
     self.store = store
     self.uploader = uploader
     self.clock = clock
@@ -53,6 +66,52 @@ public actor Outbox: SegmentOutbox {
     machine.finishMemo(memoID, segmentCount: segmentCount)
     await persist()
     await resume()
+  }
+
+  // MARK: Items
+
+  /// Queues a whole memo or message and starts sending it. `false` when the memo id is already queued or done.
+  @discardableResult
+  public func enqueueItem(_ item: OutboxItem) async -> Bool {
+    guard machine.enqueueItem(item) else { return false }
+    await persist()
+    await resume()
+    return true
+  }
+
+  /// Sends a failed or stalled item again now, with a fresh attempt count.
+  public func retryNow(_ memoID: MemoID) async {
+    guard machine.retryNow(memoID) else { return }
+    await persist()
+    await resume()
+  }
+
+  /// Drops the item and everything queued for it, and deletes its segment files. A transfer already on the wire is
+  /// cancelled; the server keeps whatever it already has.
+  public func discard(_ memoID: MemoID) async {
+    for (id, task) in inFlight where id.memoID == memoID { task.cancel() }
+    for file in machine.discard(memoID) { try? FileManager.default.removeItem(at: file) }
+    await persist()
+    await resume()
+  }
+
+  /// The queue for the UI, oldest first.
+  public func queue() -> [OutboxQueueItem] { machine.queue() }
+
+  /// A stream that yields once per saved change (queue or state), for as long as the consumer iterates.
+  public func changes() -> AsyncStream<Void> {
+    let id = UUID()
+    let (stream, continuation) = AsyncStream.makeStream(of: Void.self, bufferingPolicy: .bufferingNewest(1))
+    observers[id] = continuation
+    continuation.onTermination = { [weak self] _ in
+      guard let self else { return }
+      Task { await self.removeObserver(id) }
+    }
+    return stream
+  }
+
+  private func removeObserver(_ id: UUID) {
+    observers[id] = nil
   }
 
   // MARK: Driving
@@ -82,11 +141,14 @@ public actor Outbox: SegmentOutbox {
     wakeTask = nil
     wakeDeadline = nil
     for task in inFlight.values { task.cancel() }
+    for observer in observers.values { observer.finish() }
+    observers = [:]
   }
 
   /// Current queue, oldest first.
   public func entries() -> [OutboxEntry] { machine.record.entries }
   public func memos() -> [OutboxMemo] { machine.record.memos }
+  public func items() -> [OutboxItem] { machine.record.items }
 
   // MARK: Internals
 
@@ -95,6 +157,7 @@ public actor Outbox: SegmentOutbox {
   private func start(_ work: OutboxWork) {
     let id: TransferID
     switch work {
+    case .create(let item): id = .creation(item.memoID)
     case .upload(let segment): id = .segment(SegmentKey(memoID: segment.memoID, index: segment.index))
     case .complete(let memoID, _): id = .completion(memoID)
     }
@@ -103,6 +166,7 @@ public actor Outbox: SegmentOutbox {
       let outcome: Result<Void, any Error>
       do {
         switch work {
+        case .create(let item): try await uploader.create(item)
         case .upload(let segment): try await uploader.upload(segment)
         case .complete(let memoID, let count): try await uploader.complete(memoID: memoID, segmentCount: count)
         }
@@ -121,21 +185,39 @@ public actor Outbox: SegmentOutbox {
     inFlight[id] = nil
     let cancelled = Task.isCancelled || isShutDown
     switch (id, outcome) {
+    case (.creation(let memoID), .success): machine.createSucceeded(memoID)
+    case (.creation(let memoID), .failure) where cancelled: machine.createCancelled(memoID)
+    case (.creation(let memoID), .failure(let error)):
+      Log.outbox.error("create failed: \(String(describing: error), privacy: .public)")
+      machine.createFailed(memoID, now: now, permanent: Self.isPermanent(error), reason: Self.reason(error))
     case (.segment(let key), .success): machine.uploadSucceeded(key)
     case (.segment(let key), .failure) where cancelled: machine.uploadCancelled(key)
     case (.segment(let key), .failure(let error)):
-      Log.outbox.error("upload failed, will retry: \(String(describing: error), privacy: .public)")
-      machine.uploadFailed(key, now: now)
-    case (.completion(let memoID), .success): machine.completeSucceeded(memoID)
+      Log.outbox.error("upload failed: \(String(describing: error), privacy: .public)")
+      machine.uploadFailed(key, now: now, permanent: Self.isPermanent(error), reason: Self.reason(error))
+    case (.completion(let memoID), .success):
+      // The server acknowledged the memo: its segment files are no longer needed.
+      if deletesFilesWhenDone {
+        for entry in machine.entries.values where entry.key.memoID == memoID {
+          try? FileManager.default.removeItem(at: entry.segment.fileURL)
+        }
+      }
+      machine.completeSucceeded(memoID)
     case (.completion(let memoID), .failure) where cancelled: machine.completeCancelled(memoID)
     case (.completion(let memoID), .failure(let error)):
-      Log.outbox.error("complete failed, will retry: \(String(describing: error), privacy: .public)")
-      machine.completeFailed(memoID, now: now)
+      Log.outbox.error("complete failed: \(String(describing: error), privacy: .public)")
+      machine.completeFailed(memoID, now: now, permanent: Self.isPermanent(error), reason: Self.reason(error))
     }
     await persist()
     await resume()
     finishing -= 1
     resolveIdleWaiters()
+  }
+
+  private static func isPermanent(_ error: any Error) -> Bool { error is PermanentTransferError }
+
+  private static func reason(_ error: any Error) -> String {
+    (error as? PermanentTransferError)?.message ?? String(describing: error)
   }
 
   private func scheduleWake(after now: Date) {
@@ -182,6 +264,7 @@ public actor Outbox: SegmentOutbox {
       }
     }
     isFlushing = false
+    for observer in observers.values { observer.yield() }
     let waiters = flushWaiters
     flushWaiters = []
     for waiter in waiters { waiter.resume() }

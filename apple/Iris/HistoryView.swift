@@ -88,7 +88,8 @@ struct HistoryView: View {
           .presentationDragIndicator(.visible)
       }
       .sheet(item: $composer) { request in
-        ComposerView(model: makeComposer(request), onSent: { model.insert($0) })
+        ComposerView(
+          model: makeComposer(request), onSent: { model.insert($0) }, onQueued: { model.didQueue() })
       }
       .refreshable { await model.load() }
       .task(id: model.filters) {
@@ -148,7 +149,7 @@ struct HistoryView: View {
     if let toast = model.toast {
       ToastBanner(
         message: toast.message,
-        actionTitle: toast.kind == .error ? nil : String(localized: "Undo", comment: "Undoes a delete"),
+        actionTitle: toast.kind.isUndo ? String(localized: "Undo", comment: "Undoes a delete") : nil,
         action: { Task { await model.undoDelete() } }
       )
       .padding(.horizontal, Theme.Spacing.lg)

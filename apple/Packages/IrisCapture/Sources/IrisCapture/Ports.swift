@@ -54,8 +54,11 @@ public protocol SegmentOutbox: Sendable {
   func finishMemo(_ memoID: MemoID, segmentCount: Int) async
 }
 
-/// The network side of the outbox. Idempotent on the server per (memo, index).
+/// The network side of the outbox. Idempotent on the server per memo id and per (memo, index). A failure that a retry
+/// cannot fix (a 4xx the server will repeat) is thrown as `PermanentTransferError`; any other error is retried.
 public protocol SegmentUploader: Sendable {
+  /// Creates the memo on the server: `POST /memos` for a take, `POST /memos/text` for a typed item.
+  func create(_ item: OutboxItem) async throws
   func upload(_ segment: ClosedSegment) async throws
   func complete(memoID: MemoID, segmentCount: Int) async throws
 }

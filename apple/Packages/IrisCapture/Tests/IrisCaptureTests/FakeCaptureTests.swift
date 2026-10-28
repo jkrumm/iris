@@ -28,7 +28,7 @@ struct FakeCaptureTests {
   @Test func scriptedTakeFlowsThroughRotationAndOutboxToCompletion() async throws {
     let directory = try temporaryDirectory()
     defer { try? FileManager.default.removeItem(at: directory) }
-    let harness = try await OutboxHarness()
+    let harness = try await OutboxHarness(deletesFilesWhenDone: false)
     let fake = FakeCapture(directory: directory, clock: harness.clock)
     let collector = pump(fake.recorder, into: harness.outbox)
     let id = try await fake.startTake()
