@@ -29,6 +29,12 @@ struct ComposerView: View {
           placeholder: String(localized: "What should Iris do?", comment: "Composer placeholder"),
           counter: counter, isOverLimit: model.isOverLimit)
         hint
+        if let failure = model.failure {
+          Text(verbatim: failure)
+            .themeFont(.footnote)
+            .foregroundStyle(Theme.Status.bad)
+            .accessibilityIdentifier("composer.error")
+        }
         Spacer(minLength: 0)
       }
       .padding(Theme.Spacing.lg)
@@ -90,6 +96,7 @@ struct ComposerView: View {
     switch outcome {
     case .sent(let memo): onSent(memo)
     case .queued: onQueued()
+    case .refused: return
     }
     dismiss()
   }

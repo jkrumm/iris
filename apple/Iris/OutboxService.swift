@@ -3,10 +3,12 @@ import IrisCapture
 import IrisCore
 import os
 
-/// What the user sees of a submission: the server has the memo, or it waits in the outbox.
+/// What the user sees of a submission: the server has the memo, it waits in the outbox, or it was refused.
 enum SendOutcome: Equatable, Sendable {
   case sent(Memo)
   case queued
+  /// The outbox could not be opened, so nothing was taken: the caller keeps the text and says so.
+  case refused
 }
 
 /// A typed memo or chat message handed to the outbox.
@@ -63,7 +65,7 @@ nonisolated final class OutboxService: QueuedItemSource {
   /// `window`; `.queued` means it waits in the outbox (offline, a slow server, a failed attempt) and goes out by itself.
   /// Handing over the same submission twice is one memo.
   func submitText(_ submission: TextSubmission, window: Duration = firstAttemptWindow) async -> SendOutcome {
-    let outbox = await stack.outbox()
+    guard let outbox = try? await stack.outbox() else { return .refused }
     let changes = await outbox.changes()
     let text = submission.text
     let item = OutboxItem(
@@ -75,34 +77,40 @@ nonisolated final class OutboxService: QueuedItemSource {
 
   /// The outcome of a memo that is already in the outbox (a take that just stopped): `.sent` once the server has it.
   func awaitCreated(_ memoID: MemoID, window: Duration = firstAttemptWindow) async -> SendOutcome {
-    let outbox = await stack.outbox()
+    guard let outbox = try? await stack.outbox() else { return .queued }
     let changes = await outbox.changes()
     return await outcome(of: memoID, outbox: outbox, changes: changes, window: window)
   }
 
   /// Retries what the server refused or what ran out of attempts; the app calls it again when the connection changes.
   func resume() async {
-    await stack.outbox().resume()
+    await (try? await stack.outbox())?.resume()
   }
 
   // MARK: QueuedItemSource
 
   func queuedItems() async -> [QueuedItem] {
-    await stack.outbox().queue().map(QueuedItem.init)
+    guard let outbox = try? await stack.outbox() else { return [] }
+    return await outbox.queue().map(QueuedItem.init)
   }
 
   func changes() async -> AsyncStream<Void> {
-    await stack.outbox().changes()
+    guard let outbox = try? await stack.outbox() else { return AsyncStream { $0.finish() } }
+    return await outbox.changes()
   }
 
   func retry(id: String) async {
     guard let memoID = UUID(uuidString: id) else { return }
-    await stack.outbox().retryNow(memoID)
+    await (try? await stack.outbox())?.retryNow(memoID)
   }
 
   func discard(id: String) async {
     guard let memoID = UUID(uuidString: id) else { return }
-    await stack.outbox().discard(memoID)
+    await (try? await stack.outbox())?.discard(memoID)
+  }
+
+  func isAvailable() async -> Bool {
+    await stack.isAvailable()
   }
 
   // MARK: Internals

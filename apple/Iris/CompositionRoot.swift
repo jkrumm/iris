@@ -92,7 +92,7 @@ final class CompositionRoot: CaptureIntentHandler {
       simulatesOffline = arguments.contains("-IrisFakeOffline")
       let recording = RecordingLiveActivity()
       fakeLiveActivity = recording
-      liveActivity = TakeLiveActivityCoordinator(activity: recording, stack: stack)
+      liveActivity = TakeLiveActivityCoordinator(activity: recording, stack: stack, created: created)
       history = HistoryModel(client: fake)
       stats = StatsModel(client: fake)
       settings = SettingsModel(client: fake, queue: service)
@@ -119,7 +119,7 @@ final class CompositionRoot: CaptureIntentHandler {
       simulatesOffline = false
       fakeLiveActivity = nil
       liveActivity = TakeLiveActivityCoordinator(
-        activity: ActivityKitTakeLiveActivity(client: client), stack: production.stack)
+        activity: ActivityKitTakeLiveActivity(client: client), stack: production.stack, created: created)
       history = HistoryModel(client: client)
       stats = StatsModel(client: client)
       settings = SettingsModel(client: client, queue: service, credentials: credentials)
@@ -167,6 +167,8 @@ final class CompositionRoot: CaptureIntentHandler {
     guard isConfigured else { return }
     // Loads the saved queue and sends what is due: items left over from the last session, or from before a connection change.
     await outbox.resume()
+    // A take's Live Activity does not outlive its process: end the ones the last run left in a client phase.
+    await liveActivity.endOrphans()
     if connectionRevision > 0 {
       await settings.load()
       await stats.load()
@@ -181,7 +183,7 @@ final class CompositionRoot: CaptureIntentHandler {
   func startMemo() async throws {
     guard isConfigured else { throw StartMemoError.notConfigured }
     guard await requestPermission() else { throw StartMemoError.microphoneDenied }
-    let session = await stack.session()
+    guard let session = try? await stack.session() else { throw StartMemoError.queueUnavailable }
     let request = TakeRequest(
       mode: MemoMode.auto.rawValue, title: String(localized: "Voice memo", comment: "Outbox row of a recorded memo"))
     let id = try await session.start(request)

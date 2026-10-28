@@ -16,6 +16,8 @@ final class SettingsModel {
 
   private(set) var connection = Connection.checking
   private(set) var queue: [QueuedItem] = []
+  /// The persistent queue cannot be opened, so new memos are refused until it can (asking again retries).
+  private(set) var queueUnavailable = false
 
   private let client: any APIClient
   private let source: any QueuedItemSource
@@ -38,11 +40,17 @@ final class SettingsModel {
 
   /// Follows the queue for as long as the screen is up: every change of the outbox refreshes the list.
   func observeQueue() async {
-    queue = await source.queuedItems()
+    await refreshQueue()
     for await _ in await source.changes() {
       guard !Task.isCancelled else { return }
-      queue = await source.queuedItems()
+      await refreshQueue()
     }
+  }
+
+  private func refreshQueue() async {
+    let available = await source.isAvailable()
+    queue = available ? await source.queuedItems() : []
+    queueUnavailable = !available
   }
 
   /// Sends a failed or stalled item again now.
@@ -62,11 +70,14 @@ final class SettingsModel {
       connection = .notConfigured
       return
     }
-    let items = await source.queuedItems()
+    // Asked once per refresh: a closed queue is opened again by this question, not by every read after it.
+    let available = await source.isAvailable()
+    let items = available ? await source.queuedItems() : []
     do {
       let health = try await client.health()
       guard current == generation else { return }
       queue = items
+      queueUnavailable = !available
       connection = health.status == .ok ? .connected : .degraded(health.degraded)
     } catch is CancellationError {
       return
@@ -74,6 +85,7 @@ final class SettingsModel {
       guard current == generation else { return }
       logger.error("health check failed: \(String(describing: error), privacy: .public)")
       queue = items
+      queueUnavailable = !available
       connection = .unreachable
     }
   }

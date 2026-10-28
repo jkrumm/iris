@@ -30,6 +30,9 @@ nonisolated struct QueuedItem: Identifiable, Equatable, Sendable {
 /// Where Settings reads the queue from, and what it can do to an item.
 nonisolated protocol QueuedItemSource: Sendable {
   func queuedItems() async -> [QueuedItem]
+  /// `false` when the persistent queue cannot be opened: nothing can be queued until it can, and Settings says so. Asking
+  /// tries to open it again.
+  func isAvailable() async -> Bool
   /// Yields once per change of the queue, for as long as the consumer iterates.
   func changes() async -> AsyncStream<Void>
   /// Sends a failed or stalled item again now.
@@ -40,6 +43,7 @@ nonisolated protocol QueuedItemSource: Sendable {
 
 nonisolated struct EmptyQueue: QueuedItemSource {
   func queuedItems() async -> [QueuedItem] { [] }
+  func isAvailable() async -> Bool { true }
   func changes() async -> AsyncStream<Void> { AsyncStream { $0.finish() } }
   func retry(id: String) async {}
   func discard(id: String) async {}

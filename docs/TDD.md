@@ -570,6 +570,14 @@ and leaves no file. Revisit the resource loader only if recordings grow past a f
   take runs; `stop()` flushes the last segment and finishes the memo (a take that never closed a segment is dropped); `cancel()`
   discards the memo and deletes its files; an interruption pauses the recorder at a segment boundary and resumes it when the system
   recommends; `switchInput` rolls the segment. `updates()` is the state stream the UI and the Live Activity follow.
+  `start`, `stop` and `cancel` run one at a time through an internal FIFO gate, and `start` claims the take (phase `starting`) with no
+  suspension after the gate: a second start finds the first take and is rejected, a `cancel` that lands while the take is starting or
+  stopping waits for that to finish and then ends it (so no microphone is left running with no state), and a stop's wait for the
+  recorder's last event is never shared with another caller.
+- **`CaptureStack` never queues into memory.** If the persistent queue cannot be loaded (the file unreadable before the first unlock after
+  a reboot), the stack stays unbuilt: the composer keeps the text and shows why, a voice take and the start intent refuse to start,
+  Settings shows "the outbox cannot be opened", and nothing is written anywhere. The next call (`resume()` at launch, a pull to refresh, the
+  next send) tries the real store again.
 - **Memo ids** are minted at start: a UUID v4, which also serves as the trace
   id.
 
@@ -601,6 +609,10 @@ and leaves no file. Revisit the resource loader only if recordings grow past a f
     client's own (Wave 15 I3): `TakeLiveActivityCoordinator` sets them locally while the take is on the phone (recording while it
     runs, paused during an interruption, uploading from the stop until the outbox has sent the memo), then `processing`, and the
     server's pushes (`processing`, `needsRoute`, `done`, `failed`; the wire enum and fixtures are unchanged) carry it from there.
+    A retryable failure (no network, a 5xx) keeps the activity on `uploading`; a stall ends it as `failed` (shown 15 minutes) and a
+    discard ends it at once (`Activity.end`); a sent memo is handed over to the server, not ended. The activity's push token is registered
+    (`PUT /memos/:id/activity-token`) once the server has the memo, since it answers 404 before that, and retried on the next update; at
+    launch every activity still in a client phase is ended, because nothing moves it on after its process is gone.
     The widget renders all seven (timer for recording and processing); compiled, never rendered;
   - `inputName`;
   - `routeChip`;
