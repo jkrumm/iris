@@ -12,9 +12,24 @@ extension Memo {
     return String(localized: "Processing…", comment: "Row headline while the memo has no transcript yet")
   }
 
+  /// Where the memo went (the tab name for a herdr tab); the mode only before it is routed.
   var routeLabel: String {
-    guard let route else { return mode.rawValue.capitalized }
-    return route.capitalized
+    switch route {
+    case nil: mode.rawValue.capitalized
+    case "tab", "herdr":
+      destinationRef ?? String(localized: "Tab", comment: "Route name for a herdr tab without a name")
+    case let route?: route.capitalized
+    }
+  }
+
+  /// The route's dot on a History row.
+  var routeDotColor: Color {
+    switch route {
+    case "hermes": Theme.Accent.tint
+    case "journal": Theme.Status.good
+    case "tab", "herdr": Theme.Ink.secondary
+    default: Theme.Ink.faint
+    }
   }
 
   /// Parked at `needs_route` and not yet handled: pinned above the list and tinted.
@@ -22,6 +37,44 @@ extension Memo {
 
   var relativeTime: String {
     createdAt.formatted(.relative(presentation: .named))
+  }
+
+  /// The clock time on a History row; the day sits in the section header.
+  var timeText: String {
+    createdAt.formatted(date: .omitted, time: .shortened)
+  }
+
+  /// Settled memos show the route and the audio length, memos that need the user show the coloured state, memos the
+  /// pipeline is still driving show the route and "Acting". The list wire carries no cost.
+  var rowStatus: HistoryRowStatus {
+    switch state {
+    case .needsRoute:
+      .alert(label: String(localized: "Needs route", comment: "History row status"), color: Theme.Status.warn)
+    case .failed:
+      .alert(
+        label: failedStep.map { String(localized: "Failed · \($0.rawValue)", comment: "History row status") }
+          ?? String(localized: "Failed", comment: "History row status"),
+        color: Theme.Status.bad)
+    case .notified:
+      .settled(route: routeLabel, dot: routeDotColor, duration: audioSeconds.map(DurationText.string(seconds:)))
+    default:
+      .inFlight(
+        route: routeLabel, dot: routeDotColor, label: String(localized: "Acting", comment: "History row status"))
+    }
+  }
+
+  /// The grey line under the headline: what to do about a failure or a parked memo, else the summary's first line.
+  var rowSecondary: String? {
+    switch state {
+    case .failed:
+      let retry = failedStep.map { String(localized: "retry from \($0.rawValue)", comment: "History row hint") }
+      let parts = [error == rowHeadline ? nil : error, retry].compactMap { $0 }
+      return parts.isEmpty ? nil : parts.joined(separator: " — ")
+    case .needsRoute:
+      return String(localized: "Tap to decide", comment: "History row hint on a memo that needs a route")
+    default:
+      return summary?.detail.split(whereSeparator: \.isNewline).first.map(String.init)
+    }
   }
 }
 
@@ -47,5 +100,20 @@ extension MemoState {
     case .failed: Theme.Status.bad
     default: Theme.Status.neutral
     }
+  }
+}
+
+/// "38 s", "2 min 12 s", "41 min", "1 h 5 min": the audio lengths on History.
+enum DurationText {
+  static func string(seconds: Double) -> String {
+    let total = Int(seconds.rounded())
+    if total < 60 { return "\(total) s" }
+    let minutes = total / 60
+    if minutes < 60 {
+      let rest = total % 60
+      return rest == 0 ? "\(minutes) min" : "\(minutes) min \(rest) s"
+    }
+    let rest = minutes % 60
+    return rest == 0 ? "\(minutes / 60) h" : "\(minutes / 60) h \(rest) min"
   }
 }
