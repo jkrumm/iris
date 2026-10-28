@@ -44,6 +44,41 @@ describe("markdownToSpeech", () => {
     );
   });
 
+  it("recognises a fence nested under a list item, however deep the indentation", () => {
+    const de =
+      "Das sind die Schritte:\n\n1. Installiere es\n\n    ```sh\n    bun i\n    ```\n\n2. Danach läuft es.";
+    expect(markdownToSpeech(de)).toBe(
+      "Das sind die Schritte:\n\nInstalliere es.\n\nein Codeblock\n\nDanach läuft es.",
+    );
+    const en =
+      "These are the steps:\n\n- Install it\n\n        ```mermaid\n        graph TD; A-->B\n        ```\n\n- Then it runs.";
+    expect(markdownToSpeech(en)).toBe(
+      "These are the steps:\n\nInstall it.\n\na diagram\n\nThen it runs.",
+    );
+  });
+
+  it("does not open a fence on a one-line triple-backtick span", () => {
+    expect(markdownToSpeech("```foo``` is the answer.\n\nAnd the rest is still spoken.")).toBe(
+      "foo is the answer.\n\nAnd the rest is still spoken.",
+    );
+    expect(markdownToSpeech("Das ist ```foo``` die Antwort, und der Rest wird gelesen.")).toBe(
+      "Das ist foo die Antwort, und der Rest wird gelesen.",
+    );
+    // a tilde fence may carry backticks in its info string
+    expect(markdownToSpeech("The code is:\n~~~ a`b\nx\n~~~\nDone, and it is fine.")).toContain(
+      "a code block",
+    );
+  });
+
+  it("summarizes a one-column table but not a horizontal rule", () => {
+    expect(markdownToSpeech("The names are:\n\n| name |\n| --- |\n| a |\n| b |")).toBe(
+      "The names are:\n\na table with 2 rows",
+    );
+    expect(markdownToSpeech("Erster Teil ist da.\n\n---\n\nZweiter Teil ist da.")).toBe(
+      "Erster Teil ist da.\n\nZweiter Teil ist da.",
+    );
+  });
+
   it("summarizes a table with its data row count", () => {
     const table =
       "The results are:\n\n| name | value |\n|-|-|\n| a | 1 |\n| b | 2 |\n| c | 3 |\n\nThat is all.";
@@ -158,6 +193,28 @@ describe("speechVariant", () => {
     expect(out.length).toBeLessThanOrEqual(SPEECH_MAX_CHARS);
     expect(out.endsWith(" Details auf dem Bildschirm.")).toBe(true);
     expect(out).toContain("Migration. Details");
+  });
+
+  it("speaks the summary in the reply's language, not its own", () => {
+    const en = "This is a long sentence about the migration. ".repeat(30);
+    expect(speechVariant({ reply: en, spoken: "Ein Fenster `foo` in der Datei." })).toBe(
+      "Ein Fenster foo in der Datei. Details on screen.",
+    );
+  });
+
+  it("caps an oversized summary", () => {
+    const spoken = "Die Migration ist fertig und läuft. ".repeat(40);
+    const out = speechVariant({ reply: long, spoken });
+    expect(out.length).toBeLessThanOrEqual(SPEECH_MAX_CHARS);
+    expect(out.endsWith(" Details auf dem Bildschirm.")).toBe(true);
+    expect(speechVariant({ reply: null, spoken }).length).toBeLessThanOrEqual(SPEECH_MAX_CHARS);
+  });
+
+  it("clips at a sentence that ends exactly at the cut", () => {
+    const room = SPEECH_MAX_CHARS - "Details auf dem Bildschirm.".length - 1;
+    const first = `${"x".repeat(room - 1)}.`;
+    const reply = `${first} ${"Das ist ein langer Satz über die Migration. ".repeat(30)}`;
+    expect(speechVariant({ reply, spoken: null })).toBe(`${first} Details auf dem Bildschirm.`);
   });
 
   it("is deterministic: the same inputs give the same text (the cache key)", () => {

@@ -9,7 +9,14 @@ export const SPEECH_MAX_CHARS = 600;
 
 type Language = "de" | "en";
 
-const PHRASES = {
+interface Phrases {
+  code: string;
+  diagram: string;
+  table: (rows: number) => string;
+  details: string;
+}
+
+const PHRASES: Record<Language, Phrases> = {
   de: {
     code: "ein Codeblock",
     diagram: "ein Diagramm",
@@ -22,7 +29,10 @@ const PHRASES = {
     table: (rows: number) => `a table with ${rows} ${rows === 1 ? "row" : "rows"}`,
     details: "Details on screen.",
   },
-} as const;
+};
+
+/** Blocks replaced by nothing: language detection reads the prose only. */
+const NO_PHRASES: Phrases = { code: "", diagram: "", table: () => "", details: "" };
 
 // Frequent function words that separate the two languages; code and URLs are stripped before counting.
 const GERMAN_WORDS = new Set([
@@ -104,8 +114,8 @@ const ENGLISH_WORDS = new Set([
 
 /** German unless English words clearly win: the transcripts are mostly German, so a tie or no signal is German. */
 export function detectLanguage(markdown: string): Language {
-  const prose = markdown
-    .replace(/(`{3,}|~{3,})[\s\S]*?(\1|$)/g, " ")
+  const prose = summarizeBlocks(markdown.replace(/\r\n?/g, "\n").split("\n"), NO_PHRASES)
+    .join("\n")
     .replace(/`[^`]*`/g, " ")
     .replace(/\b(?:https?:\/\/|www\.)\S+/gi, " ");
   let de = 0;
@@ -118,27 +128,35 @@ export function detectLanguage(markdown: string): Language {
 }
 
 const DIAGRAM_LANGS = new Set(["mermaid", "plantuml", "puml", "dot", "graphviz", "d2", "ditaa"]);
-const FENCE_OPEN = /^\s{0,3}(`{3,}|~{3,})\s*([^\s`]*)/;
-const TABLE_SEPARATOR = /^\s*\|?\s*:?-{1,}:?\s*(\|\s*:?-{1,}:?\s*)+\|?\s*$/;
+// Any indentation: a fence under a list item sits four or more spaces in, and is still a fence.
+const FENCE_OPEN = /^\s*(`{3,}|~{3,})(.*)$/;
+// A separator row always has a pipe, so a one-column table (`| --- |`) counts and a bare `---` rule does not.
+const TABLE_SEPARATOR = /^(?=.*\|)\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$/;
 const SENTENCE_END = /[.!?:;…]["')\]]?$/;
 
+/** The opening fence of a block: CommonMark forbids a backtick in a backtick fence's info string (` ```foo``` ` is inline code). */
+function openingFence(line: string): { marker: string; lang: string } | null {
+  const match = FENCE_OPEN.exec(line);
+  if (!match) return null;
+  const marker = match[1] ?? "";
+  const info = (match[2] ?? "").trim();
+  if (marker.startsWith("`") && info.includes("`")) return null;
+  return { marker, lang: info.split(/\s+/)[0]?.toLowerCase() ?? "" };
+}
+
 /** Fences and tables become one-line summaries; everything else passes through for the inline pass. */
-function summarizeBlocks(lines: string[], phrases: (typeof PHRASES)[Language]): string[] {
+function summarizeBlocks(lines: string[], phrases: Phrases): string[] {
   const out: string[] = [];
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i] ?? "";
 
-    const fence = FENCE_OPEN.exec(line);
+    const fence = openingFence(line);
     if (fence) {
-      const marker = fence[1] ?? "```";
-      const closing = new RegExp(`^\\s{0,3}${marker[0]}{${marker.length},}\\s*$`);
+      const { marker } = fence;
+      const closing = new RegExp(`^\\s*${marker[0]}{${marker.length},}\\s*$`);
       let end = i + 1;
       while (end < lines.length && !closing.test(lines[end] ?? "")) end++;
-      out.push(
-        "",
-        DIAGRAM_LANGS.has((fence[2] ?? "").toLowerCase()) ? phrases.diagram : phrases.code,
-        "",
-      );
+      out.push("", DIAGRAM_LANGS.has(fence.lang) ? phrases.diagram : phrases.code, "");
       i = end; // an unclosed fence runs to the end of the reply
       continue;
     }
@@ -235,9 +253,11 @@ export function markdownToSpeech(
 /** The longest run of whole sentences that fits `max`, else a hard cut at a word. */
 function clip(text: string, max: number): string {
   if (text.length <= max) return text;
+  // A terminator counts as a sentence end when whitespace follows it, including at the very end of the cut.
+  const ends = [...text.slice(0, max + 1).matchAll(/[.!?](?=\s)/g)].map((m) => m.index ?? 0);
+  const sentence = ends.at(-1) ?? -1;
+  if (sentence >= max / 2 && sentence < max) return text.slice(0, sentence + 1);
   const head = text.slice(0, max);
-  const sentence = Math.max(head.lastIndexOf(". "), head.lastIndexOf("! "), head.lastIndexOf("? "));
-  if (sentence > max / 2) return head.slice(0, sentence + 1);
   const word = head.lastIndexOf(" ");
   return `${(word > 0 ? head.slice(0, word) : head).replace(/[,;:\s]+$/, "")}.`;
 }
@@ -250,13 +270,18 @@ function clip(text: string, max: number): string {
  */
 export function speechVariant(params: { reply: string | null; spoken: string | null }): string {
   const reply = params.reply?.trim() ?? "";
-  const spoken = params.spoken ? markdownToSpeech(params.spoken) : "";
-  if (reply === "") return spoken;
+  if (reply === "") {
+    const alone = params.spoken ? markdownToSpeech(params.spoken) : "";
+    return clip(alone, SPEECH_MAX_CHARS);
+  }
 
+  // The reply decides the language of everything spoken, the summary included.
   const language = detectLanguage(reply);
+  const spoken = params.spoken ? markdownToSpeech(params.spoken, language) : "";
   const cleaned = markdownToSpeech(reply, language);
-  if (cleaned.length <= SPEECH_MAX_CHARS) return cleaned || spoken;
+  if (cleaned.length <= SPEECH_MAX_CHARS) return cleaned || clip(spoken, SPEECH_MAX_CHARS);
 
-  const lead = spoken || clip(cleaned, SPEECH_MAX_CHARS - PHRASES[language].details.length - 1);
-  return `${lead} ${PHRASES[language].details}`;
+  // The summary is capped too (the agw schema allows 300 characters, a stored one may be anything).
+  const room = SPEECH_MAX_CHARS - PHRASES[language].details.length - 1;
+  return `${clip(spoken || cleaned, room)} ${PHRASES[language].details}`;
 }
