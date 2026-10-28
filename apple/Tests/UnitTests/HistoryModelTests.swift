@@ -1,0 +1,297 @@
+import Foundation
+import IrisCore
+import Testing
+
+@testable import Iris
+
+@MainActor
+@Suite("HistoryModel")
+struct HistoryModelTests {
+  let client = FakeAPIClient(now: { MemoFactory.now })
+  let model: HistoryModel
+
+  init() {
+    model = HistoryModel(client: client)
+  }
+
+  private func seed(_ memos: Memo...) async {
+    for memo in memos { await client.seed(MemoFactory.detail(memo)) }
+  }
+
+  private var ids: [String] { model.memos.map(\.id) }
+
+  private func serverFlags(_ id: String) async throws -> Memo {
+    try await client.memo(id: id).memo
+  }
+
+  // MARK: Loading
+
+  @Test("a parked memo is pinned above the newest-first list")
+  func pinnedOnTop() async {
+    await seed(
+      MemoFactory.memo("old", age: 300), MemoFactory.memo("new", age: 10),
+      MemoFactory.memo("parked", age: 600, state: .needsRoute))
+    await model.load()
+    #expect(ids == ["parked", "new", "old"])
+    #expect(model.pinned.map(\.id) == ["parked"])
+  }
+
+  @Test("a done parked memo is no longer pinned")
+  func doneIsNotPinned() async {
+    await seed(MemoFactory.memo("new", age: 10), MemoFactory.memo("handled", age: 600, state: .needsRoute, done: true))
+    await model.load()
+    #expect(model.pinned.isEmpty)
+    #expect(ids == ["new", "handled"])
+  }
+
+  @Test("paging appends the next page without repeating a memo that was pinned")
+  func pagingDedupes() async {
+    let page = HistoryFilters.pageSize
+    await seed(MemoFactory.memo("parked", age: 10_000, state: .needsRoute))
+    for index in 0..<page + 4 { await seed(MemoFactory.memo("m\(index)", age: Double(index))) }
+    await model.load()
+    #expect(model.items.count == page)
+
+    // The parked memo is answered after the first page: the server now lists it as an item on page two.
+    _ = try? await client.routeMemo(id: "parked", request: RouteRequest(destination: .journal))
+    await model.loadMoreIfNeeded(current: model.items[page - 1])
+
+    #expect(ids.count == page + 5)
+    #expect(Set(ids).count == ids.count)
+    #expect(model.pinned.map(\.id) == ["parked"])
+  }
+
+  @Test("only the last row triggers the next page")
+  func pagingTriggersOnTheLastRow() async {
+    let page = HistoryFilters.pageSize
+    for index in 0..<page + 1 { await seed(MemoFactory.memo("m\(index)", age: Double(index))) }
+    await model.load()
+    await model.loadMoreIfNeeded(current: model.items[0])
+    #expect(model.items.count == page)
+    await model.loadMoreIfNeeded(current: model.items[page - 1])
+    #expect(model.items.count == page + 1)
+  }
+
+  @Test("a filter reaches the server and a failed load flags the error")
+  func filtersAndFailure() async {
+    await seed(MemoFactory.memo("plain", age: 5), MemoFactory.memo("star", age: 10, favorite: true))
+    model.filters.toggle(.favorites)
+    await model.load()
+    #expect(ids == ["star"])
+    #expect(await client.calls.last == .listMemos(ListMemosQuery(limit: 50, favorite: true)))
+
+    await client.enqueueFailure(.unexpectedStatus(500), for: .listMemos)
+    await model.load()
+    #expect(model.loadFailed)
+    await model.load()
+    #expect(!model.loadFailed)
+  }
+
+  // MARK: Flag actions
+
+  @Test("done unpins a parked memo, dims it in place and tells the server")
+  func doneUnpins() async throws {
+    await seed(MemoFactory.memo("new", age: 10), MemoFactory.memo("parked", age: 600, state: .needsRoute))
+    await model.load()
+    await model.toggleDone(try #require(model.pinned.first))
+    #expect(model.pinned.isEmpty)
+    #expect(ids == ["new", "parked"])
+    #expect(model.memos[1].done)
+    #expect(try await serverFlags("parked").done)
+    #expect(await client.calls.contains(.setFlags(id: "parked", done: true, favorite: nil, archived: nil)))
+  }
+
+  @Test("a second done swipe undoes it")
+  func doneToggles() async throws {
+    await seed(MemoFactory.memo("a", done: true))
+    await model.load()
+    await model.toggleDone(model.memos[0])
+    #expect(!model.memos[0].done)
+    #expect(try await !serverFlags("a").done)
+  }
+
+  @Test("favorite keeps the row and marks it")
+  func favoriteMarks() async throws {
+    await seed(MemoFactory.memo("a"))
+    await model.load()
+    await model.toggleFavorite(model.memos[0])
+    #expect(model.memos[0].favorite)
+    #expect(try await serverFlags("a").favorite)
+  }
+
+  @Test("unfavoriting under the Favorites filter removes the row")
+  func unfavoriteLeavesFavorites() async {
+    await seed(MemoFactory.memo("a", age: 1, favorite: true), MemoFactory.memo("b", age: 2, favorite: true))
+    model.filters.toggle(.favorites)
+    await model.load()
+    await model.toggleFavorite(model.memos[0])
+    #expect(ids == ["b"])
+  }
+
+  @Test("archive removes the row; under the Archived filter the unarchive does")
+  func archiveRemoves() async throws {
+    await seed(MemoFactory.memo("a", age: 1), MemoFactory.memo("b", age: 2))
+    await model.load()
+    await model.toggleArchived(model.memos[0])
+    #expect(ids == ["b"])
+    #expect(try await serverFlags("a").archived)
+
+    model.filters.toggle(.archived)
+    await model.load()
+    #expect(ids == ["a"])
+    await model.toggleArchived(model.memos[0])
+    #expect(ids.isEmpty)
+    #expect(try await !serverFlags("a").archived)
+  }
+
+  @Test("a refused flag change rolls the row back and says so")
+  func flagRollback() async throws {
+    await seed(MemoFactory.memo("a", age: 1), MemoFactory.memo("b", age: 2))
+    await model.load()
+    await client.enqueueFailure(.unexpectedStatus(500), for: .setFlags)
+    await model.toggleArchived(model.memos[0])
+    #expect(ids == ["a", "b"])
+    #expect(!model.memos[0].archived)
+    #expect(model.toast?.kind == .error)
+
+    await client.enqueueFailure(.unexpectedStatus(500), for: .setFlags)
+    await model.toggleDone(model.memos[0])
+    #expect(!model.memos[0].done)
+  }
+
+  // MARK: Delete and undo
+
+  @Test("delete removes the row at once and offers the undo, which restores it in place")
+  func deleteAndUndo() async throws {
+    await seed(MemoFactory.memo("a", age: 1), MemoFactory.memo("b", age: 2), MemoFactory.memo("c", age: 3))
+    await model.load()
+    await model.delete(model.memos[1])
+    #expect(ids == ["a", "c"])
+    #expect(model.toast?.kind == .undoDelete(memoID: "b"))
+    #expect(try await serverFlags("b").isDeleted)
+
+    await model.undoDelete()
+    #expect(ids == ["a", "b", "c"])
+    #expect(model.toast == nil)
+    #expect(try await !serverFlags("b").isDeleted)
+    #expect(await client.calls.contains(.restoreMemo(id: "b")))
+  }
+
+  @Test("a refused delete puts the row back")
+  func deleteRollback() async {
+    await seed(MemoFactory.memo("a", age: 1), MemoFactory.memo("b", age: 2))
+    await model.load()
+    await client.enqueueFailure(.unexpectedStatus(500), for: .deleteMemo)
+    await model.delete(model.memos[0])
+    #expect(ids == ["a", "b"])
+    #expect(model.toast?.kind == .error)
+  }
+
+  @Test("a memo the pipeline is still driving is not deletable")
+  func deleteNeedsSettled() async {
+    await seed(MemoFactory.memo("busy", state: .transcribed))
+    await model.load()
+    await model.delete(model.memos[0])
+    #expect(ids == ["busy"])
+    #expect(await !client.calls.contains(.deleteMemo(id: "busy")))
+  }
+
+  @Test("dismissing a stale toast leaves the newer one")
+  func dismissIsKeyed() async {
+    await seed(MemoFactory.memo("a", age: 1), MemoFactory.memo("b", age: 2))
+    await model.load()
+    await model.delete(model.memos[0])
+    let first = model.toast
+    await model.delete(model.memos[0])
+    model.dismissToast(id: first!.id)
+    #expect(model.toast != nil)
+    model.dismissToast(id: model.toast!.id)
+    #expect(model.toast == nil)
+  }
+
+  // MARK: Live updates
+
+  private func event(_ id: String, _ state: MemoState = .notified) -> ServerEvent {
+    .memoUpdated(MemoEvent(id: id, state: state, at: MemoFactory.now))
+  }
+
+  @Test("an update for a memo in the list refreshes the row in place")
+  func eventUpdatesRow() async throws {
+    await seed(MemoFactory.memo("a", age: 1), MemoFactory.memo("b", age: 2))
+    await model.load()
+    _ = try await client.setFlags(id: "b", done: nil, favorite: true, archived: nil)
+    await model.handle(event("b"))
+    #expect(ids == ["a", "b"])
+    #expect(model.memos[1].favorite)
+  }
+
+  @Test("an update for a new memo inserts it where it sorts")
+  func eventInserts() async {
+    await seed(MemoFactory.memo("a", age: 1), MemoFactory.memo("c", age: 3))
+    await model.load()
+    await seed(MemoFactory.memo("b", age: 2), MemoFactory.memo("fresh", age: 0))
+    await model.handle(event("b"))
+    await model.handle(event("fresh"))
+    #expect(ids == ["fresh", "a", "b", "c"])
+  }
+
+  @Test("a memo that reaches needs_route is pinned, and answered it is not")
+  func eventPins() async throws {
+    await seed(MemoFactory.memo("a", age: 1), MemoFactory.memo("m", age: 2, state: .transcribed))
+    await model.load()
+    await seed(MemoFactory.memo("m", age: 2, state: .needsRoute))
+    await model.handle(event("m", .needsRoute))
+    #expect(model.pinned.map(\.id) == ["m"])
+
+    _ = try await client.routeMemo(id: "m", request: RouteRequest(destination: .journal))
+    await model.handle(event("m", .routed))
+    #expect(model.pinned.isEmpty)
+    #expect(ids == ["a", "m"])
+  }
+
+  @Test("a memo that no longer matches the active filter leaves the list")
+  func eventLeavesFilter() async throws {
+    await seed(MemoFactory.memo("a", age: 1, favorite: true), MemoFactory.memo("b", age: 2, favorite: true))
+    model.filters.toggle(.favorites)
+    await model.load()
+    _ = try await client.setFlags(id: "a", done: nil, favorite: false, archived: nil)
+    await model.handle(event("a"))
+    #expect(ids == ["b"])
+
+    await seed(MemoFactory.memo("x", age: 0))
+    await model.handle(event("x"))
+    #expect(ids == ["b"])
+  }
+
+  @Test("a delete from another device removes the row")
+  func eventRemovesDeleted() async throws {
+    await seed(MemoFactory.memo("a", age: 1), MemoFactory.memo("b", age: 2))
+    await model.load()
+    _ = try await client.deleteMemo(id: "a")
+    await model.handle(event("a"))
+    #expect(ids == ["b"])
+  }
+
+  @Test("under a search the server decides whether a new memo belongs")
+  func eventUnderSearchReloads() async {
+    await seed(MemoFactory.memo("a", age: 1))
+    model.filters.searchText = "memo b"
+    await model.load()
+    #expect(ids.isEmpty)
+    await seed(MemoFactory.memo("b", age: 2))
+    await model.handle(event("b"))
+    #expect(ids == ["b"])
+  }
+
+  @Test("the event stream drives the list until cancelled")
+  func streamDrivesList() async throws {
+    await seed(MemoFactory.memo("a", age: 1))
+    await model.load()
+    let follow = Task { await model.observeEvents() }
+    await seed(MemoFactory.memo("b", age: 0))
+    client.emit(event("b"))
+    for _ in 0..<200 where ids != ["b", "a"] { try await Task.sleep(for: .milliseconds(10)) }
+    follow.cancel()
+    #expect(ids == ["b", "a"])
+  }
+}

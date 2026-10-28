@@ -19,9 +19,10 @@ struct CompositionRoot {
       : nil
   }
 
-  /// Seeds the sample memos, then loads the list.
+  /// Seeds the sample memos, loads the list, then follows the server's events until the app's task is cancelled.
   func start() async {
     await SampleData.seed(api)
     await history.load()
+    await history.observeEvents()
   }
 }

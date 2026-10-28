@@ -134,6 +134,8 @@ targets:
     sources:
       - IrisMac
       - Iris/HistoryModel.swift
+      - Iris/HistoryFilters.swift
+      - Iris/HistoryToast.swift
       - Iris/MemoPresentation.swift
       - Iris/SampleData.swift
     entitlements:
@@ -162,6 +164,18 @@ targets:
       - package: IrisTelemetry
       - sdk: AppIntents.framework
 
+  # Hosted in the app: `@testable import Iris` reaches the history model and filters.
+  IrisTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources: [Tests/UnitTests]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.jkrumm.iris.tests
+        GENERATE_INFOPLIST_FILE: YES
+    dependencies:
+      - target: Iris
+
   IrisUITests:
     type: bundle.ui-testing
     platform: iOS
@@ -189,7 +203,7 @@ schemes:
         "-IrisFakeCapture": false
     test:
       config: Debug
-      targets: [IrisUITests]
+      targets: [IrisTests, IrisUITests]
   IrisMac:
     build:
       targets:

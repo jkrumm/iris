@@ -17,6 +17,9 @@ extension Memo {
     return route.capitalized
   }
 
+  /// Parked at `needs_route` and not yet handled: pinned above the list and tinted.
+  var isOpenNeedsRoute: Bool { state == .needsRoute && !done }
+
   var relativeTime: String {
     createdAt.formatted(.relative(presentation: .named))
   }
