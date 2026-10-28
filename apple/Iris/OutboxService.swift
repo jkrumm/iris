@@ -71,7 +71,13 @@ nonisolated final class OutboxService: QueuedItemSource {
     let item = OutboxItem(
       memoID: submission.id, kind: .text(text), mode: submission.mode.rawValue, threadID: submission.threadId,
       startedAt: submission.startedAt, queuedAt: now(), title: String(text.prefix(80)))
-    await outbox.enqueueItem(item)
+    do {
+      try await outbox.enqueueItem(item)
+    } catch {
+      // The queue could not be written: nothing is held that a kill would lose, and the caller keeps the text.
+      logger.error("item not queued: \(String(describing: error), privacy: .public)")
+      return .refused
+    }
     return await outcome(of: submission.id, outbox: outbox, changes: changes, window: window)
   }
 

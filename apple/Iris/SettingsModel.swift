@@ -60,6 +60,7 @@ final class SettingsModel {
 
   /// Drops an item from the queue, with what was recorded for it.
   func discard(_ item: QueuedItem) async {
+    guard item.canDiscard else { return }
     await source.discard(id: item.id)
   }
 

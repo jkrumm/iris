@@ -122,7 +122,7 @@ public actor CaptureSession {
       let item = OutboxItem(
         memoID: memoID, kind: .voice, mode: request.mode, threadID: request.threadID, startedAt: startedAt,
         queuedAt: startedAt, title: request.title)
-      await outbox.enqueueItem(item)
+      try await outbox.enqueueItem(item)
       try await recorder.start(memoID: memoID)
     } catch {
       await outbox.discard(memoID)
@@ -186,6 +186,8 @@ public actor CaptureSession {
   }
 
   public func pause() async {
+    await enter()
+    defer { leave() }
     guard state.phase == .recording else { return }
     await recorder.pause()
     state.phase = .paused
@@ -193,6 +195,8 @@ public actor CaptureSession {
   }
 
   public func resume() async {
+    await enter()
+    defer { leave() }
     guard state.phase == .paused else { return }
     await recorder.resume()
     state.phase = .recording
@@ -201,6 +205,8 @@ public actor CaptureSession {
 
   /// The user picks another microphone: the segment rolls over so each file has one input.
   public func switchInput(to uid: String) async throws {
+    await enter()
+    defer { leave() }
     guard state.phase == .recording || state.phase == .paused else { throw CaptureError.notRecording }
     try await routes.setPreferredInput(uid: uid)
     await recorder.rotate(for: .micSwitch)
@@ -294,6 +300,8 @@ public actor CaptureSession {
   }
 
   private func interrupted() async {
+    await enter()
+    defer { leave() }
     guard state.phase == .recording else { return }
     await recorder.pause()
     state.phase = .paused
@@ -301,6 +309,8 @@ public actor CaptureSession {
   }
 
   private func interruptionEnded(shouldResume: Bool) async {
+    await enter()
+    defer { leave() }
     guard state.phase == .paused, shouldResume else { return }
     await recorder.resume()
     state.phase = .recording
