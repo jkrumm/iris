@@ -158,6 +158,13 @@ describe("agw summarizer", () => {
     });
   });
 
+  it("fails the hang guard for good: not a transient error", async () => {
+    const { summarizer } = setup({ jobs: [{ status: "running" }], timeoutMs: 1000 });
+    const err = await summarizer.summarize(params).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(Error);
+    expect(transientKind(err)).toBeNull();
+  });
+
   it("still reports the timeout when the cancel call fails", async () => {
     const summarizer = createAgwSummarizer({
       baseUrl: BASE_URL,

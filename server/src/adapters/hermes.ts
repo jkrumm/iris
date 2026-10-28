@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { threadTitle } from "../memo/memo.js";
 import type { Delivery, Destination } from "../ports/destination.js";
-import { fetchFailure, httpFailure, TransientError } from "../ports/transient.js";
+import { fetchFailure, hangGuardFailure, httpFailure } from "../ports/transient.js";
 import { log } from "../telemetry/log.js";
 import { withSpan } from "../telemetry/otel.js";
 import { SseIdleError, readSseFrames, type SseFrame } from "./sse.js";
@@ -133,7 +133,7 @@ export function createHermesDestination(opts: HermesDestinationOptions): Destina
         })
           .catch((err: unknown) => {
             if (controller.signal.aborted) {
-              throw new TransientError(`hermes did not respond within ${idleMs} ms`, "after_send");
+              throw hangGuardFailure(`hermes did not respond within ${idleMs} ms`);
             }
             throw fetchFailure(err);
           })
@@ -174,10 +174,9 @@ export function createHermesDestination(opts: HermesDestinationOptions): Destina
             }
           }
         } catch (err) {
-          if (err instanceof SseIdleError)
-            throw new TransientError(`hermes stream idle for ${idleMs} ms`, "after_send", {
-              cause: err,
-            });
+          if (err instanceof SseIdleError) {
+            throw hangGuardFailure(`hermes stream idle for ${idleMs} ms`, { cause: err });
+          }
           throw err;
         }
 

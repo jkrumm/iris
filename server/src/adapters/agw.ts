@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { Summarization, Summarizer } from "../ports/summarizer.js";
-import { fetchFailure, transientKind } from "../ports/transient.js";
+import { fetchFailure, hangGuardFailure, transientKind } from "../ports/transient.js";
 import { log } from "../telemetry/log.js";
 import { withSpan } from "../telemetry/otel.js";
 
@@ -208,7 +208,8 @@ export function createAgwJobRunner(opts: AgwClientOptions) {
       // `waited` keeps the clock deterministic under an injected sleep; wall time still counts.
       if (Math.max(waited, Date.now() - start) >= timeoutMs) {
         await cancel(memoId, jobId);
-        throw new Error(`agw ${tool} timed out after ${timeoutMs} ms (job ${jobId})`);
+        // The hang guard fired: the step fails after this one window, it is not retried (`hangGuardFailure`).
+        throw hangGuardFailure(`agw ${tool} timed out after ${timeoutMs} ms (job ${jobId})`);
       }
       await sleep(pollIntervalMs);
       waited += pollIntervalMs;

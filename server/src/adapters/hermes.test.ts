@@ -301,16 +301,27 @@ describe("hermes destination, transient failures", () => {
     expect(await kindOf(() => Promise.reject(refused))).toBe("before_send");
   });
 
-  it("marks a 5xx and an idle timeout after_send", async () => {
+  it("marks a 5xx after_send", async () => {
     expect(await kindOf(() => new Response("down", { status: 503 }))).toBe("after_send");
-    expect(
-      await kindOf(
-        (init) =>
-          new Promise<Response>((_, reject) => {
-            init.signal?.addEventListener("abort", () => reject(new Error("aborted")));
-          }),
-      ),
-    ).toBe("after_send");
+  });
+
+  it("fails a hung call for good: no response within the idle window, or a stream gone idle", async () => {
+    const silent = (init: RequestInit) =>
+      new Promise<Response>((_, reject) => {
+        init.signal?.addEventListener("abort", () => reject(new Error("aborted")));
+      });
+    expect(await kindOf(silent)).toBeNull();
+
+    const stalled = (init: RequestInit) => {
+      const body = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode(completed("partial")));
+          init.signal?.addEventListener("abort", () => controller.error(new Error("aborted")));
+        },
+      });
+      return new Response(body, { status: 200 });
+    };
+    expect(await kindOf(stalled)).toBeNull();
   });
 
   it("leaves a 4xx and an error event final", async () => {
