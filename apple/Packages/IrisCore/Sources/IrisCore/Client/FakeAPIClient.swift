@@ -388,9 +388,10 @@ public actor FakeAPIClient: APIClient {
 
   public func thread(id: String) async throws -> ThreadDetail {
     calls.append(.thread(id: id))
-    try failIfScripted(.thread)
-    guard let detail = threads[id] else { throw notFound("thread not found") }
-    return detail
+    return try await respond(.thread) {
+      guard let detail = threads[id] else { throw notFound("thread not found") }
+      return detail
+    }
   }
 
   public func result(id: String, query: MemoResultQuery) async throws -> MemoResult {

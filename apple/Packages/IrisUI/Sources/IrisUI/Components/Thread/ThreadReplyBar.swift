@@ -48,6 +48,12 @@ public struct ThreadReplyBar: View {
     .padding(.horizontal, Theme.Spacing.lg)
     .padding(.vertical, Theme.Spacing.sm)
     .animation(.snappy, value: holdStartedAt != nil)
+    // A hold the app ended on its own (a cancel on disappear) never reaches the gesture's `onEnded`.
+    .onChange(of: holdStartedAt) {
+      guard holdStartedAt == nil else { return }
+      began = false
+      isCancelling = false
+    }
   }
 
   private var pill: some View {

@@ -15,6 +15,7 @@ struct ThreadView: View {
   private let makeComposer: (ComposerRequest) -> ComposerModel
   private let onSent: (Memo) -> Void
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  @Environment(\.scenePhase) private var scenePhase
 
   private struct ZoomedImage: Identifiable {
     let id = UUID()
@@ -61,7 +62,7 @@ struct ThreadView: View {
     .background(Theme.Surface.background)
     .scrollEdgeEffectStyle(.soft, for: .bottom)
     .overlay { placeholder }
-    .safeAreaInset(edge: .bottom) { replyBar }
+    .safeAreaInset(edge: .bottom) { replyBar.disabled(model.detail == nil) }
     .overlay(alignment: .bottom) { failureToast }
     .navigationTitle(String(localized: "Conversation", comment: "Navigation title of a thread"))
     .navigationBarTitleDisplayMode(.inline)
@@ -70,6 +71,10 @@ struct ThreadView: View {
     .task(id: model.failure) {
       guard model.failure != nil, (try? await Task.sleep(for: .seconds(4))) != nil else { return }
       model.dismissFailure()
+    }
+    .onDisappear { cancelVoice() }
+    .onChange(of: scenePhase) {
+      if scenePhase != .active { cancelVoice() }
     }
     .sheet(item: $composer) { request in
       ComposerView(
@@ -99,7 +104,7 @@ struct ThreadView: View {
           systemImage: model.kind == .chat ? "bubble.left.and.bubble.right" : "arrow.triangle.branch")
         if let detail = model.detail {
           Text(
-            "\(detail.memos.count) turns", comment: "Number of turns of a thread, in the header"
+            "\(model.questionCount) turns", comment: "Number of turns of a thread, in the header"
           )
           .themeFont(.footnote)
           .foregroundStyle(Theme.Ink.muted)
@@ -169,6 +174,12 @@ struct ThreadView: View {
         .transition(.move(edge: .bottom).combined(with: .opacity))
         .accessibilityIdentifier("thread.toast")
     }
+  }
+
+  /// A hold that loses its finger (the screen goes away, the app backgrounds) never gets an `onEnded`: stop it here.
+  private func cancelVoice() {
+    guard model.voiceStartedAt != nil else { return }
+    Task { await model.endVoice(cancelled: true) }
   }
 
   private func time(_ date: Date?) -> String {

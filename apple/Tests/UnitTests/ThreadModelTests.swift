@@ -150,6 +150,22 @@ struct ThreadModelTests {
     #expect(chat.mode == .chat && chat.threadId == "t")
   }
 
+  @Test("a fetch that was in flight when a memo was sent does not drop that memo when it lands")
+  func staleLoad() async {
+    await client.seed(detail([memo("a", age: 100, reply: "x")]))
+    let thread = model()
+    await thread.load()
+
+    let gate = await client.hold(.thread)
+    let loading = Task { await thread.load() }
+    guard await waitUntilHeld(gate) else { return }
+    thread.didSend(memo("b", age: 1, state: .transcribed))
+    await gate.release()
+    await loading.value
+
+    #expect(thread.memoIDs == ["a", "b"])
+  }
+
   // MARK: Voice
 
   private func fakeVoice() -> FakeVoiceReplyCapture {
@@ -175,6 +191,30 @@ struct ThreadModelTests {
     #expect(sent.threadId == threadID && sent.mode == .chat)
     #expect(thread.voiceStartedAt == nil)
     #expect(thread.memoIDs.last == sent.id)
+  }
+
+  @Test("a new hold waits while the last take is still being stopped and sent")
+  func holdDuringSend() async throws {
+    await client.seed(detail([memo("a", age: 100, reply: "x")]))
+    let voice = GatedVoice()
+    let clock = Clock(MemoFactory.now)
+    let thread = model(voice: voice, now: { clock.now })
+    await thread.load()
+
+    thread.beginVoice()
+    clock.now = MemoFactory.now.addingTimeInterval(3)
+    let ending = Task { await thread.endVoice(cancelled: false) }
+    await voice.waitUntilEnding()
+    #expect(!thread.canRecordVoice)
+    thread.beginVoice()
+    #expect(thread.voiceStartedAt == nil)
+    #expect(voice.begins == 1)
+
+    voice.finish()
+    _ = await ending.value
+    #expect(thread.canRecordVoice)
+    thread.beginVoice()
+    #expect(thread.voiceStartedAt != nil)
   }
 
   @Test("a cancelled take sends nothing")
@@ -212,6 +252,50 @@ struct ThreadModelTests {
     #expect(thread.voiceStartedAt == nil)
     #expect(await thread.endVoice(cancelled: false) == nil)
   }
+}
+
+/// A capture whose `end` waits for the test, to hold a take in the middle of being sent.
+private final class GatedVoice: VoiceReplyCapture {
+  private(set) var begins = 0
+  private let ending: AsyncStream<Void>
+  private let endingSignal: AsyncStream<Void>.Continuation
+  private let release: AsyncStream<Void>
+  private let releaseSignal: AsyncStream<Void>.Continuation
+
+  init() {
+    (ending, endingSignal) = AsyncStream.makeStream()
+    (release, releaseSignal) = AsyncStream.makeStream()
+  }
+
+  var isAvailable: Bool { true }
+
+  func begin(_ request: VoiceReplyRequest) async throws { begins += 1 }
+
+  func end(cancelled: Bool) async throws -> Memo? {
+    endingSignal.yield()
+    for await _ in release { break }
+    return nil
+  }
+
+  /// Waits for `end` to be called, but never forever: past `seconds` the test fails instead of hanging.
+  func waitUntilEnding(seconds: Double = 10, sourceLocation: SourceLocation = #_sourceLocation) async {
+    let arrived = await withTaskGroup(of: Bool.self) { group in
+      group.addTask {
+        for await _ in self.ending { return true }
+        return false
+      }
+      group.addTask {
+        try? await Task.sleep(for: .seconds(seconds))
+        return false
+      }
+      let first = await group.next() ?? false
+      group.cancelAll()
+      return first
+    }
+    if !arrived { Issue.record("end was not called within \(seconds) s", sourceLocation: sourceLocation) }
+  }
+
+  func finish() { releaseSignal.yield() }
 }
 
 /// A clock the test moves by hand.
