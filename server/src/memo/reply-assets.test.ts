@@ -135,6 +135,25 @@ describe("sync", () => {
     expect(second.lines.map((l) => l["event"])).toEqual(["reply.assets_failed"]);
   });
 
+  it("removes the files of a memo that was purged while its blocks rendered", async () => {
+    const { replies, assets } = setup();
+    await replies.sync({ memoId: crypto.randomUUID(), replyText: fence("A-->B") });
+    expect(assets.files.size).toBe(0);
+  });
+
+  it("runs the passes of one memo one after another, so the last reply wins and no file is orphaned", async () => {
+    const { replies, assets, id, blocks } = setup();
+    await Promise.all([
+      replies.sync({ memoId: id, replyText: `${fence("A-->B")}\n${fence("C-->D")}` }),
+      replies.sync({ memoId: id, replyText: fence("E-->F") }),
+    ]);
+    expect(blocks()).toHaveLength(1);
+    expect(assets.files.size).toBe(4);
+    for (const asset of [blocks()[0]?.svg.light, blocks()[0]?.png.dark]) {
+      expect(await assets.read({ memoId: id, assetId: asset ?? "" })).not.toBeNull();
+    }
+  });
+
   it(`renders at most ${MAX_BLOCKS} blocks and says so`, async () => {
     const { replies, id, blocks } = setup();
     const reply = Array.from({ length: MAX_BLOCKS + 3 }, (_, i) => fence(`A${i}-->B`)).join("\n");

@@ -377,7 +377,9 @@ CSS variables left) and a PNG, so four files per block (`svg|png` × `light|dark
 one transaction (`MemoStore.replaceReplyAssets`), then `AssetStore.prune` deletes every file that is no longer referenced. A retry whose reply differs
 therefore re-renders and leaves no old file behind; a retry from `act` (or earlier) drops the rows at once (`resetForRetry`). **A block that cannot be rendered
 or stored stays a code block**: `reply.render_failed` (`memo_id`, `block`, `error`), no asset, the step succeeds. A pass that fails as a whole logs
-`reply.assets_failed` and leaves the reply plain markdown; `sync` never throws. The purge removes the files first (`AssetStore.removeAll`), the cascade the rows.
+`reply.assets_failed` and leaves the reply plain markdown; `sync` never throws. Passes of one memo are serialized (`createKeyedQueue`), a pass yields to the event loop between
+blocks (Pele and resvg are synchronous CPU), and files stored for a memo that was purged meanwhile are pruned. **Known limit:** `sync` runs inside the `act` handler, before `completeStep` commits `reply_text`, so
+a step that loses its CAS (the memo was retried or deleted at that moment) leaves assets that describe the uncommitted reply until the next render or the purge. The purge removes the files first (`AssetStore.removeAll`), the cascade the rows.
 
 Wire (additive, `contracts/`): `Memo.replyBlocks` (memo detail, list, thread detail memos and every other memo body; **omitted** when no block rendered, never
 `null` or empty) is `[{index, kind: "mermaid", width, height, svg: {light, dark}, png: {light, dark}}]` with asset ids; `width` and `height` are points, the
@@ -393,8 +395,8 @@ resvg-js is the one purpose-built SVG rasterizer with prebuilt binaries and it w
 decisive probe: resvg ignores CSS `var()`, so a Pele SVG rasterized as is came out black. The adapter (`adapters/diagram-pele.ts`) therefore sets the scheme's
 `--pele-*` on the root element and substitutes every `var()` (root declarations, else the fallback) before it serves or rasterizes the SVG: the SVG assets are
 portable as well (any viewer, no CSS engine needed). Colours are the basalt tokens (`docs/design/mockups/tokens.css`: panel as background, ink as foreground,
-accent and the status colours as the chart series); the text is set in `-apple-system, Helvetica Neue, Helvetica, Arial, sans-serif`, and resvg draws it with the host's system fonts
-(`loadSystemFonts`, default Helvetica: present on the mini; a Linux host would need a font package). The PNG gets an opaque background (the scheme's panel colour).
+accent and the status colours as the chart series); the text is set in `-apple-system, Helvetica Neue, Helvetica, Arial, sans-serif`, and resvg draws it with the macOS Helvetica files, named explicitly: with `loadSystemFonts` resvg scans every system font on each render, which cost
+250-460 ms per PNG on the mini against about 4 ms with `fontFiles` (a whole block renders in ~30 ms). A host without those files falls back to the scan. The PNG gets an opaque background (the scheme's panel colour).
 The research gateway was down for this item (503), so the facts above come from the npm registry, the GitHub repository, Pele's published type declarations and probes run under Bun.
 
 ### Downstream facts (re-verify when touching an adapter)

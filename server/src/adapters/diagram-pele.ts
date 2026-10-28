@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { Resvg } from "@resvg/resvg-js";
 import { render } from "pele";
 import type { DiagramRenderer, RenderedScheme } from "../ports/diagram.js";
@@ -105,13 +106,30 @@ export function resolveTheme(svg: string, scheme: Scheme): string {
   return resolve(themed, 0);
 }
 
-function rasterize(svg: string, params: { scheme: Scheme; width: number; height: number }) {
-  const { scheme, width, height } = params;
+// resvg scans every system font on each render when `loadSystemFonts` is on (measured on the mini: 250-460 ms per PNG, against
+// about 4 ms with the font files named). The macOS Helvetica files are named; a host without them falls back to the scan.
+const HELVETICA_FILES = [
+  "/System/Library/Fonts/Helvetica.ttc",
+  "/System/Library/Fonts/HelveticaNeue.ttc",
+];
+
+function fontOptions() {
+  const fontFiles = HELVETICA_FILES.filter((file) => existsSync(file));
+  return fontFiles.length > 0
+    ? { loadSystemFonts: false, fontFiles, defaultFontFamily: "Helvetica" }
+    : { loadSystemFonts: true, defaultFontFamily: "Helvetica" };
+}
+
+function rasterize(
+  svg: string,
+  params: { scheme: Scheme; width: number; height: number; font: ReturnType<typeof fontOptions> },
+) {
+  const { scheme, width, height, font } = params;
   const zoom = Math.min(PNG_SCALE, PNG_MAX_PX / Math.max(width, height));
   return new Resvg(svg, {
     background: THEMES[scheme].bg,
     fitTo: { mode: "zoom", value: zoom },
-    font: { loadSystemFonts: true, defaultFontFamily: "Helvetica" },
+    font,
   })
     .render()
     .asPng();
@@ -119,9 +137,11 @@ function rasterize(svg: string, params: { scheme: Scheme; width: number; height:
 
 /**
  * Pele (synchronous Mermaid → SVG, no DOM needed) themed per scheme, rasterized by resvg-js (native, no headless browser).
- * Text in the PNGs is set in the host's system fonts (Helvetica, a macOS standard).
+ * Text in the PNGs is set in Helvetica from the host's system fonts (a macOS standard). The work is synchronous CPU
+ * (about 40 ms for Pele and 5-10 ms per PNG), so callers render one block at a time and yield between them.
  */
 export function createPeleRenderer(): DiagramRenderer {
+  const font = fontOptions();
   return {
     async render(source) {
       const { svg, width: w, height: h } = render(source, { fontFamily: FONT });
@@ -131,7 +151,7 @@ export function createPeleRenderer(): DiagramRenderer {
         const themed = resolveTheme(svg, name);
         return {
           svg: themed,
-          png: new Uint8Array(rasterize(themed, { scheme: name, width, height })),
+          png: new Uint8Array(rasterize(themed, { scheme: name, width, height, font })),
         };
       };
       return { width, height, light: scheme("light"), dark: scheme("dark") };

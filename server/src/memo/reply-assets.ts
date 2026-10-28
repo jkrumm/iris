@@ -1,6 +1,7 @@
 import type { AssetStore } from "../ports/assets.js";
 import type { DiagramRenderer } from "../ports/diagram.js";
 import { log } from "../telemetry/log.js";
+import { createKeyedQueue } from "./keyed-queue.js";
 import type { ReplyAsset } from "./memo.js";
 import type { MemoStore } from "./store.js";
 
@@ -63,6 +64,8 @@ export function createReplyAssets(deps: {
   renderer: DiagramRenderer;
 }): ReplyAssets {
   const { store, assets, renderer } = deps;
+  // Passes for one memo run one after another: a later pass's prune must not delete the files an earlier one just stored.
+  const perMemo = createKeyedQueue();
 
   async function renderBlock(params: { memoId: string; block: number; source: string }) {
     const { memoId, block, source } = params;
@@ -91,26 +94,31 @@ export function createReplyAssets(deps: {
     }
   }
 
-  return {
-    async sync({ memoId, replyText }) {
-      try {
-        const sources = extractMermaidBlocks(replyText);
-        if (sources.length > MAX_BLOCKS) {
-          log("reply.render_failed", {
-            memo_id: memoId,
-            block: MAX_BLOCKS,
-            error: `${sources.length} mermaid blocks, only the first ${MAX_BLOCKS} are rendered`,
-          });
-        }
-        const stored: ReplyAsset[] = [];
-        for (const [block, source] of sources.slice(0, MAX_BLOCKS).entries()) {
-          stored.push(...(await renderBlock({ memoId, block, source })));
-        }
-        store.replaceReplyAssets(memoId, stored);
-        await assets.prune({ memoId, keep: new Set(stored.map((a) => a.id)) });
-      } catch (err) {
-        log("reply.assets_failed", { memo_id: memoId, error: String(err) });
+  async function run(memoId: string, replyText: string) {
+    try {
+      const sources = extractMermaidBlocks(replyText);
+      if (sources.length > MAX_BLOCKS) {
+        log("reply.render_failed", {
+          memo_id: memoId,
+          block: MAX_BLOCKS,
+          error: `${sources.length} mermaid blocks, only the first ${MAX_BLOCKS} are rendered`,
+        });
       }
-    },
+      const stored: ReplyAsset[] = [];
+      for (const [block, source] of sources.slice(0, MAX_BLOCKS).entries()) {
+        // Rendering is synchronous CPU work: let queued requests run between two blocks.
+        await new Promise((resolve) => setImmediate(resolve));
+        stored.push(...(await renderBlock({ memoId, block, source })));
+      }
+      // A memo purged while it rendered has no row left to own the files.
+      const kept = store.replaceReplyAssets(memoId, stored) ? stored : [];
+      await assets.prune({ memoId, keep: new Set(kept.map((a) => a.id)) });
+    } catch (err) {
+      log("reply.assets_failed", { memo_id: memoId, error: String(err) });
+    }
+  }
+
+  return {
+    sync: ({ memoId, replyText }) => perMemo(memoId, () => run(memoId, replyText)),
   };
 }
