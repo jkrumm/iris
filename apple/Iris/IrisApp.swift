@@ -6,7 +6,7 @@ struct IrisApp: App {
 
   var body: some Scene {
     WindowGroup {
-      HistoryView(model: root.history)
+      RootView(history: root.history)
         .task { await root.start() }
     }
   }

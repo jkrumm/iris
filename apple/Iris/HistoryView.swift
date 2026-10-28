@@ -3,56 +3,102 @@ import IrisUI
 import SwiftUI
 
 struct HistoryView: View {
-  let model: HistoryModel
+  @Bindable var model: HistoryModel
+  @State private var showingFilters = false
 
   var body: some View {
     NavigationStack {
-      List(model.memos) { memo in
-        NavigationLink(value: memo) {
-          HistoryRow(memo: memo)
+      List {
+        ForEach(model.memos) { memo in
+          NavigationLink(value: memo) {
+            HistoryRow(
+              routeLabel: memo.routeLabel, stateLabel: memo.state.label, stateColor: memo.state.color,
+              headline: memo.rowHeadline, timeText: memo.relativeTime, isDone: memo.done, isFavorite: memo.favorite)
+          }
+          .accessibilityIdentifier("history.row")
+          .listRowBackground(HistoryRowBackground(needsAttention: memo.isOpenNeedsRoute))
+          .modifier(MemoSwipeActions(memo: memo, model: model))
+          .task { await model.loadMoreIfNeeded(current: memo) }
         }
-        .accessibilityIdentifier("history.row")
-        .listRowBackground(Theme.Surface.panel)
       }
       .accessibilityIdentifier("history.list")
       .scrollContentBackground(.hidden)
       .background(Theme.Surface.background)
-      .overlay {
-        if model.loadFailed {
-          ContentUnavailableView(
-            String(localized: "Could not load memos", comment: "History error title"),
-            systemImage: "exclamationmark.triangle")
-        }
+      .animation(.snappy, value: model.memos.map(\.id))
+      .overlay { emptyState }
+      .safeAreaBar(edge: .top, spacing: 0) {
+        HistoryFilterBar(filters: $model.filters)
       }
+      .overlay(alignment: .bottom) { toastBanner }
       .navigationTitle(String(localized: "History", comment: "Navigation title of the memo list"))
       .navigationDestination(for: Memo.self) { memo in
         MemoDetailView(memo: memo)
       }
+      .searchable(
+        text: $model.filters.searchText,
+        prompt: String(localized: "Search transcripts", comment: "Search field prompt on the memo list")
+      )
+      .toolbar {
+        ToolbarItem(placement: .topBarTrailing) {
+          Button(String(localized: "Filter", comment: "Opens the filter sheet"), systemImage: filterIcon) {
+            showingFilters = true
+          }
+          .accessibilityIdentifier("history.filter")
+        }
+      }
+      .sheet(isPresented: $showingFilters) {
+        HistoryFilterSheet(filters: $model.filters)
+          .presentationDetents([.medium])
+          .presentationDragIndicator(.visible)
+      }
+      .refreshable { await model.load() }
+      .task(id: model.filters) {
+        // Typing restarts this task, so only the last keystroke of a burst reaches the server.
+        if !model.filters.searchText.isEmpty {
+          guard (try? await Task.sleep(for: .milliseconds(300))) != nil else { return }
+        }
+        await model.load()
+      }
+      .task(id: model.toast?.id) {
+        guard let id = model.toast?.id, (try? await Task.sleep(for: .seconds(5))) != nil else { return }
+        model.dismissToast(id: id)
+      }
     }
   }
-}
 
-private struct HistoryRow: View {
-  let memo: Memo
+  private var filterIcon: String {
+    model.filters.sheetFilterCount > 0
+      ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle"
+  }
 
-  var body: some View {
-    VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
-      HStack {
-        RouteChip(label: memo.routeLabel, systemImage: "arrow.triangle.branch")
-        Spacer()
-        Text(memo.relativeTime)
-          .themeFont(.caption)
-          .foregroundStyle(Theme.Ink.muted)
+  @ViewBuilder private var emptyState: some View {
+    if model.loadFailed && model.memos.isEmpty {
+      ContentUnavailableView(
+        String(localized: "Could not load memos", comment: "History error title"),
+        systemImage: "exclamationmark.triangle")
+    } else if model.hasLoaded && model.memos.isEmpty {
+      if model.filters.searchText.isEmpty {
+        ContentUnavailableView(
+          String(localized: "No memos", comment: "History empty title"), systemImage: "tray",
+          description: model.filters.isFiltering
+            ? Text("No memo matches these filters.", comment: "History empty description") : nil)
+      } else {
+        ContentUnavailableView.search
       }
-      Text(memo.rowHeadline)
-        .themeFont(.subheadline, weight: .semibold)
-        .foregroundStyle(Theme.Ink.primary)
-        .lineLimit(2)
-      Text(memo.state.label)
-        .themeFont(.caption, weight: .medium)
-        .foregroundStyle(memo.state.color)
     }
-    .padding(.vertical, Theme.Spacing.xs)
-    .accessibilityElement(children: .combine)
+  }
+
+  @ViewBuilder private var toastBanner: some View {
+    if let toast = model.toast {
+      ToastBanner(
+        message: toast.message,
+        actionTitle: toast.kind == .error ? nil : String(localized: "Undo", comment: "Undoes a delete"),
+        action: { Task { await model.undoDelete() } }
+      )
+      .padding(.horizontal, Theme.Spacing.lg)
+      .padding(.bottom, Theme.Spacing.lg)
+      .transition(.move(edge: .bottom).combined(with: .opacity))
+      .accessibilityIdentifier("history.toast")
+    }
   }
 }
