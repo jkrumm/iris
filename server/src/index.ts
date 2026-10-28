@@ -39,10 +39,16 @@ const { ports, stats, degraded, deviceTokens, notifier, closeTransport, telemetr
   dataDir: env.IRIS_DATA,
 });
 
+const replyAssets = createReplyAssets({
+  store,
+  assets: ports.assets,
+  renderer: ports.diagrams,
+});
+
 const handlers = createStepHandlers({
   store,
   audio,
-  replyAssets: createReplyAssets({ store, assets: ports.assets, renderer: ports.diagrams }),
+  replyAssets,
   transcriber: ports.transcriber,
   destinations: ports.destinations,
   herd: ports.herd,
@@ -107,6 +113,10 @@ purger.start();
 // Resume memos that were mid-pipeline when the process stopped; never blocks listen.
 runner.driveAll().catch((err: unknown) => log("runner.drive_all_failed", { error: String(err) }));
 
+// Replies from before the Mermaid renders (or whose render was lost) get their assets: at most BACKFILL_LIMIT memos per
+// start, in this process so it shares the per-memo queue with live renders and the shutdown drain below.
+void replyAssets.backfill();
+
 let shuttingDown = false;
 
 // The LaunchAgent's ExitTimeOut (launchd/*.plist.template) must stay above DRAIN_DEADLINE_MS + OTEL_FLUSH_DEADLINE_MS.
@@ -129,7 +139,9 @@ async function shutdown(code: number): Promise<void> {
     purger.stop();
     notifyLifecycle.stop();
     const drained = await Promise.race([
-      Promise.all([runner.idle(), notifyLifecycle.idle(), purger.idle()]).then(() => "drained"),
+      Promise.all([runner.idle(), notifyLifecycle.idle(), purger.idle(), replyAssets.idle()]).then(
+        () => "drained",
+      ),
       after(DRAIN_DEADLINE_MS),
     ]);
     if (drained === "timeout") {

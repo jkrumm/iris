@@ -166,11 +166,45 @@ export interface MemoStore extends ThreadStore {
   /**
    * Replaces the memo's reply assets in one transaction (an empty list clears them). False when the memo is unknown.
    * The files behind the ids are the caller's: the rows only say which ones belong to the reply.
+   *
+   * With `pending` the rows describe a reply that `completeStep` has not committed yet (the `act` handler renders before
+   * its patch lands). They stay until `completeStep` settles that reply: a patch with `pending.replyText` that wins
+   * keeps them; one that loses its compare-and-set deletes them and calls `pending.onDiscard` (the files are the caller's
+   * to remove); a winning patch with any other reply text deletes them (they describe a reply that is gone). Only the
+   * latest `pending` of a memo is tracked, in memory: a restart re-runs the step.
    */
-  replaceReplyAssets(id: string, assets: readonly ReplyAsset[]): boolean;
+  replaceReplyAssets(
+    id: string,
+    assets: readonly ReplyAsset[],
+    pending?: PendingReplyAssets,
+  ): boolean;
+  /**
+   * Stores assets for a reply that is already committed (the backfill): only when the memo is live, its `reply_text` is
+   * still `replyText` and it has no assets yet. False otherwise; the caller removes its files.
+   */
+  attachReplyAssets(params: {
+    id: string;
+    replyText: string;
+    assets: readonly ReplyAsset[];
+  }): boolean;
+  /**
+   * Live memos whose `reply_text` mentions mermaid and that have no reply asset rows, newest first (`seq` below
+   * `beforeSeq`). The caller decides whether a reply really contains a fence.
+   */
+  listReplyAssetCandidates(params: {
+    beforeSeq?: number | undefined;
+    limit: number;
+  }): { id: string; seq: number; replyText: string }[];
   /** One asset of the memo, whatever its state (the media route checks deletion itself); null when unknown. */
   getReplyAsset(id: string, assetId: string): ReplyAsset | null;
 
   /** Memos the runner must resume after a restart: not receiving, notified, failed or needs_route. */
   listNonTerminal(): Memo[];
+}
+
+/** Reply assets written before their reply is committed; see `MemoStore.replaceReplyAssets`. */
+export interface PendingReplyAssets {
+  replyText: string;
+  /** Called once, after the rows are gone, when the reply lost its compare-and-set. Must not throw. */
+  onDiscard: () => void;
 }

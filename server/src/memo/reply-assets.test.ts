@@ -178,3 +178,154 @@ describe("sync", () => {
     expect(lines.some((l) => l["event"] === "reply.render_failed")).toBe(false);
   });
 });
+
+/** A memo whose `act` is about to commit: routed, with the step running. */
+function routedMemo(store: ReturnType<typeof setup>["store"]) {
+  const { id } = seedMemo(store, "routed");
+  store.markStepStarted({ id, step: "act" });
+  return id;
+}
+
+const commitAct = (store: ReturnType<typeof setup>["store"], id: string, replyText: string) =>
+  store.completeStep({
+    id,
+    step: "act",
+    from: "routed",
+    to: "acted",
+    patch: { destinationRef: "session-1", replyText },
+  });
+
+describe("sync and the commit of the reply", () => {
+  it("keeps the assets once completeStep commits the reply they were rendered for", async () => {
+    const { store, replies, assets } = setup();
+    const id = routedMemo(store);
+    const reply = fence("A-->B");
+    await replies.sync({ memoId: id, replyText: reply });
+
+    expect(commitAct(store, id, reply)).toBe(true);
+    await replies.idle();
+    expect(store.getMemo(id)?.replyBlocks).toHaveLength(1);
+    expect(assets.files.size).toBe(4);
+  });
+
+  it("removes rows and files when the step loses its compare-and-set", async () => {
+    const { store, replies, assets } = setup();
+    const id = routedMemo(store);
+    const reply = fence("A-->B");
+    await replies.sync({ memoId: id, replyText: reply });
+    // The memo moved on (retried, parked elsewhere) while the handler rendered.
+    store.transition({ id, from: "routed", to: "needs_route" });
+
+    const { lines } = await captureLogs(async () => {
+      expect(commitAct(store, id, reply)).toBe(false);
+      await replies.idle();
+    });
+    expect(store.getMemo(id)?.replyBlocks).toEqual([]);
+    expect(assets.files.size).toBe(0);
+    expect(lines.filter((l) => l["event"] === "reply.assets_discarded")).toHaveLength(1);
+  });
+
+  it("drops the assets of a reply that is not the one committed", async () => {
+    const { store, replies } = setup();
+    const id = routedMemo(store);
+    await replies.sync({ memoId: id, replyText: fence("A-->B") });
+
+    expect(commitAct(store, id, "another reply")).toBe(true);
+    expect(store.getMemo(id)?.replyBlocks).toEqual([]);
+  });
+
+  it("a lost step does not touch the assets a newer pass stored for the same memo", async () => {
+    const { store, replies, assets } = setup();
+    const id = routedMemo(store);
+    await replies.sync({ memoId: id, replyText: fence("A-->B") });
+    store.transition({ id, from: "routed", to: "needs_route" });
+    // A second run renders its own reply before the first one's lost commit is reconciled.
+    await replies.sync({ memoId: id, replyText: fence("X-->Y") });
+
+    expect(commitAct(store, id, fence("A-->B"))).toBe(false);
+    await replies.idle();
+    expect(store.getMemo(id)?.replyBlocks).toHaveLength(1);
+    expect(assets.files.size).toBe(4);
+  });
+});
+
+function committed(store: ReturnType<typeof setup>["store"], replyText: string) {
+  const id = routedMemo(store);
+  commitAct(store, id, replyText);
+  return id;
+}
+
+describe("backfill", () => {
+  it("renders assets for a committed reply that has none, and a second run renders nothing", async () => {
+    const { store, replies, renderer, assets } = setup();
+    const id = committed(store, `text\n\n${fence("A-->B")}`);
+
+    expect(await replies.backfill()).toBe(1);
+    expect(store.getMemo(id)?.replyBlocks.map((b) => b.index)).toEqual([0]);
+    expect(assets.files.size).toBe(4);
+
+    expect(await replies.backfill()).toBe(0);
+    expect(renderer.calls).toEqual(["A-->B"]);
+    expect(assets.files.size).toBe(4);
+  });
+
+  it("skips replies without a mermaid fence, even when they say the word", async () => {
+    const { store, replies, renderer } = setup();
+    committed(store, "plain reply");
+    committed(store, "I would use mermaid for this, or a ```ts\nconst x = 1;\n``` block");
+
+    expect(await replies.backfill()).toBe(0);
+    expect(renderer.calls).toEqual([]);
+  });
+
+  it("skips a soft-deleted memo and a purged one", async () => {
+    const { store, replies, renderer } = setup();
+    const deleted = committed(store, fence("A-->B"));
+    store.markDeleted({ id: deleted, at: "2026-01-02T00:00:00.000Z" });
+    const purged = committed(store, fence("C-->D"));
+    store.markDeleted({ id: purged, at: "2026-01-02T00:00:00.000Z" });
+    store.purge(purged);
+
+    expect(await replies.backfill()).toBe(0);
+    expect(renderer.calls).toEqual([]);
+  });
+
+  it("is bounded: the newest memos first, at most `limit` per run", async () => {
+    const { store, replies, renderer } = setup();
+    const older = committed(store, fence("A-->B"));
+    committed(store, fence("C-->D"));
+    committed(store, fence("E-->F"));
+
+    expect(await replies.backfill({ limit: 2 })).toBe(2);
+    expect(renderer.calls).toEqual(["E-->F", "C-->D"]);
+    expect(store.getMemo(older)?.replyBlocks).toEqual([]);
+
+    expect(await replies.backfill({ limit: 2 })).toBe(1);
+    expect(store.getMemo(older)?.replyBlocks).toHaveLength(1);
+  });
+
+  it("leaves no files for a memo whose reply changed while it rendered", async () => {
+    const { store, replies, assets, renderer } = setup();
+    const id = committed(store, fence("A-->B"));
+    const render = renderer.render.bind(renderer);
+    renderer.render = async (source) => {
+      // A retry cleared the reply while the diagram rendered.
+      store.markStepFailed({ id, step: "act", error: "x" });
+      store.resetForRetry({ id, from: "act" });
+      return render(source);
+    };
+
+    expect(await replies.backfill()).toBe(0);
+    expect(store.getMemo(id)?.replyBlocks).toEqual([]);
+    expect(assets.files.size).toBe(0);
+  });
+
+  it("stores nothing for a reply whose diagrams all fail to render", async () => {
+    const { store, replies, assets } = setup();
+    const id = committed(store, fence("unrenderable"));
+
+    expect(await replies.backfill()).toBe(0);
+    expect(store.getMemo(id)?.replyBlocks).toEqual([]);
+    expect(assets.files.size).toBe(0);
+  });
+});

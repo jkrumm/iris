@@ -379,8 +379,20 @@ one transaction (`MemoStore.replaceReplyAssets`), then `AssetStore.prune` delete
 therefore re-renders and leaves no old file behind; a retry from `act` (or earlier) drops the rows at once (`resetForRetry`). **A block that cannot be rendered
 or stored stays a code block**: no asset, the step succeeds. Pele rejecting the diagram logs `reply.render_failed` (`memo_id`, `block`, `error`); a failing `AssetStore.put` logs `reply.store_failed`
 and removes that block's files. A pass that fails as a whole (the database) logs `reply.assets_failed`, removes the files it wrote (the rows, and so the earlier reply's assets, are untouched) and leaves the reply as it was; `sync` never throws. Passes of one memo are serialized (`createKeyedQueue`), a pass yields to the event loop between
-blocks (Pele and resvg are synchronous CPU), and files stored for a memo that was purged meanwhile are pruned. **Known limit:** `sync` runs inside the `act` handler, before `completeStep` commits `reply_text`, so
-a step that loses its CAS (the memo was retried or deleted at that moment) leaves assets that describe the uncommitted reply until the next render or the purge. The purge removes the files first (`AssetStore.removeAll`), the cascade the rows.
+blocks (Pele and resvg are synchronous CPU), and files stored for a memo that was purged meanwhile are pruned. **Commit reconciliation (Wave 15).** `sync` runs inside the `act` handler, before `completeStep` commits `reply_text`, so its rows are *provisional*: `replaceReplyAssets` gets
+the reply text and an `onDiscard` callback, and the store remembers the latest pair per memo in memory. `completeStep` settles them in its own transaction: a patch with that reply text that
+wins keeps the rows; one that **loses its compare-and-set** deletes them and then calls `onDiscard`, which prunes the memo's files down to the rows that exist (`reply.assets_discarded`, queued behind
+any pass still running for the memo); a winning patch with any other reply text deletes them too. A CAS loss therefore leaves no rows and no files for the uncommitted reply. Chosen over
+staging the rows inside the transaction because `completeStep`'s patch (`MemoPatch`) and the runner would have to carry the assets, and over a periodic sweep because that leaves the window open; the cost is
+that the rows are visible for the short time between `sync` and the commit (the reply text is not), and the pending pair is process memory, so after a crash the re-run `act` re-renders and its prune removes the leftovers.
+The purge removes the files first (`AssetStore.removeAll`), the cascade the rows.
+
+**Backfill.** Replies from before Wave 14, or whose render was lost, get assets from `ReplyAssets.backfill`, run once per start from `index.ts` (never blocks listen, inside the shutdown drain).
+It reads live memos whose `reply_text` mentions mermaid and that have no `reply_assets` rows, newest first (`MemoStore.listReplyAssetCandidates`), keeps those with a real top-level fence
+and takes at most `BACKFILL_LIMIT` (50) of them; each goes through the memo's own queue, re-reads the memo there and stores through `attachReplyAssets`, which only writes when the memo is live, its
+`reply_text` is still the one rendered and it still has no rows (a retry or deletion in between wins; the files are removed). Idempotent: a memo with assets is no candidate, so a second run renders nothing.
+A boot sweep rather than a `make` target because it runs in the one process that owns the database, the per-memo queue and the asset directory (no second writer on the mini's live service, no extra deploy step);
+a memo whose diagrams all fail to render is retried on every start, which the limit bounds.
 
 Wire (additive, `contracts/`): `Memo.replyBlocks` (memo detail, list, thread detail memos and every other memo body; **omitted** when no block rendered, never
 `null` or empty) is `[{index, kind: "mermaid", width, height, svg: {light, dark}, png: {light, dark}}]` with asset ids; `width` and `height` are points, the

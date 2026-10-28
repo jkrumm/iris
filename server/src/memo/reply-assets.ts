@@ -49,14 +49,26 @@ export function extractMermaidBlocks(markdown: string): string[] {
   return blocks;
 }
 
+/** Rows examined per boot sweep: a bound on the render work one start-up can cause. */
+export const BACKFILL_LIMIT = 50;
+
 export interface ReplyAssets {
   /**
    * Makes the memo's stored assets match `replyText`: every Mermaid block is rendered and stored, the assets of an earlier
    * reply are removed. Never throws: a block that cannot be rendered (`reply.render_failed`) or stored (`reply.store_failed`)
    * stays a code block, and a failure of the whole pass (`reply.assets_failed`, its new files removed) leaves the reply as
-   * plain markdown.
+   * plain markdown. The rows are provisional until `MemoStore.completeStep` commits this reply: if it loses its
+   * compare-and-set, the rows and the files go (`reply.assets_discarded`).
    */
   sync(params: { memoId: string; replyText: string }): Promise<void>;
+  /**
+   * Renders the assets of older, committed replies that contain a Mermaid fence and have none: at most `limit` memos,
+   * newest first, each serialized with the memo's other passes. Idempotent: a memo that has assets is not a candidate.
+   * Never throws. Resolves with how many memos got assets.
+   */
+  backfill(params?: { limit?: number }): Promise<number>;
+  /** Resolves when the passes and discards that are running or queued have finished (shutdown drain). */
+  idle(): Promise<void>;
 }
 
 export function createReplyAssets(deps: {
@@ -67,6 +79,13 @@ export function createReplyAssets(deps: {
   const { store, assets, renderer } = deps;
   // Passes for one memo run one after another: a later pass's prune must not delete the files an earlier one just stored.
   const perMemo = createKeyedQueue();
+  const running = new Set<Promise<unknown>>();
+  const track = <T>(task: Promise<T>) => {
+    running.add(task);
+    const forget = () => running.delete(task);
+    task.then(forget, forget);
+    return task;
+  };
 
   async function renderBlock(params: { memoId: string; block: number; source: string }) {
     const { memoId, block, source } = params;
@@ -104,22 +123,45 @@ export function createReplyAssets(deps: {
     return files.map((f) => f.asset);
   }
 
-  async function run(memoId: string, replyText: string) {
+  /** Renders and stores every block of the reply (capped); the files exist, nothing references them yet. */
+  async function renderReply(memoId: string, replyText: string) {
     const stored: ReplyAsset[] = [];
+    const sources = extractMermaidBlocks(replyText);
+    if (sources.length > MAX_BLOCKS) {
+      log("reply.blocks_capped", { memo_id: memoId, total: sources.length, cap: MAX_BLOCKS });
+    }
+    for (const [block, source] of sources.slice(0, MAX_BLOCKS).entries()) {
+      // Rendering is synchronous CPU work: let queued requests run between two blocks.
+      await new Promise((resolve) => setImmediate(resolve));
+      stored.push(...(await renderBlock({ memoId, block, source })));
+    }
+    return stored;
+  }
+
+  /** Deletes every file of the memo that no row names. */
+  async function pruneToRows(memoId: string) {
+    const blocks = store.getMemo(memoId)?.replyBlocks ?? [];
+    const keep = new Set(blocks.flatMap((b) => [b.svg.light, b.svg.dark, b.png.light, b.png.dark]));
+    await assets.prune({ memoId, keep });
+  }
+
+  async function run(memoId: string, replyText: string) {
+    let stored: ReplyAsset[] = [];
     // Once the rows name the new files they own them: from then on nothing may delete them as leftovers.
     let committed = false;
     try {
-      const sources = extractMermaidBlocks(replyText);
-      if (sources.length > MAX_BLOCKS) {
-        log("reply.blocks_capped", { memo_id: memoId, total: sources.length, cap: MAX_BLOCKS });
-      }
-      for (const [block, source] of sources.slice(0, MAX_BLOCKS).entries()) {
-        // Rendering is synchronous CPU work: let queued requests run between two blocks.
-        await new Promise((resolve) => setImmediate(resolve));
-        stored.push(...(await renderBlock({ memoId, block, source })));
-      }
+      stored = await renderReply(memoId, replyText);
       // A memo purged while it rendered has no row left to own the files.
-      committed = store.replaceReplyAssets(memoId, stored);
+      committed = store.replaceReplyAssets(memoId, stored, {
+        replyText,
+        // The reply lost its compare-and-set: the store dropped the rows, the files go too.
+        onDiscard: () => {
+          log("reply.assets_discarded", { memo_id: memoId });
+          void track(perMemo(memoId, () => pruneToRows(memoId))).catch((err: unknown) =>
+            log("reply.assets_failed", { memo_id: memoId, error: String(err) }),
+          );
+        },
+      });
       await assets.prune({
         memoId,
         keep: new Set(committed ? stored.map((a) => a.id) : []),
@@ -132,7 +174,60 @@ export function createReplyAssets(deps: {
     }
   }
 
+  /** One memo of the backfill, inside its queue: the reply is read again, a retry or deletion in between wins. */
+  async function backfillOne(memoId: string, replyText: string) {
+    const stored: ReplyAsset[] = [];
+    let attached = false;
+    try {
+      const memo = store.getMemo(memoId);
+      if (!memo || memo.deletedAt !== null || memo.replyText !== replyText) return false;
+      if (memo.replyBlocks.length > 0) return false;
+      stored.push(...(await renderReply(memoId, replyText)));
+      if (stored.length === 0) return false;
+      attached = store.attachReplyAssets({ id: memoId, replyText, assets: stored });
+      return attached;
+    } catch (err) {
+      log("reply.assets_failed", { memo_id: memoId, error: String(err) });
+      return false;
+    } finally {
+      if (!attached) {
+        await assets.remove({ memoId, assetIds: stored.map((a) => a.id) }).catch(() => undefined);
+      }
+    }
+  }
+
+  async function backfill(limit: number) {
+    let done = 0;
+    let examined = 0;
+    let beforeSeq: number | undefined;
+    try {
+      while (examined < limit) {
+        const page = store.listReplyAssetCandidates({ beforeSeq, limit: 100 });
+        if (page.length === 0) break;
+        for (const candidate of page) {
+          beforeSeq = candidate.seq;
+          // The query matches the word; only a real top-level fence is work (and counts against the bound).
+          if (extractMermaidBlocks(candidate.replyText).length === 0) continue;
+          if (examined >= limit) break;
+          examined++;
+          if (await perMemo(candidate.id, () => backfillOne(candidate.id, candidate.replyText))) {
+            done++;
+          }
+        }
+        if (page.length < 100) break;
+      }
+    } catch (err) {
+      log("reply.backfill_failed", { error: String(err) });
+    }
+    log("reply.backfill", { examined, rendered: done });
+    return done;
+  }
+
   return {
-    sync: ({ memoId, replyText }) => perMemo(memoId, () => run(memoId, replyText)),
+    sync: ({ memoId, replyText }) => track(perMemo(memoId, () => run(memoId, replyText))),
+    backfill: ({ limit = BACKFILL_LIMIT } = {}) => track(backfill(limit)),
+    idle: async () => {
+      while (running.size > 0) await Promise.allSettled(running);
+    },
   };
 }
