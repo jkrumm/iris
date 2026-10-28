@@ -345,10 +345,14 @@ describe("GET /v1/memos/:id/assets/:assetId", () => {
     expect([svg.status, svg.headers.get("content-type")]).toEqual([200, "image/svg+xml"]);
     expect(svg.headers.get("cache-control")).toContain("immutable");
     expect(svg.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(svg.headers.get("content-security-policy")).toBe(
+      "default-src 'none'; style-src 'unsafe-inline'",
+    );
     expect(await svg.text()).toContain('data-scheme="dark"');
 
     const png = await get(block.png.light);
     expect([png.status, png.headers.get("content-type")]).toEqual([200, "image/png"]);
+    expect(png.headers.get("content-security-policy")).toBeNull();
     expect([...new Uint8Array(await png.arrayBuffer()).slice(1, 4)]).toEqual([0x50, 0x4e, 0x47]);
   });
 

@@ -52,8 +52,9 @@ export function extractMermaidBlocks(markdown: string): string[] {
 export interface ReplyAssets {
   /**
    * Makes the memo's stored assets match `replyText`: every Mermaid block is rendered and stored, the assets of an earlier
-   * reply are removed. Never throws: a block that cannot be rendered or stored stays a code block (`reply.render_failed`),
-   * and a failure of the whole pass (`reply.assets_failed`) leaves the reply as plain markdown.
+   * reply are removed. Never throws: a block that cannot be rendered (`reply.render_failed`) or stored (`reply.store_failed`)
+   * stays a code block, and a failure of the whole pass (`reply.assets_failed`, its new files removed) leaves the reply as
+   * plain markdown.
    */
   sync(params: { memoId: string; replyText: string }): Promise<void>;
 }
@@ -69,52 +70,65 @@ export function createReplyAssets(deps: {
 
   async function renderBlock(params: { memoId: string; block: number; source: string }) {
     const { memoId, block, source } = params;
+    let rendered;
     try {
-      const rendered = await renderer.render(source);
-      const { width, height } = rendered;
-      const files: { asset: ReplyAsset; bytes: Uint8Array }[] = [];
-      for (const scheme of ["light", "dark"] as const) {
-        const { svg, png } = rendered[scheme];
-        const common = { block, scheme, width, height };
-        files.push(
-          {
-            asset: { id: crypto.randomUUID(), format: "svg", ...common },
-            bytes: new TextEncoder().encode(svg),
-          },
-          { asset: { id: crypto.randomUUID(), format: "png", ...common }, bytes: png },
-        );
-      }
-      for (const { asset, bytes } of files) {
-        await assets.put({ memoId, assetId: asset.id, bytes });
-      }
-      return files.map((f) => f.asset);
+      rendered = await renderer.render(source);
     } catch (err) {
       log("reply.render_failed", { memo_id: memoId, block, error: String(err) });
       return [];
     }
+    const { width, height } = rendered;
+    const files: { asset: ReplyAsset; bytes: Uint8Array }[] = [];
+    for (const scheme of ["light", "dark"] as const) {
+      const { svg, png } = rendered[scheme];
+      const common = { block, scheme, width, height };
+      files.push(
+        {
+          asset: { id: crypto.randomUUID(), format: "svg", ...common },
+          bytes: new TextEncoder().encode(svg),
+        },
+        { asset: { id: crypto.randomUUID(), format: "png", ...common }, bytes: png },
+      );
+    }
+    try {
+      for (const { asset, bytes } of files) {
+        await assets.put({ memoId, assetId: asset.id, bytes });
+      }
+    } catch (err) {
+      log("reply.store_failed", { memo_id: memoId, block, error: String(err) });
+      await assets
+        .remove({ memoId, assetIds: files.map((f) => f.asset.id) })
+        .catch(() => undefined);
+      return [];
+    }
+    return files.map((f) => f.asset);
   }
 
   async function run(memoId: string, replyText: string) {
+    const stored: ReplyAsset[] = [];
+    // Once the rows name the new files they own them: from then on nothing may delete them as leftovers.
+    let committed = false;
     try {
       const sources = extractMermaidBlocks(replyText);
       if (sources.length > MAX_BLOCKS) {
-        log("reply.render_failed", {
-          memo_id: memoId,
-          block: MAX_BLOCKS,
-          error: `${sources.length} mermaid blocks, only the first ${MAX_BLOCKS} are rendered`,
-        });
+        log("reply.blocks_capped", { memo_id: memoId, total: sources.length, cap: MAX_BLOCKS });
       }
-      const stored: ReplyAsset[] = [];
       for (const [block, source] of sources.slice(0, MAX_BLOCKS).entries()) {
         // Rendering is synchronous CPU work: let queued requests run between two blocks.
         await new Promise((resolve) => setImmediate(resolve));
         stored.push(...(await renderBlock({ memoId, block, source })));
       }
       // A memo purged while it rendered has no row left to own the files.
-      const kept = store.replaceReplyAssets(memoId, stored) ? stored : [];
-      await assets.prune({ memoId, keep: new Set(kept.map((a) => a.id)) });
+      committed = store.replaceReplyAssets(memoId, stored);
+      await assets.prune({
+        memoId,
+        keep: new Set(committed ? stored.map((a) => a.id) : []),
+      });
     } catch (err) {
       log("reply.assets_failed", { memo_id: memoId, error: String(err) });
+      if (!committed) {
+        await assets.remove({ memoId, assetIds: stored.map((a) => a.id) }).catch(() => undefined);
+      }
     }
   }
 

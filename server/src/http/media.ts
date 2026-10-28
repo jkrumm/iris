@@ -104,6 +104,10 @@ export function mediaRoutes(deps: {
             // An asset id is never reused (a new reply renders under new ids), so the file never changes.
             "cache-control": "private, max-age=31536000, immutable",
             "x-content-type-options": "nosniff",
+            // An SVG opened on its own must not run script or load anything; Pele's inline styles are all it needs.
+            ...(type === "image/svg+xml" && {
+              "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'",
+            }),
           },
         });
       },

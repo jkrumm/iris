@@ -120,7 +120,7 @@ All under `/v1`, `Authorization: Bearer <token>`. Errors: `{error: <code>, messa
 | `POST /telemetry` `{resource, spans, logs, dropped}` (the Swift `TelemetryBatch`) | 202 `{accepted: {spans, logs}}`; exported in the background as OTLP with `service.name=iris-ios\|iris-macos`, the memo trace id kept; 413 over 256 KiB, 400 over 500 spans+logs, a schema violation or a bad timestamp |
 | `PUT /memos/:id/activity-token` `{token}` (hex) | 204, replaces the stored token; 404 unknown memo |
 | `GET /memos/:id/audio` | `audio/mp4`, concatenated on first request and cached; `Range` → 206 / 416; 404; 409 while `receiving` or soft-deleted |
-| `GET /memos/:id/assets/:assetId` | a rendered Mermaid file of the reply (ids in the memo's `replyBlocks`): `image/svg+xml` or `image/png`, immutable cache; 404 unknown memo or asset; 409 when soft-deleted |
+| `GET /memos/:id/assets/:assetId` | a rendered Mermaid file of the reply (ids in the memo's `replyBlocks`): `image/svg+xml` (CSP `default-src 'none'`) or `image/png`, immutable cache; 404 unknown memo or asset; 409 when soft-deleted |
 | `GET /memos/:id/speech` | `audio/mpeg` TTS of the speech-ready variant (`speechVariant`: cleaned reply, or `summary.spoken` + "details on screen" past 600 chars; else `summary.spoken`), cached; 404; 409 with neither or when soft-deleted; 503 without audio-gateway |
 | `GET /herd` | `{tabs: [{id, repo, label, agentState, lastActivity}]}` from herdr; 503 without `HERDR_SOCKET` or when herdr is unreachable |
 | `GET /stats?days=<n>` | `{days, from, to, perDay, perWeek, stepMedians (per step and route, with n), costPerRoute}` over the last `n` local days (default 30, 1..365 else 400); read-only SQL/JS aggregates, `null` route = `unrouted` |
@@ -296,7 +296,7 @@ Push to master deploys. LaunchAgent `com.jkrumm.iris` (KeepAlive, `ExitTimeOut` 
 - **Mermaid replies:** after `act` has the reply, `memo/reply-assets.ts` renders every top-level ```mermaid fence through the `DiagramRenderer` port
   (production `adapters/diagram-pele.ts`: Pele for SVG, resvg-js for PNG at 2x, light and dark with the basalt colours resolved into the SVG) and stores four files per block
   under `<IRIS_DATA>/assets/<memo>/<uuid>` with rows in `reply_assets`; the wire carries `replyBlocks` (omitted when empty: `{index, kind, width, height, svg, png}`, each
-  `{light, dark}` asset ids; `index` counts the reply's mermaid fences from 0). A block Pele rejects stays a code block (`reply.render_failed`, no asset, never a step failure),
+  `{light, dark}` asset ids; `index` counts the reply's mermaid fences from 0). A block Pele rejects stays a code block (`reply.render_failed`; a failed file write is `reply.store_failed`; more than 12 blocks `reply.blocks_capped`; no asset, never a step failure),
   a changed reply re-renders and prunes the old files, the purge removes files before rows. Library choice and why: TDD §3 "Reply assets".
 - **Speech request** to audio-gateway: `POST /v1/audio/speech {input, response_format: "mp3"}` with `x-audio-source: iris`.
   No `model` or `voice`: the gateway owns both and detects the language. A non-2xx is 503 `unavailable`.

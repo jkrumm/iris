@@ -5,6 +5,9 @@ import { writeAtomic } from "./fs-atomic.js";
 
 const SAFE_ID = /^[0-9a-f-]{8,64}$/i;
 
+/** Only a missing file or directory is "not there"; a permission or I/O error must reach the caller. */
+const missing = (err: unknown) => (err as NodeJS.ErrnoException | undefined)?.code === "ENOENT";
+
 /** Assets live at `<dir>/<memo id>/<asset id>`; both ids are checked before they become a path. */
 export function createFsAssetStore(dir: string): AssetStore {
   const memoDir = (memoId: string) => {
@@ -21,11 +24,26 @@ export function createFsAssetStore(dir: string): AssetStore {
       await writeAtomic(fileOf(memoId, assetId), bytes);
     },
     async read({ memoId, assetId }) {
-      const bytes = await readFile(fileOf(memoId, assetId)).catch(() => null);
-      return bytes ? new Uint8Array(bytes) : null;
+      // An id that can never name a file is a miss, not a failure.
+      if (!SAFE_ID.test(memoId) || !SAFE_ID.test(assetId)) return null;
+      try {
+        return new Uint8Array(await readFile(fileOf(memoId, assetId)));
+      } catch (err) {
+        if (missing(err)) return null;
+        throw err;
+      }
+    },
+    async remove({ memoId, assetIds }) {
+      await Promise.all(assetIds.map((assetId) => rm(fileOf(memoId, assetId), { force: true })));
     },
     async prune({ memoId, keep }) {
-      const names = await readdir(memoDir(memoId)).catch(() => []);
+      let names: string[];
+      try {
+        names = await readdir(memoDir(memoId));
+      } catch (err) {
+        if (missing(err)) return;
+        throw err;
+      }
       await Promise.all(
         names
           .filter((name) => !keep.has(name))
