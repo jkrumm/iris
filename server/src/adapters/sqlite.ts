@@ -25,6 +25,7 @@ import {
   PINNED_LIMIT,
   type AnswerDecision,
   type MemoStore,
+  type PendingReplyAssets,
   type ThreadStore,
 } from "../memo/store.js";
 import type { Clock } from "../ports/clock.js";
@@ -357,6 +358,9 @@ export function createSqliteMemoStore(params: { db: Database; clock: Clock }): M
     return true;
   });
 
+  /** Reply assets awaiting their reply's commit, by memo (`MemoStore.replaceReplyAssets`). */
+  const pendingAssets = new Map<string, PendingReplyAssets>();
+
   const completeStep = db.transaction(
     (input: Parameters<MemoStore["completeStep"]>[0]): boolean => {
       const { id, step, from, to, usage, costUsd, patch } = input;
@@ -364,7 +368,16 @@ export function createSqliteMemoStore(params: { db: Database; clock: Clock }): M
       const moved = db
         .query("UPDATE memos SET state = ?, updated_at = ? WHERE id = ? AND state = ?")
         .run(to, at, id, from);
-      if (moved.changes === 0) return false;
+      // Reply assets rendered before this commit: kept only when this very reply is what committed.
+      const replyText = patch?.replyText;
+      const ownsAssets = replyText !== undefined && pendingAssets.get(id)?.replyText === replyText;
+      if (moved.changes === 0) {
+        if (ownsAssets) db.query("DELETE FROM reply_assets WHERE memo_id = ?").run(id);
+        return false;
+      }
+      if (replyText !== undefined && !ownsAssets) {
+        db.query("DELETE FROM reply_assets WHERE memo_id = ?").run(id);
+      }
       db.query(
         `UPDATE memo_steps SET status = 'done', finished_at = ?, error = NULL, usage_json = ?, cost_usd = ?
          WHERE memo_id = ? AND step = ?`,
@@ -391,15 +404,31 @@ export function createSqliteMemoStore(params: { db: Database; clock: Clock }): M
     },
   );
 
+  const insertReplyAssets = (id: string, assets: readonly ReplyAsset[]) => {
+    const insert = db.query(
+      `INSERT INTO reply_assets (memo_id, id, block_index, format, scheme, width, height)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    );
+    for (const a of assets) insert.run(id, a.id, a.block, a.format, a.scheme, a.width, a.height);
+  };
+
   const replaceReplyAssets = db.transaction(
     (id: string, assets: readonly ReplyAsset[]): boolean => {
       if (!db.query("SELECT 1 FROM memos WHERE id = ?").get(id)) return false;
       db.query("DELETE FROM reply_assets WHERE memo_id = ?").run(id);
-      const insert = db.query(
-        `INSERT INTO reply_assets (memo_id, id, block_index, format, scheme, width, height)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      );
-      for (const a of assets) insert.run(id, a.id, a.block, a.format, a.scheme, a.width, a.height);
+      insertReplyAssets(id, assets);
+      return true;
+    },
+  );
+
+  const attachReplyAssets = db.transaction(
+    (params: { id: string; replyText: string; assets: readonly ReplyAsset[] }): boolean => {
+      const { id, replyText, assets } = params;
+      const live = db
+        .query("SELECT 1 FROM memos WHERE id = ? AND deleted_at IS NULL AND reply_text = ?")
+        .get(id, replyText);
+      if (!live || db.query("SELECT 1 FROM reply_assets WHERE memo_id = ?").get(id)) return false;
+      insertReplyAssets(id, assets);
       return true;
     },
   );
@@ -599,7 +628,15 @@ export function createSqliteMemoStore(params: { db: Database; clock: Clock }): M
     },
 
     completeStep(input) {
-      return completeStep(input);
+      const won = completeStep(input);
+      const text = input.patch?.replyText;
+      const pending = pendingAssets.get(input.id);
+      // The reply the pending assets were rendered for is settled either way; the rows were handled in the transaction.
+      if (text !== undefined && pending?.replyText === text) {
+        pendingAssets.delete(input.id);
+        if (!won) pending.onDiscard();
+      }
+      return won;
     },
 
     markStepFailed({ id, step, error }) {
@@ -690,11 +727,33 @@ export function createSqliteMemoStore(params: { db: Database; clock: Clock }): M
     },
 
     purge(id) {
-      return purge(id);
+      const purged = purge(id);
+      if (purged) pendingAssets.delete(id);
+      return purged;
     },
 
-    replaceReplyAssets(id, assets) {
-      return replaceReplyAssets(id, assets);
+    replaceReplyAssets(id, assets, pending) {
+      const replaced = replaceReplyAssets(id, assets);
+      if (!replaced) return false;
+      if (pending) pendingAssets.set(id, pending);
+      else pendingAssets.delete(id);
+      return true;
+    },
+
+    attachReplyAssets(params) {
+      return attachReplyAssets(params);
+    },
+
+    listReplyAssetCandidates({ beforeSeq, limit }) {
+      return db
+        .query<{ id: string; seq: number; reply_text: string }, [number, number]>(
+          `SELECT id, seq, reply_text FROM memos
+           WHERE deleted_at IS NULL AND reply_text LIKE '%mermaid%' AND seq < ?
+             AND NOT EXISTS (SELECT 1 FROM reply_assets a WHERE a.memo_id = memos.id)
+           ORDER BY seq DESC LIMIT ?`,
+        )
+        .all(beforeSeq ?? Number.MAX_SAFE_INTEGER, limit)
+        .map((row) => ({ id: row.id, seq: row.seq, replyText: row.reply_text }));
     },
 
     getReplyAsset(id, assetId) {

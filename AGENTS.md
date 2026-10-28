@@ -297,7 +297,7 @@ Push to master deploys. LaunchAgent `com.jkrumm.iris` (KeepAlive, `ExitTimeOut` 
   (production `adapters/diagram-pele.ts`: Pele for SVG, resvg-js for PNG at 2x, light and dark with the basalt colours resolved into the SVG) and stores four files per block
   under `<IRIS_DATA>/assets/<memo>/<uuid>` with rows in `reply_assets`; the wire carries `replyBlocks` (omitted when empty: `{index, kind, width, height, svg, png}`, each
   `{light, dark}` asset ids; `index` counts the reply's mermaid fences from 0). A block Pele rejects stays a code block (`reply.render_failed`; a failed file write is `reply.store_failed`; more than 12 blocks `reply.blocks_capped`; no asset, never a step failure),
-  a changed reply re-renders and prunes the old files, the purge removes files before rows. Library choice and why: TDD §3 "Reply assets".
+  a changed reply re-renders and prunes the old files; the rows are provisional until `completeStep` commits that reply (a lost compare-and-set removes rows and files); a boot sweep (`ReplyAssets.backfill`, 50 memos per start) renders older replies that have a fence and no rows; the purge removes files before rows. Library choice and why: TDD §3 "Reply assets".
 - **audio-gateway timeouts are hang guards:** the STT call (30 min) throws `hangGuardFailure` and the speech call (2 min) a plain 503; neither is retried (one window, then `POST /retry`).
 - **Speech request** to audio-gateway: `POST /v1/audio/speech {input, response_format: "mp3"}` with `x-audio-source: iris`.
   No `model` or `voice`: the gateway owns both and detects the language. A non-2xx is 503 `unavailable`.
