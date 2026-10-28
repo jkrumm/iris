@@ -12,6 +12,7 @@ final class HistoryModel {
   private(set) var items: [Memo] = []
   private(set) var loadFailed = false
   private(set) var hasLoaded = false
+  private(set) var isLoading = false
   private(set) var toast: HistoryToast?
   var filters = HistoryFilters()
 
@@ -21,6 +22,11 @@ final class HistoryModel {
   private let logger = Logger(subsystem: "com.jkrumm.iris", category: "history")
   private var nextCursor: String?
   private var isLoadingMore = false
+  /// The filters the rows and `nextCursor` belong to. A cursor is only ever sent with the filters that issued it.
+  private var loadedFilters: HistoryFilters?
+  /// Bumped when a memo is deleted or restored; a response that started before that is stale and dropped, so a late
+  /// flag change or refresh cannot put a deleted memo back.
+  private var lifecycle: [String: Int] = [:]
   /// Bumped by every first-page load; a response that finds it changed belongs to filters that are gone.
   private var generation = 0
 
@@ -34,14 +40,19 @@ final class HistoryModel {
   func load() async {
     generation += 1
     let current = generation
+    let requested = filters
+    if loadedFilters != requested { reset() }
+    isLoading = true
+    defer { if current == generation { isLoading = false } }
     do {
-      let page = try await client.listMemos(filters.query())
+      let page = try await client.listMemos(requested.query())
       guard current == generation else { return }
       // A memo answered after the first page can repeat across pinned and items: pinned first, then the new ids.
       let pinnedIDs = Set(page.pinned.map(\.id))
       pinned = page.pinned
       items = page.items.filter { !pinnedIDs.contains($0.id) }
       nextCursor = page.nextCursor
+      loadedFilters = requested
       loadFailed = false
       hasLoaded = true
     } catch is CancellationError {
@@ -50,17 +61,33 @@ final class HistoryModel {
       guard current == generation else { return }
       logger.error("history load failed: \(String(describing: error), privacy: .public)")
       loadFailed = true
+      // Rows from before the failure stay on a plain refresh; the error state takes over when there are none.
+      if !memos.isEmpty { toast = HistoryToast(kind: .error, message: Self.loadFailedMessage) }
     }
+  }
+
+  private static var loadFailedMessage: String {
+    String(localized: "Could not load memos", comment: "History error title")
+  }
+
+  /// Drops the rows and the cursor of filters that no longer apply.
+  private func reset() {
+    pinned = []
+    items = []
+    nextCursor = nil
+    loadedFilters = nil
   }
 
   /// Fetches the next page when `memo` is the last row on screen.
   func loadMoreIfNeeded(current memo: Memo) async {
-    guard let cursor = nextCursor, !isLoadingMore, memo.id == items.last?.id else { return }
+    guard let cursor = nextCursor, let paging = loadedFilters, paging == filters, !isLoadingMore,
+      memo.id == items.last?.id
+    else { return }
     isLoadingMore = true
     defer { isLoadingMore = false }
     let loading = generation
     do {
-      let page = try await client.listMemos(filters.query(cursor: cursor))
+      let page = try await client.listMemos(paging.query(cursor: cursor))
       guard loading == generation else { return }
       let known = Set(memos.map(\.id))
       items += page.items.filter { !known.contains($0.id) }
@@ -107,10 +134,14 @@ final class HistoryModel {
       await load()
       return
     }
+    let started = lifecycle[id]
     do {
-      place(try await client.memo(id: id).memo)
+      let memo = try await client.memo(id: id).memo
+      guard lifecycle[id] == started else { return }
+      place(memo)
     } catch let error as APIError {
       if case .server(404, _) = error {
+        guard lifecycle[id] == started else { return }
         remove(id)
       } else {
         logger.error("history refresh failed: \(String(describing: error), privacy: .public)")
@@ -138,15 +169,19 @@ final class HistoryModel {
   /// Removes the row at once; the toast offers the undo for as long as the server keeps the memo.
   func delete(_ memo: Memo) async {
     guard let before = held(memo.id), before.state.isDeletable else { return }
+    lifecycle[before.id, default: 0] += 1
+    let started = lifecycle[before.id]
     remove(before.id)
     do {
       let deleted = try await client.deleteMemo(id: before.id)
+      guard lifecycle[before.id] == started else { return }
       toast = HistoryToast(
         kind: .undoDelete(memoID: deleted.id),
         message: String(localized: "Memo deleted", comment: "Toast after a swipe delete"))
     } catch is CancellationError {
-      place(before, force: true)
+      if lifecycle[before.id] == started { place(before, force: true) }
     } catch {
+      guard lifecycle[before.id] == started else { return }
       place(before, force: true)
       show(error: String(localized: "Could not delete the memo", comment: "Toast when a delete failed"), cause: error)
     }
@@ -155,11 +190,16 @@ final class HistoryModel {
   func undoDelete() async {
     guard case .undoDelete(let id)? = toast?.kind else { return }
     toast = nil
+    lifecycle[id, default: 0] += 1
+    let started = lifecycle[id]
     do {
-      place(try await client.restoreMemo(id: id), force: true)
+      let restored = try await client.restoreMemo(id: id)
+      guard lifecycle[id] == started else { return }
+      place(restored, force: true)
     } catch is CancellationError {
       return
     } catch {
+      guard lifecycle[id] == started else { return }
       show(error: String(localized: "Could not restore the memo", comment: "Toast when an undo failed"), cause: error)
     }
   }
@@ -176,11 +216,15 @@ final class HistoryModel {
     after.favorite = favorite ?? after.favorite
     after.archived = archived ?? after.archived
     place(after, force: true)
+    let started = lifecycle[before.id]
     do {
-      place(try await client.setFlags(id: before.id, done: done, favorite: favorite, archived: archived), force: true)
+      let saved = try await client.setFlags(id: before.id, done: done, favorite: favorite, archived: archived)
+      guard lifecycle[before.id] == started else { return }
+      place(saved, force: true)
     } catch is CancellationError {
-      place(before, force: true)
+      if lifecycle[before.id] == started { place(before, force: true) }
     } catch {
+      guard lifecycle[before.id] == started else { return }
       place(before, force: true)
       show(
         error: String(localized: "Could not update the memo", comment: "Toast when a flag change failed"), cause: error)

@@ -87,6 +87,43 @@ struct HistoryModelTests {
     #expect(!model.loadFailed)
   }
 
+  @Test("a failed load after a filter change shows the error, not the previous filter's rows")
+  func failedLoadClearsStaleRows() async {
+    for index in 0..<HistoryFilters.pageSize + 1 { await seed(MemoFactory.memo("m\(index)", age: Double(index))) }
+    await model.load()
+    let last = model.items[model.items.count - 1]
+    model.filters.toggle(.favorites)
+    await client.enqueueFailure(.unexpectedStatus(500), for: .listMemos)
+    await model.load()
+    #expect(model.memos.isEmpty)
+    #expect(model.loadFailed)
+
+    let listCalls = await client.calls.filter { if case .listMemos = $0 { true } else { false } }.count
+    await model.loadMoreIfNeeded(current: last)
+    #expect(await client.calls.filter { if case .listMemos = $0 { true } else { false } }.count == listCalls)
+  }
+
+  @Test("the cursor of one filter set never pages another")
+  func cursorBelongsToItsFilters() async {
+    for index in 0..<HistoryFilters.pageSize + 1 { await seed(MemoFactory.memo("m\(index)", age: Double(index))) }
+    await model.load()
+    let last = model.items[model.items.count - 1]
+    model.filters.toggle(.favorites)
+    await model.loadMoreIfNeeded(current: last)
+    #expect(model.items.count == HistoryFilters.pageSize)
+    #expect(await client.calls.last == .listMemos(ListMemosQuery(limit: 50)))
+  }
+
+  @Test("a failed refresh with the same filters keeps the rows and says so")
+  func failedRefreshKeepsRows() async {
+    await seed(MemoFactory.memo("a"))
+    await model.load()
+    await client.enqueueFailure(.unexpectedStatus(500), for: .listMemos)
+    await model.load()
+    #expect(ids == ["a"])
+    #expect(model.toast?.kind == .error)
+  }
+
   // MARK: Flag actions
 
   @Test("done unpins a parked memo, dims it in place and tells the server")
@@ -157,6 +194,44 @@ struct HistoryModelTests {
     await client.enqueueFailure(.unexpectedStatus(500), for: .setFlags)
     await model.toggleDone(model.memos[0])
     #expect(!model.memos[0].done)
+  }
+
+  @Test("a flag change that completes after a delete does not bring the memo back")
+  func staleFlagsAfterDelete() async {
+    await seed(MemoFactory.memo("a", age: 1), MemoFactory.memo("b", age: 2))
+    await model.load()
+    let flagged = model.memos[0]
+    let flags = Task { await model.toggleFavorite(flagged) }
+    await Task.yield()
+    await model.delete(flagged)
+    await flags.value
+    #expect(ids == ["b"])
+  }
+
+  @Test("a failed flag change that completes after a delete does not roll the row back")
+  func staleRollbackAfterDelete() async {
+    await seed(MemoFactory.memo("a", age: 1), MemoFactory.memo("b", age: 2))
+    await model.load()
+    await client.enqueueFailure(.unexpectedStatus(500), for: .setFlags)
+    let flagged = model.memos[0]
+    let flags = Task { await model.toggleDone(flagged) }
+    await Task.yield()
+    await model.delete(flagged)
+    await flags.value
+    #expect(ids == ["b"])
+  }
+
+  @Test("an undo that finishes after a second delete does not show the memo")
+  func staleUndoAfterDelete() async throws {
+    await seed(MemoFactory.memo("a", age: 1), MemoFactory.memo("b", age: 2))
+    await model.load()
+    await model.delete(model.memos[0])
+    let undo = Task { await model.undoDelete() }
+    await Task.yield()
+    let held = try await serverFlags("a")
+    await model.delete(held)
+    await undo.value
+    #expect(ids == ["b"])
   }
 
   // MARK: Delete and undo
