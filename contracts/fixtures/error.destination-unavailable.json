@@ -1,0 +1,4 @@
+{
+  "error": "destination_unavailable",
+  "message": "hermes is not available, so a thread cannot be continued"
+}
