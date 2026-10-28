@@ -431,11 +431,16 @@
         "type": "object"
       },
       "type": "array"
+    },
+    "pinnedTruncated": {
+      "description": "true on the first page when more than 50 needs_route memos matched, so pinned holds only the newest 50; false otherwise and with a cursor.",
+      "type": "boolean"
     }
   },
   "required": [
     "items",
     "pinned",
+    "pinnedTruncated",
     "nextCursor"
   ],
   "title": "memos.list.response",

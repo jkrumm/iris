@@ -106,6 +106,7 @@ export interface MemoService {
   }): {
     memos: Memo[];
     pinned: Memo[];
+    pinnedTruncated: boolean;
     nextCursor: string | null;
   };
   /** Newest `updated_at` first; the same limit and cursor rules as `list`. */

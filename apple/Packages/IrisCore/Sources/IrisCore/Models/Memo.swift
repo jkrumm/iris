@@ -274,25 +274,30 @@ public struct MemoDetail: Codable, Hashable, Sendable, Identifiable {
 /// `GET /v1/memos`: one page, newest first. `nextCursor` is `nil` on the last page. `items` never holds an open
 /// `needs_route` memo (one that is not `done`): the first page (no cursor) carries every one matching the filters in
 /// `pinned` (newest first, at most 50), later pages carry none. Soft-deleted memos are in neither list.
+/// `pinnedTruncated` is `true` when more than 50 matched and the oldest were left out of `pinned`; it is `false` on
+/// every later page.
 public struct MemoPage: Codable, Hashable, Sendable {
   public var items: [Memo]
   public var pinned: [Memo]
+  public var pinnedTruncated: Bool
   public var nextCursor: String?
 
-  public init(items: [Memo], pinned: [Memo] = [], nextCursor: String? = nil) {
+  public init(items: [Memo], pinned: [Memo] = [], pinnedTruncated: Bool = false, nextCursor: String? = nil) {
     self.items = items
     self.pinned = pinned
+    self.pinnedTruncated = pinnedTruncated
     self.nextCursor = nextCursor
   }
 
   private enum CodingKeys: String, CodingKey {
-    case items, pinned, nextCursor
+    case items, pinned, pinnedTruncated, nextCursor
   }
 
   public init(from decoder: any Decoder) throws {
     let container = try decoder.container(keyedBy: CodingKeys.self)
     items = try container.decode([Memo].self, forKey: .items)
     pinned = try container.decodeIfPresent([Memo].self, forKey: .pinned) ?? []
+    pinnedTruncated = try container.decodeIfPresent(Bool.self, forKey: .pinnedTruncated) ?? false
     nextCursor = try container.decodeIfPresent(String.self, forKey: .nextCursor)
   }
 
@@ -300,6 +305,7 @@ public struct MemoPage: Codable, Hashable, Sendable {
     var container = encoder.container(keyedBy: CodingKeys.self)
     try container.encode(items, forKey: .items)
     try container.encode(pinned, forKey: .pinned)
+    try container.encode(pinnedTruncated, forKey: .pinnedTruncated)
     try container.encode(nextCursor, forKey: .nextCursor)
   }
 }

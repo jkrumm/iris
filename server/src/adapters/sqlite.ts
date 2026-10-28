@@ -433,10 +433,12 @@ export function createSqliteMemoStore(params: { db: Database; clock: Clock }): M
 
       // A parked memo that is `done` is no open question: it is paged like any other memo instead of pinned.
       const open = "(memos.state = 'needs_route' AND memos.done = 0)";
-      const pinned =
+      // One row past the cap tells a full set from a truncated one.
+      const pinnedRows =
         before === null && (!state || state === "needs_route")
-          ? select([open], "ORDER BY seq DESC LIMIT ?", [PINNED_LIMIT])
+          ? select([open], "ORDER BY seq DESC LIMIT ?", [PINNED_LIMIT + 1])
           : [];
+      const pinned = pinnedRows.slice(0, PINNED_LIMIT);
 
       const rows =
         before === null
@@ -450,6 +452,7 @@ export function createSqliteMemoStore(params: { db: Database; clock: Clock }): M
       return {
         memos: page.map(toMemo),
         pinned: pinned.map(toMemo),
+        pinnedTruncated: pinnedRows.length > PINNED_LIMIT,
         nextCursor: rows.length > limit && last ? String(last.seq) : null,
       };
     },

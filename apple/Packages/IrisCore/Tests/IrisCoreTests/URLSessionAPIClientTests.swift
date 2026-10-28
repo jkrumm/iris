@@ -165,6 +165,15 @@ struct URLSessionAPIClientTests {
       request.queryItems == [URLQueryItem(name: "limit", value: "20"), URLQueryItem(name: "cursor", value: "41")])
   }
 
+  @Test("listMemos decodes pinnedTruncated, true only when the pinned set was cut")
+  func listMemosPinnedTruncated() async throws {
+    let cut = StubServer { _ in try .json(fixture: "memos.list.response.pinned-truncated") }
+    #expect(try await cut.makeClient().listMemos(ListMemosQuery(limit: 20)).pinnedTruncated)
+
+    let whole = StubServer { _ in try .json(fixture: "memos.list.response.pinned") }
+    #expect(try await whole.makeClient().listMemos(ListMemosQuery(limit: 20)).pinnedTruncated == false)
+  }
+
   @Test("listMemos sends q, route and state and decodes the pinned memos")
   func listMemosSearch() async throws {
     let server = StubServer { _ in try .json(fixture: "memos.list.response.pinned") }

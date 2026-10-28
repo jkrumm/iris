@@ -258,7 +258,25 @@ describe("listMemos search and filters", () => {
 
     // `pinned` is never paged: with a cursor it is empty, and state=needs_route has no second page.
     const later = store.listMemos({ limit: 10, state: "needs_route", cursor: "1" });
-    expect(later).toEqual({ memos: [], pinned: [], nextCursor: null });
+    expect(later).toEqual({ memos: [], pinned: [], pinnedTruncated: false, nextCursor: null });
+  });
+
+  it("flags a first page whose pinned memos were cut at 50, and only then", () => {
+    const { store } = testStore();
+    const oldest = parkMemo(store, { reason: "unsure" });
+    for (let i = 1; i < 50; i++) parkMemo(store, { reason: "unsure" });
+    seedMemo(store, "notified");
+    const full = store.listMemos({ limit: 10 });
+    expect(full.pinned).toHaveLength(50);
+    expect(full.pinnedTruncated).toBe(false);
+
+    parkMemo(store, { reason: "unsure" });
+    const cut = store.listMemos({ limit: 10 });
+    expect(cut.pinned).toHaveLength(50);
+    expect(cut.pinned.map((m) => m.id)).not.toContain(oldest);
+    expect(cut.pinnedTruncated).toBe(true);
+    expect(store.listMemos({ limit: 10, route: "journal" }).pinnedTruncated).toBe(false);
+    expect(store.listMemos({ limit: 10, cursor: "1" }).pinnedTruncated).toBe(false);
   });
 
   it("backfills the index for memos that existed before the migration", () => {
