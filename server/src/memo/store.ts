@@ -5,6 +5,7 @@ import type {
   MemoMode,
   MemoPatch,
   MemoState,
+  ReplyAsset,
   RouteDecisionInput,
   RouteDecisionRecord,
   Step,
@@ -156,11 +157,19 @@ export interface MemoStore extends ThreadStore {
   /** Ids of the memos soft-deleted at or before `cutoff` (ISO), oldest deletion first. */
   listPurgeable(cutoff: string): string[];
   /**
-   * Removes a soft-deleted memo with its steps, segments, decisions and tokens (the search index follows by trigger).
+   * Removes a soft-deleted memo with its steps, segments, decisions, reply assets and tokens (the search index follows by trigger).
    * A thread whose `last_memo_id` was the memo points at its newest remaining memo; a thread left with no memos is
    * deleted. False when the memo is unknown or not deleted.
    */
   purge(id: string): boolean;
+
+  /**
+   * Replaces the memo's reply assets in one transaction (an empty list clears them). False when the memo is unknown.
+   * The files behind the ids are the caller's: the rows only say which ones belong to the reply.
+   */
+  replaceReplyAssets(id: string, assets: readonly ReplyAsset[]): boolean;
+  /** One asset of the memo, whatever its state (the media route checks deletion itself); null when unknown. */
+  getReplyAsset(id: string, assetId: string): ReplyAsset | null;
 
   /** Memos the runner must resume after a restart: not receiving, notified, failed or needs_route. */
   listNonTerminal(): Memo[];

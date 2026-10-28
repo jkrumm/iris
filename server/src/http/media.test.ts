@@ -2,7 +2,8 @@ import { describe, expect, it } from "bun:test";
 import { createApp } from "../app.js";
 import type { MemoPatch } from "../memo/memo.js";
 import { seedMemo } from "../memo/test-support.js";
-import { fakeCombiner, fakeSpeaker } from "../ports/fakes.js";
+import { createReplyAssets } from "../memo/reply-assets.js";
+import { fakeAssetStore, fakeCombiner, fakeDiagramRenderer, fakeSpeaker } from "../ports/fakes.js";
 import { parseDeviceTokens } from "./auth.js";
 import { parseRange } from "./media.js";
 import { call, TOKENS, testApp } from "./test-support.js";
@@ -318,5 +319,53 @@ describe("GET /v1/memos/:id/speech", () => {
       error: "unavailable",
       message: "speech synthesis failed: 502",
     });
+  });
+});
+
+async function withBlock() {
+  const assets = fakeAssetStore();
+  const h = testApp({ assets });
+  const { id } = seedMemo(h.store, "acted");
+  await createReplyAssets({
+    store: h.store,
+    assets,
+    renderer: fakeDiagramRenderer(),
+  }).sync({ memoId: id, replyText: "```mermaid\nA-->B\n```" });
+  const block = h.store.getMemo(id)?.replyBlocks[0];
+  if (!block) throw new Error("no block rendered");
+  const get = (assetId: string, memoId = id, headers?: Record<string, string>) =>
+    call(h.app, { path: `/v1/memos/${memoId}/assets/${assetId}`, ...(headers && { headers }) });
+  return { h, id, block, get };
+}
+
+describe("GET /v1/memos/:id/assets/:assetId", () => {
+  it("serves each file with its media type and an immutable cache", async () => {
+    const { block, get } = await withBlock();
+    const svg = await get(block.svg.dark);
+    expect([svg.status, svg.headers.get("content-type")]).toEqual([200, "image/svg+xml"]);
+    expect(svg.headers.get("cache-control")).toContain("immutable");
+    expect(svg.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(await svg.text()).toContain('data-scheme="dark"');
+
+    const png = await get(block.png.light);
+    expect([png.status, png.headers.get("content-type")]).toEqual([200, "image/png"]);
+    expect([...new Uint8Array(await png.arrayBuffer()).slice(1, 4)]).toEqual([0x50, 0x4e, 0x47]);
+  });
+
+  it("answers 404 for an unknown asset or memo, and for a row whose file is gone", async () => {
+    const { h, id, block, get } = await withBlock();
+    expect((await get("nope")).status).toBe(404);
+    expect((await get(block.png.dark, crypto.randomUUID())).status).toBe(404);
+    await h.assets.removeAll(id);
+    expect((await get(block.png.dark)).status).toBe(404);
+  });
+
+  it("answers 409 for a soft-deleted memo and 401 without a device token", async () => {
+    const { h, id, block, get } = await withBlock();
+    expect((await get(block.png.dark, id, { authorization: "Bearer wrong" })).status).toBe(401);
+    h.store.markDeleted({ id, at: h.clock.now().toISOString() });
+    const gone = await get(block.png.dark);
+    expect(gone.status).toBe(409);
+    expect(await gone.json()).toMatchObject({ error: "bad_state" });
   });
 });

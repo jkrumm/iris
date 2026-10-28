@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { fakeSpeechCache } from "../ports/fakes.js";
+import { fakeAssetStore, fakeSpeechCache } from "../ports/fakes.js";
 import { PURGE_AFTER_MS } from "./memo.js";
 import { createPurger } from "./purge.js";
 import { captureLogs, fakeAudio, seedMemo, testStore } from "./test-support.js";
@@ -10,10 +10,12 @@ function setup() {
   const ctx = testStore();
   const audio = fakeAudio();
   const speechCache = fakeSpeechCache();
+  const assets = fakeAssetStore();
   const purger = createPurger({
     store: ctx.store,
     audio,
     speechCache,
+    assets,
     clock: ctx.clock,
     intervalMs: 20,
   });
@@ -24,10 +26,11 @@ function setup() {
     await audio.put({ id, index: 0, bytes });
     await audio.putCombined({ id, bytes });
     await speechCache.put({ memoId: id, text: "hi", bytes });
+    await assets.put({ memoId: id, assetId: "a-1", bytes });
     ctx.store.markDeleted({ id, at: ctx.clock.now().toISOString() });
     return id;
   };
-  return { ...ctx, audio, speechCache, purger, deletedMemo };
+  return { ...ctx, audio, speechCache, assets, purger, deletedMemo };
 }
 
 describe("sweep", () => {
@@ -40,8 +43,8 @@ describe("sweep", () => {
     expect(audio.files.size).toBe(1);
   });
 
-  it("removes the audio, the speech and the rows once the window is over, and logs it", async () => {
-    const { store, clock, audio, speechCache, purger, deletedMemo, db } = setup();
+  it("removes the audio, the speech, the reply assets and the rows once the window is over, and logs it", async () => {
+    const { store, clock, audio, speechCache, assets, purger, deletedMemo, db } = setup();
     const id = await deletedMemo();
     const kept = seedMemo(store, "notified").id;
     clock.advance(PURGE_AFTER_MS);
@@ -55,6 +58,7 @@ describe("sweep", () => {
     expect(audio.files.size).toBe(0);
     expect(audio.combined.size).toBe(0);
     expect(speechCache.entries.size).toBe(0);
+    expect(assets.files.size).toBe(0);
     expect(db.query("SELECT * FROM segments WHERE memo_id = ?").all(id)).toEqual([]);
     expect(db.query("SELECT * FROM memo_steps WHERE memo_id = ?").all(id)).toEqual([]);
   });
@@ -112,7 +116,14 @@ describe("a pass that cannot list", () => {
         throw new Error("db locked");
       },
     };
-    const purger = createPurger({ store: failing, audio, speechCache, clock, intervalMs: 20 });
+    const purger = createPurger({
+      store: failing,
+      audio,
+      speechCache,
+      assets: fakeAssetStore(),
+      clock,
+      intervalMs: 20,
+    });
     await expect(purger.sweep()).rejects.toThrow("db locked");
 
     const { lines } = await captureLogs(async () => {

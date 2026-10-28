@@ -1,0 +1,104 @@
+{
+  "id": "c3a7e1f4-52d8-4b96-8a0e-7d1f6b2c9e35",
+  "mode": "chat",
+  "device": "iphone",
+  "startedAt": "2026-03-14T09:20:41.000Z",
+  "state": "notified",
+  "failedStep": null,
+  "error": null,
+  "segmentCount": 4,
+  "audioSeconds": 38.4,
+  "transcript": "Zeichne mir den Ablauf einer Memo-Verarbeitung als Diagramm.",
+  "route": "hermes",
+  "destinationRef": "c3a7e1f4-52d8-4b96-8a0e-7d1f6b2c9e35",
+  "replyText": "So läuft ein Memo durch den Server:\n\n```mermaid\nflowchart LR\n  A[Aufnahme] --> B[Transkript] --> C[Route] --> D[Antwort]\n```\n\nJeder Schritt schreibt sein Ergebnis am Memo.",
+  "replyBlocks": [
+    {
+      "index": 0,
+      "kind": "mermaid",
+      "width": 486,
+      "height": 64,
+      "svg": {
+        "light": "5b0e2f8a-3c41-4d7e-9a16-8f2d0c7b1e53",
+        "dark": "a4c19d62-7e08-4f35-b2a1-3d9e5f06c874"
+      },
+      "png": {
+        "light": "e7f3a051-96b2-4c8d-a3e4-1b5d8c20f679",
+        "dark": "2d84b6c9-0f17-4e3a-8b52-c6a9e1d37f40"
+      }
+    }
+  ],
+  "summary": {
+    "headline": "Ablauf als Diagramm",
+    "detail": "Aufnahme, Transkript, Route und Antwort laufen nacheinander.",
+    "spoken": "Ich habe den Ablauf als Diagramm gezeichnet."
+  },
+  "threadId": "c3a7e1f4-52d8-4b96-8a0e-7d1f6b2c9e35",
+  "done": false,
+  "favorite": false,
+  "archived": false,
+  "createdAt": "2026-03-14T09:20:41.512Z",
+  "updatedAt": "2026-03-14T09:21:19.870Z",
+  "steps": [
+    {
+      "step": "transcribe",
+      "status": "done",
+      "startedAt": "2026-03-14T09:20:52.100Z",
+      "finishedAt": "2026-03-14T09:21:00.640Z",
+      "error": null,
+      "usage": {
+        "audioSeconds": 38.4
+      },
+      "costUsd": 0.0038,
+      "attempts": 1
+    },
+    {
+      "step": "route",
+      "status": "done",
+      "startedAt": "2026-03-14T09:21:00.700Z",
+      "finishedAt": "2026-03-14T09:21:00.712Z",
+      "error": null,
+      "usage": null,
+      "costUsd": null,
+      "attempts": 1
+    },
+    {
+      "step": "act",
+      "status": "done",
+      "startedAt": "2026-03-14T09:21:00.780Z",
+      "finishedAt": "2026-03-14T09:21:12.190Z",
+      "error": null,
+      "usage": {
+        "inputTokens": 1840,
+        "outputTokens": 212,
+        "totalTokens": 2052
+      },
+      "costUsd": 0.0412,
+      "attempts": 1
+    },
+    {
+      "step": "summarize",
+      "status": "done",
+      "startedAt": "2026-03-14T09:21:12.260Z",
+      "finishedAt": "2026-03-14T09:21:17.930Z",
+      "error": null,
+      "usage": {
+        "inputTokens": 910,
+        "outputTokens": 148,
+        "totalTokens": 1058
+      },
+      "costUsd": 0.0021,
+      "attempts": 1
+    },
+    {
+      "step": "notify",
+      "status": "done",
+      "startedAt": "2026-03-14T09:21:18.010Z",
+      "finishedAt": "2026-03-14T09:21:19.860Z",
+      "error": null,
+      "usage": null,
+      "costUsd": null,
+      "attempts": 1
+    }
+  ]
+}

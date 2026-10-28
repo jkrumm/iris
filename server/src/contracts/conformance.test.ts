@@ -10,7 +10,8 @@ import {
   buildLiveActivityUpdate,
   buildNeedsRouteAlert,
 } from "../notify/payloads.js";
-import { fakeHerd } from "../ports/fakes.js";
+import { createReplyAssets } from "../memo/reply-assets.js";
+import { fakeAssetStore, fakeDiagramRenderer, fakeHerd } from "../ports/fakes.js";
 import { loadContracts, MANIFEST_FILE, violations } from "./check.js";
 import { keyDifferences, sseFrames } from "./conformance-support.js";
 import { Manifest, routeKey } from "./manifest.js";
@@ -38,6 +39,7 @@ const OPTIONAL_KEYS = [
   "threadId",
   "deletedAt",
   "purgeAt",
+  "replyBlocks",
 ];
 
 /** Validates `value` against `schema` and compares its keys with each fixture (default: all of them). */
@@ -493,6 +495,52 @@ describe("flows: threads conform", () => {
 });
 
 describe("flows: every error shape conforms", () => {
+  it("a reply with a Mermaid block carries replyBlocks on the detail and the list, and the assets route serves them", async () => {
+    const assets = fakeAssetStore();
+    const { app, store, clock } = testApp({
+      assets,
+      handlers: (s) =>
+        handlers({
+          act: async ({ memo }) => {
+            const replyText = "Ablauf:\n\n```mermaid\nflowchart LR\n  A --> B\n```";
+            await createReplyAssets({ store: s, assets, renderer: fakeDiagramRenderer() }).sync({
+              memoId: memo.id,
+              replyText,
+            });
+            return { patch: { destinationRef: memo.id, replyText } };
+          },
+        }),
+    });
+    const id = await record(app);
+
+    const detail = await conformingBody({
+      route: "GET /v1/memos/:id",
+      res: await call(app, { path: `/v1/memos/${id}` }),
+      fixtures: ["memos.detail.response.assets"],
+    });
+    const [block] = detail["replyBlocks"] as { svg: { light: string }; png: { dark: string } }[];
+    const list = await call(app, { path: "/v1/memos" });
+    const items = ((await list.json()) as { items: { id: string; replyBlocks?: unknown[] }[] })
+      .items;
+    expect(items.find((m) => m.id === id)?.replyBlocks).toHaveLength(1);
+
+    const svg = await call(app, { path: `/v1/memos/${id}/assets/${block?.svg.light}` });
+    expect([svg.status, svg.headers.get("content-type")]).toEqual([200, "image/svg+xml"]);
+    const png = await call(app, { path: `/v1/memos/${id}/assets/${block?.png.dark}` });
+    expect([png.status, png.headers.get("content-type")]).toEqual([200, "image/png"]);
+
+    const missing = await call(app, { path: `/v1/memos/${id}/assets/nope` });
+    expect(missing.status).toBe(404);
+    expect(
+      await conformingBody({ route: "GET /v1/memos/:id/assets/:assetId", res: missing }),
+    ).toMatchObject({ error: "not_found" });
+
+    store.markDeleted({ id, at: clock.now().toISOString() });
+    const gone = await call(app, { path: `/v1/memos/${id}/assets/${block?.png.dark}` });
+    expect(gone.status).toBe(409);
+    await conformingBody({ route: "GET /v1/memos/:id/assets/:assetId", res: gone });
+  });
+
   it("404, 409, 400, 413, 422 and 503 carry the manifest's error schemas", async () => {
     const { app } = testApp({ handlers: handlers(), maxSegmentBytes: 4, herd: false });
     const unknown = crypto.randomUUID();

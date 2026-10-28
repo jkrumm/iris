@@ -5,6 +5,7 @@ import {
   type AudioStore,
   type Recording,
 } from "../ports/audio.js";
+import type { AssetStore } from "../ports/assets.js";
 import type { Speaker, SpeechCache } from "../ports/speaker.js";
 import { log } from "../telemetry/log.js";
 import { MemoError } from "./errors.js";
@@ -12,12 +13,16 @@ import { isTyped } from "./memo.js";
 import { speechVariant } from "./speech-text.js";
 import type { MemoStore } from "./store.js";
 
-/** What a memo can be played back as: its recording (for the scrubber) and its spoken result. */
+const ASSET_TYPES = { svg: "image/svg+xml", png: "image/png" } as const;
+
+/** What a memo can be played back as: its recording (for the scrubber) and its spoken result; plus its rendered reply blocks. */
 export interface MemoMedia {
   /** The concatenated recording, built on first use and then read from disk. */
   recording(id: string): Promise<Recording>;
   /** mp3 of the speech-ready variant of the answer (`speechVariant`); synthesized once per variant text and then read from disk. */
   speech(id: string): Promise<Uint8Array>;
+  /** One rendered file of the memo's reply (a Mermaid block as svg or png), with its media type. */
+  asset(id: string, assetId: string): Promise<{ bytes: Uint8Array; type: string }>;
 }
 
 /** Concurrent callers of one key share a single run, so a burst of requests pays for one concat or one TTS call. */
@@ -39,8 +44,9 @@ export function createMemoMedia(deps: {
   /** Unset when no audio-gateway is configured; `speech` then answers `unavailable`. */
   speaker?: Speaker | undefined;
   speechCache: SpeechCache;
+  assets: AssetStore;
 }): MemoMedia {
-  const { store, audio, combiner, speaker, speechCache } = deps;
+  const { store, audio, combiner, speaker, speechCache, assets } = deps;
   const once = createSingleFlight();
 
   /** Like the other live-only routes, a soft-deleted memo is `bad_state`: its files are on their way out. */
@@ -90,6 +96,14 @@ export function createMemoMedia(deps: {
         await speechCache.put({ memoId: id, text, bytes });
         return bytes;
       });
+    },
+
+    async asset(id, assetId) {
+      mustGet(id);
+      const meta = store.getReplyAsset(id, assetId);
+      const bytes = meta && (await assets.read({ memoId: id, assetId }));
+      if (!meta || !bytes) throw new MemoError("not_found", `memo ${id} has no asset ${assetId}`);
+      return { bytes, type: ASSET_TYPES[meta.format] };
     },
   };
 }

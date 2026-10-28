@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import type { Speaker } from "../ports/speaker.js";
-import { fakeCombiner, fakeSpeechCache } from "../ports/fakes.js";
+import { fakeAssetStore, fakeCombiner, fakeSpeechCache } from "../ports/fakes.js";
 import { createMemoMedia } from "./media.js";
 import { deferred, fakeAudio, seedMemo, testStore } from "./test-support.js";
 
@@ -14,6 +14,7 @@ function setup(speaker: Speaker) {
     combiner: fakeCombiner(),
     speaker,
     speechCache: fakeSpeechCache(),
+    assets: fakeAssetStore(),
   });
   const memo = seedMemo(store, "summarized");
   const withReply = (replyText: string, spoken?: string) =>
@@ -50,6 +51,7 @@ describe("recording", () => {
       audio: fakeAudio(),
       combiner,
       speechCache: fakeSpeechCache(),
+      assets: fakeAssetStore(),
     });
     const { memo } = store.createTextMemo({
       id: crypto.randomUUID(),

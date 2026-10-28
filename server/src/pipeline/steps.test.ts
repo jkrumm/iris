@@ -5,13 +5,17 @@ import { createRunner } from "../memo/runner.js";
 import { captureLogs, fakeAudio, seedMemo, testStore } from "../memo/test-support.js";
 import { TabGoneError, type Destination, type Destinations } from "../ports/destination.js";
 import {
+  fakeAssetStore,
   fakeDecider,
   fakeDestination,
+  fakeDiagramRenderer,
   fakeHerd,
   fakeNotifier,
   fakeSummarizer,
   fakeTranscriber,
 } from "../ports/fakes.js";
+import { createReplyAssets, type ReplyAssets } from "../memo/reply-assets.js";
+import type { MemoStore } from "../memo/store.js";
 import { createStepHandlers } from "./steps.js";
 
 function setup(
@@ -24,6 +28,7 @@ function setup(
     summarizer?: ReturnType<typeof fakeSummarizer> | null;
     herd?: ReturnType<typeof fakeHerd>;
     notifier?: ReturnType<typeof fakeNotifier>;
+    replyAssets?: (store: MemoStore) => ReplyAssets;
   } = {},
 ) {
   const { store, clock, db } = testStore();
@@ -44,6 +49,7 @@ function setup(
     herd: options.herd,
     decider: options.decider,
     summarizer,
+    replyAssets: options.replyAssets?.(store),
     notifier,
   });
   const events = createMemoEvents();
@@ -235,6 +241,23 @@ describe("act", () => {
       usage: { turns: 1 },
       costUsd: 0.1,
     });
+  });
+
+  it("renders the reply's mermaid blocks once it is delivered, and a block that fails never fails the step", async () => {
+    const reply = "```mermaid\nA-->B\n```\n```mermaid\nunrenderable\n```";
+    const assets = fakeAssetStore();
+    const renderer = fakeDiagramRenderer();
+    const { store, handlers } = setup({
+      destination: fakeDestination({ result: { replyText: reply } }),
+      replyAssets: (s) => createReplyAssets({ store: s, assets, renderer }),
+    });
+    const memo = { ...seedMemo(store, "routed"), transcript: "draw it", route: "hermes" };
+    const result = await handlers.act?.({ memo });
+
+    expect(result?.patch?.replyText).toBe(reply);
+    expect(renderer.calls).toEqual(["A-->B", "unrenderable"]);
+    expect(store.getMemo(memo.id)?.replyBlocks.map((b) => b.index)).toEqual([0]);
+    expect(assets.files.size).toBe(4);
   });
 
   it("tells the destination a chat memo is a chat and persists the thread it names", async () => {

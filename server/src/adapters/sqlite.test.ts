@@ -1,7 +1,7 @@
 import { Database } from "bun:sqlite";
 import { describe, expect, it } from "bun:test";
 import { MemoError } from "../memo/errors.js";
-import type { MemoPatch, MemoState, Step } from "../memo/memo.js";
+import type { MemoPatch, MemoState, ReplyAsset, Step } from "../memo/memo.js";
 import { captureLogs, parkMemo, seedMemo, testStore } from "../memo/test-support.js";
 import { createSqliteMemoStore, migrate } from "./sqlite.js";
 import { MIGRATIONS } from "./sqlite-migrations.js";
@@ -986,5 +986,78 @@ describe("answering and correcting a route", () => {
       expect(store.listRouteDecisions(id)).toMatchObject([{ source: "correction" }]);
     }
     expect(store.recordCorrection({ id: crypto.randomUUID(), decision: correction })).toBe(false);
+  });
+});
+
+const files = (block: number, tag: string): ReplyAsset[] =>
+  (["svg", "png"] as const).flatMap((format) =>
+    (["light", "dark"] as const).map((scheme) => ({
+      id: `${tag}-${format}-${scheme}`,
+      block,
+      format,
+      scheme,
+      width: 300,
+      height: 120,
+    })),
+  );
+
+describe("reply assets", () => {
+  it("a memo has no blocks until assets are stored; they group per block and come back ordered", () => {
+    const { store } = testStore();
+    const { id } = seedMemo(store, "acted");
+    expect(store.getMemo(id)?.replyBlocks).toEqual([]);
+
+    expect(store.replaceReplyAssets(id, [...files(2, "b"), ...files(0, "a")])).toBe(true);
+    expect(store.getMemo(id)?.replyBlocks).toEqual([
+      {
+        index: 0,
+        kind: "mermaid",
+        width: 300,
+        height: 120,
+        svg: { light: "a-svg-light", dark: "a-svg-dark" },
+        png: { light: "a-png-light", dark: "a-png-dark" },
+      },
+      {
+        index: 2,
+        kind: "mermaid",
+        width: 300,
+        height: 120,
+        svg: { light: "b-svg-light", dark: "b-svg-dark" },
+        png: { light: "b-png-light", dark: "b-png-dark" },
+      },
+    ]);
+    expect(store.getReplyAsset(id, "a-png-dark")).toMatchObject({ block: 0, format: "png" });
+    expect(store.getReplyAsset(id, "nope")).toBeNull();
+    expect(store.listMemos({ limit: 5 }).memos[0]?.replyBlocks).toHaveLength(2);
+  });
+
+  it("replaces the previous set, drops a block that lacks a rendering, and refuses an unknown memo", () => {
+    const { store } = testStore();
+    const { id } = seedMemo(store, "acted");
+    store.replaceReplyAssets(id, files(0, "old"));
+    store.replaceReplyAssets(id, [...files(0, "new"), ...files(1, "half").slice(0, 3)]);
+    expect(store.getReplyAsset(id, "old-svg-light")).toBeNull();
+    expect(store.getMemo(id)?.replyBlocks.map((b) => b.index)).toEqual([0]);
+    expect(store.replaceReplyAssets("unknown", files(0, "x"))).toBe(false);
+  });
+
+  it("resetForRetry from act drops them, purge removes them with the memo", () => {
+    const { store, clock } = testStore();
+    const { id } = seedMemo(store, "routed");
+    act(store, id, { replyText: "x" });
+    store.replaceReplyAssets(id, files(0, "a"));
+    store.markStepStarted({ id, step: "summarize" });
+    store.markStepFailed({ id, step: "summarize", error: "boom" });
+
+    store.resetForRetry({ id, from: "summarize" });
+    expect(store.getMemo(id)?.replyBlocks).toHaveLength(1);
+    store.markStepFailed({ id, step: "summarize", error: "boom" });
+    store.resetForRetry({ id, from: "act" });
+    expect(store.getMemo(id)?.replyBlocks).toEqual([]);
+
+    store.replaceReplyAssets(id, files(0, "b"));
+    store.markDeleted({ id, at: clock.now().toISOString() });
+    expect(store.purge(id)).toBe(true);
+    expect(store.getReplyAsset(id, "b-svg-light")).toBeNull();
   });
 });

@@ -1,3 +1,4 @@
+import type { AssetStore } from "../ports/assets.js";
 import type { AudioStore } from "../ports/audio.js";
 import type { Clock } from "../ports/clock.js";
 import type { SpeechCache } from "../ports/speaker.js";
@@ -19,7 +20,7 @@ export interface Purger {
 }
 
 /**
- * Removes a memo's audio (segments and the combined recording) and speech files first and its rows only once the
+ * Removes a memo's audio (segments and the combined recording), speech and reply asset files first and its rows only once the
  * files are gone, so a failed removal leaves the memo to the next pass instead of orphaning files nothing points at.
  * A failure per memo is logged (`memo.purge_failed`) and never stops the rest of the sweep; a pass that cannot even list
  * the memos rejects `sweep()`, and the timer logs it as `memo.sweep_failed`.
@@ -28,10 +29,11 @@ export function createPurger(deps: {
   store: MemoStore;
   audio: AudioStore;
   speechCache: SpeechCache;
+  assets: AssetStore;
   clock: Clock;
   intervalMs?: number | undefined;
 }): Purger {
-  const { store, audio, speechCache, clock, intervalMs = PURGE_SWEEP_MS } = deps;
+  const { store, audio, speechCache, assets, clock, intervalMs = PURGE_SWEEP_MS } = deps;
   let timer: ReturnType<typeof setInterval> | undefined;
   let running: Promise<string[]> | undefined;
 
@@ -40,7 +42,7 @@ export function createPurger(deps: {
     const purged: string[] = [];
     for (const id of store.listPurgeable(cutoff)) {
       try {
-        await Promise.all([audio.remove(id), speechCache.remove(id)]);
+        await Promise.all([audio.remove(id), speechCache.remove(id), assets.removeAll(id)]);
         if (store.purge(id)) {
           purged.push(id);
           log("memo.purged", { memo_id: id });
