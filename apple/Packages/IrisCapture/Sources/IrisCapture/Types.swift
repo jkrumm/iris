@@ -111,4 +111,6 @@ public enum CaptureError: Error, Sendable, Equatable {
   case inputUnavailable(uid: String)
   case engineFailure(String)
   case sessionFailure(String)
+  /// The recorder failed mid-take (a write error, the engine would not restart) and no segment was kept.
+  case recordingFailed(String)
 }

@@ -8,7 +8,8 @@ import Foundation
 /// - `complete` for a memo is handed out only once the memo is finished and every segment `0..<segmentCount` is uploaded.
 ///
 /// A transfer that fails `policy.maxAttempts` times, or is refused for good, **stalls**: nothing is scheduled until
-/// `retryNow` or `discard`. Segments of a memo that has an item wait for the item's `create`; segments without an item
+/// `retryNow` or `discard`. A transient failure (no network, a 5xx) backs off but never stalls, however long it lasts:
+/// the attempt count then only sets the delay. Segments of a memo that has an item wait for the item's `create`; segments without an item
 /// (the bare segment queue the tests drive) go out at once.
 public struct OutboxStateMachine: Sendable {
   static let completedMemoLimit = 512
@@ -83,10 +84,12 @@ public struct OutboxStateMachine: Sendable {
     }
   }
 
-  public mutating func createFailed(_ memoID: MemoID, now: Date, permanent: Bool = false, reason: String? = nil) {
+  public mutating func createFailed(
+    _ memoID: MemoID, now: Date, permanent: Bool = false, transient: Bool = false, reason: String? = nil
+  ) {
     guard var item = items[memoID] else { return }
     item.attempts += 1
-    item.create = failedState(attempts: item.attempts, now: now, permanent: permanent)
+    item.create = failedState(attempts: item.attempts, now: now, permanent: permanent, transient: transient)
     item.lastError = reason
     items[memoID] = item
   }
@@ -120,6 +123,26 @@ public struct OutboxStateMachine: Sendable {
       changed = true
     }
     if changed { items[memoID]?.lastError = nil }
+    return changed
+  }
+
+  /// Every transfer that is waiting out a backoff becomes due now (the connection came back, the app is in front again).
+  /// Stalled transfers stay as they are: only `retryNow` moves those. `false` when nothing was waiting.
+  @discardableResult
+  public mutating func retryBackedOff() -> Bool {
+    var changed = false
+    for (id, item) in items where Self.isBackedOff(item.create) {
+      items[id]?.create = .pending
+      changed = true
+    }
+    for (key, entry) in entries where Self.isBackedOff(entry.state) {
+      entries[key]?.state = .pending
+      changed = true
+    }
+    for (id, memo) in memos where Self.isBackedOff(memo.completion) {
+      memos[id]?.completion = .pending
+      changed = true
+    }
     return changed
   }
 
@@ -221,10 +244,12 @@ public struct OutboxStateMachine: Sendable {
     items[key.memoID]?.lastError = nil
   }
 
-  public mutating func uploadFailed(_ key: SegmentKey, now: Date, permanent: Bool = false, reason: String? = nil) {
+  public mutating func uploadFailed(
+    _ key: SegmentKey, now: Date, permanent: Bool = false, transient: Bool = false, reason: String? = nil
+  ) {
     guard var entry = entries[key] else { return }
     entry.attempts += 1
-    entry.state = failedState(attempts: entry.attempts, now: now, permanent: permanent)
+    entry.state = failedState(attempts: entry.attempts, now: now, permanent: permanent, transient: transient)
     entries[key] = entry
     items[key.memoID]?.lastError = reason
   }
@@ -239,10 +264,12 @@ public struct OutboxStateMachine: Sendable {
     forget(memoID)
   }
 
-  public mutating func completeFailed(_ memoID: MemoID, now: Date, permanent: Bool = false, reason: String? = nil) {
+  public mutating func completeFailed(
+    _ memoID: MemoID, now: Date, permanent: Bool = false, transient: Bool = false, reason: String? = nil
+  ) {
     guard var memo = memos[memoID] else { return }
     memo.attempts += 1
-    memo.completion = failedState(attempts: memo.attempts, now: now, permanent: permanent)
+    memo.completion = failedState(attempts: memo.attempts, now: now, permanent: permanent, transient: transient)
     memos[memoID] = memo
     items[memoID]?.lastError = reason
   }
@@ -271,14 +298,18 @@ public struct OutboxStateMachine: Sendable {
     entries = entries.filter { $0.key.memoID != memoID }
   }
 
-  private func failedState(attempts: Int, now: Date, permanent: Bool) -> OutboxState {
-    if permanent || attempts >= policy.maxAttempts { return .stalled }
+  private func failedState(attempts: Int, now: Date, permanent: Bool, transient: Bool) -> OutboxState {
+    if permanent || (!transient && attempts >= policy.maxAttempts) { return .stalled }
     return .failed(retryAt: now.addingTimeInterval(policy.delay(forAttempt: attempts)))
   }
 
   private static func retryAt(_ state: OutboxState) -> Date? {
     guard case .failed(let date) = state else { return nil }
     return date
+  }
+
+  private static func isBackedOff(_ state: OutboxState) -> Bool {
+    if case .failed = state { true } else { false }
   }
 
   private static func isRetryable(_ state: OutboxState) -> Bool {

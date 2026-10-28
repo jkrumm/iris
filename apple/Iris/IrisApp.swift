@@ -3,6 +3,7 @@ import SwiftUI
 @main
 struct IrisApp: App {
   @State private var root = CompositionRoot()
+  @Environment(\.scenePhase) private var scenePhase
 
   var body: some Scene {
     WindowGroup {
@@ -14,6 +15,10 @@ struct IrisApp: App {
       )
       .environment(\.replyImageStore, root.replyImages)
       .task(id: root.connectionRevision) { await root.start() }
+      .onChange(of: scenePhase) { _, phase in
+        guard phase == .active else { return }
+        Task { await root.foregrounded() }
+      }
     }
   }
 }

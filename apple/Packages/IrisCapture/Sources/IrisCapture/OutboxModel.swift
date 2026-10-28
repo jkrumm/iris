@@ -90,6 +90,16 @@ public struct PermanentTransferError: Error, Sendable, Equatable {
   }
 }
 
+/// A transfer that failed for a reason that says nothing about the transfer itself (no network, a 5xx, a 408 or 429): it
+/// backs off and is tried again for as long as it takes, and does not count toward `OutboxPolicy.maxAttempts`.
+public struct TransientTransferError: Error, Sendable, Equatable {
+  public let message: String
+
+  public init(_ message: String) {
+    self.message = message
+  }
+}
+
 /// Where a queued item stands, derived from its create call, segments and completion.
 public enum OutboxItemStatus: Sendable, Equatable {
   /// A take still being recorded (not finished yet).
@@ -153,7 +163,8 @@ public struct OutboxPolicy: Sendable {
   public var jitterFraction: Double
   /// Returns a value in 0..<1. Injected so tests are deterministic.
   public var jitter: @Sendable () -> Double
-  /// Failures after which a transfer stalls (waits for "retry now") instead of backing off again.
+  /// Failures after which a transfer stalls (waits for "retry now") instead of backing off again. A
+  /// `TransientTransferError` is not counted: only a transfer that fails for another reason stalls.
   public var maxAttempts: Int
 
   public init(

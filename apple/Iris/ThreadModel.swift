@@ -204,6 +204,11 @@ final class ThreadModel {
         return nil
       case .discarded:
         return nil
+      case .recordingFailed:
+        showFailure(
+          String(
+            localized: "The recording failed and was not saved", comment: "Toast when the recorder failed mid-take"))
+        return nil
       }
     } catch {
       logger.error("voice reply failed: \(String(describing: error), privacy: .public)")

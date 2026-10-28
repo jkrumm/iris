@@ -211,6 +211,13 @@ final class CompositionRoot: CaptureIntentHandler {
     saved.map { AuthenticatedMediaSource(baseURL: $0.serverURL, bearerToken: $0.token) } ?? UnavailableMediaSource()
   }
 
+  /// The app came to the foreground: what waited out a backoff while it was away is tried now. Fakes keep their queue as
+  /// it is (a UI test reads a queued item).
+  func foregrounded() async {
+    guard mode == .production, isConfigured else { return }
+    await outbox.resume()
+  }
+
   private func connectionChanged() {
     reconfigurable?.reconfigure(credentials?.load())
     connectionRevision += 1

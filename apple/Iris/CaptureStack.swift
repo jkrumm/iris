@@ -53,7 +53,9 @@ actor CaptureStack {
     let task = building ?? Task { [parts, logger] in await Self.build(parts, logger: logger) }
     building = task
     let result = await task.value
-    building = nil
+    // Callers that awaited the same build all get here, and one of them may already have started the next build after a
+    // failure: only the build this call waited for is cleared, so two builds never run over the same queue file.
+    if building == task { building = nil }
     guard let result else { throw CaptureStackError.queueUnavailable }
     built = result
     return result

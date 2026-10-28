@@ -100,6 +100,62 @@ struct CaptureSessionTests {
     await finish(rig)
   }
 
+  @Test func aRecorderFailureBeforeAnySegmentMakesStopThrowInsteadOfDroppingTheTakeSilently() async throws {
+    let rig = try await makeRig()
+    try await rig.session.start(request)
+    await rig.fake.recorder.fail(reason: "segment write failed")
+
+    await #expect(throws: CaptureError.recordingFailed("segment write failed")) { try await rig.session.stop() }
+    await rig.harness.outbox.settled()
+    #expect(await rig.harness.outbox.queue().isEmpty)
+    #expect(await rig.session.current == .idle)
+    await finish(rig)
+  }
+
+  @Test func aRecorderFailureShowsInTheTakeStateAndKeepsWhatWasCaptured() async throws {
+    let rig = try await makeRig()
+    let id = try await rig.session.start(request)
+    await rig.fake.record(seconds: 12)  // one closed segment, 2 s in the open one
+    await rig.fake.recorder.fail(reason: "segment write failed")
+
+    var state = await rig.session.current
+    for _ in 0..<200 where state.phase != .failed {
+      try await Task.sleep(for: .milliseconds(10))
+      state = await rig.session.current
+    }
+    #expect(state.phase == .failed)
+    #expect(state.failure == "segment write failed")
+
+    let result = try #require(try await rig.session.stop())
+    await rig.harness.outbox.settled()
+    #expect(result.memoID == id)
+    #expect(result.segmentCount >= 1)
+    #expect(result.failure == "segment write failed")
+    #expect(await rig.harness.uploader.completed.map(\.memoID) == [id])
+    #expect(await rig.session.current == .idle)
+    await finish(rig)
+  }
+
+  @Test func aFailedTakeCanBeCancelled() async throws {
+    let rig = try await makeRig()
+    try await rig.session.start(request)
+    await rig.fake.record(seconds: 12)
+    await rig.fake.recorder.fail(reason: "engine restart failed")
+    var phase = await rig.session.current.phase
+    for _ in 0..<200 where phase != .failed {
+      try await Task.sleep(for: .milliseconds(10))
+      phase = await rig.session.current.phase
+    }
+    #expect(phase == .failed)
+
+    await rig.session.cancel()
+    await rig.harness.outbox.settled()
+    #expect(await rig.session.current == .idle)
+    #expect(await rig.harness.outbox.queue().isEmpty)
+    #expect(await rig.harness.uploader.completed.isEmpty)
+    await finish(rig)
+  }
+
   @Test func aSecondStartWhileRecordingIsRejected() async throws {
     let rig = try await makeRig()
     try await rig.session.start(request)
