@@ -458,6 +458,39 @@ New refs go into `dotfiles-private/headless.refs`.
 An App Group, `group.com.jkrumm.iris`, shares the device token (Keychain
 access group), recent results and settings.
 
+### Composition and connection
+
+`CompositionRoot` is the one place that picks adapters, from the launch arguments, once:
+
+| Mode | Selected by | API | Media | Connection |
+|-|-|-|-|-|
+| Fake | `-IrisFakeCapture` (all UI tests, `make run-sim`) | `FakeAPIClient` + `SampleData` | silent WAV clips | none; no Keychain |
+| Production | no such argument | `ReconfigurableAPIClient` → `URLSessionAPIClient` | `AuthenticatedMediaSource` + `MediaDownloader` | Settings → Connection |
+
+The server URL and device token are typed in Settings → Connection. The token is a generic-password Keychain item (service
+`com.jkrumm.iris.device-token`, no explicit access group, so it lands in the first `keychain-access-groups` entry, the App Group's, which the
+widgets and the notification extension can read later); the URL, which is not a secret, is in `UserDefaults`. Every model holds the same
+`ReconfigurableAPIClient`, which forwards to the `URLSessionAPIClient` for the saved connection and is swapped on Save, so no model is rebuilt.
+With nothing saved the app opens on the Settings tab, shows "Not configured" with the form, and loads nothing (the client would answer
+`APIError.unauthorized`, "token missing"); there is no fallback to the fake. Saving bumps `connectionRevision`, which restarts `start()`: reload
+Settings and Stats, load History, reopen the event stream.
+
+### Authenticated media
+
+`GET /v1/memos/:id/audio` and `/speech` need the bearer header, and AVFoundation has no documented way to send one:
+`AVURLAssetHTTPHeaderFieldsKey` is not in the SDK headers (Wave 14 used it anyway). Two documented routes exist:
+
+| Route | For | Against |
+|-|-|-|
+| `AVAssetResourceLoaderDelegate` on a custom scheme | streams; no wait before the first sample | the delegate has to answer content-information and byte-range data requests itself, re-issue them as `URLSession` range requests, and survive scrubbing and cancellation; it is the most code and the most ways to hang the player |
+| Authenticated `URLSession` download to a cache file, then `AVPlayer(url: file)` | ~30 lines; every AVFoundation feature (duration, seeking, end of clip) works on a local file; the bearer header never reaches AVFoundation | the first play waits for the download |
+
+Chosen: the download. A memo is a voice note of seconds to a few minutes (AAC, tens of KB per second at most), the first play waiting for it is
+acceptable on the tailnet, and the second play is instant. `MediaDownloader` writes `Caches/iris-media/<memo>.audio.m4a` and
+`<memo>.speech.mp3`. The recording is immutable and kept (`MediaRequest.isReusable`); the speech is derived per call from the current reply and
+fetched again on every load, replacing the file. The OS may purge `Caches`; a missing file is simply downloaded again. A non-2xx answer throws
+and leaves no file. Revisit the resource loader only if recordings grow past a few minutes.
+
 ### Capture engine (`IrisCapture`)
 
 - **`AudioSessionController`:**
@@ -548,7 +581,7 @@ access group), recent results and settings.
 | Stats | Volume per route per day / week (Swift Charts), tiles, per-route trends, from `GET /v1/stats` |
 | Thread | The Hermes transcript rendered with Textual, with hold-to-talk to append to this thread |
 | Record | Full-screen take: timer, level waveform, mic picker (`AVInputPickerInteraction` + own list), mode/tab picker, [Stop] |
-| Settings | Diagnostics (copy a memo id, animated "Copied"), server connection, outbox section (a `QueuedItemSource` port, empty until capture lands). Later: route mic rules, default mode, spoken replies, server URL + device token (Keychain) |
+| Settings | Diagnostics (copy a memo id, animated "Copied"), Connection (server URL + device token in the Keychain, status; "Not configured" until saved), outbox section (a `QueuedItemSource` port, empty until capture lands). Later: route mic rules, default mode, spoken replies |
 
 ## 5. macOS app (`IrisMac`)
 
@@ -673,7 +706,7 @@ the `IrisCore` dependency when R1 wires them together.
 | Pipeline smoke (real) | `send-memo.ts --real` against `iris.mini.<domain>` with `fixtures/audio/de-90s.m4a` | mini | `make smoke` (post-deploy) |
 | Swift packages | Swift Testing via `swift test` per package | mini, CI | `make check-apple` |
 | Views | swift-snapshot-testing on a pinned simulator (iPhone 17, iOS 27.0; `SIM_NAME`/`SIM_OS` in the Makefile) | mini, CI (`xcode-27`) | `make snapshots` (record with `RECORD=1`) |
-| App flows | XCUITest smoke: launch → history → detail; Record screen with a fake recorder (`-IrisFakeCapture`) | mini, CI | `make uitest` |
+| App flows | XCUITest smoke: launch → history → detail; Record screen with a fake recorder (`-IrisFakeCapture`); a launch without it lands on the connection form | mini, CI | `make uitest` |
 | Agent verification | `xcodebuild` build/test, `xcrun simctl` (boot + `bootstatus -b`, install, launch, `io screenshot`, `openurl`, `push` for simulated notifications), and the `mobilebuildmcp` CLI (`ui-automation snapshot-ui` / `tap` / `type-text` / `screenshot`) | mini | `@verifier` / the `ios-verify` skill |
 | Physical device | `devicectl device install app`; screenshots via `pymobiledevice3 developer core-device screen-capture screenshot` (devicectl has no screenshot verb) | mini → iPhone on LAN | `device` skill |
 | Hardware-only | A checklist in `docs/spikes/device-checklist.md`: Lock Screen control, a 30-min background take, a mic switch iPhone↔AirPods↔car, a phone-call interruption, APNs Live Activity update | my hands | before each R-release |

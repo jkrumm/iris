@@ -109,4 +109,19 @@ struct ComposerModelTests {
   func modes() {
     #expect(ComposerModel.modes == [.auto, .journal, .hermes, .tab, .chat])
   }
+
+  @Test("Cancel is off while a send is on the wire and back once it answers")
+  func cancelDuringSend() async {
+    let composer = model()
+    composer.text = "Hello"
+    #expect(composer.canCancel)
+    let gate = await client.hold(.createTextMemo)
+    let send = Task { await composer.send() }
+    defer { gate.release() }
+    guard await waitUntilHeld(gate) else { return }
+    #expect(composer.isSending && !composer.canCancel)
+    gate.release()
+    _ = await send.value
+    #expect(!composer.isSending && composer.canCancel)
+  }
 }

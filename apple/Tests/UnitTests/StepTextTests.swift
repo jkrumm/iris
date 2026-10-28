@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 
 @testable import Iris
@@ -20,5 +21,19 @@ struct StepTextTests {
       StepText.metric(milliseconds: 1_800, costUsd: 0.004).replacingOccurrences(of: ",", with: ".") == "1.8 s · $0.0040"
     )
     #expect(StepText.metric(milliseconds: 12, costUsd: nil) == "12 ms")
+  }
+
+  /// The currency pattern puts a no-break space between the amount and the symbol; compare with a plain one.
+  private func plain(_ text: String) -> String {
+    text.replacingOccurrences(of: "\u{00A0}", with: " ").replacingOccurrences(of: "\u{202F}", with: " ")
+  }
+
+  @Test("a dollar total has two decimals in the user's locale, never four")
+  func dollars() {
+    #expect(StepText.dollars(1.62, locale: Locale(identifier: "en_US")) == "$1.62")
+    #expect(plain(StepText.dollars(1.62, locale: Locale(identifier: "de_DE"))) == "1,62 $")
+    #expect(StepText.dollars(1.6, locale: Locale(identifier: "en_US")) == "$1.60")
+    #expect(plain(StepText.dollars(1.6, locale: Locale(identifier: "de_DE"))) == "1,60 $")
+    #expect(StepText.dollars(0, locale: Locale(identifier: "en_US")) == "$0.00")
   }
 }

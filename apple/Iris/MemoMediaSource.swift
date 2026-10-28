@@ -1,10 +1,15 @@
 import Foundation
 import IrisCore
 
-/// Where a memo's audio is played from: a URL plus the headers the server wants with it.
+/// Where a memo's audio comes from: a URL plus the headers the server wants with it. A file URL is played as is; any
+/// other is downloaded by ``MediaDownloader`` to `cacheName` and played from the file.
 nonisolated struct MediaRequest: Equatable, Sendable {
   let url: URL
   let headers: [String: String]
+  /// The file name (with the extension AVFoundation sniffs the format from) the download is kept under.
+  var cacheName: String?
+  /// A downloaded file that never changes (a recording) is kept and reused; anything else is fetched again each load.
+  var isReusable = false
 }
 
 /// The port behind the detail screen's player and the reply's speech: the recording (`GET /v1/memos/:id/audio`) and
@@ -14,26 +19,28 @@ nonisolated protocol MemoMediaSource: Sendable {
   func speech(for memo: Memo) -> MediaRequest?
 }
 
-/// The server's media routes with the device token in the `Authorization` header. The speech route answers 409 when
-/// the memo has no reply, so it is only offered for one that has.
+/// The server's media routes with the device token in the `Authorization` header (``MediaDownloader`` sends it; the
+/// player only ever sees the downloaded file). The speech route answers 409 when the memo has no reply, so it is only
+/// offered for one that has. The recording is immutable and kept; the speech is derived per call and fetched fresh.
 nonisolated struct AuthenticatedMediaSource: MemoMediaSource {
   let baseURL: URL
   let bearerToken: String
 
   func audio(for memo: Memo) -> MediaRequest? {
     guard !memo.isTyped, memo.state != .receiving, !memo.isDeleted else { return nil }
-    return request(memo, "audio")
+    return request(memo, "audio", fileExtension: "m4a", isReusable: true)
   }
 
   func speech(for memo: Memo) -> MediaRequest? {
     guard memo.hasReply, !memo.isDeleted else { return nil }
-    return request(memo, "speech")
+    return request(memo, "speech", fileExtension: "mp3", isReusable: false)
   }
 
-  private func request(_ memo: Memo, _ route: String) -> MediaRequest {
+  private func request(_ memo: Memo, _ route: String, fileExtension: String, isReusable: Bool) -> MediaRequest {
     MediaRequest(
       url: baseURL.appending(path: "v1/memos/\(memo.id)/\(route)"),
-      headers: ["Authorization": "Bearer \(bearerToken)"])
+      headers: ["Authorization": "Bearer \(bearerToken)"],
+      cacheName: "\(memo.id).\(route).\(fileExtension)", isReusable: isReusable)
   }
 }
 
@@ -87,4 +94,10 @@ extension Memo {
   nonisolated var hasReply: Bool {
     replyText?.isEmpty == false || summary?.spoken.isEmpty == false
   }
+}
+
+/// Nothing to play: the media source while the app has no connection.
+nonisolated struct UnavailableMediaSource: MemoMediaSource {
+  func audio(for memo: Memo) -> MediaRequest? { nil }
+  func speech(for memo: Memo) -> MediaRequest? { nil }
 }

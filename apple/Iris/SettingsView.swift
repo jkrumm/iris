@@ -7,6 +7,8 @@ struct SettingsView: View {
   let model: SettingsModel
   let history: HistoryModel
   let diagnostics: DiagnosticsModel
+  /// The editable URL and token; nil when the app runs on fakes and has no connection to edit.
+  var connectionForm: ConnectionModel?
 
   var body: some View {
     NavigationStack {
@@ -30,11 +32,19 @@ struct SettingsView: View {
         }
         .listRowBackground(Theme.Surface.panel)
 
-        Section(String(localized: "Connection", comment: "Settings section")) {
+        Section {
           LabeledContent(String(localized: "Server", comment: "Settings row")) {
             connectionLabel
           }
           .accessibilityIdentifier("settings.server")
+          if let connectionForm { ConnectionForm(model: connectionForm) }
+        } header: {
+          Text("Connection", comment: "Settings section")
+        } footer: {
+          if model.connection == .notConfigured {
+            Text("Enter the server URL and this device's token to connect.", comment: "Settings connection hint")
+              .accessibilityIdentifier("settings.connection.hint")
+          }
         }
         .listRowBackground(Theme.Surface.panel)
 
@@ -52,6 +62,8 @@ struct SettingsView: View {
   private var connectionLabel: some View {
     let (text, color): (String, Color) =
       switch model.connection {
+      case .notConfigured:
+        (String(localized: "Not configured", comment: "Server connection"), Theme.Status.warn)
       case .checking: (String(localized: "Checking…", comment: "Server connection"), Theme.Ink.muted)
       case .connected: (String(localized: "Connected", comment: "Server connection"), Theme.Status.good)
       case .degraded(let names):

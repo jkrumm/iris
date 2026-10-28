@@ -38,3 +38,20 @@ final class StatsSettingsUITests: XCTestCase {
     XCTAssertEqual(app.buttons["diagnostics.copy"].label, "Copied")
   }
 }
+
+final class ProductionLaunchUITests: XCTestCase {
+  override func setUp() {
+    continueAfterFailure = false
+  }
+
+  @MainActor
+  func testWithoutTheFakeFlagAndNoConnectionTheAppOpensOnTheConnectionForm() {
+    let app = XCUIApplication()
+    app.launchArguments = []
+    app.launch()
+    XCTAssertTrue(app.descendants(matching: .any)["settings.connection.url"].waitForExistence(timeout: 10))
+    XCTAssertTrue(app.descendants(matching: .any)["settings.connection.token"].exists)
+    XCTAssertTrue(app.descendants(matching: .any)["settings.connection.hint"].exists)
+    XCTAssertFalse(app.descendants(matching: .any)["history.list"].exists)
+  }
+}

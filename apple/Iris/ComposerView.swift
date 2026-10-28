@@ -44,6 +44,7 @@ struct ComposerView: View {
       .toolbar {
         ToolbarItem(placement: .cancellationAction) {
           Button(String(localized: "Cancel", comment: "Closes the composer")) { dismiss() }
+            .disabled(!model.canCancel)
             .accessibilityIdentifier("composer.cancel")
         }
         ToolbarItem(placement: .confirmationAction) {

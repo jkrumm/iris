@@ -97,7 +97,7 @@ nonisolated struct StatsReport: Equatable {
         }),
       Tile(
         title: String(localized: "Cost · \(stats.days) d", comment: "Stats tile: spend over the whole window"),
-        value: StepText.cost(cost),
+        value: StepText.dollars(cost),
         caption: memos > 0
           ? String(localized: "\(StepText.cost(cost / Double(memos))) / memo", comment: "Stats tile caption") : nil),
     ]

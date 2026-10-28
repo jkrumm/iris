@@ -16,9 +16,10 @@ final class MemoPlayback {
     recording.toggle()
   }
 
-  /// `request` is loaded the first time the reply plays.
-  func toggleReply(loading request: @autoclosure () -> MediaRequest?) {
-    if !reply.isLoaded { reply.load(request()) }
+  /// `request` is loaded the first time the reply plays; a tap while it is still loading is ignored.
+  func toggleReply(loading request: @autoclosure () -> MediaRequest?) async {
+    guard !reply.isLoading else { return }
+    if !reply.isLoaded { await reply.load(request()) }
     recording.pause()
     reply.toggle()
   }
@@ -26,5 +27,11 @@ final class MemoPlayback {
   func pauseAll() {
     recording.pause()
     reply.pause()
+  }
+
+  /// Stops both and releases their players; the screen calls it when it goes away.
+  func teardown() {
+    recording.teardown()
+    reply.teardown()
   }
 }
