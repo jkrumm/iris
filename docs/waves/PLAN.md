@@ -645,8 +645,37 @@ button, not a second full-swipe threshold (owner may want the latter).
 fix branch). A branch whose commits fight each other on rebase is faster squashed to its net diff. The `agw` CLI was renamed `agw-legacy`
 mid-wave (same commands). Account `me2` reached ~99 % of its window during I1.
 
-## Wave 14 — Pele + speech-ready answers (server) ∥ memo detail, Stats, Settings, typed composer (iOS)            <!-- status: pending -->
-Backlog 4b's rendering half and the rest of backlog 6. Written in full by the mother when Wave 13 closes.
+## Wave 14 — Pele + speech-ready answers (server) ∥ memo detail, Stats, Settings, typed composer (iOS)            <!-- status: active -->
+Backlog 4b's rendering half and the rest of backlog 6. Design is binding: `feedback-round-1.md` + `feedback-round-2.md` (round 2
+wins). Two tracks: **S** (`server/**`, `contracts/**`, `scripts/**` + each contract's `IrisCore` follow-up) and **I** (`apple/**`).
+Lessons from Waves 12–13 apply: S PRs land one at a time with `make e2e` before the train; additive conflicts are resolved in the
+lead; one `xcodebuild` worker at a time, so I2 and I3 run one after the other; a fix branch for `rd merge` needs its own worktree.
+- [ ] **S1. Mermaid via Pele** (`obsidianmd/pele`): `/research` the rasterizer first (Bun-compatible, maintained, no headless
+      browser if avoidable) and record the choice and why in TDD §3. When a reply is stored, every Mermaid block renders to an SVG
+      for light and dark (basalt-ui colours through Pele's CSS variables) plus rasterized PNGs; the assets are stored with the memo,
+      served by an authenticated media route, removed with the memo's purge, and the reply wire references them per block. A block
+      Pele cannot render stays a code block (logged, never a step failure). Contract + fixtures + `IrisCore`.
+- [ ] **S2. Speech-ready answers:** next to the rendered reply the server produces the speech variant (code, diagrams, tables and
+      URLs stripped or summarized; past a length threshold the `triage` `spoken` summary plus "details on screen"); `/speech` speaks
+      it, so [Play] and spoken replies never read markdown. A retry that changes the reply re-derives it (the existing text-keyed cache).
+- [ ] **S3. Wave 13 debt:** a hang-guard timeout (decide/triage, 30 min) is not retried as transient (a hung step fails after one
+      window, not ~90 min); the per-thread queue gets a bounded wait (a stuck turn fails the waiting one with a clear error).
+- [ ] **I2. Memo detail** per round 2: transcript; round 1's player (play/pause left, scrubbable timeline, one 10 s-back icon right,
+      no speed); the full-width step waterfall with one `duration · cost` chip per step, faster/slower only where the stats baseline
+      has enough samples (the client's threshold), attempts per step and [Retry from step]; icon-only bottom actions (play, reply,
+      retry); the reply as markdown (full conversation rendering incl. Pele images is Wave 15); steps advancing animated, subtle. Also
+      the step-progress dashes on in-flight History rows. Snapshot tests light + dark, screenshots against the round-2 renders.
+- [ ] **I3. Stats, Settings, typed composer:** the Stats tab (volume per route per day/week, trends) from `GET /v1/stats`; Settings
+      with an obvious Diagnostics row (copy the memo id, animated "Copied"; no hide-cost toggle) and an outbox section ready for
+      capture; the typed-memo composer (modes incl. Chat, `POST /v1/memos/text`). Fixes: the dark-mode search placeholder;
+      `FakeAPIClient` gets a gate so the stale-completion tests prove ordering.
+- [ ] Deploy and prove: `make verify` + `make smoke`; a production chat memo whose answer contains a Mermaid block and code shows
+      the assets and a clean speech variant; `apple.yml` green; TDD and AGENTS.md amended. Delete `~/.iris/data/iris.db.pre-w13-flags.bak`
+      once this deploy runs cleanly.
+**Left behind:**
+
+## Wave 15 — R3 conversations (iOS) + simulator parts of R1 capture            <!-- status: pending -->
+Backlog 7 and the simulator-testable part of backlog 2. Written in full by the mother when Wave 14 closes.
 
 ## Fleet backlog (for the long-running fleet: mother → lead → workers)
 

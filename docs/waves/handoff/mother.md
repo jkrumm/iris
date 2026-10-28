@@ -99,7 +99,13 @@ acted on and notified through a Live Activity and APNs. There is one user, the o
 - Account quota is the fleet's real constraint: `iu`/`me` near their 7-day caps until 10-28 16:00 / 10-29 06:00. A refused spawn
   ("no Claude account has room") is retried every 10 min in the background; never spill.
 
+- Wave 13 done (server `c39eb6a`, apple `225235e`): memo flags + soft delete/undo/purge, auto retries (2 s / 8 s), Wave 12 debt,
+  iOS History shell (tabs, rows, chips, filter sheet, swipe, undo toast). Open owner detail, not a stop: "further right/left" is a
+  second swipe button, not a second full-swipe threshold (native `.swipeActions`).
+- Wave 14 (Pele + speech ∥ memo detail, Stats, Settings, composer) active; Wave 15 sketched (conversations + capture sim parts).
+
 ## Next action
 
 Watch the active wave's lead (`iris-w<n>`), verdict its close-out, `rd close`, write the next wave from the backlog
-(after Wave 13: write Wave 14 in full; then 7 conversations, the simulator parts of 2/5/8), spawn, loop.
+(after Wave 14: write Wave 15 in full (7 conversations + 2's simulator parts: in-app recording banner, whole-memo outbox);
+then 5 and 8's simulator parts; device items when the owner is home), spawn, loop.
