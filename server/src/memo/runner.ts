@@ -108,8 +108,11 @@ export function createRunner(deps: {
     if (next) next();
     else freeSlots++;
   };
-  /** Memos that hold a `driveAll` slot right now. */
-  const slotHolders = new Set<string>();
+  /** One per `driveAll` call waiting on or holding a slot; several can name the same memo, each is released and returned on its own. */
+  interface Slot {
+    held: boolean;
+  }
+  const slotsOf = new Map<string, Set<Slot>>();
 
   const publish = (id: string, step: Step | null) => {
     const memo = store.getMemo(id);
@@ -141,13 +144,19 @@ export function createRunner(deps: {
   async function attempt(params: { memo: Memo; step: HandlerStep; handler: StepHandler }) {
     const { memo, step, handler } = params;
     const whileWaiting = async <T>(wait: Promise<T>): Promise<T> => {
-      if (!slotHolders.delete(memo.id)) return wait;
-      giveSlot();
+      const held = [...(slotsOf.get(memo.id) ?? [])].filter((slot) => slot.held);
+      if (held.length === 0) return wait;
+      for (const slot of held) {
+        slot.held = false;
+        giveSlot();
+      }
       try {
         return await wait;
       } finally {
-        await takeSlot();
-        slotHolders.add(memo.id);
+        for (const slot of held) {
+          await takeSlot();
+          slot.held = true;
+        }
       }
     };
     for (let tries = 1; ; tries++) {
@@ -257,12 +266,18 @@ export function createRunner(deps: {
 
   /** Drives one memo from a `driveAll` slot, waiting its turn for one. */
   async function driveInSlot(id: string) {
-    await takeSlot();
-    slotHolders.add(id);
+    const slot: Slot = { held: false };
+    const slots = slotsOf.get(id) ?? new Set<Slot>();
+    slots.add(slot);
+    slotsOf.set(id, slots);
     try {
+      await takeSlot();
+      slot.held = true;
       if (!isStopping()) await drive(id).catch(logDriveFailure(id));
     } finally {
-      if (slotHolders.delete(id)) giveSlot();
+      if (slot.held) giveSlot();
+      slots.delete(slot);
+      if (slots.size === 0) slotsOf.delete(id);
     }
   }
 

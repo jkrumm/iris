@@ -398,6 +398,53 @@ describe("driveAll concurrency", () => {
     expect(peak).toBeLessThanOrEqual(3);
   });
 
+  it("keeps the bound and returns every slot when the same memos are driven by two driveAll calls", async () => {
+    const busy = deferred();
+    const gates: ReturnType<typeof deferred<void>>[] = [];
+    let active = 0;
+    let peak = 0;
+    let phase: "first" | "second" = "first";
+    let started = 0;
+    const { store, runner } = setup({
+      transcribe: async ({ memo, whileWaiting }) => {
+        if (phase === "second") {
+          started++;
+          const gate = deferred();
+          gates.push(gate);
+          await gate.promise;
+          return {};
+        }
+        if (memo.device === "waiter") await (whileWaiting ?? ((wait) => wait))(busy.promise);
+        active++;
+        peak = Math.max(peak, active);
+        await Bun.sleep(5);
+        active--;
+        return {};
+      },
+    });
+    seedMemo(store, "received", "waiter");
+    seedMemo(store, "received", "waiter");
+    for (let i = 0; i < 4; i++) seedMemo(store, "received", "plain");
+
+    const both = Promise.all([runner.driveAll(), runner.driveAll()]);
+    await Bun.sleep(10);
+    busy.resolve();
+    await both;
+    expect(peak).toBeLessThanOrEqual(3);
+
+    // Every slot came back, none twice: five new memos start exactly three at a time.
+    phase = "second";
+    for (let i = 0; i < 5; i++) seedMemo(store, "received", "plain");
+    const next = runner.driveAll();
+    await Bun.sleep(10);
+    expect(started).toBe(3);
+    for (const gate of gates) gate.resolve();
+    await Bun.sleep(10);
+    expect(started).toBe(5);
+    for (const gate of gates) gate.resolve();
+    await next;
+  });
+
   it("keeps going when one memo's drive rejects", async () => {
     const { store, clock, events, handlers } = setup();
     const first = seedMemo(store, "received");

@@ -120,6 +120,21 @@ describe("audio-gateway transcriber", () => {
     expect(attempts).toBe(1);
   });
 
+  it("fails after one window when the timeout hits while the body is read, not transient", async () => {
+    const timedOut = new DOMException("The operation timed out.", "TimeoutError");
+    const stalled = new ReadableStream({
+      start(controller) {
+        controller.error(timedOut);
+      },
+    });
+    const { calls, transcriber } = setup(() => new Response(stalled, { status: 200 }));
+    const error = await transcriber.transcribe(params).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toBe("audio-gateway transcription timed out after 1800000 ms");
+    expect(transientKind(error)).toBeNull();
+    expect(calls).toHaveLength(1);
+  });
+
   it("calls a 413 terminal", async () => {
     const { transcriber } = setup(() =>
       Response.json({ error: { message: "too many chunks" } }, { status: 413 }),
