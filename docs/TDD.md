@@ -551,15 +551,22 @@ and leaves no file. Revisit the resource loader only if recordings grow past a f
   - **`create`**, one per memo or message (`OutboxItem`: memo id, mode, thread id, text or voice, queued-at). A typed memo or chat
     message is `POST /memos/text` and is done with that call; a take is `POST /memos`. A take is created once it has something to
     send (its first closed segment, or its end), so a take cancelled early never reaches the server and leaves no stuck `receiving`
-    memo; the segments of a memo and its `complete` wait for its `create`;
+    memo; the segments of a memo and its `complete` wait for its `create`. **Known gap:** a take cancelled *after* its first
+    segment closed (so after the memo was created) leaves a `receiving` memo on the server, and History lists it once it refetches:
+    `DELETE /memos/:id` is refused (409 `bad_state`) for a memo that is not settled, so the app has no way to take it back until the
+    server allows it (or the create waits for the stop, which gives up uploading during the take);
   - **segments** (`PUT /memos/:id/segments/:n`), one entry per (memo, segment), uploaded while the take runs, at most two in flight;
   - **`complete {segmentCount}`**, only once the take is finished and every index is uploaded. A segment file is deleted only after
     `complete` succeeded (or the user discards the item).
   Retries back off `2 s · 2^(n-1)`, capped at 300 s, plus up to 25 % jitter, and the timer is a persisted `Date`, so it survives a
-  relaunch. After `maxAttempts` (10) failures, or at once for a refusal a retry cannot change (a 4xx other than 408/429: unknown
-  thread, 409 another body, 400 too long, 413), a transfer **stalls**: nothing is scheduled, the Settings row shows the reason, and
-  "retry now" (fresh attempt count) or "discard" is the way out. No network, a 5xx and a 401 (the token may still be fixed) stay on
-  the backoff. A take the app died in the middle of is finished with the segments it had (contiguous from 0), or dropped when it had none.
+  relaunch. At once for a refusal a retry cannot change (a 4xx other than 408/429: unknown thread, 409 another body, 400 too long,
+  413), or after `maxAttempts` (10) failures that are not **transient**, a transfer **stalls**: nothing is scheduled, the Settings row
+  shows the reason, and "retry now" (fresh attempt count) or "discard" is the way out. A transient failure (no network, a 5xx, a
+  408 or 429: `TransientTransferError`) backs off for as long as it lasts and does not count toward `maxAttempts`, so a long
+  stretch offline never stalls the queue; a 401 (the token may still be fixed), an undecodable answer and a segment file that
+  exists but cannot be read (data protection before the first unlock; only a missing file is permanent) are retried and do count.
+  `OutboxService.resume()` (launch, a changed connection, the app coming to the foreground) makes every transfer that is waiting
+  out a backoff due at once, keeping its attempt count; a stalled one waits for the user. A take the app died in the middle of is finished with the segments it had (contiguous from 0), or dropped when it had none.
   Everything runs on a default `URLSession` (`URLSessionAPIClient`); the background `URLSession` and the `result?wait=600`
   long-poll as a background download are not built (device-only, below). The app side is `OutboxService` (submit text, await the
   first attempt for six seconds and answer `sent(memo)` or `queued`, retry, discard, the queue for Settings) over a lazy
@@ -570,6 +577,10 @@ and leaves no file. Revisit the resource loader only if recordings grow past a f
   take runs; `stop()` flushes the last segment and finishes the memo (a take that never closed a segment is dropped); `cancel()`
   discards the memo and deletes its files; an interruption pauses the recorder at a segment boundary and resumes it when the system
   recommends; `switchInput` rolls the segment. `updates()` is the state stream the UI and the Live Activity follow.
+  A recorder failure (`.failed`: a segment write error, an engine that will not resume or restart) is a take failure: the session
+  stops the recorder, moves the take to phase `failed` (`TakeState.failure` says why) and holds it for the user's `stop()` or
+  `cancel()`. `stop()` then finishes the memo with the segments that really closed (`TakeResult.failure` set) or, with none, throws
+  `CaptureError.recordingFailed` instead of returning `nil` (which means nothing was said); the thread screen tells the user.
   `start`, `stop`, `cancel`, `pause`, `resume`, `switchInput` and the interruption handlers run one at a time through an internal FIFO gate (a late resume cannot write `recording` over a take that has stopped), and `start` claims the take (phase `starting`) with no
   suspension after the gate: a second start finds the first take and is rejected, a `cancel` that lands while the take is starting or
   stopping waits for that to finish and then ends it (so no microphone is left running with no state), and a stop's wait for the
@@ -577,7 +588,8 @@ and leaves no file. Revisit the resource loader only if recordings grow past a f
 - **`CaptureStack` never queues into memory.** If the persistent queue cannot be loaded (the file unreadable before the first unlock after
   a reboot), the stack stays unbuilt: the composer keeps the text and shows why, a voice take and the start intent refuse to start,
   Settings shows "the outbox cannot be opened", and nothing is written anywhere. The next call (`resume()` at launch, a pull to refresh, the
-  next send) tries the real store again.
+  next send) tries the real store again. Callers that wait on the same failed build all get the error, and only the build they
+  waited for is cleared, so two builds never run over one `outbox.json`.
 - **Memo ids** are minted at start: a UUID v4, which also serves as the trace
   id.
 
@@ -609,8 +621,10 @@ and leaves no file. Revisit the resource loader only if recordings grow past a f
     client's own (Wave 15 I3): `TakeLiveActivityCoordinator` sets them locally while the take is on the phone (recording while it
     runs, paused during an interruption, uploading from the stop until the outbox has sent the memo), then `processing`, and the
     server's pushes (`processing`, `needsRoute`, `done`, `failed`; the wire enum and fixtures are unchanged) carry it from there.
-    A retryable failure (no network, a 5xx) keeps the activity on `uploading`; a stall ends it as `failed` (shown 15 minutes) and a
-    discard ends it at once (`Activity.end`); a sent memo is handed over to the server, not ended. The activity's push token is registered
+    The coordinator follows each memo on its own and the activity handle is kept per memo, so a take that starts while the last one is
+    still uploading neither cancels nor overwrites it, and a stopped follower writes nothing more.
+    A retryable failure (no network, a 5xx) keeps the activity on `uploading`; a stall or a recorder failure ends it as `failed`
+    (shown 15 minutes) and a discard ends it at once (`Activity.end`); a sent memo is handed over to the server, not ended. The activity's push token is registered
     (`PUT /memos/:id/activity-token`) once the server has the memo, since it answers 404 before that, and retried on the next update; at
     launch every activity still in a client phase is ended, because nothing moves it on after its process is gone.
     The widget renders all seven (timer for recording and processing); compiled, never rendered;

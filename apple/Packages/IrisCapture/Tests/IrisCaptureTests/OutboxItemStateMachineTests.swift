@@ -118,6 +118,64 @@ struct OutboxItemStateMachineTests {
     #expect(machine.queue().first?.status == .failed(retryAt: nil, reason: nil))
   }
 
+  @Test func transientFailuresNeverStallHoweverLongTheyLast() {
+    var machine = machine()
+    machine.enqueueItem(textItem(memo(1)))
+    var now = t0
+    for _ in 0..<30 {
+      let work = machine.dispatch(now: now, inFlight: 0)
+      #expect(work.count == 1)
+      machine.createFailed(memo(1), now: now, transient: true, reason: "offline")
+      now = now.addingTimeInterval(1_000)
+    }
+    guard case .failed(let retryAt)? = machine.items[memo(1)]?.create else {
+      Issue.record("expected a backoff, got \(String(describing: machine.items[memo(1)]?.create))")
+      return
+    }
+    #expect(retryAt <= now.addingTimeInterval(-1_000 + 300 * 1.25), "the delay stays capped")
+    let next = machine.dispatch(now: now, inFlight: 0)
+    #expect(next.count == 1, "and the next attempt still comes")
+  }
+
+  @Test func aRefusalAfterAStretchOfTransientFailuresStillStalls() {
+    var machine = machine()
+    machine.enqueueItem(textItem(memo(1)))
+    var now = t0
+    for _ in 0..<2 {
+      _ = machine.dispatch(now: now, inFlight: 0)
+      machine.createFailed(memo(1), now: now, transient: true)
+      now = now.addingTimeInterval(1_000)
+    }
+    _ = machine.dispatch(now: now, inFlight: 0)
+    machine.createFailed(memo(1), now: now)
+    #expect(machine.items[memo(1)]?.create == .stalled)
+  }
+
+  @Test func retryBackedOffMakesWaitingTransfersDueAndLeavesStalledOnesAlone() {
+    var machine = machine()
+    machine.enqueueItem(textItem(memo(1)))
+    machine.enqueueItem(textItem(memo(2), queuedAt: t0.addingTimeInterval(1)))
+    _ = machine.dispatch(now: t0, inFlight: 0)
+    machine.createFailed(memo(1), now: t0, transient: true)
+    machine.createFailed(memo(2), now: t0, permanent: true, reason: "refused")
+    let early = machine.dispatch(now: t0, inFlight: 0)
+    #expect(early.isEmpty, "memo 1 is waiting out its backoff")
+
+    let changed = machine.retryBackedOff()
+    #expect(changed)
+    let work = machine.dispatch(now: t0, inFlight: 0)
+    #expect(work.count == 1)
+    guard case .create(let item)? = work.first else {
+      Issue.record("expected the create of memo 1")
+      return
+    }
+    #expect(item.memoID == memo(1))
+    #expect(item.attempts == 1, "the attempt count, and with it the next delay, is kept")
+    #expect(machine.items[memo(2)]?.create == .stalled)
+    let again = machine.retryBackedOff()
+    #expect(!again, "nothing is left waiting")
+  }
+
   @Test func aPermanentRefusalStallsAtOnce() {
     var machine = machine()
     machine.enqueueItem(textItem(memo(1)))

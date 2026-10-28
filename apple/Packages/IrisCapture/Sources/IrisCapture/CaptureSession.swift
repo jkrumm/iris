@@ -25,6 +25,9 @@ public enum TakePhase: Sendable, Equatable {
   case paused
   /// `stop()` is flushing the last segment.
   case stopping
+  /// The recorder failed (a write error, an engine that would not restart) and has been stopped. `stop()` ends the take
+  /// with the segments it has, or throws when it has none; `cancel()` drops it.
+  case failed
 }
 
 /// One snapshot of the take for the UI and the Live Activity.
@@ -35,6 +38,8 @@ public struct TakeState: Sendable, Equatable {
   /// The microphone in use, for the Live Activity (device-side only).
   public var inputName: String?
   public var request: TakeRequest?
+  /// Why the recorder failed; set with the `failed` phase.
+  public var failure: String?
 
   public static let idle = TakeState(phase: .idle, memoID: nil, startedAt: nil, inputName: nil, request: nil)
 }
@@ -44,6 +49,8 @@ public struct TakeResult: Sendable, Equatable {
   public let memoID: MemoID
   public let segmentCount: Int
   public let startedAt: Date
+  /// The recorder failed during the take: the memo holds what was captured before that, not the whole take.
+  public var failure: String?
 }
 
 /// The coordinator of one take: session, route, recorder and outbox behind one handle.
@@ -66,6 +73,10 @@ public actor CaptureSession {
   private var finished: [MemoID: Int] = [:]
   /// Takes that were cancelled: the segment still closing at the stop is deleted, not queued.
   private var cancelled: Set<MemoID> = []
+  /// Segments that closed per take, so a failed take knows what it has without waiting for the recorder's last event.
+  private var closedCounts: [MemoID: Int] = [:]
+  /// Why the recorder failed, per take.
+  private var failures: [MemoID: String] = [:]
   private var finishWaiter: (id: MemoID, continuation: CheckedContinuation<Int, Never>)?
   /// The gate: true while a start, stop or cancel is running; the others wait in `queue`, first come first served.
   private var isBusy = false
@@ -137,32 +148,43 @@ public actor CaptureSession {
   }
 
   /// Ends the take: the last segment is flushed and the memo is finished in the outbox. A take that never closed a
-  /// segment (nothing was said) is dropped and `nil` comes back.
+  /// segment (nothing was said) is dropped and `nil` comes back. A take whose recorder failed ends with the segments it
+  /// has (`TakeResult.failure` says why), or throws `CaptureError.recordingFailed` when it has none: the audio is lost,
+  /// which is not the same as nothing having been said.
   @discardableResult
   public func stop() async throws -> TakeResult? {
     await enter()
     defer { leave() }
-    guard let memoID = state.memoID, state.phase == .recording || state.phase == .paused,
+    guard let memoID = state.memoID, state.phase == .recording || state.phase == .paused || state.phase == .failed,
       let startedAt = state.startedAt
     else { throw CaptureError.notRecording }
+    // A failed take's recorder was stopped when the failure came in.
+    let recorderStopped = state.phase == .failed
     state.phase = .stopping
     publish()
-    do {
-      try await recorder.stop()
-    } catch {
-      await outbox.discard(memoID)
-      try? await session.deactivate()
-      setState(.idle)
-      throw error
+    if !recorderStopped {
+      do {
+        try await recorder.stop()
+      } catch {
+        await outbox.discard(memoID)
+        forget(memoID)
+        try? await session.deactivate()
+        setState(.idle)
+        throw error
+      }
     }
     let count = await finishedCount(memoID)
+    let failure = failures[memoID]
+    if recorderStopped, count > 0 { await outbox.finishMemo(memoID, segmentCount: count) }
+    forget(memoID)
     try? await session.deactivate()
     setState(.idle)
     guard count > 0 else {
       await outbox.discard(memoID)
+      if let failure { throw CaptureError.recordingFailed(failure) }
       return nil
     }
-    return TakeResult(memoID: memoID, segmentCount: count, startedAt: startedAt)
+    return TakeResult(memoID: memoID, segmentCount: count, startedAt: startedAt, failure: failure)
   }
 
   /// Drops the take: nothing is sent, the memo is discarded from the outbox and the files are deleted.
@@ -175,12 +197,16 @@ public actor CaptureSession {
     // Discarded first so a segment that closes while the recorder stops is deleted, not queued.
     cancelled.insert(memoID)
     await outbox.discard(memoID)
-    do {
-      try await recorder.stop()
-      _ = await finishedCount(memoID)
-    } catch {
-      Log.capture.error("recorder stop after cancel failed: \(String(describing: error), privacy: .public)")
+    // A failed take's recorder is already stopped (it has nothing to flush, and no last event to wait for).
+    if state.failure == nil {
+      do {
+        try await recorder.stop()
+        _ = await finishedCount(memoID)
+      } catch {
+        Log.capture.error("recorder stop after cancel failed: \(String(describing: error), privacy: .public)")
+      }
     }
+    forget(memoID)
     try? await session.deactivate()
     setState(.idle)
   }
@@ -261,12 +287,16 @@ public actor CaptureSession {
             if cancelled.contains(segment.memoID) {
               try? FileManager.default.removeItem(at: segment.fileURL)
             } else {
+              closedCounts[segment.memoID, default: 0] += 1
               await outbox.enqueue(segment)
             }
           case .stopped(let memoID, let count):
-            if !cancelled.contains(memoID) { await outbox.finishMemo(memoID, segmentCount: count) }
-            didFinish(memoID, count: count)
-          case .failed(let reason): Log.capture.error("recorder failed: \(reason, privacy: .public)")
+            // A failed take waits for the user's stop (which sends what it has) or cancel (which drops it).
+            let isHeldBack = state.phase == .failed && state.memoID == memoID
+            let kept = keptCount(memoID, reported: count)
+            if !cancelled.contains(memoID), !isHeldBack { await outbox.finishMemo(memoID, segmentCount: kept) }
+            didFinish(memoID, count: kept)
+          case .failed(let reason): await recorderFailed(reason)
           case .started: continue
           }
         }
@@ -283,6 +313,40 @@ public actor CaptureSession {
         for await _ in routeChanges { await self.applyRouteRule() }
       },
     ]
+  }
+
+  /// The recorder reported a failure. Called from the event pump, so it never waits for the gate: a `stop()` holding the
+  /// gate is waiting for the recorder's last event, which sits behind this one in the same stream.
+  private func recorderFailed(_ reason: String) async {
+    Log.capture.error("recorder failed: \(reason, privacy: .public)")
+    guard let memoID = state.memoID, state.phase != .idle, state.phase != .starting, !cancelled.contains(memoID) else {
+      return
+    }
+    failures[memoID] = reason
+    guard state.phase == .recording || state.phase == .paused else { return }  // a stop is already ending the take
+    state.phase = .failed
+    state.failure = reason
+    publish()
+    do {
+      try await recorder.stop()  // flushes what it has and emits `.stopped`
+    } catch {
+      // No last event is coming: the segments that closed are what the take has.
+      Log.capture.error("recorder stop after failure failed: \(String(describing: error), privacy: .public)")
+      didFinish(memoID, count: closedCounts[memoID, default: 0])
+    }
+  }
+
+  /// The segments a take really has. After a recorder failure its own count can include a segment it never managed to
+  /// close (a file that could not be written), which the memo would wait for ever: the closed ones are the truth.
+  private func keptCount(_ memoID: MemoID, reported: Int) -> Int {
+    guard failures[memoID] != nil else { return reported }
+    return min(reported, closedCounts[memoID, default: 0])
+  }
+
+  private func forget(_ memoID: MemoID) {
+    closedCounts[memoID] = nil
+    failures[memoID] = nil
+    finished[memoID] = nil
   }
 
   private func didFinish(_ memoID: MemoID, count: Int) {

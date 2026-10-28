@@ -1,6 +1,7 @@
 import Foundation
 import IrisCapture
 import IrisCore
+import os
 
 /// A voice reply being started: it continues `threadId`, and the memo is created in `mode`.
 struct VoiceReplyRequest: Equatable, Sendable {
@@ -16,6 +17,8 @@ enum VoiceReplyOutcome: Equatable {
   case sent(Memo)
   /// Recorded and kept in the outbox; it goes out by itself.
   case queued
+  /// The recorder failed before anything was kept: the take is lost, and the user is told so.
+  case recordingFailed
 }
 
 /// The capture port of the thread screen: one take bound to a thread. Production is ``OutboxVoiceReplyCapture`` (the real
@@ -47,6 +50,7 @@ final class OutboxVoiceReplyCapture: VoiceReplyCapture {
   private let onBegan: () -> Void
   private let willEnd: () async -> Void
   private(set) var requests: [VoiceReplyRequest] = []
+  private let logger = Logger(subsystem: "com.jkrumm.iris", category: "capture")
 
   init(
     stack: CaptureStack, service: OutboxService, isAvailable: Bool = true,
@@ -81,7 +85,17 @@ final class OutboxVoiceReplyCapture: VoiceReplyCapture {
       await session.cancel()
       return .discarded
     }
-    guard let result = try await session.stop() else { return .discarded }
+    let result: TakeResult?
+    do {
+      result = try await session.stop()
+    } catch CaptureError.recordingFailed(let reason) {
+      logger.error("voice take lost, the recorder failed: \(reason, privacy: .public)")
+      return .recordingFailed
+    }
+    guard let result else { return .discarded }
+    if let failure = result.failure {
+      logger.error("voice take cut short, the recorder failed: \(failure, privacy: .public)")
+    }
     switch await service.awaitCreated(result.memoID) {
     case .sent(let memo): return .sent(memo)
     case .queued, .refused: return .queued

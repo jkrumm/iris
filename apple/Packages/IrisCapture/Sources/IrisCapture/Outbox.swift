@@ -91,6 +91,13 @@ public actor Outbox: SegmentOutbox {
     await resume()
   }
 
+  /// Tries every transfer that is waiting out a backoff now (the connection changed, the app came to the front), without
+  /// touching its attempt count. Stalled transfers wait for `retryNow`.
+  public func retryBackedOff() async {
+    if machine.retryBackedOff() { await persist() }
+    await resume()
+  }
+
   /// Drops the item and everything queued for it, and deletes its segment files. A transfer already on the wire is
   /// cancelled; the server keeps whatever it already has.
   public func discard(_ memoID: MemoID) async {
@@ -194,12 +201,16 @@ public actor Outbox: SegmentOutbox {
     case (.creation(let memoID), .failure) where cancelled: machine.createCancelled(memoID)
     case (.creation(let memoID), .failure(let error)):
       Log.outbox.error("create failed: \(String(describing: error), privacy: .public)")
-      machine.createFailed(memoID, now: now, permanent: Self.isPermanent(error), reason: Self.reason(error))
+      machine.createFailed(
+        memoID, now: now, permanent: Self.isPermanent(error), transient: Self.isTransient(error),
+        reason: Self.reason(error))
     case (.segment(let key), .success): machine.uploadSucceeded(key)
     case (.segment(let key), .failure) where cancelled: machine.uploadCancelled(key)
     case (.segment(let key), .failure(let error)):
       Log.outbox.error("upload failed: \(String(describing: error), privacy: .public)")
-      machine.uploadFailed(key, now: now, permanent: Self.isPermanent(error), reason: Self.reason(error))
+      machine.uploadFailed(
+        key, now: now, permanent: Self.isPermanent(error), transient: Self.isTransient(error),
+        reason: Self.reason(error))
     case (.completion(let memoID), .success):
       // The server acknowledged the memo: its segment files are no longer needed.
       if deletesFilesWhenDone {
@@ -211,7 +222,9 @@ public actor Outbox: SegmentOutbox {
     case (.completion(let memoID), .failure) where cancelled: machine.completeCancelled(memoID)
     case (.completion(let memoID), .failure(let error)):
       Log.outbox.error("complete failed: \(String(describing: error), privacy: .public)")
-      machine.completeFailed(memoID, now: now, permanent: Self.isPermanent(error), reason: Self.reason(error))
+      machine.completeFailed(
+        memoID, now: now, permanent: Self.isPermanent(error), transient: Self.isTransient(error),
+        reason: Self.reason(error))
     }
     await persist()
     await resume()
@@ -221,8 +234,12 @@ public actor Outbox: SegmentOutbox {
 
   private static func isPermanent(_ error: any Error) -> Bool { error is PermanentTransferError }
 
+  private static func isTransient(_ error: any Error) -> Bool { error is TransientTransferError }
+
   private static func reason(_ error: any Error) -> String {
-    (error as? PermanentTransferError)?.message ?? String(describing: error)
+    if let permanent = error as? PermanentTransferError { return permanent.message }
+    if let transient = error as? TransientTransferError { return transient.message }
+    return String(describing: error)
   }
 
   private func scheduleWake(after now: Date) {

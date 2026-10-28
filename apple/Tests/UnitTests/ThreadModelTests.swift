@@ -246,6 +246,19 @@ struct ThreadModelTests {
     #expect(voice.ends == 1)
   }
 
+  @Test("a take the recorder lost is told to the user, not dropped quietly")
+  func lostRecordingShowsAToast() async {
+    await client.seed(detail([memo("a", age: 100, reply: "x")]))
+    let clock = Clock(MemoFactory.now)
+    let thread = model(voice: LostVoice(), now: { clock.now })
+    await thread.load()
+
+    thread.beginVoice()
+    clock.now = MemoFactory.now.addingTimeInterval(3)
+    #expect(await thread.endVoice(cancelled: false) == nil)
+    #expect(thread.failure != nil)
+  }
+
   // MARK: Toast
 
   /// Makes a failure toast with the same words every time: a touch shorter than the minimum take.
@@ -334,6 +347,13 @@ struct ThreadModelTests {
     #expect(thread.voiceStartedAt == nil)
     #expect(await thread.endVoice(cancelled: false) == nil)
   }
+}
+
+/// A capture whose recorder failed before it kept anything.
+private struct LostVoice: VoiceReplyCapture {
+  var isAvailable: Bool { true }
+  func begin(_ request: VoiceReplyRequest) async throws {}
+  func end(cancelled: Bool) async throws -> VoiceReplyOutcome { .recordingFailed }
 }
 
 /// A capture whose `end` waits for the test, to hold a take in the middle of being sent.

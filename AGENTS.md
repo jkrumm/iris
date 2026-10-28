@@ -362,6 +362,11 @@ Push to master deploys. LaunchAgent `com.jkrumm.iris` (KeepAlive, `ExitTimeOut` 
   cuts markdown into Textual text, a table (grid or cards via `ViewThatFits`) and Mermaid fences numbered like the server's `ReplyBlock.index`; diagrams are the PNG of the current appearance
   through `ReplyImageStore` and the authenticated `MemoMediaSource.asset`. Textual is pinned `exact: 0.5.0` in `IrisUI` only. Voice replies go through the `VoiceReplyCapture` port (`OutboxVoiceReplyCapture`: the real
   capture session and outbox, on fake audio under `-IrisFakeCapture`). The fake sample data holds a chat thread with every block type (`SampleData.chatThreadID`) and a Hermes thread with a turn in flight.
+- **Capture and outbox failures:** the outbox stalls a transfer on a refusal (`PermanentTransferError`) or after 10 non-transient failures; no network, a
+  5xx, a 408 and a 429 are `TransientTransferError` and never count. `OutboxService.resume()` skips the backoff (launch, new connection settings, app
+  foreground); it does not touch a stalled item. A recorder `.failed` event puts the take in phase `failed`; `CaptureSession.stop()` throws
+  `CaptureError.recordingFailed` when nothing was kept. Live Activity calls name the memo (`TakeLiveActivity` is per memo, one follower each). Known gap: a
+  take cancelled after its first segment leaves a `receiving` memo (the server refuses to delete it), TDD §4 Outbox.
 - **Snapshots** only compare on the pinned simulator; a diff on a clean tree means a different runtime. They do not render the glass layer.
 - **`scripts/mbm tap`** needs `--element-ref` from the latest `snapshot-ui` and `--post-delay 2`; `snapshot-ui` straight after a launch times out
   (`make ui-snapshot` waits first). Live Activity, widgets, the notification card and the Mac panel compile but have never been rendered; the

@@ -10,18 +10,19 @@ nonisolated enum ActivityDismissal: Equatable, Sendable {
   case later
 }
 
-/// The Live Activity of one take, as the app sees it. Production is ActivityKit (``ActivityKitTakeLiveActivity``); the
-/// tests record the calls.
+/// The Live Activity of one take, as the app sees it. Every call names the memo whose activity it is for: a take can start
+/// while the previous one is still being sent, and the two activities must not touch each other. Production is ActivityKit
+/// (``ActivityKitTakeLiveActivity``); the tests record the calls.
 protocol TakeLiveActivity {
   func start(memoID: String, mode: MemoMode, startedAt: Date, state: LiveActivityContentState) async
-  func update(_ state: LiveActivityContentState) async
+  func update(memoID: String, _ state: LiveActivityContentState) async
   /// The server has the memo: the activity's push token can be registered for it (the server answers 404 before that).
-  func memoCreated() async
+  func memoCreated(memoID: String) async
   /// The memo is on the server: nothing more is sent from the device, and its pushes (`processing`, `done`, ...) carry the
   /// activity. It is not ended.
-  func handOverToServer() async
+  func handOverToServer(memoID: String) async
   /// Ends the activity for good, showing `finalState` until it is dismissed.
-  func end(finalState: LiveActivityContentState?, dismissal: ActivityDismissal) async
+  func end(memoID: String, finalState: LiveActivityContentState?, dismissal: ActivityDismissal) async
   /// Ends every activity still in a client phase (`recording`, `paused`, `uploading`): after a relaunch nothing moves them on.
   func endClientPhaseActivities() async
 }
@@ -29,12 +30,16 @@ protocol TakeLiveActivity {
 /// Drives the Live Activity of a take the app started on its own (the start intent): recording while the take runs,
 /// paused during an interruption, uploading from the stop until the outbox has sent the memo, then `processing`, from where
 /// the server's pushes (registered per memo) carry it. A failure that will be retried (no network, a 5xx) keeps the
-/// activity on `uploading`; a stall (a refusal the server will repeat, or out of attempts) and a discard end it.
+/// activity on `uploading`; a stall (a refusal the server will repeat, or out of attempts), a recorder failure and a
+/// discard end it.
+///
+/// One follower per memo: a take that starts while the last one is still uploading does not cancel it, so the last one's
+/// activity is still handed to the server. A follower that is cancelled (`stop()`) writes nothing more.
 final class TakeLiveActivityCoordinator {
   private let activity: any TakeLiveActivity
   private let stack: CaptureStack
   private let created: CreatedMemoLog
-  private var follower: Task<Void, Never>?
+  private var followers: [MemoID: Task<Void, Never>] = [:]
 
   init(activity: any TakeLiveActivity, stack: CaptureStack, created: CreatedMemoLog) {
     self.activity = activity
@@ -49,60 +54,82 @@ final class TakeLiveActivityCoordinator {
     guard let session = try? await stack.session(), let outbox = try? await stack.outbox() else { return }
     let updates = await session.updates()
     let changes = await outbox.changes()
-    follower?.cancel()
-    // Owned by `follower`; replaced by the next take and cancelled by `stop()`.
-    follower = Task {
-      for await take in updates where take.memoID == memoID || take.phase == .idle {
-        switch take.phase {
-        case .starting, .idle: break
-        case .recording: await activity.update(Self.state(.recording, inputName: take.inputName))
-        case .paused: await activity.update(Self.state(.paused, inputName: take.inputName))
-        case .stopping: await activity.update(Self.state(.uploading, inputName: take.inputName))
-        }
-        if take.phase == .idle { break }
-      }
-      await activity.update(Self.state(.uploading, inputName: nil))
+    followers[memoID]?.cancel()
+    // Owned by `followers`; removes itself when the memo is settled, and `stop()` cancels the rest.
+    followers[memoID] = Task {
+      await follow(memoID, updates: updates, changes: changes, outbox: outbox)
+      followers[memoID] = nil
+    }
+  }
 
-      var registered = false
-      if await settle(memoID, outbox: outbox, registered: &registered) { return }
-      for await _ in changes {
-        if await settle(memoID, outbox: outbox, registered: &registered) { return }
+  private func follow(
+    _ memoID: MemoID, updates: AsyncStream<TakeState>, changes: AsyncStream<Void>, outbox: Outbox
+  ) async {
+    let id = memoID.wireID
+    // Until the take ends: a snapshot of another take (or of none) means this one is over.
+    for await take in updates {
+      guard !Task.isCancelled, take.memoID == memoID else { break }
+      switch take.phase {
+      case .starting, .idle: break
+      case .recording: await activity.update(memoID: id, Self.state(.recording, inputName: take.inputName))
+      case .paused: await activity.update(memoID: id, Self.state(.paused, inputName: take.inputName))
+      case .stopping: await activity.update(memoID: id, Self.state(.uploading, inputName: take.inputName))
+      case .failed:
+        // The recorder died: the take will not get better. A memo that was kept goes on in the outbox without it.
+        await activity.end(memoID: id, finalState: Self.state(.failed, inputName: nil), dismissal: .later)
+        return
       }
+    }
+    guard !Task.isCancelled else { return }
+    await activity.update(memoID: id, Self.state(.uploading, inputName: nil))
+
+    var registered = false
+    if await settle(memoID, outbox: outbox, registered: &registered) { return }
+    for await _ in changes {
+      if await settle(memoID, outbox: outbox, registered: &registered) { return }
     }
   }
 
   /// Where the memo stands: still on its way (`false`), or settled (`true`): on the server and handed over, stalled and
-  /// ended, or gone from the queue without ever being sent (discarded) and ended.
+  /// ended, or gone from the queue without ever being sent (discarded) and ended. A cancelled follower is settled and
+  /// touches nothing.
   private func settle(_ memoID: MemoID, outbox: Outbox, registered: inout Bool) async -> Bool {
-    let sent = await created.memo(id: memoID.wireID) != nil
+    guard !Task.isCancelled else { return true }
+    let id = memoID.wireID
+    let sent = await created.memo(id: id) != nil
+    guard !Task.isCancelled else { return true }
     if sent, !registered {
       registered = true
-      await activity.memoCreated()
+      await activity.memoCreated(memoID: id)
     }
     guard let row = await outbox.queue().first(where: { $0.id == memoID }) else {
+      guard !Task.isCancelled else { return true }
       if sent {
-        await activity.update(Self.state(.processing, inputName: nil))
-        await activity.handOverToServer()
+        await activity.update(memoID: id, Self.state(.processing, inputName: nil))
+        await activity.handOverToServer(memoID: id)
       } else {
-        await activity.end(finalState: nil, dismissal: .immediate)
+        await activity.end(memoID: id, finalState: nil, dismissal: .immediate)
       }
       return true
     }
     if case .failed(nil, _) = row.status {
-      await activity.end(finalState: Self.state(.failed, inputName: nil), dismissal: .later)
+      await activity.end(memoID: id, finalState: Self.state(.failed, inputName: nil), dismissal: .later)
       return true
     }
     return false  // waiting, sending, or failed with a retry coming: the outbox is still on it
   }
 
-  /// Waits for the follower to finish (tests).
+  /// Waits for every follower to finish (tests).
   func finished() async {
-    await follower?.value
+    for follower in Array(followers.values) { await follower.value }
   }
 
-  func stop() {
-    follower?.cancel()
-    follower = nil
+  /// Cancels every follower and waits until none can write to an activity any more.
+  func stop() async {
+    let running = Array(followers.values)
+    followers = [:]
+    for follower in running { follower.cancel() }
+    for follower in running { await follower.value }
   }
 
   /// At launch: a take's activity does not outlive the process that ran it (its memo goes on in the outbox).
@@ -124,12 +151,18 @@ final class TakeLiveActivityCoordinator {
   /// the activity after the app is suspended. Not verified on a device (rendered nowhere yet: `docs/spikes/device-checklist.md`).
   /// Main-actor bound (the default isolation of the app), because `Activity` is not `Sendable`.
   final class ActivityKitTakeLiveActivity: TakeLiveActivity {
+    /// What the app holds for one take's activity.
+    private struct Entry {
+      let activity: Activity<MemoAttributes>
+      var token: String?
+      var memoExists = false
+      var registeredToken: String?
+    }
+
     private let client: any APIClient
     private let logger = Logger(subsystem: "com.jkrumm.iris", category: "liveactivity")
-    private var activity: Activity<MemoAttributes>?
-    private var token: String?
-    private var memoExists = false
-    private var registeredToken: String?
+    /// By memo id: a take that starts while the last one is still being sent has its own entry.
+    private var entries: [String: Entry] = [:]
 
     init(client: any APIClient) {
       self.client = client
@@ -139,9 +172,6 @@ final class TakeLiveActivityCoordinator {
       guard ActivityAuthorizationInfo().areActivitiesEnabled else { return }
       let attributes = MemoAttributes(memoId: memoID, mode: mode, startedAt: startedAt)
       let activityContent = ActivityContent(state: content, staleDate: nil)
-      token = nil
-      memoExists = false
-      registeredToken = nil
       do {
         let activity: Activity<MemoAttributes>
         do {
@@ -150,68 +180,68 @@ final class TakeLiveActivityCoordinator {
           // No push entitlement (an unsigned simulator build): the local activity still shows the take.
           activity = try Activity.request(attributes: attributes, content: activityContent, pushType: nil)
         }
-        self.activity = activity
-        followToken(of: activity)
+        entries[memoID] = Entry(activity: activity)
+        followToken(of: activity, memoID: memoID)
       } catch {
         // The system refused (the app is not allowed to start it from here). The take goes on without it.
         logger.error("live activity not started: \(String(describing: error), privacy: .public)")
-        activity = nil
       }
     }
 
-    func update(_ content: LiveActivityContentState) async {
-      await activity?.update(ActivityContent(state: content, staleDate: nil))
-      await registerTokenIfPossible()
+    func update(memoID: String, _ content: LiveActivityContentState) async {
+      await entries[memoID]?.activity.update(ActivityContent(state: content, staleDate: nil))
+      await registerTokenIfPossible(memoID)
     }
 
-    func memoCreated() async {
-      memoExists = true
-      await registerTokenIfPossible()
+    func memoCreated(memoID: String) async {
+      entries[memoID]?.memoExists = true
+      await registerTokenIfPossible(memoID)
     }
 
-    func handOverToServer() async {
-      await registerTokenIfPossible()
-      activity = nil
+    func handOverToServer(memoID: String) async {
+      await registerTokenIfPossible(memoID)
+      entries[memoID] = nil
     }
 
-    func end(finalState: LiveActivityContentState?, dismissal: ActivityDismissal) async {
-      guard let activity else { return }
-      self.activity = nil
+    func end(memoID: String, finalState: LiveActivityContentState?, dismissal: ActivityDismissal) async {
+      guard let entry = entries.removeValue(forKey: memoID) else { return }
       let content = finalState.map { ActivityContent(state: $0, staleDate: nil) }
       let policy: ActivityUIDismissalPolicy =
         switch dismissal {
         case .immediate: .immediate
         case .later: .after(Date().addingTimeInterval(15 * 60))
         }
-      await activity.end(content, dismissalPolicy: policy)
+      await entry.activity.end(content, dismissalPolicy: policy)
     }
 
     func endClientPhaseActivities() async {
       for orphan in Activity<MemoAttributes>.activities where orphan.content.state.phase.isClientPhase {
         await orphan.end(nil, dismissalPolicy: .immediate)
       }
-      activity = nil
+      entries = [:]
     }
 
     /// Keeps the latest token; it is sent once the server knows the memo, and again when the token rotates.
-    private func followToken(of activity: Activity<MemoAttributes>) {
+    private func followToken(of activity: Activity<MemoAttributes>, memoID: String) {
       // Ends with the activity's token stream.
       Task {
         for await data in activity.pushTokenUpdates {
-          token = data.map { String(format: "%02x", $0) }.joined()
-          await registerTokenIfPossible()
+          entries[memoID]?.token = data.map { String(format: "%02x", $0) }.joined()
+          await registerTokenIfPossible(memoID)
         }
       }
     }
 
     /// `PUT /memos/:id/activity-token`, only for a memo the server has and a token it has not seen; a failure is logged and
     /// tried again on the next update or token change.
-    private func registerTokenIfPossible() async {
-      guard let activity, memoExists, let token, token != registeredToken else { return }
+    private func registerTokenIfPossible(_ memoID: String) async {
+      guard let entry = entries[memoID], entry.memoExists, let token = entry.token, token != entry.registeredToken
+      else {
+        return
+      }
       do {
-        try await client.setActivityToken(
-          memoID: activity.attributes.memoId, request: ActivityTokenRequest(token: token))
-        registeredToken = token
+        try await client.setActivityToken(memoID: memoID, request: ActivityTokenRequest(token: token))
+        entries[memoID]?.registeredToken = token
       } catch {
         logger.error("activity token not registered: \(String(describing: error), privacy: .public)")
       }
@@ -220,6 +250,7 @@ final class TakeLiveActivityCoordinator {
 #endif
 
 /// Records what the app asked of the Live Activity (`-IrisFakeCapture` and the tests): ActivityKit is never touched.
+/// Every call is kept with the memo it was for.
 final class RecordingLiveActivity: TakeLiveActivity {
   struct Start: Equatable, Sendable {
     let memoID: String
@@ -234,30 +265,46 @@ final class RecordingLiveActivity: TakeLiveActivity {
 
   private(set) var starts: [Start] = []
   private(set) var states: [LiveActivityContentState] = []
-  private(set) var memoCreatedCount = 0
-  private(set) var handedOver = false
+  /// The memo of each entry of ``states``.
+  private(set) var stateOwners: [String] = []
+  private(set) var memoCreatedIDs: [String] = []
+  private(set) var handedOverIDs: [String] = []
   private(set) var ends: [End] = []
+  private(set) var endedIDs: [String] = []
   private(set) var orphanSweeps = 0
 
   func start(memoID: String, mode: MemoMode, startedAt: Date, state: LiveActivityContentState) {
     starts.append(Start(memoID: memoID, mode: mode, startedAt: startedAt))
-    states.append(state)
+    record(memoID, state)
   }
 
-  func update(_ state: LiveActivityContentState) { states.append(state) }
+  func update(memoID: String, _ state: LiveActivityContentState) { record(memoID, state) }
 
-  func memoCreated() { memoCreatedCount += 1 }
+  func memoCreated(memoID: String) { memoCreatedIDs.append(memoID) }
 
-  func handOverToServer() { handedOver = true }
+  func handOverToServer(memoID: String) { handedOverIDs.append(memoID) }
 
-  func end(finalState: LiveActivityContentState?, dismissal: ActivityDismissal) {
+  func end(memoID: String, finalState: LiveActivityContentState?, dismissal: ActivityDismissal) {
     ends.append(End(finalState: finalState, dismissal: dismissal))
+    endedIDs.append(memoID)
   }
 
   func endClientPhaseActivities() { orphanSweeps += 1 }
 
+  private func record(_ memoID: String, _ state: LiveActivityContentState) {
+    states.append(state)
+    stateOwners.append(memoID)
+  }
+
+  var memoCreatedCount: Int { memoCreatedIDs.count }
+  var handedOver: Bool { !handedOverIDs.isEmpty }
   var phases: [LiveActivityPhase] { states.map(\.phase) }
 
-  /// The activity was ended for good (not handed to the server).
+  /// The phases written for one memo, in order.
+  func phases(of memoID: String) -> [LiveActivityPhase] {
+    zip(stateOwners, states).filter { $0.0 == memoID }.map { $0.1.phase }
+  }
+
+  /// Some activity was ended for good (not handed to the server).
   var ended: Bool { !ends.isEmpty }
 }

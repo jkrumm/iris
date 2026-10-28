@@ -111,6 +111,11 @@ public actor FakeSegmentRecorder: SegmentRecorder {
     levelContinuation.yield(0.5)
   }
 
+  /// Script hook: the recorder reports a failure (a full disk, an engine that will not restart).
+  public func fail(reason: String) {
+    eventContinuation.yield(.failed(reason: reason))
+  }
+
   public func stop() throws {
     guard let memoID else { throw CaptureError.notRecording }
     apply(rotator.finish())

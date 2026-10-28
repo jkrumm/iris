@@ -88,9 +88,12 @@ nonisolated final class OutboxService: QueuedItemSource {
     return await outcome(of: memoID, outbox: outbox, changes: changes, window: window)
   }
 
-  /// Retries what the server refused or what ran out of attempts; the app calls it again when the connection changes.
+  /// Sends what is waiting out a backoff now, and opens the queue if it is not open yet. The app calls it at launch,
+  /// when the connection settings change and when it comes to the foreground: the moments the network may be back, so a
+  /// transfer does not wait out the rest of a five-minute delay. What the server refused stays stalled until the user
+  /// retries it.
   func resume() async {
-    await (try? await stack.outbox())?.resume()
+    await (try? await stack.outbox())?.retryBackedOff()
   }
 
   // MARK: QueuedItemSource
