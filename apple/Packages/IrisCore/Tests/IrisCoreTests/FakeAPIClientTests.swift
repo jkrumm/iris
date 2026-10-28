@@ -387,6 +387,37 @@ struct FakeAPIClientTests {
     let page = try await listedIDs(fake)
     #expect(page.pinned == ["open"] && page.items == ["handled"])
   }
+
+  @Test("a held response applies its effect at once and answers only after the gate opens")
+  func heldResponse() async throws {
+    let fake = FakeAPIClient()
+    _ = try await create(fake)
+    _ = try await fake.completeMemo(id: "m1", request: CompleteMemoRequest(segmentCount: 0))
+    let gate = await fake.hold(.setFlags)
+
+    let flagged = Task { try await fake.setFlags(id: "m1", done: nil, favorite: true, archived: nil) }
+    await gate.waitUntilHeld()
+    // The server state moved while the answer is still on its way.
+    #expect(try await fake.memo(id: "m1").memo.favorite)
+
+    gate.release()
+    #expect(try await flagged.value.favorite)
+  }
+
+  @Test("a held failure is thrown only after release, and a gate released early does not block")
+  func heldFailureAndEarlyRelease() async throws {
+    let fake = FakeAPIClient()
+    await fake.enqueueFailure(.unexpectedStatus(500), for: .stats)
+    let failing = await fake.hold(.stats)
+    let failed = Task { try await fake.stats(StatsQuery()) }
+    await failing.waitUntilHeld()
+    failing.release()
+    await #expect(throws: APIError.self) { try await failed.value }
+
+    let early = await fake.hold(.stats)
+    early.release()
+    #expect(try await fake.stats(StatsQuery()).days == 30)
+  }
 }
 
 /// A clock a test moves, readable from the fake's `@Sendable` closure.
