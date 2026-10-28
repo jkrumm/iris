@@ -25,9 +25,20 @@ public struct JSONFileOutboxStore: OutboxStore {
     self.fileURL = fileURL
   }
 
+  /// A file that cannot be decoded is moved aside (`<name>.corrupt`) and the queue starts empty: an unreadable
+  /// queue must not keep the app from sending anything new.
   public func load() async throws -> OutboxRecord {
     guard FileManager.default.fileExists(atPath: fileURL.path) else { return OutboxRecord() }
-    return try JSONDecoder().decode(OutboxRecord.self, from: Data(contentsOf: fileURL))
+    let data = try Data(contentsOf: fileURL)
+    do {
+      return try JSONDecoder().decode(OutboxRecord.self, from: data)
+    } catch {
+      Log.outbox.error("outbox file unreadable, starting empty: \(String(describing: error), privacy: .public)")
+      let aside = fileURL.appendingPathExtension("corrupt")
+      try? FileManager.default.removeItem(at: aside)
+      try FileManager.default.moveItem(at: fileURL, to: aside)
+      return OutboxRecord()
+    }
   }
 
   public func save(_ record: OutboxRecord) async throws {

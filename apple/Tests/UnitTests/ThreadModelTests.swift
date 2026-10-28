@@ -179,10 +179,9 @@ struct ThreadModelTests {
 
   // MARK: Voice
 
-  private func fakeVoice() -> FakeVoiceReplyCapture {
-    FakeVoiceReplyCapture(
-      capture: FakeCapture(directory: FileManager.default.temporaryDirectory.appending(path: "iris-thread-tests")),
-      client: client, now: { MemoFactory.now })
+  /// The real voice capture over the fake stack: a take is a fake recorder, the outbox and the fake API.
+  private func fakeVoice(seconds: Double = 3) -> OutboxVoiceReplyCapture {
+    OutboxRig(client: client).voice(seconds: seconds)
   }
 
   @Test("a voice reply is a capture request bound to the thread, and the take becomes a memo that continues it")
@@ -199,6 +198,7 @@ struct ThreadModelTests {
     let sent = try #require(await thread.endVoice(cancelled: false))
 
     #expect(voice.requests == [VoiceReplyRequest(threadId: threadID, mode: .chat)])
+    #expect(sent.state == .receiving, "the memo is created; its recording is on the way up")
     #expect(sent.threadId == threadID && sent.mode == .chat)
     #expect(thread.voiceStartedAt == nil)
     #expect(thread.memoIDs.last == sent.id)
@@ -354,11 +354,11 @@ private final class GatedVoice: VoiceReplyCapture {
 
   func begin(_ request: VoiceReplyRequest) async throws { begins += 1 }
 
-  func end(cancelled: Bool) async throws -> Memo? {
+  func end(cancelled: Bool) async throws -> VoiceReplyOutcome {
     ends += 1
     endingSignal.yield()
     for await _ in release { break }
-    return nil
+    return .discarded
   }
 
   /// Waits for `end` to be called, but never forever: past `seconds` the test fails instead of hanging.

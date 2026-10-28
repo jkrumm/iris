@@ -431,3 +431,49 @@ private final class LockedDate: @unchecked Sendable {
 
   func advance(_ seconds: TimeInterval) { lock.withLock { date = date.addingTimeInterval(seconds) } }
 }
+
+@Suite("FakeAPIClient pipeline")
+struct FakeAPIClientPipelineTests {
+  private let started = Date(timeIntervalSince1970: 1_773_480_000)
+
+  @Test("advance moves a memo and its thread through the pipeline and emits the events")
+  func advanceFollowsThePipeline() async throws {
+    let fake = FakeAPIClient()
+    await fake.seed(
+      ThreadDetail(
+        thread: MemoThread(id: "t1", kind: .hermes, title: "Thread", createdAt: started, updatedAt: started),
+        memos: [], messages: []))
+    _ = try await fake.createMemo(CreateMemoRequest(id: "m1", mode: .hermes, startedAt: started, threadId: "t1"))
+    var events = fake.events().makeAsyncIterator()
+
+    try await fake.advance("m1", to: .transcribed, transcript: "hello there")
+    try await fake.advance("m1", to: .notified, replyText: "hi")
+
+    let memo = try await fake.memo(id: "m1").memo
+    #expect(memo.state == .notified)
+    #expect(memo.transcript == "hello there")
+    #expect(memo.replyText == "hi")
+    let thread = try await fake.thread(id: "t1")
+    #expect(thread.messages.map(\.role) == [.user, .assistant])
+    #expect(thread.messages.map(\.content) == ["hello there", "hi"])
+    #expect(thread.memos.first?.state == .notified)
+
+    var names: [String] = []
+    while let event = try await events.next() {
+      switch event {
+      case .memoUpdated(let update): names.append("updated:\(update.state.rawValue)")
+      case .memoDone(let update):
+        names.append("done:\(update.state.rawValue)")
+      case .ready: continue
+      }
+      if names.last == "done:notified" { break }
+    }
+    #expect(names == ["updated:transcribed", "updated:notified", "done:notified"])
+  }
+
+  @Test("advance on an unknown memo is a 404")
+  func advanceUnknown() async {
+    let fake = FakeAPIClient()
+    await #expect(throws: APIError.self) { try await fake.advance("nope", to: .notified) }
+  }
+}

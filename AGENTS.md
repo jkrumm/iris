@@ -347,7 +347,11 @@ Push to master deploys. LaunchAgent `com.jkrumm.iris` (KeepAlive, `ExitTimeOut` 
 - `server/package.json` is imported by `telemetry/otel.ts` for `service.version`; keep it there.
 - **Apple build artifacts:** `xcodebuild` leaves `apple/.dd` and per-package `.dd` / `.build`, and `make screenshot` writes `.artifacts/`; all gitignored.
   `Iris.xcodeproj` is generated: edit `apple/project.yml`, never the project.
-- **App composition:** `-IrisFakeCapture` (every UI test, `make run-sim`) runs the fake API, silent media and fake capture; without it the app is
+- **Capture and outbox** (Wave 15 I3, TDD §4): `IrisCapture` holds `CaptureSession` (one take: session, route, recorder, outbox) and the persistent `Outbox`, a queue of whole items
+  (typed memo, chat message, voice take, thread reply) with `create` → segments → `complete`, idempotent by memo id, jittered bounded backoff, stall after 10 failures or a 4xx a retry cannot fix, "retry now" and "discard". The app reaches it through
+  `OutboxService` (a lazy `CaptureStack`; `APIOutboxUploader` is the `SegmentUploader` over `APIClient`); the composer, the thread's `OutboxVoiceReplyCapture`, the Settings queue and `StartMemoIntent` (`Iris/Intents/`, compiled into the widget too) all go through it.
+  A take is created on the server at its first segment, so a cancelled take leaves nothing behind. `LiveActivityPhase` has the client-only `recording` / `paused` / `uploading` (the wire and fixtures keep four). Device-only: Control press, background take, Bluetooth, Live Activity rendering.
+- **App composition:** `-IrisFakeCapture` (every UI test, `make run-sim`) runs the fake API, silent media and fake capture (the real outbox on fake audio; `-IrisFakeOffline` fails the first create of each kind); without it the app is
   production: server URL + device token from Settings → Connection (token in the Keychain, URL in `UserDefaults`), one `ReconfigurableAPIClient`
   shared by every model. Nothing saved: the app opens on Settings and loads nothing. Memo audio and speech are downloaded with the bearer header by
   `MediaDownloader` and played from the file (no `AVURLAssetHTTPHeaderFieldsKey`, TDD §4 "Authenticated media"). `MemoPlayer` follows a periodic time
@@ -356,8 +360,8 @@ Push to master deploys. LaunchAgent `com.jkrumm.iris` (KeepAlive, `ExitTimeOut` 
 - **Thread view** (`ThreadView` / `ThreadModel`, TDD §4 "Thread view"): a History row of a chat or a continued thread (`Memo.opensThread`) pushes it; the model derives turns from
   `GET /v1/threads/:id` (user, assistant, pending with step dashes, failed) and reloads on the memos' History revisions. Replies render through `IrisUI`'s `MessageContentView`: `MessageBlock.split`
   cuts markdown into Textual text, a table (grid or cards via `ViewThatFits`) and Mermaid fences numbered like the server's `ReplyBlock.index`; diagrams are the PNG of the current appearance
-  through `ReplyImageStore` and the authenticated `MemoMediaSource.asset`. Textual is pinned `exact: 0.5.0` in `IrisUI` only. Voice replies go through the `VoiceReplyCapture` port (fake under
-  `-IrisFakeCapture`, unavailable in production until I3). The fake sample data holds a chat thread with every block type (`SampleData.chatThreadID`) and a Hermes thread with a turn in flight.
+  through `ReplyImageStore` and the authenticated `MemoMediaSource.asset`. Textual is pinned `exact: 0.5.0` in `IrisUI` only. Voice replies go through the `VoiceReplyCapture` port (`OutboxVoiceReplyCapture`: the real
+  capture session and outbox, on fake audio under `-IrisFakeCapture`). The fake sample data holds a chat thread with every block type (`SampleData.chatThreadID`) and a Hermes thread with a turn in flight.
 - **Snapshots** only compare on the pinned simulator; a diff on a clean tree means a different runtime. They do not render the glass layer.
 - **`scripts/mbm tap`** needs `--element-ref` from the latest `snapshot-ui` and `--post-delay 2`; `snapshot-ui` straight after a launch times out
   (`make ui-snapshot` waits first). Live Activity, widgets, the notification card and the Mac panel compile but have never been rendered; the

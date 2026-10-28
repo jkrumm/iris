@@ -1,7 +1,7 @@
 import Foundation
+import IrisCapture
 import IrisCore
 import Observation
-import os
 
 /// What opens the composer: a new memo, or a reply that continues a thread (`POST /v1/memos/text` takes `threadId`).
 struct ComposerRequest: Identifiable, Equatable {
@@ -22,37 +22,27 @@ struct ComposerRequest: Identifiable, Equatable {
   }
 }
 
-/// The typed-memo composer: text, a mode, and one send. A send that failed keeps the memo id while the body stays
-/// the same, so a retry after a lost answer finds the memo the server already created instead of making a second.
+/// The typed-memo composer: text, a mode, and one send. The send hands the text to the outbox, which creates the memo by id
+/// (idempotent on the server) and keeps trying until it has: the sheet closes either way, with the memo, or with
+/// "queued" when the server could not be reached.
 @Observable
 final class ComposerModel {
   var text = ""
   var mode: MemoMode
   let threadId: String?
   private(set) var isSending = false
-  /// The words of the last failed send; cleared when the user edits or sends again.
-  private(set) var failure: String?
 
-  private let client: any APIClient
+  private let outbox: OutboxService
   private let now: () -> Date
-  private let makeID: () -> String
-  private let logger = Logger(subsystem: "com.jkrumm.iris", category: "composer")
-  private var attempt: Attempt?
-
-  private struct Attempt: Equatable {
-    var id: String
-    var startedAt: Date
-    var mode: MemoMode
-    var text: String
-  }
+  private let makeID: () -> MemoID
 
   init(
-    request: ComposerRequest, client: any APIClient, now: @escaping () -> Date = { Date() },
-    makeID: @escaping () -> String = { UUID().uuidString.lowercased() }
+    request: ComposerRequest, outbox: OutboxService, now: @escaping () -> Date = { Date() },
+    makeID: @escaping () -> MemoID = { MemoID() }
   ) {
     mode = request.mode
     threadId = request.threadId
-    self.client = client
+    self.outbox = outbox
     self.now = now
     self.makeID = makeID
   }
@@ -72,28 +62,13 @@ final class ComposerModel {
   /// Cancel closes the sheet and would drop the answer of a send that is already on the wire.
   var canCancel: Bool { !isSending }
 
-  /// Creates the memo; nil when the send failed (``failure`` says so) or there is nothing to send.
-  func send() async -> Memo? {
+  /// Hands the text over; nil when there is nothing to send.
+  func send() async -> SendOutcome? {
     guard canSend else { return nil }
     isSending = true
-    failure = nil
     defer { isSending = false }
-    let body = Attempt(id: "", startedAt: .distantPast, mode: mode, text: trimmedText)
-    if attempt.map({ $0.mode != body.mode || $0.text != body.text }) ?? true {
-      attempt = Attempt(id: makeID(), startedAt: now(), mode: body.mode, text: body.text)
-    }
-    guard let attempt else { return nil }
-    do {
-      return try await client.createTextMemo(
-        CreateTextMemoRequest(
-          id: attempt.id, mode: attempt.mode, startedAt: attempt.startedAt, text: attempt.text, threadId: threadId))
-    } catch is CancellationError {
-      return nil
-    } catch {
-      logger.error("typed memo failed: \(String(describing: error), privacy: .public)")
-      failure = String(
-        localized: "Could not send the memo. Your text is still here.", comment: "Composer error after a failed send")
-      return nil
-    }
+    let submission = TextSubmission(
+      id: makeID(), mode: mode, text: trimmedText, threadId: threadId, startedAt: now())
+    return await outbox.submitText(submission)
   }
 }

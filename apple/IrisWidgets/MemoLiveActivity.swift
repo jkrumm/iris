@@ -3,8 +3,9 @@ import IrisUI
 import SwiftUI
 import WidgetKit
 
-/// Placeholder Live Activity. The contract has no recording phase yet, so `.processing` is the one in-flight
-/// phase: it shows the running timer from `startedAt`; the others show the result.
+/// The Live Activity of one memo. The phone sets `recording`, `paused` and `uploading` itself while the take is on the
+/// device (recording and processing show the running timer from `startedAt`); the server's pushes then carry
+/// `processing`, `needsRoute`, `done` and `failed`. Compiled, never rendered (device checklist).
 struct MemoLiveActivity: Widget {
   var body: some WidgetConfiguration {
     ActivityConfiguration(for: MemoAttributes.self) { context in
@@ -72,13 +73,13 @@ private struct PhaseLabel: View {
   }
 }
 
-/// Counts up from `startedAt` while the take is in flight; hidden otherwise.
+/// Counts up from `startedAt` while the take is recording or being processed; hidden otherwise.
 private struct ElapsedTimer: View {
   let attributes: MemoAttributes
   let state: LiveActivityContentState
 
   var body: some View {
-    if state.phase == .processing {
+    if state.phase == .recording || state.phase == .processing {
       Text(timerInterval: attributes.startedAt...Date.distantFuture, countsDown: false)
         .themeFont(.footnote, weight: .medium)
         .monospacedDigit()
@@ -92,6 +93,9 @@ private struct ElapsedTimer: View {
 extension LiveActivityPhase {
   fileprivate var title: String {
     switch self {
+    case .recording: String(localized: "Recording", comment: "Live Activity phase")
+    case .paused: String(localized: "Paused", comment: "Live Activity phase")
+    case .uploading: String(localized: "Uploading", comment: "Live Activity phase")
     case .processing: String(localized: "Processing", comment: "Live Activity phase")
     case .needsRoute: String(localized: "Needs a route", comment: "Live Activity phase")
     case .done: String(localized: "Done", comment: "Live Activity phase")
@@ -101,6 +105,9 @@ extension LiveActivityPhase {
 
   fileprivate var symbol: String {
     switch self {
+    case .recording: "mic.fill"
+    case .paused: "pause.circle.fill"
+    case .uploading: "arrow.up.circle.fill"
     case .processing: "waveform"
     case .needsRoute: "arrow.triangle.branch"
     case .done: "checkmark.circle.fill"

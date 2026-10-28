@@ -75,7 +75,8 @@ targets:
   IrisWidgets:
     type: app-extension
     platform: iOS
-    sources: [IrisWidgets]
+    # The Control names `StartMemoIntent`; the app performs it, so the intent file is compiled into both.
+    sources: [IrisWidgets, Iris/Intents]
     entitlements:
       path: IrisWidgets/IrisWidgets.entitlements
       properties:
