@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { mkdtemp, readdir, rm } from "node:fs/promises";
+import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createFsAssetStore } from "./assets-fs.js";
@@ -38,11 +38,28 @@ describe("fs AssetStore", () => {
     await store.prune({ memoId, keep: new Set() });
   });
 
-  it("refuses ids that are not safe path segments", async () => {
+  it("removes named files only", async () => {
     const store = createFsAssetStore(dir);
-    await expect(store.read({ memoId: "../x", assetId: a })).rejects.toThrow("unsafe memo id");
+    await store.put({ memoId, assetId: a, bytes: new Uint8Array([1]) });
+    await store.put({ memoId, assetId: b, bytes: new Uint8Array([2]) });
+    await store.remove({ memoId, assetIds: [a, "33333333-3333-4333-8333-333333333333"] });
+    expect(await readdir(join(dir, memoId))).toEqual([b]);
+  });
+
+  it("reads an id that cannot name a file as a miss, and refuses to write one", async () => {
+    const store = createFsAssetStore(dir);
+    expect(await store.read({ memoId: "../x", assetId: a })).toBeNull();
+    expect(await store.read({ memoId, assetId: "../../x" })).toBeNull();
     await expect(
       store.put({ memoId, assetId: "../../x", bytes: new Uint8Array() }),
     ).rejects.toThrow("unsafe asset id");
+  });
+
+  it("maps only a missing file to a miss: any other failure rejects", async () => {
+    const store = createFsAssetStore(dir);
+    // A file where the memo's directory should be: reading under it is ENOTDIR, not ENOENT.
+    await writeFile(join(dir, memoId), "not a directory");
+    await expect(store.read({ memoId, assetId: a })).rejects.toThrow();
+    await expect(store.prune({ memoId, keep: new Set() })).rejects.toThrow();
   });
 });

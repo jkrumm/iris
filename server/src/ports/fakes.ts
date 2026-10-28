@@ -243,6 +243,9 @@ export function fakeAssetStore(): AssetStore & { files: Map<string, Uint8Array> 
     async read({ memoId, assetId }) {
       return files.get(`${memoId}/${assetId}`) ?? null;
     },
+    async remove({ memoId, assetIds }) {
+      for (const assetId of assetIds) files.delete(`${memoId}/${assetId}`);
+    },
     async prune({ memoId, keep }) {
       for (const key of files.keys()) {
         if (key.startsWith(`${memoId}/`) && !keep.has(key.slice(memoId.length + 1)))

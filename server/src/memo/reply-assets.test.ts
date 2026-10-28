@@ -103,22 +103,33 @@ describe("sync", () => {
     expect(assets.files.size).toBe(0);
   });
 
-  it("never throws: a failing store of the files costs the block, a failing database the whole pass", async () => {
+  it("never throws: a failing store of the files costs the block (reply.store_failed) and leaves no file behind", async () => {
     const { store, renderer, id, blocks } = setup();
+    const files = fakeAssetStore();
+    let puts = 0;
     const broken = {
-      ...fakeAssetStore(),
-      put: async () => {
-        throw new Error("disk full");
+      ...files,
+      put: async (params: Parameters<typeof files.put>[0]) => {
+        // The block's first two files land, the third fails.
+        if (++puts === 3) throw new Error("disk full");
+        await files.put(params);
       },
     };
     const { lines } = await captureLogs(() =>
       createReplyAssets({ store, assets: broken, renderer }).sync({
         memoId: id,
-        replyText: fence("A-->B"),
+        replyText: `${fence("A-->B")}\n${fence("C-->D")}`,
       }),
     );
-    expect(blocks()).toEqual([]);
-    expect(lines.map((l) => l["event"])).toEqual(["reply.render_failed"]);
+    expect(blocks().map((b) => b.index)).toEqual([1]);
+    expect(files.files.size).toBe(4);
+    expect(lines.map((l) => [l["event"], l["block"]])).toEqual([["reply.store_failed", 0]]);
+  });
+
+  it("never throws: a failing database costs the whole pass, its new files are removed and the earlier reply survives", async () => {
+    const { store, renderer, id, blocks, assets, replies } = setup();
+    await replies.sync({ memoId: id, replyText: fence("A-->B") });
+    const before = { files: [...assets.files.keys()], blocks: blocks() };
 
     const failingStore = {
       ...store,
@@ -126,13 +137,15 @@ describe("sync", () => {
         throw new Error("db locked");
       },
     };
-    const second = await captureLogs(() =>
-      createReplyAssets({ store: failingStore, assets: fakeAssetStore(), renderer }).sync({
+    const { lines } = await captureLogs(() =>
+      createReplyAssets({ store: failingStore, assets, renderer }).sync({
         memoId: id,
-        replyText: fence("A-->B"),
+        replyText: fence("X-->Y"),
       }),
     );
-    expect(second.lines.map((l) => l["event"])).toEqual(["reply.assets_failed"]);
+    expect(lines.map((l) => l["event"])).toEqual(["reply.assets_failed"]);
+    expect([...assets.files.keys()]).toEqual(before.files);
+    expect(blocks()).toEqual(before.blocks);
   });
 
   it("removes the files of a memo that was purged while its blocks rendered", async () => {
@@ -154,11 +167,14 @@ describe("sync", () => {
     }
   });
 
-  it(`renders at most ${MAX_BLOCKS} blocks and says so`, async () => {
+  it(`renders at most ${MAX_BLOCKS} blocks and logs reply.blocks_capped`, async () => {
     const { replies, id, blocks } = setup();
     const reply = Array.from({ length: MAX_BLOCKS + 3 }, (_, i) => fence(`A${i}-->B`)).join("\n");
     const { lines } = await captureLogs(() => replies.sync({ memoId: id, replyText: reply }));
     expect(blocks()).toHaveLength(MAX_BLOCKS);
-    expect(lines.filter((l) => l["event"] === "reply.render_failed")).toHaveLength(1);
+    expect(lines.filter((l) => l["event"] === "reply.blocks_capped")).toEqual([
+      expect.objectContaining({ memo_id: id, total: MAX_BLOCKS + 3, cap: MAX_BLOCKS }),
+    ]);
+    expect(lines.some((l) => l["event"] === "reply.render_failed")).toBe(false);
   });
 });
