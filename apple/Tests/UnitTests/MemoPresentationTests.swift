@@ -1,0 +1,76 @@
+import IrisCore
+import IrisUI
+import Testing
+
+@testable import Iris
+
+@Suite("Memo presentation")
+struct MemoPresentationTests {
+  @Test(
+    "audio lengths read as seconds, minutes and hours",
+    arguments: [
+      (38.4, "38 s"), (132.0, "2 min 12 s"), (2_460.0, "41 min"), (3_900.0, "1 h 5 min"), (7_200.0, "2 h"),
+    ])
+  func durations(seconds: Double, expected: String) {
+    #expect(DurationText.string(seconds: seconds) == expected)
+  }
+
+  @Test("the route is where the memo went, a tab by its name, the mode only before routing")
+  func routeLabel() {
+    #expect(MemoFactory.memo("a", route: "hermes").routeLabel == "Hermes")
+    #expect(MemoFactory.memo("a", route: "journal").routeLabel == "Journal")
+    #expect(MemoFactory.memo("a", route: "tab", destinationRef: "docs").routeLabel == "docs")
+    #expect(MemoFactory.memo("a", route: "herdr", destinationRef: "dotfiles").routeLabel == "dotfiles")
+    #expect(MemoFactory.memo("a", mode: .auto).routeLabel == "Auto")
+  }
+
+  @Test("a settled memo shows route and audio length, no cost")
+  func settledStatus() {
+    let memo = MemoFactory.memo("a", route: "hermes", audioSeconds: 38.4)
+    #expect(memo.rowStatus == .settled(route: "Hermes", dot: memo.routeDotColor, duration: "38 s"))
+    #expect(
+      MemoFactory.memo("a", route: "journal").rowStatus
+        == .settled(route: "Journal", dot: MemoFactory.memo("a", route: "journal").routeDotColor, duration: nil))
+  }
+
+  @Test("a memo that needs the user replaces the route with the coloured state")
+  func alertStatus() {
+    #expect(
+      MemoFactory.memo("a", state: .needsRoute).rowStatus == .alert(label: "Needs route", color: Theme.Status.warn))
+    #expect(
+      MemoFactory.memo("a", state: .failed, failedStep: .summarize).rowStatus
+        == .alert(label: "Failed · summarize", color: Theme.Status.bad))
+  }
+
+  @Test("a memo the pipeline is driving says Acting next to its route")
+  func inFlightStatus() {
+    let memo = MemoFactory.memo("a", state: .acted, route: "hermes")
+    #expect(memo.rowStatus == .inFlight(route: "Hermes", dot: memo.routeDotColor, label: "Acting"))
+    #expect(MemoFactory.memo("a", state: .received).rowStatus.isInFlight)
+  }
+
+  @Test("the secondary line: failure hint, parked hint, else the summary's first line")
+  func secondaryLine() {
+    let failed = MemoFactory.memo(
+      "a", state: .failed, failedStep: .summarize, error: "agw job failed (upstream 503)", transcript: "Prompt an Tab")
+    #expect(failed.rowSecondary == "agw job failed (upstream 503) — retry from summarize")
+
+    // Without a transcript the error is the headline, so the secondary line is only the hint.
+    let noTranscript = Memo(
+      id: "b", mode: .auto, device: "iphone", startedAt: MemoFactory.now, state: .failed, failedStep: .transcribe,
+      error: "transcribe failed: 502", createdAt: MemoFactory.now, updatedAt: MemoFactory.now)
+    #expect(noTranscript.rowSecondary == "retry from transcribe")
+
+    #expect(MemoFactory.memo("a", state: .needsRoute).rowSecondary == "Tap to decide")
+
+    let summary = MemoSummary(headline: "H", detail: "Montag PR-Review\nMittwoch Feature-Freeze", spoken: "s")
+    #expect(MemoFactory.memo("a", summary: summary).rowSecondary == "Montag PR-Review")
+    #expect(MemoFactory.memo("a").rowSecondary == nil)
+  }
+}
+
+extension HistoryRowStatus {
+  fileprivate var isInFlight: Bool {
+    if case .inFlight = self { true } else { false }
+  }
+}

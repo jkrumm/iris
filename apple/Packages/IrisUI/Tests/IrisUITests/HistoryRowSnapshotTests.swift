@@ -9,43 +9,62 @@
   @Suite(.snapshots(record: SnapshotSupport.record))
   struct HistoryRowSnapshotTests {
     private func row(
-      state: String, color: Color, headline: String, needsAttention: Bool = false, done: Bool = false,
-      favorite: Bool = false
+      _ status: HistoryRowStatus, headline: String, secondary: String? = nil, time: String = "9:21",
+      needsAttention: Bool = false, done: Bool = false, favorite: Bool = false
     ) -> some View {
       HistoryRow(
-        routeLabel: "Hermes", stateLabel: state, stateColor: color, headline: headline, timeText: "2 hours ago",
-        isDone: done, isFavorite: favorite
+        status: status, headline: headline, secondary: secondary, timeText: time, isDone: done, isFavorite: favorite
       )
-      .padding(.horizontal, Theme.Spacing.lg)
-      .padding(.vertical, Theme.Spacing.sm)
+      .padding(.horizontal, Theme.Spacing.xl)
       .background { HistoryRowBackground(needsAttention: needsAttention) }
     }
 
-    @Test("a settled row", .tags(.snapshot))
-    func plain() {
+    @Test("a settled row: route, audio length, summary line", .tags(.snapshot))
+    func settled() {
       SnapshotSupport.assertLightAndDark(
-        row(state: "Done", color: Theme.Status.good, headline: "Wochenplan abgestimmt, Release am Donnerstag"),
-        width: 390, height: 140)
+        row(
+          .settled(route: "Hermes", dot: Theme.Accent.tint, duration: "38 s"),
+          headline: "Wochenplan abgestimmt, Release am Donnerstag",
+          secondary: "Montag PR-Review, Mittwoch Feature-Freeze, Donnerstag Release"),
+        width: 390, height: 120)
     }
 
-    @Test("a parked row is tinted", .tags(.snapshot))
+    @Test("a parked row is tinted and says what to do", .tags(.snapshot))
     func needsRoute() {
       SnapshotSupport.assertLightAndDark(
         row(
-          state: "Needs a route", color: Theme.Status.warn,
-          headline: "Schreib das bitte in mein Journal und gib mir morgen früh eine Zusammenfassung.",
-          needsAttention: true),
-        width: 390, height: 150)
+          .alert(label: "Needs route", color: Theme.Status.warn),
+          headline: "Where does “Router bestellen und Netzwerkplan prüfen” go?", secondary: "Tap to decide",
+          time: "9:48", needsAttention: true),
+        width: 390, height: 120)
+    }
+
+    @Test("a failed row names the step and the retry", .tags(.snapshot))
+    func failed() {
+      SnapshotSupport.assertLightAndDark(
+        row(
+          .alert(label: "Failed · summarize", color: Theme.Status.bad),
+          headline: "Prompt an Tab dotfiles: Brewfile um xcodegen ergänzen",
+          secondary: "agw job failed (upstream 503) — retry from summarize", time: "9:31"),
+        width: 390, height: 120)
+    }
+
+    @Test("a row in flight says Acting", .tags(.snapshot))
+    func inFlight() {
+      SnapshotSupport.assertLightAndDark(
+        row(
+          .inFlight(route: "Hermes", dot: Theme.Accent.tint, label: "Acting"),
+          headline: "Which Postgres index fits the herd snapshot query?", time: "9:46"),
+        width: 390, height: 100)
     }
 
     @Test("a done favorite is dimmed with a check and a star", .tags(.snapshot))
     func doneFavorite() {
       SnapshotSupport.assertLightAndDark(
         row(
-          state: "Done", color: Theme.Status.good,
-          headline: "Docs tab adds a troubleshooting section for upload retries",
-          done: true, favorite: true),
-        width: 390, height: 150)
+          .settled(route: "docs", dot: Theme.Ink.secondary, duration: "21 s"),
+          headline: "Docs tab adds a troubleshooting section for upload retries", done: true, favorite: true),
+        width: 390, height: 100)
     }
   }
 #endif

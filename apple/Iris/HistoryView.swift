@@ -9,18 +9,28 @@ struct HistoryView: View {
   var body: some View {
     NavigationStack {
       List {
-        ForEach(model.memos) { memo in
-          NavigationLink(value: memo) {
-            HistoryRow(
-              routeLabel: memo.routeLabel, stateLabel: memo.state.label, stateColor: memo.state.color,
-              headline: memo.rowHeadline, timeText: memo.relativeTime, isDone: memo.done, isFavorite: memo.favorite)
+        ForEach(HistoryDaySection.group(model.memos)) { section in
+          Section {
+            ForEach(section.memos) { memo in
+              NavigationLink(value: memo) {
+                HistoryRow(
+                  status: memo.rowStatus, headline: memo.rowHeadline, secondary: memo.rowSecondary,
+                  timeText: memo.timeText, isDone: memo.done, isFavorite: memo.favorite)
+              }
+              .accessibilityIdentifier("history.row")
+              .listRowBackground(HistoryRowBackground(needsAttention: memo.isOpenNeedsRoute))
+              .modifier(MemoSwipeActions(memo: memo, model: model))
+              .task { await model.loadMoreIfNeeded(current: memo) }
+            }
+          } header: {
+            Text(verbatim: section.title())
+              .themeFont(.caption, weight: .semibold)
+              .textCase(.uppercase)
+              .foregroundStyle(Theme.Ink.muted)
           }
-          .accessibilityIdentifier("history.row")
-          .listRowBackground(HistoryRowBackground(needsAttention: memo.isOpenNeedsRoute))
-          .modifier(MemoSwipeActions(memo: memo, model: model))
-          .task { await model.loadMoreIfNeeded(current: memo) }
         }
       }
+      .listStyle(.plain)
       .accessibilityIdentifier("history.list")
       .scrollContentBackground(.hidden)
       .background(Theme.Surface.background)
@@ -31,6 +41,7 @@ struct HistoryView: View {
       }
       .overlay(alignment: .bottom) { toastBanner }
       .navigationTitle(String(localized: "History", comment: "Navigation title of the memo list"))
+      .navigationSubtitle(HistoryDaySection.subtitle(for: model.memos) ?? "")
       .navigationDestination(for: Memo.self) { memo in
         MemoDetailView(memo: memo)
       }
@@ -76,7 +87,7 @@ struct HistoryView: View {
       ContentUnavailableView(
         String(localized: "Could not load memos", comment: "History error title"),
         systemImage: "exclamationmark.triangle")
-    } else if model.hasLoaded && model.memos.isEmpty {
+    } else if model.hasLoaded && !model.isLoading && model.memos.isEmpty {
       if model.filters.searchText.isEmpty {
         ContentUnavailableView(
           String(localized: "No memos", comment: "History empty title"), systemImage: "tray",
