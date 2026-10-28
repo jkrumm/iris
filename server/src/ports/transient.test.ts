@@ -24,23 +24,6 @@ describe("fetchFailure", () => {
     expect(transientKind(fetchFailure(new DOMException("a", "AbortError")))).toBe("after_send");
   });
 
-  it("fails a timeout or abort for good when it is a hang guard", () => {
-    for (const name of ["TimeoutError", "AbortError"]) {
-      const failure = fetchFailure(new DOMException("t", name), { hangGuard: true });
-      expect(failure).toBeInstanceOf(Error);
-      expect(transientKind(failure)).toBeNull();
-    }
-  });
-
-  it("still retries a refused or reset connection under a hang guard", () => {
-    expect(transientKind(fetchFailure(withCode("ECONNREFUSED"), { hangGuard: true }))).toBe(
-      "before_send",
-    );
-    expect(transientKind(fetchFailure(withCode("ECONNRESET"), { hangGuard: true }))).toBe(
-      "after_send",
-    );
-  });
-
   it("returns anything else untouched", () => {
     const bug = new RangeError("boom");
     expect(fetchFailure(bug)).toBe(bug);

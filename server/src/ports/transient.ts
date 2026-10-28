@@ -59,17 +59,13 @@ export const hangGuardFailure = (message: string, options?: { cause?: unknown })
 /**
  * Wraps what `fetch` threw: a timeout or abort, a reset or an unrecognised "fetch failed" is `after_send` (it may have
  * reached the server); a refused connection or a DNS failure is `before_send`. Anything else (a bug) is returned as is.
- * With `hangGuard`, the timeout or abort is the call's hang guard firing and fails for good (`hangGuardFailure`); a short
- * request timeout that means "try again" leaves it off.
+ * A call guarded by a hang guard (not a short "try again" timeout) throws `hangGuardFailure` itself instead.
  */
-export function fetchFailure(err: unknown, opts?: { hangGuard?: boolean }): unknown {
+export function fetchFailure(err: unknown): unknown {
   if (err instanceof TransientError) return err;
   const message = err instanceof Error ? err.message : String(err);
   const name = err instanceof Error ? err.name : "";
   if (name === "TimeoutError" || name === "AbortError") {
-    if (opts?.hangGuard) {
-      return hangGuardFailure(`request hung past its guard: ${message}`, { cause: err });
-    }
     return new TransientError(`request timed out or aborted: ${message}`, "after_send", {
       cause: err,
     });

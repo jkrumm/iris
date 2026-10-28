@@ -1,5 +1,3 @@
-import { systemSleep, type Sleep } from "../ports/clock.js";
-
 /** A caller gave up waiting for the tasks ahead of it on its key; the task it queued never runs. */
 export class KeyedQueueTimeout extends Error {
   constructor(
@@ -7,16 +5,32 @@ export class KeyedQueueTimeout extends Error {
     readonly waitedMs: number,
     readonly ahead: string,
   ) {
-    super(`waited ${waitedMs} ms on ${key} behind ${ahead}, which has not finished`);
+    super(`thread ${key} is busy: waited ${waitedMs} ms behind ${ahead}, which has not finished`);
     this.name = "KeyedQueueTimeout";
   }
 }
+
+/** Waits `ms`, or settles early once `signal` aborts: the queue aborts it when the turn ahead wins, so no timer is left behind. */
+export type CancellableSleep = (ms: number, signal: AbortSignal) => Promise<void>;
+
+const timerSleep: CancellableSleep = (ms, signal) =>
+  new Promise((resolve) => {
+    const timer = setTimeout(resolve, ms);
+    signal.addEventListener(
+      "abort",
+      () => {
+        clearTimeout(timer);
+        resolve();
+      },
+      { once: true },
+    );
+  });
 
 export interface KeyedQueueOptions {
   /** How long a caller waits for the tasks ahead of it on its key; unbounded when absent. A task that has started always runs to its end. */
   maxWaitMs?: number;
   /** Times that wait; tests inject an instant or manual one. */
-  sleep?: Sleep;
+  sleep?: CancellableSleep;
 }
 
 /** Runs `task` after everything queued before it on `key`; `label` names this task in a later caller's timeout. */
@@ -31,7 +45,7 @@ export type KeyedQueue = <T>(key: string, task: () => Promise<T>, label?: string
  * a later caller still waits for that task and the stuck one's eventual completion does not disturb anyone.
  */
 export function createKeyedQueue(opts: KeyedQueueOptions = {}): KeyedQueue {
-  const { maxWaitMs, sleep = systemSleep } = opts;
+  const { maxWaitMs, sleep = timerSleep } = opts;
   // Per key: the tail of its line (never rejects), and the labels of the tasks that have not finished, oldest first.
   const lines = new Map<string, { tail: Promise<void>; pending: { label: string }[] }>();
 
@@ -48,10 +62,12 @@ export function createKeyedQueue(opts: KeyedQueueOptions = {}): KeyedQueue {
     } else if (maxWaitMs === undefined) {
       run = prev.then(task);
     } else {
+      const timer = new AbortController();
       run = Promise.race([
         prev.then(() => "turn" as const),
-        sleep(maxWaitMs).then(() => "timeout" as const),
+        sleep(maxWaitMs, timer.signal).then(() => "timeout" as const),
       ]).then((winner) => {
+        timer.abort();
         if (winner === "timeout") {
           const ahead = pending.find((other) => other !== entry)?.label ?? key;
           throw new KeyedQueueTimeout(key, maxWaitMs, ahead);
