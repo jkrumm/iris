@@ -30,12 +30,13 @@ describe("createKeyedQueue", () => {
   });
 });
 
-/** A sleep that only finishes when the test says so, per call. */
+/** A sleep that only finishes when the test fires it, or when the queue cancels it. */
 function manualSleep() {
-  const waits: { ms: number; fire: () => void }[] = [];
-  const sleep = (ms: number) =>
+  const waits: { ms: number; signal: AbortSignal; fire: () => void }[] = [];
+  const sleep = (ms: number, signal: AbortSignal) =>
     new Promise<void>((resolve) => {
-      waits.push({ ms, fire: resolve });
+      waits.push({ ms, signal, fire: resolve });
+      signal.addEventListener("abort", () => resolve(), { once: true });
     });
   return { sleep, waits };
 }
@@ -63,7 +64,21 @@ describe("createKeyedQueue, bounded wait", () => {
     expect(waits.map((w) => w.ms)).toEqual([100]);
     first.open();
     await expect(Promise.all([a1, a2])).resolves.toEqual(["one", "two"]);
-    waits[0]?.fire();
+    expect(waits[0]?.signal.aborted).toBe(true);
+  });
+
+  it("clears the wait of every served caller, even when the turn ahead failed", async () => {
+    const { sleep, waits } = manualSleep();
+    const queue = createKeyedQueue({ maxWaitMs: 100, sleep });
+    const first = gate();
+    const a1 = queue("a", () => first.opened.then(() => Promise.reject(new Error("boom"))));
+    const a2 = queue("a", () => Promise.resolve("two"));
+    const a3 = queue("a", () => Promise.resolve("three"));
+    expect(waits.map((w) => w.signal.aborted)).toEqual([false, false]);
+    first.open();
+    await expect(a1).rejects.toThrow("boom");
+    await expect(Promise.all([a2, a3])).resolves.toEqual(["two", "three"]);
+    expect(waits.map((w) => w.signal.aborted)).toEqual([true, true]);
   });
 
   it("fails a caller that waits past the bound, names the turn ahead and never runs its task", async () => {
@@ -78,7 +93,9 @@ describe("createKeyedQueue, bounded wait", () => {
     const err = await second.catch((e: unknown) => e);
     expect(err).toBeInstanceOf(KeyedQueueTimeout);
     expect(err).toMatchObject({ key: "thread-1", waitedMs: 1500, ahead: "memo m1" });
-    expect((err as Error).message).toContain("memo m1");
+    expect((err as Error).message).toBe(
+      "thread thread-1 is busy: waited 1500 ms behind memo m1, which has not finished",
+    );
 
     stuck.open();
     await first;

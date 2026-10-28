@@ -1,4 +1,4 @@
-import { createKeyedQueue, KeyedQueueTimeout } from "../memo/keyed-queue.js";
+import { createKeyedQueue } from "../memo/keyed-queue.js";
 import {
   continuedThread,
   type HandlerStep,
@@ -226,12 +226,6 @@ export function createStepHandlers(deps: {
         delivery = await (threadId ? inThread(threadId, deliver, `memo ${memo.id}`) : deliver());
       } catch (err) {
         if (err instanceof TabGoneError) return park(err.message, err.tab);
-        if (err instanceof KeyedQueueTimeout) {
-          throw new Error(
-            `thread ${err.key} is busy: waited ${err.waitedMs} ms behind ${err.ahead}, which has not finished`,
-            { cause: err },
-          );
-        }
         throw err;
       }
       getActiveSpan().setAttributes({
