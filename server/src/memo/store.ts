@@ -33,6 +33,8 @@ export interface ThreadStore {
   }): { threads: Thread[]; nextCursor: string | null };
   /** The memos whose `thread_id` is `id`, oldest first. */
   listThreadMemos(id: string): Memo[];
+  /** When `act` finished (the assistant's reply landed) for each live memo of the thread that got that far, by memo id. */
+  listThreadReplies(id: string): Map<string, string>;
 }
 
 /** Synchronous on purpose: the one adapter is bun:sqlite, and every method is a single statement or transaction. */

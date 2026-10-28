@@ -131,3 +131,36 @@ describe("listThreadMemos", () => {
     expect(ctx.store.listThreadMemos("none")).toEqual([]);
   });
 });
+
+describe("listThreadReplies", () => {
+  it("maps each live memo of the thread to when its act step finished", () => {
+    const ctx = testStore();
+    const make = (id: string, threadId?: string) =>
+      ctx.store.createTextMemo({
+        id,
+        mode: "chat",
+        device: "iphone",
+        startedAt: "2026-01-01T00:00:00.000Z",
+        text: id,
+        threadId,
+      }).memo;
+    addThread(ctx, { id: "t", kind: "chat", updatedAt: "2026-01-01T00:00:00.000Z" });
+    for (const id of ["m1", "m2", "m3", "gone"]) make(id, "t");
+    make("other");
+    const step = (memo: string, name: string, status: string, finishedAt: string | null) =>
+      ctx.db
+        .query(
+          "INSERT INTO memo_steps (memo_id, step, status, started_at, finished_at) VALUES (?, ?, ?, ?, ?)",
+        )
+        .run(memo, name, status, "2026-01-01T00:00:00.000Z", finishedAt);
+    step("m1", "act", "done", "2026-01-01T00:01:00.000Z");
+    step("m1", "summarize", "done", "2026-01-01T00:02:00.000Z");
+    step("m2", "act", "running", null);
+    step("gone", "act", "done", "2026-01-01T00:03:00.000Z");
+    step("other", "act", "done", "2026-01-01T00:04:00.000Z");
+    ctx.store.markDeleted({ id: "gone", at: "2026-01-02T00:00:00.000Z" });
+
+    expect(ctx.store.listThreadReplies("t")).toEqual(new Map([["m1", "2026-01-01T00:01:00.000Z"]]));
+    expect(ctx.store.listThreadReplies("none")).toEqual(new Map());
+  });
+});
