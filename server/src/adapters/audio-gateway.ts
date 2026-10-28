@@ -119,6 +119,13 @@ export function createAudioGatewayTranscriber(opts: AudioGatewayTranscriberOptio
   const doFetch = opts.fetch ?? fetch;
   const concat = opts.concat ?? ffmpegConcat;
   const timeoutMs = opts.timeoutMs ?? TIMEOUT_MS;
+  // The hang guard fired: the step fails after this one window, it is not retried (`hangGuardFailure`).
+  const hungOr = (err: unknown, otherwise: (err: unknown) => unknown): unknown =>
+    err instanceof Error && err.name === "TimeoutError"
+      ? hangGuardFailure(`audio-gateway transcription timed out after ${timeoutMs} ms`, {
+          cause: err,
+        })
+      : otherwise(err);
   const url = `${opts.baseUrl.replace(/\/+$/, "")}/v1/audio/transcriptions`;
 
   return {
@@ -141,16 +148,7 @@ export function createAudioGatewayTranscriber(opts: AudioGatewayTranscriberOptio
             body: form,
             signal: AbortSignal.timeout(timeoutMs),
           }).catch((err: unknown) => {
-            // The hang guard fired: the step fails after this one window, it is not retried (`hangGuardFailure`).
-            if (err instanceof Error && err.name === "TimeoutError") {
-              throw hangGuardFailure(
-                `audio-gateway transcription timed out after ${timeoutMs} ms`,
-                {
-                  cause: err,
-                },
-              );
-            }
-            throw fetchFailure(err);
+            throw hungOr(err, fetchFailure);
           });
           span.setAttributes({ status: res.status });
           if (!res.ok) {
@@ -162,7 +160,12 @@ export function createAudioGatewayTranscriber(opts: AudioGatewayTranscriberOptio
             );
           }
 
-          const parsed = TranscriptionResponse.safeParse(await res.json().catch(() => null));
+          const parsed = TranscriptionResponse.safeParse(
+            await res.json().catch((err: unknown) => {
+              // The window also covers the body: a timeout while it streams is the same hang.
+              throw hungOr(err, () => null);
+            }),
+          );
           if (!parsed.success) {
             throw new Error("audio-gateway transcription response has no text field");
           }
