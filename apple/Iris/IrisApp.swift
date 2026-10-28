@@ -8,9 +8,10 @@ struct IrisApp: App {
     WindowGroup {
       RootView(
         history: root.history, stats: root.stats, settings: root.settings, diagnostics: root.diagnostics,
+        connectionForm: root.connectionForm, startsOnSettings: root.opensOnSettings,
         makeDetail: root.detailModel(for:), makeComposer: root.composerModel(for:)
       )
-      .task { await root.start() }
+      .task(id: root.connectionRevision) { await root.start() }
     }
   }
 }

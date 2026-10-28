@@ -12,6 +12,8 @@ final class StatsModel {
 
   private let client: any APIClient
   private let logger = Logger(subsystem: "com.jkrumm.iris", category: "stats")
+  /// Bumped by every load; an answer that finds it changed belongs to a load that has been superseded.
+  private var generation = 0
 
   init(client: any APIClient) {
     self.client = client
@@ -24,14 +26,19 @@ final class StatsModel {
 
   /// Loads the window. A failure keeps what is on screen; the error state only shows when there is nothing yet.
   func load() async {
+    generation += 1
+    let current = generation
     isLoading = true
-    defer { isLoading = false }
+    defer { if current == generation { isLoading = false } }
     do {
-      stats = try await client.stats(StatsQuery(days: StatsReport.windowDays))
+      let loaded = try await client.stats(StatsQuery(days: StatsReport.windowDays))
+      guard current == generation else { return }
+      stats = loaded
       loadFailed = false
     } catch is CancellationError {
       return
     } catch {
+      guard current == generation else { return }
       logger.error("stats load failed: \(String(describing: error), privacy: .public)")
       loadFailed = true
     }

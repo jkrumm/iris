@@ -42,14 +42,12 @@ struct MemoDetailView: View {
     .navigationBarTitleDisplayMode(.inline)
     .toolbarVisibility(.hidden, for: .tabBar)
     .task(id: refreshToken()) { await model.load() }
-    .task(id: model.audioRequest) { playback.recording.load(model.audioRequest) }
-    .task(id: playback.recording.isPlaying) { await playback.recording.track() }
-    .task(id: playback.reply.isPlaying) { await playback.reply.track() }
+    .task(id: model.audioRequest) { await playback.recording.load(model.audioRequest) }
     .task(id: model.failure) {
       guard model.failure != nil, (try? await Task.sleep(for: .seconds(4))) != nil else { return }
       model.dismissFailure()
     }
-    .onDisappear { playback.pauseAll() }
+    .onDisappear { playback.teardown() }
   }
 
   // MARK: Sections
@@ -165,7 +163,7 @@ struct MemoDetailView: View {
       canReply: model.canReply,
       retryOptions: model.retrySteps.map { DetailRetryOption(id: $0.rawValue, title: $0.title) },
       primaryRetryID: model.primaryRetryStep?.rawValue,
-      onPlayReply: { playback.toggleReply(loading: model.speechRequest) },
+      onPlayReply: { Task { await playback.toggleReply(loading: model.speechRequest) } },
       onReply: { onReply(model.memo) },
       onRetry: retry
     )

@@ -48,7 +48,7 @@ struct StatsReportTests {
   func dayTiles() {
     let report = StatsReport(stats: stats, granularity: .days, locale: english)
     // 12 memos now against 4 before: +200 %. Wed 21 is the busiest day with 5. Cost is the window's, 16 memos.
-    #expect(report.tiles.map(\.value) == ["12", report.bars[0].name, StepText.cost(1.6)])
+    #expect(report.tiles.map(\.value) == ["12", report.bars[0].name, StepText.dollars(1.6)])
     #expect(report.tiles[0].caption?.contains("200") == true)
     #expect(report.tiles[1].caption?.contains("5") == true)
     #expect(report.tiles[2].caption?.contains(StepText.cost(0.1)) == true)

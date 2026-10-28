@@ -41,4 +41,22 @@ struct StatsModelTests {
     #expect(model.loadFailed)
     #expect(model.report != nil)
   }
+
+  @Test("a stale load never overwrites a newer one")
+  func staleLoad() async {
+    await client.setStats(SampleData.stats())
+    let gate = await client.hold(.stats)
+    let stale = Task { await model.load() }
+    defer { gate.release() }
+    guard await waitUntilHeld(gate) else { return }
+
+    // The held call has read the sample numbers; the newer load sees an empty window and answers first.
+    await client.setStats(Stats(days: 30, from: "1970-01-01", to: "1970-01-30"))
+    await model.load()
+    #expect(model.stats?.perDay.isEmpty == true)
+    gate.release()
+    await stale.value
+    #expect(model.stats?.perDay.isEmpty == true)
+    #expect(!model.isLoading)
+  }
 }

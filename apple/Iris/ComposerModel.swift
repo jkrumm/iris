@@ -64,6 +64,9 @@ final class ComposerModel {
 
   var canSend: Bool { characterCount > 0 && !isOverLimit && !isSending }
 
+  /// Cancel closes the sheet and would drop the answer of a send that is already on the wire.
+  var canCancel: Bool { !isSending }
+
   /// Creates the memo; nil when the send failed (``failure`` says so) or there is nothing to send.
   func send() async -> Memo? {
     guard canSend else { return nil }

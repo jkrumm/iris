@@ -46,4 +46,35 @@ struct SettingsModelTests {
     await filled.load()
     #expect(filled.queue == [item])
   }
+
+  @Test("a stale load never overwrites a newer one")
+  func staleLoad() async {
+    let model = SettingsModel(client: client)
+    await client.setHealth(Health(status: .degraded, degraded: ["hermes"], inflight: 0))
+    let gate = await client.hold(.health)
+    let stale = Task { await model.load() }
+    defer { gate.release() }
+    guard await waitUntilHeld(gate) else { return }
+
+    await client.setHealth(Health(status: .ok, degraded: [], inflight: 0))
+    await model.load()
+    #expect(model.connection == .connected)
+    gate.release()
+    await stale.value
+    #expect(model.connection == .connected)
+  }
+
+  @Test("with no saved connection it says so and asks the server nothing")
+  func notConfigured() async {
+    let store = InMemoryCredentialStore()
+    let model = SettingsModel(client: client, credentials: store)
+    #expect(model.connection == .notConfigured)
+    await model.load()
+    #expect(model.connection == .notConfigured)
+    #expect(await client.calls.isEmpty)
+
+    store.set(ConnectionCredentials(urlText: "https://iris.example.com", token: "t"))
+    await model.load()
+    #expect(model.connection == .connected)
+  }
 }
