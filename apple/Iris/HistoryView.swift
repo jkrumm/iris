@@ -71,10 +71,16 @@ struct HistoryView: View {
         await model.load()
       }
       .task(id: model.toast?.id) {
-        guard let id = model.toast?.id, (try? await Task.sleep(for: .seconds(5))) != nil else { return }
+        guard let id = model.toast?.id, (try? await Task.sleep(for: .seconds(undoSeconds))) != nil else { return }
         model.dismissToast(id: id)
       }
     }
+  }
+
+  /// How long the undo toast stays; UI tests stretch it (`-IrisUndoSeconds 60`) so a slow runner can still tap Undo.
+  private var undoSeconds: Double {
+    let override = UserDefaults.standard.double(forKey: "IrisUndoSeconds")
+    return override > 0 ? override : 5
   }
 
   private var filterIcon: String {
