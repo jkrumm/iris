@@ -57,13 +57,14 @@ function decodeCursor(cursor: string): { updatedAt: string; id: string } {
 
 /**
  * The thread read model over the memo database. The rows are written by the memo store's `completeStep`
- * (`act` upserts the thread it ran in); `getMemo` is the memo store's, so a thread's memos serialize like any other.
+ * (`act` upserts the thread it ran in); `memosOfThread` is the memo store's, so a thread's memos serialize like any other.
  */
 export function createSqliteThreadStore(params: {
   db: Database;
-  getMemo: (id: string) => Memo | null;
+  /** One query for the live memos of a thread, oldest first, serialized like any other memo. */
+  memosOfThread: (threadId: string) => Memo[];
 }): ThreadStore {
-  const { db, getMemo } = params;
+  const { db, memosOfThread } = params;
   return {
     getThread(id) {
       const row = db
@@ -98,13 +99,17 @@ export function createSqliteThreadStore(params: {
       };
     },
 
-    listThreadMemos(id) {
-      return db
-        .query<{ id: string }, [string]>(
-          "SELECT id FROM memos WHERE thread_id = ? AND deleted_at IS NULL ORDER BY seq",
+    listThreadMemos: memosOfThread,
+
+    listThreadReplies(id) {
+      const rows = db
+        .query<{ memo_id: string; finished_at: string }, [string]>(
+          `SELECT s.memo_id, s.finished_at FROM memo_steps s JOIN memos m ON m.id = s.memo_id
+           WHERE m.thread_id = ? AND m.deleted_at IS NULL AND s.step = 'act' AND s.status = 'done'
+             AND s.finished_at IS NOT NULL`,
         )
-        .all(id)
-        .flatMap((row) => getMemo(row.id) ?? []);
+        .all(id);
+      return new Map(rows.map((row) => [row.memo_id, row.finished_at]));
     },
   };
 }

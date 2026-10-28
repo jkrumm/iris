@@ -635,5 +635,17 @@ export function createSqliteMemoStore(params: { db: Database; clock: Clock }): M
     },
   };
 
-  return { ...memoStore, ...createSqliteThreadStore({ db, getMemo: memoStore.getMemo }) };
+  return {
+    ...memoStore,
+    ...createSqliteThreadStore({
+      db,
+      memosOfThread: (threadId) =>
+        db
+          .query<MemoRow, [string]>(
+            `SELECT ${MEMO_SELECT} FROM memos WHERE thread_id = ? AND deleted_at IS NULL ORDER BY seq`,
+          )
+          .all(threadId)
+          .map(toMemo),
+    }),
+  };
 }

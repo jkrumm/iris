@@ -446,13 +446,9 @@ export function createMemoService(deps: {
       const thread = store.getThread(id);
       if (!thread) throw new MemoError("not_found", `thread ${id} not found`);
       const memos = store.listThreadMemos(id);
+      const replies = store.listThreadReplies(id);
       const messages = threadMessages(
-        memos.map((memo) => ({
-          memo,
-          repliedAt:
-            store.listStepRecords(memo.id).find((r) => r.step === "act" && r.status === "done")
-              ?.finishedAt ?? null,
-        })),
+        memos.map((memo) => ({ memo, repliedAt: replies.get(memo.id) ?? null })),
       );
       return { thread, memos, messages };
     },
