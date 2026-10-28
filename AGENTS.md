@@ -125,7 +125,7 @@ All under `/v1`, `Authorization: Bearer <token>`. Errors: `{error: <code>, messa
 | `GET /stats?days=<n>` | `{days, from, to, perDay, perWeek, stepMedians (per step and route, with n), costPerRoute}` over the last `n` local days (default 30, 1..365 else 400); read-only SQL/JS aggregates, `null` route = `unrouted` |
 | `GET /events` | SSE: `ready`, `memo.updated` per state change (and per flag change, delete or restore, without `memo.done`), plus `memo.done` when result-ready, `: keepalive` every 15 s |
 
-Codes: not_found 404, conflict / bad_state 409, missing_segments 422, too_large 413, bad_request 400, unavailable 503.
+Codes: not_found 404, conflict / bad_state / destination_unavailable 409, missing_segments 422, too_large 413, bad_request 400, unavailable 503.
 Wire JSON is camelCase.
 States: `receiving → received → transcribed → routed | needs_route → acted → summarized → notified`,
 with `failed(step)` as a side state.
@@ -252,7 +252,7 @@ Push to master deploys. LaunchAgent `com.jkrumm.iris` (KeepAlive, `ExitTimeOut` 
   (Hermes' per-turn ephemeral system prompt, not stored). Hermes maps unknown `source` values to `api_server`, so `threads.kind` (`chat|hermes`) is the
   marker, not Hermes. The Hermes adapter names the thread in its `Delivery.thread` (`{id, kind, title}`, id = session id = `destination_ref`); `act` persists it
   (`patch.thread`: `completeStep` upserts the `threads` row and sets the `act`-owned `memos.thread_id`). The memo wire carries `threadId`, omitted when null.
-  Continuing a thread: `threadId` on either create route (404 unknown thread, 409 on a replay naming another; `continuedThread` in `memo.ts` tells a continuation from a memo's own
+  Continuing a thread: `threadId` on either create route (404 unknown thread, 409 `destination_unavailable` while hermes is not registered, 409 on a replay naming another; `continuedThread` in `memo.ts` tells a continuation from a memo's own
   session, whose id is the memo id), the route step forces `hermes`, `deliver({threadId})` talks into the existing session and `chat` comes from the thread's kind. `/threads/:id`
   builds its conversation from the thread's memos (transcript = user, `reply_text` = assistant), never from Hermes. Swift: `MemoMode` decodes an unknown value to `.unknown`.
 - **Routing** (`routing/`, TDD §3 step 3), in order: a mode other than `auto` wins (source `mode`); a spoken prefix within the first 6 words

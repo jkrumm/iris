@@ -6,6 +6,7 @@ export const MEMO_ERROR_CODES = [
   "too_large",
   "bad_request",
   "unavailable",
+  "destination_unavailable",
 ] as const;
 export type MemoErrorCode = (typeof MEMO_ERROR_CODES)[number];
 

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import { fakeAudio } from "../memo/test-support.js";
 import { createStepHandlers } from "../pipeline/steps.js";
+import type { DestinationName } from "../ports/destination.js";
 import { fakeDestination, fakeNotifier, fakeSummarizer } from "../ports/fakes.js";
 import { call, MAC, PHONE, testApp } from "./test-support.js";
 
@@ -8,10 +9,10 @@ const newId = () => crypto.randomUUID();
 const START = "2026-01-01T00:00:00.000Z";
 
 /** The whole server with the real step handlers over a fake Hermes (a session per memo, `threadId` continues one). */
-function setup() {
+function setup(destinations: DestinationName[] = ["hermes"]) {
   const hermes = fakeDestination({ sessionPerMemo: true });
   const ctx = testApp({
-    destinations: ["hermes"],
+    destinations,
     handlers: (store) =>
       createStepHandlers({
         store,
@@ -244,6 +245,28 @@ describe("continuing a thread", () => {
     });
     expect(rec.status).toBe(404);
     expect(((await rec.json()) as { error: string }).error).toBe("not_found");
+    expect(ctx.store.getMemo(id)).toBeNull();
+    expect(ctx.store.listMemos({ limit: 5 }).memos).toEqual([]);
+  });
+
+  it("answers 409 destination_unavailable while hermes is not registered, on both create routes, and stores nothing", async () => {
+    const ctx = setup(["journal"]);
+    ctx.db
+      .query(
+        `INSERT INTO threads (id, kind, title, created_at, updated_at) VALUES ('t', 'chat', 'title', ?, ?)`,
+      )
+      .run(START, START);
+    const text = await postText(ctx, { threadId: "t" });
+    expect(text.status).toBe(409);
+    expect(((await text.json()) as { error: string }).error).toBe("destination_unavailable");
+    const id = newId();
+    const rec = await call(ctx.app, {
+      method: "POST",
+      path: "/v1/memos",
+      json: { id, mode: "chat", startedAt: START, threadId: "t" },
+    });
+    expect(rec.status).toBe(409);
+    expect(((await rec.json()) as { error: string }).error).toBe("destination_unavailable");
     expect(ctx.store.getMemo(id)).toBeNull();
     expect(ctx.store.listMemos({ limit: 5 }).memos).toEqual([]);
   });
