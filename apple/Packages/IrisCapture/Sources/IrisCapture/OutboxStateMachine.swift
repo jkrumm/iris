@@ -18,6 +18,9 @@ public struct OutboxStateMachine: Sendable {
   private(set) var memos: [MemoID: OutboxMemo] = [:]
   private(set) var items: [MemoID: OutboxItem] = [:]
   private var nextSequence: Int
+  /// Items whose first save has not landed: in the queue, but never handed out, because the caller may still be told the
+  /// queue refused them. Not persisted (after a relaunch an item on disk was saved).
+  private var withheld: Set<MemoID> = []
   /// Oldest first; bounded so the persisted record does not grow without limit. Holds the memos that completed and the
   /// ones that were discarded: both refuse a late `enqueue`.
   private var completedMemos: [MemoID]
@@ -62,16 +65,26 @@ public struct OutboxStateMachine: Sendable {
   // MARK: Items
 
   /// Queues a whole memo or message. `false` when the memo id is already queued or already completed (or discarded).
+  ///
+  /// With `withheld`, the item is held back from `dispatch` until `release(_:)`: the caller saves the queue first and only
+  /// then lets the item go out (or `withdrawItem`s it).
   @discardableResult
-  public mutating func enqueueItem(_ item: OutboxItem) -> Bool {
+  public mutating func enqueueItem(_ item: OutboxItem, withheld: Bool = false) -> Bool {
     guard items[item.memoID] == nil, !completedMemos.contains(item.memoID) else { return false }
     items[item.memoID] = item
+    if withheld { self.withheld.insert(item.memoID) }
     return true
+  }
+
+  /// Lets a withheld item go out.
+  public mutating func release(_ memoID: MemoID) {
+    withheld.remove(memoID)
   }
 
   /// Takes an item back out without a trace (its write failed): unlike `discard`, the id may be queued again.
   public mutating func withdrawItem(_ memoID: MemoID) {
     items[memoID] = nil
+    withheld.remove(memoID)
   }
 
   public mutating func createSucceeded(_ memoID: MemoID) {
@@ -162,13 +175,15 @@ public struct OutboxStateMachine: Sendable {
 
   private func status(of item: OutboxItem) -> OutboxItemStatus {
     let memo = memos[item.memoID]
+    // A take that is still being recorded is a live take whatever its create is doing: Settings must not offer to retry
+    // or discard it while the recorder runs.
+    if item.kind == .voice, memo == nil { return .recording }
     let states =
       [item.create] + entries.values.filter { $0.key.memoID == item.memoID }.map(\.state)
       + [memo?.completion].compactMap { $0 }
     if states.contains(.stalled) { return .failed(retryAt: nil, reason: item.lastError) }
     let retries = states.compactMap(Self.retryAt)
     if let soonest = retries.min() { return .failed(retryAt: soonest, reason: item.lastError) }
-    if item.kind == .voice, memo == nil { return .recording }
     if states.contains(.uploading) { return .sending }
     return .waiting
   }
@@ -322,7 +337,8 @@ public struct OutboxStateMachine: Sendable {
   /// A text item is created at once. A take is created once it has something to send (a closed segment, or its end), so
   /// a take that is cancelled before its first segment never reaches the server and leaves no stuck memo behind.
   private func isCreatable(_ item: OutboxItem) -> Bool {
-    switch item.kind {
+    guard !withheld.contains(item.memoID) else { return false }
+    return switch item.kind {
     case .text: true
     case .voice: memos[item.memoID] != nil || entries.keys.contains { $0.memoID == item.memoID }
     }

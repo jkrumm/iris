@@ -176,6 +176,29 @@ struct OutboxItemStateMachineTests {
     #expect(!again, "nothing is left waiting")
   }
 
+  @Test func aTakeStillRecordingIsNeverReportedAsFailed() {
+    var machine = machine()
+    machine.enqueueItem(voiceItem(memo(1)))
+    machine.enqueue(segment(memo(1), 0))
+    _ = machine.dispatch(now: t0, inFlight: 0)
+    machine.createFailed(memo(1), now: t0, permanent: true, reason: "refused")
+    #expect(machine.queue().first?.status == .recording, "Settings must not offer Discard on a live take")
+
+    var backingOff = self.machine()
+    backingOff.enqueueItem(voiceItem(memo(2)))
+    backingOff.enqueue(segment(memo(2), 0))
+    _ = backingOff.dispatch(now: t0, inFlight: 0)
+    backingOff.createFailed(memo(2), now: t0, transient: true)
+    #expect(backingOff.queue().first?.status == .recording)
+
+    backingOff.finishMemo(memo(2), segmentCount: 1)
+    guard case .failed(let retryAt?, _)? = backingOff.queue().first?.status else {
+      Issue.record("once the take is over the failure shows")
+      return
+    }
+    #expect(retryAt > t0)
+  }
+
   @Test func aPermanentRefusalStallsAtOnce() {
     var machine = machine()
     machine.enqueueItem(textItem(memo(1)))

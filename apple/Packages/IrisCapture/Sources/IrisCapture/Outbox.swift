@@ -34,6 +34,9 @@ public actor Outbox: SegmentOutbox {
   private var isFlushing = false
   private var flushWaiters: [CheckedContinuation<Bool, Never>] = []
   private var isDirty = false
+  /// Segment files no queue entry needs any more. Deleted once a save that no longer lists them has landed: if the write
+  /// fails, the record on disk still names them and a relaunch needs them.
+  private var obsoleteFiles: [URL] = []
   private var isShutDown = false
   private var observers: [UUID: AsyncStream<Void>.Continuation] = [:]
 
@@ -75,11 +78,14 @@ public actor Outbox: SegmentOutbox {
   /// back out, so nothing is "queued" that a kill would lose, and the caller keeps what the user typed.
   @discardableResult
   public func enqueueItem(_ item: OutboxItem) async throws -> Bool {
-    guard machine.enqueueItem(item) else { return false }
+    // Withheld from dispatch while the save is out: another call can run `resume()` at the suspension, and the server must
+    // not create a memo the caller is about to be told the queue refused.
+    guard machine.enqueueItem(item, withheld: true) else { return false }
     guard await persist() else {
       machine.withdrawItem(item.memoID)
       throw OutboxError.notSaved
     }
+    machine.release(item.memoID)
     await resume()
     return true
   }
@@ -102,7 +108,7 @@ public actor Outbox: SegmentOutbox {
   /// cancelled; the server keeps whatever it already has.
   public func discard(_ memoID: MemoID) async {
     for (id, task) in inFlight where id.memoID == memoID { task.cancel() }
-    for file in machine.discard(memoID) { try? FileManager.default.removeItem(at: file) }
+    retire(machine.discard(memoID))
     await persist()
     await resume()
   }
@@ -212,11 +218,9 @@ public actor Outbox: SegmentOutbox {
         key, now: now, permanent: Self.isPermanent(error), transient: Self.isTransient(error),
         reason: Self.reason(error))
     case (.completion(let memoID), .success):
-      // The server acknowledged the memo: its segment files are no longer needed.
+      // The server acknowledged the memo: its segment files are no longer needed, once the state that says so is saved.
       if deletesFilesWhenDone {
-        for entry in machine.entries.values where entry.key.memoID == memoID {
-          try? FileManager.default.removeItem(at: entry.segment.fileURL)
-        }
+        retire(machine.entries.values.filter { $0.key.memoID == memoID }.map(\.segment.fileURL))
       }
       machine.completeSucceeded(memoID)
     case (.completion(let memoID), .failure) where cancelled: machine.completeCancelled(memoID)
@@ -230,6 +234,10 @@ public actor Outbox: SegmentOutbox {
     await resume()
     finishing -= 1
     resolveIdleWaiters()
+  }
+
+  private func retire(_ files: [URL]) {
+    obsoleteFiles.append(contentsOf: files)
   }
 
   private static func isPermanent(_ error: any Error) -> Bool { error is PermanentTransferError }
@@ -290,6 +298,10 @@ public actor Outbox: SegmentOutbox {
       }
     }
     isFlushing = false
+    if saved {
+      for file in obsoleteFiles { try? FileManager.default.removeItem(at: file) }
+      obsoleteFiles = []
+    }
     for observer in observers.values { observer.yield() }
     let waiters = flushWaiters
     flushWaiters = []

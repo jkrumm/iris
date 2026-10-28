@@ -128,7 +128,7 @@ public actor CaptureSession {
     do {
       try await session.configure()
       try await session.activate()
-      await applyRouteRule()
+      _ = await applyRouteRule()
       startPumps()
       let item = OutboxItem(
         memoID: memoID, kind: .voice, mode: request.mode, threadID: request.threadID, startedAt: startedAt,
@@ -310,7 +310,7 @@ public actor CaptureSession {
         }
       },
       Task {
-        for await _ in routeChanges { await self.applyRouteRule() }
+        for await _ in routeChanges { await self.routeChanged() }
       },
     ]
   }
@@ -381,16 +381,31 @@ public actor CaptureSession {
     publish()
   }
 
-  /// A device-local rule for this route ("AirPods in the car -> built-in mic") picks the input.
-  private func applyRouteRule() async {
+  /// The route changed under a running take. A matching rule switches the input like the user's own switch does, behind the
+  /// gate and with the segment rolled over, so one file never holds two inputs; with no take (or one that is ending) the
+  /// next `start` applies the rule instead.
+  private func routeChanged() async {
+    await enter()
+    defer { leave() }
+    guard state.phase == .recording || state.phase == .paused else { return }
+    guard await applyRouteRule() else { return }
+    await recorder.rotate(for: .micSwitch)
+    state.inputName = await routes.currentRoute().currentInput?.name
+    publish()
+  }
+
+  /// A device-local rule for this route ("AirPods in the car -> built-in mic") picks the input. `true` when it changed it.
+  private func applyRouteRule() async -> Bool {
     let route = await routes.currentRoute()
     guard let uid = await routes.rules()[route.fingerprint], uid != route.currentInput?.uid,
       route.availableInputs.contains(where: { $0.uid == uid })
-    else { return }
+    else { return false }
     do {
       try await routes.setPreferredInput(uid: uid)
+      return true
     } catch {
       Log.capture.error("route rule not applied: \(String(describing: error), privacy: .public)")
+      return false
     }
   }
 

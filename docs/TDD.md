@@ -565,6 +565,10 @@ and leaves no file. Revisit the resource loader only if recordings grow past a f
   408 or 429: `TransientTransferError`) backs off for as long as it lasts and does not count toward `maxAttempts`, so a long
   stretch offline never stalls the queue; a 401 (the token may still be fixed), an undecodable answer and a segment file that
   exists but cannot be read (data protection before the first unlock; only a missing file is permanent) are retried and do count.
+  An item is saved before it is handed out (it is withheld from dispatch while the first save is out, so the server never creates a memo
+  the queue then refuses), and a segment file is deleted only after a save that no longer lists it has landed (a failed write keeps
+  the files; the next successful save removes them). A take that is still being recorded always shows as `recording` in the queue,
+  whatever its create is doing, so Settings offers neither Retry nor Discard on it.
   `OutboxService.resume()` (launch, a changed connection, the app coming to the foreground) makes every transfer that is waiting
   out a backoff due at once, keeping its attempt count; a stalled one waits for the user. A take the app died in the middle of is finished with the segments it had (contiguous from 0), or dropped when it had none.
   Everything runs on a default `URLSession` (`URLSessionAPIClient`); the background `URLSession` and the `result?wait=600`
@@ -576,7 +580,8 @@ and leaves no file. Revisit the resource loader only if recordings grow past a f
   applies the route rule, starts the recorder and registers the take with the outbox; closed segments go to the outbox while the
   take runs; `stop()` flushes the last segment and finishes the memo (a take that never closed a segment is dropped); `cancel()`
   discards the memo and deletes its files; an interruption pauses the recorder at a segment boundary and resumes it when the system
-  recommends; `switchInput` rolls the segment. `updates()` is the state stream the UI and the Live Activity follow.
+  recommends; `switchInput` rolls the segment, and so does a route rule that applies mid-take (behind the same gate, only while
+  recording or paused), so one file never holds two inputs. `updates()` is the state stream the UI and the Live Activity follow.
   A recorder failure (`.failed`: a segment write error, an engine that will not resume or restart) is a take failure: the session
   stops the recorder, moves the take to phase `failed` (`TakeState.failure` says why) and holds it for the user's `stop()` or
   `cancel()`. `stop()` then finishes the memo with the segments that really closed (`TakeResult.failure` set) or, with none, throws

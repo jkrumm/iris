@@ -502,3 +502,114 @@ struct OutboxPersistenceTests {
     await outbox.shutdown()
   }
 }
+
+/// A store whose saves can be made to fail, or to wait for the test before they fail.
+actor ScriptedSaveStore: OutboxStore {
+  struct DiskFull: Error {}
+
+  private var record = OutboxRecord()
+  private var failing = false
+  private var holdNextSave = false
+  private var saveStarted: [CheckedContinuation<Void, Never>] = []
+  private var heldSave: CheckedContinuation<Void, Never>?
+
+  func fail(_ value: Bool) { failing = value }
+  func holdNext() { holdNextSave = true }
+
+  func waitUntilSaveHeld() async {
+    if heldSave != nil { return }
+    await withCheckedContinuation { saveStarted.append($0) }
+  }
+
+  func releaseHeldSave() {
+    heldSave?.resume()
+    heldSave = nil
+  }
+
+  func load() -> OutboxRecord { record }
+
+  func save(_ record: OutboxRecord) async throws {
+    if holdNextSave {
+      holdNextSave = false
+      await withCheckedContinuation { continuation in
+        heldSave = continuation
+        for waiter in saveStarted { waiter.resume() }
+        saveStarted = []
+      }
+    }
+    if failing { throw DiskFull() }
+    self.record = record
+  }
+}
+
+struct OutboxDurabilityTests {
+  @Test func anItemWhoseSaveIsStillRunningIsNotSentToTheServer() async throws {
+    let store = ScriptedSaveStore()
+    let uploader = TestUploader()
+    let outbox = try await Outbox(
+      store: store, uploader: uploader, clock: ManualClock(), policy: OutboxPolicy(jitter: { 0 }))
+    await store.fail(true)
+    await store.holdNext()
+
+    let enqueuing = Task { try await outbox.enqueueItem(textItem(memo(1))) }
+    await store.waitUntilSaveHeld()
+    // Anything else touching the outbox while the save is out (it may itself wait for that save).
+    let resuming = Task { await outbox.resume() }
+    var created = 0
+    for _ in 0..<40 where created == 0 {
+      try await Task.sleep(for: .milliseconds(5))
+      created = await uploader.createAttempts
+    }
+    #expect(created == 0, "the server must not see an item the queue may still refuse")
+
+    await store.releaseHeldSave()
+    await resuming.value
+    await #expect(throws: OutboxError.notSaved) { try await enqueuing.value }
+    #expect(await uploader.createAttempts == 0)
+    #expect(await outbox.items().isEmpty)
+  }
+
+  @Test func segmentFilesStayUntilTheCompletedStateIsSaved() async throws {
+    let directory = try temporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let file = directory.appending(path: "0.m4a")
+    try Data("audio".utf8).write(to: file)
+    let id = memo(1)
+    let store = ScriptedSaveStore()
+    let uploader = TestUploader()
+    let outbox = try await Outbox(
+      store: store, uploader: uploader, clock: ManualClock(), policy: OutboxPolicy(jitter: { 0 }))
+    await store.fail(true)
+
+    await outbox.enqueue(ClosedSegment(memoID: id, index: 0, fileURL: file, byteCount: 5, duration: 1))
+    await outbox.finishMemo(id, segmentCount: 1)
+    await outbox.settled()
+    #expect(await uploader.completed.count == 1)
+    #expect(FileManager.default.fileExists(atPath: file.path), "the record on disk still lists this segment")
+
+    await store.fail(false)
+    await outbox.flush()
+    #expect(!FileManager.default.fileExists(atPath: file.path), "deleted once the completed state is on disk")
+    let saved = await store.load()
+    #expect(saved.memos.isEmpty && saved.entries.isEmpty)
+  }
+
+  @Test func aDiscardKeepsTheFilesUntilItIsSaved() async throws {
+    let directory = try temporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let file = directory.appending(path: "0.m4a")
+    try Data("audio".utf8).write(to: file)
+    let id = memo(1)
+    let store = ScriptedSaveStore()
+    let outbox = try await Outbox(
+      store: store, uploader: TestUploader(), clock: ManualClock(), policy: OutboxPolicy(jitter: { 0 }))
+    await outbox.enqueue(ClosedSegment(memoID: id, index: 0, fileURL: file, byteCount: 5, duration: 1))
+    await store.fail(true)
+
+    await outbox.discard(id)
+    #expect(FileManager.default.fileExists(atPath: file.path))
+    await store.fail(false)
+    await outbox.flush()
+    #expect(!FileManager.default.fileExists(atPath: file.path))
+  }
+}

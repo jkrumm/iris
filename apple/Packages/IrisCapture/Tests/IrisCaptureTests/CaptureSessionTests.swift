@@ -59,23 +59,30 @@ struct CaptureSessionTests {
     try await rig.session.start(request)
     // Frames straight into the recorder (the clock stays put): 10 s close the first segment, so the memo is created.
     await rig.fake.recorder.feed(frames: 10 * SegmentRotationPolicy().sampleRate)
-    // The segment travels recorder -> event pump -> outbox: poll (bounded) until the failed create shows.
-    var statuses: [OutboxItemStatus] = []
+    // The segment travels recorder -> event pump -> outbox: poll (bounded) until the create has failed.
+    var create: OutboxState?
     for _ in 0..<200 {
       await rig.harness.outbox.settled()
-      statuses = await rig.harness.outbox.queue().map(\.status)
-      if case .failed? = statuses.first { break }
+      create = await rig.harness.outbox.items().first?.create
+      if case .failed? = create { break }
       try await Task.sleep(for: .milliseconds(10))
     }
-    guard case .failed(let retryAt?, _)? = statuses.first else {
-      Issue.record("expected a failed create, got \(statuses)")
+    guard case .failed(let retryAt)? = create else {
+      Issue.record("expected a failed create, got \(String(describing: create))")
       await finish(rig)
       return
     }
     #expect(retryAt > (await rig.harness.clock.now()))
+    // The row stays a recording one while the take runs: Settings must not offer Retry or Discard on a live take.
+    #expect(await rig.harness.outbox.queue().first?.status == .recording)
 
     await rig.fake.record(seconds: 1)
     try await rig.session.stop()
+    if case .failed(let at?, _)? = await rig.harness.outbox.queue().first?.status {
+      #expect(at > (await rig.harness.clock.now()), "after the stop the failure shows, with its retry time")
+    } else {
+      Issue.record("expected the failed create to show once the take is over")
+    }
     await rig.harness.clock.advance(by: 30)
     // The retry timer is a task: poll (bounded) until the memo has gone through.
     for _ in 0..<200 {
@@ -252,6 +259,42 @@ struct CaptureSessionTests {
     try await rig.session.start(request)
     #expect(await rig.session.current.inputName == FakeRouteManager.headsetMic.name)
     await rig.session.cancel()
+    await finish(rig)
+  }
+
+  @Test func aRouteRuleThatAppliesMidTakeRollsTheSegmentSoOneFileHasOneInput() async throws {
+    let rig = try await makeRig()
+    try await rig.session.start(request)
+    await rig.fake.record(seconds: 3)
+    let route = await rig.fake.routes.currentRoute()
+    await rig.fake.routes.setRule(fingerprint: route.fingerprint, preferredPortUID: FakeRouteManager.headsetMic.uid)
+    await rig.fake.routes.setAvailable(
+      inputs: route.availableInputs, outputUIDs: route.outputUIDs, reason: .deviceAppeared)
+
+    var entries = 0
+    for _ in 0..<200 where entries == 0 {
+      try await Task.sleep(for: .milliseconds(10))
+      entries = await rig.harness.outbox.entries().count
+    }
+    #expect(entries == 1, "the 3 s on the built-in mic closed as their own segment when the input changed")
+    #expect(await rig.fake.routes.currentRoute().currentInput == FakeRouteManager.headsetMic)
+    #expect(await rig.session.current.inputName == FakeRouteManager.headsetMic.name)
+    await rig.session.cancel()
+    await finish(rig)
+  }
+
+  @Test func aRouteChangeAfterTheTakeHasEndedDoesNotTouchTheInput() async throws {
+    let rig = try await makeRig()
+    try await rig.session.start(request)
+    await rig.fake.record(seconds: 2)
+    _ = try await rig.session.stop()
+    let route = await rig.fake.routes.currentRoute()
+    await rig.fake.routes.setRule(fingerprint: route.fingerprint, preferredPortUID: FakeRouteManager.headsetMic.uid)
+    await rig.fake.routes.setAvailable(
+      inputs: route.availableInputs, outputUIDs: route.outputUIDs, reason: .deviceAppeared)
+
+    try await Task.sleep(for: .milliseconds(200))
+    #expect(await rig.fake.routes.currentRoute().currentInput == FakeRouteManager.builtInMic)
     await finish(rig)
   }
 
