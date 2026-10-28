@@ -84,7 +84,19 @@ struct SettingsView: View {
 
   private var outbox: some View {
     Section {
-      if model.queue.isEmpty {
+      if model.queueUnavailable {
+        Label {
+          Text(
+            "The outbox cannot be opened, so new memos are not accepted. Iris tries again when you pull to refresh or reopen the app.",
+            comment: "Outbox unavailable")
+        } icon: {
+          Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(Theme.Status.warn)
+        }
+        .themeFont(.footnote)
+        .foregroundStyle(Theme.Ink.secondary)
+        .accessibilityIdentifier("settings.outbox.unavailable")
+      }
+      if model.queue.isEmpty && !model.queueUnavailable {
         Text("Nothing waiting. Memos and chat messages that cannot be sent yet queue here.", comment: "Outbox empty")
           .themeFont(.footnote)
           .foregroundStyle(Theme.Ink.muted)

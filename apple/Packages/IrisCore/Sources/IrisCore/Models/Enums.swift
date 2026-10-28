@@ -97,6 +97,15 @@ public enum LiveActivityPhase: String, Codable, Hashable, Sendable, CaseIterable
   case needsRoute
   case done
   case failed
+
+  /// A phase only the device sets while it owns the take. The server never pushes one, so a Live Activity still in one of
+  /// them after the app was relaunched has no one left to move it on.
+  public var isClientPhase: Bool {
+    switch self {
+    case .recording, .paused, .uploading: true
+    case .processing, .needsRoute, .done, .failed: false
+    }
+  }
 }
 
 /// The `error` discriminator of an API error body.

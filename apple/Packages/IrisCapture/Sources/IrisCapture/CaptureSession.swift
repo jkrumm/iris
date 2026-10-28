@@ -18,6 +18,8 @@ public struct TakeRequest: Sendable, Equatable {
 
 public enum TakePhase: Sendable, Equatable {
   case idle
+  /// `start()` has claimed the take and is bringing the session and the recorder up.
+  case starting
   case recording
   /// An interruption (a call) or the user paused it; the take continues in a new segment on resume.
   case paused
@@ -65,6 +67,9 @@ public actor CaptureSession {
   /// Takes that were cancelled: the segment still closing at the stop is deleted, not queued.
   private var cancelled: Set<MemoID> = []
   private var finishWaiter: (id: MemoID, continuation: CheckedContinuation<Int, Never>)?
+  /// The gate: true while a start, stop or cancel is running; the others wait in `queue`, first come first served.
+  private var isBusy = false
+  private var queue: [CheckedContinuation<Void, Never>] = []
 
   public init(
     session: any AudioSessionController, routes: any RouteManager, recorder: any SegmentRecorder, outbox: Outbox,
@@ -100,11 +105,15 @@ public actor CaptureSession {
   /// Starts a take and returns its memo id (minted here: it is also the trace id).
   @discardableResult
   public func start(_ request: TakeRequest) async throws -> MemoID {
+    await enter()
+    defer { leave() }
     guard state.phase == .idle else { throw CaptureError.alreadyRecording }
-    // Claimed before the first suspension so a second start cannot slip in.
     let memoID = MemoID()
+    // Claimed with no suspension between the guard and here (the gate is ours): nothing else sees an idle session.
+    state = TakeState(phase: .starting, memoID: memoID, startedAt: nil, inputName: nil, request: request)
+    publish()
     let startedAt = await clock.now()
-    state = TakeState(phase: .recording, memoID: memoID, startedAt: startedAt, inputName: nil, request: request)
+    state.startedAt = startedAt
     do {
       try await session.configure()
       try await session.activate()
@@ -121,8 +130,8 @@ public actor CaptureSession {
       setState(.idle)
       throw error
     }
-    let input = await routes.currentRoute().currentInput?.name
-    state.inputName = input
+    state.phase = .recording
+    state.inputName = await routes.currentRoute().currentInput?.name
     publish()
     return memoID
   }
@@ -131,6 +140,8 @@ public actor CaptureSession {
   /// segment (nothing was said) is dropped and `nil` comes back.
   @discardableResult
   public func stop() async throws -> TakeResult? {
+    await enter()
+    defer { leave() }
     guard let memoID = state.memoID, state.phase == .recording || state.phase == .paused,
       let startedAt = state.startedAt
     else { throw CaptureError.notRecording }
@@ -156,6 +167,8 @@ public actor CaptureSession {
 
   /// Drops the take: nothing is sent, the memo is discarded from the outbox and the files are deleted.
   public func cancel() async {
+    await enter()
+    defer { leave() }
     guard let memoID = state.memoID, state.phase != .idle else { return }
     state.phase = .stopping
     publish()
@@ -198,11 +211,35 @@ public actor CaptureSession {
   public func shutdown() {
     for pump in pumps { pump.cancel() }
     pumps = []
+    // A stop still waiting for the recorder's last event would wait for ever once the pumps are gone.
+    if let waiter = finishWaiter {
+      finishWaiter = nil
+      waiter.continuation.resume(returning: 0)
+    }
     for observer in observers.values { observer.finish() }
     observers = [:]
   }
 
   // MARK: Internals
+
+  /// Takes the gate, waiting in line when a start, stop or cancel is running. The check and the claim have no suspension
+  /// between them, so the gate is never held by two.
+  private func enter() async {
+    guard isBusy else {
+      isBusy = true
+      return
+    }
+    await withCheckedContinuation { queue.append($0) }
+  }
+
+  /// Hands the gate to the next in line, or opens it.
+  private func leave() {
+    guard !queue.isEmpty else {
+      isBusy = false
+      return
+    }
+    queue.removeFirst().resume()
+  }
 
   private func startPumps() {
     guard pumps.isEmpty else { return }

@@ -17,12 +17,14 @@ enum StartMemoError: Error, CustomLocalizedStringResourceConvertible {
   case appNotReady
   case notConfigured
   case microphoneDenied
+  case queueUnavailable
 
   var localizedStringResource: LocalizedStringResource {
     switch self {
     case .appNotReady: "Iris is not ready to record yet."
     case .notConfigured: "Connect Iris to your server in Settings first."
     case .microphoneDenied: "Iris needs microphone access to record."
+    case .queueUnavailable: "Iris cannot open its outbox right now, so it cannot record."
     }
   }
 }

@@ -31,6 +31,8 @@ final class ComposerModel {
   var mode: MemoMode
   let threadId: String?
   private(set) var isSending = false
+  /// Why the last send was refused (the outbox could not be opened); the text stays. Cleared by the next send.
+  private(set) var failure: String?
 
   private let outbox: OutboxService
   private let now: () -> Date
@@ -62,13 +64,21 @@ final class ComposerModel {
   /// Cancel closes the sheet and would drop the answer of a send that is already on the wire.
   var canCancel: Bool { !isSending }
 
-  /// Hands the text over; nil when there is nothing to send.
+  /// Hands the text over; nil when there is nothing to send or the outbox refused it (``failure`` says so).
   func send() async -> SendOutcome? {
     guard canSend else { return nil }
     isSending = true
+    failure = nil
     defer { isSending = false }
     let submission = TextSubmission(
       id: makeID(), mode: mode, text: trimmedText, threadId: threadId, startedAt: now())
-    return await outbox.submitText(submission)
+    let outcome = await outbox.submitText(submission)
+    guard outcome != .refused else {
+      failure = String(
+        localized: "Could not queue the memo. Your text is still here.",
+        comment: "Composer error when the outbox is closed")
+      return nil
+    }
+    return outcome
   }
 }

@@ -66,7 +66,7 @@ final class OutboxVoiceReplyCapture: VoiceReplyCapture {
   func begin(_ request: VoiceReplyRequest) async throws {
     requests.append(request)
     guard await requestPermission() else { throw CaptureError.sessionFailure("microphone access was denied") }
-    let session = await stack.session()
+    let session = try await stack.session()
     try await session.start(
       TakeRequest(
         mode: request.mode.rawValue, threadID: request.threadId,
@@ -76,7 +76,7 @@ final class OutboxVoiceReplyCapture: VoiceReplyCapture {
 
   func end(cancelled: Bool) async throws -> VoiceReplyOutcome {
     await willEnd()
-    let session = await stack.session()
+    let session = try await stack.session()
     if cancelled {
       await session.cancel()
       return .discarded
@@ -84,7 +84,7 @@ final class OutboxVoiceReplyCapture: VoiceReplyCapture {
     guard let result = try await session.stop() else { return .discarded }
     switch await service.awaitCreated(result.memoID) {
     case .sent(let memo): return .sent(memo)
-    case .queued: return .queued
+    case .queued, .refused: return .queued
     }
   }
 }

@@ -102,7 +102,7 @@ struct OutboxServiceTests {
     let first = OutboxRig(client: client, store: store, clock: clock)
     await client.enqueueFailure(.transport(.notConnectedToInternet), for: .createTextMemo)
     #expect(await first.service.submitText(submission(1, text: "kept")) == .queued)
-    await first.stack.outbox().shutdown()
+    try await first.stack.outbox().shutdown()
 
     let second = OutboxRig(client: client, store: store, clock: clock)
     #expect(await second.service.queuedItems().map(\.title) == ["kept"])
