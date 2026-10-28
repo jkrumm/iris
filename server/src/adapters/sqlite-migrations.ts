@@ -178,4 +178,8 @@ export const MIGRATIONS: readonly string[] = [
     PRIMARY KEY (memo_id, id)
   );
   `,
+  // How many leading transcript words a spoken routing prefix covers (a tab name can have several); NULL on older rows.
+  `
+  ALTER TABLE route_decisions ADD COLUMN prefix_words INTEGER;
+  `,
 ];

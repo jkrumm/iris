@@ -20,6 +20,8 @@ const HERD = [
   tab("w1:t2", "iris", "Éins"),
   tab("w2:t1", "dotfiles", "1"),
   tab("w3:t1", "vps", "1"),
+  tab("w4:t1", "iris", "iris-server-ops"),
+  tab("w4:t2", "iris", "Café Bar Ost"),
 ];
 
 const input = (overrides: Partial<RouteInput> = {}): RouteInput => ({
@@ -106,6 +108,41 @@ describe("route: prefix", () => {
       confidence: 1,
       reason: null,
     });
+  });
+
+  it.each([
+    ["tab server mach weiter", "w1:t1", 2],
+    ["tab iris server ops mach weiter", "w4:t1", 4],
+    ["tab cafe bar ost mach weiter", "w4:t2", 4],
+  ] as const)("resolves a multi-word label from %j", async (transcript, id, prefixWords) => {
+    const decision = await route(
+      input({ transcript, destinations: ALL, herd: fakeHerd({ tabs: HERD }) }),
+    );
+    expect(decision).toMatchObject({ outcome: "routed", tab: id, prefixWords });
+  });
+
+  it("parks a near-miss instead of matching the longer label", async () => {
+    const decision = await route(
+      input({
+        transcript: "tab iris server mach weiter",
+        destinations: ALL,
+        herd: fakeHerd({ tabs: HERD }),
+      }),
+    );
+    expect(decision).toMatchObject({
+      outcome: "needs_route",
+      destination: "herdr",
+      reason: 'several tabs match "iris"',
+      tab: null,
+      prefixWords: 2,
+    });
+  });
+
+  it("records the word count of every prefix decision, none for other sources", async () => {
+    const prefix = await route(input({ transcript: "Okay, Tagebuch: heute" }));
+    expect(prefix.prefixWords).toBe(2);
+    const mode = await route(input({ mode: "journal" }));
+    expect(mode).not.toHaveProperty("prefixWords");
   });
 
   it("routes by prefix even with a single registered destination", async () => {

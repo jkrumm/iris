@@ -741,6 +741,32 @@ describe("route decisions", () => {
     ]);
   });
 
+  it("round-trips the prefix word count and leaves it off rows without one", () => {
+    const { store } = testStore();
+    const { id } = seedMemo(store, "transcribed");
+    store.markStepStarted({ id, step: "route" });
+    store.completeStep({
+      id,
+      step: "route",
+      from: "transcribed",
+      to: "routed",
+      patch: {
+        route: "herdr",
+        routeDecision: {
+          ...decision,
+          source: "prefix",
+          destination: "herdr",
+          tab: "w1:t1",
+          prefixWords: 4,
+        },
+      },
+    });
+    store.recordCorrection({ id, decision: { ...decision, source: "correction" } });
+    const [first, second] = store.listRouteDecisions(id);
+    expect(first?.prefixWords).toBe(4);
+    expect(second).not.toHaveProperty("prefixWords");
+  });
+
   it("stores a park with its reason and nullable fields", () => {
     const { store } = testStore();
     const { id } = seedMemo(store, "transcribed");

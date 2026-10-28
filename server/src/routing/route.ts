@@ -3,7 +3,7 @@ import type { Decider } from "../ports/decider.js";
 import { hasChoice, type DestinationName } from "../ports/destination.js";
 import type { Herd, HerdTab } from "../ports/herd.js";
 import { log } from "../telemetry/log.js";
-import { fold, parsePrefix } from "./prefix.js";
+import { nameKey, parsePrefix } from "./prefix.js";
 
 /** At or above this confidence the model's answer routes the memo; below it the memo parks. */
 export const CONFIDENCE_THRESHOLD = 0.8;
@@ -61,24 +61,21 @@ function decision(
 
 /**
  * The live tab a spoken name points at: it matches a tab label or a workspace (repo) label, ignoring case
- * and diacritics. The spoken name is one word (see `parsePrefix`), so a label with a space never matches. Without a name (mode `tab`) the only live tab is the answer. Anything but
- * exactly one match is a reason to park.
+ * and diacritics; punctuation in a label reads as a space ("iris-server" is spoken "iris server"). Without a name
+ * (mode `tab`) the only live tab is the answer. Anything but exactly one match is a reason to park.
  */
-async function resolveTab(params: {
-  spoken: string | null;
-  herd: Herd | undefined;
-  memoId: string;
-}): Promise<{ tab: string } | { reason: string }> {
-  const { spoken, herd, memoId } = params;
-  const tabs = await liveTabs(herd, memoId);
+function resolveTab(
+  spoken: string | null,
+  tabs: HerdTab[] | null,
+): { tab: string } | { reason: string } {
   if (tabs === null) return { reason: "herd unavailable" };
 
   const matches =
     spoken === null
       ? tabs
       : tabs.filter((tab) => {
-          const name = fold(spoken);
-          return [tab.label, tab.repo].some((c) => fold(c) === name);
+          const name = nameKey(spoken);
+          return [tab.label, tab.repo].some((c) => nameKey(c) === name);
         });
   const [first] = matches;
   if (first && matches.length === 1) return { tab: first.id };
@@ -96,25 +93,43 @@ async function named(params: {
   destination: DestinationName;
   spokenTab: string | null;
   registered: readonly DestinationName[];
+  prefixWords?: number;
   herd: Herd | undefined;
+  /** The live tabs when the caller read them already (null: unreadable); read here when absent. */
+  tabs?: HerdTab[] | null | undefined;
   memoId: string;
 }): Promise<RouteDecision> {
-  const { source, destination, spokenTab, registered, herd, memoId } = params;
+  const { source, destination, spokenTab, registered, herd, memoId, prefixWords } = params;
+  const tag = prefixWords === undefined ? {} : { prefixWords };
   if (!registered.includes(destination)) {
     return decision({
       source,
       outcome: "needs_route",
       reason: `${destination} not available`,
+      ...tag,
     });
   }
   if (destination !== "herdr") {
-    return decision({ source, outcome: "routed", destination, confidence: 1 });
+    return decision({ source, outcome: "routed", destination, confidence: 1, ...tag });
   }
-  const resolved = await resolveTab({ spoken: spokenTab, herd, memoId });
+  const resolved = resolveTab(spokenTab, params.tabs ?? (await liveTabs(herd, memoId)));
   if ("reason" in resolved) {
-    return decision({ source, outcome: "needs_route", destination, reason: resolved.reason });
+    return decision({
+      source,
+      outcome: "needs_route",
+      destination,
+      reason: resolved.reason,
+      ...tag,
+    });
   }
-  return decision({ source, outcome: "routed", destination, tab: resolved.tab, confidence: 1 });
+  return decision({
+    source,
+    outcome: "routed",
+    destination,
+    tab: resolved.tab,
+    confidence: 1,
+    ...tag,
+  });
 }
 
 const herdLine = (tab: HerdTab) => `- ${tab.id}: ${tab.repo} / ${tab.label} (${tab.agentState})`;
@@ -199,14 +214,27 @@ export async function route(input: RouteInput): Promise<RouteDecision> {
     });
   }
 
-  const prefix = parsePrefix(transcript);
+  let prefix = parsePrefix(transcript);
+  // A tab name can be several words; only the live labels tell where it ends, so the prefix is read again with them.
+  let tabs: HerdTab[] | null | undefined;
+  if (prefix?.destination === "herdr" && destinations.includes("herdr")) {
+    tabs = await liveTabs(input.herd, input.memoId);
+    if (tabs)
+      prefix =
+        parsePrefix(
+          transcript,
+          tabs.flatMap((t) => [t.label, t.repo]),
+        ) ?? prefix;
+  }
   if (prefix) {
     return named({
       source: "prefix",
       destination: prefix.destination,
       spokenTab: prefix.tab ?? null,
+      prefixWords: prefix.words,
       registered: destinations,
       herd: input.herd,
+      tabs,
       memoId: input.memoId,
     });
   }

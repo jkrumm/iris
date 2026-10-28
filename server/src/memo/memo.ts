@@ -179,6 +179,8 @@ export interface RouteDecisionInput {
   /** Why the memo parked; null when routed. */
   reason: string | null;
   outcome: RouteOutcome;
+  /** Source `prefix`: the leading transcript words the spoken prefix covers, so `act` cuts exactly those. Absent on older rows. */
+  prefixWords?: number;
 }
 
 export interface RouteDecisionRecord extends RouteDecisionInput {
