@@ -211,6 +211,11 @@ final class HistoryModel {
     }
   }
 
+  /// Shows a memo this device just created (a typed memo) without waiting for the next refresh.
+  func insert(_ memo: Memo) {
+    place(memo, force: true)
+  }
+
   func dismissToast(id: HistoryToast.ID) {
     if toast?.id == id { toast = nil }
   }

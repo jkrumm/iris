@@ -97,6 +97,11 @@ extension Memo {
 /// The steps the UI shows, in order: the timeline's handler steps (`ingest` is the upload, not a step of work).
 nonisolated enum PipelineSteps {
   static let shown: [MemoStep] = [.transcribe, .route, .act, .summarize, .notify]
+
+  /// The steps `memo` goes through: a typed memo has no recording, so it skips transcribe.
+  static func applicable(to memo: Memo) -> [MemoStep] {
+    memo.isTyped ? shown.filter { $0 != .transcribe } : shown
+  }
 }
 
 extension MemoStep {

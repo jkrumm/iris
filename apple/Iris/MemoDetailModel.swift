@@ -76,13 +76,14 @@ final class MemoDetailModel {
 
   // MARK: Retry
 
-  /// The steps a retry can restart from: every handler step up to the one that failed (a typed memo has no
-  /// recording, so no transcribe). Empty unless the memo failed: the server refuses a retry in any other state.
+  /// The steps a retry can restart from: every step of the memo's pipeline up to the one that failed. Empty unless
+  /// the memo failed: the server refuses a retry in any other state.
   var retrySteps: [MemoStep] {
-    guard memo.state == .failed, let failed = memo.failedStep,
-      let last = PipelineSteps.shown.firstIndex(of: failed)
-    else { return [] }
-    return PipelineSteps.shown[...last].filter { !(memo.isTyped && $0 == .transcribe) }
+    let steps = PipelineSteps.applicable(to: memo)
+    guard memo.state == .failed, let failed = memo.failedStep, let last = steps.firstIndex(of: failed) else {
+      return []
+    }
+    return Array(steps[...last])
   }
 
   /// A plain tap on retry restarts at the step that failed.

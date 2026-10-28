@@ -77,14 +77,12 @@ enum WaterfallBuilder {
     }
   }
 
-  /// The steps after the last one the timeline holds. A typed memo skips transcribe; before anything ran the
-  /// whole pipeline is ahead.
+  /// The steps after the last one the timeline holds; before anything ran the whole pipeline is ahead.
   private static func pending(after entries: [StepEntry], memo: Memo) -> [MemoStep] {
     guard memo.state != .notified else { return [] }
-    var remaining = PipelineSteps.shown
-    if memo.isTyped { remaining.removeAll { $0 == .transcribe } }
-    guard let last = entries.map(\.step).compactMap(PipelineSteps.shown.firstIndex(of:)).max() else { return remaining }
-    return PipelineSteps.shown[(last + 1)...].filter(remaining.contains)
+    let steps = PipelineSteps.applicable(to: memo)
+    guard let last = entries.map(\.step).compactMap(steps.firstIndex(of:)).max() else { return steps }
+    return Array(steps[(last + 1)...])
   }
 
   // MARK: Time

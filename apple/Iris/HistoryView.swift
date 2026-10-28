@@ -6,7 +6,10 @@ struct HistoryView: View {
   @Bindable var model: HistoryModel
   /// Builds the detail model of a tapped row (the composition root owns the client and the media source).
   let makeDetail: (Memo) -> MemoDetailModel
+  /// Builds the model of the composer sheet (the composition root owns the client).
+  let makeComposer: (ComposerRequest) -> ComposerModel
   @State private var showingFilters = false
+  @State private var composer: ComposerRequest?
 
   var body: some View {
     NavigationStack {
@@ -45,13 +48,23 @@ struct HistoryView: View {
       .navigationTitle(String(localized: "History", comment: "Navigation title of the memo list"))
       .navigationSubtitle(HistoryDaySection.subtitle(for: model.memos) ?? "")
       .navigationDestination(for: Memo.self) { memo in
-        MemoDetailView(model: makeDetail(memo), refreshToken: { model.revision(of: memo.id) })
+        MemoDetailView(
+          model: makeDetail(memo), refreshToken: { model.revision(of: memo.id) },
+          onReply: { composer = .reply(to: $0) })
       }
       .searchable(
-        text: $model.filters.searchText,
+        text: $model.filters.searchText, placement: .navigationBarDrawer(displayMode: .always),
         prompt: String(localized: "Search transcripts", comment: "Search field prompt on the memo list")
       )
       .toolbar {
+        ToolbarItem(placement: .topBarLeading) {
+          Button(
+            String(localized: "New memo", comment: "Opens the typed-memo composer"), systemImage: "square.and.pencil"
+          ) {
+            composer = ComposerRequest()
+          }
+          .accessibilityIdentifier("history.compose")
+        }
         ToolbarItem(placement: .topBarTrailing) {
           Button(String(localized: "Filter", comment: "Opens the filter sheet"), systemImage: filterIcon) {
             showingFilters = true
@@ -63,6 +76,9 @@ struct HistoryView: View {
         HistoryFilterSheet(filters: $model.filters)
           .presentationDetents([.medium])
           .presentationDragIndicator(.visible)
+      }
+      .sheet(item: $composer) { request in
+        ComposerView(model: makeComposer(request), onSent: { model.insert($0) })
       }
       .refreshable { await model.load() }
       .task(id: model.filters) {
