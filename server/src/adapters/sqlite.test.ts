@@ -1070,4 +1070,69 @@ describe("reply assets", () => {
     expect(store.purge(id)).toBe(true);
     expect(store.getReplyAsset(id, "b-svg-light")).toBeNull();
   });
+
+  describe("pending assets", () => {
+    const lose = (store: ReturnType<typeof testStore>["store"], id: string, replyText: string) =>
+      store.completeStep({
+        id,
+        step: "act",
+        from: "acted",
+        to: "summarized",
+        patch: { replyText },
+      });
+    const discards = () => {
+      const calls: string[] = [];
+      return { calls, of: (name: string) => () => void calls.push(name) };
+    };
+
+    it("a newer pending replaces the older one: only the latest reply settles", () => {
+      const { store } = testStore();
+      const { id } = seedMemo(store, "routed");
+      const d = discards();
+      store.replaceReplyAssets(id, files(0, "a"), { replyText: "r1", onDiscard: d.of("r1") });
+      store.replaceReplyAssets(id, files(0, "b"), { replyText: "r2", onDiscard: d.of("r2") });
+
+      expect(lose(store, id, "r1")).toBe(false);
+      expect(d.calls).toEqual([]);
+      expect(store.getMemo(id)?.replyBlocks).toHaveLength(1);
+
+      expect(lose(store, id, "r2")).toBe(false);
+      expect(lose(store, id, "r2")).toBe(false);
+      expect(d.calls).toEqual(["r2"]);
+      expect(store.getMemo(id)?.replyBlocks).toEqual([]);
+    });
+
+    it("resetForRetry from act settles it (rows gone, discard once); a reset from a later step leaves it", () => {
+      const { store } = testStore();
+      const { id } = seedMemo(store, "routed");
+      act(store, id, { replyText: "x" });
+      const d = discards();
+      store.replaceReplyAssets(id, files(0, "a"), { replyText: "x", onDiscard: d.of("x") });
+
+      store.markStepFailed({ id, step: "summarize", error: "boom" });
+      store.resetForRetry({ id, from: "summarize" });
+      expect(d.calls).toEqual([]);
+
+      store.markStepFailed({ id, step: "act", error: "boom" });
+      store.resetForRetry({ id, from: "act" });
+      expect(d.calls).toEqual(["x"]);
+      expect(store.getMemo(id)?.replyBlocks).toEqual([]);
+
+      // Nothing is left to settle: a stale commit of the old reply discards nothing a second time.
+      expect(lose(store, id, "x")).toBe(false);
+      expect(d.calls).toEqual(["x"]);
+    });
+
+    it("purge forgets it", () => {
+      const { store, clock } = testStore();
+      const { id } = seedMemo(store, "routed");
+      const d = discards();
+      store.replaceReplyAssets(id, files(0, "a"), { replyText: "x", onDiscard: d.of("x") });
+      store.markDeleted({ id, at: clock.now().toISOString() });
+      expect(store.purge(id)).toBe(true);
+
+      expect(lose(store, id, "x")).toBe(false);
+      expect(d.calls).toEqual([]);
+    });
+  });
 });

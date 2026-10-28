@@ -171,7 +171,9 @@ export interface MemoStore extends ThreadStore {
    * its patch lands). They stay until `completeStep` settles that reply: a patch with `pending.replyText` that wins
    * keeps them; one that loses its compare-and-set deletes them and calls `pending.onDiscard` (the files are the caller's
    * to remove); a winning patch with any other reply text deletes them (they describe a reply that is gone). Only the
-   * latest `pending` of a memo is tracked, in memory: a restart re-runs the step.
+   * latest `pending` of a memo is tracked, in memory (a newer one replaces it: its caller already pruned the older files), and
+   * `resetForRetry` from `act` and `purge` settle it too (reset calls `onDiscard`), so the entry never outlives its reply.
+   * A restart re-runs the step.
    */
   replaceReplyAssets(
     id: string,
