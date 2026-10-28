@@ -720,14 +720,14 @@ parallel; inside I one `xcodebuild` worker at a time, in the order I1 → I2 →
 with `make e2e` before the train. Workers touching `IrisCapture`, intents or the Live Activity load the `apple-capture-notes` skill first.
 **Decision (mother, 2026-10-28): no token stream.** Hermes is configured for final-answer only and `act` already collects the final text;
 "smooth streaming" is a client reveal of the final answer when the memo's SSE update lands, not a new server stream. TDD records it.
-- [ ] **I1. Production composition + iOS debt:** a production `CompositionRoot` (real `URLSessionAPIClient`, server URL and device token
+- [x] **I1. Production composition + iOS debt:** a production `CompositionRoot` (real `URLSessionAPIClient`, server URL and device token
       from Settings' connection, token in the Keychain) next to the fake one, selected by launch argument (`-IrisFakeCapture` / fake API
       keep every existing UI test on fakes). Replace `AuthenticatedMediaSource`'s undocumented `AVURLAssetHTTPHeaderFieldsKey` with a
       documented path (an `AVAssetResourceLoaderDelegate` or an authenticated download to a cache file; pick one, record why in TDD).
       Debt: `StatsModel`/`SettingsModel.load()` get History's generation guard; composer Cancel is disabled during a send; the cost tile
       formats dollars to two decimals in the user's locale (`$1.62` / `1,62 $`, never `$1,6200`); the player uses a periodic time
       observer instead of 250 ms polling. Tests for each fix.
-- [ ] **I2. Thread view (backlog 7):** a History row of a Chat or multi-turn Hermes memo opens the thread view
+- [x] **I2. Thread view (backlog 7):** a History row of a Chat or multi-turn Hermes memo opens the thread view
       (`GET /v1/threads/:id`); the Chats chip already lists them. Messages rendered with Textual, scope = what Hermes emits: text, lists,
       links, syntax-highlighted code, tables (cards on narrow widths), Mermaid as the server's `replyBlocks` PNGs for the current
       appearance, tap opens a zoomable full view (pinch, double-tap, share). A turn in flight shows a pending assistant bubble with the
@@ -746,15 +746,31 @@ with `make e2e` before the train. Workers touching `IrisCapture`, intents or the
 - [ ] **I5. iPhone reply flow review render:** the reply flow (thread view → reply by voice/text → pending → answer) as simulator
       screenshots light + dark, uploaded as private links via `/img`, listed in `docs/design/README.md` under open questions for the
       owner's async review. Built as designed in I2/I4; the review never blocks the wave.
-- [ ] **S1. Server debt:** audio-gateway STT/speech timeouts fail after one window like the hang guard (not retried as transient);
+- [x] **S1. Server debt:** audio-gateway STT/speech timeouts fail after one window like the hang guard (not retried as transient);
       a waiter parked on a thread queue no longer holds a `driveAll` slot; herdr's per-pane queue gets a bound (fail clearly past it);
       Pele assets are written inside or reconciled with the `completeStep` transaction (no assets for an uncommitted reply survive);
       a backfill renders assets for older replies (idempotent, a `make` target or a boot-time sweep, bounded). TDD amended.
-- [ ] **S2. Multi-word spoken tab names:** the decision row records the matched word count so a spoken prefix can name a
+- [x] **S2. Multi-word spoken tab names:** the decision row records the matched word count so a spoken prefix can name a
       multi-word herdr tab; tests with one-, two- and three-word labels and a near-miss. Contract only if the wire changes.
 - [ ] Deploy and prove: `make verify` (+ `make smoke`, which still fails at `summarize` until triage leaves Requesty: note it, do not
       block); a production thread probe (typed chat, then a continuation) reads back through `GET /v1/threads/:id`; `apple.yml` green;
       TDD and AGENTS.md amended.
+**Left behind (in progress, lead):** merged by the train so far: #26 S1a, #27 S1b, #28 S2 (server: `make check-server check-contracts guard`
++ `make e2e` per merge; the full `make check` builds Xcode and collided with a running I worker), #29 I1, #30 I2 (full `make check`).
+`agw review` (CLI) on every PR, blocking findings fixed before merge (#28: a failed herd read was re-read, so a label-less prefix could
+resolve to the wrong tab). Non-blocking fixes taken: #26 per-drive slot tokens, body-read timeouts as hang guards; #27 stale pending
+entries cleared, stoppable boot backfill; #29 https-only connection form (http for loopback); #30 plural turn count, toast timer.
+The lead resolved one AGENTS.md conflict on #27. `apple.yml` + `check` green on master through #30.
+**Deploy:** server `3028113` deployed, `make verify` healthy; the boot backfill ran (`reply.backfill` examined 0). Production thread probe
+with the smoke token: typed chat `256ac9d0-…` then a continuation `f859f57c-…`, both `notified`; `GET /v1/threads/:id` returned kind
+`chat`, 2 memos, 4 messages in order. `make smoke` not rerun (fails at `summarize` until Wave 16).
+**Follow-ups so far:** I1: the step chip and the Stats per-memo caption still print a fixed `$` with four decimals; History is blank (no
+prompt) without a connection; the Keychain round trip is untested (the unsigned simulator build has no Keychain, -34018); the media
+cache is never evicted for deleted memos; one `URLSession` per player. I2: **`MemoDetailView` keeps the old `.task(id: failure)` toast,
+so a stale timer can hide a newer toast (fixed in the thread view only)**; reply-image loading is unbounded; `MediaDownloader` is not
+single-flight; the fake voice capture clears before stop; Textual pinned `exact: 0.5.0`. S1a: a second concurrent `driveAll` for a parked
+memo holds its slot until the memo finishes (no production path). S1b: asset rows are visible briefly before the reply commits; a lost
+compare-and-set drops the earlier reply's assets until the next boot backfill; a memo whose every block fails re-renders each boot (≤ 50).
 
 ## Wave 16 — summarize optional (server) + next backlog            <!-- status: pending -->
 Sketch; written in full by the mother when Wave 15 closes. Fixed item, owner-confirmed 2026-10-28:
