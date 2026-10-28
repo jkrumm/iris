@@ -109,7 +109,8 @@ export function createStepHandlers(deps: {
   } = deps;
 
   // Turns into one Hermes session run one at a time: a second memo for the same thread waits for the first's reply, up
-  // to `THREAD_WAIT_MS`; past that it fails and names the turn ahead (`POST /retry` re-queues it).
+  // to `THREAD_WAIT_MS`; past that it fails and names the turn ahead (`POST /retry` re-queues it). The wait gives up the
+  // runner's `driveAll` slot (`whileWaiting`), so a parked waiter never keeps an unrelated memo from starting.
   const inThread = createKeyedQueue({ maxWaitMs: THREAD_WAIT_MS });
   /** The raw transcript, minus a spoken routing prefix when one routed the memo. */
   const delivered = (memo: Memo, step: HandlerStep) =>
@@ -183,7 +184,7 @@ export function createStepHandlers(deps: {
       };
     };
 
-    handlers.act = async ({ memo }) => {
+    handlers.act = async ({ memo, whileWaiting }) => {
       const transcript = delivered(memo, "act");
       const name = required(memo.route, "route", "act");
       const destination = isDestinationName(name) ? destinations[name] : undefined;
@@ -227,7 +228,9 @@ export function createStepHandlers(deps: {
             ...(chat && { chat }),
             ...(threadId && { threadId }),
           });
-        delivery = await (threadId ? inThread(threadId, deliver, `memo ${memo.id}`) : deliver());
+        delivery = await (threadId
+          ? inThread(threadId, deliver, { label: `memo ${memo.id}`, whileWaiting })
+          : deliver());
       } catch (err) {
         if (err instanceof TabGoneError) return park(err.message, err.tab);
         throw err;

@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
 import type { AudioCombiner } from "../ports/audio.js";
-import { fetchFailure, httpFailure } from "../ports/transient.js";
+import { fetchFailure, hangGuardFailure, httpFailure } from "../ports/transient.js";
 import type { Transcriber, TranscriptionResult } from "../ports/transcriber.js";
 import { log } from "../telemetry/log.js";
 import { withSpan } from "../telemetry/otel.js";
@@ -20,6 +20,8 @@ export interface AudioGatewayTranscriberOptions {
   baseUrl: string;
   fetch?: typeof fetch;
   concat?: ConcatFn;
+  /** The hang guard; tests shorten it. */
+  timeoutMs?: number;
 }
 
 const TranscriptionResponse = z.object({ text: z.string() });
@@ -116,6 +118,7 @@ export const ffmpegCombiner: AudioCombiner = {
 export function createAudioGatewayTranscriber(opts: AudioGatewayTranscriberOptions): Transcriber {
   const doFetch = opts.fetch ?? fetch;
   const concat = opts.concat ?? ffmpegConcat;
+  const timeoutMs = opts.timeoutMs ?? TIMEOUT_MS;
   const url = `${opts.baseUrl.replace(/\/+$/, "")}/v1/audio/transcriptions`;
 
   return {
@@ -136,8 +139,17 @@ export function createAudioGatewayTranscriber(opts: AudioGatewayTranscriberOptio
             method: "POST",
             headers: { "x-audio-source": "iris" },
             body: form,
-            signal: AbortSignal.timeout(TIMEOUT_MS),
+            signal: AbortSignal.timeout(timeoutMs),
           }).catch((err: unknown) => {
+            // The hang guard fired: the step fails after this one window, it is not retried (`hangGuardFailure`).
+            if (err instanceof Error && err.name === "TimeoutError") {
+              throw hangGuardFailure(
+                `audio-gateway transcription timed out after ${timeoutMs} ms`,
+                {
+                  cause: err,
+                },
+              );
+            }
             throw fetchFailure(err);
           });
           span.setAttributes({ status: res.status });

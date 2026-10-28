@@ -17,6 +17,8 @@ function unreachable(memoId: string, err: unknown): never {
 export interface AudioGatewaySpeakerOptions {
   baseUrl: string;
   fetch?: typeof fetch;
+  /** The hang guard; tests shorten it. */
+  timeoutMs?: number;
 }
 
 /**
@@ -28,6 +30,7 @@ export interface AudioGatewaySpeakerOptions {
  */
 export function createAudioGatewaySpeaker(opts: AudioGatewaySpeakerOptions): Speaker {
   const doFetch = opts.fetch ?? fetch;
+  const timeoutMs = opts.timeoutMs ?? TIMEOUT_MS;
   const url = `${opts.baseUrl.replace(/\/+$/, "")}/v1/audio/speech`;
 
   return {
@@ -40,7 +43,7 @@ export function createAudioGatewaySpeaker(opts: AudioGatewaySpeakerOptions): Spe
             method: "POST",
             headers: { "content-type": "application/json", "x-audio-source": "iris" },
             body: JSON.stringify({ input: text, response_format: "mp3" }),
-            signal: AbortSignal.timeout(TIMEOUT_MS),
+            signal: AbortSignal.timeout(timeoutMs),
           }).catch((err: unknown) => unreachable(memoId, err));
           span.setAttributes({ status: res.status });
           if (!res.ok) {

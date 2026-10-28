@@ -27,7 +27,17 @@ export interface StepResult {
   patch?: MemoPatch;
 }
 
-export type StepHandler = (ctx: { memo: Memo }) => Promise<StepResult>;
+export interface StepContext {
+  memo: Memo;
+  /**
+   * Wraps a wait that depends on another memo (a thread's turn ahead). While it is pending the memo gives up its
+   * `driveAll` slot, so a parked waiter never keeps an unrelated memo from starting; the slot is taken back (queueing
+   * behind whoever has it) before the wrapped promise settles. Outside `driveAll` it just awaits.
+   */
+  whileWaiting?: <T>(wait: Promise<T>) => Promise<T>;
+}
+
+export type StepHandler = (ctx: StepContext) => Promise<StepResult>;
 
 export interface Runner {
   /**
@@ -86,6 +96,21 @@ export function createRunner(deps: {
   const isStopping = () => stopping;
   const warnedNoHandler = new Set<HandlerStep>();
 
+  // `driveAll` slots: at most `MAX_CONCURRENT_DRIVES` held at once. A memo parked on a thread queue lets its slot go.
+  let freeSlots = MAX_CONCURRENT_DRIVES;
+  const slotWaiters: (() => void)[] = [];
+  const takeSlot = () =>
+    freeSlots > 0
+      ? (freeSlots--, Promise.resolve())
+      : new Promise<void>((resolve) => slotWaiters.push(resolve));
+  const giveSlot = () => {
+    const next = slotWaiters.shift();
+    if (next) next();
+    else freeSlots++;
+  };
+  /** Memos that hold a `driveAll` slot right now. */
+  const slotHolders = new Set<string>();
+
   const publish = (id: string, step: Step | null) => {
     const memo = store.getMemo(id);
     if (memo) events.publish(memoEvent({ memo, step, clock }));
@@ -115,10 +140,20 @@ export function createRunner(deps: {
    */
   async function attempt(params: { memo: Memo; step: HandlerStep; handler: StepHandler }) {
     const { memo, step, handler } = params;
+    const whileWaiting = async <T>(wait: Promise<T>): Promise<T> => {
+      if (!slotHolders.delete(memo.id)) return wait;
+      giveSlot();
+      try {
+        return await wait;
+      } finally {
+        await takeSlot();
+        slotHolders.add(memo.id);
+      }
+    };
     for (let tries = 1; ; tries++) {
       try {
         return await withSpan(`memo.${step}`, { memo_id: memo.id, step, attempt: tries }, () =>
-          handler({ memo }),
+          handler({ memo, whileWaiting }),
         );
       } catch (err) {
         const delayMs = RETRY_DELAYS_MS[tries - 1];
@@ -220,19 +255,24 @@ export function createRunner(deps: {
     return started;
   }
 
+  /** Drives one memo from a `driveAll` slot, waiting its turn for one. */
+  async function driveInSlot(id: string) {
+    await takeSlot();
+    slotHolders.add(id);
+    try {
+      if (!isStopping()) await drive(id).catch(logDriveFailure(id));
+    } finally {
+      if (slotHolders.delete(id)) giveSlot();
+    }
+  }
+
   return {
     drive,
 
     async driveAll() {
-      const queue = store.listNonTerminal().map((memo) => memo.id);
-      const worker = async () => {
-        for (let id = queue.shift(); id !== undefined && !isStopping(); id = queue.shift()) {
-          await drive(id).catch(logDriveFailure(id));
-        }
-      };
-      const run = Promise.all(Array.from({ length: MAX_CONCURRENT_DRIVES }, worker)).then(
-        () => undefined,
-      );
+      // One task per memo, started in order as slots free up.
+      const ids = store.listNonTerminal().map((memo) => memo.id);
+      const run = Promise.all(ids.map(driveInSlot)).then(() => undefined);
       driveAlls.add(run);
       try {
         await run;

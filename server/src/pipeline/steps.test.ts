@@ -1000,6 +1000,26 @@ describe("a memo that continues a thread", () => {
       expect(state.peak).toBe(1);
     });
 
+    it("hands only the wait behind another turn to the runner's whileWaiting", async () => {
+      const { handlers, memos, gates } = twoTurns([THREAD, THREAD]);
+      let waits = 0;
+      const whileWaiting = <T>(wait: Promise<T>) => {
+        waits++;
+        return wait;
+      };
+      const [first, second] = memos.map((memo) => handlers.act?.({ memo, whileWaiting })) as [
+        Promise<unknown>,
+        Promise<unknown>,
+      ];
+      await tick();
+      expect(waits).toBe(1);
+      gates[0]?.();
+      await first;
+      await tick();
+      gates[1]?.();
+      await second;
+    });
+
     it("does not make different threads wait for each other", async () => {
       const { handlers, memos, state, gates } = twoTurns([THREAD, "other-thread"]);
       const running = memos.map((memo) => handlers.act?.({ memo }));

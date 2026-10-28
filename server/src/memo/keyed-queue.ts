@@ -10,6 +10,17 @@ export class KeyedQueueTimeout extends Error {
   }
 }
 
+/** A caller found `maxDepth` tasks already in line on its key; the task it offered never runs. */
+export class KeyedQueueFull extends Error {
+  constructor(
+    readonly key: string,
+    readonly depth: number,
+  ) {
+    super(`queue ${key} is full: ${depth} tasks already in line`);
+    this.name = "KeyedQueueFull";
+  }
+}
+
 /** Waits `ms`, or settles early once `signal` aborts: the queue aborts it when the turn ahead wins, so no timer is left behind. */
 export type CancellableSleep = (ms: number, signal: AbortSignal) => Promise<void>;
 
@@ -31,10 +42,26 @@ export interface KeyedQueueOptions {
   maxWaitMs?: number;
   /** Times that wait; tests inject an instant or manual one. */
   sleep?: CancellableSleep;
+  /** How many tasks (the running one included) may be in line on one key; past it a caller rejects with `KeyedQueueFull`. Unbounded when absent. */
+  maxDepth?: number;
 }
 
-/** Runs `task` after everything queued before it on `key`; `label` names this task in a later caller's timeout. */
-export type KeyedQueue = <T>(key: string, task: () => Promise<T>, label?: string) => Promise<T>;
+export interface EnqueueOptions {
+  /** Names this task in a later caller's timeout. */
+  label?: string;
+  /**
+   * Wraps the time spent queued behind other tasks (never called for a task that starts at once). The caller may release
+   * a resource it holds while it waits and take it back before the wrapped promise settles; the task runs after that.
+   */
+  whileWaiting?: (<T>(wait: Promise<T>) => Promise<T>) | undefined;
+}
+
+/** Runs `task` after everything queued before it on `key`. */
+export type KeyedQueue = <T>(
+  key: string,
+  task: () => Promise<T>,
+  opts?: EnqueueOptions,
+) => Promise<T>;
 
 /**
  * Runs tasks of the same key one after another, in call order; tasks of different keys do not wait for each other.
@@ -43,14 +70,23 @@ export type KeyedQueue = <T>(key: string, task: () => Promise<T>, label?: string
  * With `maxWaitMs` a caller that is still queued after that long rejects with `KeyedQueueTimeout` naming the oldest
  * unfinished task ahead of it, and its own task never runs. Its place in line stays until the task ahead finishes, so
  * a later caller still waits for that task and the stuck one's eventual completion does not disturb anyone.
+ *
+ * With `maxDepth` a caller that finds that many tasks in line rejects at once with `KeyedQueueFull`.
  */
 export function createKeyedQueue(opts: KeyedQueueOptions = {}): KeyedQueue {
-  const { maxWaitMs, sleep = timerSleep } = opts;
+  const { maxWaitMs, sleep = timerSleep, maxDepth } = opts;
   // Per key: the tail of its line (never rejects), and the labels of the tasks that have not finished, oldest first.
   const lines = new Map<string, { tail: Promise<void>; pending: { label: string }[] }>();
 
-  return function enqueue<T>(key: string, task: () => Promise<T>, label = key): Promise<T> {
+  return function enqueue<T>(
+    key: string,
+    task: () => Promise<T>,
+    { label = key, whileWaiting }: EnqueueOptions = {},
+  ): Promise<T> {
     const line = lines.get(key);
+    if (maxDepth !== undefined && (line?.pending.length ?? 0) >= maxDepth) {
+      return Promise.reject(new KeyedQueueFull(key, maxDepth));
+    }
     const entry = { label };
     const prev = line?.tail;
     const pending = line?.pending ?? [];
@@ -59,16 +95,17 @@ export function createKeyedQueue(opts: KeyedQueueOptions = {}): KeyedQueue {
     let run: Promise<T>;
     if (prev === undefined) {
       run = Promise.resolve().then(task);
-    } else if (maxWaitMs === undefined) {
-      run = prev.then(task);
     } else {
-      const timer = new AbortController();
-      run = Promise.race([
-        prev.then(() => "turn" as const),
-        sleep(maxWaitMs, timer.signal).then(() => "timeout" as const),
-      ]).then((winner) => {
-        timer.abort();
-        if (winner === "timeout") {
+      const turn = (): Promise<"turn" | "timeout"> => {
+        if (maxWaitMs === undefined) return prev.then(() => "turn" as const);
+        const timer = new AbortController();
+        return Promise.race([
+          prev.then(() => "turn" as const),
+          sleep(maxWaitMs, timer.signal).then(() => "timeout" as const),
+        ]).finally(() => timer.abort());
+      };
+      run = (whileWaiting ? whileWaiting(turn()) : turn()).then((winner) => {
+        if (winner === "timeout" && maxWaitMs !== undefined) {
           const ahead = pending.find((other) => other !== entry)?.label ?? key;
           throw new KeyedQueueTimeout(key, maxWaitMs, ahead);
         }

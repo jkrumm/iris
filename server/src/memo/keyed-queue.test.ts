@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { createKeyedQueue, KeyedQueueTimeout } from "./keyed-queue.js";
+import { createKeyedQueue, KeyedQueueFull, KeyedQueueTimeout } from "./keyed-queue.js";
 
 describe("createKeyedQueue", () => {
   it("runs the tasks of one key in call order and the tasks of other keys alongside", async () => {
@@ -86,8 +86,8 @@ describe("createKeyedQueue, bounded wait", () => {
     const queue = createKeyedQueue({ maxWaitMs: 1500, sleep });
     const stuck = gate();
     const ran: string[] = [];
-    const first = queue("thread-1", () => stuck.opened, "memo m1");
-    const second = queue("thread-1", async () => void ran.push("m2"), "memo m2");
+    const first = queue("thread-1", () => stuck.opened, { label: "memo m1" });
+    const second = queue("thread-1", async () => void ran.push("m2"), { label: "memo m2" });
 
     waits[0]?.fire();
     const err = await second.catch((e: unknown) => e);
@@ -114,13 +114,13 @@ describe("createKeyedQueue, bounded wait", () => {
         await stuck.opened;
         order.push("m1 end");
       },
-      "memo m1",
+      { label: "memo m1" },
     );
-    const second = queue("t", async () => void order.push("m2"), "memo m2");
+    const second = queue("t", async () => void order.push("m2"), { label: "memo m2" });
     waits[0]?.fire();
     await expect(second).rejects.toBeInstanceOf(KeyedQueueTimeout);
 
-    const third = queue("t", async () => void order.push("m3"), "memo m3");
+    const third = queue("t", async () => void order.push("m3"), { label: "memo m3" });
     await Promise.resolve();
     expect(order).toEqual(["m1 start"]);
 
@@ -133,9 +133,9 @@ describe("createKeyedQueue, bounded wait", () => {
     const { sleep, waits } = manualSleep();
     const queue = createKeyedQueue({ maxWaitMs: 1000, sleep });
     const stuck = gate();
-    const m1 = queue("t", () => Promise.resolve(), "memo m1");
-    const m2 = queue("t", () => stuck.opened, "memo m2");
-    const m3 = queue("t", () => Promise.resolve(), "memo m3");
+    const m1 = queue("t", () => Promise.resolve(), { label: "memo m1" });
+    const m2 = queue("t", () => stuck.opened, { label: "memo m2" });
+    const m3 = queue("t", () => Promise.resolve(), { label: "memo m3" });
     await m1;
     waits[1]?.fire();
     await expect(m3).rejects.toMatchObject({ ahead: "memo m2" });
@@ -164,5 +164,46 @@ describe("createKeyedQueue, bounded wait", () => {
     first.open();
     await a1;
     await expect(a2).resolves.toBe("two");
+  });
+});
+
+describe("createKeyedQueue, bounded depth", () => {
+  it("rejects a caller past maxDepth without running its task, and frees the place when the line drains", async () => {
+    const queue = createKeyedQueue({ maxDepth: 2 });
+    const first = gate();
+    const ran: string[] = [];
+    const a1 = queue("a", () => first.opened);
+    const a2 = queue("a", async () => void ran.push("a2"));
+    const err = await queue("a", async () => void ran.push("a3")).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(KeyedQueueFull);
+    expect(err).toMatchObject({ key: "a", depth: 2 });
+    // Another key has its own line.
+    await expect(queue("b", () => Promise.resolve("b"))).resolves.toBe("b");
+
+    first.open();
+    await Promise.all([a1, a2]);
+    await expect(queue("a", () => Promise.resolve("again"))).resolves.toBe("again");
+    expect(ran).toEqual(["a2"]);
+  });
+});
+
+describe("createKeyedQueue, whileWaiting", () => {
+  it("wraps only the time spent behind another task", async () => {
+    const queue = createKeyedQueue();
+    const events: string[] = [];
+    const whileWaiting = async <T>(wait: Promise<T>) => {
+      events.push("wait");
+      const result = await wait;
+      events.push("turn");
+      return result;
+    };
+    const first = gate();
+    const a1 = queue("a", () => first.opened, { whileWaiting });
+    const a2 = queue("a", async () => void events.push("a2 ran"), { whileWaiting });
+    await Promise.resolve();
+    expect(events).toEqual(["wait"]);
+    first.open();
+    await Promise.all([a1, a2]);
+    expect(events).toEqual(["wait", "turn", "a2 ran"]);
   });
 });
