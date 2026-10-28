@@ -9,7 +9,8 @@
         "missing_segments",
         "too_large",
         "bad_request",
-        "unavailable"
+        "unavailable",
+        "destination_unavailable"
       ],
       "type": "string"
     },

@@ -9,6 +9,7 @@ const STATUS: Record<MemoErrorCode, number> = {
   too_large: 413,
   bad_request: 400,
   unavailable: 503,
+  destination_unavailable: 409,
 };
 
 /**

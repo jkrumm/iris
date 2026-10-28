@@ -188,11 +188,23 @@ export function createMemoService(deps: {
     }
   };
 
-  /** A thread to continue must exist. A replay of an existing memo is judged by its stored thread instead (`assertSameThread`). */
-  const assertThreadExists = (params: { id: string; threadId: string | undefined }) => {
+  /**
+   * A thread to continue must exist, and Hermes (the only destination that keeps threads) must be registered: a turn
+   * accepted now could only fail at route. A replay of an existing memo is judged by its stored thread instead
+   * (`assertSameThread`).
+   */
+  const assertCanContinue = (params: { id: string; threadId: string | undefined }) => {
     const { id, threadId } = params;
-    if (threadId === undefined || store.getMemo(id) || store.getThread(threadId)) return;
-    throw new MemoError("not_found", `thread ${threadId} not found`);
+    if (threadId === undefined || store.getMemo(id)) return;
+    if (!store.getThread(threadId)) {
+      throw new MemoError("not_found", `thread ${threadId} not found`);
+    }
+    if (!destinations.includes("hermes")) {
+      throw new MemoError(
+        "destination_unavailable",
+        "hermes is not available, so a thread cannot be continued",
+      );
+    }
   };
 
   const publishFlagChange = (memo: Memo) =>
@@ -218,7 +230,7 @@ export function createMemoService(deps: {
       if (Number.isNaN(Date.parse(startedAt))) {
         throw new MemoError("bad_request", "startedAt must be an ISO timestamp");
       }
-      assertThreadExists({ id, threadId });
+      assertCanContinue({ id, threadId });
       const result = store.createMemo({ id, mode, device, startedAt, threadId });
       if (!result.created) {
         if (result.memo.device !== device) {
@@ -242,7 +254,7 @@ export function createMemoService(deps: {
       if ([...trimmed].length > MAX_TEXT_CHARS) {
         throw new MemoError("bad_request", `text exceeds ${MAX_TEXT_CHARS} characters`);
       }
-      assertThreadExists({ id, threadId });
+      assertCanContinue({ id, threadId });
       const result = store.createTextMemo({ id, mode, device, startedAt, text: trimmed, threadId });
       if (!result.created) {
         const { memo } = result;
