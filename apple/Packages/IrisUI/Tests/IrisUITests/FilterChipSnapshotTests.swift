@@ -1,0 +1,36 @@
+#if os(iOS)
+  import SnapshotTesting
+  import SwiftUI
+  import Testing
+
+  @testable import IrisUI
+
+  @MainActor
+  @Suite(.snapshots(record: SnapshotSupport.record))
+  struct FilterChipSnapshotTests {
+    @Test("the quick-filter row, one chip on", .tags(.snapshot))
+    func quickRow() {
+      let row = HStack(spacing: Theme.Spacing.sm) {
+        FilterChip(title: "Favorites", systemImage: "star", isOn: true) {}
+        FilterChip(title: "Chats", systemImage: "bubble.left", isOn: false) {}
+        FilterChip(title: "Needs route", systemImage: "arrow.triangle.branch", isOn: false) {}
+      }
+      .padding(Theme.Spacing.lg)
+      SnapshotSupport.assertLightAndDark(row, width: 390, height: 64)
+    }
+
+    @Test("sheet chips wrap onto the next line", .tags(.snapshot))
+    func wrapped() {
+      let flow = ChipFlowLayout {
+        FilterChip(title: "Hermes", isOn: true) {}
+        FilterChip(title: "Journal", isOn: false) {}
+        FilterChip(title: "Tabs", isOn: false) {}
+        FilterChip(title: "Needs route", isOn: false) {}
+        FilterChip(title: "Failed", isOn: true) {}
+        FilterChip(title: "Done", isOn: false) {}
+      }
+      .padding(Theme.Spacing.xl)
+      SnapshotSupport.assertLightAndDark(flow, width: 300, height: 140)
+    }
+  }
+#endif
