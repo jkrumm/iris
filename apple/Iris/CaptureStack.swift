@@ -3,9 +3,18 @@ import IrisCapture
 import IrisCore
 import os
 
+/// The persistent queue could not be opened (its file is unreadable right now, for instance before the first unlock after
+/// a reboot). Nothing is queued while this holds: a memo that "queued" into a throwaway list would be lost with the app.
+nonisolated enum CaptureStackError: Error, Equatable, Sendable {
+  case queueUnavailable
+}
+
 /// The capture side of the app behind one lazy handle: the persistent outbox and the capture session around it. Built on
 /// the first use, because loading the queue is `async`, and shared by the Settings queue, the composer, the thread's voice
 /// reply and the start intent.
+///
+/// When the queue cannot be loaded the stack stays unbuilt and every caller gets `queueUnavailable`; the next call tries the
+/// real store again, so `resume()` (and a pull to refresh) is the retry. There is no in-memory stand-in.
 actor CaptureStack {
   struct Parts: Sendable {
     let session: any AudioSessionController
@@ -19,54 +28,51 @@ actor CaptureStack {
     var deletesFilesWhenDone = true
   }
 
+  private typealias Built = (outbox: Outbox, session: CaptureSession)
+
   private let parts: Parts
-  private var building: Task<(Outbox, CaptureSession), Never>?
+  private var built: Built?
+  private var building: Task<Built?, Never>?
   private let logger = Logger(subsystem: "com.jkrumm.iris", category: "capture")
 
   init(_ parts: Parts) {
     self.parts = parts
   }
 
-  func outbox() async -> Outbox { await built().0 }
+  func outbox() async throws -> Outbox { try await open().outbox }
 
-  func session() async -> CaptureSession { await built().1 }
+  func session() async throws -> CaptureSession { try await open().session }
 
-  private func built() async -> (Outbox, CaptureSession) {
-    if let building { return await building.value }
-    let parts = parts
-    let task = Task { await Self.build(parts) }
-    building = task
-    return await task.value
+  /// Whether the queue is open, trying to open it when it is not: the state Settings shows.
+  func isAvailable() async -> Bool {
+    (try? await open()) != nil
   }
 
-  private static func build(_ parts: Parts) async -> (Outbox, CaptureSession) {
+  private func open() async throws -> Built {
+    if let built { return built }
+    let task = building ?? Task { [parts, logger] in await Self.build(parts, logger: logger) }
+    building = task
+    let result = await task.value
+    building = nil
+    guard let result else { throw CaptureStackError.queueUnavailable }
+    built = result
+    return result
+  }
+
+  private static func build(_ parts: Parts, logger: Logger) async -> Built? {
     let outbox: Outbox
     do {
       outbox = try await Outbox(
         store: parts.store, uploader: parts.uploader, clock: parts.clock, policy: parts.policy,
         deletesFilesWhenDone: parts.deletesFilesWhenDone)
     } catch {
-      // The store could not be read at all (not just decoded): run on a throwaway queue rather than not at all.
-      Logger(subsystem: "com.jkrumm.iris", category: "capture")
-        .error("outbox store unreadable, queue is not persisted: \(String(describing: error), privacy: .public)")
-      outbox = await Self.memoryOutbox(parts)
+      logger.error("outbox store cannot be opened, nothing is queued: \(String(describing: error), privacy: .public)")
+      return nil
     }
     await outbox.resume()
     let session = CaptureSession(
       session: parts.session, routes: parts.routes, recorder: parts.recorder, outbox: outbox, clock: parts.clock)
     return (outbox, session)
-  }
-
-  private static func memoryOutbox(_ parts: Parts) async -> Outbox {
-    // `InMemoryOutboxStore.load()` cannot throw; the fallback only exists to satisfy the initializer's signature.
-    let fallback = InMemoryOutboxStore()
-    do {
-      return try await Outbox(
-        store: fallback, uploader: parts.uploader, clock: parts.clock, policy: parts.policy,
-        deletesFilesWhenDone: parts.deletesFilesWhenDone)
-    } catch {
-      preconditionFailure("an in-memory outbox cannot fail to load: \(error)")
-    }
   }
 }
 

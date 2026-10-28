@@ -75,7 +75,7 @@ struct OutboxRig {
 
   /// Waits (bounded) until the queue is empty: the outbox has sent everything.
   func drain(seconds: Double = 10) async -> Bool {
-    let outbox = await stack.outbox()
+    guard let outbox = try? await stack.outbox() else { return false }
     for _ in 0..<Int(seconds * 100) {
       await outbox.settled()
       if await outbox.queue().isEmpty { return true }
