@@ -1,115 +1,92 @@
 # Mother handoff — Iris fleet (R1–R5)
 
-Written 2026-10-27 by the orchestrator that ran the foundation chain (Waves 1–9). This file is your whole memory: read
-it, then `docs/waves/PLAN.md` (header + **Fleet backlog**), `docs/PRD.md`, `docs/TDD.md` (skim; the lead and workers read
-the sections they need) and `docs/design/feedback-round-1.md`. Your role contract is `~/.claude/skills/wave/roles/mother.md`.
-The lead's is `roles/lead.md`, the workers' is `roles/worker.md`.
+Rewritten 2026-10-28 at the **owner's pause**. This file is the next mother's whole memory: read it, then `docs/waves/PLAN.md`
+(the Fleet section, Waves 10–15, the Fleet backlog), `docs/PRD.md`, `docs/design/feedback-round-{1,2}.md` (binding, round 2 wins)
+and skim `docs/TDD.md`. Role contract: `~/.claude/skills/wave/roles/mother.md` (lead: `roles/lead.md`, workers: `roles/worker.md`).
+
+## Status: PAUSED by the owner (2026-10-28)
+
+Usage is tight and other projects have priority. **Do not plan or spawn anything until the owner resumes the fleet.** On resume,
+start at "Resume point" below.
 
 ## Mission
 
-Build Iris R1–R5 (PRD §Release plan) on the foundation that Waves 1–9 left, as an endless, self-driving loop:
-backlog item → wave → lead → workers → merged, green, deployed → next. Iris is the owner's voice channel into his
-agent estate: a phone memo is recorded in 10 s segments, then transcribed, routed (journal / Hermes / herdr tab / Chat),
-acted on and notified through a Live Activity and APNs. There is one user, the owner.
+Build Iris R1–R5 (PRD §Release plan) as a self-driving loop: backlog item → wave → lead (Opus) → workers (default model, `rd fan`)
+→ merged, green, deployed → next. Iris is the owner's voice channel into his agent estate; there is one user, the owner.
 
-## State (2026-10-27 evening)
+## State at the pause
 
-- `iris-server` is **live on the mini** (`com.jkrumm.iris`, a deploy poller that auto-deploys a CI-green `master`).
-  `make smoke` passes a real memo end to end in about 10 s. The trace is in HyperDX. The log Notifier stands in for APNs.
-- The monorepo has the contracts (`contracts/`, `make check-contracts`), the Apple scaffold (XcodeGen, 4 targets, 4
-  packages, `apple.yml` on the hosted `xcode-27` image), the Swift rule + vendored skills + the `apple-dev` skill, the
-  Iris rules and skills, and the CLI verification harness (`make sim/run-sim/screenshot/ui-snapshot`, `scripts/mbm`).
-- The design is reviewed. Round 1 mockups are approved with changes (`docs/design/feedback-round-1.md`, binding).
-- `make check` is green, and CI is green on both workflows.
+- **Waves 10–14 done** (PLAN.md has each Left behind). Shipped: design round 2; R2 routing on the server (mode, spoken prefix,
+  agw `decide`, `needs_route` + answers/corrections, journal, herdr, Chat, typed memos, agw `caller`); R3 server (threads from
+  Iris's own memos, FTS5 search + filters + `pinned`, stats with per-step-and-route medians, telemetry relay, memo flags + soft
+  delete/undo/purge, automatic retries, Mermaid via Pele → SVG/PNG assets, speech-ready answers); iOS on the simulator (History
+  shell with tabs, chips, filter sheet, swipe + undo; memo detail with player, waterfall, attempts; Stats; Settings with
+  Diagnostics and an outbox port; typed composer).
+- **Production:** server `d3d8211` deployed, `make verify` healthy, DB `user_version` 11, no `.bak` left in `~/.iris/data`.
+- **`make smoke` fails at `summarize`** and will keep failing: agw `triage` runs on an IU model through Requesty, which answers
+  402 Insufficient Balance. **Owner decision 2026-10-28: Requesty is not topped up.** Every Hermes memo ends `failed(summarize)`
+  after a successful `act` (the reply exists; journal and herdr use templates and are fine). The adversary angle of `agw review`
+  fails on the same 402.
+- **CI:** `check` green; `apple.yml` was still running on `e9f7258` (I3) at the pause — check it first on resume.
+- **Wave 15 is a sketch, `pending`** in PLAN.md (R3 conversations + simulator parts of R1 capture). No tabs or worktrees are open.
 
-## Owner constraints right now
+## Resume point
 
-- **No paired iPhone until the owner is home (a few days).** Spikes S1–S3 and every device exit check wait.
-  Start with the backlog items that need no phone (0, 4, 6, 7; PLAN.md says so). The simulator-testable parts of
-  1–3 and 5 can go earlier if the queue runs dry.
-- **Apple Developer Program enrollment is pending (~2026-10-28).** Until then: no APNs to real devices, no TestFlight,
-  and signing for the simulator only (`CODE_SIGNING_ALLOWED=NO`). When the owner reports enrollment, the 1Password items
-  (APNs `.p8`, App Store Connect API key) get created via `ask-human.sh`.
-- Owner standing rules (global CLAUDE.md + memory):
-  - pushes, merges and deploys in his own repos are routine; never park work on him;
-  - he answers only the four stop reasons in `roles/mother.md`;
-  - public repo: no real hosts, IPs, tokens or emails in tracked files (`make guard` enforces it);
-  - no MCP servers;
-  - Iris is his only Swift project.
-- **Owner reviews to schedule:** design round 2 (backlog 0) needs his look. Send rendered links (private `/img`
-  presigned URLs, never in git) plus a local gallery opened on his MacBook
-  (`rsync … iumac:/tmp/… && ssh iumac open …`, the pattern used for round 1). Keep building unchanged surfaces while
-  he reviews. The **Chat mode** reading (a Hermes session with a no-side-effects system message) needs one confirmation
-  when backlog 4 starts.
+1. Check `gh run list` (`apple.yml` on `e9f7258` and later green) and `make verify`.
+2. **Unblock `summarize`:** ask the owner (stop reason 2, spend, or an agent-gateway routing change he owns) to move agw `triage`
+   off Requesty or fund it. Then `POST /v1/memos/:id/retry {from: "summarize"}` on the memos that failed meanwhile, and `make smoke`.
+3. Write **Wave 15** in full (backlog 7 conversations: thread view from a History row, Hermes-scope markdown, highlighted code,
+   tables → cards, Pele images with zoom, reply by voice/text, the iPhone reply flow as a new surface rendered for async owner
+   review; plus backlog 2's simulator parts: start recording from any screen with a top banner, the whole-memo/chat outbox).
+   Fold in Wave 14's "for the next wave": a **production composition** on iOS (real `URLSessionAPIClient` +
+   `AuthenticatedMediaSource`; today `CompositionRoot` is fake-only).
+4. Then backlog 5 and 8's simulator parts; device items (1, 3, the exit checks of 2 and 5) when the owner has the iPhone paired.
+
+## Open owner items (none block the code, all wait for the owner)
+
+- **Requesty / triage routing** (above): production summaries are failing.
+- **Apple Developer Program enrollment** (expected ~2026-10-28): then the APNs `.p8` and App Store Connect key go into 1Password
+  via `ask-human.sh`, and TestFlight (backlog 3) opens.
+- **iPhone pairing** when the owner is home: spikes S1–S3, every device exit check.
+- **Swipe detail:** "further right/left" is a second swipe button, not a second full-swipe threshold (native `.swipeActions`).
+  A custom gesture only if the owner asks.
+- **Account `me`** showed `auth FAILED` intermittently on the mini (`claude-account usage`); a re-login is the owner's.
 
 ## Fleet shape and models
 
-- **You (mother):** Opus, high effort. Long-horizon sequencing and verdicts across ten backlog items. Never read
-  source.
-- **Lead:** spawn with `RD_WAVE_MODEL=opus RD_ORCHESTRATED=1 rd wave iris '<prompt>'`. It owns briefs, review and the merge
-  train, and review quality is what keeps a long fleet from drifting, which is why it is Opus. Workers run on the
-  default (Sonnet) via `rd fan`. Raise a worker only for novel hard logic (e.g. the gapless segment recorder) and write
-  why in the brief.
-- **One active wave at a time** in PLAN.md. Turn backlog items into `## Wave 10 …`, `## Wave 11 …` sections with steps
-  sized for one lead context. Flip status, keep **Left behind** honest.
+- **Mother:** Opus. Never reads source, never merges. Owns PLAN.md, this file, spawning and closing leads.
+- **Lead:** `RD_WAVE_MODEL=opus RD_ORCHESTRATED=1 rd wave iris 'Read docs/waves/PLAN.md and ~/.claude/skills/wave/roles/lead.md.
+  You are the fleet lead for the active wave (Wave <n>). Brief workers with rd fan, review, merge with rd merge, close out the wave
+  in PLAN.md, and stop; the mother spawns the next lead.'` Workers on the default model via `rd fan`.
+- **One active wave at a time.** The lead never flips the next wave active unless the mother has written it.
 
-## Lessons from the foundation chain (do not relearn)
+## Lessons (do not relearn)
 
-- **`rd wave` blocked at startup** came from Claude's folder-trust prompt under an account that had never opened the repo.
-  `iu`, `me` and `me2` are now trusted for `~/SourceRoot/iris`. Worktrees from `rd fan` live elsewhere and may trigger it
-  again. If a spawn reports `agent_not_ready`, read the pane and accept the trust prompt for that path.
-- **"Dangerous rm" prompts block subagents even under skip-permissions.** The watcher reports `blocked`. Read the pane
-  (`herdr agent read <name> --source visible`) and answer it if the command is safe.
-- **The `agw` MCP review/check sometimes stalls or fails** (xcodegen "Couldn't find current username" in the gateway
-  sandbox). Use the `agw review` CLI and run `make check` directly; that's what Waves 4–9 did.
-- **Orchestrated waves don't spawn their successor;** whoever owns the loop does. Run
-  `wave-watch.sh` in the background, review the close-out + diff + CI, `rd close`, then spawn the next. Never leave a
-  finished tab open or a wave waiting.
-- `make run-sim` / `screenshot` leave the simulator booted, so run `xcrun simctl shutdown all` after.
-- `tap` via `scripts/mbm` needs `--post-delay 2` to navigate reliably.
-- (Wave 10) `rd merge` fails on a draft PR (`gh pr ready` first). The `agw review` CLI prints only the summary; findings are in
-  `GET /api/jobs/<id>` `.job.result`. A contract change must carry the Swift `IrisCore` follow-up in the same brief.
-- `wave-watch.sh` can time out silently: write its output to a file (`> /tmp/iris-wN-watch.txt`) and check `rd agents`.
+- **Quota is the fleet's real constraint.** A refused spawn ("no Claude account has room") is retried every 10 min in a background
+  loop; never spill to IU API tokens. A lead or worker hitting the 5-hour limit resumes on its own at the reset; wait, don't respawn.
+- **Watching a lead:** `wave-watch.sh` fires when the lead goes idle, and an Opus lead idles while its own watcher waits on
+  workers. Poll `origin/master`'s PLAN.md for `Wave <n> .*status: done` plus `rd agents` for `blocked` (a 2-min loop, 60–90 min
+  heartbeat, output to a file). Read the lead's pane (`rd read`) only when master has not moved for an hour.
+- **The lead's Claude prompt-suggestion line** (ghost text under the pane) can reveal a real blocker (it surfaced the Requesty 402).
+- **`rd wave` blocked at startup** = folder-trust prompt for an account or worktree path: read the pane and accept it.
+- **"Dangerous rm" prompts** block agents even under skip-permissions: `herdr agent read <name> --source visible`, answer if safe.
+- **`agw` CLI is `agw-legacy`** since 2026-10-28. Its review CLI prints only the summary; findings are in `GET /api/jobs/<id>`
+  `.job.result`. `/research` was down (503) during Wave 14.
+- **Merge train:** `rd merge` fails on a draft PR (`gh pr ready`), needs a worktree holding the branch, runs `make check` but not
+  `make e2e` (run it before the train for server-behaviour PRs). Parallel workers on shared additive files (AGENTS.md, TDD,
+  registry, conformance, FakeAPIClient) conflict on every rebase: land one at a time, resolve in the lead. One `xcodebuild` worker
+  at a time (parallel builds get SIGTERMed). A contract change carries its Swift `IrisCore` follow-up in the same brief.
+- `make run-sim` / `screenshot` leave the simulator booted: `xcrun simctl shutdown all`. `scripts/mbm tap` needs `--post-delay 2`.
+- `ask-human.sh ask '<question>' --cmd true` is a yes/no channel to the owner's MacBook (Run = yes, `done` exit 0).
 
-## Carry-forward debt (assign it inside backlog items, don't let it rot)
+## Carry-forward debt (assign inside backlog items)
 
-- Wave 5: the production vs fakes composition is duplicated (`index.ts` / `compose-fakes.ts`); the `MEMO_NEEDS_ROUTE`
-  category; `+faststart` on the concat; lint warnings.
-- Wave 7: Live Activity client phases (recording/paused/uploading); `IrisCapture`/`IrisUI`/`IrisTelemetry` → `IrisCore`
-  wiring; `POST /v1/telemetry` on the server; outbox segment-file deletion; crash-file protection class; `.xcstrings`.
-- TDD amendments whenever a backlog item changes a design decision. The TDD must stay true.
-- Housekeeping (backlog 10): delete the mockup images after R3.
-
-## Progress log
-
-- 2026-10-27: Wave 10 done (design round 2 + R2 routing core, deployed `cc19d4c`). Chat-mode reading confirmed by the owner via the
-  `ask-human` dialog (Run clicked). Design round 2 owner review pending (gallery on the MacBook, links in the untracked `links.local.md`).
-- Wave 11 done (`f5da34c` deployed): journal, herdr, typed memos, Chat (soft no-side-effects `system_message`; Hermes rewrites the
-  `iris-chat` source to `api_server`, so `threads.kind` is the marker), agw `caller`. Backlog 4 / R2 server complete.
-- Wave 12 (R3 server: threads API, search + filters, stats, telemetry relay, housekeeping) active.
-- Owner reviewed design round 2 (`docs/design/feedback-round-2.md`, binding, wins over round 1): folded into the backlog
-  (4b server flags + auto retries, 6 History, 7 conversations, 2 in-app recording banner + whole-memo outbox, 8 Mac rows).
-  No further design round. No Hermes upstream patch: Iris owns chat data. The w12 lead was steered: threads detail from
-  Iris's own memos, stats baselines per step+route with n.
-
-- Wave 12 done (`482883d` deployed): threads API from Iris's own memos, FTS5 search + filters + `pinned`, stats with per-step-and-route
-  medians and n, telemetry relay, Node 24 actions. Owner amended round 2: Pele for Mermaid (server-rendered SVG + PNG), speech-ready
-  answer variant, Threads tab dropped (owner-confirmed), freed tab slot reserved for PRD §Later. All in the backlog.
-- Wave 13 (server flags + auto retries + debt ∥ iOS History shell) active; Wave 14 sketched (Pele + speech ∥ detail/Stats/Settings/composer).
-- Account quota is the fleet's real constraint: `iu`/`me` near their 7-day caps until 10-28 16:00 / 10-29 06:00. A refused spawn
-  ("no Claude account has room") is retried every 10 min in the background; never spill.
-
-- Wave 13 done (server `c39eb6a`, apple `225235e`): memo flags + soft delete/undo/purge, auto retries (2 s / 8 s), Wave 12 debt,
-  iOS History shell (tabs, rows, chips, filter sheet, swipe, undo toast). Open owner detail, not a stop: "further right/left" is a
-  second swipe button, not a second full-swipe threshold (native `.swipeActions`).
-- Wave 14 (Pele + speech ∥ memo detail, Stats, Settings, composer) active; Wave 15 sketched (conversations + capture sim parts).
-
-- **Open owner stop (spend), 2026-10-28 05:15:** Requesty balance exhausted (402). agw triage fails, so production hermes memos fail
-  at `summarize` (journal/herdr use templates and are unaffected); the reviews' adversary angle is blocked too. Owner notified.
-  After the top-up: `POST /retry {from: summarize}` on the memos that failed meanwhile, then `make smoke`.
-
-## Next action
-
-Watch the active wave's lead (`iris-w<n>`), verdict its close-out, `rd close`, write the next wave from the backlog
-(after Wave 14: write Wave 15 in full (7 conversations + 2's simulator parts: in-app recording banner, whole-memo outbox);
-then 5 and 8's simulator parts; device items when the owner is home), spawn, loop.
+- Server: audio-gateway STT/speech timeouts still count as transient; a waiter on a thread queue holds a `driveAll` slot; herdr's
+  per-pane queue is unbounded; Pele assets are written outside the `completeStep` transaction; no asset backfill for older replies;
+  multi-word spoken tab names (needs the matched word count on the decision row).
+- iOS: no production composition; the player polls every 250 ms (no time observer, no waveform); `StatsModel`/`SettingsModel.load()`
+  lack History's generation guard; composer Cancel stays enabled during a send; the cost tile prints `$1,6200`; Live Activity client
+  phases recording/paused/uploading; package wiring onto `IrisCore`; crash-file protection class; `.xcstrings`.
+- TDD stays true: amend it whenever a wave changes a design decision.
+- Housekeeping (backlog 10, after R3's screens ship): delete the round-1/2 mockup image objects via `/img` (incl. the stray
+  `r2-detail-light`), `iumac:/tmp/iris-mockups.html` + `/tmp/iris-mockups/`, `docs/design/renders/`.
