@@ -45,8 +45,21 @@ struct MemoPresentationTests {
   @Test("a memo the pipeline is driving says Acting next to its route")
   func inFlightStatus() {
     let memo = MemoFactory.memo("a", state: .acted, route: "hermes")
-    #expect(memo.rowStatus == .inFlight(route: "Hermes", dot: memo.routeDotColor, label: "Acting"))
+    #expect(
+      memo.rowStatus
+        == .inFlight(
+          route: "Hermes", dot: memo.routeDotColor, label: "Acting", progress: StepProgress(completed: 3, total: 5)))
     #expect(MemoFactory.memo("a", state: .received).rowStatus.isInFlight)
+  }
+
+  @Test(
+    "the dashes count the steps the state says are done",
+    arguments: [
+      (MemoState.receiving, 0), (.received, 0), (.transcribed, 1), (.needsRoute, 1), (.routed, 2), (.acted, 3),
+      (.summarized, 4), (.notified, 5),
+    ])
+  func stepProgress(state: MemoState, completed: Int) {
+    #expect(MemoFactory.memo("a", state: state).stepProgress == StepProgress(completed: completed, total: 5))
   }
 
   @Test("the secondary line: failure hint, parked hint, else the summary's first line")

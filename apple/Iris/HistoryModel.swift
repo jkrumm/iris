@@ -15,6 +15,8 @@ final class HistoryModel {
   private(set) var isLoading = false
   private(set) var toast: HistoryToast?
   var filters = HistoryFilters()
+  /// Bumped for a memo on each `memo.updated` event, so an open detail screen knows to reload.
+  private(set) var revisions: [String: Int] = [:]
 
   var memos: [Memo] { pinned + items }
 
@@ -116,11 +118,16 @@ final class HistoryModel {
     }
   }
 
+  func revision(of id: String) -> Int {
+    revisions[id, default: 0]
+  }
+
   func handle(_ event: ServerEvent) async {
     switch event {
     case .ready:
       await load()
     case .memoUpdated(let update):
+      revisions[update.id, default: 0] += 1
       await refresh(id: update.id)
     case .memoDone:
       // Always follows a `memo.updated` for the same state.

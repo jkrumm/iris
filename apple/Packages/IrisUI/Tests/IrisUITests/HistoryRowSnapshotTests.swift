@@ -58,6 +58,16 @@
         width: 390, height: 100)
     }
 
+    @Test("an in-flight row shows one dash per step, filled as steps finish", .tags(.snapshot))
+    func inFlightProgress() {
+      SnapshotSupport.assertLightAndDark(
+        row(
+          .inFlight(
+            route: "Hermes", dot: Theme.Accent.tint, label: "Acting", progress: StepProgress(completed: 3, total: 5)),
+          headline: "Which Postgres index fits the herd snapshot query?", time: "9:46"),
+        width: 390, height: 100)
+    }
+
     @Test("a done favorite is dimmed with a check and a star", .tags(.snapshot))
     func doneFavorite() {
       SnapshotSupport.assertLightAndDark(

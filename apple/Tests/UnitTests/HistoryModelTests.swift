@@ -290,6 +290,17 @@ struct HistoryModelTests {
     .memoUpdated(MemoEvent(id: id, state: state, at: MemoFactory.now))
   }
 
+  @Test("each update bumps that memo's revision, which is what reloads an open detail")
+  func eventBumpsRevision() async {
+    await seed(MemoFactory.memo("a", age: 1), MemoFactory.memo("b", age: 2))
+    await model.load()
+    #expect(model.revision(of: "a") == 0)
+    await model.handle(event("a"))
+    await model.handle(event("a"))
+    #expect(model.revision(of: "a") == 2)
+    #expect(model.revision(of: "b") == 0)
+  }
+
   @Test("an update for a memo in the list refreshes the row in place")
   func eventUpdatesRow() async throws {
     await seed(MemoFactory.memo("a", age: 1), MemoFactory.memo("b", age: 2))
