@@ -104,6 +104,10 @@ acted on and notified through a Live Activity and APNs. There is one user, the o
   second swipe button, not a second full-swipe threshold (native `.swipeActions`).
 - Wave 14 (Pele + speech ∥ memo detail, Stats, Settings, composer) active; Wave 15 sketched (conversations + capture sim parts).
 
+- **Open owner stop (spend), 2026-10-28 05:15:** Requesty balance exhausted (402). agw triage fails, so production hermes memos fail
+  at `summarize` (journal/herdr use templates and are unaffected); the reviews' adversary angle is blocked too. Owner notified.
+  After the top-up: `POST /retry {from: summarize}` on the memos that failed meanwhile, then `make smoke`.
+
 ## Next action
 
 Watch the active wave's lead (`iris-w<n>`), verdict its close-out, `rd close`, write the next wave from the backlog
