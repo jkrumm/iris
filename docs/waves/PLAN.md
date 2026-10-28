@@ -411,8 +411,8 @@ The foundation chain (Waves 1–9) is complete. The fleet takes over: a mother (
 memory) turns the backlog below into Wave 10+ sections, one active at a time, each executed by a lead that fans out
 workers. The mother writes the next wave here.
 
-**Status: paused by owner 2026-10-28** (usage is tight, other projects have priority). Waves 10–14 are done; Wave 15 stays
-`pending` and nothing is spawned until the owner resumes. Resume point: `docs/waves/handoff/mother.md`.
+**Status: resumed 2026-10-28** (owner; runs through the night). Waves 10–14 are done; Wave 15 is active. Quota is the
+constraint: Max accounts only, wait for a reset when all are walled, never IU API tokens. Mother memory: `docs/waves/handoff/mother.md`.
 
 **Fleet gate (every wave):** each worker runs its cheap check; the lead runs `make check` at every merge (`rd merge`),
 `make e2e` for server changes, and `agw review` (CLI) on every non-docs diff with findings resolved. Server changes are
@@ -712,8 +712,49 @@ stale-completion tests rewritten, `PipelineSteps.applicable(to:)`, `MemoPlayback
 **For the next wave:** the fleet is **paused** after this wave (owner, 2026-10-28); Wave 15 stays pending. On resume: move triage off Requesty
 (or top it up) before trusting `make smoke`; wire a production composition (real `URLSessionAPIClient` + `AuthenticatedMediaSource`).
 
-## Wave 15 — R3 conversations (iOS) + simulator parts of R1 capture            <!-- status: pending -->
-Backlog 7 and the simulator-testable part of backlog 2. Written in full by the mother when Wave 14 closes.
+## Wave 15 — R3 conversations (iOS) + simulator parts of R1 capture ∥ server debt            <!-- status: active -->
+Backlog 7, the simulator-testable part of backlog 2, Wave 14's "for the next wave" (production composition) and the server carry-forward
+debt. Design is binding: `feedback-round-1.md` + `feedback-round-2.md` (round 2 wins); TDD §4 Screens names Textual for the thread.
+Two tracks: **S** (`server/**`, `contracts/**`, `scripts/**` + any contract's `IrisCore` follow-up) and **I** (`apple/**`). S and I run in
+parallel; inside I one `xcodebuild` worker at a time, in the order I1 → I2 → I3 → I4 (each builds on the last). S PRs land one at a time
+with `make e2e` before the train. Workers touching `IrisCapture`, intents or the Live Activity load the `apple-capture-notes` skill first.
+**Decision (mother, 2026-10-28): no token stream.** Hermes is configured for final-answer only and `act` already collects the final text;
+"smooth streaming" is a client reveal of the final answer when the memo's SSE update lands, not a new server stream. TDD records it.
+- [ ] **I1. Production composition + iOS debt:** a production `CompositionRoot` (real `URLSessionAPIClient`, server URL and device token
+      from Settings' connection, token in the Keychain) next to the fake one, selected by launch argument (`-IrisFakeCapture` / fake API
+      keep every existing UI test on fakes). Replace `AuthenticatedMediaSource`'s undocumented `AVURLAssetHTTPHeaderFieldsKey` with a
+      documented path (an `AVAssetResourceLoaderDelegate` or an authenticated download to a cache file; pick one, record why in TDD).
+      Debt: `StatsModel`/`SettingsModel.load()` get History's generation guard; composer Cancel is disabled during a send; the cost tile
+      formats dollars to two decimals in the user's locale (`$1.62` / `1,62 $`, never `$1,6200`); the player uses a periodic time
+      observer instead of 250 ms polling. Tests for each fix.
+- [ ] **I2. Thread view (backlog 7):** a History row of a Chat or multi-turn Hermes memo opens the thread view
+      (`GET /v1/threads/:id`); the Chats chip already lists them. Messages rendered with Textual, scope = what Hermes emits: text, lists,
+      links, syntax-highlighted code, tables (cards on narrow widths), Mermaid as the server's `replyBlocks` PNGs for the current
+      appearance, tap opens a zoomable full view (pinch, double-tap, share). A turn in flight shows a pending assistant bubble with the
+      step dashes; when SSE delivers the reply it reveals smoothly (subtle, no fake typing of thinking). Reply into the thread by text
+      (the composer bound to `threadId`) and by voice (a capture request bound to `threadId` through the capture port; the fake capture
+      until I3). Snapshot tests light + dark on fixtures with every block type.
+- [ ] **I3. Capture core (backlog 2, simulator part):** `IrisCapture` for real behind its ports (audio session, routes, segment
+      recorder, upload) wired onto `IrisCore`; the **outbox queues whole memos and chat messages** (typed, voice, thread replies), retries
+      with backoff, survives relaunch, and Settings shows it as a queue (I3 of Wave 14 left the port). `StartMemoIntent` + Control
+      compile and run on the simulator; Live Activity client phases recording/paused/uploading (Wave 7 carry-forward).
+      `-IrisFakeCapture` UI tests for record → upload → processing → done, and for offline → queued → sent.
+- [ ] **I4. Capture UI (backlog 2, simulator part):** start recording from any screen; while browsing the take continues as a
+      **compact top banner** (tap returns to the full take); leaving the app moves it to the Live Activity; Dynamic Island with icon controls
+      (stop, mic swap, pause), animated step progress, several queued memos; the done card's checkmark aligned. Snapshot tests on the
+      pinned simulator (Dynamic Island model). Device exit checks (lock screen, background take, Bluetooth) stay for pairing.
+- [ ] **I5. iPhone reply flow review render:** the reply flow (thread view → reply by voice/text → pending → answer) as simulator
+      screenshots light + dark, uploaded as private links via `/img`, listed in `docs/design/README.md` under open questions for the
+      owner's async review. Built as designed in I2/I4; the review never blocks the wave.
+- [ ] **S1. Server debt:** audio-gateway STT/speech timeouts fail after one window like the hang guard (not retried as transient);
+      a waiter parked on a thread queue no longer holds a `driveAll` slot; herdr's per-pane queue gets a bound (fail clearly past it);
+      Pele assets are written inside or reconciled with the `completeStep` transaction (no assets for an uncommitted reply survive);
+      a backfill renders assets for older replies (idempotent, a `make` target or a boot-time sweep, bounded). TDD amended.
+- [ ] **S2. Multi-word spoken tab names:** the decision row records the matched word count so a spoken prefix can name a
+      multi-word herdr tab; tests with one-, two- and three-word labels and a near-miss. Contract only if the wire changes.
+- [ ] Deploy and prove: `make verify` (+ `make smoke`, which still fails at `summarize` until triage leaves Requesty: note it, do not
+      block); a production thread probe (typed chat, then a continuation) reads back through `GET /v1/threads/:id`; `apple.yml` green;
+      TDD and AGENTS.md amended.
 
 ## Fleet backlog (for the long-running fleet: mother → lead → workers)
 

@@ -1,13 +1,13 @@
 # Mother handoff — Iris fleet (R1–R5)
 
-Rewritten 2026-10-28 at the **owner's pause**. This file is the next mother's whole memory: read it, then `docs/waves/PLAN.md`
+Rewritten 2026-10-28 at the owner's pause; status updated at the resume the same day. This file is the next mother's whole memory: read it, then `docs/waves/PLAN.md`
 (the Fleet section, Waves 10–15, the Fleet backlog), `docs/PRD.md`, `docs/design/feedback-round-{1,2}.md` (binding, round 2 wins)
 and skim `docs/TDD.md`. Role contract: `~/.claude/skills/wave/roles/mother.md` (lead: `roles/lead.md`, workers: `roles/worker.md`).
 
-## Status: PAUSED by the owner (2026-10-28)
+## Status: RESUMED by the owner (2026-10-28), run through the night
 
-Usage is tight and other projects have priority. **Do not plan or spawn anything until the owner resumes the fleet.** On resume,
-start at "Resume point" below.
+Wave 15 written in full and active; a lead runs it. Quota: iu and me at 100% weekly (iu resets 10-28 16:00, me 10-29 06:00),
+me2 has room. All walled → wait for the next reset (`claude-account usage`), never IU API tokens. Stop only for the four reasons.
 
 ## Mission
 
