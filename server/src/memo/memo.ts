@@ -135,9 +135,14 @@ export function purgeAt(memo: Pick<Memo, "deletedAt">): string | null {
     : new Date(Date.parse(memo.deletedAt) + PURGE_AFTER_MS).toISOString();
 }
 
-/** Only a memo the pipeline is done with may be deleted: the runner never touches it again. */
+/**
+ * Only a memo the pipeline is done with, or has not started (`receiving`: a cancelled take), may be deleted:
+ * the runner never touches it again.
+ */
 export function isDeletable(state: MemoState): boolean {
-  return state === "notified" || state === "failed" || state === "needs_route";
+  return (
+    state === "receiving" || state === "notified" || state === "failed" || state === "needs_route"
+  );
 }
 
 /** The user flags `PATCH /memos/:id` sets; an absent key is left as it is. */
