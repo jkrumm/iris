@@ -645,34 +645,69 @@ button, not a second full-swipe threshold (owner may want the latter).
 fix branch). A branch whose commits fight each other on rebase is faster squashed to its net diff. The `agw` CLI was renamed `agw-legacy`
 mid-wave (same commands). Account `me2` reached ~99 % of its window during I1.
 
-## Wave 14 — Pele + speech-ready answers (server) ∥ memo detail, Stats, Settings, typed composer (iOS)            <!-- status: active -->
+## Wave 14 — Pele + speech-ready answers (server) ∥ memo detail, Stats, Settings, typed composer (iOS)            <!-- status: done -->
 Backlog 4b's rendering half and the rest of backlog 6. Design is binding: `feedback-round-1.md` + `feedback-round-2.md` (round 2
 wins). Two tracks: **S** (`server/**`, `contracts/**`, `scripts/**` + each contract's `IrisCore` follow-up) and **I** (`apple/**`).
 Lessons from Waves 12–13 apply: S PRs land one at a time with `make e2e` before the train; additive conflicts are resolved in the
 lead; one `xcodebuild` worker at a time, so I2 and I3 run one after the other; a fix branch for `rd merge` needs its own worktree.
-- [ ] **S1. Mermaid via Pele** (`obsidianmd/pele`): `/research` the rasterizer first (Bun-compatible, maintained, no headless
+- [x] **S1. Mermaid via Pele** (`obsidianmd/pele`): `/research` the rasterizer first (Bun-compatible, maintained, no headless
       browser if avoidable) and record the choice and why in TDD §3. When a reply is stored, every Mermaid block renders to an SVG
       for light and dark (basalt-ui colours through Pele's CSS variables) plus rasterized PNGs; the assets are stored with the memo,
       served by an authenticated media route, removed with the memo's purge, and the reply wire references them per block. A block
       Pele cannot render stays a code block (logged, never a step failure). Contract + fixtures + `IrisCore`.
-- [ ] **S2. Speech-ready answers:** next to the rendered reply the server produces the speech variant (code, diagrams, tables and
+- [x] **S2. Speech-ready answers:** next to the rendered reply the server produces the speech variant (code, diagrams, tables and
       URLs stripped or summarized; past a length threshold the `triage` `spoken` summary plus "details on screen"); `/speech` speaks
       it, so [Play] and spoken replies never read markdown. A retry that changes the reply re-derives it (the existing text-keyed cache).
-- [ ] **S3. Wave 13 debt:** a hang-guard timeout (decide/triage, 30 min) is not retried as transient (a hung step fails after one
+- [x] **S3. Wave 13 debt:** a hang-guard timeout (decide/triage, 30 min) is not retried as transient (a hung step fails after one
       window, not ~90 min); the per-thread queue gets a bounded wait (a stuck turn fails the waiting one with a clear error).
-- [ ] **I2. Memo detail** per round 2: transcript; round 1's player (play/pause left, scrubbable timeline, one 10 s-back icon right,
+- [x] **I2. Memo detail** per round 2: transcript; round 1's player (play/pause left, scrubbable timeline, one 10 s-back icon right,
       no speed); the full-width step waterfall with one `duration · cost` chip per step, faster/slower only where the stats baseline
       has enough samples (the client's threshold), attempts per step and [Retry from step]; icon-only bottom actions (play, reply,
       retry); the reply as markdown (full conversation rendering incl. Pele images is Wave 15); steps advancing animated, subtle. Also
       the step-progress dashes on in-flight History rows. Snapshot tests light + dark, screenshots against the round-2 renders.
-- [ ] **I3. Stats, Settings, typed composer:** the Stats tab (volume per route per day/week, trends) from `GET /v1/stats`; Settings
+- [x] **I3. Stats, Settings, typed composer:** the Stats tab (volume per route per day/week, trends) from `GET /v1/stats`; Settings
       with an obvious Diagnostics row (copy the memo id, animated "Copied"; no hide-cost toggle) and an outbox section ready for
       capture; the typed-memo composer (modes incl. Chat, `POST /v1/memos/text`). Fixes: the dark-mode search placeholder;
       `FakeAPIClient` gets a gate so the stale-completion tests prove ordering.
-- [ ] Deploy and prove: `make verify` + `make smoke`; a production chat memo whose answer contains a Mermaid block and code shows
+- [x] Deploy and prove: `make verify` + `make smoke`; a production chat memo whose answer contains a Mermaid block and code shows
       the assets and a clean speech variant; `apple.yml` green; TDD and AGENTS.md amended. Delete `~/.iris/data/iris.db.pre-w13-flags.bak`
       once this deploy runs cleanly.
-**Left behind:**
+**Left behind:** Five PRs, each landed by the train after a green full `make check` (S PRs also `make e2e` in the worker): #21 speech, #22 debt,
+#23 Pele, #24 memo detail, #25 Stats/Settings/composer (+ FakeAPIClient gate). `agw review` (job API) on all five; its adversary angle failed on
+#21–#24 (IU/Requesty 402 "Insufficient Balance"), so the lead read those diffs itself. Every blocking finding was fixed before merge (#21: fences
+indented under list items were spoken raw, a one-line ```` ```foo``` ```` span swallowed the rest of the reply). Non-blocking findings fixed too:
+#22 a leaked 30-min timer per served waiter, a duplicated busy message; #23 ENOENT-only error mapping, orphan files after a failed row write, log
+names, CSP on SVGs. #25 review clean (all angles). The lead added one lint-wrap commit on #23 (`b6ae54a`). `check` and `apple.yml` green through `d57a15b`.
+**Deploy:** server deployed `d3d8211` (I2/I3 are apple-only); `make verify` healthy, user_version 11. **`make smoke` fails at `summarize` and will
+keep failing:** agw `triage` runs on an IU model through Requesty, which answers 402: memo `d7cd679f-…`, step error `agw triage failed: IU request
+failed (503): [Requesty-Global StatusCode: PaymentRequired] … Insufficient Balance`. Owner decision 2026-10-28: Requesty is not topped up, so a
+Hermes memo ends `failed(summarize)` after a successful `act` until the triage model moves off Requesty (an agent-gateway routing change, not Iris).
+The rest was proven in production with a typed chat probe through `act` (smoke token, `POST /v1/memos/text`, mode chat): the reply carried a
+mermaid and a ts block; `replyBlocks[0]` listed svg+png × light+dark; all four assets 200 (SVG with `content-security-policy`, PNG 512×128 at 2x,
+no `var(` left), 401 without auth, 404 for an unknown asset; the dark PNG renders in basalt colours; the speech variant was "ein Diagramm / ein
+Codeblock / <sentence>" (no markdown) and `/speech` returned 47 KB mp3; DELETE then purge after the window removed the asset dir, the
+`reply_assets` rows and the memo. `~/.iris/data/iris.db.pre-w13-flags.bak` deleted. TDD §4 Screens amended to what is built.
+**S1 (#23):** `pele` 1.10.0 (MIT, sync, no DOM, under Bun) + `@resvg/resvg-js` 2.6.2 (native, no browser); `/research` was down (503), so the
+choice rests on npm/GitHub/type declarations and Bun probes (TDD §3 says so). Theme variables are resolved into the SVG (resvg ignores `var()`);
+PNG 2x, ≤ 4096 px; the macOS Helvetica files are named so resvg skips the font scan. Migration 11 `reply_assets`; `GET /v1/memos/:id/assets/:assetId`;
+renders serialized per memo. Follow-up: assets are written outside the `completeStep` transaction (a step that loses its CAS can leave assets for an
+uncommitted reply until the next render or the purge; documented); no backfill for older replies; `make e2e` uses the fake renderer.
+**S2 (#21):** `memo/speech-text.ts`, derived per `/speech` call, never stored (no wire change, no migration); language from the reply (tie → German);
+600 cleaned characters, past that the triage `spoken` summary (clipped) + "Details auf dem Bildschirm." / "Details on screen."; a short reply is now
+spoken whole instead of the summary.
+**S3 (#22):** `hangGuardFailure` for the agw 30-min guard and the Hermes idle watchdogs (one window, no retry); `createKeyedQueue({maxWaitMs, sleep})`
+with a cancellable wait, 30 min for the thread queue, `KeyedQueueTimeout` "thread <id> is busy …". Follow-ups: the audio-gateway STT/speech timeouts
+still count as transient; a waiter parked on a thread queue holds a `driveAll` slot; herdr's per-pane queue stays unbounded (5 s call timeouts).
+A flaky `audio-gateway.test.ts` temp-dir count was seen once while three workers ran tests in parallel.
+**I2 (#24):** detail per round 2 (player via `MemoMediaSource`, waterfall, baseline threshold, attempts, retry from step, icon actions, markdown
+reply, SSE), step dashes on History rows. Follow-ups: `AuthenticatedMediaSource` uses the undocumented `AVURLAssetHTTPHeaderFieldsKey` and is not
+wired (`CompositionRoot` is fake-only; there is no production composition yet); the player polls every 250 ms instead of a time observer; no waveform.
+**I3 (#25):** Stats (day/week, tiles, trends; no Chat series, chats route to Hermes; "Busiest" instead of the Audio tile), Settings (Diagnostics,
+connection, outbox port), composer (5 modes, thread continuation from detail), dark search placeholder fixed, `FakeAPIClient.hold(_:)` with the
+stale-completion tests rewritten, `PipelineSteps.applicable(to:)`, `MemoPlayback`. Follow-ups: Cancel stays enabled during a send; `StatsModel`/
+`SettingsModel.load()` lack History's generation guard; the cost tile prints four decimals on dollar totals (`$1,6200`).
+**For the next wave:** the fleet is **paused** after this wave (owner, 2026-10-28); Wave 15 stays pending. On resume: move triage off Requesty
+(or top it up) before trusting `make smoke`; wire a production composition (real `URLSessionAPIClient` + `AuthenticatedMediaSource`).
 
 ## Wave 15 — R3 conversations (iOS) + simulator parts of R1 capture            <!-- status: pending -->
 Backlog 7 and the simulator-testable part of backlog 2. Written in full by the mother when Wave 14 closes.

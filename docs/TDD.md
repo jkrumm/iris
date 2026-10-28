@@ -528,11 +528,13 @@ access group), recent results and settings.
 
 | Screen | Content |
 |-|-|
-| History | Memo rows (route chip · state · headline · relative time), search, pull to refresh, SSE live updates |
-| Memo detail | Transcript, audio scrubber, step timeline (durations, errors), route decision with confidence, cost, [Retry from…], [Play] |
+| History | Tabs History · Stats · Settings (no Threads tab). Memo rows (route chip · state · headline · relative time, step-progress dashes while in flight), pinned needs-route rows, day sections, search, quick-filter chips (Favorites, Chats, Needs route, Archived), bottom-sheet filter, native swipe actions (done/favorite, archive/delete with a 5 s undo), pull to refresh, SSE live updates, [+] opens the composer |
+| Memo detail | Transcript, player (play/pause, scrubber, 10 s back, no speed), full-width step waterfall with one `duration · cost` chip per step, faster/slower vs the stats baseline only above a sample threshold, attempts, [Retry from step], icon-only actions (play reply, reply → composer, retry), the reply as markdown; SSE refresh |
+| Composer | Typed memo: mode picker (Auto, Journal, Hermes, Tab, Chat), text, send via `POST /v1/memos/text`; from a detail's reply it continues the memo's thread |
+| Stats | Volume per route per day / week (Swift Charts), tiles, per-route trends, from `GET /v1/stats` |
 | Thread | The Hermes transcript rendered with Textual, with hold-to-talk to append to this thread |
 | Record | Full-screen take: timer, level waveform, mic picker (`AVInputPickerInteraction` + own list), mode/tab picker, [Stop] |
-| Settings | Route mic rules, default mode, spoken replies, server URL + device token (Keychain), diagnostics (outbox, last errors, trace id copy) |
+| Settings | Diagnostics (copy a memo id, animated "Copied"), server connection, outbox section (a `QueuedItemSource` port, empty until capture lands). Later: route mic rules, default mode, spoken replies, server URL + device token (Keychain) |
 
 ## 5. macOS app (`IrisMac`)
 
