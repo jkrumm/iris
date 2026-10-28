@@ -229,6 +229,26 @@ struct FixtureConformanceTests {
     #expect(encoded.contains("\"attempts\":3"))
   }
 
+  @Test("`replyBlocks` carry the asset ids per block, format and scheme; a memo without rendered blocks omits the key")
+  func replyBlocks() throws {
+    let decoder = IrisJSON.makeDecoder()
+    let detail = try decoder.decode(MemoDetail.self, from: Contracts.fixtureData("memos.detail.response.assets"))
+    let block = try #require(detail.memo.replyBlocks.first)
+    #expect(detail.memo.replyBlocks.count == 1)
+    #expect(block.index == 0)
+    #expect(block.width == 486)
+    #expect(block.height == 64)
+    #expect(block.kind == .mermaid)
+    #expect(block.svg == SchemeAssets(light: "5b0e2f8a-3c41-4d7e-9a16-8f2d0c7b1e53", dark: "a4c19d62-7e08-4f35-b2a1-3d9e5f06c874"))
+    #expect(block.png.dark == "2d84b6c9-0f17-4e3a-8b52-c6a9e1d37f40")
+    #expect(detail.memo.replyText?.contains("```mermaid") == true)
+
+    let plain = try decoder.decode(MemoDetail.self, from: Contracts.fixtureData("memos.detail.response.chat"))
+    #expect(plain.memo.replyBlocks.isEmpty)
+    let encoded = String(decoding: try IrisJSON.makeEncoder().encode(plain), as: UTF8.self)
+    #expect(!encoded.contains("replyBlocks"))
+  }
+
   @Test("`threadId` is present on a chat memo's detail and omitted on a memo without one")
   func threadId() throws {
     let decoder = IrisJSON.makeDecoder()
