@@ -113,6 +113,15 @@ struct ThreadModelTests {
 
   // MARK: Loading
 
+  @Test("replies wait for the first load")
+  func canReply() async {
+    await client.seed(detail([memo("a", age: 1)]))
+    let thread = model()
+    #expect(!thread.canReply)
+    await thread.load()
+    #expect(thread.canReply)
+  }
+
   @Test("a failed load keeps the thread on screen and only flags an empty screen")
   func failedLoad() async {
     await client.seed(detail([memo("a", age: 10, reply: "x")]))
@@ -158,7 +167,7 @@ struct ThreadModelTests {
 
     let gate = await client.hold(.thread)
     let loading = Task { await thread.load() }
-    guard await waitUntilHeld(gate) else { return }
+    #expect(await waitUntilHeld(gate))
     thread.didSend(memo("b", age: 1, state: .transcribed))
     await gate.release()
     await loading.value
@@ -194,7 +203,7 @@ struct ThreadModelTests {
   }
 
   @Test("a new hold waits while the last take is still being stopped and sent")
-  func holdDuringSend() async throws {
+  func holdDuringSend() async {
     await client.seed(detail([memo("a", age: 100, reply: "x")]))
     let voice = GatedVoice()
     let clock = Clock(MemoFactory.now)
@@ -215,6 +224,24 @@ struct ThreadModelTests {
     #expect(thread.canRecordVoice)
     thread.beginVoice()
     #expect(thread.voiceStartedAt != nil)
+  }
+
+  @Test("a release and a cancel arriving together end the take once")
+  func endTwice() async {
+    await client.seed(detail([memo("a", age: 100, reply: "x")]))
+    let voice = GatedVoice()
+    let clock = Clock(MemoFactory.now)
+    let thread = model(voice: voice, now: { clock.now })
+    await thread.load()
+
+    thread.beginVoice()
+    clock.now = MemoFactory.now.addingTimeInterval(3)
+    let release = Task { await thread.endVoice(cancelled: false) }
+    await voice.waitUntilEnding()
+    #expect(await thread.endVoice(cancelled: true) == nil)
+    voice.finish()
+    _ = await release.value
+    #expect(voice.ends == 1)
   }
 
   @Test("a cancelled take sends nothing")
@@ -257,6 +284,7 @@ struct ThreadModelTests {
 /// A capture whose `end` waits for the test, to hold a take in the middle of being sent.
 private final class GatedVoice: VoiceReplyCapture {
   private(set) var begins = 0
+  private(set) var ends = 0
   private let ending: AsyncStream<Void>
   private let endingSignal: AsyncStream<Void>.Continuation
   private let release: AsyncStream<Void>
@@ -272,6 +300,7 @@ private final class GatedVoice: VoiceReplyCapture {
   func begin(_ request: VoiceReplyRequest) async throws { begins += 1 }
 
   func end(cancelled: Bool) async throws -> Memo? {
+    ends += 1
     endingSignal.yield()
     for await _ in release { break }
     return nil

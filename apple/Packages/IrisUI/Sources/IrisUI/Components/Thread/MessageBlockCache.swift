@@ -9,9 +9,12 @@ enum MessageBlockCache {
     init(_ blocks: [MessageBlock]) { self.blocks = blocks }
   }
 
+  /// Replies kept: a thread screen holds a handful, and `NSCache` drops the rest under memory pressure anyway.
+  private static let replyLimit = 64
+
   private static let cache: NSCache<NSString, Entry> = {
     let cache = NSCache<NSString, Entry>()
-    cache.countLimit = 64
+    cache.countLimit = replyLimit
     return cache
   }()
 
