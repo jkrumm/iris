@@ -39,6 +39,36 @@ public actor FakeAPIClient: APIClient {
     case registerDevice, setActivityToken, herd, stats
   }
 
+  /// A response a test holds back. The call runs against the fake's state at once; only its answer waits.
+  /// Create one with ``FakeAPIClient/hold(_:)``, wait for the call with ``waitUntilHeld()``, then ``release()``.
+  public struct Gate: Sendable {
+    private let held: AsyncStream<Void>
+    private let heldSignal: AsyncStream<Void>.Continuation
+    private let open: AsyncStream<Void>
+    private let openSignal: AsyncStream<Void>.Continuation
+
+    init() {
+      (held, heldSignal) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+      (open, openSignal) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+    }
+
+    /// Returns once the held call has run and is waiting for ``release()``.
+    public func waitUntilHeld() async {
+      for await _ in held { return }
+    }
+
+    /// Lets the held call answer (with its result or its error). Releasing before the call arrives is fine.
+    public func release() {
+      openSignal.yield()
+      openSignal.finish()
+    }
+
+    fileprivate func hold() async {
+      heldSignal.yield()
+      for await _ in open { return }
+    }
+  }
+
   public private(set) var calls: [Call] = []
   public private(set) var memos: [String: MemoDetail] = [:]
   public private(set) var threads: [String: ThreadDetail] = [:]
@@ -51,6 +81,7 @@ public actor FakeAPIClient: APIClient {
 
   private let now: @Sendable () -> Date
   private var failures: [Endpoint: [APIError]] = [:]
+  private var gates: [Endpoint: [Gate]] = [:]
   private var scriptedResults: [String: [MemoResult]] = [:]
   private let eventStream: AsyncThrowingStream<ServerEvent, any Error>
   private let eventContinuation: AsyncThrowingStream<ServerEvent, any Error>.Continuation
@@ -66,6 +97,16 @@ public actor FakeAPIClient: APIClient {
   /// Makes the next call to `endpoint` throw `error`. Queued errors are consumed one per call, in order.
   public func enqueueFailure(_ error: APIError, for endpoint: Endpoint) {
     failures[endpoint, default: []].append(error)
+  }
+
+  /// Holds back the answer of the next call to `endpoint` (its result or its scripted failure) until the returned
+  /// gate is released; the call's effect on the fake's state happens at once, as on a server whose response is slow.
+  /// Queued gates are consumed one per call, in order. Gated endpoints: `listMemos`, `memo`, `setFlags`,
+  /// `deleteMemo`, `restoreMemo`, `createTextMemo` and `stats`.
+  public func hold(_ endpoint: Endpoint) -> Gate {
+    let gate = Gate()
+    gates[endpoint, default: []].append(gate)
+    return gate
   }
 
   /// Queues the answers `result(id:)` gives before it falls back to the stored memo's state.
@@ -133,7 +174,10 @@ public actor FakeAPIClient: APIClient {
   /// Mirrors the server's rules without a runner: the memo is created `transcribed` and stays there.
   public func createTextMemo(_ request: CreateTextMemoRequest) async throws -> Memo {
     calls.append(.createTextMemo(request))
-    try failIfScripted(.createTextMemo)
+    return try await respond(.createTextMemo) { try storeTextMemo(request) }
+  }
+
+  private func storeTextMemo(_ request: CreateTextMemoRequest) throws -> Memo {
     let text = request.text.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !text.isEmpty, text.unicodeScalars.count <= CreateTextMemoRequest.maxTextCharacters else {
       throw APIError.server(
@@ -228,57 +272,63 @@ public actor FakeAPIClient: APIClient {
   /// the next time anything looks, which is the server's purge.
   public func setFlags(id: String, done: Bool?, favorite: Bool?, archived: Bool?) async throws -> Memo {
     calls.append(.setFlags(id: id, done: done, favorite: favorite, archived: archived))
-    try failIfScripted(.setFlags)
-    purgeExpired()
-    guard var detail = memos[id] else { throw notFound("memo not found") }
-    guard done != nil || favorite != nil || archived != nil else {
-      throw APIError.server(
-        status: 400, body: ErrorBody(error: .badRequest, message: "set at least one of done, favorite, archived"))
+    return try await respond(.setFlags) {
+      purgeExpired()
+      guard var detail = memos[id] else { throw notFound("memo not found") }
+      guard done != nil || favorite != nil || archived != nil else {
+        throw APIError.server(
+          status: 400, body: ErrorBody(error: .badRequest, message: "set at least one of done, favorite, archived"))
+      }
+      guard !detail.memo.isDeleted else { throw badState("memo \(id) is deleted") }
+      if let done { detail.memo.done = done }
+      if let favorite { detail.memo.favorite = favorite }
+      if let archived { detail.memo.archived = archived }
+      detail.memo.updatedAt = now()
+      store(detail)
+      return detail.memo
     }
-    guard !detail.memo.isDeleted else { throw badState("memo \(id) is deleted") }
-    if let done { detail.memo.done = done }
-    if let favorite { detail.memo.favorite = favorite }
-    if let archived { detail.memo.archived = archived }
-    detail.memo.updatedAt = now()
-    store(detail)
-    return detail.memo
   }
 
   public func deleteMemo(id: String) async throws -> Memo {
     calls.append(.deleteMemo(id: id))
-    try failIfScripted(.deleteMemo)
-    purgeExpired()
-    guard var detail = memos[id] else { throw notFound("memo not found") }
-    if detail.memo.isDeleted { return detail.memo }
-    guard detail.memo.state.isDeletable else {
-      throw badState("memo \(id) is \(detail.memo.state.rawValue), only settled memos can be deleted")
+    return try await respond(.deleteMemo) {
+      purgeExpired()
+      guard var detail = memos[id] else { throw notFound("memo not found") }
+      if detail.memo.isDeleted { return detail.memo }
+      guard detail.memo.state.isDeletable else {
+        throw badState("memo \(id) is \(detail.memo.state.rawValue), only settled memos can be deleted")
+      }
+      let timestamp = now()
+      detail.memo.deletedAt = timestamp
+      detail.memo.purgeAt = timestamp.addingTimeInterval(Self.purgeWindow)
+      detail.memo.updatedAt = timestamp
+      store(detail)
+      return detail.memo
     }
-    let timestamp = now()
-    detail.memo.deletedAt = timestamp
-    detail.memo.purgeAt = timestamp.addingTimeInterval(Self.purgeWindow)
-    detail.memo.updatedAt = timestamp
-    store(detail)
-    return detail.memo
   }
 
   public func restoreMemo(id: String) async throws -> Memo {
     calls.append(.restoreMemo(id: id))
-    try failIfScripted(.restoreMemo)
-    purgeExpired()
-    guard var detail = memos[id] else { throw notFound("memo not found") }
-    guard detail.memo.isDeleted else { throw badState("memo \(id) is not deleted") }
-    detail.memo.deletedAt = nil
-    detail.memo.purgeAt = nil
-    detail.memo.updatedAt = now()
-    store(detail)
-    return detail.memo
+    return try await respond(.restoreMemo) {
+      purgeExpired()
+      guard var detail = memos[id] else { throw notFound("memo not found") }
+      guard detail.memo.isDeleted else { throw badState("memo \(id) is not deleted") }
+      detail.memo.deletedAt = nil
+      detail.memo.purgeAt = nil
+      detail.memo.updatedAt = now()
+      store(detail)
+      return detail.memo
+    }
   }
 
   /// Mirrors the server's list rules: deleted memos never show, archived ones only with `archived`, and an open
   /// `needs_route` memo (not `done`) is pinned on the first page instead of paged.
   public func listMemos(_ query: ListMemosQuery) async throws -> MemoPage {
     calls.append(.listMemos(query))
-    try failIfScripted(.listMemos)
+    return try await respond(.listMemos) { page(for: query) }
+  }
+
+  private func page(for query: ListMemosQuery) -> MemoPage {
     purgeExpired()
     let matching = memos.values.map(\.memo)
       .filter { memo in
@@ -317,10 +367,11 @@ public actor FakeAPIClient: APIClient {
 
   public func memo(id: String) async throws -> MemoDetail {
     calls.append(.memo(id: id))
-    try failIfScripted(.memo)
-    purgeExpired()
-    guard let detail = memos[id] else { throw notFound("memo not found") }
-    return detail
+    return try await respond(.memo) {
+      purgeExpired()
+      guard let detail = memos[id] else { throw notFound("memo not found") }
+      return detail
+    }
   }
 
   public func listThreads(_ query: ListThreadsQuery) async throws -> ThreadPage {
@@ -381,8 +432,7 @@ public actor FakeAPIClient: APIClient {
 
   public func stats(_ query: StatsQuery) async throws -> Stats {
     calls.append(.stats(query))
-    try failIfScripted(.stats)
-    return statsResponse
+    return try await respond(.stats) { statsResponse }
   }
 
   public nonisolated func events() -> AsyncThrowingStream<ServerEvent, any Error> {
@@ -390,6 +440,20 @@ public actor FakeAPIClient: APIClient {
   }
 
   // MARK: Helpers
+
+  /// Runs `body` (after any scripted failure), then waits for a gate held on `endpoint` before answering.
+  private func respond<T>(_ endpoint: Endpoint, _ body: () throws -> T) async throws -> T {
+    let outcome = Result<T, any Error> {
+      try failIfScripted(endpoint)
+      return try body()
+    }
+    if var queue = gates[endpoint], !queue.isEmpty {
+      let gate = queue.removeFirst()
+      gates[endpoint] = queue
+      await gate.hold()
+    }
+    return try outcome.get()
+  }
 
   private func failIfScripted(_ endpoint: Endpoint) throws {
     guard var queue = failures[endpoint], !queue.isEmpty else { return }
