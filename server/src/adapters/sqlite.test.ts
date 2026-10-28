@@ -1031,6 +1031,16 @@ describe("reply assets", () => {
     expect(store.listMemos({ limit: 5 }).memos[0]?.replyBlocks).toHaveLength(2);
   });
 
+  it("a stored row that no longer parses drops the blocks with a warning instead of failing the read", async () => {
+    const { store, db } = testStore();
+    const { id } = seedMemo(store, "acted");
+    store.replaceReplyAssets(id, files(0, "a"));
+    db.query("UPDATE reply_assets SET width = 'wide' WHERE id = 'a-svg-light'").run();
+    const { result, lines } = await captureLogs(async () => store.getMemo(id));
+    expect(result?.replyBlocks).toEqual([]);
+    expect(lines.map((l) => l["event"])).toEqual(["memo.reply_assets_invalid"]);
+  });
+
   it("replaces the previous set, drops a block that lacks a rendering, and refuses an unknown memo", () => {
     const { store } = testStore();
     const { id } = seedMemo(store, "acted");

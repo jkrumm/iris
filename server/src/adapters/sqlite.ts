@@ -153,10 +153,16 @@ const ReplyAssetsSchema = z.array(
   }),
 );
 
+/** Like the summary: rows that no longer parse drop the blocks (the reply stays plain markdown) with a warning, never a failed read. */
 function parseReplyBlocks(row: MemoRow) {
-  const parsed = ReplyAssetsSchema.safeParse(JSON.parse(row.reply_assets_json));
-  if (!parsed.success) return [];
-  return groupReplyBlocks(parsed.data.map(toReplyAsset));
+  try {
+    const parsed = ReplyAssetsSchema.safeParse(JSON.parse(row.reply_assets_json));
+    if (parsed.success) return groupReplyBlocks(parsed.data.map(toReplyAsset));
+    log("memo.reply_assets_invalid", { memo_id: row.id, error: parsed.error.message });
+  } catch (err) {
+    log("memo.reply_assets_invalid", { memo_id: row.id, error: String(err) });
+  }
+  return [];
 }
 
 const toMemo = (row: MemoRow): Memo => ({
