@@ -3,7 +3,7 @@ import { configured } from "../memo/errors.js";
 import type { MemoMedia } from "../memo/media.js";
 import type { Recording } from "../ports/audio.js";
 import type { deviceAuth } from "./auth.js";
-import { ErrorBody, MemoIdParams } from "./schemas.js";
+import { AssetParams, ErrorBody, MemoIdParams } from "./schemas.js";
 
 // Building the recording or synthesizing speech can outlast Bun's 10 s idle timeout, which counts
 // silence on the socket. Bun accepts at most 255 seconds.
@@ -63,7 +63,7 @@ function rangedResponse(params: { request: Request; body: Recording; type: strin
   });
 }
 
-/** `GET /memos/:id/audio` (range-aware, for AVPlayer scrubbing) and `GET /memos/:id/speech`. */
+/** `GET /memos/:id/audio` (range-aware, for AVPlayer scrubbing), `GET /memos/:id/speech` and `GET /memos/:id/assets/:assetId`. */
 export function mediaRoutes(deps: {
   media: MemoMedia | undefined;
   auth: ReturnType<typeof deviceAuth>;
@@ -92,5 +92,21 @@ export function mediaRoutes(deps: {
         });
       },
       { params: MemoIdParams, response: errors },
+    )
+    .get(
+      "/:id/assets/:assetId",
+      async ({ params }) => {
+        const { bytes, type } = await configured(media, "media").asset(params.id, params.assetId);
+        return new Response(bytes, {
+          headers: {
+            "content-type": type,
+            "content-length": String(bytes.byteLength),
+            // An asset id is never reused (a new reply renders under new ids), so the file never changes.
+            "cache-control": "private, max-age=31536000, immutable",
+            "x-content-type-options": "nosniff",
+          },
+        });
+      },
+      { params: AssetParams, response: errors },
     );
 }

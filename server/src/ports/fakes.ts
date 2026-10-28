@@ -1,7 +1,9 @@
 import { threadTitle, type Memo, type Summary } from "../memo/memo.js";
 import type { ApnsResult, ApnsTransport } from "./apns.js";
+import type { AssetStore } from "./assets.js";
 import type { AudioCombiner } from "./audio.js";
 import type { Decider, Decision } from "./decider.js";
+import type { DiagramRenderer, RenderedDiagram } from "./diagram.js";
 import type { Delivery, Destination } from "./destination.js";
 import type { Herd, HerdTab } from "./herd.js";
 import type { Notifier } from "./notifier.js";
@@ -196,4 +198,59 @@ export function fakeHerd(
     },
   };
   return herd;
+}
+
+const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+const encoder = new TextEncoder();
+
+/**
+ * Renders every source to a tiny SVG naming the scheme and source, plus a PNG-signed body; a source that contains
+ * `failOn` (default: any source with the word "unrenderable") throws like a diagram the real renderer rejects.
+ */
+export function fakeDiagramRenderer(
+  options: { failOn?: string; result?: Partial<RenderedDiagram> } = {},
+): DiagramRenderer & Calls<string> {
+  const calls: string[] = [];
+  const failOn = options.failOn ?? "unrenderable";
+  return {
+    calls,
+    async render(source) {
+      calls.push(source);
+      if (source.includes(failOn)) throw new Error("fake diagram renderer: cannot render");
+      const scheme = (name: "light" | "dark") => ({
+        svg: `<svg xmlns="http://www.w3.org/2000/svg" data-scheme="${name}"><desc>${source.length}</desc></svg>`,
+        png: new Uint8Array([...PNG_SIGNATURE, ...encoder.encode(`${name}:${source}`)]),
+      });
+      return {
+        width: 120,
+        height: 60,
+        light: scheme("light"),
+        dark: scheme("dark"),
+        ...options.result,
+      };
+    },
+  };
+}
+
+/** In-memory asset files keyed `<memo id>/<asset id>`. */
+export function fakeAssetStore(): AssetStore & { files: Map<string, Uint8Array> } {
+  const files = new Map<string, Uint8Array>();
+  return {
+    files,
+    async put({ memoId, assetId, bytes }) {
+      files.set(`${memoId}/${assetId}`, bytes);
+    },
+    async read({ memoId, assetId }) {
+      return files.get(`${memoId}/${assetId}`) ?? null;
+    },
+    async prune({ memoId, keep }) {
+      for (const key of files.keys()) {
+        if (key.startsWith(`${memoId}/`) && !keep.has(key.slice(memoId.length + 1)))
+          files.delete(key);
+      }
+    },
+    async removeAll(memoId) {
+      for (const key of files.keys()) if (key.startsWith(`${memoId}/`)) files.delete(key);
+    },
+  };
 }

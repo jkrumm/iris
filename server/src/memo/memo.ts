@@ -29,6 +29,62 @@ export interface Summary {
   spoken: string;
 }
 
+export const ASSET_SCHEMES = ["light", "dark"] as const;
+export type AssetScheme = (typeof ASSET_SCHEMES)[number];
+export const ASSET_FORMATS = ["svg", "png"] as const;
+export type AssetFormat = (typeof ASSET_FORMATS)[number];
+
+/** One stored file of a rendered reply block; `id` names the file under the memo (`GET /memos/:id/assets/:assetId`). */
+export interface ReplyAsset {
+  id: string;
+  /** Zero-based position among the reply's ```mermaid fences, in document order. */
+  block: number;
+  format: AssetFormat;
+  scheme: AssetScheme;
+  /** The diagram's size in points (the PNG is a multiple of it). */
+  width: number;
+  height: number;
+}
+
+/** A Mermaid block of the reply with all four renderings: the asset ids by format and colour scheme. */
+export interface ReplyBlock {
+  index: number;
+  kind: "mermaid";
+  width: number;
+  height: number;
+  svg: Record<AssetScheme, string>;
+  png: Record<AssetScheme, string>;
+}
+
+/** Groups stored assets into blocks, ordered by index; a block missing one of its four renderings is dropped. */
+export function groupReplyBlocks(assets: readonly ReplyAsset[]): ReplyBlock[] {
+  const byBlock = new Map<number, ReplyAsset[]>();
+  for (const asset of assets)
+    byBlock.set(asset.block, [...(byBlock.get(asset.block) ?? []), asset]);
+  const blocks: ReplyBlock[] = [];
+  for (const [index, files] of [...byBlock].toSorted(([a], [b]) => a - b)) {
+    const idOf = (format: AssetFormat, scheme: AssetScheme) =>
+      files.find((f) => f.format === format && f.scheme === scheme)?.id;
+    const [svgLight, svgDark, pngLight, pngDark] = [
+      idOf("svg", "light"),
+      idOf("svg", "dark"),
+      idOf("png", "light"),
+      idOf("png", "dark"),
+    ];
+    const first = files[0];
+    if (!first || !svgLight || !svgDark || !pngLight || !pngDark) continue;
+    blocks.push({
+      index,
+      kind: "mermaid",
+      width: first.width,
+      height: first.height,
+      svg: { light: svgLight, dark: svgDark },
+      png: { light: pngLight, dark: pngDark },
+    });
+  }
+  return blocks;
+}
+
 export interface Memo {
   id: string;
   mode: MemoMode;
@@ -45,6 +101,8 @@ export interface Memo {
   route: string | null;
   destinationRef: string | null;
   replyText: string | null;
+  /** The reply's Mermaid blocks that rendered, by block index; blocks that did not render stay code blocks and are absent. */
+  replyBlocks: ReplyBlock[];
   summary: Summary | null;
   /**
    * The Hermes session (chat or not) the memo ran in: set by `act` (a fresh memo's own session, so equal to its id), or at

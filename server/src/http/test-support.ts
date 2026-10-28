@@ -10,7 +10,13 @@ import type { MemoStore } from "../memo/store.js";
 import { fakeAudio, testStore } from "../memo/test-support.js";
 import type { DestinationName } from "../ports/destination.js";
 import type { HerdTab } from "../ports/herd.js";
-import { fakeCombiner, fakeHerd, fakeSpeaker, fakeSpeechCache } from "../ports/fakes.js";
+import {
+  fakeAssetStore,
+  fakeCombiner,
+  fakeHerd,
+  fakeSpeaker,
+  fakeSpeechCache,
+} from "../ports/fakes.js";
 import { fakeOtlpExporter } from "../telemetry/fakes.js";
 import { createTelemetryRelay } from "../telemetry/relay.js";
 import { parseDeviceTokens } from "./auth.js";
@@ -34,6 +40,8 @@ export function testApp(
     herd?: ReturnType<typeof fakeHerd> | false;
     herdTabs?: HerdTab[];
     combiner?: ReturnType<typeof fakeCombiner>;
+    /** The reply asset files; pass the one the handlers' `createReplyAssets` writes to. */
+    assets?: ReturnType<typeof fakeAssetStore>;
     /** The destinations an answer may pick; default `hermes` only. */
     destinations?: DestinationName[];
     /** The collector behind the telemetry relay; default a recording fake, `{down: true}` rejects. */
@@ -76,12 +84,14 @@ export function testApp(
     options.herd === false
       ? undefined
       : (options.herd ?? fakeHerd(options.herdTabs && { tabs: options.herdTabs }));
+  const assets = options.assets ?? fakeAssetStore();
   const media = createMemoMedia({
     store,
     audio,
     combiner,
     speaker,
     speechCache: fakeSpeechCache(),
+    assets,
   });
   const otlp = options.otlp ?? fakeOtlpExporter();
   const relayLog: Array<{ event: string; fields: Record<string, unknown> }> = [];
@@ -106,6 +116,7 @@ export function testApp(
     clock,
     events,
     audio,
+    assets,
     runner,
     memos,
     devices,

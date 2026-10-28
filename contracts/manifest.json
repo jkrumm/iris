@@ -486,6 +486,29 @@
     },
     {
       "method": "GET",
+      "path": "/v1/memos/:id/assets/:assetId",
+      "auth": "bearer",
+      "responses": {
+        "200": {
+          "mediaType": "image/svg+xml",
+          "description": "One rendered file of a reply's Mermaid block: image/svg+xml for an svg id, image/png for a png id (the ids are in the memo's replyBlocks). Immutable: an id is never reused."
+        },
+        "404": {
+          "mediaType": "application/json",
+          "schema": "error"
+        },
+        "409": {
+          "mediaType": "application/json",
+          "schema": "error"
+        },
+        "503": {
+          "mediaType": "application/json",
+          "schema": "error"
+        }
+      }
+    },
+    {
+      "method": "GET",
       "path": "/v1/herd",
       "auth": "bearer",
       "responses": {

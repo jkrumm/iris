@@ -160,12 +160,12 @@ describe("POST /v1/memos/:id/restore", () => {
   });
 
   it("answers 404 once the memo was purged, and GET agrees", async () => {
-    const { app, store, clock, audio, db } = testApp();
+    const { app, store, clock, audio, assets, db } = testApp();
     const { id } = seedMemo(store, "notified");
     await audio.put({ id, index: 0, bytes: new Uint8Array([1]) });
     await del(app, id);
     clock.advance(PURGE_AFTER_MS);
-    const purger = createPurger({ store, audio, speechCache: fakeSpeechCache(), clock });
+    const purger = createPurger({ store, audio, speechCache: fakeSpeechCache(), assets, clock });
     expect(await purger.sweep()).toEqual([id]);
 
     expect((await restore(app, id)).status).toBe(404);

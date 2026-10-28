@@ -7,6 +7,7 @@ import {
   type Summary,
 } from "../memo/memo.js";
 import type { StepHandler } from "../memo/runner.js";
+import type { ReplyAssets } from "../memo/reply-assets.js";
 import type { MemoStore } from "../memo/store.js";
 import type { AudioStore } from "../ports/audio.js";
 import type { Decider } from "../ports/decider.js";
@@ -91,6 +92,8 @@ export function createStepHandlers(deps: {
   herd?: Herd | undefined;
   decider?: Decider | undefined;
   summarizer?: Summarizer | undefined;
+  /** Renders the reply's Mermaid blocks once it is delivered; absent, a reply stays plain markdown. */
+  replyAssets?: ReplyAssets | undefined;
   notifier: Notifier;
 }): Partial<Record<HandlerStep, StepHandler>> {
   const {
@@ -101,6 +104,7 @@ export function createStepHandlers(deps: {
     herd,
     decider,
     summarizer,
+    replyAssets,
     notifier,
   } = deps;
 
@@ -232,6 +236,7 @@ export function createStepHandlers(deps: {
         reply_chars: delivery.replyText.length,
         cost_usd: delivery.costUsd,
       });
+      await replyAssets?.sync({ memoId: memo.id, replyText: delivery.replyText });
       return {
         patch: {
           destinationRef: delivery.ref,

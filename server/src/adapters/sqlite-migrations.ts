@@ -165,4 +165,17 @@ export const MIGRATIONS: readonly string[] = [
   CREATE INDEX memos_created_at ON memos (created_at);
   CREATE INDEX memo_steps_started_at ON memo_steps (started_at);
   `,
+  // Rendered Mermaid blocks of a reply (docs/TDD.md §3): one row per file, the bytes live under <data>/assets/<memo_id>/<id>.
+  `
+  CREATE TABLE reply_assets (
+    memo_id TEXT NOT NULL REFERENCES memos (id) ON DELETE CASCADE,
+    id TEXT NOT NULL,
+    block_index INTEGER NOT NULL,
+    format TEXT NOT NULL CHECK (format IN ('svg', 'png')),
+    scheme TEXT NOT NULL CHECK (scheme IN ('light', 'dark')),
+    width INTEGER NOT NULL,
+    height INTEGER NOT NULL,
+    PRIMARY KEY (memo_id, id)
+  );
+  `,
 ];

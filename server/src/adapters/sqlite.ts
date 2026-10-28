@@ -2,6 +2,7 @@ import { Database } from "bun:sqlite";
 import { z } from "zod";
 import { MemoError } from "../memo/errors.js";
 import {
+  groupReplyBlocks,
   isCorrectable,
   STEPS,
   stateBefore,
@@ -10,6 +11,7 @@ import {
   type MemoColumnPatch,
   type MemoMode,
   type MemoState,
+  type ReplyAsset,
   type RouteDecisionInput,
   type RouteDecisionRecord,
   type RouteOutcome,
@@ -78,7 +80,27 @@ interface MemoRow {
   /** The latest decision's reason and destination, only while the memo is `needs_route`. */
   park_reason: string | null;
   park_destination: string | null;
+  /** The memo's `reply_assets` rows as a JSON array (`REPLY_ASSETS_JSON`), `[]` when it has none. */
+  reply_assets_json: string;
 }
+
+interface ReplyAssetRow {
+  id: string;
+  block_index: number;
+  format: string;
+  scheme: string;
+  width: number;
+  height: number;
+}
+
+const toReplyAsset = (row: ReplyAssetRow): ReplyAsset => ({
+  id: row.id,
+  block: row.block_index,
+  format: row.format as ReplyAsset["format"],
+  scheme: row.scheme as ReplyAsset["scheme"],
+  width: row.width,
+  height: row.height,
+});
 
 interface StepRow {
   step: string;
@@ -120,6 +142,23 @@ function parseSummary(row: MemoRow): Summary | null {
   return null;
 }
 
+const ReplyAssetsSchema = z.array(
+  z.object({
+    id: z.string(),
+    block_index: z.number(),
+    format: z.enum(["svg", "png"]),
+    scheme: z.enum(["light", "dark"]),
+    width: z.number(),
+    height: z.number(),
+  }),
+);
+
+function parseReplyBlocks(row: MemoRow) {
+  const parsed = ReplyAssetsSchema.safeParse(JSON.parse(row.reply_assets_json));
+  if (!parsed.success) return [];
+  return groupReplyBlocks(parsed.data.map(toReplyAsset));
+}
+
 const toMemo = (row: MemoRow): Memo => ({
   id: row.id,
   mode: row.mode as MemoMode,
@@ -134,6 +173,7 @@ const toMemo = (row: MemoRow): Memo => ({
   route: row.route,
   destinationRef: row.destination_ref,
   replyText: row.reply_text,
+  replyBlocks: parseReplyBlocks(row),
   summary: parseSummary(row),
   threadId: row.thread_id,
   ...(row.park_reason !== null && { routeReason: row.park_reason }),
@@ -146,8 +186,13 @@ const toMemo = (row: MemoRow): Memo => ({
   updatedAt: row.updated_at,
 });
 
-/** `SELECT` list for a memo row: the columns plus the park details of the latest routing decision. */
+const REPLY_ASSETS_JSON = `(SELECT json_group_array(json_object(
+    'id', a.id, 'block_index', a.block_index, 'format', a.format, 'scheme', a.scheme, 'width', a.width, 'height', a.height))
+  FROM reply_assets a WHERE a.memo_id = memos.id)`;
+
+/** `SELECT` list for a memo row: the columns, the park details of the latest routing decision and the reply's rendered blocks. */
 const MEMO_SELECT = `memos.*,
+  ${REPLY_ASSETS_JSON} AS reply_assets_json,
   CASE WHEN memos.state = 'needs_route' THEN
     (SELECT reason FROM route_decisions d WHERE d.memo_id = memos.id ORDER BY d.id DESC LIMIT 1) END AS park_reason,
   CASE WHEN memos.state = 'needs_route' THEN
@@ -248,6 +293,8 @@ export function createSqliteMemoStore(params: { db: Database; clock: Clock }): M
     // `act` set the memo's own session; a memo created to continue a thread keeps its thread (its `thread_id` is never its id).
     if (cleared.includes("act")) {
       db.query("UPDATE memos SET thread_id = NULL WHERE id = ? AND thread_id = id").run(id);
+      // The reply they were rendered from is gone; their files go with the next render or the purge.
+      db.query("DELETE FROM reply_assets WHERE memo_id = ?").run(id);
     }
     db.query(
       `DELETE FROM memo_steps WHERE memo_id = ? AND step IN (${cleared.map(() => "?").join(",")})`,
@@ -334,6 +381,19 @@ export function createSqliteMemoStore(params: { db: Database; clock: Clock }): M
       db.query(
         `UPDATE memos SET ${fields.map((f) => `${PATCH_COLUMNS[f]} = ?`).join(", ")} WHERE id = ?`,
       ).run(...values, id);
+      return true;
+    },
+  );
+
+  const replaceReplyAssets = db.transaction(
+    (id: string, assets: readonly ReplyAsset[]): boolean => {
+      if (!db.query("SELECT 1 FROM memos WHERE id = ?").get(id)) return false;
+      db.query("DELETE FROM reply_assets WHERE memo_id = ?").run(id);
+      const insert = db.query(
+        `INSERT INTO reply_assets (memo_id, id, block_index, format, scheme, width, height)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      );
+      for (const a of assets) insert.run(id, a.id, a.block, a.format, a.scheme, a.width, a.height);
       return true;
     },
   );
@@ -625,6 +685,19 @@ export function createSqliteMemoStore(params: { db: Database; clock: Clock }): M
 
     purge(id) {
       return purge(id);
+    },
+
+    replaceReplyAssets(id, assets) {
+      return replaceReplyAssets(id, assets);
+    },
+
+    getReplyAsset(id, assetId) {
+      const row = db
+        .query<ReplyAssetRow, [string, string]>(
+          "SELECT id, block_index, format, scheme, width, height FROM reply_assets WHERE memo_id = ? AND id = ?",
+        )
+        .get(id, assetId);
+      return row ? toReplyAsset(row) : null;
     },
 
     listNonTerminal() {

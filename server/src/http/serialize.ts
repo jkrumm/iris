@@ -27,6 +27,7 @@ export const memoJson = (memo: Memo) => ({
   route: memo.route,
   destinationRef: memo.destinationRef,
   replyText: memo.replyText,
+  ...(memo.replyBlocks.length > 0 && { replyBlocks: memo.replyBlocks }),
   summary: memo.summary,
   ...(memo.threadId !== null && { threadId: memo.threadId }),
   ...(isTyped(memo) && { typed: true as const }),

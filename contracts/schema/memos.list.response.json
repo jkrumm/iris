@@ -86,6 +86,65 @@
           "purgeAt": {
             "type": "string"
           },
+          "replyBlocks": {
+            "items": {
+              "properties": {
+                "height": {
+                  "type": "integer"
+                },
+                "index": {
+                  "type": "integer"
+                },
+                "kind": {
+                  "const": "mermaid",
+                  "type": "string"
+                },
+                "png": {
+                  "properties": {
+                    "dark": {
+                      "type": "string"
+                    },
+                    "light": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "light",
+                    "dark"
+                  ],
+                  "type": "object"
+                },
+                "svg": {
+                  "properties": {
+                    "dark": {
+                      "type": "string"
+                    },
+                    "light": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "light",
+                    "dark"
+                  ],
+                  "type": "object"
+                },
+                "width": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "index",
+                "kind",
+                "width",
+                "height",
+                "svg",
+                "png"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
           "replyText": {
             "anyOf": [
               {
@@ -306,6 +365,65 @@
           },
           "purgeAt": {
             "type": "string"
+          },
+          "replyBlocks": {
+            "items": {
+              "properties": {
+                "height": {
+                  "type": "integer"
+                },
+                "index": {
+                  "type": "integer"
+                },
+                "kind": {
+                  "const": "mermaid",
+                  "type": "string"
+                },
+                "png": {
+                  "properties": {
+                    "dark": {
+                      "type": "string"
+                    },
+                    "light": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "light",
+                    "dark"
+                  ],
+                  "type": "object"
+                },
+                "svg": {
+                  "properties": {
+                    "dark": {
+                      "type": "string"
+                    },
+                    "light": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "light",
+                    "dark"
+                  ],
+                  "type": "object"
+                },
+                "width": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "index",
+                "kind",
+                "width",
+                "height",
+                "svg",
+                "png"
+              ],
+              "type": "object"
+            },
+            "type": "array"
           },
           "replyText": {
             "anyOf": [

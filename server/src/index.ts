@@ -10,6 +10,7 @@ import { createMemoEvents } from "./memo/events.js";
 import { createMemoMedia } from "./memo/media.js";
 import { createPurger } from "./memo/purge.js";
 import { createRunner } from "./memo/runner.js";
+import { createReplyAssets } from "./memo/reply-assets.js";
 import { createMemoService } from "./memo/service.js";
 import { createNotifyLifecycle } from "./notify/lifecycle.js";
 import { bindNeedsRouteAlerts } from "./notify/needs-route.js";
@@ -41,6 +42,7 @@ const { ports, stats, degraded, deviceTokens, notifier, closeTransport, telemetr
 const handlers = createStepHandlers({
   store,
   audio,
+  replyAssets: createReplyAssets({ store, assets: ports.assets, renderer: ports.diagrams }),
   transcriber: ports.transcriber,
   destinations: ports.destinations,
   herd: ports.herd,
@@ -65,7 +67,13 @@ const memos = createMemoService({
   destinations: registeredDestinations(ports.destinations ?? {}),
 });
 
-const purger = createPurger({ store, audio, speechCache: ports.speechCache, clock });
+const purger = createPurger({
+  store,
+  audio,
+  speechCache: ports.speechCache,
+  assets: ports.assets,
+  clock,
+});
 
 const media = createMemoMedia({
   store,
@@ -73,6 +81,7 @@ const media = createMemoMedia({
   combiner: ports.combiner,
   speaker: ports.speaker,
   speechCache: ports.speechCache,
+  assets: ports.assets,
 });
 
 const app = createApp({

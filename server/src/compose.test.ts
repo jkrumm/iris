@@ -63,6 +63,7 @@ function fakesApp() {
     combiner: fakes.combiner,
     speaker: fakes.speaker,
     speechCache: fakes.speechCache,
+    assets: fakes.assets,
   });
   const app = createApp({
     deviceTokens: composed.deviceTokens,

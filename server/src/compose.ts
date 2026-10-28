@@ -1,5 +1,7 @@
 import type { Database } from "bun:sqlite";
 import { join } from "node:path";
+import { createFsAssetStore } from "./adapters/assets-fs.js";
+import { createPeleRenderer } from "./adapters/diagram-pele.js";
 import { createFsSpeechCache } from "./adapters/speech-fs.js";
 import { createAgwSummarizer } from "./adapters/agw.js";
 import { createAgwDecider } from "./adapters/agw-decider.js";
@@ -18,7 +20,9 @@ import type { DeviceStore } from "./ports/devices.js";
 import type { Decider } from "./ports/decider.js";
 import { hasChoice, registeredDestinations, type Destinations } from "./ports/destination.js";
 import {
+  fakeAssetStore,
   fakeDecider,
+  fakeDiagramRenderer,
   fakeDestination,
   fakeHerd,
   fakeNotifier,
@@ -82,6 +86,8 @@ const fakePorts = () => ({
   notifier: fakeNotifier(),
   speaker: fakeSpeaker({ result: { bytes: MP3_FRAME } }),
   speechCache: fakeSpeechCache(),
+  assets: fakeAssetStore(),
+  diagrams: fakeDiagramRenderer(),
   herd: fakeHerd({ tabs: TABS }),
   otlp: fakeOtlpExporter(),
 });
@@ -101,7 +107,7 @@ export function compose(deps: {
   db: Database;
   devices: DeviceStore;
   clock: Clock;
-  /** `IRIS_DATA`; the speech cache lives under `<dataDir>/speech`. */
+  /** `IRIS_DATA`; the speech cache lives under `<dataDir>/speech`, reply assets under `<dataDir>/assets`. */
   dataDir: string;
   combiner?: AudioCombiner;
 }) {
@@ -162,6 +168,8 @@ export function compose(deps: {
     // Always present, never degraded.
     combiner: deps.combiner ?? ffmpegCombiner,
     speechCache: fakes?.speechCache ?? createFsSpeechCache(join(dataDir, "speech")),
+    assets: fakes?.assets ?? createFsAssetStore(join(dataDir, "assets")),
+    diagrams: fakes?.diagrams ?? createPeleRenderer(),
   };
 
   // Not a `choose`: the decider only matters once there is a real choice (two or more destinations).

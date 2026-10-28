@@ -11,7 +11,7 @@ import { TELEMETRY_MAX_RECORDS } from "../telemetry/limits.js";
 // emits field for field; the serializers stay the single mapping from domain to wire.
 // Two deliberate exceptions to "pure": `ListQuery.limit` and `ResultQuery.wait` use `t.Numeric`
 // because query strings arrive as text. `GET /events` (SSE) and the binary routes
-// (`/memos/:id/audio`, `/memos/:id/speech`) have no JSON success body; the guard's 401 is the
+// (`/memos/:id/audio`, `/memos/:id/speech`, `/memos/:id/assets/:assetId`) have no JSON success body; the guard's 401 is the
 // plain text "Unauthorized".
 
 // Elysia's own `t.Integer` is a Transform that also accepts numeric strings; this stays a plain number.
@@ -42,6 +42,22 @@ export const TooLargeError = t.Object({
 
 // ── Memos ────────────────────────────────────────────────────────────────────
 
+const AssetIds = t.Object({ light: t.String(), dark: t.String() });
+
+/**
+ * A ```mermaid fence of the reply that rendered. `index` counts the reply's mermaid fences from zero in document order, so a
+ * fence that did not render leaves a gap and stays a code block. `width` and `height` are points; the PNGs are drawn at twice
+ * that (capped at 4096 px). The ids name files under `GET /memos/:id/assets/:assetId`.
+ */
+export const ReplyBlock = t.Object({
+  index: Int,
+  kind: t.Literal("mermaid"),
+  width: Int,
+  height: Int,
+  svg: AssetIds,
+  png: AssetIds,
+});
+
 export const Summary = t.Object({ headline: t.String(), detail: t.String(), spoken: t.String() });
 
 const memoFields = {
@@ -58,6 +74,8 @@ const memoFields = {
   route: Nullable(t.String()),
   destinationRef: Nullable(t.String()),
   replyText: Nullable(t.String()),
+  // Present only when the reply has Mermaid blocks that rendered; omitted, never empty or null, otherwise.
+  replyBlocks: t.Optional(t.Array(ReplyBlock)),
   summary: Nullable(Summary),
   // Present once the memo belongs to a Hermes session (chat or not): set when `act` ran in it, or at creation for a memo that
   // continues a thread; omitted, never null, otherwise.
@@ -155,6 +173,7 @@ export const MemoList = t.Object({
 });
 
 export const MemoIdParams = t.Object({ id: t.String() });
+export const AssetParams = t.Object({ id: t.String(), assetId: t.String() });
 export const SegmentParams = t.Object({
   id: t.String(),
   n: t.String({ pattern: "^[0-9]{1,7}$" }),

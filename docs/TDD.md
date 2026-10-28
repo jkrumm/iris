@@ -117,7 +117,7 @@ journal, herdr and hermes destinations are all registered in `compose()`; `devic
 file map of the code is in `AGENTS.md` §Layout.
 
 Ports, each with a production adapter and an in-memory fake (shipped: `Transcriber`, `Speaker`, `Summarizer`, `Destination` (hermes, journal, herdr),
-`Notifier`, `Herd`, `DeviceStore`, `StatsStore` (SQLite only, no fake), `AudioStore`, `AudioCombiner`, `Clock`, `Decider`; `Ids` is unused). `Destinations` is the registry
+`Notifier`, `Herd`, `DeviceStore`, `StatsStore` (SQLite only, no fake), `AudioStore`, `AudioCombiner`, `Clock`, `Decider`, `DiagramRenderer` (Pele + resvg-js), `AssetStore` (reply asset files); `Ids` is unused). `Destinations` is the registry
 of the registered act adapters (`Partial<Record<"hermes" | "journal" | "herdr", Destination>>`; each is registered by its own env, see §Configuration):
 - `Transcriber`
 - `Speaker`
@@ -198,6 +198,7 @@ Shipped (Waves 5, 10 and 12). Step results are columns on `memos`, not a separat
 | `activity_tokens` | `memo_id` (PK, cascades), `token`, `updated_at` |
 | `threads` | `id` (PK, the Hermes session id), `kind` (chat/hermes), `title` (the first ~60 characters of the first transcript, whitespace collapsed), `created_at`, `updated_at`, `last_memo_id`. The destination names the thread in its `Delivery` (`thread: {id, kind, title}`; Hermes: the session id, `chat` or `hermes`, the first ~60 characters of the transcript); `act` persists what it gets, upserting the row and setting `memos.thread_id` in the transaction of `completeStep` (`patch.thread`; `thread_id` is an `act`-owned column). An existing thread keeps its kind and title and moves `updated_at` / `last_memo_id`. A retry from `act` clears `thread_id` when it is the memo's own session (equal to the memo id) until the re-run sets it again, and keeps it for a memo created to continue a thread (its `thread_id` is never its own id: `continuedThread` in `memo.ts`); the thread row stays. The migration backfilled one `hermes` thread per distinct `destination_ref` of an existing hermes memo. `GET /v1/threads` and `/v1/threads/:id` read it (§HTTP API); the queries sit behind the `ThreadStore` port (`adapters/sqlite-threads.ts`, composed into the memo store) |
 | `memo_fts` | FTS5 virtual table, external content over the view `memo_search` (`seq`, `transcript`, headline = `summary_json.$.headline`; a malformed `summary_json` indexes as no headline), `content_rowid = seq`, tokenizer `unicode61 remove_diacritics 2`. Triggers on `memos` (insert, delete, update of `transcript` / `summary_json`) keep it in step; migration 7 backfills with `rebuild`. Read by `GET /v1/memos?q` only |
+| `reply_assets` | One row per rendered file of a reply's Mermaid blocks (migration 11): `memo_id` (cascades), `id` (uuid, never reused), `block_index`, `format` (svg/png), `scheme` (light/dark), `width`, `height` (points): PK (`memo_id`, `id`). The bytes are files under `<IRIS_DATA>/assets/<memo_id>/<id>` |
 | `route_decisions` | `id` (autoincrement), `memo_id` (cascades), `created_at`, `source` (mode/prefix/decide/default/answer/correction), `destination` (nullable), `tab`, `confidence`, `model`, `cost_usd`, `reason`, `outcome` (routed/needs_route). One row per route outcome, written in the transaction of the step's `completeStep`; read with `listRouteDecisions(memoId)`. `answer` (written with the `needs_route` → `routed` move, `memos.route` set in the same transaction) and `correction` (logged after `act`, the memo is untouched) rows come from `POST /v1/memos/:id/route` |
 
 **Indexes.** Besides the keys, `memos(state)`, `memos(thread_id)`, a partial `memos(deleted_at)`, `route_decisions(memo_id, id)`, and (one migration, for the stats reads' `>=` filters) `memos(created_at)` and `memo_steps(started_at)`.
@@ -208,8 +209,8 @@ a flag is a user annotation, `updated_at` moves with it. `archived_at` is stampe
 **soft delete**: `DELETE` stamps `deleted_at`, the memo stays readable through `GET /memos/:id` (`/audio` and `/speech` are 409 `bad_state` like the other live-only routes) and `POST /restore` clears it, until
 `purge_at = deleted_at + PURGE_AFTER_MS` (10 minutes, `memo/memo.ts`, the one definition). The **purger** (`memo/purge.ts`, built from the store, the
 audio store, the speech cache and the injected `Clock`) sweeps on boot and every 60 s (`PURGE_SWEEP_MS`): for each memo with `deleted_at <= now -
-PURGE_AFTER_MS` it removes the audio files (segments and the combined recording, `AudioStore.remove`) and the speech files (`SpeechCache.remove`) first,
-then the rows (`MemoStore.purge`: `memos`, which cascades `memo_steps`, `segments`, `route_decisions` and `activity_tokens`; the FTS triggers drop the index
+PURGE_AFTER_MS` it removes the audio files (segments and the combined recording, `AudioStore.remove`), the speech files (`SpeechCache.remove`) and the reply asset files (`AssetStore.removeAll`) first,
+then the rows (`MemoStore.purge`: `memos`, which cascades `memo_steps`, `segments`, `route_decisions`, `reply_assets` and `activity_tokens`; the FTS triggers drop the index
 entry) and logs `memo.purged` with `memo_id`. Files before rows, so a failed removal (`memo.purge_failed`) leaves the memo for the next pass instead of
 orphaning files. A thread whose `last_memo_id` was the purged memo points at its newest remaining memo, and a thread left with no memos is deleted.
 The sweep runs behind the shutdown drain (`purger.stop()` / `idle()` next to the runner's). Reads: a soft-deleted memo is in neither `items` nor `pinned` of
@@ -255,6 +256,7 @@ Shipped; the authoritative list is `contracts/manifest.json` and the table in `A
 | `GET /v1/threads/:id` | `{thread, memos, messages}`: the memos that ran in the thread (oldest first) and the conversation built from them, `messages: [{memoId, role: user\|assistant, content (markdown), createdAt}]`: per memo its `transcript` (`user`, dated by the memo's `createdAt`) and its `reply_text` (`assistant`, dated by the end of its `act` step; omitted while empty). Iris's own record: Hermes is not consulted, so the response never depends on it. Read in a fixed number of queries (the thread, its memos, the `act` finish times), however long the thread is. Unknown thread 404 |
 | `GET /v1/memos/:id/audio` | The concatenated audio for the scrubber (`Range`); 409 `bad_state` for a soft-deleted memo |
 | `GET /v1/memos/:id/speech` | TTS of the speech-ready variant of the answer (below), cached as an mp3; 409 `bad_state` for a soft-deleted memo |
+| `GET /v1/memos/:id/assets/:assetId` | One rendered file of a reply's Mermaid block (ids from the memo's `replyBlocks`): `image/svg+xml` or `image/png`, `cache-control: private, max-age=31536000, immutable` (an id is never reused); 404 for an unknown memo or asset, 409 `bad_state` for a soft-deleted memo, 503 without media |
 | `GET /v1/events` | SSE: `ready`, `memo.updated`, `memo.done` (for the Mac and the foreground iOS app) |
 | `GET /v1/herd` | herdr tabs `{id, repo, label, agentState, lastActivity}` (snapshot; `lastActivity` is always null) |
 | `GET /v1/stats?days=<n>` | `days` 1..365, default 30, else 400 `bad_request`. `{days, from, to, perDay: [{date, route, count}], perWeek: [{weekStart, count}], stepMedians: [{step, route, medianMs, samples}], costPerRoute: [{route, costUsd, memos}]}`. Read-only aggregates over `memos` (by `created_at`) and `memo_steps` (both filter columns are indexed); no table of its own, no spend; 503 when the app is composed without a `StatsStore`. The window is the last `days` **local days of the server** (today included, `from`/`to` are `YYYY-MM-DD`); `date` and Monday-start `weekStart` use the same zone, and the first week only counts the days inside the window. A null `route` is reported as `unrouted`. `stepMedians` is the baseline of the memo detail waterfall's faster/slower hint, **per step and route** (a step's speed depends on where the memo went): `done` step records whose `started_at` is in the window, grouped by step and the memo's route (`unrouted` as above), in pipeline order then route (integer ms; even counts average the two middle values and round, no other interpolation; a pair without samples is absent). `samples` is the n behind each median. **The client owns the minimum-n threshold**, the server does not send a `minSamples`: the threshold is a presentation choice (a hint wants more evidence than a plain number, and it may differ per surface), changing it must not need a server deploy or a contract change, and the server stays a plain aggregate that reports n honestly. `costPerRoute` sums `memo_steps.cost_usd` per route (routing-decision spend is on the `route` step row), `memos` counts the memos once. The memo detail waterfall compares its step durations to `stepMedians`. Day bucketing and medians run in the adapter, not with SQLite's `localtime`, so the window and the days share the process time zone |
@@ -362,10 +364,45 @@ synthesis path, so [Play] and spoken replies share it.
   `summary.spoken` + "Details on screen." (the first whole sentences of the cleaned reply when there is no summary). Measured on the cleaned
   text, so a long code block does not push a short answer past it. Without a reply the (cleaned) `summary.spoken` is spoken.
 
+### Reply assets: Mermaid blocks rendered by Pele (Wave 14)
+
+When `act` has the reply, `ReplyAssets.sync` (`memo/reply-assets.ts`, the one call `createStepHandlers` makes, right after the delivery) makes the memo's
+stored assets match `replyText`. `extractMermaidBlocks` reads the top-level fenced blocks the way CommonMark does (backtick or tilde fences, closing fence
+of the same character and at least the same length, an unclosed fence runs to the end, a fence nested in another fenced block is that block's text) and
+keeps those whose info string starts with `mermaid`; **`index` is the block's position among the reply's mermaid fences, from zero**, so the client
+matches the i-th mermaid fence of its markdown to `replyBlocks[index]`. At most 12 blocks are rendered per reply, the rest stay code blocks.
+
+Each block goes through the `DiagramRenderer` port once and yields, for **light and dark**, an SVG (a standalone document with the scheme's colours resolved, no
+CSS variables left) and a PNG, so four files per block (`svg|png` × `light|dark`) stored through `AssetStore` under fresh uuids; the rows are replaced in
+one transaction (`MemoStore.replaceReplyAssets`), then `AssetStore.prune` deletes every file that is no longer referenced. A retry whose reply differs
+therefore re-renders and leaves no old file behind; a retry from `act` (or earlier) drops the rows at once (`resetForRetry`). **A block that cannot be rendered
+or stored stays a code block**: `reply.render_failed` (`memo_id`, `block`, `error`), no asset, the step succeeds. A pass that fails as a whole logs
+`reply.assets_failed` and leaves the reply plain markdown; `sync` never throws. The purge removes the files first (`AssetStore.removeAll`), the cascade the rows.
+
+Wire (additive, `contracts/`): `Memo.replyBlocks` (memo detail, list, thread detail memos and every other memo body; **omitted** when no block rendered, never
+`null` or empty) is `[{index, kind: "mermaid", width, height, svg: {light, dark}, png: {light, dark}}]` with asset ids; `width` and `height` are points, the
+PNG is drawn at 2x (`PNG_SCALE`), shrunk so the long edge stays ≤ 4096 px. The file is `GET /v1/memos/:id/assets/:assetId`. A block that failed leaves a gap in `index`. The memo
+read model assembles the blocks in `MEMO_SELECT` (one `json_group_array` subselect over `reply_assets`), a block missing one of its four files is dropped.
+
+**Pele and the rasterizer (decision, 2026-10-28).** Pele (`obsidianmd/pele`, npm `pele`, MIT, TypeScript, synchronous `render(text) → {svg, width, height}`, no runtime
+dependencies, no DOM needed, Mermaid 12.1 syntax, colours and fonts through `--pele-*` CSS variables; errors are `PeleError` with `code` `syntax | unsupported-diagram | semantic | limit`)
+runs unchanged under Bun. It is young (first release 2026-10-06, a release every few days): **pinned to 1.10.0**, the newest version past the repo's 3-day
+release cooldown on the day of the decision (1.11 and 1.12 were younger), and bumped on purpose. The rasterizer is **`@resvg/resvg-js` 2.6.2** (MPL-2.0 used as a dependency, N-API prebuilt binaries for macOS arm64/x64 and Linux, loads and
+runs under Bun, synchronous render, no headless browser; the Rust `resvg` core is active, the npm wrapper's last stable is 2.6.2 and a 2.7 alpha is out). The alternatives (`@resvg/resvg-wasm`: same engine and version; `sharp`: librsvg inside a general image library; `@napi-rs/canvas`: a canvas, not an SVG renderer) were compared on registry metadata only, not benchmarked:
+resvg-js is the one purpose-built SVG rasterizer with prebuilt binaries and it worked first try. The
+decisive probe: resvg ignores CSS `var()`, so a Pele SVG rasterized as is came out black. The adapter (`adapters/diagram-pele.ts`) therefore sets the scheme's
+`--pele-*` on the root element and substitutes every `var()` (root declarations, else the fallback) before it serves or rasterizes the SVG: the SVG assets are
+portable as well (any viewer, no CSS engine needed). Colours are the basalt tokens (`docs/design/mockups/tokens.css`: panel as background, ink as foreground,
+accent and the status colours as the chart series); the text is set in `-apple-system, Helvetica Neue, Helvetica, Arial, sans-serif`, and resvg draws it with the host's system fonts
+(`loadSystemFonts`, default Helvetica: present on the mini; a Linux host would need a font package). The PNG gets an opaque background (the scheme's panel colour).
+The research gateway was down for this item (503), so the facts above come from the npm registry, the GitHub repository, Pele's published type declarations and probes run under Bun.
+
 ### Downstream facts (re-verify when touching an adapter)
 
 | Downstream | Contract | Where it is documented |
 |-|-|-|
+| Pele | npm `pele` 1.10.0 (MIT), `render(text, {fontFamily}) → {svg, width, height}` sync, throws `PeleError`; theme = `--pele-bg/fg/muted/line/surface/surface-alt/border/accent/critical/error/font` and `--pele-series-1..8` on the root `<svg>` | https://pele.run, `node_modules/pele/dist/*.d.ts` |
+| resvg-js | `@resvg/resvg-js` 2.6.2: `new Resvg(svg, {background, fitTo: {mode: "zoom", value}, font: {loadSystemFonts, defaultFontFamily}}).render().asPng()`; no CSS `var()` support, so the SVG is resolved first | https://github.com/thx/resvg-js |
 | audio-gateway | Synchronous multipart; `{text}` (`verbose_json` = one segment, so no timestamps); TTS at `POST /v1/audio/speech`, `response_format` mp3 | `audio-gateway/README.md` |
 | agent-gateway | `POST :7705/api/jobs {tool, params}` → id; `GET /api/jobs/:id`; loopback, no auth; results carry `usage`, `model`, `latencyMs` | `agent-gateway/server/routes/jobs.ts`, AGENTS.md |
 | Hermes | Bearer from `op://hermes/gateway/api-server-key`; SSE named events | `argo/apps/api/src/lib/hermes-upstream.ts` |
