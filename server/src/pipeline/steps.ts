@@ -1,4 +1,4 @@
-import { createKeyedQueue } from "../memo/keyed-queue.js";
+import { createKeyedQueue, KeyedQueueTimeout } from "../memo/keyed-queue.js";
 import {
   continuedThread,
   type HandlerStep,
@@ -27,6 +27,10 @@ import { getActiveSpan } from "../telemetry/otel.js";
 
 // Each step is a pure function of (memo, ports): it reads what earlier steps stored on the memo,
 // returns its own result as a patch and never writes the store itself, so it is safe to re-run.
+
+// How long a turn waits for the turn ahead of it in the same Hermes thread: the size of a hang guard, since a turn has
+// an idle watchdog but no wall-clock cap.
+const THREAD_WAIT_MS = 1_800_000;
 
 const HEADLINE_MAX = 60;
 const DETAIL_MAX = 240;
@@ -100,8 +104,9 @@ export function createStepHandlers(deps: {
     notifier,
   } = deps;
 
-  // Turns into one Hermes session run one at a time: a second memo for the same thread waits for the first's reply.
-  const inThread = createKeyedQueue();
+  // Turns into one Hermes session run one at a time: a second memo for the same thread waits for the first's reply, up
+  // to `THREAD_WAIT_MS`; past that it fails and names the turn ahead (`POST /retry` re-queues it).
+  const inThread = createKeyedQueue({ maxWaitMs: THREAD_WAIT_MS });
   /** The raw transcript, minus a spoken routing prefix when one routed the memo. */
   const delivered = (memo: Memo, step: HandlerStep) =>
     deliveredTranscript({
@@ -218,9 +223,15 @@ export function createStepHandlers(deps: {
             ...(chat && { chat }),
             ...(threadId && { threadId }),
           });
-        delivery = await (threadId ? inThread(threadId, deliver) : deliver());
+        delivery = await (threadId ? inThread(threadId, deliver, `memo ${memo.id}`) : deliver());
       } catch (err) {
         if (err instanceof TabGoneError) return park(err.message, err.tab);
+        if (err instanceof KeyedQueueTimeout) {
+          throw new Error(
+            `thread ${err.key} is busy: waited ${err.waitedMs} ms behind ${err.ahead}, which has not finished`,
+            { cause: err },
+          );
+        }
         throw err;
       }
       getActiveSpan().setAttributes({
