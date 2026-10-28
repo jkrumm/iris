@@ -1,3 +1,4 @@
+import { createKeyedQueue } from "../memo/keyed-queue.js";
 import {
   continuedThread,
   type HandlerStep,
@@ -98,6 +99,9 @@ export function createStepHandlers(deps: {
     summarizer,
     notifier,
   } = deps;
+
+  // Turns into one Hermes session run one at a time: a second memo for the same thread waits for the first's reply.
+  const inThread = createKeyedQueue();
   /** The raw transcript, minus a spoken routing prefix when one routed the memo. */
   const delivered = (memo: Memo, step: HandlerStep) =>
     deliveredTranscript({
@@ -206,13 +210,15 @@ export function createStepHandlers(deps: {
         (threadId ? store.getThread(threadId)?.kind === "chat" : memo.mode === "chat");
       let delivery;
       try {
-        delivery = await destination.deliver({
-          memoId: memo.id,
-          transcript,
-          ...(tab !== undefined && { tab }),
-          ...(chat && { chat }),
-          ...(threadId && { threadId }),
-        });
+        const deliver = () =>
+          destination.deliver({
+            memoId: memo.id,
+            transcript,
+            ...(tab !== undefined && { tab }),
+            ...(chat && { chat }),
+            ...(threadId && { threadId }),
+          });
+        delivery = await (threadId ? inThread(threadId, deliver) : deliver());
       } catch (err) {
         if (err instanceof TabGoneError) return park(err.message, err.tab);
         throw err;

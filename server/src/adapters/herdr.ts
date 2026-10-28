@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { MemoError } from "../memo/errors.js";
+import { createKeyedQueue } from "../memo/keyed-queue.js";
 import { TabGoneError, type Delivery, type Destination } from "../ports/destination.js";
 import { AGENT_STATES, type AgentState, type Herd, type HerdTab } from "../ports/herd.js";
 import { withSpan } from "../telemetry/otel.js";
@@ -209,22 +210,7 @@ function agentPane(snapshot: SnapshotData, tab: string): { pane: string } | "gon
  */
 export function createHerdrDestination(opts: HerdrDestinationOptions): Destination {
   const { socketPath, timeoutMs = TIMEOUT_MS } = opts;
-  // The tail of each pane's queue; it never rejects, so one failed delivery does not block the next.
-  const queues = new Map<string, Promise<void>>();
-
-  /** Runs `task` after every earlier task of the same pane has settled. */
-  function serialized<T>(pane: string, task: () => Promise<T>): Promise<T> {
-    const run = (queues.get(pane) ?? Promise.resolve()).then(task);
-    const tail = run.then(
-      () => undefined,
-      () => undefined,
-    );
-    queues.set(pane, tail);
-    void tail.then(() => {
-      if (queues.get(pane) === tail) queues.delete(pane);
-    });
-    return run;
-  }
+  const serialized = createKeyedQueue();
 
   return {
     deliver({ transcript, tab }): Promise<Delivery> {
