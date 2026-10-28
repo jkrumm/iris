@@ -10,7 +10,7 @@ final class HistorySwipeUITests: XCTestCase {
   @MainActor
   private func launch() -> XCUIApplication {
     let app = XCUIApplication()
-    app.launchArguments = ["-IrisFakeCapture"]
+    app.launchArguments = ["-IrisFakeCapture", "-IrisUndoSeconds", "60"]
     app.launch()
     XCTAssertTrue(app.descendants(matching: .any)["history.list"].waitForExistence(timeout: 10))
     return app
@@ -61,7 +61,9 @@ final class HistorySwipeUITests: XCTestCase {
     XCTAssertTrue(app.descendants(matching: .any)["history.toast"].waitForExistence(timeout: 5))
     XCTAssertFalse(row(in: app).waitForExistence(timeout: 1))
 
-    app.buttons["Undo"].tap()
+    let undo = app.buttons["Undo"]
+    XCTAssertTrue(undo.waitForExistence(timeout: 5))
+    undo.tap()
     XCTAssertTrue(row(in: app).waitForExistence(timeout: 10))
   }
 }
