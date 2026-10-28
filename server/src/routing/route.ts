@@ -112,7 +112,10 @@ async function named(params: {
   if (destination !== "herdr") {
     return decision({ source, outcome: "routed", destination, confidence: 1, ...tag });
   }
-  const resolved = resolveTab(spokenTab, params.tabs ?? (await liveTabs(herd, memoId)));
+  const resolved = resolveTab(
+    spokenTab,
+    params.tabs !== undefined ? params.tabs : await liveTabs(herd, memoId),
+  );
   if ("reason" in resolved) {
     return decision({
       source,

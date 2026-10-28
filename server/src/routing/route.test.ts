@@ -138,6 +138,21 @@ describe("route: prefix", () => {
     });
   });
 
+  it("reads the herd once and parks as 'herd unavailable' when it fails", async () => {
+    const herd = fakeHerd({ tabs: HERD, failWith: new Error("socket gone") });
+    const decision = await route(
+      input({ transcript: "tab iris server ops mach weiter", destinations: ALL, herd }),
+    );
+    expect(herd.calls).toBe(1);
+    expect(decision).toMatchObject({
+      source: "prefix",
+      outcome: "needs_route",
+      destination: "herdr",
+      reason: "herd unavailable",
+      prefixWords: 2,
+    });
+  });
+
   it("records the word count of every prefix decision, none for other sources", async () => {
     const prefix = await route(input({ transcript: "Okay, Tagebuch: heute" }));
     expect(prefix.prefixWords).toBe(2);
