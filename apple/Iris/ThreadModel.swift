@@ -27,8 +27,8 @@ final class ThreadModel {
   private(set) var detail: ThreadDetail?
   /// The document, derived once per change of ``detail`` (not per render).
   private(set) var turns: [Turn] = []
-  /// How many questions the thread holds, for the header.
-  private(set) var questionCount = 0
+  /// How many turns (questions asked) the thread holds, for the header.
+  private(set) var turnCount = 0
   private(set) var loadFailed = false
   /// When the take in progress began; `nil` when idle.
   private(set) var voiceStartedAt: Date?
@@ -59,6 +59,8 @@ final class ThreadModel {
   var title: String { detail?.thread.title ?? route.title ?? "" }
   var kind: ThreadKind { detail?.thread.kind ?? .chat }
   var memoIDs: [String] { detail?.memos.map(\.id) ?? [] }
+  /// Replies wait for the first load: a thread's kind (chat or Hermes) decides the mode they are created in.
+  var canReply: Bool { detail != nil }
   var canRecordVoice: Bool { voice.isAvailable && !isEndingVoice }
 
   /// The mode a reply is created in: a chat keeps its marker, every other thread continues through Hermes.
@@ -101,7 +103,7 @@ final class ThreadModel {
   private func apply(_ fresh: ThreadDetail) {
     detail = fresh
     turns = Self.makeTurns(fresh)
-    questionCount = turns.count { if case .user = $0.content { true } else { false } }
+    turnCount = turns.count { if case .user = $0.content { true } else { false } }
   }
 
   // MARK: Loading
@@ -161,12 +163,13 @@ final class ThreadModel {
   /// became one.
   @discardableResult
   func endVoice(cancelled: Bool) async -> Memo? {
+    // Claim the take before the first suspension: the gesture's release and a cancel from the screen can both arrive.
     guard let beginTask else { return nil }
+    self.beginTask = nil
     let startedAt = voiceStartedAt ?? now()
     isEndingVoice = true
     defer { isEndingVoice = false }
     let started = await beginTask.value
-    self.beginTask = nil
     let tooShort = now().timeIntervalSince(startedAt) < Self.minimumTake
     voiceStartedAt = nil
     guard started else { return nil }

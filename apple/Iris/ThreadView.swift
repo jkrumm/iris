@@ -62,7 +62,7 @@ struct ThreadView: View {
     .background(Theme.Surface.background)
     .scrollEdgeEffectStyle(.soft, for: .bottom)
     .overlay { placeholder }
-    .safeAreaInset(edge: .bottom) { replyBar.disabled(model.detail == nil) }
+    .safeAreaInset(edge: .bottom) { replyBar.disabled(!model.canReply) }
     .overlay(alignment: .bottom) { failureToast }
     .navigationTitle(String(localized: "Conversation", comment: "Navigation title of a thread"))
     .navigationBarTitleDisplayMode(.inline)
@@ -74,6 +74,7 @@ struct ThreadView: View {
     }
     .onDisappear { cancelVoice() }
     .onChange(of: scenePhase) {
+      // `.inactive` too (Control Center, a call, a system alert): the finger is gone either way.
       if scenePhase != .active { cancelVoice() }
     }
     .sheet(item: $composer) { request in
@@ -104,7 +105,7 @@ struct ThreadView: View {
           systemImage: model.kind == .chat ? "bubble.left.and.bubble.right" : "arrow.triangle.branch")
         if let detail = model.detail {
           Text(
-            "\(model.questionCount) turns", comment: "Number of turns of a thread, in the header"
+            "\(model.turnCount) turns", comment: "Number of turns of a thread, in the header"
           )
           .themeFont(.footnote)
           .foregroundStyle(Theme.Ink.muted)
