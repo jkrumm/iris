@@ -6,7 +6,7 @@ and skim `docs/TDD.md`. Role contract: `~/.claude/skills/wave/roles/mother.md` (
 
 ## Status: RESUMED by the owner (2026-10-28), run through the night
 
-Wave 15 written in full and active; a lead runs it. Quota: iu and me at 100% weekly (iu resets 10-28 16:00, me 10-29 06:00),
+Wave 15 done 2026-10-29 08:56 (S1–S3, I1–I5). Wave 16 written in full and active, lead `iris-w16`. Quota: iu and me at 100% weekly (iu resets 10-28 16:00, me 10-29 06:00),
 me2 has room. All walled → wait for the next reset (`claude-account usage`), never IU API tokens. Stop only for the four reasons.
 
 ## Mission
@@ -76,6 +76,8 @@ Build Iris R1–R5 (PRD §Release plan) as a self-driving loop: backlog item →
 - **"Dangerous rm" prompts** block agents even under skip-permissions: `herdr agent read <name> --source visible`, answer if safe.
 - **`agw` CLI is `agw-legacy`** since 2026-10-28. Its review CLI prints only the summary; findings are in `GET /api/jobs/<id>`
   `.job.result`. `/research` was down (503) during Wave 14.
+- **`rd wave`'s green gate** needs the previous wave's label exactly `**Left behind:**` (a suffix inside the bold fails it); the lead
+  prompt now says so.
 - **Merge train:** `rd merge` fails on a draft PR (`gh pr ready`), needs a worktree holding the branch, runs `make check` but not
   `make e2e` (run it before the train for server-behaviour PRs). Parallel workers on shared additive files (AGENTS.md, TDD,
   registry, conformance, FakeAPIClient) conflict on every rebase: land one at a time, resolve in the lead. One `xcodebuild` worker
