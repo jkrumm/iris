@@ -328,6 +328,21 @@ const TRANSITIONS: Record<Step, Transition> = {
   notify: { from: "summarized", to: "notified" },
 };
 
+/**
+ * Steps whose permanent failure does not fail the memo: the step row stays `failed` (error and attempts kept) and the memo
+ * moves on to the next step. The result they produce is an extra, not the point of the memo.
+ */
+const OPTIONAL_STEPS: readonly Step[] = ["summarize"];
+
+export function isOptionalStep(step: Step): boolean {
+  return OPTIONAL_STEPS.includes(step);
+}
+
+/** The state a memo moves to when the optional `step` failed for good: the one the step would have advanced to. */
+export function stateAfter(step: Step): MemoState {
+  return TRANSITIONS[step].to;
+}
+
 const HANDLER_STEPS: readonly HandlerStep[] = ["transcribe", "route", "act", "summarize", "notify"];
 
 export class IllegalTransitionError extends Error {

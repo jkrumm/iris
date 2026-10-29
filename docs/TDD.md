@@ -137,11 +137,26 @@ receiving ──complete──> received ──> transcribed ──> routed ─�
                                                   ^
                            routed ──act: tab gone──┘
 any step ──error──> failed(step)   ──retry(from)──> <step>
+acted ──summarize fails for good──> summarized (step row failed, memo not failed) ──> notified
+notified (summarize step failed) ──retry(from: summarize)──> acted
 ```
 
 - **Parking:** only `route` and `act` may park a memo in `needs_route` (a handler result `outcome: "needs_route"`; any other step
   that asks to fails). `act` parks when the herdr tab it was routed to has vanished. The answer is the same `POST /route`, which routes it back
   to `act`.
+- **Optional steps (built, Wave 16):** `summarize` is the only one (`OPTIONAL_STEPS`, `memo/memo.ts`). The summary is an extra, so a
+  permanent failure of the step (the runner's automatic retries used up, a plain error such as agw `triage` answering with the Requesty 402, or
+  a hermes memo with no summarizer) does not fail the memo: `MemoStore.skipStep` marks the step row `failed` (error and attempts stay, so the
+  waterfall shows it failed) and compare-and-sets the memo `acted` → `summarized` in one transaction, with `failed_step` and `error` null.
+  `notify` runs next and the memo ends in the ordinary terminal state `notified` (`isResultReady` and `/result`, `memo.done` need no change)
+  with `summary` null. `notify` announces the delivered transcript clipped to a 60-character headline instead (not stored; §12). Every other
+  step still fails the memo. `POST /retry {from: "summarize"}` is accepted for a `notified` memo whose `summarize` row is `failed` (any other
+  `notified` memo stays 409): it resets to `acted` like a failed memo, re-runs summarize and then notify. Notify re-sends: the alert carries the
+  memo id as collapse id, so the banner is replaced by the real headline (the Live Activity `end` goes to a token that has already ended, a 410
+  that clears nothing the memo needs). Repair of data from before: memos in `failed(summarize)` with a non-empty reply are moved to `notified` by
+  `repairFailedSummaries` at boot (no push, step row kept); it first writes `<IRIS_DATA>/iris.db.bak-<timestamp>` with `VACUUM INTO`, only when
+  there is something to repair, and is idempotent (repaired memos no longer match). It is a boot repair, not a migration, because a migration
+  cannot take a backup first. Delete the backup once production runs cleanly.
 - **Idempotent steps:** each step is keyed by `(memo_id, step, attempt)`. On
   boot and on every `complete`, the runner drives each non-terminal memo from
   its last finished step.
@@ -245,7 +260,7 @@ Shipped; the authoritative list is `contracts/manifest.json` and the table in `A
 | `PUT /v1/memos/:id/segments/:n` | Raw m4a bytes, idempotent by `n` (same sha → 200, different → 409) |
 | `POST /v1/memos/:id/complete` | `{segmentCount}`. A 422 lists the missing indices |
 | `PUT /v1/memos/:id/activity-token` | The Live Activity push token for this memo (204) |
-| `POST /v1/memos/:id/retry` | `{from: Step}`, only for a `failed` memo |
+| `POST /v1/memos/:id/retry` | `{from: Step}`, only for a `failed` memo, or `from: "summarize"` on a `notified` memo whose summarize step failed (§Memo state machine, Optional steps) |
 | `POST /v1/memos/:id/route` | `{destination: hermes\|journal\|herdr, tab?}` (`tab` iff herdr). `needs_route`: the destination must be registered (else 400 "<dest> not available"); writes an `answer` decision, moves the memo to `routed` (compare-and-set) and drives it on: 202 + memo. After `act` (`acted`/`summarized`/`notified`): records a `correction` decision, no re-act, memo unchanged: 200. Any other state 409 `bad_state`, so a second answer while the first drives is a 409 |
 | `GET /v1/memos?limit&cursor&q&route&state&favorite&archived&kind` | History, paged, newest first: `{items, pinned, pinnedTruncated, nextCursor}`. `q` (≤ 200 characters) searches transcript and summary headline (see Data model); `route` (hermes\|journal\|herdr) and `state` (any memo state) filter exactly; `favorite=true` keeps the favorites, `archived=true` lists **only** archived memos (without it archived memos are hidden), `kind=chat\|hermes` keeps the memos whose thread has that kind (the Chats chip); `favorite` and `archived` accept only `true` (omit them to switch off); all combine, an unknown value is 400. Soft-deleted memos are never listed or pinned. `items` never holds an **open** `needs_route` memo (one with `done` false), so the seq cursor stays stable when one leaves that state; the first page (no `cursor`) instead carries `pinned`: every open `needs_route` memo matching the filters, newest first, at most 50. `pinned` is always present, `[]` on later pages. `pinnedTruncated` is always present too: `true` on the first page when more than 50 open `needs_route` memos match (the oldest are left out of `pinned`), `false` otherwise and on every later page. `state=needs_route` answers from `pinned` plus, paged in `items`, the `done` ones. A `done` `needs_route` memo is no longer an open question: it is not pinned and sits in `items` at its seq position (the client dims it); marking one done after page 1 is the same case as answering it, so the de-duplication rule below covers it. `pinned` is not paged: the 50 cap is deliberate (a parked memo is an open question for the user, not an archive), `pinnedTruncated` is how a client learns the cap bit, and a `cursor` always yields `pinned: []`. Clients that read only `items` no longer see parked memos in the default list. A memo answered after page 1 leaves `needs_route` and appears in `items` at its seq position, so a later page can repeat a memo already in `pinned`: clients de-duplicate by memo id across `pinned` and every page (pinned first, then items whose id is not present yet) |
 | `GET /v1/memos/:id` | Memo + step timeline. Also a soft-deleted memo (with `deletedAt` / `purgeAt`, so undo works); 404 after the purge |
@@ -341,8 +356,10 @@ machine, Retries); retention (audio deleted 30 days after `notified`) is not bui
    destination, transcript excerpt and reply. Journal and herdr skip the model
    and use templates (no spend, no summarizer needed): headline "Saved to journal" / "Sent to <repo> / <label>" (≤60; "Sent to tab" when the
    herd no longer lists the tab), detail the whitespace-collapsed transcript excerpt (≤240), spoken one sentence. Hermes keeps the model and
-   fails the step without a summarizer.
-6. **notify:**
+   fails the step without a summarizer; the step is optional (§Memo state machine, Optional steps), so the memo goes on to `notify` with
+   `summary` null and `/health` keeps listing `summarize` in `degraded` while no summarizer is configured.
+6. **notify:** (without a summary: headline = the delivered transcript, whitespace collapsed, clipped to 60 characters; the alert body and
+   the Live Activity `end` use it, `spoken` is empty)
    - a Live Activity `update` (priority 5) for each phase change, plus a final
      `end` with the result content state and `dismissal-date` = now + 15 min;
    - one alert (priority 10, `mutable-content: 1`, `category: MEMO_DONE` or
@@ -363,8 +380,9 @@ synthesis path, so [Play] and spoken replies share it.
 - **Language:** the summary phrases ("ein Codeblock", "Details auf dem Bildschirm.") follow the language of the reply, found by counting German
   versus English function words outside code and URLs; German on a tie, since the transcripts are mostly German.
 - **Threshold:** a cleaned reply up to `SPEECH_MAX_CHARS` = 600 characters (about 40 s aloud) is spoken whole. Longer, the variant is
-  `summary.spoken` + "Details on screen." (the first whole sentences of the cleaned reply when there is no summary). Measured on the cleaned
-  text, so a long code block does not push a short answer past it. Without a reply the (cleaned) `summary.spoken` is spoken.
+  `summary.spoken` + "Details on screen." (the first whole sentences of the cleaned reply when there is no summary, e.g. summarize failed). Measured on the cleaned
+  text, so a long code block does not push a short answer past it. Without a reply the (cleaned) `summary.spoken` is spoken. A notified memo
+  with a reply and no summary is therefore speakable (`/speech` is 409 only when there is neither).
 
 ### Reply assets: Mermaid blocks rendered by Pele (Wave 14)
 
@@ -911,7 +929,8 @@ the `IrisCore` dependency when R1 wires them together.
   tailnet. There is no public exposure.
 - **Content:** transcripts and audio never leave the mini except to
   audio-gateway (STT/TTS) and the agw models. APNs payloads carry headlines
-  only, never full transcripts.
+  only, never full transcripts; when `summarize` failed, the headline is the
+  first 60 characters of the transcript (owner-confirmed, Wave 16).
 
 ## 13. Risks and unverified
 

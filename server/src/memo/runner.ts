@@ -6,7 +6,9 @@ import { MemoError } from "./errors.js";
 import { memoEvent, type MemoEvents } from "./events.js";
 import {
   advance,
+  isOptionalStep,
   nextStep,
+  stateAfter,
   stepIndex,
   STEPS,
   type HandlerStep,
@@ -56,7 +58,10 @@ export interface Runner {
   inflightIds(): string[];
   /** Resolves once no memo is in flight and no `driveAll` is running. Never throws. */
   idle(): Promise<void>;
-  /** Resets a failed memo to before `from` and drives it in the background. Returns the reset memo. */
+  /**
+   * Resets a failed memo to before `from` and drives it in the background. Returns the reset memo. A `notified` memo
+   * whose optional `from` step failed retries too (its result is filled in later).
+   */
   retry(params: { id: string; from: Step }): Memo;
 }
 
@@ -195,7 +200,21 @@ export function createRunner(deps: {
       if (result === null) return false;
       to = advance({ state: memo.state, step, outcome: result.outcome });
     } catch (err) {
-      store.markStepFailed({ id: memo.id, step, error: errorMessage(err) });
+      const error = errorMessage(err);
+      if (isOptionalStep(step)) {
+        // The step stays failed on the timeline; the memo carries on without its result.
+        const skipped = store.skipStep({
+          id: memo.id,
+          step,
+          from: memo.state,
+          to: stateAfter(step),
+          error,
+        });
+        log("step.skipped", { memo_id: memo.id, step, error });
+        if (skipped) publish(memo.id, step);
+        return skipped;
+      }
+      store.markStepFailed({ id: memo.id, step, error });
       publish(memo.id, step);
       return false;
     }
@@ -312,18 +331,24 @@ export function createRunner(deps: {
     retry({ id, from }) {
       const memo = store.getMemo(id);
       if (!memo) throw new MemoError("not_found", `memo ${id} not found`);
-      if (memo.state !== "failed" || !memo.failedStep) {
-        throw new MemoError("bad_state", `memo ${id} is ${memo.state}, only failed memos retry`);
+      if (from === "ingest" || !STEPS.includes(from)) {
+        throw new MemoError("bad_request", `cannot retry from ${from}`);
       }
-      if (
-        from === "ingest" ||
-        !STEPS.includes(from) ||
-        stepIndex(from) > stepIndex(memo.failedStep)
-      ) {
-        throw new MemoError(
-          "bad_request",
-          `cannot retry from ${from}: failed at ${memo.failedStep}`,
-        );
+      // A finished memo retries only an optional step that failed on the way.
+      const skippedOptional =
+        memo.state === "notified" &&
+        isOptionalStep(from) &&
+        store.listStepRecords(id).some((r) => r.step === from && r.status === "failed");
+      if (!skippedOptional) {
+        if (memo.state !== "failed" || !memo.failedStep) {
+          throw new MemoError("bad_state", `memo ${id} is ${memo.state}, only failed memos retry`);
+        }
+        if (stepIndex(from) > stepIndex(memo.failedStep)) {
+          throw new MemoError(
+            "bad_request",
+            `cannot retry from ${from}: failed at ${memo.failedStep}`,
+          );
+        }
       }
       if (!store.resetForRetry({ id, from })) {
         throw new MemoError("bad_state", `memo ${id} is no longer failed`);

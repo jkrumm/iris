@@ -133,6 +133,16 @@ describe("speech", () => {
     expect(texts).toEqual(["Die Migration ist fertig. Details auf dem Bildschirm."]);
   });
 
+  it("speaks the clipped reply of a long answer whose summary failed, instead of a 409", async () => {
+    const { speaker, texts } = countingSpeaker();
+    const { media, memo, withReply } = setup(speaker);
+    withReply("Das ist ein langer Satz über die Migration. ".repeat(30));
+    await media.speech(memo.id);
+    expect(texts).toHaveLength(1);
+    expect(texts[0]?.length).toBeLessThanOrEqual(600);
+    expect(texts[0]?.endsWith(" Details auf dem Bildschirm.")).toBe(true);
+  });
+
   it("re-synthesizes when a retry changes the variant and hits the cache when it does not", async () => {
     const { speaker, texts } = countingSpeaker();
     const { media, memo, withReply } = setup(speaker);

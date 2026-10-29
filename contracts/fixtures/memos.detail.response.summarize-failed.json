@@ -1,0 +1,79 @@
+{
+  "id": "4e8a2c7d-91b3-4f06-8d5a-3b7e1c9f2a60",
+  "mode": "hermes",
+  "device": "iphone",
+  "startedAt": "2026-03-14T09:20:41.000Z",
+  "state": "notified",
+  "failedStep": null,
+  "error": null,
+  "segmentCount": 4,
+  "audioSeconds": 38.4,
+  "transcript": "Erinnere mich bitte daran, am Montag die offenen Pull Requests durchzugehen, am Mittwoch den Feature-Freeze zu machen und am Donnerstag das Release zu bauen. Die Datenbankmigration ist noch offen.",
+  "route": "hermes",
+  "destinationRef": "iris-4e8a2c7d-91b3-4f06-8d5a-3b7e1c9f2a60",
+  "replyText": "Alles notiert. Montag: Pull Requests prüfen. Mittwoch: Feature-Freeze. Donnerstag: Release. Die Datenbankmigration bleibt als offener Punkt.",
+  "summary": null,
+  "done": false,
+  "favorite": false,
+  "archived": false,
+  "createdAt": "2026-03-14T09:20:41.512Z",
+  "updatedAt": "2026-03-14T09:21:16.110Z",
+  "steps": [
+    {
+      "step": "transcribe",
+      "status": "done",
+      "startedAt": "2026-03-14T09:20:52.100Z",
+      "finishedAt": "2026-03-14T09:21:00.640Z",
+      "error": null,
+      "usage": {
+        "audioSeconds": 38.4
+      },
+      "costUsd": 0.0038,
+      "attempts": 1
+    },
+    {
+      "step": "route",
+      "status": "done",
+      "startedAt": "2026-03-14T09:21:00.700Z",
+      "finishedAt": "2026-03-14T09:21:00.712Z",
+      "error": null,
+      "usage": null,
+      "costUsd": null,
+      "attempts": 1
+    },
+    {
+      "step": "act",
+      "status": "done",
+      "startedAt": "2026-03-14T09:21:00.780Z",
+      "finishedAt": "2026-03-14T09:21:12.190Z",
+      "error": null,
+      "usage": {
+        "inputTokens": 1840,
+        "outputTokens": 212,
+        "totalTokens": 2052
+      },
+      "costUsd": 0.0412,
+      "attempts": 1
+    },
+    {
+      "step": "summarize",
+      "status": "failed",
+      "startedAt": "2026-03-14T09:21:12.260Z",
+      "finishedAt": "2026-03-14T09:21:15.260Z",
+      "error": "agw triage failed: 402 payment required",
+      "usage": null,
+      "costUsd": null,
+      "attempts": 3
+    },
+    {
+      "step": "notify",
+      "status": "done",
+      "startedAt": "2026-03-14T09:21:15.330Z",
+      "finishedAt": "2026-03-14T09:21:16.100Z",
+      "error": null,
+      "usage": null,
+      "costUsd": null,
+      "attempts": 1
+    }
+  ]
+}

@@ -283,12 +283,29 @@ export function createSqliteMemoStore(params: { db: Database; clock: Clock }): M
     ).run(step, error, at, id);
   });
 
+  const skipStep = db.transaction(
+    (id: string, step: Step, from: MemoState, to: MemoState, error: string) => {
+      const at = stamp();
+      const moved = db
+        .query("UPDATE memos SET state = ?, updated_at = ? WHERE id = ? AND state = ?")
+        .run(to, at, id, from);
+      if (moved.changes === 0) return false;
+      db.query(
+        "UPDATE memo_steps SET status = 'failed', finished_at = ?, error = ? WHERE memo_id = ? AND step = ?",
+      ).run(at, error, id, step);
+      return true;
+    },
+  );
+
   const resetForRetry = db.transaction((id: string, from: Step) => {
+    // A failed memo, or a finished one whose optional step failed on the way (`from` is that step).
     const reset = db
       .query(
-        "UPDATE memos SET state = ?, failed_step = NULL, error = NULL, updated_at = ? WHERE id = ? AND state = 'failed'",
+        `UPDATE memos SET state = ?, failed_step = NULL, error = NULL, updated_at = ? WHERE id = ?
+           AND (state = 'failed' OR (state = 'notified' AND EXISTS (
+             SELECT 1 FROM memo_steps WHERE memo_id = memos.id AND step = ? AND status = 'failed')))`,
       )
-      .run(stateBefore(from), stamp(), id);
+      .run(stateBefore(from), stamp(), id, from);
     if (reset.changes === 0) return false;
     const cleared = stepsFrom(from);
     const columns = cleared
@@ -650,6 +667,10 @@ export function createSqliteMemoStore(params: { db: Database; clock: Clock }): M
 
     markStepFailed({ id, step, error }) {
       markStepFailed(id, step, error);
+    },
+
+    skipStep({ id, step, from, to, error }) {
+      return skipStep(id, step, from, to, error);
     },
 
     resetForRetry({ id, from }) {

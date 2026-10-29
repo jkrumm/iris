@@ -345,6 +345,60 @@ describe("POST /v1/memos/:id/retry", () => {
     expect(await res.json()).toMatchObject({ id });
   });
 
+  it("ends a memo whose summarize failed as notified, and retries its summarize", async () => {
+    let broken = true;
+    const { app } = testApp({
+      handlers: {
+        route: async () => ({ patch: { route: "hermes" } }),
+        act: async () => ({ patch: { replyText: "Erledigt." } }),
+        summarize: async () => {
+          if (broken) throw new Error("402 payment required");
+          return { patch: { summary: { headline: "H", detail: "D", spoken: "S" } } };
+        },
+        notify: async () => ({}),
+      },
+    });
+    const created = await createText(app);
+    const { id } = (await created.json()) as { id: string };
+    const res = await call(app, { path: `/v1/memos/${id}/result?wait=5` });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({
+      state: "notified",
+      failedStep: null,
+      error: null,
+      summary: null,
+    });
+    const detail = await call(app, { path: `/v1/memos/${id}` });
+    expect(await detail.json()).toMatchObject({
+      steps: expect.arrayContaining([
+        expect.objectContaining({
+          step: "summarize",
+          status: "failed",
+          error: "402 payment required",
+        }),
+      ]),
+    });
+
+    broken = false;
+    const retry = await call(app, {
+      method: "POST",
+      path: `/v1/memos/${id}/retry`,
+      json: { from: "summarize" },
+    });
+    expect(retry.status).toBe(202);
+    expect(await retry.json()).toMatchObject({ state: "acted", summary: null });
+    const done = await call(app, { path: `/v1/memos/${id}/result?wait=5` });
+    expect(await done.json()).toMatchObject({ state: "notified", summary: { headline: "H" } });
+
+    // nothing failed any more: a second retry is a conflict
+    const again = await call(app, {
+      method: "POST",
+      path: `/v1/memos/${id}/retry`,
+      json: { from: "summarize" },
+    });
+    expect(again.status).toBe(409);
+  });
+
   it("400s a missing from instead of defaulting it", async () => {
     const { app } = testApp();
     const res = await call(app, {
