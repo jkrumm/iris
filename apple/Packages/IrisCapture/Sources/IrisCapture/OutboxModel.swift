@@ -61,13 +61,18 @@ public struct OutboxDeletion: Sendable, Equatable, Codable {
   /// Why the last attempt failed, for the queue row.
   public var lastError: String?
 
-  public init(memoID: MemoID, title: String = "", queuedAt: Date = Date(timeIntervalSince1970: 0)) {
+  public init(memoID: MemoID, title: String = "", queuedAt: Date = Date()) {
     self.memoID = memoID
-    self.title = title
+    self.title = title.isEmpty ? Self.fallbackTitle(memoID) : title
     self.queuedAt = queuedAt
     state = .pending
     attempts = 0
     lastError = nil
+  }
+
+  /// A row for a record that never had a title: "Voice memo 1a2b3c4d", the memo id's first block.
+  static func fallbackTitle(_ memoID: MemoID) -> String {
+    "Voice memo \(memoID.uuidString.prefix(8).lowercased())"
   }
 
   /// Records written before the row existed have no title, time or error.
@@ -76,8 +81,9 @@ public struct OutboxDeletion: Sendable, Equatable, Codable {
     memoID = try container.decode(MemoID.self, forKey: .memoID)
     state = try container.decode(OutboxState.self, forKey: .state)
     attempts = try container.decode(Int.self, forKey: .attempts)
-    title = try container.decodeIfPresent(String.self, forKey: .title) ?? ""
-    queuedAt = try container.decodeIfPresent(Date.self, forKey: .queuedAt) ?? Date(timeIntervalSince1970: 0)
+    title = try container.decodeIfPresent(String.self, forKey: .title) ?? Self.fallbackTitle(memoID)
+    // Unknown for a record written before the row existed: the time it was read, so the row sorts last rather than first.
+    queuedAt = try container.decodeIfPresent(Date.self, forKey: .queuedAt) ?? Date()
     lastError = try container.decodeIfPresent(String.self, forKey: .lastError)
   }
 }

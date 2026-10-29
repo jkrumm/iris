@@ -79,7 +79,9 @@ public actor CaptureSession {
   private var closedCounts: [MemoID: Int] = [:]
   /// Why the recorder failed, per take.
   private var failures: [MemoID: String] = [:]
-  /// Takes whose `stop()` gave up waiting for the recorder; a `stopped` event that arrives later is ignored.
+  /// Takes whose `stop()` gave up waiting for the recorder and finished the memo without its last event. Anything the
+  /// recorder still reports for them is ignored (a segment closing now would join a memo that is already finished), and the
+  /// entry goes with the `stopped` event that ends them.
   private var abandoned: Set<MemoID> = []
   private var finishWaiter: (id: MemoID, continuation: CheckedContinuation<Int?, Never>)?
   /// The gate: true while a start, stop or cancel is running; the others wait in `queue`, first come first served.
@@ -310,6 +312,9 @@ public actor CaptureSession {
           case .segmentClosed(let segment, _):
             if cancelled.contains(segment.memoID) {
               try? FileManager.default.removeItem(at: segment.fileURL)
+            } else if abandoned.contains(segment.memoID) {
+              // Late: the memo was finished without it. Not queued; the file stays for the next launch's sweep to set aside.
+              Log.capture.error("segment \(segment.index) closed after its take was finished, left on disk")
             } else {
               closedCounts[segment.memoID, default: 0] += 1
               await outbox.enqueue(segment)
@@ -319,7 +324,7 @@ public actor CaptureSession {
             let isHeldBack = state.phase == .failed && state.memoID == memoID
             let kept = keptCount(memoID, reported: count)
             // A stop that gave up on this event has finished the memo with what it had.
-            if abandoned.contains(memoID) { break }
+            if abandoned.remove(memoID) != nil { break }
             if !cancelled.contains(memoID), !isHeldBack { await outbox.finishMemo(memoID, segmentCount: kept) }
             didFinish(memoID, count: kept)
           case .failed(let reason): await recorderFailed(reason)

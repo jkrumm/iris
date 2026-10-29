@@ -607,7 +607,9 @@ and leaves no file. Revisit the resource loader only if recordings grow past a f
   composer stays open with the text and the reason, and the refused item is removed from the queue so it cannot go out as a second
   copy. A take's stalled item stays queued for Retry and Discard.
   An item is saved before it is handed out (it is withheld from dispatch while the first save is out, so the server never creates a memo
-  the queue then refuses), and a segment file is deleted only after a save that no longer lists it has landed (a failed write keeps
+  the queue then refuses), and so is every dispatch: `resume()` saves the state that marks a transfer as handed out (`createMayHaveLanded`
+  among it) *before* the request starts, and drops a transfer that was discarded or retried while that save was out, so a kill with a create on the wire
+  still leaves the flag a later discard needs, and a segment file is deleted only after a save that no longer lists it has landed (a failed write keeps
   the files; the next successful save removes them). A take that is still being recorded always shows as `recording` in the queue,
   whatever its create is doing, so Settings offers neither Retry nor Discard on it.
   `OutboxService.resume()` (launch, a changed connection, the app coming to the foreground) makes every transfer that is waiting
@@ -615,7 +617,7 @@ and leaves no file. Revisit the resource loader only if recordings grow past a f
   **Startup sweep** (`Outbox.sweepOrphans`, run by `CaptureStack` right after the queue loads and before anything is sent or recorded): a segment file is written before the
   queue file that names it is saved, so a crash or a failed save leaves files no record owns. Each `<memo id>-<index>.m4a` in the capture directory that the queue does not
   know is **adopted** when it belongs to a take the queue holds, fills one of its indices (below its count, or the next one after a take recovered from a crash, which then grows) and
-  opens as audio with frames in it (a truncated AAC file does not); otherwise it is **moved** into `capture/quarantine/`. A file that a set-aside queue file names stays where it is.
+  opens as audio with frames in it (a truncated AAC file does not); otherwise it is **moved** into `capture/quarantine/`. A file that a set-aside queue file names stays where it is, and when a set-aside queue file cannot be read, every candidate stays where it is (the read failure is logged).
   **Nothing is deleted** (the files of a memo the server completed, left by a crash between the save and the removal, are quarantined too).
   Everything runs on a default `URLSession` (`URLSessionAPIClient`); the background `URLSession` and the `result?wait=600`
   long-poll as a background download are not built (device-only, below). The app side is `OutboxService` (submit text, await the
@@ -640,15 +642,15 @@ and leaves no file. Revisit the resource loader only if recordings grow past a f
   suspension after the gate: a second start finds the first take and is rejected, a `cancel` that lands while the take is starting or
   stopping waits for that to finish and then ends it (so no microphone is left running with no state), and a stop's wait for the
   recorder's last event is never shared with another caller. That wait is **bounded** (10 s on the injected clock, `stopTimeout`): a recorder that never emits `.stopped` must not hold the gate,
-  so `stop()` gives up, finishes the memo with the segments that closed (`TakeResult.failure` = "the recorder did not stop") or, with none, throws `CaptureError.recordingFailed`; a `.stopped` that
-  arrives later is ignored. `cancel()` has the same bound. `TakeController.start` is single-flight: a second start while one is in flight (the Control and the record button together, a double tap)
+  so `stop()` gives up, finishes the memo with the segments that closed (`TakeResult.failure` = "the recorder did not stop") or, with none, throws `CaptureError.recordingFailed`; a segment or `.stopped` that
+  arrives later is ignored (the segment is not queued for the finished memo; its file stays for the next launch's sweep). `cancel()` has the same bound. `TakeController.start` is single-flight: a second start while one is in flight (the Control and the record button together, a double tap)
   joins it and returns the same memo, as does a start that finds a take already running; `TakeController.cancel()` throws when the capture session cannot be opened and `TakeModel` shows the failure instead of looking done.
 - **`CaptureStack` never queues into memory.** If the persistent queue cannot be loaded (the file unreadable before the first unlock after
   a reboot), the stack stays unbuilt: the composer keeps the text and shows why, a voice take and the start intent refuse to start,
   Settings shows "the outbox cannot be opened", and nothing is written anywhere. The next call (`resume()` at launch, a pull to refresh, the
   next send) tries the real store again. Callers that wait on the same failed build all get the error, and only the build they
   waited for is cleared, so two builds never run over one `outbox.json`. A file this build cannot **decode** is told apart from one that cannot be read right now (`OutboxAvailability.unreadable`
-  vs `.unavailable`): only the first offers the reset, and only the first is touched by it.
+  vs `.unavailable`): only the first offers the reset, and only the first is touched by it. A reset whose fresh outbox then fails to open says so (the old file is set aside and kept, no new outbox yet) instead of reporting that nothing changed.
 - **Memo ids** are minted at start: a UUID v4, which also serves as the trace
   id.
 

@@ -23,6 +23,10 @@ final class SettingsModel {
   private(set) var queueUnreadable = false
   /// The reset did not go through; the file is still where it was.
   private(set) var resetFailed = false
+  /// The old file was set aside and kept, but a new outbox could not be opened yet.
+  private(set) var resetLeftUnopened = false
+  /// A Discard did not reach the queue because it could not be opened; nothing was dropped.
+  private(set) var discardFailed = false
   /// Queue files earlier resets set aside, for Diagnostics to share.
   private(set) var quarantinedFiles: [URL] = []
   /// Why the queue could not be saved to disk; it is retried on its own. `nil` while it can be.
@@ -63,13 +67,19 @@ final class SettingsModel {
     queueUnreadable = available ? false : await source.isUnreadable()
     queueSaveFailure = available ? await source.saveFailure() : nil
     quarantinedFiles = await source.quarantinedFiles()
+    if available { resetLeftUnopened = false }
   }
 
   /// Sets the unreadable outbox file aside and opens a fresh queue. The old file and its recordings are kept.
   func resetOutbox() async {
     resetFailed = false
+    resetLeftUnopened = false
     guard queueUnreadable else { return }
-    resetFailed = !(await source.resetOutbox())
+    switch await source.resetOutbox() {
+    case .reset: break
+    case .setAsideNotOpen: resetLeftUnopened = true
+    case .notReset: resetFailed = true
+    }
     await refreshQueue()
   }
 
@@ -81,7 +91,7 @@ final class SettingsModel {
   /// Drops an item from the queue, with what was recorded for it.
   func discard(_ item: QueuedItem) async {
     guard item.canDiscard else { return }
-    await source.discard(id: item.id)
+    discardFailed = !(await source.discardQueued(id: item.id))
   }
 
   func load() async {

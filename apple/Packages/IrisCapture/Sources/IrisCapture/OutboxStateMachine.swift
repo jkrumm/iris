@@ -208,7 +208,7 @@ public struct OutboxStateMachine: Sendable {
     discarded.insert(memoID)
     if deleteOnServer {
       deletions[memoID] = OutboxDeletion(
-        memoID: memoID, title: item?.title ?? "", queuedAt: item?.queuedAt ?? Date(timeIntervalSince1970: 0))
+        memoID: memoID, title: item?.title ?? "", queuedAt: item?.queuedAt ?? Date())
       withheldDeletions.insert(memoID)
     }
     return files

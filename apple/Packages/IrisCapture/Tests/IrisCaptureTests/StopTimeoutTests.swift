@@ -35,11 +35,14 @@ struct StopTimeoutTests {
     return (session, recorder, fake, harness)
   }
 
-  /// Waits until a sleeper is parked on the manual clock, then moves time past the timeout.
+  /// Waits for the stop (or cancel) to reach its wait, then moves time past the timeout until it gives up. The clock is
+  /// advanced repeatedly rather than once after a pause: the advance that lands after the timer is parked is the one that fires it.
   private func letTheTimeoutPass(_ harness: OutboxHarness, on session: CaptureSession) async throws {
     for _ in 0..<400 where await session.current.phase != .stopping { try await Task.sleep(for: .milliseconds(5)) }
-    try await Task.sleep(for: .milliseconds(100))  // the wait has parked its timer
-    await harness.clock.advance(by: 11)
+    for _ in 0..<400 where await session.current.phase == .stopping {
+      await harness.clock.advance(by: 11)
+      try await Task.sleep(for: .milliseconds(5))
+    }
   }
 
   @Test func aStopWhoseRecorderNeverReportsEndsWithWhatClosedAndSaysWhy() async throws {
@@ -95,22 +98,33 @@ struct StopTimeoutTests {
     await harness.outbox.shutdown()
   }
 
-  @Test func aLateStoppedEventAfterTheTimeoutChangesNothing() async throws {
+  @Test func aSegmentAndAStoppedEventThatComeAfterTheTimeoutJoinNothing() async throws {
     let directory = try temporaryDirectory()
     defer { try? FileManager.default.removeItem(at: directory) }
     let (session, recorder, fake, harness) = try await rig(directory)
+    await harness.uploader.hold()  // the memo stays unfinished on the server, so a stray segment could still join it
     let id = try await session.start(request)
-    await fake.recorder.feed(frames: 12 * SegmentRotationPolicy().sampleRate)
+    await fake.recorder.feed(frames: 12 * SegmentRotationPolicy().sampleRate)  // segment 0 closed, 2 s still open
     let stopping = Task { try await session.stop() }
     try await letTheTimeoutPass(harness, on: session)
-    _ = try await stopping.value
+    let result = try await stopping.value
+    #expect(result?.segmentCount == 1)
 
-    try await recorder.finishLate()
-    try await Task.sleep(for: .milliseconds(100))
+    try await recorder.finishLate()  // the recorder flushes the open 2 s as segment 1, then reports `stopped`
+    let lateFile = directory.appending(path: "\(id.uuidString)-1.m4a")
+    for _ in 0..<200 where !FileManager.default.fileExists(atPath: lateFile.path) {
+      try await Task.sleep(for: .milliseconds(5))
+    }
+    try await Task.sleep(for: .milliseconds(50))  // the pump has handled both events
 
     #expect(await session.current == .idle)
+    #expect(
+      await harness.outbox.entries().map(\.segment.index) == [0], "the late segment is not queued for a finished memo")
+    #expect(FileManager.default.fileExists(atPath: lateFile.path), "and its audio is kept for the next launch's sweep")
+    await harness.uploader.releaseAll()
     await harness.outbox.settled()
     #expect(await harness.uploader.completed.map(\.segmentCount) == [1], "finished once, with what the stop had")
+    #expect(await harness.uploader.uploaded.map(\.index) == [0])
     await session.shutdown()
     await harness.outbox.shutdown()
   }

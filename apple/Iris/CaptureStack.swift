@@ -9,6 +9,16 @@ nonisolated enum CaptureStackError: Error, Equatable, Sendable {
   case queueUnavailable
 }
 
+/// How a reset of the unreadable outbox ended, short of throwing (which means nothing was touched).
+nonisolated enum OutboxResetOutcome: Equatable, Sendable {
+  /// The file is set aside and a fresh outbox is open.
+  case reset
+  /// The file is set aside (and kept) but the fresh outbox could not be opened; the next open tries again.
+  case setAsideNotOpen
+  /// Nothing was changed.
+  case notReset
+}
+
 /// Why Settings can or cannot use the queue.
 nonisolated enum OutboxAvailability: Equatable, Sendable {
   case available
@@ -76,8 +86,9 @@ actor CaptureStack {
   }
 
   /// Sets the unreadable queue file aside under a timestamped name (kept next to it, with the segment files it names) and
-  /// opens a fresh queue. Throws `queueUnavailable` when the queue is not unreadable, or the file could not be moved.
-  func resetOutbox() async throws {
+  /// opens a fresh queue. Throws `queueUnavailable` when nothing was changed: the queue is not unreadable, or the file could
+  /// not be moved. `setAsideNotOpen` says the file did move but the fresh queue would not open.
+  func resetOutbox() async throws -> OutboxResetOutcome {
     guard await availability() == .unreadable, !isResetting else { throw CaptureStackError.queueUnavailable }
     // Other callers wait out the move: a build in the middle of it would read the file that is being renamed.
     isResetting = true
@@ -91,7 +102,13 @@ actor CaptureStack {
     }
     isResetting = false
     logger.notice("outbox reset, the old queue is kept as \(moved?.lastPathComponent ?? "-", privacy: .public)")
-    _ = try await open()
+    do {
+      _ = try await open()
+      return .reset
+    } catch {
+      logger.error("outbox set aside but a new one did not open: \(String(describing: error), privacy: .public)")
+      return .setAsideNotOpen
+    }
   }
 
   /// The queue files earlier resets set aside, for Diagnostics to share.

@@ -136,20 +136,34 @@ nonisolated final class OutboxService: QueuedItemSource {
   }
 
   func discard(id: String) async {
-    guard let memoID = UUID(uuidString: id) else { return }
-    guard let outbox = try? await stack.outbox() else { return }
+    _ = await discardQueued(id: id)
+  }
+
+  func discardQueued(id: String) async -> Bool {
+    guard let memoID = UUID(uuidString: id) else { return false }
+    guard let outbox = try? await stack.outbox() else {
+      logger.error("discard of \(id, privacy: .public) not applied, the outbox cannot be opened")
+      return false
+    }
     // A row that is a stalled server `DELETE` has nothing to discard but the attempt itself.
     if await outbox.queue().first(where: { $0.id == memoID })?.isDeletion == true {
       await outbox.abandonDeletion(memoID)
-      return
+      return true
     }
-    await discard(memoID)
+    return await discard(memoID)
   }
 
   /// Drops the item (a cancelled take or a queue row): History stops showing its memo at once, the server deletes it.
-  func discard(_ memoID: MemoID) async {
+  /// `false` (logged) when the outbox cannot be opened: nothing was dropped there, and the caller must not look done.
+  @discardableResult
+  func discard(_ memoID: MemoID) async -> Bool {
     await created.forget(memoID.wireID)
-    await (try? await stack.outbox())?.discard(memoID)
+    guard let outbox = try? await stack.outbox() else {
+      logger.error("discard of \(memoID.wireID, privacy: .public) not applied, the outbox cannot be opened")
+      return false
+    }
+    await outbox.discard(memoID)
+    return true
   }
 
   /// Whether the memo left the queue because it was discarded, not because the server has it complete.
@@ -166,13 +180,12 @@ nonisolated final class OutboxService: QueuedItemSource {
     await stack.availability() == .unreadable
   }
 
-  func resetOutbox() async -> Bool {
+  func resetOutbox() async -> OutboxResetOutcome {
     do {
-      try await stack.resetOutbox()
-      return true
+      return try await stack.resetOutbox()
     } catch {
       logger.error("outbox not reset: \(String(describing: error), privacy: .public)")
-      return false
+      return .notReset
     }
   }
 

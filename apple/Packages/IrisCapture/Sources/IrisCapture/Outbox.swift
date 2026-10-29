@@ -33,6 +33,8 @@ public actor Outbox: SegmentOutbox {
   private var wakeDeadline: Date?
   private var idleWaiters: [CheckedContinuation<Void, Never>] = []
   private var finishing = 0
+  /// Transfers handed out by `dispatch` whose state is being saved: counted against the concurrency cap until they start.
+  private var starting = 0
   private var isFlushing = false
   private var flushWaiters: [(generation: Int, continuation: CheckedContinuation<Bool, Never>)] = []
   /// Every `persist()` call takes the next number; a save carries the highest number requested when its snapshot was taken,
@@ -180,11 +182,29 @@ public actor Outbox: SegmentOutbox {
     guard !isShutDown else { return }
     let now = await clock.now()
     guard !isShutDown else { return }  // shut down while the clock was answering
-    let work = machine.dispatch(now: now, inFlight: inFlight.count)
-    for item in work { start(item) }
-    if !work.isEmpty { await persist() }
+    let work = machine.dispatch(now: now, inFlight: inFlight.count + starting)
+    if !work.isEmpty {
+      // The dispatched state is saved before anything goes out: a kill with a create on the wire must leave
+      // `createMayHaveLanded` on disk, or a later discard would not delete a memo the server may have.
+      starting += work.count
+      await persist()
+      starting -= work.count
+      for item in work where isStillDispatched(item) && !isShutDown { start(item) }
+    }
     scheduleWake(after: now)
     resolveIdleWaiters()
+  }
+
+  /// The save is a suspension: the item may have been discarded, retried or finished meanwhile, in which case it is not
+  /// sent (a create for a discarded take would land after its `DELETE`).
+  private func isStillDispatched(_ work: OutboxWork) -> Bool {
+    switch work {
+    case .create(let item): machine.items[item.memoID]?.create == .uploading
+    case .upload(let segment):
+      machine.entries[SegmentKey(memoID: segment.memoID, index: segment.index)]?.state == .uploading
+    case .complete(let memoID, _): machine.memos[memoID]?.completion == .uploading
+    case .delete(let memoID): machine.deletions[memoID]?.state == .uploading
+    }
   }
 
   /// Dispatches due work, then returns once no transfer is in flight and the store is flushed.
@@ -217,7 +237,7 @@ public actor Outbox: SegmentOutbox {
 
   // MARK: Internals
 
-  private var isIdle: Bool { inFlight.isEmpty && finishing == 0 && !isFlushing }
+  private var isIdle: Bool { inFlight.isEmpty && finishing == 0 && starting == 0 && !isFlushing }
 
   private func start(_ work: OutboxWork) {
     let id: TransferID

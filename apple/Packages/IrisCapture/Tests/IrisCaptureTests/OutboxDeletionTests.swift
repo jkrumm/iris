@@ -289,6 +289,25 @@ struct OutboxDeletionTests {
     await second.outbox.shutdown()
   }
 
+  @Test func aDeletionWrittenBeforeItHadATitleShowsAReadableRowThatSortsLast() async throws {
+    let id = memo(0xAB)
+    let json =
+      #"{"entries":[],"memos":[],"nextSequence":0,"deletions":[{"memoID":"\#(id.uuidString)","state":{"pending":{}},"attempts":0}]}"#
+    let record = try JSONDecoder().decode(OutboxRecord.self, from: Data(json.utf8))
+    let old = textItem(memo(2), queuedAt: Date(timeIntervalSinceNow: -3_600))
+
+    let harness = try await OutboxHarness(
+      record: OutboxRecord(items: [old], deletions: record.deletions, nextSequence: 0))
+    let rows = await harness.outbox.queue()
+
+    #expect(rows.map(\.id) == [old.memoID, id], "the row of unknown age sorts after the dated one")
+    let row = try #require(rows.last)
+    #expect(row.isDeletion)
+    #expect(row.item.title == "Voice memo \(id.uuidString.prefix(8).lowercased())")
+    #expect(abs(row.item.queuedAt.timeIntervalSinceNow) < 60)
+    await harness.outbox.shutdown()
+  }
+
   @Test func theRecordWithoutDeletionsStillDecodes() throws {
     let json = #"{"entries":[],"memos":[],"nextSequence":0}"#
     let record = try JSONDecoder().decode(OutboxRecord.self, from: Data(json.utf8))

@@ -154,6 +154,26 @@ struct OutboxSweepTests {
     await outbox.shutdown()
   }
 
+  @Test func aSetAsideQueueThatCannotBeReadKeepsEveryCandidateInPlace() async throws {
+    let directory = try temporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let first = try file(directory, memo(1), 0)
+    let second = try file(directory, memo(2), 0)
+    // A set-aside queue file that is not there to read: it may name either file.
+    let missing = directory.appending(path: "outbox.quarantined-gone.json")
+    let outbox = try await Outbox(
+      store: HeldQueueStore(files: [missing]), uploader: TestUploader(), clock: ManualClock())
+
+    let report = await outbox.sweepOrphans(
+      in: directory, quarantineTo: directory.appending(path: "quarantine"), inspect: inspect)
+
+    #expect(Set(report.kept) == [first, second])
+    #expect(report.quarantined.isEmpty && report.adopted.isEmpty)
+    #expect(FileManager.default.fileExists(atPath: first.path) && FileManager.default.fileExists(atPath: second.path))
+    #expect(!FileManager.default.fileExists(atPath: directory.appending(path: "quarantine").path))
+    await outbox.shutdown()
+  }
+
   @Test func aNameTakenInTheQuarantineFolderKeepsBothFiles() async throws {
     let directory = try temporaryDirectory()
     defer { try? FileManager.default.removeItem(at: directory) }
