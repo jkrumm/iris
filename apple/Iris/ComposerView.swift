@@ -20,7 +20,7 @@ struct ComposerView: View {
     NavigationStack {
       VStack(alignment: .leading, spacing: Theme.Spacing.lg) {
         if model.threadId == nil {
-          ChoiceChips(choices: Self.choices, selection: $model.mode)
+          ModePicker(modes: ComposerModel.modes, selection: $model.mode)
             .disabled(model.isSending)
             .accessibilityIdentifier("composer.modes")
         }
@@ -63,10 +63,6 @@ struct ComposerView: View {
     }
   }
 
-  private static let choices = ComposerModel.modes.map { mode in
-    ChipChoice(id: mode, title: mode.composerTitle, systemImage: mode.composerIcon)
-  }
-
   private var counter: String {
     let count = model.characterCount.formatted()
     guard model.isOverLimit else { return String(localized: "\(count) characters", comment: "Composer counter") }
@@ -99,25 +95,5 @@ struct ComposerView: View {
     case .refused, .stalled: return
     }
     dismiss()
-  }
-}
-
-extension MemoMode {
-  var composerTitle: String {
-    switch self {
-    case .auto, .unknown: String(localized: "Auto", comment: "Memo mode")
-    case .journal: String(localized: "Journal", comment: "Memo mode")
-    case .hermes: String(localized: "Hermes", comment: "Memo mode")
-    case .tab: String(localized: "Tab", comment: "Memo mode")
-    case .chat: String(localized: "Chat", comment: "Memo mode")
-    }
-  }
-
-  fileprivate var composerIcon: String? {
-    switch self {
-    case .auto, .unknown: "sparkles"
-    case .tab: "terminal"
-    default: nil
-    }
   }
 }

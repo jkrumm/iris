@@ -123,7 +123,9 @@ extension View {
   }
 }
 
-/// The record control above the tab bar on every screen: a tap starts a take in Auto, a long press picks the mode.
+/// The record control above the tab bar on every screen: a tap starts a take in Auto, a long press offers the modes (a `Button`
+/// with a context menu, as before: a tap/long-press gesture on a plain label made taps elsewhere on History miss, measured by the
+/// smoke test). "Choose mode…" opens the same chips as the composer, with a line on what each mode does.
 struct RecordAccessory: View {
   let model: TakeModel
 
@@ -140,9 +142,19 @@ struct RecordAccessory: View {
     .buttonStyle(.plain)
     .disabled(!model.canStart)
     .contextMenu {
-      ForEach([MemoMode.auto, .journal, .hermes, .chat], id: \.self) { mode in
-        Button(mode.composerTitle) { Task { await model.start(mode: mode) } }
+      ForEach(MemoMode.voiceModes, id: \.self) { mode in
+        Button(mode.composerTitle, systemImage: mode.composerIcon ?? "waveform") {
+          Task { await model.start(mode: mode) }
+        }
       }
+      Divider()
+      Button(
+        String(localized: "Choose mode…", comment: "Opens the mode picker of the record control"),
+        systemImage: "slider.horizontal.3"
+      ) {
+        model.showsModePicker = true
+      }
+      .accessibilityIdentifier("record.chooseMode")
     }
     .accessibilityIdentifier("record.start")
   }

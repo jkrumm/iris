@@ -1,37 +1,46 @@
+import IrisCore
 import Observation
 
 /// The two voices of the detail screen, the recording and the spoken reply, and the rule that only one of them
-/// plays. Every start goes through here, so no call site has to remember to pause the other.
+/// plays. Every start goes through here, so no call site has to remember to pause the other. The reply is the app's
+/// shared ``SpeechPlayer``: the recording belongs to this screen, the speech to the app.
 @Observable
 final class MemoPlayback {
   let recording: MemoPlayer
-  let reply = MemoPlayer()
+  let speech: SpeechPlayer
+  private let memoID: String
 
-  init(recordingDuration: Double = 0) {
+  init(memoID: String, recordingDuration: Double = 0, speech: SpeechPlayer = SpeechPlayer()) {
     recording = MemoPlayer(duration: recordingDuration)
+    self.speech = speech
+    self.memoID = memoID
+    speech.pauseRecording = { [weak recording] in recording?.pause() }
   }
 
+  /// The reply of this screen's memo is speaking.
+  var isReplyPlaying: Bool { speech.isPlaying(memoID) }
+
   func toggleRecording() {
-    reply.pause()
+    speech.pause()
     recording.toggle()
   }
 
-  /// `request` is loaded the first time the reply plays; a tap while it is still loading is ignored.
-  func toggleReply(loading request: @autoclosure () -> MediaRequest?) async {
-    guard !reply.isLoading else { return }
-    if !reply.isLoaded { await reply.load(request()) }
+  /// `memo`'s reply is loaded the first time it plays; a tap while it is still loading is ignored.
+  func toggleReply(_ memo: Memo, source: any MemoMediaSource) async {
     recording.pause()
-    reply.toggle()
+    await speech.toggle(memo, source: source)
   }
 
   func pauseAll() {
     recording.pause()
-    reply.pause()
+    speech.pause()
   }
 
-  /// Stops both and releases their players; the screen calls it when it goes away.
+  /// Stops the recording and this memo's reply and releases their players; the screen calls it when it goes away. A reply
+  /// of another memo (a spoken reply that started meanwhile) keeps speaking.
   func teardown() {
     recording.teardown()
-    reply.teardown()
+    speech.pauseRecording = nil
+    speech.stop(memoID: memoID)
   }
 }

@@ -13,6 +13,8 @@ struct MemoLiveActivity: Widget {
     ActivityConfiguration(for: MemoAttributes.self) { context in
       LiveActivityPanel(context.presentation) {
         RecordingControls(paused: context.state.phase == .paused, onDark: false)
+      } doneAction: {
+        PlayReplyControl(memoID: context.attributes.memoId, onDark: false)
       }
       .padding(Theme.Spacing.lg)
       .activityBackgroundTint(Theme.Surface.panel)
@@ -28,6 +30,8 @@ struct MemoLiveActivity: Widget {
         DynamicIslandExpandedRegion(.bottom) {
           LiveActivityPanel(presentation, style: .island) {
             RecordingControls(paused: context.state.phase == .paused, onDark: true)
+          } doneAction: {
+            PlayReplyControl(memoID: context.attributes.memoId, onDark: true)
           }
         }
       } compactLeading: {
@@ -66,6 +70,20 @@ private struct RecordingControls: View {
             : String(localized: "Pause", comment: "Live Activity control"),
           onDark: onDark)
       }
+    }
+    .buttonStyle(.plain)
+  }
+}
+
+/// Play on the done card: speaks the memo's reply through the app (`PlayReplyIntent`). Compile-checked only; whether the
+/// system lets a suspended app start playback from here is spike S3.
+private struct PlayReplyControl: View {
+  let memoID: String
+  let onDark: Bool
+
+  var body: some View {
+    Button(intent: PlayReplyIntent(memoID: memoID)) {
+      ActivityControlLabel(.play, title: String(localized: "Play", comment: "Live Activity control"), onDark: onDark)
     }
     .buttonStyle(.plain)
   }

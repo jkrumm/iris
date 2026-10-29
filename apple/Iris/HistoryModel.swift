@@ -15,6 +15,8 @@ final class HistoryModel {
   private(set) var isLoading = false
   private(set) var toast: HistoryToast?
   var filters = HistoryFilters()
+  /// Told the id of a memo when the server says it is result-ready (`memo.done`); the app speaks the reply from here.
+  var onMemoDone: ((String) -> Void)?
   /// Bumped for a memo on each `memo.updated` event, so an open detail screen knows to reload.
   private(set) var revisions: [String: Int] = [:]
 
@@ -146,9 +148,9 @@ final class HistoryModel {
     case .memoUpdated(let update):
       revisions[update.id, default: 0] += 1
       await refresh(id: update.id)
-    case .memoDone:
-      // Always follows a `memo.updated` for the same state.
-      break
+    case .memoDone(let done):
+      // Always follows a `memo.updated` for the same state, which has already refreshed the list.
+      onMemoDone?(done.id)
     }
   }
 

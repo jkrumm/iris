@@ -166,7 +166,8 @@
       RouteSnapshot(
         availableInputs: (session.availableInputs ?? []).map(port(from:)),
         currentInput: session.currentRoute.inputs.first.map(port(from:)),
-        outputUIDs: session.currentRoute.outputs.map(\.uid))
+        outputUIDs: session.currentRoute.outputs.map(\.uid),
+        outputNames: session.currentRoute.outputs.map(\.portName))
     }
 
     private static func port(from description: AVAudioSessionPortDescription) -> InputPort {
