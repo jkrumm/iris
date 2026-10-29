@@ -42,6 +42,12 @@ Build Iris R1–R5 (PRD §Release plan) as a self-driving loop: backlog item →
    `AuthenticatedMediaSource`; today `CompositionRoot` is fake-only).
 4. Then backlog 5 and 8's simulator parts; device items (1, 3, the exit checks of 2 and 5) when the owner has the iPhone paired.
 
+## Cross-fleet
+
+- **Gateway sunset (agent-workflows-mother, 2026-10-29):** Iris moves off agent-gateway/audio-gateway in Wave 17 (sketch in PLAN.md).
+  Replied with needs (decide + a schema-constrained summary call, cancel, caller attribution, usage/cost, no Requesty; OpenAI-compatible
+  STT/TTS). Waiting for their contract via `rd say iris-mother`; Wave 17 starts after Wave 16 closes and the contract is in.
+
 ## Open owner items (none block the code, all wait for the owner)
 
 - **Requesty / triage routing** (above): production summaries are failing. Asked again 2026-10-28 16:49 (move triage off
