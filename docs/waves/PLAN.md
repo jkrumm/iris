@@ -860,6 +860,11 @@ not answered by the time of writing; A loses nothing, so it ships. A delete vari
       idempotency); questions to `rd say agent-workflows-w1`. Proof: **`make smoke` green with a real summary**; a production memo
       decided by `decide` and summarized by `triage`, both with an `agw-run-id` and purpose `iris`; then retry the memos left without a
       summary since Wave 14 (`POST /v1/memos/:id/retry {from: "summarize"}`, bounded batch) so they get one.
+- [ ] **S5. Host caller attribution** (agent-workflows lead, 2026-10-29, agent-workflows #60): every call to the agw host sends
+      `x-agw-caller: iris` and `x-agw-project: iris` next to `x-agw-purpose: iris` (`server/src/adapters/agw-client.ts`), so runs stop
+      booking as caller/project `agw`. Patterns: caller `[a-z][a-z0-9-]{0,31}`, project `[A-Za-z0-9][A-Za-z0-9._-]{0,63}`; a malformed
+      value is a 400 (constants, a test that pins the headers). The audio door is unchanged (attributed by its token; door tokens never
+      authenticate the host). TDD §Cost amended. Proof: a production decide + triage run shows caller `iris`, project `iris`.
 - [ ] **I1. Outbox reset + capture follow-ups (I3 of Wave 15):** Settings "Reset outbox" when `outbox.json` cannot be decoded: the file
       is renamed aside (timestamped, kept), its segment files stay, a fresh outbox opens, Diagnostics can share the quarantined file. A
       startup sweep **adopts or quarantines** segment files whose record never saved (never deletes). `endOrphans()` no longer ends a live
