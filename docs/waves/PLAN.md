@@ -417,7 +417,8 @@ constraint: Max accounts only, wait for a reset when all are walled, never IU AP
 **Fleet gate (every wave):** each worker runs its cheap check; the lead runs `make check` at every merge (`rd merge`),
 `make e2e` for server changes, and `agw review --cwd <iris> --pr <N>` (the agent-workflows `agw` CLI on PATH, cheap models; from
 2026-10-29 **never `agw-legacy` or agent-gateway's `/api/jobs`**, owner direction; exit 10 = still running, resume with `agw run wait
-<runId>`) on every non-docs PR with findings resolved. Server changes are
+<runId>`) on every non-docs PR with findings resolved. Review stays off Max: no `/review --deep`,
+no in-session `/code-review` fallback; if `agw review` is degraded, re-run it later and note it in Left behind. Server changes are
 pushed to master, the poller deploys, then `make verify` + `make smoke` on the mini. Apple changes gate on `apple.yml`.
 API changes run `make contracts` and update fixtures, and the same brief carries the Swift `IrisCore` follow-up (models + client
 call) so `apple.yml` stays green. TDD and AGENTS.md change in the same commit as the code they describe.
