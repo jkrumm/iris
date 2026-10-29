@@ -14,9 +14,6 @@ xcodebuild -project apple/Iris.xcodeproj -scheme Iris -derivedDataPath apple/.dd
   -destination "platform=iOS Simulator,name=${SIM_NAME:-iPhone 17},OS=${SIM_OS:-27.0}" \
   -resultBundlePath "$bundle" -only-testing:IrisUITests/ReplyFlowReviewUITests test
 
-# The tests leave the simulator in dark mode; put it back.
-xcrun simctl ui booted appearance light
-
 raw=$(mktemp -d)
 xcrun xcresulttool export attachments --path "$bundle" --output-path "$raw"
 # manifest.json maps the exported file names to the attachment names set in the test.
