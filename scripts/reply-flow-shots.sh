@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+# Runs ReplyFlowReviewUITests on the pinned simulator and exports its screenshots to .artifacts/reply-flow/<step>-<appearance>.png.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+out=.artifacts/reply-flow
+bundle=.artifacts/reply-flow.xcresult
+rm -rf "$out" "$bundle"
+mkdir -p "$out"
+
+make generate >/dev/null
+make sim >/dev/null
+xcodebuild -project apple/Iris.xcodeproj -scheme Iris -derivedDataPath apple/.dd CODE_SIGNING_ALLOWED=NO \
+  -destination "platform=iOS Simulator,name=${SIM_NAME:-iPhone 17},OS=${SIM_OS:-27.0}" \
+  -resultBundlePath "$bundle" -only-testing:IrisUITests/ReplyFlowReviewUITests test
+
+# The tests leave the simulator in dark mode; put it back.
+xcrun simctl ui booted appearance light
+
+raw=$(mktemp -d)
+xcrun xcresulttool export attachments --path "$bundle" --output-path "$raw"
+# manifest.json maps the exported file names to the attachment names set in the test.
+jq -r '.[].attachments[] | select(.suggestedHumanReadableName | startswith("reply-flow-")) | "\(.exportedFileName)\t\(.suggestedHumanReadableName)"' "$raw/manifest.json" |
+  while IFS=$'\t' read -r file name; do
+    clean=${name#reply-flow-}
+    clean=${clean%%_[0-9]*}
+    cp "$raw/$file" "$out/$clean.png"
+  done
+rm -rf "$raw"
+ls "$out"
