@@ -4,19 +4,31 @@ import IrisCore
 /// A run of consecutive memos from one calendar day. History is already newest first (pinned rows on top), so the
 /// sections follow the list order: a pinned memo from an older day gets its own header above Today.
 struct HistoryDaySection: Identifiable {
+  /// The day alone is not an identity: a pinned memo from yesterday and yesterday's own memos are two sections of the same
+  /// day, with today's in between. `occurrence` counts the sections of that day in list order (0 for the first).
+  struct ID: Hashable {
+    let day: Date
+    let occurrence: Int
+  }
+
   let day: Date
+  let occurrence: Int
   let memos: [Memo]
 
-  var id: Date { day }
+  var id: ID { ID(day: day, occurrence: occurrence) }
 
   static func group(_ memos: [Memo], calendar: Calendar = .current) -> [HistoryDaySection] {
     var sections: [HistoryDaySection] = []
+    var runs: [Date: Int] = [:]
     for memo in memos {
       let day = calendar.startOfDay(for: memo.createdAt)
       if let last = sections.last, last.day == day {
-        sections[sections.count - 1] = HistoryDaySection(day: day, memos: last.memos + [memo])
+        sections[sections.count - 1] = HistoryDaySection(
+          day: day, occurrence: last.occurrence, memos: last.memos + [memo])
       } else {
-        sections.append(HistoryDaySection(day: day, memos: [memo]))
+        let occurrence = runs[day, default: 0]
+        runs[day] = occurrence + 1
+        sections.append(HistoryDaySection(day: day, occurrence: occurrence, memos: [memo]))
       }
     }
     return sections

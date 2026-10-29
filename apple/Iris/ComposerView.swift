@@ -96,7 +96,7 @@ struct ComposerView: View {
     switch outcome {
     case .sent(let memo): onSent(memo)
     case .queued: onQueued()
-    case .refused: return
+    case .refused, .stalled: return
     }
     dismiss()
   }

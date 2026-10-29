@@ -8,7 +8,7 @@ final class TypedMemoUITests: XCTestCase {
   @MainActor
   func testSendingATypedMemoShowsItInHistory() {
     let app = XCUIApplication()
-    app.launchArguments = ["-IrisFakeCapture"]
+    app.launchArguments = SampleClock.arguments
     app.launch()
     XCTAssertTrue(app.descendants(matching: .any)["history.list"].waitForExistence(timeout: 10))
 

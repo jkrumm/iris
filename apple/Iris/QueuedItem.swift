@@ -42,6 +42,13 @@ nonisolated protocol QueuedItemSource: Sendable {
   func retry(id: String) async
   /// Drops the item and what was recorded for it.
   func discard(id: String) async
+  /// Why the queue could not be saved to disk, `nil` while it can: new segments of a take wait for a save before they go up,
+  /// and a crash now could lose what is not saved.
+  func saveFailure() async -> String?
+}
+
+extension QueuedItemSource {
+  func saveFailure() async -> String? { nil }
 }
 
 nonisolated struct EmptyQueue: QueuedItemSource {

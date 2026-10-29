@@ -82,3 +82,24 @@ struct SettingsModelTests {
     #expect(model.connection == .connected)
   }
 }
+
+/// A queue that cannot be saved to disk.
+private struct UnsavableQueue: QueuedItemSource {
+  func queuedItems() async -> [QueuedItem] { [] }
+  func isAvailable() async -> Bool { true }
+  func changes() async -> AsyncStream<Void> { AsyncStream { $0.finish() } }
+  func retry(id: String) async {}
+  func discard(id: String) async {}
+  func saveFailure() async -> String? { "disk full" }
+}
+
+@MainActor
+@Suite("Settings queue save failure")
+struct SettingsSaveFailureTests {
+  @Test("Settings tells the user when the queue cannot be saved")
+  func showsIt() async {
+    let model = SettingsModel(client: FakeAPIClient(now: { MemoFactory.now }), queue: UnsavableQueue())
+    await model.load()
+    #expect(model.queueSaveFailure == "disk full")
+  }
+}

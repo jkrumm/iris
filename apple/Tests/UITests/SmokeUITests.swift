@@ -8,7 +8,7 @@ final class SmokeUITests: XCTestCase {
   @MainActor
   func testHistoryListOpensDetail() {
     let app = XCUIApplication()
-    app.launchArguments = ["-IrisFakeCapture"]
+    app.launchArguments = SampleClock.arguments
     app.launch()
 
     let list = app.descendants(matching: .any)["history.list"]

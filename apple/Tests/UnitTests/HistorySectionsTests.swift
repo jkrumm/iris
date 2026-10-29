@@ -31,6 +31,30 @@ struct HistorySectionsTests {
     #expect(HistoryDaySection.group(memos, calendar: calendar).map { $0.memos.map(\.id) } == [["parked"], ["a"]])
   }
 
+  @Test("a pinned memo from yesterday and yesterday's own memos get distinct section ids")
+  func pinnedAndLaterSectionOfTheSameDayDoNotShareAnID() {
+    // The list is the open needs-route memos first, then everything newest first: yesterday, today, yesterday again.
+    let memos = [
+      MemoFactory.memo("parked", age: day + hour), MemoFactory.memo("a", age: 0), MemoFactory.memo("b", age: hour),
+      MemoFactory.memo("c", age: day), MemoFactory.memo("d", age: day + 2 * hour),
+    ]
+    let sections = HistoryDaySection.group(memos, calendar: calendar)
+    #expect(sections.map { $0.memos.map(\.id) } == [["parked"], ["a", "b"], ["c", "d"]])
+    #expect(Set(sections.map(\.id)).count == sections.count, "SwiftUI drops rows of sections that share an id")
+    #expect(sections.map(\.id) == HistoryDaySection.group(memos, calendar: calendar).map(\.id), "ids are stable")
+  }
+
+  @Test("a pinned sample clock comes from the launch arguments, else the real one")
+  func sampleClock() {
+    let fallback = Date(timeIntervalSince1970: 5)
+    #expect(SampleData.now(arguments: [], fallback: fallback) == fallback)
+    #expect(
+      SampleData.now(arguments: ["-IrisFakeCapture", "-IrisSampleNow", "2027-01-15T12:00:00Z"], fallback: fallback)
+        == Date(timeIntervalSince1970: 1_800_014_400))
+    #expect(SampleData.now(arguments: ["-IrisSampleNow", "not a date"], fallback: fallback) == fallback)
+    #expect(SampleData.now(arguments: ["-IrisSampleNow"], fallback: fallback) == fallback)
+  }
+
   @Test("titles read Today, Yesterday, then the date")
   func titles() {
     let now = MemoFactory.now

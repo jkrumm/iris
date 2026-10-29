@@ -9,7 +9,7 @@ final class CaptureUITests: XCTestCase {
   @MainActor
   private func launch(offline: Bool = false) -> XCUIApplication {
     let app = XCUIApplication()
-    app.launchArguments = ["-IrisFakeCapture"] + (offline ? ["-IrisFakeOffline"] : [])
+    app.launchArguments = SampleClock.arguments + (offline ? ["-IrisFakeOffline"] : [])
     app.launch()
     XCTAssertTrue(app.descendants(matching: .any)["history.list"].waitForExistence(timeout: 10))
     return app

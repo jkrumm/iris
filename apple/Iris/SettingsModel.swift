@@ -18,6 +18,8 @@ final class SettingsModel {
   private(set) var queue: [QueuedItem] = []
   /// The persistent queue cannot be opened, so new memos are refused until it can (asking again retries).
   private(set) var queueUnavailable = false
+  /// Why the queue could not be saved to disk; it is retried on its own. `nil` while it can be.
+  private(set) var queueSaveFailure: String?
 
   private let client: any APIClient
   private let source: any QueuedItemSource
@@ -51,6 +53,7 @@ final class SettingsModel {
     let available = await source.isAvailable()
     queue = available ? await source.queuedItems() : []
     queueUnavailable = !available
+    queueSaveFailure = available ? await source.saveFailure() : nil
   }
 
   /// Sends a failed or stalled item again now.
@@ -74,11 +77,13 @@ final class SettingsModel {
     // Asked once per refresh: a closed queue is opened again by this question, not by every read after it.
     let available = await source.isAvailable()
     let items = available ? await source.queuedItems() : []
+    let saveFailure = available ? await source.saveFailure() : nil
     do {
       let health = try await client.health()
       guard current == generation else { return }
       queue = items
       queueUnavailable = !available
+      queueSaveFailure = saveFailure
       connection = health.status == .ok ? .connected : .degraded(health.degraded)
     } catch is CancellationError {
       return
@@ -87,6 +92,7 @@ final class SettingsModel {
       logger.error("health check failed: \(String(describing: error), privacy: .public)")
       queue = items
       queueUnavailable = !available
+      queueSaveFailure = saveFailure
       connection = .unreachable
     }
   }
