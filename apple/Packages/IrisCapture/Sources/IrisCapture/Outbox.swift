@@ -32,11 +32,15 @@ public actor Outbox: SegmentOutbox {
   private var idleWaiters: [CheckedContinuation<Void, Never>] = []
   private var finishing = 0
   private var isFlushing = false
-  private var flushWaiters: [CheckedContinuation<Bool, Never>] = []
+  private var flushWaiters: [(generation: Int, continuation: CheckedContinuation<Bool, Never>)] = []
+  /// Every `persist()` call takes the next number; a save carries the highest number requested when its snapshot was taken,
+  /// so a call knows its own change is on disk when `savedThrough` has reached its number.
+  private var requested = 0
+  private var savedThrough = 0
   private var isDirty = false
   /// Segment files no queue entry needs any more. Deleted once a save that no longer lists them has landed: if the write
   /// fails, the record on disk still names them and a relaunch needs them.
-  private var obsoleteFiles: [URL] = []
+  private var obsoleteFiles: [(url: URL, generation: Int)] = []
   private var isShutDown = false
   private var observers: [UUID: AsyncStream<Void>.Continuation] = [:]
 
@@ -82,7 +86,10 @@ public actor Outbox: SegmentOutbox {
     // not create a memo the caller is about to be told the queue refused.
     guard machine.enqueueItem(item, withheld: true) else { return false }
     guard await persist() else {
+      // No save that carries this item landed. Take it out and say so on disk too, in case another caller's save wrote it
+      // between the failure and now: an item the caller was told was refused must not come back after a relaunch.
       machine.withdrawItem(item.memoID)
+      await persist()
       throw OutboxError.notSaved
     }
     machine.release(item.memoID)
@@ -138,6 +145,7 @@ public actor Outbox: SegmentOutbox {
   public func resume() async {
     guard !isShutDown else { return }
     let now = await clock.now()
+    guard !isShutDown else { return }  // shut down while the clock was answering
     let work = machine.dispatch(now: now, inFlight: inFlight.count)
     for item in work { start(item) }
     if !work.isEmpty { await persist() }
@@ -236,8 +244,9 @@ public actor Outbox: SegmentOutbox {
     resolveIdleWaiters()
   }
 
+  /// Called right before the `persist()` that records why the files are obsolete, so that call's number is the next one.
   private func retire(_ files: [URL]) {
-    obsoleteFiles.append(contentsOf: files)
+    obsoleteFiles.append(contentsOf: files.map { ($0, requested + 1) })
   }
 
   private static func isPermanent(_ error: any Error) -> Bool { error is PermanentTransferError }
@@ -276,38 +285,40 @@ public actor Outbox: SegmentOutbox {
     await persist()
   }
 
-  /// Saves the latest state. Concurrent callers coalesce into one flush loop, so an older snapshot
-  /// can never overwrite a newer one; every caller returns after the latest state is saved, with whether the last
-  /// write landed.
+  /// Saves the latest state. Concurrent callers coalesce into one flush loop, so an older snapshot can never overwrite a
+  /// newer one; every caller returns after the latest state is saved. The answer is whether a save that was started after
+  /// this call (so it carries this call's change) landed: a failure of a later save does not undo an earlier one.
   @discardableResult
   private func persist() async -> Bool {
+    requested += 1
+    let mine = requested
     isDirty = true
     if isFlushing {
-      return await withCheckedContinuation { flushWaiters.append($0) }
+      return await withCheckedContinuation { flushWaiters.append((mine, $0)) }
     }
     isFlushing = true
-    var saved = true
     while isDirty {
       isDirty = false
+      let generation = requested
       do {
         try await store.save(machine.record)
-        saved = true
+        savedThrough = max(savedThrough, generation)
       } catch {
-        saved = false
         Log.outbox.error("outbox save failed: \(String(describing: error), privacy: .public)")
       }
     }
     isFlushing = false
-    if saved {
-      for file in obsoleteFiles { try? FileManager.default.removeItem(at: file) }
-      obsoleteFiles = []
-    }
+    let (due, later) = (
+      obsoleteFiles.filter { $0.generation <= savedThrough }, obsoleteFiles.filter { $0.generation > savedThrough }
+    )
+    for file in due { try? FileManager.default.removeItem(at: file.url) }
+    obsoleteFiles = later
     for observer in observers.values { observer.yield() }
     let waiters = flushWaiters
     flushWaiters = []
-    for waiter in waiters { waiter.resume(returning: saved) }
+    for waiter in waiters { waiter.continuation.resume(returning: savedThrough >= waiter.generation) }
     resolveIdleWaiters()
-    return saved
+    return savedThrough >= mine
   }
 
   private func resolveIdleWaiters() {

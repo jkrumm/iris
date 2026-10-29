@@ -163,6 +163,55 @@ struct CaptureSessionTests {
     await finish(rig)
   }
 
+  @Test func aRecorderFailureDuringAPauseIsNotOverwrittenByThePause() async throws {
+    let directory = try temporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let harness = try await OutboxHarness()
+    let recorder = PauseGatedRecorder()
+    let fake = FakeCapture(directory: directory, clock: harness.clock)
+    let session = CaptureSession(
+      session: fake.session, routes: fake.routes, recorder: recorder, outbox: harness.outbox, clock: harness.clock)
+    try await session.start(request)
+
+    let pausing = Task { await session.pause() }
+    await recorder.waitUntilPausing()
+    await recorder.fail("segment write failed")  // the recorder fails while the pause is still in flight
+    var phase = await session.current.phase
+    for _ in 0..<200 where phase != .failed {
+      try await Task.sleep(for: .milliseconds(10))
+      phase = await session.current.phase
+    }
+    #expect(phase == .failed)
+
+    await recorder.releasePause()
+    await pausing.value
+    #expect(await session.current.phase == .failed, "the pause finds the take failed and leaves it so")
+    await #expect(throws: CaptureError.recordingFailed("segment write failed")) { try await session.stop() }
+    await session.shutdown()
+    await harness.outbox.shutdown()
+  }
+
+  @Test func aRecorderFailureWhileTheTakeIsStartingIsNotLost() async throws {
+    let directory = try temporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let harness = try await OutboxHarness()
+    let recorder = PauseGatedRecorder(failsOnStart: "engine restart failed")
+    let fake = FakeCapture(directory: directory, clock: harness.clock)
+    let session = CaptureSession(
+      session: fake.session, routes: fake.routes, recorder: recorder, outbox: harness.outbox, clock: harness.clock)
+    try await session.start(request)
+
+    var phase = await session.current.phase
+    for _ in 0..<200 where phase != .failed {
+      try await Task.sleep(for: .milliseconds(10))
+      phase = await session.current.phase
+    }
+    #expect(phase == .failed, "a failure that came in during the start shows once the take is up")
+    await #expect(throws: CaptureError.recordingFailed("engine restart failed")) { try await session.stop() }
+    await session.shutdown()
+    await harness.outbox.shutdown()
+  }
+
   @Test func aSecondStartWhileRecordingIsRejected() async throws {
     let rig = try await makeRig()
     try await rig.session.start(request)
@@ -321,5 +370,60 @@ struct CaptureSessionTests {
       try await Task.sleep(for: .milliseconds(10))
     }
     Issue.record("the take never reached \(phase)")
+  }
+}
+
+/// A recorder whose `pause` waits for the test, and which can fail on demand or right after it starts. Stopping it twice
+/// throws, as the real one does.
+actor PauseGatedRecorder: SegmentRecorder {
+  nonisolated let events: AsyncStream<CaptureEvent>
+  nonisolated let levels: AsyncStream<Float>
+  private let eventContinuation: AsyncStream<CaptureEvent>.Continuation
+  private let failsOnStart: String?
+  private var memoID: MemoID?
+  private var pauseGate: CheckedContinuation<Void, Never>?
+  private var pauseWaiters: [CheckedContinuation<Void, Never>] = []
+  private var isPausing = false
+
+  init(failsOnStart: String? = nil) {
+    self.failsOnStart = failsOnStart
+    (events, eventContinuation) = AsyncStream.makeStream(of: CaptureEvent.self)
+    levels = AsyncStream { $0.finish() }
+  }
+
+  func start(memoID: MemoID) async throws {
+    self.memoID = memoID
+    eventContinuation.yield(.started(memoID))
+    guard let failsOnStart else { return }
+    eventContinuation.yield(.failed(reason: failsOnStart))
+    // The session's event pump sees the failure while the start is still in flight.
+    try? await Task.sleep(for: .milliseconds(80))
+  }
+
+  func stop() throws {
+    guard let memoID else { throw CaptureError.notRecording }
+    eventContinuation.yield(.stopped(memoID, segmentCount: 0))
+    self.memoID = nil
+  }
+
+  func fail(_ reason: String) { eventContinuation.yield(.failed(reason: reason)) }
+  func rotate(for reason: RotationReason) {}
+  func resume() {}
+
+  func pause() async {
+    isPausing = true
+    for waiter in pauseWaiters { waiter.resume() }
+    pauseWaiters = []
+    await withCheckedContinuation { pauseGate = $0 }
+  }
+
+  func waitUntilPausing() async {
+    if isPausing { return }
+    await withCheckedContinuation { pauseWaiters.append($0) }
+  }
+
+  func releasePause() {
+    pauseGate?.resume()
+    pauseGate = nil
   }
 }

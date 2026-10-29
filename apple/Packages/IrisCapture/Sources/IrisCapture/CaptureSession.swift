@@ -137,11 +137,15 @@ public actor CaptureSession {
       try await recorder.start(memoID: memoID)
     } catch {
       await outbox.discard(memoID)
+      forget(memoID)
       try? await session.deactivate()
       setState(.idle)
       throw error
     }
     state.phase = .recording
+    publish()
+    // A failure that came in while the recorder was starting was parked; the take is up now, so it can fail.
+    if let reason = failures[memoID] { await failTake(memoID, reason) }
     state.inputName = await routes.currentRoute().currentInput?.name
     publish()
     return memoID
@@ -216,6 +220,8 @@ public actor CaptureSession {
     defer { leave() }
     guard state.phase == .recording else { return }
     await recorder.pause()
+    // The recorder may have failed while the pause was in flight (the event pump does not wait for the gate).
+    guard state.phase == .recording else { return }
     state.phase = .paused
     publish()
   }
@@ -225,6 +231,7 @@ public actor CaptureSession {
     defer { leave() }
     guard state.phase == .paused else { return }
     await recorder.resume()
+    guard state.phase == .paused else { return }
     state.phase = .recording
     publish()
   }
@@ -235,6 +242,7 @@ public actor CaptureSession {
     defer { leave() }
     guard state.phase == .recording || state.phase == .paused else { throw CaptureError.notRecording }
     try await routes.setPreferredInput(uid: uid)
+    guard state.phase == .recording || state.phase == .paused else { return }
     await recorder.rotate(for: .micSwitch)
     state.inputName = await routes.currentRoute().currentInput?.name
     publish()
@@ -319,11 +327,15 @@ public actor CaptureSession {
   /// gate is waiting for the recorder's last event, which sits behind this one in the same stream.
   private func recorderFailed(_ reason: String) async {
     Log.capture.error("recorder failed: \(reason, privacy: .public)")
-    guard let memoID = state.memoID, state.phase != .idle, state.phase != .starting, !cancelled.contains(memoID) else {
-      return
-    }
-    failures[memoID] = reason
-    guard state.phase == .recording || state.phase == .paused else { return }  // a stop is already ending the take
+    guard let memoID = state.memoID, state.phase != .idle, !cancelled.contains(memoID) else { return }
+    if failures[memoID] == nil { failures[memoID] = reason }
+    // Starting: `start` moves the take to failed once it is up. Stopping: `stop` reports the failure with its result.
+    guard state.phase == .recording || state.phase == .paused else { return }
+    await failTake(memoID, failures[memoID] ?? reason)
+  }
+
+  /// The take is recording or paused and its recorder has failed: stop the recorder and hold the take for the user.
+  private func failTake(_ memoID: MemoID, _ reason: String) async {
     state.phase = .failed
     state.failure = reason
     publish()
@@ -368,6 +380,7 @@ public actor CaptureSession {
     defer { leave() }
     guard state.phase == .recording else { return }
     await recorder.pause()
+    guard state.phase == .recording else { return }
     state.phase = .paused
     publish()
   }
@@ -377,6 +390,7 @@ public actor CaptureSession {
     defer { leave() }
     guard state.phase == .paused, shouldResume else { return }
     await recorder.resume()
+    guard state.phase == .paused else { return }
     state.phase = .recording
     publish()
   }
@@ -389,6 +403,7 @@ public actor CaptureSession {
     defer { leave() }
     guard state.phase == .recording || state.phase == .paused else { return }
     guard await applyRouteRule() else { return }
+    guard state.phase == .recording || state.phase == .paused else { return }
     await recorder.rotate(for: .micSwitch)
     state.inputName = await routes.currentRoute().currentInput?.name
     publish()

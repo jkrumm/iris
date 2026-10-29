@@ -367,6 +367,7 @@ Push to master deploys. LaunchAgent `com.jkrumm.iris` (KeepAlive, `ExitTimeOut` 
   foreground); it does not touch a stalled item. A recorder `.failed` event puts the take in phase `failed`; `CaptureSession.stop()` throws
   `CaptureError.recordingFailed` when nothing was kept. Live Activity calls name the memo (`TakeLiveActivity` is per memo, one follower each). Known gap: a
   take cancelled after its first segment leaves a `receiving` memo (the server refuses to delete it), TDD §4 Outbox.
+- **UI tests and the clock:** the sample memos are relative to now, so `HistorySwipeUITests` and `MemoDetailUITests` (they look for the "Wochenplan" row without scrolling) fail for about two hours after local midnight, when that row moves into a Yesterday group below the fold. Worse, for the first 25 minutes a pinned `needs_route` memo from yesterday and the Yesterday section share one `HistoryDaySection.id` (the day), so SwiftUI drops the real Yesterday rows. Both predate Wave 15 (same failures on the round-4 commit at 01:00); fix the section id and make the tests scroll before relying on a run in that window.
 - **Snapshots** only compare on the pinned simulator; a diff on a clean tree means a different runtime. They do not render the glass layer.
 - **`scripts/mbm tap`** needs `--element-ref` from the latest `snapshot-ui` and `--post-delay 2`; `snapshot-ui` straight after a launch times out
   (`make ui-snapshot` waits first). Live Activity, widgets, the notification card and the Mac panel compile but have never been rendered; the

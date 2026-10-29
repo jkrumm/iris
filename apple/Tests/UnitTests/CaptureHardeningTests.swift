@@ -239,3 +239,68 @@ struct VoiceRecorderFailureTests {
     #expect(await client.calls.isEmpty)
   }
 }
+
+@MainActor
+@Suite("Activity push token registration")
+struct ActivityTokenRegistrarTests {
+  let client = FakeAPIClient(now: { MemoFactory.now })
+
+  private func registrar() -> ActivityTokenRegistrar {
+    // No real waiting between retries.
+    ActivityTokenRegistrar(client: client, sleep: { _ in await Task.yield() })
+  }
+
+  private func tokens(of memoID: String) async -> [String] {
+    await client.calls.compactMap {
+      if case .setActivityToken(memoID, let request) = $0 { request.token } else { nil }
+    }
+  }
+
+  @Test("a token that could not be sent at the hand-over is retried until the server has it")
+  func retriesAfterTheHandOver() async throws {
+    let id = MemoID().wireID
+    await client.seed(MemoFactory.detail(MemoFactory.memo(id)))
+    // Offline for the attempt when the memo is created and for the one at the hand-over.
+    for _ in 0..<2 { await client.enqueueFailure(.transport(.notConnectedToInternet), for: .setActivityToken) }
+    let registrar = registrar()
+    registrar.begin(id)
+    await registrar.setToken(id, "aa")
+    await registrar.memoCreated(id)
+    await registrar.handOver(id)
+    #expect(await client.activityTokens[id] == nil)
+
+    #expect(await waitFor { await client.activityTokens[id] == "aa" }, "the retry outlives the hand-over")
+  }
+
+  @Test("a token that rotates after the hand-over is registered too, until the activity ends")
+  func rotationAfterTheHandOver() async throws {
+    let id = MemoID().wireID
+    await client.seed(MemoFactory.detail(MemoFactory.memo(id)))
+    let registrar = registrar()
+    registrar.begin(id)
+    await registrar.setToken(id, "aa")
+    await registrar.memoCreated(id)
+    await registrar.handOver(id)
+    #expect(await client.activityTokens[id] == "aa")
+
+    await registrar.setToken(id, "bb")
+    #expect(await client.activityTokens[id] == "bb")
+
+    registrar.finish(id)
+    await registrar.setToken(id, "cc")
+    #expect(await client.activityTokens[id] == "bb", "nothing is sent for an activity that has ended")
+    #expect(!registrar.isTracking(id))
+  }
+
+  @Test("a token that arrives only after the hand-over is still sent")
+  func tokenAfterTheHandOver() async throws {
+    let id = MemoID().wireID
+    await client.seed(MemoFactory.detail(MemoFactory.memo(id)))
+    let registrar = registrar()
+    registrar.begin(id)
+    await registrar.memoCreated(id)
+    await registrar.handOver(id)
+    await registrar.setToken(id, "aa")
+    #expect(await client.activityTokens[id] == "aa")
+  }
+}

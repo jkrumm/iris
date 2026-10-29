@@ -310,6 +310,7 @@ public struct OutboxStateMachine: Sendable {
     }
     memos[memoID] = nil
     items[memoID] = nil
+    withheld.remove(memoID)
     entries = entries.filter { $0.key.memoID != memoID }
   }
 
