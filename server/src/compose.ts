@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { createFsAssetStore } from "./adapters/assets-fs.js";
 import { createPeleRenderer } from "./adapters/diagram-pele.js";
 import { createFsSpeechCache } from "./adapters/speech-fs.js";
+import { createAgwClient } from "./adapters/agw-client.js";
 import { createAgwSummarizer } from "./adapters/agw.js";
 import { createAgwDecider } from "./adapters/agw-decider.js";
 import { createAudioDoorClient } from "./adapters/audio-door-client.js";
@@ -52,6 +53,7 @@ export type ComposeEnv = Partial<
     | "AUDIO_DOOR_URL"
     | "AUDIO_DOOR_TOKEN"
     | "AGW_URL"
+    | "AGW_API_SECRET"
     | "HERMES_URL"
     | "HERMES_TOKEN"
     | "HERDR_SOCKET"
@@ -139,6 +141,12 @@ export function compose(deps: {
       ? createAudioDoorClient({ baseUrl: env.AUDIO_DOOR_URL, token: env.AUDIO_DOOR_TOKEN })
       : undefined;
 
+  // The host needs its URL and its bearer together; triage and decide share the one client.
+  const agw =
+    env.AGW_URL && env.AGW_API_SECRET
+      ? createAgwClient({ baseUrl: env.AGW_URL, secret: env.AGW_API_SECRET })
+      : undefined;
+
   const ports = {
     transcriber: choose<Transcriber>("transcribe", fakes?.transcriber, () =>
       audioDoor ? createAudioDoorTranscriber({ client: audioDoor }) : undefined,
@@ -161,7 +169,7 @@ export function compose(deps: {
       return registeredDestinations(registered).length > 0 ? registered : undefined;
     }),
     summarizer: choose<Summarizer>("summarize", fakes?.summarizer, () =>
-      env.AGW_URL ? createAgwSummarizer({ baseUrl: env.AGW_URL }) : undefined,
+      agw ? createAgwSummarizer({ client: agw }) : undefined,
     ),
     speaker: choose<Speaker>("speech", fakes?.speaker, () =>
       audioDoor ? createAudioDoorSpeaker({ client: audioDoor }) : undefined,
@@ -178,7 +186,7 @@ export function compose(deps: {
 
   // Not a `choose`: the decider only matters once there is a real choice (two or more destinations).
   const decider: Decider | undefined =
-    fakes?.decider ?? (env.AGW_URL ? createAgwDecider({ baseUrl: env.AGW_URL }) : undefined);
+    fakes?.decider ?? (agw ? createAgwDecider({ client: agw }) : undefined);
   if (hasChoice(registeredDestinations(ports.destinations ?? {})) && !decider) {
     degraded.push("decide");
   }

@@ -1,9 +1,9 @@
 import { describe, expect, it } from "bun:test";
 import { Env } from "./env.js";
 
-const parse = (AUDIO_DOOR_URL: string) => Env.safeParse({ AUDIO_DOOR_URL });
+describe.each(["AUDIO_DOOR_URL", "AGW_URL"] as const)("%s", (name) => {
+  const parse = (value: string) => Env.safeParse({ [name]: value });
 
-describe("AUDIO_DOOR_URL", () => {
   it.each([
     "http://127.0.0.1:7792/v1",
     "http://localhost:7792/v1",
@@ -12,7 +12,7 @@ describe("AUDIO_DOOR_URL", () => {
   ])("accepts %s", (url) => {
     const result = parse(url);
     expect(result.success).toBe(true);
-    expect(result.data?.AUDIO_DOOR_URL).toBe(url);
+    expect(result.data?.[name]).toBe(url);
   });
 
   it.each([
@@ -22,7 +22,7 @@ describe("AUDIO_DOOR_URL", () => {
   ])("refuses plain http to %s with a clear message", (url) => {
     const result = parse(url);
     expect(result.success).toBe(false);
-    expect(result.error?.issues[0]?.message).toContain("must be https or a loopback host");
+    expect(result.error?.issues[0]?.message).toContain(`${name} must be https or a loopback host`);
   });
 
   it("refuses a value that is not a URL", () => {
@@ -32,6 +32,6 @@ describe("AUDIO_DOOR_URL", () => {
   it("treats an empty value as unset", () => {
     const result = parse("");
     expect(result.success).toBe(true);
-    expect(result.data?.AUDIO_DOOR_URL).toBeUndefined();
+    expect(result.data?.[name]).toBeUndefined();
   });
 });
