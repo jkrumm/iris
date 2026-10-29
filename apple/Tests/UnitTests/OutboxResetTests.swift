@@ -37,6 +37,15 @@ struct OutboxResetTests {
     await #expect(throws: CaptureStackError.queueUnavailable) { try await stack.outbox() }
   }
 
+  @Test("an outbox that cannot be opened has unknown pending deletes, not none; an empty one has none")
+  func pendingDeletionsAreUnknownWhenUnreadable() async {
+    let (_, unreadable) = makeStack(store: UnreadableOutboxStore())
+    #expect(await unreadable.pendingDeletionIDs() == nil)
+
+    let (_, healthy) = makeStack(store: InMemoryOutboxStore())
+    #expect(await healthy.pendingDeletionIDs() == [])
+  }
+
   @Test("a queue that fails to load for another reason is unavailable, and a reset refuses to touch it")
   func notResettable() async {
     let (stack, service) = makeStack(store: FailingStore())

@@ -147,12 +147,13 @@ struct WaterfallBuilderTests {
     let rows = WaterfallBuilder.rows(for: detail, baselines: StepBaselines(), now: now)
     let summarize = rows[3]
     #expect(summarize.phase == .failed)
+    #expect(summarize.isOptional)
     #expect(summarize.optionalNote != nil)
     #expect(summarize.error == "402")
     #expect(summarize.attempts == "3 attempts")
     #expect(summarize.retryTitle == "Retry from Summarize")
     #expect(rows[4].phase == .done)
-    #expect(rows.filter { $0.optionalNote != nil }.count == 1)
+    #expect(rows.filter(\.isOptional).count == 1)
   }
 
   @Test("a failed step of a failed memo is the memo's failure, not an optional one")
@@ -161,6 +162,7 @@ struct WaterfallBuilderTests {
     let detail = MemoFactory.detail(
       memo, steps: [MemoFactory.step(.summarize, at: 0, for: 3, status: .failed, error: "boom")])
     let row = WaterfallBuilder.rows(for: detail, baselines: StepBaselines(), now: now)[0]
+    #expect(!row.isOptional)
     #expect(row.optionalNote == nil)
     #expect(row.retryTitle == "Retry from Summarize")
   }

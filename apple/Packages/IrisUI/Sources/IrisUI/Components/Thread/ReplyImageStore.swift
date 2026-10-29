@@ -76,18 +76,32 @@ public final class ReplyImageStore {
     failed.remove(ref)
   }
 
-  /// Loads `ref` unless it is loaded or already loading; a previous failure is tried again.
+  /// Loads `ref` unless it is loaded or already loading; a previous failure is tried again. A caller that is cancelled (its
+  /// view went away) cancels the load: one still waiting for a slot never fetches, and a caller that joined it and was not
+  /// cancelled starts the load again.
   public func load(_ ref: ReplyAssetRef) async {
-    if images[ref] != nil { return }
-    if let running = inFlight[ref] {
-      await running.value
-      return
+    while !Task.isCancelled, images[ref] == nil, !failed.contains(ref) {
+      let task = inFlight[ref] ?? startLoad(ref)
+      await withTaskCancellationHandler {
+        await task.value
+      } onCancel: {
+        task.cancel()
+      }
     }
+  }
+
+  private func startLoad(_ ref: ReplyAssetRef) -> Task<Void, Never> {
     failed.remove(ref)
     let loader = loader
     let task = Task { [weak self] in
       guard let self else { return }
       await acquireSlot()
+      // Cancelled while waiting: the slot goes straight on and nothing is fetched.
+      guard !Task.isCancelled else {
+        releaseSlot()
+        abandon(ref)
+        return
+      }
       let image: CGImage?
       do {
         image = await Self.decode(try await loader.data(for: ref))
@@ -95,11 +109,19 @@ public final class ReplyImageStore {
         image = nil
       }
       releaseSlot()
-      guard !Task.isCancelled else { return }
+      guard !Task.isCancelled else {
+        abandon(ref)
+        return
+      }
       finish(ref, image: image)
     }
     inFlight[ref] = task
-    await task.value
+    return task
+  }
+
+  /// A cancelled load leaves no trace: not loaded, not failed, so the next ask starts it again.
+  private func abandon(_ ref: ReplyAssetRef) {
+    inFlight[ref] = nil
   }
 
   /// Takes a load slot, waiting for one to free up when all are taken. A freed slot passes straight to the oldest waiter.

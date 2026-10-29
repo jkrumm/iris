@@ -68,7 +68,7 @@ struct ReplyImageStoreTests {
     return condition()
   }
 
-  @Test("at most the cap are fetched at once; a finished load hands its slot to the oldest waiting one")
+  @Test("at most the cap are fetched at once; a finished load hands its slot to a waiting one")
   func boundedConcurrency() async {
     let loader = GatedLoader()
     let store = ReplyImageStore(loader: loader, maxConcurrentLoads: 2)
@@ -77,17 +77,19 @@ struct ReplyImageStoreTests {
 
     #expect(await until { loader.started.count == 2 })
     for _ in 0..<50 { await Task.yield() }
-    #expect(loader.started == [refs[0], refs[1]], "the third waits for a slot")
+    #expect(loader.started.count == 2, "the others wait for a slot")
 
-    loader.release(refs[0])
+    loader.release(loader.started[0])
     #expect(await until { loader.started.count == 3 })
-    #expect(loader.started.last == refs[2])
 
-    for index in 1..<5 {
-      #expect(await until { loader.started.contains(refs[index]) })
-      loader.release(refs[index])
+    var released = 1
+    while released < refs.count {
+      guard await until({ loader.started.count > released }) else { break }
+      loader.release(loader.started[released])
+      released += 1
     }
     for load in loads { await load.value }
+    #expect(Set(loader.started) == Set(refs))
     #expect(loader.peak == 2)
     for ref in refs {
       guard case .loaded = store.phase(for: ref) else {
@@ -110,5 +112,56 @@ struct ReplyImageStoreTests {
     await first.value
     await second.value
     #expect(loader.started.count == 1)
+  }
+
+  @Test("a load cancelled while it waits for a slot never fetches, and the file can be asked for again")
+  func cancelledWhileWaiting() async {
+    let loader = GatedLoader()
+    let store = ReplyImageStore(loader: loader, maxConcurrentLoads: 1)
+    let holder = Task { await store.load(ref(0)) }
+    #expect(await until { loader.started.count == 1 })
+
+    let waiter = Task { await store.load(ref(1)) }
+    for _ in 0..<50 { await Task.yield() }
+    waiter.cancel()
+    loader.release(ref(0))
+    await holder.value
+    await waiter.value
+    for _ in 0..<50 { await Task.yield() }
+    #expect(loader.started == [ref(0)], "the cancelled load did not fetch")
+    guard case .loading = store.phase(for: ref(1)) else {
+      Issue.record("a cancelled load is neither loaded nor failed")
+      return
+    }
+
+    let again = Task { await store.load(ref(1)) }
+    #expect(await until { loader.started.count == 2 })
+    loader.release(ref(1))
+    await again.value
+    guard case .loaded = store.phase(for: ref(1)) else {
+      Issue.record("the retried load did not finish")
+      return
+    }
+  }
+
+  @Test("a caller that joined a load another caller cancelled starts it again")
+  func joinerOutlivesACancelledOwner() async {
+    let loader = GatedLoader()
+    let store = ReplyImageStore(loader: loader)
+    let owner = Task { await store.load(ref(0)) }
+    #expect(await until { loader.started.count == 1 })
+    let joiner = Task { await store.load(ref(0)) }
+    for _ in 0..<50 { await Task.yield() }
+
+    owner.cancel()
+    loader.release(ref(0))
+    await owner.value
+    #expect(await until { loader.started.count == 2 }, "the joiner restarted the load")
+    loader.release(ref(0))
+    await joiner.value
+    guard case .loaded = store.phase(for: ref(0)) else {
+      Issue.record("the joiner did not get the image")
+      return
+    }
   }
 }

@@ -31,6 +31,7 @@ enum WaterfallBuilder {
         attempts: entry.attempts > 1
           ? String(localized: "\(entry.attempts) attempts", comment: "Step row: how many tries the step used") : nil,
         error: entry.status == .failed ? entry.error : nil,
+        isOptional: optional,
         optionalNote: optional
           ? String(localized: "Optional · the memo is done without it", comment: "Failed step the memo does not need")
           : nil,

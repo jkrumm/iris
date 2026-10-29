@@ -154,9 +154,10 @@ nonisolated final class OutboxService: QueuedItemSource {
     _ = await discardQueued(id: id)
   }
 
-  /// The memos whose server `DELETE` is still queued (running, waiting for a retry or stalled), by wire id.
-  func pendingDeletionIDs() async -> Set<String> {
-    guard let outbox = try? await stack.outbox() else { return [] }
+  /// The memos whose server `DELETE` is still queued (running, waiting for a retry or stalled), by wire id. `nil` when the
+  /// outbox cannot be opened: that is "unknown", never "none", and a caller must not act on it.
+  func pendingDeletionIDs() async -> Set<String>? {
+    guard let outbox = try? await stack.outbox() else { return nil }
     return Set(await outbox.queue().filter(\.isDeletion).map { $0.id.wireID })
   }
 
