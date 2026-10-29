@@ -786,18 +786,38 @@ change, so changing the server URL mid-take ends that take's Live Activity; out-
 leave a stale push token registered; a segment file whose record never saved is orphaned after a crash (no startup sweep of the capture
 directory); the unit-test host hang seen locally is unexplained.
 
-## Wave 16 — summarize optional (server) + next backlog            <!-- status: pending -->
-Sketch; written in full by the mother when Wave 15 closes. Fixed item, owner-confirmed 2026-10-28:
-- [ ] **Summarize is optional.** A failed `summarize` (agw `triage` error, e.g. the Requesty 402, after its retries) no longer fails the
-      memo: a Hermes memo whose `act` succeeded ends `done` without a summary. The step stays visible with its error and attempts (the
-      waterfall shows it as failed-but-optional, [Retry from step] still works and fills the summary in later); the History headline falls
-      back to the transcript; the speech variant past the length threshold falls back to the clipped cleaned reply instead of the `spoken`
-      summary. Existing `failed(summarize)` memos with a reply move to `done` (one migration or repair, idempotent). Contract + fixtures +
-      `IrisCore` if the step or memo wire changes; TDD and AGENTS.md amended. Proof: `make smoke` green with triage still on Requesty.
-- [ ] **Follow-up from Wave 15 I3 (owner decision pending): reset the outbox.** Since #32 an undecodable `outbox.json` keeps the outbox
-      closed (Settings says it cannot be opened; the file is kept, never overwritten) until the file is removed; there is no in-app way out.
-      Candidate: a Settings "Reset outbox" action. It deletes the queued memos and their segment files, so whether and how it ships is
-      Johannes's product decision; build nothing before he decides.
+## Wave 16 — summarize optional + Wave 15 debt ∥ R2 routing on iOS            <!-- status: pending -->
+The owner-confirmed summarize item, the outbox reset, Wave 15's follow-ups that touch data or correctness, and backlog 5's simulator part.
+Tracks as in Wave 15: **S** (`server/**`, `contracts/**`, `scripts/**` + `IrisCore` follow-ups) ∥ **I** (`apple/**`, one `xcodebuild`
+worker at a time, I1 → I2 → I3). S PRs land one at a time with `make e2e` before the train. Review convergence rule from Wave 15 round 5
+holds: findings that cannot lose or duplicate data become follow-ups after the second round.
+**Decision (mother, 2026-10-29): the outbox reset quarantines, never deletes.** The owner was asked (A quarantine / B delete) and had
+not answered by the time of writing; A loses nothing, so it ships. A delete variant waits for the owner.
+- [ ] **S1. Summarize is optional** (owner-confirmed 2026-10-28). A failed `summarize` (agw `triage` error, e.g. the Requesty 402, after
+      its retries) no longer fails the memo: a Hermes memo whose `act` succeeded ends `done` without a summary. The step stays visible
+      with its error and attempts (the waterfall shows it as failed-but-optional, [Retry from step] still works and fills the summary in
+      later); the History headline falls back to the transcript; the speech variant past the length threshold falls back to the clipped
+      cleaned reply instead of the `spoken` summary. Existing `failed(summarize)` memos with a reply move to `done` (one migration or
+      repair, idempotent; back the DB up first). Contract + fixtures + `IrisCore` if the step or memo wire changes; TDD and AGENTS.md
+      amended. Proof: `make smoke` green with triage still on Requesty.
+- [ ] **S2. Server follow-ups (Wave 15):** reply asset rows are not visible before the reply commits, and a lost compare-and-set keeps
+      the earlier reply's assets (no wait for the boot backfill); a memo whose every block fails is marked and not re-rendered each boot;
+      a segment write in flight when its memo is deleted removes its file with the delete, not at the 10-minute purge.
+- [ ] **I1. Outbox reset + capture follow-ups (I3 of Wave 15):** Settings "Reset outbox" when `outbox.json` cannot be decoded: the file
+      is renamed aside (timestamped, kept), its segment files stay, a fresh outbox opens, Diagnostics can share the quarantined file. A
+      startup sweep **adopts or quarantines** segment files whose record never saved (never deletes). `endOrphans()` no longer ends a live
+      take's Live Activity on a connection change; `stop()` cannot hold the gate if the recorder never emits `stopped` (bounded wait);
+      `ActivityTokenRegistrar` ignores out-of-order token responses. Tests for each.
+- [ ] **I2. iOS follow-ups (I1/I2 of Wave 15):** money in the step chip and the Stats per-memo caption uses the I1 formatter (no fixed `$`,
+      two decimals); History without a connection shows a prompt to connect, not a blank list; `MemoDetailView` gets the thread view's toast
+      fix; reply-image loading is bounded and `MediaDownloader` single-flight; one shared `URLSession` for players; the media cache drops
+      files of deleted memos. The `StatsSettingsUITests` "Failed to terminate" flake: find the cause or make the teardown robust.
+- [ ] **I3. R2 routing on iOS (backlog 5, simulator part):** the mode picker incl. Chat for voice takes (and the composer's, one
+      component); needs-route actions on pinned History rows and in detail (answer with a route, correct a decision) through the
+      existing answer/correction endpoints; [Play] via `PlayReplyIntent` speaking the server's speech variant; per-route mic rules;
+      the spoken-replies setting. `-IrisFakeCapture` UI tests and snapshots light + dark. Device exit checks wait for pairing.
+- [ ] Deploy and prove: `make verify` + **`make smoke` green**; the `failed(summarize)` memos since Wave 14 read `done` in production;
+      `apple.yml` green; TDD and AGENTS.md amended.
 
 ## Fleet backlog (for the long-running fleet: mother → lead → workers)
 

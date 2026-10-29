@@ -50,6 +50,8 @@ Build Iris R1–R5 (PRD §Release plan) as a self-driving loop: backlog item →
 - **Apple Developer Program enrollment** (expected ~2026-10-28): then the APNs `.p8` and App Store Connect key go into 1Password
   via `ask-human.sh`, and TestFlight (backlog 3) opens.
 - **iPhone pairing** when the owner is home: spikes S1–S3, every device exit check.
+- **Outbox reset (asked 2026-10-28 in chat):** A quarantine vs B delete. No answer by Wave 16's writing: A ships in Wave 16 I1;
+  a delete variant only on the owner's word.
 - **Swipe detail:** "further right/left" is a second swipe button, not a second full-swipe threshold (native `.swipeActions`).
   A custom gesture only if the owner asks.
 - **Account `me`** showed `auth FAILED` intermittently on the mini (`claude-account usage`); a re-login is the owner's.
