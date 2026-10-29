@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { captureLogs } from "../memo/test-support.js";
 import { transientKind } from "../ports/transient.js";
+import { createAudioDoorClient } from "./audio-door-client.js";
 import { createAudioDoorTranscriber, ffmpegConcat, type ConcatFn } from "./audio-door.js";
 
 const MEMO_ID = "0f8fad5b-d9cb-469f-a165-70867728950e";
@@ -16,7 +17,10 @@ interface Call {
   init: RequestInit;
 }
 
-function setup(respond: () => Response, baseUrl = "http://127.0.0.1:1234/v1") {
+const door = (fetch: typeof globalThis.fetch) =>
+  createAudioDoorClient({ baseUrl: "http://127.0.0.1:1234/v1", token: TOKEN, fetch });
+
+function setup(respond: () => Response) {
   const calls: Call[] = [];
   const concatCalls: string[][] = [];
   const concat: ConcatFn = async (paths) => {
@@ -27,12 +31,7 @@ function setup(respond: () => Response, baseUrl = "http://127.0.0.1:1234/v1") {
     calls.push({ url: String(input), init: init ?? {} });
     return respond();
   }) as typeof fetch;
-  const transcriber = createAudioDoorTranscriber({
-    baseUrl,
-    token: TOKEN,
-    fetch: fakeFetch,
-    concat,
-  });
+  const transcriber = createAudioDoorTranscriber({ client: door(fakeFetch), concat });
   return { calls, concatCalls, transcriber };
 }
 
@@ -50,6 +49,7 @@ describe("audio door transcriber", () => {
     expect(call.url).toBe("http://127.0.0.1:1234/v1/audio/transcriptions");
     expect(call.init.method).toBe("POST");
     expect(call.init.headers).toEqual({ authorization: `Bearer ${TOKEN}` });
+    expect(call.init.redirect).toBe("error");
     expect(call.init.signal).toBeInstanceOf(AbortSignal);
 
     const form = call.init.body as FormData;
@@ -78,15 +78,6 @@ describe("audio door transcriber", () => {
     await transcriber.transcribe({ ...params, language: "de" });
     const form = (calls[0] as Call).init.body as FormData;
     expect(form.get("language")).toBe("de");
-  });
-
-  it("tolerates a trailing slash on the base URL", async () => {
-    const { calls, transcriber } = setup(
-      () => Response.json({ text: "x" }),
-      "http://127.0.0.1:1234/v1//",
-    );
-    await transcriber.transcribe(params);
-    expect(calls[0]?.url).toBe("http://127.0.0.1:1234/v1/audio/transcriptions");
   });
 
   it("treats a 401 as final and names the run", async () => {
@@ -140,9 +131,7 @@ describe("audio door transcriber", () => {
       });
     }) as unknown as typeof fetch;
     const transcriber = createAudioDoorTranscriber({
-      baseUrl: "http://127.0.0.1:1234/v1",
-      token: TOKEN,
-      fetch: hangs,
+      client: door(hangs),
       concat: async () => ({ bytes: AUDIO, seconds: 1 }),
       timeoutMs: 20,
     });
@@ -175,20 +164,38 @@ describe("audio door transcriber", () => {
     await expect(transcriber.transcribe(params)).rejects.toThrow(/413 is terminal/);
   });
 
+  it("fails final and names the cause when a 200 body is not JSON", async () => {
+    const { transcriber } = setup(() => new Response("<html>not json</html>", { status: 200 }));
+    const error = await transcriber.transcribe(params).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toContain("audio door transcription response is unreadable");
+    expect(transientKind(error)).toBeNull();
+  });
+
+  it("calls a body cut off by a lost connection transient", async () => {
+    const reset = new ReadableStream({
+      start(controller) {
+        controller.error(Object.assign(new Error("socket closed"), { code: "ECONNRESET" }));
+      },
+    });
+    const { transcriber } = setup(() => new Response(reset, { status: 200 }));
+    const error = await transcriber.transcribe(params).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(Error);
+    expect(transientKind(error)).toBe("after_send");
+  });
+
   it("throws when the response carries no text", async () => {
     const { transcriber } = setup(() => Response.json({ nope: true }));
     await expect(transcriber.transcribe(params)).rejects.toThrow("no text field");
   });
 
-  it("does not call the gateway when the concat fails", async () => {
+  it("does not call the door when the concat fails", async () => {
     const calls: string[] = [];
     const transcriber = createAudioDoorTranscriber({
-      baseUrl: "http://127.0.0.1:1234/v1",
-      token: TOKEN,
-      fetch: (async (input: string | URL | Request) => {
+      client: door((async (input: string | URL | Request) => {
         calls.push(String(input));
         return Response.json({ text: "x" });
-      }) as typeof fetch,
+      }) as typeof fetch),
       concat: async () => {
         throw new Error("segment missing");
       },

@@ -2,6 +2,7 @@ import { describe, expect, it } from "bun:test";
 import { MemoError } from "../memo/errors.js";
 import { captureLogs } from "../memo/test-support.js";
 import { transientKind } from "../ports/transient.js";
+import { createAudioDoorClient } from "./audio-door-client.js";
 import { createAudioDoorSpeaker } from "./audio-door-speaker.js";
 
 const MEMO_ID = "0f8fad5b-d9cb-469f-a165-70867728950e";
@@ -14,13 +15,16 @@ interface Call {
   init: RequestInit;
 }
 
-function setup(respond: () => Response, baseUrl = "http://127.0.0.1:1234/v1") {
+const door = (fetch: typeof globalThis.fetch) =>
+  createAudioDoorClient({ baseUrl: "http://127.0.0.1:1234/v1", token: TOKEN, fetch });
+
+function setup(respond: () => Response) {
   const calls: Call[] = [];
   const fakeFetch = (async (input: string | URL | Request, init?: RequestInit) => {
     calls.push({ url: String(input), init: init ?? {} });
     return respond();
   }) as typeof fetch;
-  return { calls, speaker: createAudioDoorSpeaker({ baseUrl, token: TOKEN, fetch: fakeFetch }) };
+  return { calls, speaker: createAudioDoorSpeaker({ client: door(fakeFetch) }) };
 }
 
 describe("audio door speaker", () => {
@@ -35,6 +39,7 @@ describe("audio door speaker", () => {
     const call = calls[0] as Call;
     expect(call.url).toBe("http://127.0.0.1:1234/v1/audio/speech");
     expect(call.init.method).toBe("POST");
+    expect(call.init.redirect).toBe("error");
     expect(call.init.headers).toEqual({
       "content-type": "application/json",
       authorization: `Bearer ${TOKEN}`,
@@ -44,12 +49,6 @@ describe("audio door speaker", () => {
       response_format: "mp3",
     });
     expect(call.init.signal).toBeInstanceOf(AbortSignal);
-  });
-
-  it("tolerates a trailing slash on the base URL", async () => {
-    const { calls, speaker } = setup(() => new Response(MP3), "http://127.0.0.1:1234/v1//");
-    await speaker.speak({ memoId: MEMO_ID, text: "x" });
-    expect(calls[0]?.url).toBe("http://127.0.0.1:1234/v1/audio/speech");
   });
 
   it("fails as unavailable on a non-2xx", async () => {
@@ -88,11 +87,9 @@ describe("audio door speaker", () => {
 
   it("fails as unavailable on a network error", async () => {
     const speaker = createAudioDoorSpeaker({
-      baseUrl: "http://127.0.0.1:1234/v1",
-      token: TOKEN,
-      fetch: (async () => {
+      client: door((async () => {
         throw new TypeError("fetch failed");
-      }) as unknown as typeof fetch,
+      }) as unknown as typeof fetch),
     });
     const error = await speaker.speak({ memoId: MEMO_ID, text: "x" }).catch((e: unknown) => e);
     expect(error).toBeInstanceOf(MemoError);
@@ -104,11 +101,9 @@ describe("audio door speaker", () => {
 
   it("fails as unavailable when the request is aborted or times out", async () => {
     const speaker = createAudioDoorSpeaker({
-      baseUrl: "http://127.0.0.1:1234/v1",
-      token: TOKEN,
-      fetch: (async () => {
+      client: door((async () => {
         throw new DOMException("The operation timed out.", "TimeoutError");
-      }) as unknown as typeof fetch,
+      }) as unknown as typeof fetch),
     });
     await expect(speaker.speak({ memoId: MEMO_ID, text: "x" })).rejects.toMatchObject({
       code: "unavailable",
@@ -118,17 +113,15 @@ describe("audio door speaker", () => {
   it("fails once, not transient, when the door hangs past the timeout", async () => {
     let attempts = 0;
     const speaker = createAudioDoorSpeaker({
-      baseUrl: "http://127.0.0.1:1234/v1",
-      token: TOKEN,
       timeoutMs: 20,
-      fetch: (async (_input: string | URL | Request, init?: RequestInit) => {
+      client: door((async (_input: string | URL | Request, init?: RequestInit) => {
         attempts++;
         await new Promise((_resolve, reject) => {
           init?.signal?.addEventListener("abort", () => reject(init.signal?.reason), {
             once: true,
           });
         });
-      }) as unknown as typeof fetch,
+      }) as unknown as typeof fetch),
     });
     const error = await speaker.speak({ memoId: MEMO_ID, text: "x" }).catch((e: unknown) => e);
     expect(error).toMatchObject({ code: "unavailable" });

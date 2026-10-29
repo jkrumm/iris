@@ -5,6 +5,7 @@ import { createPeleRenderer } from "./adapters/diagram-pele.js";
 import { createFsSpeechCache } from "./adapters/speech-fs.js";
 import { createAgwSummarizer } from "./adapters/agw.js";
 import { createAgwDecider } from "./adapters/agw-decider.js";
+import { createAudioDoorClient } from "./adapters/audio-door-client.js";
 import { createAudioDoorSpeaker } from "./adapters/audio-door-speaker.js";
 import { createAudioDoorTranscriber, ffmpegCombiner } from "./adapters/audio-door.js";
 import { createHerdrDestination, createHerdrHerd } from "./adapters/herdr.js";
@@ -132,11 +133,15 @@ export function compose(deps: {
     return port;
   };
 
+  // The door needs its URL and its token together; STT and TTS share the one client.
+  const audioDoor =
+    env.AUDIO_DOOR_URL && env.AUDIO_DOOR_TOKEN
+      ? createAudioDoorClient({ baseUrl: env.AUDIO_DOOR_URL, token: env.AUDIO_DOOR_TOKEN })
+      : undefined;
+
   const ports = {
     transcriber: choose<Transcriber>("transcribe", fakes?.transcriber, () =>
-      env.AUDIO_DOOR_URL && env.AUDIO_DOOR_TOKEN
-        ? createAudioDoorTranscriber({ baseUrl: env.AUDIO_DOOR_URL, token: env.AUDIO_DOOR_TOKEN })
-        : undefined,
+      audioDoor ? createAudioDoorTranscriber({ client: audioDoor }) : undefined,
     ),
     // Only destinations with an act adapter are routing choices. Each is optional on its own; `act`
     // is degraded only when none is registered.
@@ -159,9 +164,7 @@ export function compose(deps: {
       env.AGW_URL ? createAgwSummarizer({ baseUrl: env.AGW_URL }) : undefined,
     ),
     speaker: choose<Speaker>("speech", fakes?.speaker, () =>
-      env.AUDIO_DOOR_URL && env.AUDIO_DOOR_TOKEN
-        ? createAudioDoorSpeaker({ baseUrl: env.AUDIO_DOOR_URL, token: env.AUDIO_DOOR_TOKEN })
-        : undefined,
+      audioDoor ? createAudioDoorSpeaker({ client: audioDoor }) : undefined,
     ),
     herd: choose<Herd>("herd", fakes?.herd, () =>
       env.HERDR_SOCKET ? createHerdrHerd({ socketPath: env.HERDR_SOCKET }) : undefined,
