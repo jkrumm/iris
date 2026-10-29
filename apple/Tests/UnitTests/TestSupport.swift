@@ -91,3 +91,39 @@ extension FakeCapture {
     await recorder.feed(frames: Int(seconds * 16_000))
   }
 }
+
+/// The sleeps of the toast timers, each released by the test; a cancelled sleep throws, as `Task.sleep` does.
+final class ToastTimers {
+  private var gates: [AsyncStream<Void>.Continuation] = []
+
+  func sleep(_ duration: Duration) async throws {
+    let (stream, gate) = AsyncStream<Void>.makeStream()
+    gates.append(gate)
+    for await _ in stream { return }
+    try Task.checkCancellation()
+  }
+
+  func fire(_ index: Int) {
+    gates[index].yield()
+  }
+
+  /// Waits until `count` sleeps have started; bounded, a missing sleep fails the test.
+  func waitForSleeps(_ count: Int, sourceLocation: SourceLocation = #_sourceLocation) async {
+    let reached = await until { gates.count >= count }
+    if !reached { Issue.record("fewer than \(count) toast timers started", sourceLocation: sourceLocation) }
+  }
+
+  /// Lets the main actor run what a fired or cancelled timer queued.
+  func settle() async {
+    for _ in 0..<20 { await Task.yield() }
+  }
+
+  /// Yields until `condition` holds, at most a few thousand times; the answer says whether it did.
+  func until(_ condition: () -> Bool) async -> Bool {
+    for _ in 0..<5_000 {
+      if condition() { return true }
+      await Task.yield()
+    }
+    return condition()
+  }
+}

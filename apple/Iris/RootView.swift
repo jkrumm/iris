@@ -5,6 +5,8 @@ import SwiftUI
 /// History · Stats · Settings. Threads are not a tab: a conversation is a History row (round 2).
 struct RootView: View {
   let history: HistoryModel
+  /// A server URL and token are saved; without them History shows a prompt that opens Settings → Connection.
+  let isConfigured: Bool
   @Bindable var take: TakeModel
   let stats: StatsModel
   let settings: SettingsModel
@@ -22,12 +24,13 @@ struct RootView: View {
   @State private var selection: Section
 
   init(
-    history: HistoryModel, take: TakeModel, stats: StatsModel, settings: SettingsModel, diagnostics: DiagnosticsModel,
-    connectionForm: ConnectionModel? = nil, startsOnSettings: Bool = false,
+    history: HistoryModel, isConfigured: Bool = true, take: TakeModel, stats: StatsModel, settings: SettingsModel,
+    diagnostics: DiagnosticsModel, connectionForm: ConnectionModel? = nil, startsOnSettings: Bool = false,
     makeDetail: @escaping (Memo) -> MemoDetailModel, makeComposer: @escaping (ComposerRequest) -> ComposerModel,
     makeThread: @escaping (ThreadRoute) -> ThreadModel
   ) {
     self.history = history
+    self.isConfigured = isConfigured
     self.take = take
     self.stats = stats
     self.settings = settings
@@ -42,7 +45,9 @@ struct RootView: View {
   var body: some View {
     TabView(selection: $selection) {
       Tab(String(localized: "History", comment: "Tab title"), systemImage: "clock", value: Section.history) {
-        HistoryView(model: history, makeDetail: makeDetail, makeComposer: makeComposer, makeThread: makeThread)
+        HistoryView(
+          model: history, isConfigured: isConfigured, onConnect: { selection = .settings }, makeDetail: makeDetail,
+          makeComposer: makeComposer, makeThread: makeThread)
       }
       Tab(String(localized: "Stats", comment: "Tab title"), systemImage: "chart.bar", value: Section.stats) {
         StatsView(model: stats)

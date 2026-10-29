@@ -1,15 +1,11 @@
 import XCTest
 
-final class MemoDetailUITests: XCTestCase {
-  override func setUp() {
-    continueAfterFailure = false
-  }
-
+final class MemoDetailUITests: IrisUITestCase {
   @MainActor
   private func launch() -> XCUIApplication {
     let app = XCUIApplication()
     app.launchArguments = SampleClock.arguments
-    app.launch()
+    start(app)
     XCTAssertTrue(app.descendants(matching: .any)["history.list"].waitForExistence(timeout: 10))
     return app
   }
@@ -19,8 +15,14 @@ final class MemoDetailUITests: XCTestCase {
   private func openRow(containing text: String, in app: XCUIApplication) {
     let row = app.descendants(matching: .any)
       .matching(NSPredicate(format: "identifier == 'history.row' AND label CONTAINS %@", text)).firstMatch
-    XCTAssertTrue(row.waitForExistence(timeout: 10))
     let list = app.descendants(matching: .any)["history.list"]
+    // The list is lazy: a row below the fold is not in the tree until it is scrolled to.
+    var scrolls = 0
+    while !row.exists, scrolls < 8 {
+      list.swipeUp()
+      scrolls += 1
+    }
+    XCTAssertTrue(row.waitForExistence(timeout: 10))
     row.scrollIntoClearBand(of: list, app: app)
     row.tap()
     XCTAssertTrue(app.descendants(matching: .any)["memo.detail"].waitForExistence(timeout: 10))
@@ -58,6 +60,25 @@ final class MemoDetailUITests: XCTestCase {
 
     // The bottom retry icon restarts from the step that failed; the fake server then reports the memo as received.
     app.buttons["detail.action.retry"].tap()
+    let gone = NSPredicate(format: "exists == false")
+    expectation(for: gone, evaluatedWith: stepRetry)
+    waitForExpectations(timeout: 10)
+  }
+
+  /// The sample memo that finished without a summary: its headline is the clipped transcript, the summarize step reads as
+  /// optional, and the step's retry brings the memo back to `acted` on the fake server (the step row goes away).
+  @MainActor
+  func testAFailedSummarizeOnAFinishedMemoIsOptionalAndRetryable() {
+    let app = launch()
+    openRow(containing: "Erinnere mich bitte daran, am Montag", in: app)
+
+    XCTAssertTrue(app.descendants(matching: .any)["detail.step.optional"].waitForExistence(timeout: 10))
+    XCTAssertTrue(app.staticTexts["agw triage failed: 402 payment required"].exists)
+    XCTAssertTrue(app.staticTexts["Notify"].exists, "the steps after the skipped one still ran")
+
+    let stepRetry = app.buttons["detail.step.retry"]
+    XCTAssertTrue(stepRetry.waitForExistence(timeout: 10))
+    stepRetry.tap()
     let gone = NSPredicate(format: "exists == false")
     expectation(for: gone, evaluatedWith: stepRetry)
     waitForExpectations(timeout: 10)

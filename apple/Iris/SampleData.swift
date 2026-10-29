@@ -46,6 +46,28 @@ enum SampleData {
             (.transcribe, 8.5, 0.0038), (.route, 0.012, nil), (.act, 11.4, 0.0412), (.summarize, 5.7, 0.0021),
             (.notify, 1.9, nil),
           ])),
+      // Finished without a summary: summarize failed for good, the memo still ends done (the step is optional).
+      MemoDetail(
+        memo: Memo(
+          id: "4e8a2c7d-91b3-4f06-8d5a-3b7e1c9f2a60", mode: .hermes, device: "iphone",
+          startedAt: now.addingTimeInterval(-7_200), state: .notified, segmentCount: 4, audioSeconds: 38.4,
+          transcript:
+            "Erinnere mich bitte daran, am Montag die offenen Pull Requests durchzugehen, am Mittwoch den Feature-Freeze zu machen und am Donnerstag das Release zu bauen. Die Datenbankmigration ist noch offen.",
+          route: "hermes", destinationRef: "iris-4e8a2c7d-91b3-4f06-8d5a-3b7e1c9f2a60",
+          replyText: "Alles notiert. Montag: Pull Requests prüfen. Mittwoch: Feature-Freeze. Donnerstag: Release.",
+          createdAt: now.addingTimeInterval(-7_199), updatedAt: now.addingTimeInterval(-7_160)),
+        steps: timeline(
+          from: now.addingTimeInterval(-7_195),
+          [(.transcribe, 8.5, 0.0038), (.route, 0.012, nil), (.act, 11.4, 0.0412)])
+          + [
+            StepEntry(
+              step: .summarize, status: .failed, startedAt: now.addingTimeInterval(-7_174),
+              finishedAt: now.addingTimeInterval(-7_171), error: "agw triage failed: 402 payment required",
+              attempts: 3),
+            StepEntry(
+              step: .notify, status: .done, startedAt: now.addingTimeInterval(-7_170.9),
+              finishedAt: now.addingTimeInterval(-7_170)),
+          ]),
       MemoDetail(
         memo: Memo(
           id: "5a1c7e92-8d3f-4b60-a2e4-9c0b1d6f3a77", mode: .tab, device: "iphone",

@@ -135,6 +135,7 @@ targets:
     sources:
       - IrisMac
       - Iris/HistoryModel.swift
+      - Iris/HiddenMemoStore.swift
       - Iris/HistoryFilters.swift
       - Iris/HistoryToast.swift
       - Iris/MemoPresentation.swift

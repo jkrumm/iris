@@ -56,7 +56,7 @@ nonisolated struct StatsReport: Equatable {
       tiles = Self.tiles(
         bars: barList,
         change: Self.percentChange(barList.map(\.total).reduce(0, +), before.map(\.total).reduce(0, +)),
-        stats: stats)
+        stats: stats, locale: locale)
       trends = VolumeSeries.allCases.compactMap { series in
         let points = barList.map { $0.counts[series, default: 0] }
         let prior = before.map { $0.counts[series, default: 0] }.reduce(0, +)
@@ -72,7 +72,7 @@ nonisolated struct StatsReport: Equatable {
       tiles = Self.tiles(
         bars: barList,
         change: String(localized: "avg \(average.formatted(.number.precision(.fractionLength(0...1)))) / wk"),
-        stats: stats)
+        stats: stats, locale: locale)
       trends = VolumeSeries.allCases.compactMap { series in
         StatsReport.weekTrend(series, points: barList.map { $0.counts[series, default: 0] })
       }
@@ -82,7 +82,7 @@ nonisolated struct StatsReport: Equatable {
 
   // MARK: Tiles and trends
 
-  private static func tiles(bars: [VolumeBar], change: String?, stats: Stats) -> [Tile] {
+  private static func tiles(bars: [VolumeBar], change: String?, stats: Stats, locale: Locale) -> [Tile] {
     let total = bars.map(\.total).reduce(0, +)
     let busiest = bars.max { $0.total < $1.total }
     let memos = stats.costPerRoute.map(\.memos).reduce(0, +)
@@ -97,9 +97,11 @@ nonisolated struct StatsReport: Equatable {
         }),
       Tile(
         title: String(localized: "Cost · \(stats.days) d", comment: "Stats tile: spend over the whole window"),
-        value: StepText.dollars(cost),
+        value: StepText.dollars(cost, locale: locale),
         caption: memos > 0
-          ? String(localized: "\(StepText.cost(cost / Double(memos))) / memo", comment: "Stats tile caption") : nil),
+          ? String(
+            localized: "\(StepText.dollars(cost / Double(memos), locale: locale)) / memo", comment: "Stats tile caption"
+          ) : nil),
     ]
   }
 

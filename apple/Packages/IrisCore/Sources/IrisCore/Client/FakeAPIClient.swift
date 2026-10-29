@@ -268,6 +268,17 @@ public actor FakeAPIClient: APIClient {
     calls.append(.retryMemo(id: id, request: request))
     try failIfScripted(.retryMemo)
     guard var detail = memos[id] else { throw notFound("memo not found") }
+    // The server also takes `summarize` on a `notified` memo whose summarize step failed (it was skipped, the memo ended
+    // without a summary): back to `acted`, the failed row cleared, nothing driving it on.
+    if detail.memo.state == .notified, request.from == .summarize,
+      detail.steps.contains(where: { $0.step == .summarize && $0.status == .failed })
+    {
+      detail.steps.removeAll { $0.step == .summarize || $0.step == .notify }
+      detail.memo.state = .acted
+      detail.memo.updatedAt = now()
+      memos[id] = detail
+      return detail.memo
+    }
     guard detail.memo.state == .failed else {
       throw APIError.server(status: 409, body: ErrorBody(error: .badState, message: "retry needs a failed memo"))
     }

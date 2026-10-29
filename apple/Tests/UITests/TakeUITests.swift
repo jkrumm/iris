@@ -1,11 +1,7 @@
 import XCTest
 
 /// Record from anywhere: start on History, browse with the banner, come back through it, stop. On fake capture.
-final class TakeUITests: XCTestCase {
-  override func setUp() {
-    continueAfterFailure = false
-  }
-
+final class TakeUITests: IrisUITestCase {
   @MainActor
   private func element(_ app: XCUIApplication, _ identifier: String) -> XCUIElement {
     app.descendants(matching: .any)[identifier]
@@ -15,7 +11,7 @@ final class TakeUITests: XCTestCase {
   func testStartFromHistoryBrowseWithTheBannerReturnAndStop() {
     let app = XCUIApplication()
     app.launchArguments = SampleClock.arguments
-    app.launch()
+    start(app)
     XCTAssertTrue(element(app, "history.list").waitForExistence(timeout: 10))
 
     // Start from History: the record control above the tab bar opens the take screen.
@@ -55,7 +51,7 @@ final class TakeUITests: XCTestCase {
   func testDiscardingTheTakeLeavesNothingBehind() {
     let app = XCUIApplication()
     app.launchArguments = SampleClock.arguments
-    app.launch()
+    start(app)
     XCTAssertTrue(element(app, "history.list").waitForExistence(timeout: 10))
 
     element(app, "record.start").tap()

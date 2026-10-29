@@ -1,16 +1,12 @@
 import XCTest
 
 /// The capture path on fakes: a voice take through the real outbox, and a memo that waits for the network.
-final class CaptureUITests: XCTestCase {
-  override func setUp() {
-    continueAfterFailure = false
-  }
-
+final class CaptureUITests: IrisUITestCase {
   @MainActor
   private func launch(offline: Bool = false) -> XCUIApplication {
     let app = XCUIApplication()
     app.launchArguments = SampleClock.arguments + (offline ? ["-IrisFakeOffline"] : [])
-    app.launch()
+    start(app)
     XCTAssertTrue(app.descendants(matching: .any)["history.list"].waitForExistence(timeout: 10))
     return app
   }

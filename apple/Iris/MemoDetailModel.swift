@@ -12,19 +12,35 @@ final class MemoDetailModel {
   private(set) var detail: MemoDetail
   private(set) var baselines = StepBaselines()
   private(set) var isRetrying = false
-  /// The words of the last failed action, shown as a toast and cleared by ``dismissFailure()``.
-  private(set) var failure: String?
+  /// A toast for the last failed action. The id tells two toasts with the same words apart.
+  struct Failure: Equatable, Identifiable {
+    let id: Int
+    let message: String
+  }
+
+  /// The toast on screen. It goes away after the toast duration, or at ``dismissFailure()``, whichever comes first; a
+  /// newer toast takes over and its predecessor's timer is cancelled with it, so a stale timer never hides it.
+  private(set) var failure: Failure?
 
   private let client: any APIClient
   private let media: any MemoMediaSource
   private let logger = Logger(subsystem: "com.jkrumm.iris", category: "detail")
   private var baselinesLoaded = false
+  private var toastCount = 0
+  private var toastTimer: Task<Void, Never>?
+  private let toastDuration: Duration
+  private let sleep: @Sendable (Duration) async throws -> Void
 
   /// `memo` is what the list already knows; the steps arrive with the first ``load()``.
-  init(memo: Memo, client: any APIClient, media: any MemoMediaSource) {
+  init(
+    memo: Memo, client: any APIClient, media: any MemoMediaSource, toastDuration: Duration = .seconds(4),
+    sleep: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
+  ) {
     detail = MemoDetail(memo: memo, steps: [])
     self.client = client
     self.media = media
+    self.toastDuration = toastDuration
+    self.sleep = sleep
   }
 
   var memo: Memo { detail.memo }
@@ -76,9 +92,15 @@ final class MemoDetailModel {
 
   // MARK: Retry
 
-  /// The steps a retry can restart from: every step of the memo's pipeline up to the one that failed. Empty unless
-  /// the memo failed: the server refuses a retry in any other state.
+  /// The steps a retry can restart from: every step of the memo's pipeline up to the one that failed. A finished memo
+  /// whose optional summarize step failed can restart that step alone (the server refuses any other retry on it).
+  /// Empty otherwise: the server refuses a retry in any other state.
   var retrySteps: [MemoStep] {
+    if memo.isSkippedOptionalStep(.summarize),
+      detail.steps.contains(where: { $0.step == .summarize && $0.status == .failed })
+    {
+      return [.summarize]
+    }
     let steps = PipelineSteps.applicable(to: memo)
     guard memo.state == .failed, let failed = memo.failedStep, let last = steps.firstIndex(of: failed) else {
       return []
@@ -100,11 +122,27 @@ final class MemoDetailModel {
       return
     } catch {
       logger.error("retry failed: \(String(describing: error), privacy: .public)")
-      failure = String(localized: "Could not retry the memo", comment: "Toast when a retry failed")
+      showFailure(String(localized: "Could not retry the memo", comment: "Toast when a retry failed"))
     }
   }
 
   func dismissFailure() {
+    toastTimer?.cancel()
+    toastTimer = nil
     failure = nil
+  }
+
+  /// Shows `message` as the toast and starts its timer; the previous toast's timer is cancelled first.
+  private func showFailure(_ message: String) {
+    toastTimer?.cancel()
+    toastCount += 1
+    let toast = Failure(id: toastCount, message: message)
+    failure = toast
+    let duration = toastDuration
+    let sleep = sleep
+    toastTimer = Task { [weak self] in
+      guard (try? await sleep(duration)) != nil, !Task.isCancelled, self?.failure?.id == toast.id else { return }
+      self?.dismissFailure()
+    }
   }
 }

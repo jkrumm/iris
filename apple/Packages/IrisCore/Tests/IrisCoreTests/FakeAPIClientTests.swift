@@ -217,6 +217,29 @@ struct FakeAPIClientTests {
     }
   }
 
+  @Test("retry from summarize works on a notified memo whose summarize step failed, and on nothing else")
+  func retrySummarizeOnNotified() async throws {
+    let fake = FakeAPIClient()
+    var memo = try await create(fake)
+    memo.state = .notified
+    let failedSummarize = StepEntry(
+      step: .summarize, status: .failed, startedAt: started, finishedAt: started, error: "402", attempts: 3)
+    await fake.seed(MemoDetail(memo: memo, steps: [failedSummarize]))
+
+    await #expect(throws: APIError.self) {
+      try await fake.retryMemo(id: "m1", request: RetryMemoRequest(from: .act))
+    }
+    let retried = try await fake.retryMemo(id: "m1", request: RetryMemoRequest(from: .summarize))
+    #expect(retried.state == .acted)
+    #expect(try await fake.memo(id: "m1").steps.isEmpty)
+
+    memo.state = .notified
+    await fake.seed(MemoDetail(memo: memo, steps: []))
+    await #expect(throws: APIError.self) {
+      try await fake.retryMemo(id: "m1", request: RetryMemoRequest(from: .summarize))
+    }
+  }
+
   @Test("stats answers the scripted value, records the query and can be scripted to fail")
   func stats() async throws {
     let fake = FakeAPIClient()

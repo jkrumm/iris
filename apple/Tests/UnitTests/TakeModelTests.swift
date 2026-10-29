@@ -96,7 +96,8 @@ struct TakeModelTests {
 
     await take.discard()
     #expect(await waitFor { !take.isActive })
-    #expect(!root.history.memos.contains { $0.id == id }, "the cancelled take is never shown")
+    // The hand-off to History is asynchronous (an ordered stream), so it is awaited like the delete below.
+    #expect(await waitFor { !root.history.memos.contains { $0.id == id } }, "the cancelled take is never shown")
     #expect(await waitFor { (try? await api.memo(id: id))?.memo.isDeleted == true })
 
     // A refresh and a late hand-off cannot bring it back.

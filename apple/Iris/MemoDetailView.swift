@@ -56,10 +56,6 @@ struct MemoDetailView: View {
     }
     .task(id: refreshToken()) { await model.load() }
     .task(id: model.audioRequest) { await playback.recording.load(model.audioRequest) }
-    .task(id: model.failure) {
-      guard model.failure != nil, (try? await Task.sleep(for: .seconds(4))) != nil else { return }
-      model.dismissFailure()
-    }
     .onDisappear { playback.teardown() }
   }
 
@@ -191,7 +187,7 @@ struct MemoDetailView: View {
 
   @ViewBuilder private var failureToast: some View {
     if let failure = model.failure {
-      ToastBanner(message: failure)
+      ToastBanner(message: failure.message)
         .padding(.horizontal, Theme.Spacing.lg)
         .padding(.bottom, 96)
         .transition(.move(edge: .bottom).combined(with: .opacity))

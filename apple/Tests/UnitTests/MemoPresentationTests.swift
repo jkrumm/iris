@@ -24,6 +24,21 @@ struct MemoPresentationTests {
     #expect(MemoFactory.memo("a", mode: .auto).routeLabel == "Auto")
   }
 
+  @Test("the headline is the summary's; without one it is the transcript on one line, clipped to 60 characters")
+  func headlineFallback() {
+    let summary = MemoSummary(headline: "Release am Donnerstag", detail: "d", spoken: "s")
+    #expect(MemoFactory.memo("a", transcript: "ignored", summary: summary).rowHeadline == "Release am Donnerstag")
+    #expect(MemoFactory.memo("a", transcript: "Kurz und gut").rowHeadline == "Kurz und gut")
+    #expect(MemoFactory.memo("a", transcript: "Zwei\nZeilen  mit   Lücken").rowHeadline == "Zwei Zeilen mit Lücken")
+
+    let long = String(repeating: "wort ", count: 30)
+    let clipped = MemoFactory.memo("a", transcript: long).rowHeadline
+    #expect(clipped.count <= Memo.headlineLimit + 1)
+    #expect(clipped.hasSuffix("…"))
+    #expect(!clipped.contains("  "))
+    #expect(MemoFactory.memo("a", transcript: String(repeating: "x", count: 60)).rowHeadline.count == 60)
+  }
+
   @Test("a settled memo shows route and audio length, no cost")
   func settledStatus() {
     let memo = MemoFactory.memo("a", route: "hermes", audioSeconds: 38.4)
