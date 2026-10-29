@@ -49,13 +49,15 @@ nonisolated protocol QueuedItemSource: Sendable {
   func retry(id: String) async
   /// Drops the item and what was recorded for it.
   func discard(id: String) async
+  /// `discard(id:)` that says whether it reached the queue: `false` when the queue could not be opened, so nothing was dropped.
+  func discardQueued(id: String) async -> Bool
   /// Why the queue could not be saved to disk, `nil` while it can: new segments of a take wait for a save before they go up,
   /// and a crash now could lose what is not saved.
   func saveFailure() async -> String?
   /// Whether the persistent queue is there but cannot be decoded, so that only a reset gets past it.
   func isUnreadable() async -> Bool
   /// Sets the unreadable queue file aside (kept, never deleted) and opens a fresh queue. `false` when that did not work.
-  func resetOutbox() async -> Bool
+  func resetOutbox() async -> OutboxResetOutcome
   /// The queue files earlier resets set aside.
   func quarantinedFiles() async -> [URL]
 }
@@ -63,7 +65,11 @@ nonisolated protocol QueuedItemSource: Sendable {
 extension QueuedItemSource {
   func saveFailure() async -> String? { nil }
   func isUnreadable() async -> Bool { false }
-  func resetOutbox() async -> Bool { false }
+  func resetOutbox() async -> OutboxResetOutcome { .notReset }
+  func discardQueued(id: String) async -> Bool {
+    await discard(id: id)
+    return true
+  }
   func quarantinedFiles() async -> [URL] { [] }
 }
 

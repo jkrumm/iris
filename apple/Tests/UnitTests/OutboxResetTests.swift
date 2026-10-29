@@ -13,7 +13,7 @@ private func waitFor(seconds: Double = 10, _ condition: () async -> Bool) async 
   return await condition()
 }
 
-private func stack(store: any OutboxStore, captureDirectory: URL? = nil) -> (CaptureStack, OutboxService) {
+private func makeStack(store: any OutboxStore, captureDirectory: URL? = nil) -> (CaptureStack, OutboxService) {
   let capture = FakeCapture(
     directory: FileManager.default.temporaryDirectory.appending(path: "iris-reset-\(UUID().uuidString)"))
   let created = CreatedMemoLog()
@@ -30,7 +30,7 @@ private func stack(store: any OutboxStore, captureDirectory: URL? = nil) -> (Cap
 struct OutboxResetTests {
   @Test("an unreadable outbox is reported as such, not as a queue that is merely closed")
   func unreadable() async {
-    let (stack, service) = stack(store: UnreadableOutboxStore())
+    let (stack, service) = makeStack(store: UnreadableOutboxStore())
     #expect(await stack.availability() == .unreadable)
     #expect(await service.isUnreadable())
     #expect(await !service.isAvailable())
@@ -39,19 +39,19 @@ struct OutboxResetTests {
 
   @Test("a queue that fails to load for another reason is unavailable, and a reset refuses to touch it")
   func notResettable() async {
-    let (stack, service) = stack(store: FailingStore())
+    let (stack, service) = makeStack(store: FailingStore())
     #expect(await stack.availability() == .unavailable)
-    #expect(await !service.resetOutbox())
+    #expect(await service.resetOutbox() == .notReset)
     await #expect(throws: CaptureStackError.queueUnavailable) { try await stack.resetOutbox() }
   }
 
   @Test("the reset sets the file aside, opens a fresh outbox and accepts new work")
   func reset() async throws {
     let store = UnreadableOutboxStore()
-    let (stack, service) = stack(store: store)
+    let (stack, service) = makeStack(store: store)
     #expect(await service.quarantinedFiles().isEmpty)
 
-    #expect(await service.resetOutbox())
+    #expect(await service.resetOutbox() == .reset)
 
     #expect(await stack.availability() == .available)
     #expect(await service.queuedItems().isEmpty)
@@ -59,12 +59,12 @@ struct OutboxResetTests {
     let outcome = await service.submitText(
       TextSubmission(id: MemoID(), mode: .auto, text: "hello", threadId: nil, startedAt: Date()))
     #expect(outcome != .refused, "the fresh outbox takes new items")
-    #expect(await !service.resetOutbox(), "a second reset has nothing to set aside")
+    #expect(await service.resetOutbox() == .notReset, "a second reset has nothing to set aside")
   }
 
   @Test("Settings offers the reset only while the file is unreadable, and shows the set-aside file afterwards")
   func settings() async throws {
-    let (_, service) = stack(store: UnreadableOutboxStore())
+    let (_, service) = makeStack(store: UnreadableOutboxStore())
     let model = SettingsModel(client: FakeAPIClient(), queue: service)
     await model.load()
     #expect(model.queueUnreadable && model.queueUnavailable)
@@ -81,7 +81,7 @@ struct OutboxResetTests {
 
   @Test("a reset that cannot move the file says so and changes nothing")
   func resetFailure() async {
-    let (_, service) = stack(store: UnmovableStore())
+    let (_, service) = makeStack(store: UnmovableStore())
     let model = SettingsModel(client: FakeAPIClient(), queue: service)
     await model.load()
     #expect(model.queueUnreadable)
@@ -92,6 +92,33 @@ struct OutboxResetTests {
     #expect(model.queueUnreadable)
   }
 
+  @Test("a reset whose new outbox will not open says the file is set aside, not that nothing changed")
+  func resetThenReopenFails() async {
+    let (_, service) = makeStack(store: MovesThenFailsStore())
+    let model = SettingsModel(client: FakeAPIClient(), queue: service)
+    await model.load()
+    #expect(model.queueUnreadable)
+
+    await model.resetOutbox()
+
+    #expect(model.resetLeftUnopened, "the truth: the old file is kept, no new outbox yet")
+    #expect(!model.resetFailed, "and it is not \"nothing was changed\"")
+    #expect(!model.queueUnreadable && model.queueUnavailable)
+    #expect(model.quarantinedFiles.count == 1)
+  }
+
+  @Test("a discard that cannot reach the outbox says so instead of looking done")
+  func discardWithoutAnOutbox() async {
+    let (_, service) = makeStack(store: UnreadableOutboxStore())
+    #expect(await !service.discard(MemoID()))
+    #expect(await !service.discardQueued(id: MemoID().wireID))
+
+    let model = SettingsModel(client: FakeAPIClient(), queue: service)
+    let row = QueuedItem(id: MemoID().wireID, kind: .voiceMemo, title: "x", queuedAt: Date(), state: .waiting)
+    await model.discard(row)
+    #expect(model.discardFailed)
+  }
+
   @Test("opening the outbox sweeps the capture directory: strays are moved aside, never deleted")
   func sweepAtOpen() async throws {
     let directory = FileManager.default.temporaryDirectory.appending(path: "iris-sweep-\(UUID().uuidString)")
@@ -99,7 +126,7 @@ struct OutboxResetTests {
     defer { try? FileManager.default.removeItem(at: directory) }
     let stray = directory.appending(path: "\(UUID().uuidString)-0.m4a")
     try Data("half a take".utf8).write(to: stray)
-    let (stack, _) = stack(store: InMemoryOutboxStore(), captureDirectory: directory)
+    let (stack, _) = makeStack(store: InMemoryOutboxStore(), captureDirectory: directory)
 
     _ = try await stack.outbox()
 
@@ -130,6 +157,20 @@ struct OutboxResetTests {
     let deletes = await client.calls.filter { $0 == .deleteMemo(id: id.wireID) }
     #expect(deletes.count == 1, "nothing retries a delete the user stopped")
   }
+}
+
+/// An unreadable file that moves aside, after which the store still cannot be opened.
+private actor MovesThenFailsStore: OutboxStore {
+  struct StillBroken: Error {}
+  private var moved = false
+
+  func load() async throws -> OutboxRecord { throw moved ? StillBroken() : OutboxStoreError.undecodable }
+  func save(_ record: OutboxRecord) async throws {}
+  func quarantine() async throws -> URL? {
+    moved = true
+    return URL(fileURLWithPath: "/in-memory/outbox.quarantined-1.json")
+  }
+  func quarantined() async -> [URL] { moved ? [URL(fileURLWithPath: "/in-memory/outbox.quarantined-1.json")] : [] }
 }
 
 private struct FailingStore: OutboxStore {

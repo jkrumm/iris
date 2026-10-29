@@ -97,6 +97,27 @@ struct SettingsView: View {
         .foregroundStyle(Theme.Ink.secondary)
         .accessibilityIdentifier("settings.outbox.unavailable")
       }
+      if model.resetLeftUnopened {
+        Label {
+          Text(
+            "The old outbox file was set aside and kept, but a new outbox could not be opened yet. Iris tries again when you pull to refresh or reopen the app.",
+            comment: "Outbox reset left unopened")
+        } icon: {
+          Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(Theme.Status.warn)
+        }
+        .themeFont(.footnote)
+        .foregroundStyle(Theme.Ink.secondary)
+        .accessibilityIdentifier("settings.outbox.resetunopened")
+      }
+      if model.discardFailed {
+        Text(
+          "The outbox could not be opened, so nothing was discarded. Try again when it is available.",
+          comment: "Outbox discard failed"
+        )
+        .themeFont(.footnote)
+        .foregroundStyle(Theme.Status.bad)
+        .accessibilityIdentifier("settings.outbox.discardfailed")
+      }
       if model.queueUnreadable {
         VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
           Text(

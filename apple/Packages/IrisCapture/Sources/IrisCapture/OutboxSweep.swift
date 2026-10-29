@@ -41,13 +41,27 @@ extension Outbox {
       return (left.0.uuidString, left.1) < (right.0.uuidString, right.1)
     }
     guard !candidates.isEmpty else { return report }
-    let heldQueues = await store.quarantined().compactMap { try? Data(contentsOf: $0) }
+    var heldQueues: [Data] = []
+    var unreadable: [String] = []
+    for file in await store.quarantined() {
+      do {
+        heldQueues.append(try Data(contentsOf: file))
+      } catch {
+        unreadable.append(file.lastPathComponent)
+        Log.outbox.error(
+          "set-aside queue \(file.lastPathComponent, privacy: .public) cannot be read: \(String(describing: error), privacy: .public)"
+        )
+      }
+    }
 
     for name in candidates {
       let url = directory.appending(path: name)
       var isFile = ObjCBool(false)
       guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isFile), !isFile.boolValue else { continue }
-      if heldQueues.contains(where: { $0.range(of: Data(name.utf8)) != nil }) {
+      if !unreadable.isEmpty {
+        // A queue that was set aside may name this file and cannot be checked: every candidate stays where it is.
+        report.kept.append(url)
+      } else if heldQueues.contains(where: { $0.range(of: Data(name.utf8)) != nil }) {
         report.kept.append(url)
       } else if adopt(url, name: name, inspect: inspect) {
         report.adopted.append(url)
