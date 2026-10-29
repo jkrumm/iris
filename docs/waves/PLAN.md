@@ -810,7 +810,7 @@ the fake API never answers a typed memo, so the text reply flow cannot be shown 
 ## Wave 16 — summarize optional + Wave 15 debt ∥ R2 routing on iOS            <!-- status: active -->
 The owner-confirmed summarize item, the outbox reset, Wave 15's follow-ups that touch data or correctness, and backlog 5's simulator part.
 Tracks as in Wave 15: **S** (`server/**`, `contracts/**`, `scripts/**` + `IrisCore` follow-ups) ∥ **I** (`apple/**`, one `xcodebuild`
-worker at a time, I1 → I2 → I3). S PRs land one at a time with `make e2e` before the train. Review convergence rule from Wave 15 round 5
+worker at a time, I1 → I2 → I3 → I4). S PRs land one at a time with `make e2e` before the train. Review convergence rule from Wave 15 round 5
 holds: findings that cannot lose or duplicate data become follow-ups after the second round.
 **Decision (mother, 2026-10-29): the outbox reset quarantines, never deletes.** The owner was asked (A quarantine / B delete) and had
 not answered by the time of writing; A loses nothing, so it ships. A delete variant waits for the owner.
@@ -841,6 +841,12 @@ not answered by the time of writing; A loses nothing, so it ships. A delete vari
       component); needs-route actions on pinned History rows and in detail (answer with a route, correct a decision) through the
       existing answer/correction endpoints; [Play] via `PlayReplyIntent` speaking the server's speech variant; per-route mic rules;
       the spoken-replies setting. `-IrisFakeCapture` UI tests and snapshots light + dark. Device exit checks wait for pairing.
+- [ ] **I4. Reply flow per the owner's verdict** (`docs/design/feedback-reply-flow.md`, binding; after I3): the reply bar as one row of
+      icons (keyboard · hold to talk · locked continuous recording, composed SF Symbols if needed); a more structured thread layout
+      (turn separation and hierarchy); syntax highlighting in JetBrains Darcula/Dracula-style light and dark themes derived from the
+      owner's Zed config (`ssh iumac`, read-only) and basalt-ui's code colours (record the choice in TDD); composer layout with the
+      keyboard up. Snapshot tests updated; re-run `scripts/reply-flow-shots.sh` and list the new keys in `docs/design/README.md`
+      (marking the I5 question answered) for another async look.
 - [ ] Deploy and prove: `make verify` + **`make smoke` green**; the `failed(summarize)` memos since Wave 14 read `done` in production;
       `apple.yml` green; TDD and AGENTS.md amended.
 
