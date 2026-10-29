@@ -54,7 +54,7 @@ Build Iris R1–R5 (PRD §Release plan) as a self-driving loop: backlog item →
 - **Requesty / triage routing** (above): production summaries are failing. Asked again 2026-10-28 16:49 (move triage off
   Requesty?): **denied**. Leave it; do not re-ask, `make smoke` red at `summarize` is accepted. Owner then decided (same day): **summarize becomes optional
   in Wave 16** (memo ends `done` without a summary); that item is fixed in PLAN.md's Wave 16 sketch.
-- **Apple Developer Program enrollment:** owner decided 2026-10-29 evening to buy it (free-team route and ntfy/Pushover dropped;
+- **Apple Developer Program enrollment:** owner bought it 2026-10-29 evening, **enrollment pending** (Apple email next) (free-team route and ntfy/Pushover dropped;
   research run `01a1888f-…`). Owner is home, iPhone can be paired. Next: device wave after Wave 16 (S1–S3, device exit checks, TestFlight).
   Previously expected ~2026-10-28: then the APNs `.p8` and App Store Connect key go into 1Password
   via `ask-human.sh`, and TestFlight (backlog 3) opens.
