@@ -734,7 +734,7 @@ with `make e2e` before the train. Workers touching `IrisCapture`, intents or the
       step dashes; when SSE delivers the reply it reveals smoothly (subtle, no fake typing of thinking). Reply into the thread by text
       (the composer bound to `threadId`) and by voice (a capture request bound to `threadId` through the capture port; the fake capture
       until I3). Snapshot tests light + dark on fixtures with every block type.
-- [ ] **I3. Capture core (backlog 2, simulator part):** `IrisCapture` for real behind its ports (audio session, routes, segment
+- [x] **I3. Capture core (backlog 2, simulator part):** `IrisCapture` for real behind its ports (audio session, routes, segment
       recorder, upload) wired onto `IrisCore`; the **outbox queues whole memos and chat messages** (typed, voice, thread replies), retries
       with backoff, survives relaunch, and Settings shows it as a queue (I3 of Wave 14 left the port). `StartMemoIntent` + Control
       compile and run on the simulator; Live Activity client phases recording/paused/uploading (Wave 7 carry-forward).
@@ -761,6 +761,15 @@ with `make e2e` before the train. Workers touching `IrisCapture`, intents or the
 resolve to the wrong tab). Non-blocking fixes taken: #26 per-drive slot tokens, body-read timeouts as hang guards; #27 stale pending
 entries cleared, stoppable boot backfill; #29 https-only connection form (http for loopback); #30 plural turn count, toast timer.
 The lead resolved one AGENTS.md conflict on #27. `apple.yml` + `check` green on master through #30.
+**I3 and S3:** #33 S3 (server, review clean): `DELETE` is allowed on a `receiving` memo, a late segment or `complete` answers 409
+`bad_state`, `markReceived` skips a deleted memo; the client half of cancel-delete moved to I4. I3 took six review rounds: #31 (rounds
+1–3; the worker ran out of context) was superseded by a fresh worker's #32, merged as `37e6d1f` with the full `make check`. Blocking fixes
+across the rounds: start/cancel/stop and interruption races in `CaptureSession`, every post-await state write re-checked, a fail-closed
+outbox (a failed save never reports success, an unsaved segment is withheld from upload, an unreadable `outbox.json` is kept, not emptied),
+per-snapshot save results (no duplicate after relaunch), the Live Activity push token kept until the server has it, a stalled send shown as
+stalled (not "will be sent"), unique History section ids and a pinned sample clock (UI tests failed between midnight and ~02:00). Rule
+applied from round 5: later findings that cannot lose or duplicate data became follow-ups. The hosted runner flakes on
+`StatsSettingsUITests` ("Failed to terminate com.jkrumm.iris", twice, green on rerun; cause unexplained).
 **Deploy:** server `3028113` deployed, `make verify` healthy; the boot backfill ran (`reply.backfill` examined 0). Production thread probe
 with the smoke token: typed chat `256ac9d0-…` then a continuation `f859f57c-…`, both `notified`; `GET /v1/threads/:id` returned kind
 `chat`, 2 memos, 4 messages in order. `make smoke` not rerun (fails at `summarize` until Wave 16).
@@ -770,7 +779,12 @@ cache is never evicted for deleted memos; one `URLSession` per player. I2: **`Me
 so a stale timer can hide a newer toast (fixed in the thread view only)**; reply-image loading is unbounded; `MediaDownloader` is not
 single-flight; the fake voice capture clears before stop; Textual pinned `exact: 0.5.0`. S1a: a second concurrent `driveAll` for a parked
 memo holds its slot until the memo finishes (no production path). S1b: asset rows are visible briefly before the reply commits; a lost
-compare-and-set drops the earlier reply's assets until the next boot backfill; a memo whose every block fails re-renders each boot (≤ 50).
+compare-and-set drops the earlier reply's assets until the next boot backfill; a memo whose every block fails re-renders each boot (≤ 50). S3: a segment write already in flight when its memo is deleted
+leaves its file until the 10-minute purge. I3: a single take controller (reviewer's suggestion, with the stop protocol, the take state
+machine and an outbox split); `stop()` can hold the gate if the recorder never emits `stopped`; `endOrphans()` runs on every connection
+change, so changing the server URL mid-take ends that take's Live Activity; out-of-order token responses in `ActivityTokenRegistrar` can
+leave a stale push token registered; a segment file whose record never saved is orphaned after a crash (no startup sweep of the capture
+directory); the unit-test host hang seen locally is unexplained.
 
 ## Wave 16 — summarize optional (server) + next backlog            <!-- status: pending -->
 Sketch; written in full by the mother when Wave 15 closes. Fixed item, owner-confirmed 2026-10-28:
@@ -780,7 +794,7 @@ Sketch; written in full by the mother when Wave 15 closes. Fixed item, owner-con
       back to the transcript; the speech variant past the length threshold falls back to the clipped cleaned reply instead of the `spoken`
       summary. Existing `failed(summarize)` memos with a reply move to `done` (one migration or repair, idempotent). Contract + fixtures +
       `IrisCore` if the step or memo wire changes; TDD and AGENTS.md amended. Proof: `make smoke` green with triage still on Requesty.
-- [ ] **Follow-up from Wave 15 I3 (owner decision pending): reset the outbox.** Since #31 an undecodable `outbox.json` keeps the outbox
+- [ ] **Follow-up from Wave 15 I3 (owner decision pending): reset the outbox.** Since #32 an undecodable `outbox.json` keeps the outbox
       closed (Settings says it cannot be opened; the file is kept, never overwritten) until the file is removed; there is no in-app way out.
       Candidate: a Settings "Reset outbox" action. It deletes the queued memos and their segment files, so whether and how it ships is
       Johannes's product decision; build nothing before he decides.
