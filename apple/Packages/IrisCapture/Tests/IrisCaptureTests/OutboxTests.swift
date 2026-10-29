@@ -613,3 +613,84 @@ struct OutboxDurabilityTests {
     #expect(!FileManager.default.fileExists(atPath: file.path))
   }
 }
+
+/// A store whose saves follow a script, one entry per save: land at once, fail, or wait for the test and then land or fail.
+actor SequencedSaveStore: OutboxStore {
+  enum Step { case land, fail, holdThenLand, holdThenFail }
+  struct DiskFull: Error {}
+
+  private var plan: [Step]
+  private var record = OutboxRecord()
+  private(set) var saves = 0
+  private var held: CheckedContinuation<Void, Never>?
+  private var heldWaiters: [(count: Int, continuation: CheckedContinuation<Void, Never>)] = []
+  private var heldCount = 0
+
+  init(_ plan: [Step]) { self.plan = plan }
+
+  func waitUntilHeld(_ count: Int) async {
+    if heldCount >= count { return }
+    await withCheckedContinuation { heldWaiters.append((count, $0)) }
+  }
+
+  func release() {
+    held?.resume()
+    held = nil
+  }
+
+  func load() -> OutboxRecord { record }
+
+  func save(_ record: OutboxRecord) async throws {
+    saves += 1
+    let step = plan.isEmpty ? .land : plan.removeFirst()
+    if step == .holdThenLand || step == .holdThenFail {
+      await withCheckedContinuation { continuation in
+        held = continuation
+        heldCount += 1
+        for waiter in heldWaiters where waiter.count <= heldCount { waiter.continuation.resume() }
+        heldWaiters.removeAll { $0.count <= heldCount }
+      }
+    }
+    if step == .fail || step == .holdThenFail { throw DiskFull() }
+    self.record = record
+  }
+}
+
+struct OutboxConcurrentSaveTests {
+  @Test func anItemWrittenByAnEarlierSnapshotIsNotRefusedBecauseALaterOneFailed() async throws {
+    // Save 1 belongs to another caller and is out when the item is queued; save 2 carries the item and lands; save 3, for a
+    // change that came in meanwhile, fails.
+    let store = SequencedSaveStore([.holdThenLand, .holdThenLand, .fail])
+    let outbox = try await Outbox(
+      store: store, uploader: TestUploader(), clock: ManualClock(), policy: OutboxPolicy(jitter: { 0 }))
+    let other = memo(2)
+    let flushing = Task { await outbox.enqueue(segment(other, 0)) }
+    await store.waitUntilHeld(1)
+
+    let item = voiceItem(memo(1))
+    let queuing = Task { try await outbox.enqueueItem(item) }
+    while await outbox.items().isEmpty { try await Task.sleep(for: .milliseconds(1)) }
+    await store.release()  // save 1 lands; save 2 starts with the item in it
+    await store.waitUntilHeld(2)
+
+    let late = Task { await outbox.enqueue(segment(other, 1)) }  // a change after save 2's snapshot
+    while await outbox.entries().count < 2 { try await Task.sleep(for: .milliseconds(1)) }
+    await store.release()  // save 2 lands, save 3 fails
+
+    let accepted = try await queuing.value
+    await flushing.value
+    await late.value
+    #expect(accepted, "the item is on disk: it is queued, not refused")
+    #expect(await store.load().items.map(\.memoID) == [item.memoID])
+    #expect(await outbox.items().map(\.memoID) == [item.memoID])
+  }
+
+  @Test func aRefusedItemIsNotOnDiskAfterwards() async throws {
+    let store = SequencedSaveStore([.fail])
+    let outbox = try await Outbox(
+      store: store, uploader: TestUploader(), clock: ManualClock(), policy: OutboxPolicy(jitter: { 0 }))
+    await #expect(throws: OutboxError.notSaved) { try await outbox.enqueueItem(voiceItem(memo(1))) }
+    #expect(await store.load().items.isEmpty)
+    #expect(await outbox.items().isEmpty)
+  }
+}

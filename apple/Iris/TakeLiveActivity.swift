@@ -151,21 +151,14 @@ final class TakeLiveActivityCoordinator {
   /// the activity after the app is suspended. Not verified on a device (rendered nowhere yet: `docs/spikes/device-checklist.md`).
   /// Main-actor bound (the default isolation of the app), because `Activity` is not `Sendable`.
   final class ActivityKitTakeLiveActivity: TakeLiveActivity {
-    /// What the app holds for one take's activity.
-    private struct Entry {
-      let activity: Activity<MemoAttributes>
-      var token: String?
-      var memoExists = false
-      var registeredToken: String?
-    }
-
-    private let client: any APIClient
     private let logger = Logger(subsystem: "com.jkrumm.iris", category: "liveactivity")
-    /// By memo id: a take that starts while the last one is still being sent has its own entry.
-    private var entries: [String: Entry] = [:]
+    private let tokens: ActivityTokenRegistrar
+    /// The activity of each take still in a client phase, by memo id: a take that starts while the last one is still being
+    /// sent has its own entry. Dropped at the hand-over; the token stream and the registrar outlive it.
+    private var activities: [String: Activity<MemoAttributes>] = [:]
 
     init(client: any APIClient) {
-      self.client = client
+      tokens = ActivityTokenRegistrar(client: client)
     }
 
     func start(memoID: String, mode: MemoMode, startedAt: Date, state content: LiveActivityContentState) async {
@@ -180,7 +173,8 @@ final class TakeLiveActivityCoordinator {
           // No push entitlement (an unsigned simulator build): the local activity still shows the take.
           activity = try Activity.request(attributes: attributes, content: activityContent, pushType: nil)
         }
-        entries[memoID] = Entry(activity: activity)
+        activities[memoID] = activity
+        tokens.begin(memoID)
         followToken(of: activity, memoID: memoID)
       } catch {
         // The system refused (the app is not allowed to start it from here). The take goes on without it.
@@ -189,61 +183,47 @@ final class TakeLiveActivityCoordinator {
     }
 
     func update(memoID: String, _ content: LiveActivityContentState) async {
-      await entries[memoID]?.activity.update(ActivityContent(state: content, staleDate: nil))
-      await registerTokenIfPossible(memoID)
+      await activities[memoID]?.update(ActivityContent(state: content, staleDate: nil))
+      await tokens.attempt(memoID)
     }
 
     func memoCreated(memoID: String) async {
-      entries[memoID]?.memoExists = true
-      await registerTokenIfPossible(memoID)
+      await tokens.memoCreated(memoID)
     }
 
     func handOverToServer(memoID: String) async {
-      await registerTokenIfPossible(memoID)
-      entries[memoID] = nil
+      activities[memoID] = nil
+      await tokens.handOver(memoID)
     }
 
     func end(memoID: String, finalState: LiveActivityContentState?, dismissal: ActivityDismissal) async {
-      guard let entry = entries.removeValue(forKey: memoID) else { return }
+      guard let activity = activities.removeValue(forKey: memoID) else { return }
+      tokens.finish(memoID)
       let content = finalState.map { ActivityContent(state: $0, staleDate: nil) }
       let policy: ActivityUIDismissalPolicy =
         switch dismissal {
         case .immediate: .immediate
         case .later: .after(Date().addingTimeInterval(15 * 60))
         }
-      await entry.activity.end(content, dismissalPolicy: policy)
+      await activity.end(content, dismissalPolicy: policy)
     }
 
     func endClientPhaseActivities() async {
       for orphan in Activity<MemoAttributes>.activities where orphan.content.state.phase.isClientPhase {
         await orphan.end(nil, dismissalPolicy: .immediate)
       }
-      entries = [:]
+      for memoID in activities.keys { tokens.finish(memoID) }
+      activities = [:]
     }
 
-    /// Keeps the latest token; it is sent once the server knows the memo, and again when the token rotates.
+    /// Forwards the activity's token, now and at every rotation, until the activity ends and its stream finishes.
     private func followToken(of activity: Activity<MemoAttributes>, memoID: String) {
       // Ends with the activity's token stream.
       Task {
         for await data in activity.pushTokenUpdates {
-          entries[memoID]?.token = data.map { String(format: "%02x", $0) }.joined()
-          await registerTokenIfPossible(memoID)
+          await tokens.setToken(memoID, data.map { String(format: "%02x", $0) }.joined())
         }
-      }
-    }
-
-    /// `PUT /memos/:id/activity-token`, only for a memo the server has and a token it has not seen; a failure is logged and
-    /// tried again on the next update or token change.
-    private func registerTokenIfPossible(_ memoID: String) async {
-      guard let entry = entries[memoID], entry.memoExists, let token = entry.token, token != entry.registeredToken
-      else {
-        return
-      }
-      do {
-        try await client.setActivityToken(memoID: memoID, request: ActivityTokenRequest(token: token))
-        entries[memoID]?.registeredToken = token
-      } catch {
-        logger.error("activity token not registered: \(String(describing: error), privacy: .public)")
+        tokens.finish(memoID)
       }
     }
   }

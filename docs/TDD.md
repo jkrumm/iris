@@ -586,6 +586,10 @@ and leaves no file. Revisit the resource loader only if recordings grow past a f
   stops the recorder, moves the take to phase `failed` (`TakeState.failure` says why) and holds it for the user's `stop()` or
   `cancel()`. `stop()` then finishes the memo with the segments that really closed (`TakeResult.failure` set) or, with none, throws
   `CaptureError.recordingFailed` instead of returning `nil` (which means nothing was said); the thread screen tells the user.
+  Both actors are reentrant, so every write that follows an `await` re-checks what it assumed or is authoritative: `pause` and
+  `resume` (and the interruption handlers) leave a take that failed meanwhile as `failed`, a failure that comes in while the
+  recorder is starting is parked and applied once the take is up, and the persist call reports whether a save that was started
+  after the caller's change landed, not whether the last save did.
   `start`, `stop`, `cancel`, `pause`, `resume`, `switchInput` and the interruption handlers run one at a time through an internal FIFO gate (a late resume cannot write `recording` over a take that has stopped), and `start` claims the take (phase `starting`) with no
   suspension after the gate: a second start finds the first take and is rejected, a `cancel` that lands while the take is starting or
   stopping waits for that to finish and then ends it (so no microphone is left running with no state), and a stop's wait for the
@@ -626,6 +630,8 @@ and leaves no file. Revisit the resource loader only if recordings grow past a f
     client's own (Wave 15 I3): `TakeLiveActivityCoordinator` sets them locally while the take is on the phone (recording while it
     runs, paused during an interruption, uploading from the stop until the outbox has sent the memo), then `processing`, and the
     server's pushes (`processing`, `needsRoute`, `done`, `failed`; the wire enum and fixtures are unchanged) carry it from there.
+    The activity's push token is kept by `ActivityTokenRegistrar` per memo until the activity ends, not until the hand-over: a PUT
+    that failed is retried with a growing delay, and a token that rotates later is sent too.
     The coordinator follows each memo on its own and the activity handle is kept per memo, so a take that starts while the last one is
     still uploading neither cancels nor overwrites it, and a stopped follower writes nothing more.
     A retryable failure (no network, a 5xx) keeps the activity on `uploading`; a stall or a recorder failure ends it as `failed`
