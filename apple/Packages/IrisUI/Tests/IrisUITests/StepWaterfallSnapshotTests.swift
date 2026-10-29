@@ -59,7 +59,7 @@
           id: "act", title: "Act · Hermes", phase: .done, metric: "11.4 s · $0.04", start: 0.31, length: 0.415),
         StepWaterfallRow(
           id: "summarize", title: "Summarize", phase: .failed, metric: "3.0 s", attempts: "3 attempts",
-          error: "agw triage failed: 402 payment required",
+          error: "agw triage failed: 402",
           isOptional: true, optionalNote: "Optional · the memo is done without it", retryTitle: "Retry from Summarize",
           start: 0.725, length: 0.109),
         StepWaterfallRow(id: "notify", title: "Notify", phase: .done, metric: "0.8 s", start: 0.934, length: 0.066),
