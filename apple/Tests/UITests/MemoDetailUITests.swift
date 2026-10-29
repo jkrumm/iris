@@ -21,11 +21,7 @@ final class MemoDetailUITests: XCTestCase {
       .matching(NSPredicate(format: "identifier == 'history.row' AND label CONTAINS %@", text)).firstMatch
     XCTAssertTrue(row.waitForExistence(timeout: 10))
     let list = app.descendants(matching: .any)["history.list"]
-    var attempts = 0
-    while !row.isHittable, attempts < 5 {
-      list.swipeUp()
-      attempts += 1
-    }
+    row.scrollIntoClearBand(of: list, app: app)
     row.tap()
     XCTAssertTrue(app.descendants(matching: .any)["memo.detail"].waitForExistence(timeout: 10))
   }

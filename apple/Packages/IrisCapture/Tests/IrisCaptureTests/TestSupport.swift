@@ -32,6 +32,8 @@ actor TestUploader: SegmentUploader {
   private(set) var createAttempts = 0
   private(set) var uploaded: [SegmentKey] = []
   private(set) var completed: [CompleteCall] = []
+  private(set) var deleted: [MemoID] = []
+  private(set) var deleteAttempts = 0
   private(set) var maxInFlight = 0
   private(set) var started = 0
   /// "upload" / "complete" in call order, to assert gating.
@@ -40,6 +42,8 @@ actor TestUploader: SegmentUploader {
   private var failuresLeft: [SegmentKey: Int] = [:]
   private var completeFailuresLeft = 0
   private var createFailuresLeft = 0
+  private var deleteFailuresLeft = 0
+  private var deletesArePermanent = false
   private var createsArePermanent = false
   private var inFlight = 0
   private var isHolding = false
@@ -54,6 +58,12 @@ actor TestUploader: SegmentUploader {
   func failNextCreates(_ times: Int, permanent: Bool = false) {
     createFailuresLeft = times
     createsArePermanent = permanent
+  }
+
+  /// The next `times` deletes throw: `PermanentTransferError` when `permanent`, else a `TransientTransferError`.
+  func failNextDeletes(_ times: Int, permanent: Bool = false) {
+    deleteFailuresLeft = times
+    deletesArePermanent = permanent
   }
   func hold() { isHolding = true }
 
@@ -109,6 +119,17 @@ actor TestUploader: SegmentUploader {
     }
     completed.append(CompleteCall(memoID: memoID, segmentCount: segmentCount))
     log.append("complete")
+  }
+
+  func delete(memoID: MemoID) async throws {
+    deleteAttempts += 1
+    if deleteFailuresLeft > 0 {
+      deleteFailuresLeft -= 1
+      if deletesArePermanent { throw PermanentTransferError("not deletable") }
+      throw TransientTransferError("offline")
+    }
+    deleted.append(memoID)
+    log.append("delete")
   }
 
   private func resolveWaiters() {

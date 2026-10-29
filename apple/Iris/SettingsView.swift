@@ -51,6 +51,7 @@ struct SettingsView: View {
         outbox
       }
       .accessibilityIdentifier("settings.view")
+      .takeBanner()
       .scrollContentBackground(.hidden)
       .background(Theme.Surface.background)
       .navigationTitle(String(localized: "Settings", comment: "Navigation title of the Settings tab"))

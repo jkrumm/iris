@@ -74,6 +74,7 @@ nonisolated struct FakePipelineUploader: SegmentUploader {
 
   func create(_ item: OutboxItem) async throws { try await base.create(item) }
   func upload(_ segment: ClosedSegment) async throws { try await base.upload(segment) }
+  func delete(memoID: MemoID) async throws { try await base.delete(memoID: memoID) }
 
   func complete(memoID: MemoID, segmentCount: Int) async throws {
     try await base.complete(memoID: memoID, segmentCount: segmentCount)

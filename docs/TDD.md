@@ -551,10 +551,14 @@ and leaves no file. Revisit the resource loader only if recordings grow past a f
   - **`create`**, one per memo or message (`OutboxItem`: memo id, mode, thread id, text or voice, queued-at). A typed memo or chat
     message is `POST /memos/text` and is done with that call; a take is `POST /memos`. A take is created once it has something to
     send (its first closed segment, or its end), so a take cancelled early never reaches the server and leaves no stuck `receiving`
-    memo; the segments of a memo and its `complete` wait for its `create`. **Known gap:** a take cancelled *after* its first
-    segment closed (so after the memo was created) leaves a `receiving` memo on the server, and History lists it once it refetches:
-    `DELETE /memos/:id` is refused (409 `bad_state`) for a memo that is not settled, so the app has no way to take it back until the
-    server allows it (or the create waits for the stop, which gives up uploading during the take);
+    memo; the segments of a memo and its `complete` wait for its `create`. A take cancelled *after* its first
+    segment closed (so after the memo was created) is deleted on the server: discarding queues an `OutboxDeletion` (persisted, `DELETE /memos/:id`,
+    which the server allows on a `receiving` memo) next to the other transfers, retried with the same backoff and kept until the server answers; a 404
+    (gone), a 409 (the memo left `receiving`) or a refusal a retry cannot change ends it, so it never lingers. The `DELETE` waits for a `create` still on
+    the wire, so it cannot overtake the request that makes the memo; only a voice item whose create was sent gets one (a refused create may belong to
+    another device's memo and is not ours to delete). The item and its segments leave the queue at once and the files go with the next save, so a segment or
+    `complete` that arrives late (the server answers 409 `bad_state` for the deleted memo) finds nothing queued and is dropped, never a stall. History hides
+    the take from the moment of the cancel (`CreatedMemoLog.forget` → `HistoryModel.hide`; a refresh or a late create cannot bring it back);
   - **segments** (`PUT /memos/:id/segments/:n`), one entry per (memo, segment), uploaded while the take runs, at most two in flight;
   - **`complete {segmentCount}`**, only once the take is finished and every index is uploaded. A segment file is deleted only after
     `complete` succeeded (or the user discards the item).
@@ -624,8 +628,8 @@ and leaves no file. Revisit the resource loader only if recordings grow past a f
 - **Fallback, accepted by the PRD:** if the system refuses to start a Live
   Activity from the background ("Target is not foreground", reported once), the
   control uses `openAppWhenRun` and the app auto-starts. Spike S1 decides.
-- **`StopMemoIntent`, `SwitchInputIntent`, `PlayReplyIntent`:**
-  `LiveActivityIntent`s used by the Live Activity buttons. `PlayReplyIntent`
+- **`StopMemoIntent`, `SwitchInputIntent`, `PauseMemoIntent` (built, Wave 15 I4), `PlayReplyIntent` (not built):**
+  `LiveActivityIntent`s used by the Live Activity buttons. The first three call the app's `TakeController` through `CaptureIntentHandler`; pressing them from the island is device-only. `PlayReplyIntent`
   activates the session and plays `/speech`. Verify that playback starts from
   the background (S3); otherwise it opens the app.
 
@@ -645,7 +649,7 @@ and leaves no file. Revisit the resource loader only if recordings grow past a f
     (shown 15 minutes) and a discard ends it at once (`Activity.end`); a sent memo is handed over to the server, not ended. The activity's push token is registered
     (`PUT /memos/:id/activity-token`) once the server has the memo, since it answers 404 before that, and retried on the next update; at
     launch every activity still in a client phase is ended, because nothing moves it on after its process is gone.
-    The widget renders all seven (timer for recording and processing); compiled, never rendered;
+    The widget renders all seven (timer for recording and processing); never rendered on a device (the snapshot tests render its IrisUI views, below). A new take's `headline` carries one line about earlier memos still sending ("1 earlier memo is still sending", client phases only), which the card shows as a note;
   - `inputName`;
   - `routeChip`;
   - `headline` (≤ 60 chars; the Lock Screen truncates around 160 pt);
@@ -655,6 +659,16 @@ and leaves no file. Revisit the resource loader only if recordings grow past a f
   take.
 - **Updates:** local while the app runs; remote via APNs after suspension (the
   push token is registered per memo).
+
+### Live Activity and Dynamic Island views (Wave 15 I4)
+
+The views live in `IrisUI` (`LiveActivityPanel`, `ActivityPhaseTitle`, `ActivityHeaderTrailing`, `IslandGlyph`, `IslandCompactTrailing`, `ActivityStageDashes`, `ActivityControlLabel`) and take a plain `ActivityPresentation`, so they are snapshot-tested on the
+pinned simulator in light and dark (`LiveActivitySnapshotTests`, the island through `IslandMock`: a black pill or card standing in for the system's island); the widget only maps `ContentState` onto them and wraps the controls in `Button(intent:)`.
+- **Recording / paused:** the running time (`Text(timerInterval:)`), the microphone, and icon controls: Stop, mic swap, pause or resume (`StopMemoIntent`, `SwitchInputIntent`, `PauseMemoIntent`, `LiveActivityIntent`s compiled into the app and the widget, performed in the app against the same `TakeController` the screens use).
+- **Uploading / processing:** a line and the four-stage dashes (record, upload, process, done; the phase decides the stage). There is no per-step progress, because `ContentState` carries no step (the server would have to push one); the dashes fill when the activity updates, which the system animates.
+- **Several memos:** each memo has its own activity, so the Lock Screen stacks them and the system picks the most recent for the island and shows the other as a small circle. A take that starts while another is sending also says so inside its own card.
+- **Done card (round 2):** the checkmark and the headline share a first-baseline row, so the mark stays on the first line however far the headline wraps; the phase title has no second check.
+- **Device exit checks** (left for pairing; `docs/spikes/device-checklist.md` is not edited here): the Lock Screen card and the island rendering (compact, minimal, expanded, two activities), the Stop / mic swap / pause buttons performed from the island with the app suspended, a background take, a Bluetooth route, and the recording's Live Activity request from the background.
 
 ### Notifications
 
@@ -678,7 +692,7 @@ and leaves no file. Revisit the resource loader only if recordings grow past a f
 | Composer | Typed memo: mode picker (Auto, Journal, Hermes, Tab, Chat), text, send via `POST /v1/memos/text`; from a detail's reply it continues the memo's thread |
 | Stats | Volume per route per day / week (Swift Charts), tiles, per-route trends, from `GET /v1/stats` |
 | Thread | One conversation as a rendered document (`GET /v1/threads/:id`), opened by a History row of a chat or a continued thread (Wave 15 I2, "Thread view" below): question and answer turns, a pending answer with the step dashes, hold-to-talk and a keyboard button at the bottom |
-| Record | Full-screen take: timer, level waveform, mic picker (`AVInputPickerInteraction` + own list), mode/tab picker, [Stop] |
+| Record | Wave 15 I4. **Start from any screen:** the record control is the tab bar's bottom accessory (tap: Auto; long press: Journal, Hermes, Chat); memo detail and thread hide the tab bar, so they have none (their banner still shows). A take opens the full `TakeScreen` (mode, timer, level waveform, mic list, pause, Stop, discard with a confirmation); minimizing (chevron) leaves a compact **`TakeBanner`** (dot, running time, mode · mic, "N sending", Stop) pinned under the navigation bar of every screen (`.takeBanner()`), and tapping it returns to the full take. `TakeModel` follows `CaptureSession.updates()` and the outbox; a pause moves the timer's start forward so it counts recorded time. Leaving the app needs no hand-over: the take's Live Activity is requested at the start, so the Lock Screen card and the Dynamic Island carry it from there |
 | Settings | Diagnostics (copy a memo id, animated "Copied"), Connection (server URL + device token in the Keychain, status; "Not configured" until saved), outbox section (the queue of whole items from `OutboxService`: kind, age, state, a retry time or the reason it stalled, retry now and discard; live through the outbox's change stream). Later: route mic rules, default mode, spoken replies |
 
 ## 5. macOS app (`IrisMac`)

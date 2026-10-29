@@ -34,6 +34,7 @@ struct MemoDetailView: View {
       .padding(.bottom, Theme.Spacing.xl)
     }
     .accessibilityIdentifier("memo.detail")
+    .takeBanner()
     .background(Theme.Surface.background)
     .scrollEdgeEffectStyle(.soft, for: .bottom)
     .safeAreaInset(edge: .bottom) { actions }

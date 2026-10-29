@@ -46,6 +46,7 @@ struct HistoryView: View {
       .safeAreaBar(edge: .top, spacing: 0) {
         HistoryFilterBar(filters: $model.filters)
       }
+      .takeBanner()
       .overlay(alignment: .bottom) { toastBanner }
       .navigationTitle(String(localized: "History", comment: "Navigation title of the memo list"))
       .navigationSubtitle(HistoryDaySection.subtitle(for: model.memos) ?? "")

@@ -29,6 +29,9 @@ final class HistoryModel {
   /// Bumped when a memo is deleted or restored; a response that started before that is stale and dropped, so a late
   /// flag change or refresh cannot put a deleted memo back.
   private var lifecycle: [String: Int] = [:]
+  /// Memos this device discarded (a cancelled take): never shown, whatever a refresh, an event or a late create brings back
+  /// before the server's delete lands.
+  private var hidden: Set<String> = []
   /// Bumped by every first-page load; a response that finds it changed belongs to filters that are gone.
   private var generation = 0
 
@@ -51,8 +54,8 @@ final class HistoryModel {
       guard current == generation else { return }
       // A memo answered after the first page can repeat across pinned and items: pinned first, then the new ids.
       let pinnedIDs = Set(page.pinned.map(\.id))
-      pinned = page.pinned
-      items = page.items.filter { !pinnedIDs.contains($0.id) }
+      pinned = page.pinned.filter { !hidden.contains($0.id) }
+      items = page.items.filter { !pinnedIDs.contains($0.id) && !hidden.contains($0.id) }
       nextCursor = page.nextCursor
       loadedFilters = requested
       loadFailed = false
@@ -92,7 +95,7 @@ final class HistoryModel {
       let page = try await client.listMemos(paging.query(cursor: cursor))
       guard loading == generation else { return }
       let known = Set(memos.map(\.id))
-      items += page.items.filter { !known.contains($0.id) }
+      items += page.items.filter { !known.contains($0.id) && !hidden.contains($0.id) }
       nextCursor = page.nextCursor
     } catch is CancellationError {
       return
@@ -216,6 +219,13 @@ final class HistoryModel {
     place(memo, force: true)
   }
 
+  /// Drops a memo this device discarded (a cancelled take) and keeps it out of the list from here on.
+  func hide(_ id: String) {
+    hidden.insert(id)
+    lifecycle[id, default: 0] += 1
+    remove(id)
+  }
+
   /// A memo went to the outbox instead of the server: say so, it shows up here once it is sent.
   func didQueue() {
     toast = HistoryToast(
@@ -274,7 +284,7 @@ final class HistoryModel {
   private func place(_ memo: Memo, force: Bool = false) {
     let known = held(memo.id) != nil
     remove(memo.id)
-    guard filters.matches(memo) else { return }
+    guard !hidden.contains(memo.id), filters.matches(memo) else { return }
     if !known, !force, nextCursor != nil, let tail = items.last, Self.isNewer(tail, than: memo) { return }
     if memo.isOpenNeedsRoute {
       Self.insert(memo, into: &pinned)

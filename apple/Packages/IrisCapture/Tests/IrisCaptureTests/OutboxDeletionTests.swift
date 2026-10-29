@@ -1,0 +1,139 @@
+import Foundation
+import Testing
+
+@testable import IrisCapture
+
+/// A take discarded after the server created its memo: the `DELETE` is queued, retried and survives a relaunch.
+struct OutboxDeletionTests {
+  @Test func discardingACreatedTakeDeletesItsMemoOnTheServer() async throws {
+    let harness = try await OutboxHarness()
+    let id = memo(1)
+    try await harness.outbox.enqueueItem(voiceItem(id))
+    await harness.outbox.enqueue(segment(id, 0))
+    await harness.outbox.settled()
+    #expect(await harness.uploader.created.map(\.memoID) == [id])
+
+    await harness.outbox.discard(id)
+    await harness.outbox.settled()
+
+    #expect(await harness.uploader.deleted == [id])
+    #expect(await harness.outbox.queue().isEmpty)
+    #expect(await harness.store.load().deletions.isEmpty, "an acknowledged delete leaves nothing behind")
+    #expect(await harness.outbox.wasDiscarded(id))
+    await harness.outbox.shutdown()
+  }
+
+  @Test func aTakeThatWasNeverCreatedSendsNoDelete() async throws {
+    let harness = try await OutboxHarness()
+    let id = memo(1)
+    try await harness.outbox.enqueueItem(voiceItem(id))
+    await harness.outbox.settled()
+    #expect(await harness.uploader.created.isEmpty, "a take is created with its first segment")
+
+    await harness.outbox.discard(id)
+    await harness.outbox.settled()
+
+    #expect(await harness.uploader.deleteAttempts == 0)
+    #expect(await harness.store.load().deletions.isEmpty)
+    await harness.outbox.shutdown()
+  }
+
+  @Test func aRefusedCreateAndATextItemSendNoDelete() async throws {
+    let harness = try await OutboxHarness()
+    await harness.uploader.failNextCreates(1, permanent: true)
+    try await harness.outbox.enqueueItem(voiceItem(memo(1)))
+    await harness.outbox.enqueue(segment(memo(1), 0))
+    await harness.outbox.settled()
+    try await harness.outbox.enqueueItem(textItem(memo(2)))
+    await harness.outbox.settled()
+
+    await harness.outbox.discard(memo(1))
+    await harness.outbox.discard(memo(2))
+    await harness.outbox.settled()
+
+    // A 409 on create can mean another device's memo owns the id: it is not ours to delete.
+    #expect(await harness.uploader.deleteAttempts == 0)
+    await harness.outbox.shutdown()
+  }
+
+  @Test func theDeleteIsRetriedWithBackoffUntilTheServerAnswers() async throws {
+    let harness = try await OutboxHarness()
+    let id = memo(1)
+    try await harness.outbox.enqueueItem(voiceItem(id))
+    await harness.outbox.enqueue(segment(id, 0))
+    await harness.outbox.settled()
+    await harness.uploader.failNextDeletes(2)
+
+    await harness.outbox.discard(id)
+    await harness.outbox.settled()
+    #expect(await harness.uploader.deleteAttempts == 1)
+    #expect(await harness.store.load().deletions.count == 1, "kept until acknowledged")
+
+    await harness.clock.advance(by: 2)
+    await harness.outbox.settled()
+    await harness.clock.advance(by: 4)
+    await harness.outbox.settled()
+
+    #expect(await harness.uploader.deleted == [id])
+    #expect(await harness.store.load().deletions.isEmpty)
+    await harness.outbox.shutdown()
+  }
+
+  @Test func aPendingDeleteSurvivesARelaunch() async throws {
+    let first = try await OutboxHarness()
+    let id = memo(1)
+    try await first.outbox.enqueueItem(voiceItem(id))
+    await first.outbox.enqueue(segment(id, 0))
+    await first.outbox.settled()
+    await first.uploader.failNextDeletes(1)
+    await first.outbox.discard(id)
+    await first.outbox.settled()
+    await first.outbox.shutdown()
+
+    let second = try await OutboxHarness(record: await first.store.load())
+    await second.outbox.resume()
+    await second.clock.advance(by: 2)
+    await second.outbox.settled()
+
+    #expect(await second.uploader.deleted == [id])
+    await second.outbox.shutdown()
+  }
+
+  @Test func aDeleteTheServerWillRepeatIsDroppedNotRetried() async throws {
+    let harness = try await OutboxHarness()
+    let id = memo(1)
+    try await harness.outbox.enqueueItem(voiceItem(id))
+    await harness.outbox.enqueue(segment(id, 0))
+    await harness.outbox.settled()
+    await harness.uploader.failNextDeletes(1, permanent: true)
+
+    await harness.outbox.discard(id)
+    await harness.outbox.settled()
+
+    #expect(await harness.uploader.deleteAttempts == 1)
+    #expect(await harness.store.load().deletions.isEmpty)
+    await harness.outbox.shutdown()
+  }
+
+  @Test func theDeleteWaitsForACreateThatIsStillOnTheWire() async throws {
+    let harness = try await OutboxHarness()
+    let id = memo(1)
+    try await harness.outbox.enqueueItem(voiceItem(id))
+    await harness.outbox.enqueue(segment(id, 0))
+    await harness.outbox.settled()
+
+    await harness.outbox.discard(id)
+    await harness.outbox.settled()
+
+    let log = await harness.uploader.log
+    #expect(log.first == "create")
+    #expect(log.last == "delete")
+    await harness.outbox.shutdown()
+  }
+
+  @Test func theRecordWithoutDeletionsStillDecodes() throws {
+    let json = #"{"entries":[],"memos":[],"nextSequence":0}"#
+    let record = try JSONDecoder().decode(OutboxRecord.self, from: Data(json.utf8))
+    #expect(record.deletions.isEmpty)
+  }
+}

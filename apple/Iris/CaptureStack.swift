@@ -39,6 +39,9 @@ actor CaptureStack {
     self.parts = parts
   }
 
+  /// The route manager the session records through (the microphone list of the take screen reads it).
+  nonisolated var routes: any RouteManager { parts.routes }
+
   func outbox() async throws -> Outbox { try await open().outbox }
 
   func session() async throws -> CaptureSession { try await open().session }

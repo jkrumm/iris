@@ -38,7 +38,7 @@ final class ThreadUITests: XCTestCase {
       scrolls += 1
     }
     XCTAssertTrue(row.waitForExistence(timeout: 10))
-    reveal(row, in: list)
+    row.scrollIntoClearBand(of: list, app: app)
     row.tap()
 
     let thread = app.descendants(matching: .any)["thread.view"]

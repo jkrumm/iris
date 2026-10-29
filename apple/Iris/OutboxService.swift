@@ -30,11 +30,16 @@ actor CreatedMemoLog {
   private var memos: [String: Memo] = [:]
   private var order: [String] = []
   private var onCreated: (@Sendable (Memo) -> Void)?
+  private var onForgotten: (@Sendable (String) -> Void)?
 
   init() {}
 
   func setHandler(_ handler: (@Sendable (Memo) -> Void)?) {
     onCreated = handler
+  }
+
+  func setForgottenHandler(_ handler: (@Sendable (String) -> Void)?) {
+    onForgotten = handler
   }
 
   func record(_ memo: Memo) {
@@ -45,6 +50,14 @@ actor CreatedMemoLog {
   }
 
   func memo(id: String) -> Memo? { memos[id] }
+
+  /// The memo was discarded (a cancelled take; the server deletes it): it is no longer a created memo anyone should wait
+  /// for, and the handler lets History drop it. Repeatable.
+  func forget(_ id: String) {
+    memos[id] = nil
+    order.removeAll { $0 == id }
+    onForgotten?(id)
+  }
 }
 
 /// The app's one door to the outbox: whole memos and messages go in, Settings reads the queue out. The outbox itself (and
@@ -124,7 +137,19 @@ nonisolated final class OutboxService: QueuedItemSource {
 
   func discard(id: String) async {
     guard let memoID = UUID(uuidString: id) else { return }
+    await discard(memoID)
+  }
+
+  /// Drops the item (a cancelled take or a queue row): History stops showing its memo at once, the server deletes it.
+  func discard(_ memoID: MemoID) async {
+    await created.forget(memoID.wireID)
     await (try? await stack.outbox())?.discard(memoID)
+  }
+
+  /// Whether the memo left the queue because it was discarded, not because the server has it complete.
+  func wasDiscarded(_ memoID: MemoID) async -> Bool {
+    guard let outbox = try? await stack.outbox() else { return false }
+    return await outbox.wasDiscarded(memoID)
   }
 
   func isAvailable() async -> Bool {

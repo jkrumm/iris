@@ -27,7 +27,8 @@ public protocol APIClient: Sendable {
   /// memo is a 409.
   func setFlags(id: String, done: Bool?, favorite: Bool?, archived: Bool?) async throws -> Memo
   /// `DELETE /v1/memos/:id`: soft delete. The memo comes back with `deletedAt` and `purgeAt`; until then
-  /// `restoreMemo(id:)` undoes it. Only a settled memo (`MemoState.isDeletable`) can be deleted, else a 409; repeatable.
+  /// `restoreMemo(id:)` undoes it. Only a settled memo or a take still `receiving` (`MemoState.isDeletable`) can be deleted, else a 409; repeatable.
+  /// After the delete of a `receiving` memo a late segment or `complete` is a 409 `bad_state`.
   func deleteMemo(id: String) async throws -> Memo
   /// `POST /v1/memos/:id/restore`: the undo of `deleteMemo`. A 409 when the memo is not deleted, a 404 once it is purged.
   func restoreMemo(id: String) async throws -> Memo

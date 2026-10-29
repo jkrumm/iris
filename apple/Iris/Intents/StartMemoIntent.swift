@@ -6,6 +6,12 @@ import AppIntents
 protocol CaptureIntentHandler: AnyObject {
   /// Starts a take in `auto` mode and the Live Activity that goes with it (Apple stops a background recording that has none).
   func startMemo() async throws
+  /// Ends the running take and sends it (the Live Activity's Stop). Nothing running is not an error.
+  func endTake() async throws
+  /// Pauses the running take, or resumes a paused one (the Live Activity's pause button).
+  func toggleTakePause() async
+  /// Moves the running take to the next available microphone (the Live Activity's mic-swap button).
+  func switchTakeInput() async throws
 }
 
 @MainActor

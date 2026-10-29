@@ -34,6 +34,7 @@ final class HistorySwipeUITests: XCTestCase {
     let app = launch()
     let target = row(in: app)
     XCTAssertTrue(target.waitForExistence(timeout: 10))
+    target.scrollIntoClearBand(of: app.descendants(matching: .any)["history.list"], app: app)
     XCTAssertFalse(markedDone(in: app).exists)
 
     // Dragging past the full-swipe threshold fires the first action; `swipeRight()` can stop short of it.
@@ -49,6 +50,7 @@ final class HistorySwipeUITests: XCTestCase {
     let app = launch()
     let target = row(in: app)
     XCTAssertTrue(target.waitForExistence(timeout: 10))
+    target.scrollIntoClearBand(of: app.descendants(matching: .any)["history.list"], app: app)
 
     // A short drag reveals the buttons; a full swipe would archive instead.
     let start = target.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5))

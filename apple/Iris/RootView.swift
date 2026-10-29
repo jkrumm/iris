@@ -5,6 +5,7 @@ import SwiftUI
 /// History · Stats · Settings. Threads are not a tab: a conversation is a History row (round 2).
 struct RootView: View {
   let history: HistoryModel
+  @Bindable var take: TakeModel
   let stats: StatsModel
   let settings: SettingsModel
   let diagnostics: DiagnosticsModel
@@ -21,12 +22,13 @@ struct RootView: View {
   @State private var selection: Section
 
   init(
-    history: HistoryModel, stats: StatsModel, settings: SettingsModel, diagnostics: DiagnosticsModel,
+    history: HistoryModel, take: TakeModel, stats: StatsModel, settings: SettingsModel, diagnostics: DiagnosticsModel,
     connectionForm: ConnectionModel? = nil, startsOnSettings: Bool = false,
     makeDetail: @escaping (Memo) -> MemoDetailModel, makeComposer: @escaping (ComposerRequest) -> ComposerModel,
     makeThread: @escaping (ThreadRoute) -> ThreadModel
   ) {
     self.history = history
+    self.take = take
     self.stats = stats
     self.settings = settings
     self.diagnostics = diagnostics
@@ -50,5 +52,36 @@ struct RootView: View {
       }
     }
     .tint(Theme.Accent.tint)
+    // The record control sits above the tab bar on every screen; a running take replaces it (the banner below).
+    .modifier(RecordAccessoryModifier(model: take))
+    // A take continues as a compact banner under each screen's navigation bar (`takeBanner()`); tapping it brings the
+    // take screen back.
+    .environment(take)
+    .fullScreenCover(isPresented: $take.showsFull) {
+      TakeView(model: take)
+    }
+    .alert(
+      String(localized: "Recording", comment: "Take failure alert title"),
+      isPresented: Binding(get: { take.failure != nil }, set: { if !$0 { take.failure = nil } })
+    ) {
+      Button(String(localized: "OK", comment: "Dismisses the take failure alert"), role: .cancel) {}
+    } message: {
+      Text(verbatim: take.failure ?? "")
+    }
+    .task { await take.run() }
+  }
+}
+
+/// The record control as the tab bar's bottom accessory. `isEnabled` (iOS 26.1) hides it while a take runs; on 26.0 it stays
+/// and is disabled, since `canStart` is false then.
+private struct RecordAccessoryModifier: ViewModifier {
+  let model: TakeModel
+
+  func body(content: Content) -> some View {
+    if #available(iOS 26.1, *) {
+      content.tabViewBottomAccessory(isEnabled: !model.isActive) { RecordAccessory(model: model) }
+    } else {
+      content.tabViewBottomAccessory { RecordAccessory(model: model) }
+    }
   }
 }
