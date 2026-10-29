@@ -83,8 +83,7 @@ final class OutboxVoiceReplyCapture: VoiceReplyCapture {
     let session = try await stack.session()
     if cancelled {
       // The memo of a cancelled reply may already exist on the server (it is deleted there): History must not show it.
-      if let id = await session.current.memoID { await service.created.forget(id.wireID) }
-      await session.cancel()
+      if let id = await session.cancel() { await service.created.forget(id.wireID) }
       return .discarded
     }
     let result: TakeResult?

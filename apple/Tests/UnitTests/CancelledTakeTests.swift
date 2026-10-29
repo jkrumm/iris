@@ -2,6 +2,7 @@ import Foundation
 import IrisCapture
 import IrisCore
 import Testing
+import os
 
 @testable import Iris
 
@@ -130,6 +131,46 @@ struct CancelledTakeTests {
     #expect(await !FileManager.default.fileExists(atPath: file.path))
   }
 
+  @Test("a Discard that loses to a stop in flight hides nothing, deletes nothing and the memo is sent")
+  func discardLosesToStop() async throws {
+    let gate = UploadGate()
+    let created = CreatedMemoLog()
+    let forgotten = OSAllocatedUnfairLock<[String]>(initialState: [])
+    await created.setForgottenHandler { id in forgotten.withLock { $0.append(id) } }
+    let capture = FakeCapture(
+      directory: FileManager.default.temporaryDirectory.appending(path: "iris-unit-\(UUID().uuidString)"))
+    let stack = CaptureStack(
+      .init(
+        session: capture.session, routes: capture.routes,
+        recorder: StopGatedRecorder(base: capture.recorder, gate: gate), clock: ManualClock(),
+        store: InMemoryOutboxStore(), uploader: APIOutboxUploader(client: client, created: created),
+        policy: OutboxPolicy(jitter: { 0 })))
+    let service = OutboxService(stack: stack, created: created)
+    let controller = TakeController(
+      stack: stack,
+      liveActivity: TakeLiveActivityCoordinator(activity: RecordingLiveActivity(), stack: stack, created: created),
+      outbox: service, microphone: nil, canRecord: true, isConfigured: { true }, requestPermission: { true })
+
+    let id = try await controller.start(mode: .auto)
+    await capture.recordWithoutClock(seconds: 12)
+    #expect(await waitFor { await created.memo(id: id.wireID) != nil })
+
+    // The Stop is flushing its last segment when Discard is tapped: Discard waits for it and finds the take over.
+    let stopping = Task { try await controller.stop() }
+    #expect(await waitFor { await gate.arrived > 0 }, "the stop is suspended inside the recorder")
+    let discarding = Task { await controller.cancel() }
+    try await Task.sleep(for: .milliseconds(100))
+    await gate.open()
+    let result = try await stopping.value
+    await discarding.value
+
+    #expect(result != nil, "the stop won: the take was sent")
+    #expect(forgotten.withLock { $0 }.isEmpty, "a take that was sent is not hidden from History")
+    #expect(await !client.calls.contains(.deleteMemo(id: id.wireID)))
+    #expect(await waitFor { (try? await client.memo(id: id.wireID))?.memo.state == .received })
+    #expect(await client.calls.contains { if case .completeMemo = $0 { true } else { false } })
+  }
+
   @Test("the Live Activity of a cancelled take ends at once; it is not handed to the server")
   func activityEndsOnCancel() async throws {
     let rig = OutboxRig(client: client)
@@ -210,4 +251,24 @@ private nonisolated struct GatedUploader: SegmentUploader {
   }
 
   func delete(memoID: MemoID) async throws { try await base.delete(memoID: memoID) }
+}
+
+/// A recorder whose `stop()` waits for the gate, so a test can hold a Stop inside its last flush.
+private nonisolated struct StopGatedRecorder: SegmentRecorder {
+  let base: FakeSegmentRecorder
+  let gate: UploadGate
+
+  var events: AsyncStream<CaptureEvent> { base.events }
+  var levels: AsyncStream<Float> { base.levels }
+
+  func start(memoID: MemoID) async throws { try await base.start(memoID: memoID) }
+
+  func stop() async throws {
+    await gate.pass()
+    try await base.stop()
+  }
+
+  func rotate(for reason: RotationReason) async { await base.rotate(for: reason) }
+  func pause() async { await base.pause() }
+  func resume() async { await base.resume() }
 }

@@ -237,6 +237,15 @@ struct CaptureSessionTests {
     await finish(rig)
   }
 
+  @Test func cancelNamesTheMemoItDiscardedAndNothingWhenThereWasNone() async throws {
+    let rig = try await makeRig()
+    #expect(await rig.session.cancel() == nil, "no take, nothing discarded")
+    let id = try await rig.session.start(request)
+    #expect(await rig.session.cancel() == id)
+    #expect(await rig.session.cancel() == nil, "the take is already gone")
+    await finish(rig)
+  }
+
   @Test func cancelSendsNothingAndDeletesTheFiles() async throws {
     let rig = try await makeRig()
     await rig.harness.uploader.hold()
