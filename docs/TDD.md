@@ -18,7 +18,7 @@ Iris has three deliverables in one monorepo:
 - **Capture:** the phone records 10 s segments and uploads them while I am
   still talking.
 - **Processing:** the server concatenates, transcribes (the agent-workflows
-  audio door, Voxtral), routes (spoken prefix, then agent-gateway `decide`), acts
+  audio door, Voxtral), routes (spoken prefix, then agent-workflows `decide`), acts
   (journal, herdr or Hermes), summarizes (`triage`) and notifies (APNs: Live
   Activity update plus a rich alert).
 - **Tracing:** one trace per memo, keyed by the memo UUID, spans all three
@@ -60,7 +60,7 @@ Iris has three deliverables in one monorepo:
  MacBook (Iris for macOS, menu bar) ─────────────────┘                                              │
           ▲                                                                                         ├─> audio door 127.0.0.1:7792  STT · TTS
           └──────────── APNs (alert · liveactivity) <───────────────────────────────────────────────┤
-                                                                                                    ├─> agent-gateway 127.0.0.1:7705  decide · triage
+                                                                                                    ├─> agw host 127.0.0.1:7791       decide · triage
                                                                                                     ├─> Hermes :8642 (mini tailnet IP)  sessions
                                                                                                     ├─> herdr socket  snapshot · send_text
                                                                                                     ├─> ~/SourceRoot/brain/Inbox  (brain-sync lock)
@@ -145,7 +145,7 @@ notified (summarize step failed) ──retry(from: summarize)──> acted
   that asks to fails). `act` parks when the herdr tab it was routed to has vanished. The answer is the same `POST /route`, which routes it back
   to `act`.
 - **Optional steps (built, Wave 16):** `summarize` is the only one (`OPTIONAL_STEPS`, `memo/memo.ts`). The summary is an extra, so a
-  permanent failure of the step (the runner's automatic retries used up, a plain error such as agw `triage` answering with the Requesty 402, or
+  permanent failure of the step (the runner's automatic retries used up, a plain error such as agw `triage` answering with a permanent error such as a 402 or a 502 `INVALID_OUTPUT`, or
   a hermes memo with no summarizer) does not fail the memo: `MemoStore.skipStep` marks the step row `failed` (error and attempts stay, so the
   waterfall shows it failed) and compare-and-sets the memo `acted` → `summarized` in one transaction, with `failed_step` and `error` null.
   `notify` runs next and the memo ends in the ordinary terminal state `notified` (`isResultReady` and `/result`, `memo.done` need no change)
@@ -178,20 +178,20 @@ notified (summarize step failed) ──retry(from: summarize)──> acted
   throw) fails at once. A `TransientError` is `before_send` when the request provably never reached the destination (connection
   refused, DNS) and `after_send` otherwise (a timeout, a reset, a 5xx, an unrecognised `fetch failed`: it may have been delivered).
 
-  **A hang guard is not transient.** The 30-minute guard of a model call (the agw job runner behind decide and triage) and the
+  **A hang guard is not transient.** The 30-minute guard of a model call (the agw host client behind decide and triage, an aborted request) and the
   idle watchdogs (Hermes: no response, or a stream gone idle, within the idle window) mean the downstream is wedged, so a retry would only
   wait out the same window again (~90 minutes for three tries). They throw a plain error (`hangGuardFailure` in `ports/transient.ts`): the step fails after one window and `POST /retry` is the decision. A short request
-  timeout that means "try again" (the 15 s agw request, the 30 s Hermes session create) stays transient, as do 5xx and connection errors. The audio-door STT timeout (30 minutes, `timeoutMs` in the adapter) is a hang guard too: one window, then `hangGuardFailure`. The speech timeout (2 minutes) is not retried either: `/speech` is a request, not a step, and answers 503.
+  timeout that means "try again" (the 30 s Hermes session create) stays transient, as do 5xx and connection errors. The audio-door STT timeout (30 minutes, `timeoutMs` in the adapter) is a hang guard too: one window, then `hangGuardFailure`. The speech timeout (2 minutes) is not retried either: `/speech` is a request, not a step, and answers 503.
 
   | Step | Retried on |
   |-|-|
   | transcribe, route (decide), summarize, notify | every transient failure |
   | act | `before_send` only: Hermes may already have run the turn after a timeout or 5xx, so those fail and `POST /retry` is the (human) decision |
 
-  The agent-gateway job submit (`summarize`, `route` decide) is the exception inside those steps: a timeout, reset or 5xx on the submit
-  may have created a paid job, so only a submit that provably never left (refused, DNS) is transient; any other submit failure is a plain
-  error and fails the step. Failures while polling an accepted job are handled as before (three polls in a row cancel the job and fail
-  the step). `stop()` (shutdown) during a backoff cuts the wait short and runs nothing more: the step stays `running`, not `failed`,
+  `decide` and `triage` are one synchronous request to the agent-workflows host (no submit/poll), so there is no half-created job to guard:
+  a 500, a 503 and a network error are transient and retried like any other step; a 400, a 401 and a 502 `INVALID_OUTPUT` (the model failed
+  twice) are final. The hang guard aborts the request, which cancels the host's run and the provider call (no `Idempotency-Key`, so the
+  host treats a gone client as a cancel; `POST /runs/<id>/cancel` is not used). `stop()` (shutdown) during a backoff cuts the wait short and runs nothing more: the step stays `running`, not `failed`,
   and the next boot's `driveAll` re-runs it from `attempts` 1. Each try bumps
   `memo_steps.attempts`; while the runner waits to retry, the row stays `running` with `error` set to the failure it is retrying
   (clients read `status`, never `error != null`, as failure), and the error clears on success. No `memo.updated` event goes out for a
@@ -326,14 +326,19 @@ machine, Retries); retention (audio deleted 30 days after `notified`) is not bui
    - A mode or prefix that names an unregistered destination parks at `needs_route` with the reason "<destination> not available".
    - With fewer than two registered destinations the step stops here: it routes to the only one (source `default`, confidence 1, no spend). When that
      one is herdr it needs a tab like mode `tab` does: the only live tab, else a park with "which tab?" (or "herd unavailable").
-   - Otherwise call `decide` through the `Decider` port (agw `decide` job, hang guard like `triage`) with state = transcript (first 4k chars) + one line
+   - Otherwise call `decide` through the `Decider` port (agw host `POST /decide`, hang guard like `triage`) with state = transcript (first 4k chars) + one line
      per live tab, and questions `destination: choice[<registered>]`, plus `tab: choice[...]` when herdr is registered and there are live
      tabs. A failing `Herd` call omits the tab lines and the question. Source `decide`.
    - At confidence ≥ 0.8 → `routed` (for herdr the weaker of destination and tab confidence, and a live tab is required); otherwise
      `needs_route` with the model's best guess recorded as the decision's destination. A refusal, an unknown choice, herdr without a live tab
      and a missing decider ("decide unavailable") park the same way. An infrastructure failure of the call (transport error, hang guard,
      off-schema answer) throws instead: the step fails and `POST /retry {from: route}` recovers it.
-   - Every outcome is written to `route_decisions`; the step row records the `decide` cost and usage. Span attributes `route`,
+   - Every outcome is written to `route_decisions`; the step row records the `decide` cost and usage (`costUsd` null stays null, never 0), and the log
+     line and span of the call carry the host's `agw.run_id`.
+   - **decide's model (S4, 2026-10-29):** the host's `decide` runs `decision-1-eu` (off Requesty; the answer's `model` reads `microsoft-decision-1`). A live probe through
+     `route()` and the real adapter, journal / hermes / herdr registered with two live tabs, bounded by `timeout`: journal 0.9996 and 0.9998, hermes 0.9940 and
+     0.9997, herdr 0.985 (tab `iris / server` picked) and 0.985 (tab `dotfiles / claude` picked), a vague "mach mal das Ding fertig" 0.30 (parked at `needs_route`).
+     Every clear case routes far above 0.8 and the ambiguous one falls far under it, so the 0.8 threshold stays. Span attributes `route`,
      `route.source`, `route.confidence`; log `route.decided`.
 4. **act:** dispatches on `memo.route`; a route without a registered destination fails the step. For `herdr` the tab comes from the latest
    routed decision (`store.listRouteDecisions`, not a `correction`) and is passed to `Destination.deliver` as `tab`; a herdr route without one
@@ -351,9 +356,8 @@ machine, Retries); retention (audio deleted 30 days after `notified`) is not bui
    **Hermes rewrites unknown session sources.** `_normalize_session_source` in Hermes' `api_server` keeps only its own allow-list (`api_server`, `browser`, `cli`, `telegram`, `discord`, `slack`, `desktop`, `dashboard`) and maps anything else to `api_server`. Both `iris` and `iris-chat` are therefore stored as `api_server` on the Hermes side: a chat is not visible there. `threads.kind` in Iris's own database is the marker. The values are still sent, which works unchanged if Hermes widens its list.
 
    **Continuing a thread** (shipped, see Threads under the HTTP API): `Destination.deliver` takes `threadId`; the Hermes adapter then uses that session as it is (no `POST /api/sessions`) and goes straight to `chat/stream`.
-5. **summarize:** agw `triage` with the schema
-   `{headline (≤60), detail (≤240), spoken (≤2 sentences)}` over the
-   destination, transcript excerpt and reply. Journal and herdr skip the model
+5. **summarize:** agw host `POST /triage {destination, transcript, reply?}` (raw fields, sent whole; the host cuts each at 4000 characters and owns the prompt) answering the flat
+   `{headline (≤60), detail (≤240), spoken (≤300 characters, the cap standing for two sentences), model, attempts, latencyMs, usage}`. Journal and herdr skip the model
    and use templates (no spend, no summarizer needed): headline "Saved to journal" / "Sent to <repo> / <label>" (≤60; "Sent to tab" when the
    herd no longer lists the tab), detail the whitespace-collapsed transcript excerpt (≤240), spoken one sentence. Hermes keeps the model and
    fails the step without a summarizer; the step is optional (§Memo state machine, Optional steps), so the memo goes on to `notify` with
@@ -445,7 +449,7 @@ The research gateway was down for this item (503), so the facts above come from 
 | Pele | npm `pele` 1.10.0 (MIT), `render(text, {fontFamily}) → {svg, width, height}` sync, throws `PeleError`; theme = `--pele-bg/fg/muted/line/surface/surface-alt/border/accent/critical/error/font` and `--pele-series-1..8` on the root `<svg>` | https://pele.run, `node_modules/pele/dist/*.d.ts` |
 | resvg-js | `@resvg/resvg-js` 2.6.2: `new Resvg(svg, {background, fitTo: {mode: "zoom", value}, font: {loadSystemFonts, defaultFontFamily}}).render().asPng()`; no CSS `var()` support, so the SVG is resolved first | https://github.com/thx/resvg-js |
 | audio door | agent-workflows `audio` process, `http://127.0.0.1:7792/v1`, `Authorization: Bearer` from the `iris=` line of `~/.agent-workflows/data/door-tokens`. Synchronous multipart; `{text}` (`verbose_json` = one segment, so no timestamps); TTS at `POST /audio/speech`, `response_format` mp3. 401 `{error:{message:'unauthorized'}}`. Every response, errors included, has `agw-run-id` (the run that records the call and its cost). `GET :7792/health` is `make verify`'s downstream check | `agent-workflows/packages/audio/README.md` ("The door on the process", "Caller auth") |
-| agent-gateway | `POST :7705/api/jobs {tool, params}` → id; `GET /api/jobs/:id`; loopback, no auth; results carry `usage`, `model`, `latencyMs` | `agent-gateway/server/routes/jobs.ts`, AGENTS.md |
+| agent-workflows host | `http://127.0.0.1:7791`, `Authorization: Bearer <AGW_API_SECRET>` (`op://mini/agent-workflows/API_SECRET`), `x-agw-purpose: iris`, no redirects. Synchronous `POST /triage` and `POST /decide`; flat answers carry `model`, `latencyMs`, `usage` (`costUsd` null when any attempt is unpriced). Every response, errors included, has `agw-run-id`. 400, 401 and 502 `INVALID_OUTPUT` are final, 500 and 503 transient. `GET :7791/health` is `make verify`'s downstream check | `agent-workflows/packages/capabilities/README.md` (triage, decide), `packages/host/README.md` (auth, cancel, idempotency) |
 | Hermes | Bearer from `op://hermes/gateway/api-server-key`; SSE named events | `argo/apps/api/src/lib/hermes-upstream.ts` |
 | herdr | Newline-delimited JSON over `~/.config/herdr/herdr.sock`: `session.snapshot`, `pane.send_text`, `pane.send_keys` | collie `HERDR_API.md` |
 | APNs | HTTP/2 `api.push.apple.com` / `api.sandbox.push.apple.com`. ES256 provider JWT, refreshed every 20–60 min (`@parse/node-apn` regenerates it at 55 min, inside the window). Live Activity: `apns-push-type: liveactivity`, topic `<bundle>.push-type.liveactivity`, `aps.{timestamp, event, content-state}`. Priority 5 doesn't consume the budget, 10 does | `docs/research/2026-10-27-apns-from-bun.md` |
@@ -461,7 +465,7 @@ The research gateway was down for this item (503), so the facts above come from 
 | `IRIS_DEVICE_TOKENS` | Device tokens |
 | `IRIS_DATA` | The data directory |
 | `AUDIO_DOOR_URL`, `AUDIO_DOOR_TOKEN` | The audio door base (with `/v1`) and the `iris` caller token. Both register `transcribe` and `speech`. The URL is a plain value in `.env.local.tpl`; `launch.sh` reads the token from the local `door-tokens` file (no 1Password ref) |
-| `AGW_URL` | agent-gateway base URL |
+| `AGW_URL`, `AGW_API_SECRET` | The agent-workflows host base (`http://127.0.0.1:7791`, https or loopback) and its bearer (`op://mini/agent-workflows/API_SECRET`). Both register `summarize` (`triage`) and the decider (`decide`) |
 | `HERMES_URL`, `HERMES_TOKEN` | Hermes endpoint and bearer |
 | `HERDR_SOCKET` | Path to the herdr socket; registers the `herdr` destination and serves `GET /v1/herd` |
 | `BRAIN_DIR` | The brain checkout; registers the `journal` destination (notes in `Inbox/`, then `git push`). Optional: unset leaves journal unregistered, not degraded. `launch.sh` sets it on the mini when `~/SourceRoot/brain` exists |
@@ -836,15 +840,15 @@ the `IrisCore` dependency when R1 wires them together.
     is part of the OTel flush at shutdown. Without `OTEL_EXPORTER_OTLP_ENDPOINT`
     the batch is accepted and discarded (`degraded` already lists `otel`).
   - On iOS, MetricKit crash and hang diagnostics are relayed on the next launch.
-- **Propagation:** the audio door and agw don't accept `traceparent` (factory
+- **Propagation:** the audio door and the agw host don't accept `traceparent` (factory
   ADR-006 plans it), so Iris spans carry the memo id as an attribute on every
   downstream call. Once ADR-006 lands, `traceparent` is added.
 - **Cost:**
   - STT/TTS spend is recorded by the audio door as a run per request (caller `iris`, from the bearer token's
     name); the `agw-run-id` of each call is on the Iris span and log line (`agw.run_id`), so a memo's trace
     leads to its run record;
-  - `decide`/`triage` spend goes into agw's NDJSON feed for usage-tracker, attributed to
-    `caller: "iris"` (top level of the job body, set by the agw adapters);
+  - `decide`/`triage` spend is recorded by the host as a run per call (purpose `iris`, the `x-agw-purpose` header);
+    the `agw-run-id` of each call is on the Iris span and log line (`agw.run_id`) as for the audio door;
   - Iris posts no usage rows (they would double-count). It stores per-step
     `usage`/`cost_usd` for the memo detail.
 - **Later (not R0–R3):** HyperDX alerts (`iris memo-failed ≥ 1/15m`,

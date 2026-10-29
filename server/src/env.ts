@@ -4,13 +4,14 @@ const emptyToUndefined = (v: unknown) => (v === "" ? undefined : v);
 
 const LOOPBACK_HOST = /^(localhost|127(\.\d{1,3}){3}|\[::1\])$/;
 
-/** The bearer travels with every call, so the door is reached over TLS or on this machine only. */
-const doorUrl = z.url().refine((v) => {
-  // zod runs the refinement after a failed `url()` too.
-  if (!URL.canParse(v)) return false;
-  const { protocol, hostname } = new URL(v);
-  return protocol === "https:" || (protocol === "http:" && LOOPBACK_HOST.test(hostname));
-}, "AUDIO_DOOR_URL must be https or a loopback host (127.0.0.1, localhost, [::1]): the bearer token is sent with every request");
+/** The bearer travels with every call, so a downstream is reached over TLS or on this machine only. */
+const bearerUrl = (name: string) =>
+  z.url().refine((v) => {
+    // zod runs the refinement after a failed `url()` too.
+    if (!URL.canParse(v)) return false;
+    const { protocol, hostname } = new URL(v);
+    return protocol === "https:" || (protocol === "http:" && LOOPBACK_HOST.test(hostname));
+  }, `${name} must be https or a loopback host (127.0.0.1, localhost, [::1]): the bearer token is sent with every request`);
 
 export const Env = z.object({
   PORT: z.coerce.number().default(7730),
@@ -27,9 +28,12 @@ export const Env = z.object({
   // The agent-workflows audio door (STT + TTS): base with the version segment, `http://127.0.0.1:7792/v1` on the
   // mini, and the caller token (`iris=` line of `~/.agent-workflows/data/door-tokens`, read by `launch.sh`). Both are
   // required for `transcribe` and `speech` to register.
-  AUDIO_DOOR_URL: z.preprocess(emptyToUndefined, doorUrl.optional()),
+  AUDIO_DOOR_URL: z.preprocess(emptyToUndefined, bearerUrl("AUDIO_DOOR_URL").optional()),
   AUDIO_DOOR_TOKEN: z.preprocess(emptyToUndefined, z.string().optional()),
-  AGW_URL: z.preprocess(emptyToUndefined, z.url().optional()),
+  // The agent-workflows host (`triage`, `decide`): `http://127.0.0.1:7791` on the mini, and its bearer
+  // (`op://mini/agent-workflows/API_SECRET`). Both are required for the two to register.
+  AGW_URL: z.preprocess(emptyToUndefined, bearerUrl("AGW_URL").optional()),
+  AGW_API_SECRET: z.preprocess(emptyToUndefined, z.string().trim().optional()),
   HERMES_URL: z.preprocess(emptyToUndefined, z.url().optional()),
   HERMES_TOKEN: z.preprocess(emptyToUndefined, z.string().optional()),
   // herdr's unix socket (`~/.config/herdr/herdr.sock` on the mini); unset leaves `GET /v1/herd` at 503 and the `herdr` destination unregistered.

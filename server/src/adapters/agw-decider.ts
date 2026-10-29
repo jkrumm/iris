@@ -1,10 +1,8 @@
 import { z } from "zod";
 import type { Decider, Choice, Decision } from "../ports/decider.js";
-import { createAgwJobRunner, type AgwClientOptions } from "./agw.js";
-
-// Polling is the only tuning: the timeout is the job runner's hang guard (agent-limits), like triage.
-// A failed job throws; the route step fails and POST /retry {from: route} recovers it.
-const DEFAULT_POLL_INTERVAL_MS = 500;
+import { log } from "../telemetry/log.js";
+import type { AgwClient } from "./agw-client.js";
+import { RUN_ID_ATTR } from "./audio-door-client.js";
 
 const DESTINATION_INSTRUCTIONS =
   "A voice memo was dictated. Decide where it should go. The memo is in German or English; choose the destination whose description fits what the speaker wants.";
@@ -20,7 +18,7 @@ const Answer = z.discriminatedUnion("type", [
   z.looseObject({ type: z.literal("refusal") }),
 ]);
 
-const DecideResult = z.looseObject({
+const DecideResponse = z.looseObject({
   answers: z.record(z.string(), Answer),
   model: z.string(),
   usage: z.looseObject({ costUsd: z.number().nullish() }).nullish(),
@@ -32,20 +30,17 @@ function choiceOf(answer: z.infer<typeof Answer> | undefined): Choice | null {
     : null;
 }
 
-export type AgwDeciderOptions = AgwClientOptions;
-
-/** `Decider` on the agent-gateway `decide` tool: one decision-model call, no text generation. */
-export function createAgwDecider(opts: AgwDeciderOptions): Decider {
-  const run = createAgwJobRunner({
-    pollIntervalMs: DEFAULT_POLL_INTERVAL_MS,
-    ...opts,
-  });
+/**
+ * `Decider` on the agent-workflows `decide` capability: one decision-model call, no text generation.
+ * A failure throws; the route step fails and POST /retry {from: route} recovers it.
+ */
+export function createAgwDecider(opts: { client: AgwClient }): Decider {
   return {
     async decide({ memoId, state, destinations, tabs }): Promise<Decision> {
-      const result = await run({
+      const { data, runId } = await opts.client.call({
         memoId,
-        tool: "decide",
-        params: {
+        path: "/decide",
+        body: {
           state,
           questions: {
             destination: {
@@ -58,15 +53,11 @@ export function createAgwDecider(opts: AgwDeciderOptions): Decider {
             }),
           },
         },
+        schema: DecideResponse,
       });
-      const parsed = DecideResult.safeParse(result);
-      if (!parsed.success) {
-        const issues = parsed.error.issues
-          .map((issue) => `${issue.path.join(".") || "result"}: ${issue.message}`)
-          .join("; ");
-        throw new Error(`agw decide result does not match the decision schema: ${issues}`);
-      }
-      const { answers, model, usage } = parsed.data;
+      const { answers, model, usage } = data;
+      log("agw.decided", { memo_id: memoId, [RUN_ID_ATTR]: runId });
+      // A null cost is unpriced, not free: store none, never 0.
       const costUsd = usage?.costUsd ?? undefined;
       return {
         destination: choiceOf(answers["destination"]),

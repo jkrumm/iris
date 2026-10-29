@@ -181,6 +181,7 @@ describe("compose", () => {
       AUDIO_DOOR_URL: "http://127.0.0.1:1/v1",
       AUDIO_DOOR_TOKEN: "door-token",
       AGW_URL: "http://127.0.0.1:1",
+      AGW_API_SECRET: "agw-secret",
       HERMES_URL: "http://127.0.0.1:1",
       HERMES_TOKEN: "token",
       HERDR_SOCKET: "/nonexistent/herdr.sock",
@@ -238,9 +239,23 @@ describe("compose", () => {
       ...hermes,
       BRAIN_DIR: "/nonexistent/brain",
       AGW_URL: "http://127.0.0.1:1",
+      AGW_API_SECRET: "agw-secret",
     }).composed;
     expect(withDecider.degraded).not.toContain("decide");
     expect(withDecider.ports.decider).toBeDefined();
+  });
+
+  it("the agent-workflows host needs both its URL and its secret, else summarize is degraded", () => {
+    const url = "http://127.0.0.1:1";
+    for (const env of [{ AGW_URL: url }, { AGW_API_SECRET: "s" }]) {
+      const { ports, degraded } = build(env).composed;
+      expect([ports.summarizer, ports.decider]).toEqual([undefined, undefined]);
+      expect(degraded).toContain("summarize");
+    }
+    const both = build({ AGW_URL: url, AGW_API_SECRET: "s" }).composed;
+    expect(both.ports.summarizer).toBeDefined();
+    expect(both.ports.decider).toBeDefined();
+    expect(both.degraded).not.toContain("summarize");
   });
 
   it("Hermes needs both its URL and token", () => {

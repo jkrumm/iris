@@ -2,6 +2,7 @@ import { describe, expect, it } from "bun:test";
 import { MemoError } from "./errors.js";
 import { createMemoEvents, type MemoEvent } from "./events.js";
 import type { HandlerStep } from "./memo.js";
+import { createAgwClient } from "../adapters/agw-client.js";
 import { createAgwSummarizer } from "../adapters/agw.js";
 import { TransientError } from "../ports/transient.js";
 import { createRunner, RETRY_DELAYS_MS, type StepHandler } from "./runner.js";
@@ -785,20 +786,20 @@ describe("automatic retries", () => {
   });
 
   it("fails a summarize that hangs past the guard on attempt 1", async () => {
-    let polls = 0;
+    let aborted = false;
     const summarizer = createAgwSummarizer({
-      baseUrl: "http://agw.test",
-      timeoutMs: 3000,
-      sleep: async () => {},
-      fetch: (async (input: string | URL | Request, init?: RequestInit) => {
-        const path = new URL(String(input)).pathname;
-        if (init?.method === "POST" && path === "/api/jobs") {
-          return Response.json({ ok: true, job: { id: "job-1" } });
-        }
-        if (init?.method === "POST") return Response.json({ ok: true, job: { id: "job-1" } });
-        polls += 1;
-        return Response.json({ ok: true, job: { status: "running" } });
-      }) as typeof fetch,
+      client: createAgwClient({
+        baseUrl: "http://agw.test",
+        secret: "s",
+        timeoutMs: 30,
+        fetch: ((_input: string | URL | Request, init?: RequestInit) =>
+          new Promise<Response>((_resolve, reject) => {
+            init?.signal?.addEventListener("abort", () => {
+              aborted = true;
+              reject(init.signal?.reason);
+            });
+          })) as typeof fetch,
+      }),
     });
     const handler: StepHandler = async () => {
       await summarizer.summarize({
@@ -813,11 +814,11 @@ describe("automatic retries", () => {
     const { id } = seedMemo(store, "acted");
     await runner.drive(id);
 
-    expect(polls).toBeGreaterThan(0);
+    expect(aborted).toBe(true);
     expect(delays).toEqual([]);
     expect(store.getMemo(id)).toMatchObject({ state: "notified", failedStep: null });
     expect(stepRecord(store, id, "summarize")).toMatchObject({ status: "failed", attempts: 1 });
-    expect(stepRecord(store, id, "summarize")?.error).toContain("timed out after 3000 ms");
+    expect(stepRecord(store, id, "summarize")?.error).toContain("timed out after 30 ms");
   });
 
   it("does not retry act after a request that may have been delivered", async () => {

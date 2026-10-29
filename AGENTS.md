@@ -63,8 +63,8 @@ Never start dev servers for a human to look at; simulators are fine, shut them d
   returns a `RouteDecision`, never throws; a spoken or mode `tab` is resolved against the herd to a tab id), `index.ts`.
 - `server/src/adapters/` — `sqlite.ts` (+ `sqlite-migrations.ts`, `PRAGMA user_version`; migration 7 adds the `memo_fts` FTS5 index behind history search), `sqlite-devices.ts`
   (`DeviceStore`, same db), `sqlite-threads.ts` (`ThreadStore`: the thread read queries, composed into the memo store), `sqlite-stats.ts` (`StatsStore`: read-only aggregates behind `GET /stats`), `audio-fs.ts` (segments + `combined.m4a`), `speech-fs.ts` (`<id>.mp3` + `<id>.txt`), `assets-fs.ts` (`<id>/<asset id>` reply assets), `diagram-pele.ts` (`DiagramRenderer`: Pele + resvg-js; migration 11 adds `reply_assets`),
-  and the downstream adapters (`audio-door-client.ts`: the one door client, URL + bearer + `agw-run-id` + hang guard, no redirects; `audio-door.ts`: the transcriber + the ffmpeg combiner; `audio-door-speaker.ts`, Hermes, agw (`agw.ts`: `triage` summarizer
-  and the shared job runner; `agw-decider.ts`: the `decide` job),
+  and the downstream adapters (`audio-door-client.ts`: the one door client, URL + bearer + `agw-run-id` + hang guard, no redirects; `audio-door.ts`: the transcriber + the ffmpeg combiner; `audio-door-speaker.ts`, Hermes, agw (`agw-client.ts`: the one agent-workflows host client, URL + bearer + `x-agw-purpose: iris` + `agw-run-id` + hang guard (an aborted request), no redirects; `agw.ts`: the `triage` summarizer;
+  `agw-decider.ts`: the `decide` call),
   `herdr.ts` over the unix socket: the `Herd` and the `herdr` `Destination`, log notifier), and the APNs pair: `notifier-apns.ts` (`Notifier` over an `ApnsTransport`)
   and `apns-node.ts` (the transport on `@parse/node-apn`; `apns-test-support.ts` generates test keys and certs).
 - `server/src/ports/` — `audio.ts` (`AudioStore`, `AudioCombiner`, `Recording`), `clock.ts` (system, fixed and manual clocks),
@@ -198,7 +198,7 @@ Push to master deploys. LaunchAgent `com.jkrumm.iris` (KeepAlive, `ExitTimeOut` 
   agent-workflows) into `AUDIO_DOOR_TOKEN` without echoing it; a missing file or line starts degraded (`transcribe`, `speech`) and says why on stderr.
   Rotate it by editing that file and restarting both LaunchAgents. `APNS_*` is unset (no `op://` ref yet, so not in `.env.mini.tpl`; add both at enrolment), so the log notifier runs.
 - `HERMES_URL` is composed in `launch.sh` from `HERMES_HOST` + `HERMES_PORT`. The journal takes brain-sync's mkdir lock exactly as `brain/brain-sync.sh` does (own pid in `<lockDir>/pid`; a live pid or a pidless lock under 60 s waits, a dead pid or an older pidless lock is reclaimed; release only while the pid is still ours). It pushes the brain checkout over HTTPS with the mini's headless credential helper (no prompt); `launch.sh` exports `BRAIN_DIR` only when the checkout exists.
-- agent-gateway jobs (`triage`, `decide`) are submitted with `caller: "iris"` at the top level of the `POST /api/jobs` body, for per-consumer spend attribution; an older gateway ignores it.
+- agent-workflows host calls (`POST /triage`, `POST /decide`, synchronous) carry `x-agw-purpose: iris` for per-consumer spend attribution and `Authorization: Bearer <AGW_API_SECRET>`; `AGW_API_SECRET` is `op://mini/agent-workflows/API_SECRET` in `.env.local.tpl` (in `headless.refs`). Every answer, errors included, has `agw-run-id`, logged and set on the span as `agw.run_id`. 400, 401 and 502 `INVALID_OUTPUT` are final; 500, 503 and network errors are transient (the runner's retries); the hang guard (30 min) aborts the request and is not transient. `costUsd` null is stored as null, never 0. `make verify` also probes `GET http://127.0.0.1:7791/health`.
 
 
 ## Verify & Monitor
@@ -246,7 +246,7 @@ Push to master deploys. LaunchAgent `com.jkrumm.iris` (KeepAlive, `ExitTimeOut` 
   change and the done row; a lost compare-and-set writes nothing. `resetForRetry` clears the columns of
   the re-run steps and later. A store error in `completeStep` is bookkeeping, not a step failure: it
   propagates and the drive failure is logged.
-- **Downstream env** (all optional, empty = unset): `AUDIO_DOOR_URL` (https or a loopback host, else the start fails) + `AUDIO_DOOR_TOKEN` (both, for `transcribe` and `speech`), `AGW_URL`, `HERMES_URL` +
+- **Downstream env** (all optional, empty = unset): `AUDIO_DOOR_URL` (https or a loopback host, else the start fails) + `AUDIO_DOOR_TOKEN` (both, for `transcribe` and `speech`), `AGW_URL` (https or a loopback host) + `AGW_API_SECRET` (both, for `triage` and `decide`), `HERMES_URL` +
   `HERMES_TOKEN`, `HERDR_SOCKET` and `BRAIN_DIR` (`launch.sh` sets each on the mini only when it exists: the herdr socket, `~/SourceRoot/brain`; a herdr started after iris needs `make launchd-restart`). Each of
   `BRAIN_DIR` (journal), `HERDR_SOCKET` (herdr, also the herd) and `HERMES_*` registers its destination on its own; a missing one is not
   `degraded`, `act` is only when none is registered. Without the rest, `/health` lists `transcribe` /
@@ -262,7 +262,7 @@ Push to master deploys. LaunchAgent `com.jkrumm.iris` (KeepAlive, `ExitTimeOut` 
   builds its conversation from the thread's memos (transcript = user, `reply_text` = assistant), never from Hermes. Swift: `MemoMode` decodes an unknown value to `.unknown`.
 - **Routing** (`routing/`, TDD §3 step 3), in order: a mode other than `auto` wins (source `mode`); a spoken prefix within the first 6 words
   (`journal|tagebuch`, `an hermes|hermes`, `tab <name>`; case and diacritics folded; the name may be several words, the longest live tab or repo label wins) routes (`prefix`); `memo.transcript` stays the raw speech-to-text and `act` / `summarize` cut the prefix again via `deliveredTranscript` by the `prefix_words` count the decision row recorded;
-  with fewer than two registered destinations the only one wins (`default`, confidence 1, no spend); two or more (production since Wave 11: journal, herdr, hermes; `IRIS_FAKES` registers all three) turn the decider on; otherwise `Decider` (agw `decide`, the job runner's hang guard): confidence ≥ 0.8 routes, else `needs_route`. A mode or prefix
+  with fewer than two registered destinations the only one wins (`default`, confidence 1, no spend); two or more (production since Wave 11: journal, herdr, hermes; `IRIS_FAKES` registers all three) turn the decider on; otherwise `Decider` (agw `decide`, the host client's hang guard): confidence ≥ 0.8 routes, else `needs_route`. A mode or prefix
   naming an unregistered destination (an unset `BRAIN_DIR`, `HERDR_SOCKET` or `HERMES_*`), a refusal, an unknown choice, herdr without a live tab, low confidence and a missing
   decider (`decide` in `/health` `degraded`, only with ≥ 2 destinations) park at `needs_route`. A decide infrastructure failure (transport error, hang-guard
   timeout, off-schema answer) throws; a hang guard is a plain error, never `TransientError` (`hangGuardFailure`, TDD §3 Retries), so the route step fails after one window and `POST /retry {from: route}` recovers it. With no destination at all neither `route`
