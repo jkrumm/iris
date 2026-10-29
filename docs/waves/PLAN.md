@@ -739,7 +739,7 @@ with `make e2e` before the train. Workers touching `IrisCapture`, intents or the
       with backoff, survives relaunch, and Settings shows it as a queue (I3 of Wave 14 left the port). `StartMemoIntent` + Control
       compile and run on the simulator; Live Activity client phases recording/paused/uploading (Wave 7 carry-forward).
       `-IrisFakeCapture` UI tests for record → upload → processing → done, and for offline → queued → sent.
-- [ ] **I4. Capture UI (backlog 2, simulator part):** start recording from any screen; while browsing the take continues as a
+- [x] **I4. Capture UI (backlog 2, simulator part):** start recording from any screen; while browsing the take continues as a
       **compact top banner** (tap returns to the full take); leaving the app moves it to the Live Activity; Dynamic Island with icon controls
       (stop, mic swap, pause), animated step progress, several queued memos; the done card's checkmark aligned. Snapshot tests on the
       pinned simulator (Dynamic Island model). Device exit checks (lock screen, background take, Bluetooth) stay for pairing.
@@ -769,7 +769,16 @@ outbox (a failed save never reports success, an unsaved segment is withheld from
 per-snapshot save results (no duplicate after relaunch), the Live Activity push token kept until the server has it, a stalled send shown as
 stalled (not "will be sent"), unique History section ids and a pinned sample clock (UI tests failed between midnight and ~02:00). Rule
 applied from round 5: later findings that cannot lose or duplicate data became follow-ups. The hosted runner flakes on
-`StatsSettingsUITests` ("Failed to terminate com.jkrumm.iris", twice, green on rerun; cause unexplained).
+`StatsSettingsUITests` and `MemoDetailUITests` ("Failed to terminate com.jkrumm.iris", three times since the capture core, green on
+rerun; cause unexplained, likely an app-side termination stall) and once on "Timed out while evaluating UI query".
+**I4:** #34 merged as `f38c11e` (full `make check`). Record from any screen through the tab bar's bottom accessory (tap Auto, long press
+picks a mode), a full take screen that minimizes to a per-screen top banner, the Live Activity and Dynamic Island views in `IrisUI`
+(snapshots light and dark), Stop/mic swap/pause as `LiveActivityIntent`s, the done card's checkmark on the first baseline, a "N earlier
+memos are still sending" line. The client half of cancel-delete: a take cancelled after its memo exists queues a persisted, retried
+`DELETE`; History hides it at once; a late 409 counts as final. Review round 1 blocking fixed: a Discard that loses to a Stop hides nothing
+and sends no `DELETE` (the thread voice reply had the same pattern). Limits: no per-step progress in the Live Activity (the phase drives
+it; the step needs a server push); detail and thread hide the tab bar, so no record control there (the banner shows); the device checks
+(lock screen and island rendering, island buttons while suspended, a background take, Bluetooth) are listed in TDD §4.
 **Deploy:** server `3028113` deployed, `make verify` healthy; the boot backfill ran (`reply.backfill` examined 0). Production thread probe
 with the smoke token: typed chat `256ac9d0-…` then a continuation `f859f57c-…`, both `notified`; `GET /v1/threads/:id` returned kind
 `chat`, 2 memos, 4 messages in order. `make smoke` not rerun (fails at `summarize` until Wave 16).
@@ -784,7 +793,9 @@ leaves its file until the 10-minute purge. I3: a single take controller (reviewe
 machine and an outbox split); `stop()` can hold the gate if the recorder never emits `stopped`; `endOrphans()` runs on every connection
 change, so changing the server URL mid-take ends that take's Live Activity; out-of-order token responses in `ActivityTokenRegistrar` can
 leave a stale push token registered; a segment file whose record never saved is orphaned after a crash (no startup sweep of the capture
-directory); the unit-test host hang seen locally is unexplained.
+directory); the unit-test host hang seen locally is unexplained. I4: a discarded take whose create reached the server but whose answer was
+lost gets no server `DELETE` (it stays `receiving`); a stalled `DELETE` is dropped silently; History's hidden set does not survive a
+relaunch; a double-start race; `cancel()` returns silently after a session-open failure; take and outbox state-machine duplication.
 
 ## Wave 16 — summarize optional + Wave 15 debt ∥ R2 routing on iOS            <!-- status: pending -->
 The owner-confirmed summarize item, the outbox reset, Wave 15's follow-ups that touch data or correctness, and backlog 5's simulator part.
