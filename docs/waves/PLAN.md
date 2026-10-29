@@ -755,7 +755,7 @@ with `make e2e` before the train. Workers touching `IrisCapture`, intents or the
 - [x] Deploy and prove: `make verify` (+ `make smoke`, which still fails at `summarize` until triage leaves Requesty: note it, do not
       block); a production thread probe (typed chat, then a continuation) reads back through `GET /v1/threads/:id`; `apple.yml` green;
       TDD and AGENTS.md amended.
-**Left behind (lead, closed 2026-10-29):** merged by the train: #26 S1a, #27 S1b, #28 S2 (server: `make check-server check-contracts guard`
+**Left behind:** (lead, closed 2026-10-29) merged by the train: #26 S1a, #27 S1b, #28 S2 (server: `make check-server check-contracts guard`
 + `make e2e` per merge; the full `make check` builds Xcode and collided with a running I worker), #29 I1, #30 I2 (full `make check`).
 `agw review` (CLI) on every PR, blocking findings fixed before merge (#28: a failed herd read was re-read, so a label-less prefix could
 resolve to the wrong tab). Non-blocking fixes taken: #26 per-drive slot tokens, body-read timeouts as hang guards; #27 stale pending
