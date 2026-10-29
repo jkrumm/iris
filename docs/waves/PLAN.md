@@ -850,6 +850,19 @@ not answered by the time of writing; A loses nothing, so it ships. A delete vari
 - [ ] Deploy and prove: `make verify` + **`make smoke` green**; the `failed(summarize)` memos since Wave 14 read `done` in production;
       `apple.yml` green; TDD and AGENTS.md amended.
 
+## Wave 17 — switch to the agent-workflows platform, delete the old gateway adapters            <!-- status: pending -->
+Requested 2026-10-29 by agent-workflows-mother (the owner sunsets agent-gateway, research-gateway and audio-gateway). Server-only
+(`server/**`, `scripts/**`, env templates, TDD, AGENTS.md). Starts when Wave 16 has closed **and** agent-workflows has sent the
+contract (endpoints, auth, env names) with its audio door live; until then it waits, and backlog work continues. Written in full then.
+- [ ] `Decider` → the new `agw` host's `decide`; `Summarizer` → a schema-constrained call on the new host (`{headline ≤60, detail ≤240,
+      spoken ≤2 sentences}` over destination + transcript excerpt + reply; not `llm.classify`); job cancel kept for the 30-min hang guard;
+      `caller: "iris"` attribution and per-call usage/cost kept (TDD §Cost).
+- [ ] STT (`/v1/audio/transcriptions`) and TTS (`/v1/audio/speech`) → the new OpenAI-compatible audio door, keeping the caller
+      attribution that `x-audio-source` gives today.
+- [ ] Delete `agw.ts`, `agw-decider.ts`, `audio-gateway.ts`, `audio-gateway-speaker.ts`, `AGW_URL`, `AUDIO_GATEWAY_URL` and its `op://`
+      ref; new refs into `dotfiles-private/headless.refs` and seeded via `ask-human.sh`. Fakes and conformance tests move with the ports.
+- [ ] Deploy and prove: `make verify` + `make smoke` (decide, summarize with a real summary, STT, `/speech`) in production.
+
 ## Fleet backlog (for the long-running fleet: mother → lead → workers)
 
 Not waves of this chain. The fleet's mother turns these into active waves, one at a time,
