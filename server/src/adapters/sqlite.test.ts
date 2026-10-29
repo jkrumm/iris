@@ -1167,6 +1167,37 @@ describe("reply assets", () => {
     expect(store.getReplyAsset(id, "new-svg-light")).toBeNull();
   });
 
+  it("a completeStep that throws rolls back and settles the staging as discarded, once", () => {
+    const { store } = testStore();
+    const { id } = seedMemo(store, "routed");
+    const settled: string[] = [];
+    store.markStepStarted({ id, step: "act" });
+    store.stageReplyAssets(id, {
+      replyText: "r",
+      // An asset the table refuses makes the commit's transaction throw.
+      assets: [{ ...(files(0, "a")[0] as ReplyAsset), format: "gif" as never }],
+      failed: false,
+      onSettled: (outcome) => void settled.push(outcome),
+    });
+
+    expect(() =>
+      store.completeStep({
+        id,
+        step: "act",
+        from: "routed",
+        to: "acted",
+        patch: { replyText: "r" },
+      }),
+    ).toThrow();
+    expect(settled).toEqual(["discarded"]);
+    expect(store.getMemo(id)).toMatchObject({ state: "routed", replyText: null });
+    expect(store.getMemo(id)?.replyBlocks).toEqual([]);
+
+    // Nothing is left staged: a later commit of the same reply settles nothing again.
+    store.completeStep({ id, step: "act", from: "routed", to: "acted", patch: { replyText: "r" } });
+    expect(settled).toEqual(["discarded"]);
+  });
+
   it("only the latest staging of a memo settles with a commit; a newer one discards the older", () => {
     const { store } = testStore();
     const { id } = seedMemo(store, "routed");

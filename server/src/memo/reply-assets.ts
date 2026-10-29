@@ -99,7 +99,7 @@ export function createReplyAssets(deps: {
       rendered = await renderer.render(source);
     } catch (err) {
       log("reply.render_failed", { memo_id: memoId, block, error: String(err) });
-      return [];
+      return { assets: [], rejected: true };
     }
     const { width, height } = rendered;
     const files: { asset: ReplyAsset; bytes: Uint8Array }[] = [];
@@ -123,14 +123,18 @@ export function createReplyAssets(deps: {
       await assets
         .remove({ memoId, assetIds: files.map((f) => f.asset.id) })
         .catch(() => undefined);
-      return [];
+      return { assets: [], rejected: false };
     }
-    return files.map((f) => f.asset);
+    return { assets: files.map((f) => f.asset), rejected: false };
   }
 
-  /** Renders and stores every block of the reply (capped); the files exist, nothing references them yet. `blocks` is how many were tried. */
+  /**
+   * Renders and stores every block of the reply (capped); the files exist, nothing references them yet. `blocks` is how many
+   * were tried, `rejected` how many the renderer refused (a block that failed to store is not one: that may pass next time).
+   */
   async function renderReply(memoId: string, replyText: string) {
     const stored: ReplyAsset[] = [];
+    let rejected = 0;
     const sources = extractMermaidBlocks(replyText);
     if (sources.length > MAX_BLOCKS) {
       log("reply.blocks_capped", { memo_id: memoId, total: sources.length, cap: MAX_BLOCKS });
@@ -138,9 +142,11 @@ export function createReplyAssets(deps: {
     for (const [block, source] of sources.slice(0, MAX_BLOCKS).entries()) {
       // Rendering is synchronous CPU work: let queued requests run between two blocks.
       await new Promise((resolve) => setImmediate(resolve));
-      stored.push(...(await renderBlock({ memoId, block, source })));
+      const result = await renderBlock({ memoId, block, source });
+      stored.push(...result.assets);
+      if (result.rejected) rejected++;
     }
-    return { stored, blocks: Math.min(sources.length, MAX_BLOCKS) };
+    return { stored, blocks: Math.min(sources.length, MAX_BLOCKS), rejected };
   }
 
   /** Deletes every file of the memo that no row names. */
@@ -151,10 +157,11 @@ export function createReplyAssets(deps: {
   }
 
   /** What follows the store settling a staged reply, inside the memo's queue. */
-  function settled(params: { memoId: string; stored: readonly ReplyAsset[] }) {
-    const { memoId, stored } = params;
+  function settled(params: { memoId: string; stored: readonly ReplyAsset[]; failed: boolean }) {
+    const { memoId, stored, failed } = params;
     return (outcome: "committed" | "discarded") => {
       if (outcome === "discarded") log("reply.assets_discarded", { memo_id: memoId });
+      if (outcome === "committed" && failed) log("reply.assets_marked_failed", { memo_id: memoId });
       // Committed: the earlier reply's files are unreferenced now. Discarded: only this attempt's files go.
       const cleanup =
         outcome === "committed"
@@ -173,12 +180,14 @@ export function createReplyAssets(deps: {
     try {
       const rendered = await renderReply(memoId, replyText);
       stored = rendered.stored;
+      // Marked only when the renderer refused every block: a failed store (a full disk) is worth another try at boot.
+      const failed = rendered.blocks > 0 && rendered.rejected === rendered.blocks;
       // A memo purged while it rendered has no row left to own the files.
       staged = store.stageReplyAssets(memoId, {
         replyText,
         assets: stored,
-        failed: rendered.blocks > 0 && stored.length === 0,
-        onSettled: settled({ memoId, stored }),
+        failed,
+        onSettled: settled({ memoId, stored, failed }),
       });
     } catch (err) {
       log("reply.assets_failed", { memo_id: memoId, error: String(err) });
@@ -199,8 +208,13 @@ export function createReplyAssets(deps: {
       const rendered = await renderReply(memoId, replyText);
       stored.push(...rendered.stored);
       if (stored.length === 0) {
-        // Every diagram failed: remember it, or the next boot renders them all again.
-        store.markReplyAssetsFailed({ id: memoId, replyText });
+        // The renderer refused every diagram: remember it, or the next boot renders them all again.
+        if (
+          rendered.rejected === rendered.blocks &&
+          store.markReplyAssetsFailed({ id: memoId, replyText })
+        ) {
+          log("reply.assets_marked_failed", { memo_id: memoId });
+        }
         return false;
       }
       attached = store.attachReplyAssets({ id: memoId, replyText, assets: stored });

@@ -627,9 +627,19 @@ export function createSqliteMemoStore(params: { db: Database; clock: Clock }): M
     },
 
     completeStep(input) {
-      const won = completeStep(input);
       const text = input.patch?.replyText;
       const staged = stagedAssets.get(input.id);
+      let won: boolean;
+      try {
+        won = completeStep(input);
+      } catch (err) {
+        // The transaction rolled back: the staged reply never commits, so its files must not be left behind.
+        if (text !== undefined && staged?.replyText === text) {
+          stagedAssets.delete(input.id);
+          staged.onSettled("discarded");
+        }
+        throw err;
+      }
       // The reply the staged assets were rendered for is settled either way; the rows were handled in the transaction.
       if (text !== undefined && staged?.replyText === text) {
         stagedAssets.delete(input.id);

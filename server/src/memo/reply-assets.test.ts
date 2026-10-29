@@ -208,20 +208,35 @@ const commitAct = (store: ReturnType<typeof setup>["store"], id: string, replyTe
 
 describe("sync and the commit of the reply", () => {
   it("keeps the assets invisible until completeStep commits the reply they were rendered for", async () => {
-    const { store, replies, assets } = setup();
+    const { store, assets, renderer } = setup();
+    let stagedIds: string[] = [];
+    const replies = createReplyAssets({
+      store: {
+        ...store,
+        stageReplyAssets: (memoId, staged) => {
+          stagedIds = staged.assets.map((a) => a.id);
+          return store.stageReplyAssets(memoId, staged);
+        },
+      },
+      assets,
+      renderer,
+    });
     const id = routedMemo(store);
     const reply = fence("A-->B");
     await replies.sync({ memoId: id, replyText: reply });
 
     // Rendered and stored, but nothing names the files yet.
-    expect(assets.files.size).toBe(4);
+    expect(stagedIds).toHaveLength(4);
+    for (const assetId of stagedIds) {
+      expect(await assets.read({ memoId: id, assetId })).not.toBeNull();
+      expect(store.getReplyAsset(id, assetId)).toBeNull();
+    }
     expect(store.getMemo(id)?.replyBlocks).toEqual([]);
-    const [anyFile] = [...assets.files.keys()];
-    expect(store.getReplyAsset(id, anyFile?.split("/")[1] ?? "")).toBeNull();
 
     expect(commitAct(store, id, reply)).toBe(true);
     await replies.idle();
     expect(store.getMemo(id)?.replyBlocks).toHaveLength(1);
+    for (const assetId of stagedIds) expect(store.getReplyAsset(id, assetId)).not.toBeNull();
     expect(assets.files.size).toBe(4);
   });
 
@@ -410,17 +425,75 @@ describe("backfill", () => {
     expect(renderer.calls).toEqual(["unrenderable"]);
   });
 
-  it("a reply whose diagrams all failed in the act step is marked with the commit, not retried at boot", async () => {
+  it("a reply whose diagrams the renderer all refused in the act step is marked with the commit (and logged), not retried at boot", async () => {
     const { store, replies, renderer } = setup();
     const id = routedMemo(store);
     const reply = fence("unrenderable");
-    await replies.sync({ memoId: id, replyText: reply });
-    expect(commitAct(store, id, reply)).toBe(true);
-    await replies.idle();
+    const { lines } = await captureLogs(async () => {
+      await replies.sync({ memoId: id, replyText: reply });
+      expect(commitAct(store, id, reply)).toBe(true);
+      await replies.idle();
+    });
+    expect(lines.filter((l) => l["event"] === "reply.assets_marked_failed")).toEqual([
+      expect.objectContaining({ memo_id: id }),
+    ]);
     expect(renderer.calls).toEqual(["unrenderable"]);
 
     expect(await replies.backfill()).toBe(0);
     expect(renderer.calls).toEqual(["unrenderable"]);
+  });
+
+  it("the backfill logs the memo it marks", async () => {
+    const { store, replies } = setup();
+    const id = committed(store, fence("unrenderable"));
+    const { lines } = await captureLogs(() => replies.backfill());
+    expect(lines.filter((l) => l["event"] === "reply.assets_marked_failed")).toEqual([
+      expect.objectContaining({ memo_id: id }),
+    ]);
+  });
+
+  it("a failing file store is no reason to mark: the act pass leaves the memo a candidate for the next boot", async () => {
+    const { store, renderer, assets } = setup();
+    const broken = {
+      ...assets,
+      put: async (): Promise<void> => {
+        throw new Error("disk full");
+      },
+    };
+    const id = routedMemo(store);
+    const reply = fence("A-->B");
+    const full = createReplyAssets({ store, assets: broken, renderer });
+    const { lines } = await captureLogs(async () => {
+      await full.sync({ memoId: id, replyText: reply });
+      expect(commitAct(store, id, reply)).toBe(true);
+      await full.idle();
+    });
+    expect(lines.map((l) => l["event"])).toEqual(["reply.store_failed"]);
+    expect(store.getMemo(id)?.replyBlocks).toEqual([]);
+
+    expect(await createReplyAssets({ store, assets, renderer }).backfill()).toBe(1);
+    expect(store.getMemo(id)?.replyBlocks).toHaveLength(1);
+  });
+
+  it("a failing file store is no reason to mark in the backfill either, nor is a mix of refused and unstored blocks", async () => {
+    const { store, renderer, assets } = setup();
+    const broken = {
+      ...assets,
+      put: async (): Promise<void> => {
+        throw new Error("disk full");
+      },
+    };
+    const plain = committed(store, fence("A-->B"));
+    const mixed = committed(store, `${fence("unrenderable")}\n${fence("C-->D")}`);
+
+    const { lines } = await captureLogs(() =>
+      createReplyAssets({ store, assets: broken, renderer }).backfill(),
+    );
+    expect(lines.some((l) => l["event"] === "reply.assets_marked_failed")).toBe(false);
+
+    expect(await createReplyAssets({ store, assets, renderer }).backfill()).toBe(2);
+    expect(store.getMemo(plain)?.replyBlocks).toHaveLength(1);
+    expect(store.getMemo(mixed)?.replyBlocks.map((b) => b.index)).toEqual([1]);
   });
 
   it("a changed reply clears the marker, so the new diagrams are rendered", async () => {
