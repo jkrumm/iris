@@ -46,7 +46,8 @@ Build Iris R1–R5 (PRD §Release plan) as a self-driving loop: backlog item →
 
 - **Gateway sunset (agent-workflows, 2026-10-29):** both contracts arrived. Audio door → Wave 16 S3; decide + triage (ported as-is,
   host 7791, `x-agw-purpose: iris`, synchronous, abort = cancel) → Wave 16 S4. Wave 17 is free for backlog again. Questions to their
-  side: `rd say agent-workflows-w1`. After S4, Iris calls no old gateway; tell agent-workflows-mother when that is deployed.
+  side: `rd say agent-workflows-w1`. **Done 2026-10-29:** S3 `4ca67dc` + S4 `1b36891` deployed, smoke green with a real summary, review on `agw review --pr`;
+  agent-workflows-mother told. agent-gateway's review tool now refuses.
 
 ## Open owner items (none block the code, all wait for the owner)
 
