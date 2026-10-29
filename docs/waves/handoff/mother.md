@@ -44,10 +44,9 @@ Build Iris R1–R5 (PRD §Release plan) as a self-driving loop: backlog item →
 
 ## Cross-fleet
 
-- **Gateway sunset (agent-workflows-mother, 2026-10-29):** Iris moves off agent-gateway/audio-gateway in Wave 17 (sketch in PLAN.md).
-  Replied with needs (decide + a schema-constrained summary call, cancel, caller attribution, usage/cost, no Requesty; OpenAI-compatible
-  STT/TTS). Audio contract arrived 2026-10-29 → Wave 16 S3 (switch now). Answered on triage: port
-  it as-is (parity) or a generic structured call. Waiting for the decide + summary contract; Wave 17 then deletes the agw adapters.
+- **Gateway sunset (agent-workflows, 2026-10-29):** both contracts arrived. Audio door → Wave 16 S3; decide + triage (ported as-is,
+  host 7791, `x-agw-purpose: iris`, synchronous, abort = cancel) → Wave 16 S4. Wave 17 is free for backlog again. Questions to their
+  side: `rd say agent-workflows-w1`. After S4, Iris calls no old gateway; tell agent-workflows-mother when that is deployed.
 
 ## Open owner items (none block the code, all wait for the owner)
 
