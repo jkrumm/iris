@@ -80,8 +80,9 @@ Build Iris R1–R5 (PRD §Release plan) as a self-driving loop: backlog item →
 - **The lead's Claude prompt-suggestion line** (ghost text under the pane) can reveal a real blocker (it surfaced the Requesty 402).
 - **`rd wave` blocked at startup** = folder-trust prompt for an account or worktree path: read the pane and accept it.
 - **"Dangerous rm" prompts** block agents even under skip-permissions: `herdr agent read <name> --source visible`, answer if safe.
-- **`agw` CLI is `agw-legacy`** since 2026-10-28. Its review CLI prints only the summary; findings are in `GET /api/jobs/<id>`
-  `.job.result`. `/research` was down (503) during Wave 14.
+- **Review = `agw review --cwd <iris> --pr <N>`** (agent-workflows CLI, cheap models) since 2026-10-29, owner direction. Never
+  `agw-legacy` or agent-gateway's `/api/jobs` for review (its review tool refuses). Exit 10 → `agw run wait <runId>`. `/research` is
+  `agw research`.
 - **`rd wave`'s green gate** needs the previous wave's label exactly `**Left behind:**` (a suffix inside the bold fails it); the lead
   prompt now says so.
 - **Merge train:** `rd merge` fails on a draft PR (`gh pr ready`), needs a worktree holding the branch, runs `make check` but not
