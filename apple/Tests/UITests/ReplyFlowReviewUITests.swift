@@ -10,6 +10,11 @@ final class ReplyFlowReviewUITests: XCTestCase {
     continueAfterFailure = false
   }
 
+  /// The appearance outlives the test on the simulator, and every UI test class that runs after this one expects light.
+  override func tearDown() {
+    MainActor.assumeIsolated { XCUIDevice.shared.appearance = .light }
+  }
+
   @MainActor
   func testTextReplyLight() {
     textReply(appearance: .light, name: "light")
