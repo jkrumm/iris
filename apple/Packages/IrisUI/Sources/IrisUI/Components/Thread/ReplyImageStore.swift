@@ -40,7 +40,8 @@ public protocol ReplyAssetLoader: Sendable {
 }
 
 /// Decoded reply images for the thread screen: each file is loaded once, in flight at most once, and kept for the life
-/// of the store. A failure is remembered until ``load(_:)`` is asked again (tapping the placeholder does).
+/// of the store. A failure is remembered until ``load(_:)`` is asked again (tapping the placeholder does). At most
+/// ``maxConcurrentLoads`` files are fetched at once, so a long reply full of diagrams does not open a request each.
 @MainActor
 @Observable
 public final class ReplyImageStore {
@@ -54,9 +55,14 @@ public final class ReplyImageStore {
   private var failed: Set<ReplyAssetRef> = []
   private var inFlight: [ReplyAssetRef: Task<Void, Never>] = [:]
   @ObservationIgnored private let loader: any ReplyAssetLoader
+  @ObservationIgnored private let maxConcurrentLoads: Int
+  /// Loads holding a slot, and the loads waiting for one, oldest first.
+  @ObservationIgnored private var activeLoads = 0
+  @ObservationIgnored private var waiting: [CheckedContinuation<Void, Never>] = []
 
-  public init(loader: any ReplyAssetLoader) {
+  public init(loader: any ReplyAssetLoader, maxConcurrentLoads: Int = 3) {
     self.loader = loader
+    self.maxConcurrentLoads = max(maxConcurrentLoads, 1)
   }
 
   public func phase(for ref: ReplyAssetRef) -> Phase {
@@ -80,17 +86,37 @@ public final class ReplyImageStore {
     failed.remove(ref)
     let loader = loader
     let task = Task { [weak self] in
+      guard let self else { return }
+      await acquireSlot()
       let image: CGImage?
       do {
         image = await Self.decode(try await loader.data(for: ref))
       } catch {
         image = nil
       }
+      releaseSlot()
       guard !Task.isCancelled else { return }
-      self?.finish(ref, image: image)
+      finish(ref, image: image)
     }
     inFlight[ref] = task
     await task.value
+  }
+
+  /// Takes a load slot, waiting for one to free up when all are taken. A freed slot passes straight to the oldest waiter.
+  private func acquireSlot() async {
+    if activeLoads < maxConcurrentLoads {
+      activeLoads += 1
+      return
+    }
+    await withCheckedContinuation { waiting.append($0) }
+  }
+
+  private func releaseSlot() {
+    if waiting.isEmpty {
+      activeLoads -= 1
+    } else {
+      waiting.removeFirst().resume()
+    }
   }
 
   private func finish(_ ref: ReplyAssetRef, image: CGImage?) {

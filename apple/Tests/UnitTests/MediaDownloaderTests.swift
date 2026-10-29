@@ -11,9 +11,13 @@ private nonisolated final class MediaStub: URLProtocol {
     var body: Data
   }
   private static let replies = Mutex<[String: Reply]>([:])
+  private static let delays = Mutex<[String: Double]>([:])
   private static let seen = Mutex<[String: [[String: String]]]>([:])
 
-  static func serve(host: String, _ reply: Reply) { replies.withLock { $0[host] = reply } }
+  static func serve(host: String, _ reply: Reply, delay: Double = 0) {
+    replies.withLock { $0[host] = reply }
+    delays.withLock { $0[host] = delay }
+  }
   static func requests(host: String) -> [[String: String]] { seen.withLock { $0[host] ?? [] } }
 
   override class func canInit(with request: URLRequest) -> Bool { true }
@@ -27,9 +31,19 @@ private nonisolated final class MediaStub: URLProtocol {
       return
     }
     Self.seen.withLock { $0[host, default: []].append(request.allHTTPHeaderFields ?? [:]) }
-    client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-    client?.urlProtocol(self, didLoad: reply.body)
-    client?.urlProtocolDidFinishLoading(self)
+    let delay = Self.delays.withLock { $0[host] ?? 0 }
+    // The protocol object is not Sendable; the delivery happens on the thread URLSession gave it.
+    nonisolated(unsafe) let this = self
+    let deliver = {
+      this.client?.urlProtocol(this, didReceive: response, cacheStoragePolicy: .notAllowed)
+      this.client?.urlProtocol(this, didLoad: reply.body)
+      this.client?.urlProtocolDidFinishLoading(this)
+    }
+    if delay > 0 {
+      DispatchQueue.global().asyncAfter(deadline: .now() + delay, execute: deliver)
+    } else {
+      deliver()
+    }
   }
 }
 
@@ -98,5 +112,51 @@ struct MediaDownloaderTests {
     MediaStub.serve(host: host, .init(status: 200, body: Data("x".utf8)))
     let file = try await downloader().localURL(for: request(reusable: false, name: "../../escape.m4a"))
     #expect(file.deletingLastPathComponent().path == directory.path)
+  }
+
+  @Test("two asks for the same file while it downloads are one request")
+  func singleFlight() async throws {
+    defer { try? FileManager.default.removeItem(at: directory) }
+    MediaStub.serve(host: host, .init(status: 200, body: Data("audio".utf8)), delay: 0.4)
+    let downloader = downloader()
+    let wanted = try request(reusable: false)
+    async let first = downloader.localURL(for: wanted)
+    async let second = downloader.localURL(for: wanted)
+    let files = try await [first, second]
+    #expect(files[0] == files[1])
+    #expect(MediaStub.requests(host: host).count == 1)
+
+    // Finished flights are forgotten: a later ask for a file that is not kept fetches it again.
+    _ = try await downloader.localURL(for: wanted)
+    #expect(MediaStub.requests(host: host).count == 2)
+  }
+
+  @Test("a failed download is not remembered: the next ask tries again")
+  func failureIsNotCached() async throws {
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let downloader = downloader()
+    MediaStub.serve(host: host, .init(status: 503, body: Data()))
+    await #expect(throws: MediaDownloadError.status(503)) {
+      try await downloader.localURL(for: request(reusable: true))
+    }
+    MediaStub.serve(host: host, .init(status: 200, body: Data("ok".utf8)))
+    let file = try await downloader.localURL(for: request(reusable: true))
+    #expect(try Data(contentsOf: file) == Data("ok".utf8))
+  }
+
+  @Test("evicting a memo removes its recording, speech and images, and only its own")
+  func evict() async throws {
+    defer { try? FileManager.default.removeItem(at: directory) }
+    MediaStub.serve(host: host, .init(status: 200, body: Data("x".utf8)))
+    let downloader = downloader()
+    let names = ["m1.audio.m4a", "m1.speech.mp3", "m1.light.png", "m10.audio.m4a", "m2.audio.m4a"]
+    for name in names { _ = try await downloader.localURL(for: request(reusable: true, name: name)) }
+
+    downloader.evict(memoID: "m1")
+    let left = try FileManager.default.contentsOfDirectory(atPath: directory.path).sorted()
+    #expect(left == ["m10.audio.m4a", "m2.audio.m4a"])
+
+    downloader.evict(memoID: "never-cached")
+    #expect(try FileManager.default.contentsOfDirectory(atPath: directory.path).count == 2)
   }
 }

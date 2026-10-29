@@ -31,6 +31,9 @@ public struct StepWaterfallRow: Identifiable, Equatable, Sendable {
   /// "2 attempts": only set when the server tried the step more than once.
   public var attempts: String?
   public var error: String?
+  /// Set on a failed step the memo does not need (a failed summary on a finished memo): the row reads as a warning, not
+  /// as the memo's failure, and says in these words that the memo is done without it.
+  public var optionalNote: String?
   /// The title of the [Retry from step] button; set on the step the memo failed at.
   public var retryTitle: String?
   public var start: Double
@@ -44,6 +47,7 @@ public struct StepWaterfallRow: Identifiable, Equatable, Sendable {
     badge: Badge? = nil,
     attempts: String? = nil,
     error: String? = nil,
+    optionalNote: String? = nil,
     retryTitle: String? = nil,
     start: Double = 0,
     length: Double = 0
@@ -55,6 +59,7 @@ public struct StepWaterfallRow: Identifiable, Equatable, Sendable {
     self.badge = badge
     self.attempts = attempts
     self.error = error
+    self.optionalNote = optionalNote
     self.retryTitle = retryTitle
     self.start = min(max(start, 0), 1)
     self.length = min(max(length, 0), 1 - self.start)

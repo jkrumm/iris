@@ -44,16 +44,22 @@ actor FakePipeline {
     self.step = step
   }
 
-  func run(_ memoID: String) {
+  /// Walks `memoID` to `notified`. A typed memo is created already transcribed (and keeps its own words as the transcript),
+  /// so it only has the route and the answer ahead of it.
+  func run(_ memoID: String, typed: Bool = false) {
     guard tasks[memoID] == nil else { return }
     // Owned by `tasks`; cancelled with the pipeline.
     tasks[memoID] = Task { [client, step] in
-      let stages: [(MemoState, String?, String?)] = [
+      let voice: [(MemoState, String?, String?)] = [
         (.transcribed, "This is the fake transcript of your voice memo.", nil),
         (.routed, nil, nil),
         (.notified, nil, "This is the fake answer to your voice memo."),
       ]
-      for (state, transcript, reply) in stages {
+      let text: [(MemoState, String?, String?)] = [
+        (.routed, nil, nil),
+        (.notified, nil, "This is the fake answer to your message."),
+      ]
+      for (state, transcript, reply) in typed ? text : voice {
         try? await Task.sleep(for: step)
         guard !Task.isCancelled else { return }
         try? await client.advance(memoID, to: state, transcript: transcript, replyText: reply)
@@ -67,12 +73,17 @@ actor FakePipeline {
   }
 }
 
-/// The uploader of `-IrisFakeCapture`: the real adapter over the fake API, and the fake pipeline starts on `complete`.
+/// The uploader of `-IrisFakeCapture`: the real adapter over the fake API, and the fake pipeline starts on `complete` (a
+/// typed memo: on its create).
 nonisolated struct FakePipelineUploader: SegmentUploader {
   let base: APIOutboxUploader
   let pipeline: FakePipeline
 
-  func create(_ item: OutboxItem) async throws { try await base.create(item) }
+  func create(_ item: OutboxItem) async throws {
+    try await base.create(item)
+    // A typed memo has no segments and no `complete`: the server drives it on from the create.
+    if case .text = item.kind { await pipeline.run(item.memoID.wireID, typed: true) }
+  }
   func upload(_ segment: ClosedSegment) async throws { try await base.upload(segment) }
   func delete(memoID: MemoID) async throws { try await base.delete(memoID: memoID) }
 

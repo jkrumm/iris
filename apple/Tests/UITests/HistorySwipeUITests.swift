@@ -1,17 +1,13 @@
 import XCTest
 
-final class HistorySwipeUITests: XCTestCase {
+final class HistorySwipeUITests: IrisUITestCase {
   private let headline = "Wochenplan abgestimmt"
-
-  override func setUp() {
-    continueAfterFailure = false
-  }
 
   @MainActor
   private func launch() -> XCUIApplication {
     let app = XCUIApplication()
     app.launchArguments = SampleClock.arguments + ["-IrisUndoSeconds", "60"]
-    app.launch()
+    start(app)
     XCTAssertTrue(app.descendants(matching: .any)["history.list"].waitForExistence(timeout: 10))
     return app
   }

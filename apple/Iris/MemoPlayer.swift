@@ -26,7 +26,7 @@ final class MemoPlayer {
   private let logger = Logger(subsystem: "com.jkrumm.iris", category: "player")
 
   /// `duration` is the length the memo says; the item replaces it once AVFoundation knows the real one.
-  init(duration: Double = 0, downloader: MediaDownloader = MediaDownloader()) {
+  init(duration: Double = 0, downloader: MediaDownloader = .shared) {
     self.duration = duration
     self.downloader = downloader
   }

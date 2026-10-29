@@ -20,6 +20,12 @@ import Observation
 /// voice takes all go in through it, Settings reads the queue out, and the start intent records through the same session.
 /// Under `-IrisFakeCapture` the stack runs on fake audio and the fake API; `-IrisFakeOffline` makes the first create call
 /// of each kind fail, so a memo is queued and "retry now" sends it.
+/// What `CreatedMemoLog` tells History about a discarded memo, in the order it happened.
+private enum HiddenChange: Sendable {
+  case hide(String)
+  case unhide(String)
+}
+
 @MainActor
 @Observable
 final class CompositionRoot: CaptureIntentHandler {
@@ -90,7 +96,8 @@ final class CompositionRoot: CaptureIntentHandler {
           session: capture.session, routes: capture.routes, recorder: capture.recorder, clock: SystemCaptureClock(),
           store: fakeStore,
           uploader: FakePipelineUploader(
-            base: APIOutboxUploader(client: fake, created: created), pipeline: FakePipeline(client: fake)),
+            base: APIOutboxUploader(client: fake, created: created),
+            pipeline: FakePipeline(client: fake, step: Self.fakePipelineStep(arguments))),
           // A slow first retry: a queued item stays visible until "retry now", whatever the speed of the test runner.
           policy: OutboxPolicy(baseDelay: 30), deletesFilesWhenDone: false))
       let service = OutboxService(stack: stack, created: created)
@@ -104,11 +111,11 @@ final class CompositionRoot: CaptureIntentHandler {
       takeController = TakeController(
         stack: stack, liveActivity: coordinator, outbox: service, microphone: mic, canRecord: true,
         isConfigured: { true }, requestPermission: { true })
-      history = HistoryModel(client: fake)
+      history = HistoryModel(client: fake, evictMedia: { MediaDownloader.shared.evict(memoID: $0) })
       stats = StatsModel(client: fake)
       settings = SettingsModel(client: fake, queue: service)
       replyImages = ReplyImageStore(
-        loader: MediaAssetLoader(source: { FakeMediaSource() }, downloader: MediaDownloader()))
+        loader: MediaAssetLoader(source: { FakeMediaSource() }, downloader: .shared))
       voiceReply = OutboxVoiceReplyCapture(
         stack: stack, service: service, onBegan: { mic.start() }, willEnd: { await mic.stop() })
       take = TakeModel(controller: takeController)
@@ -134,7 +141,9 @@ final class CompositionRoot: CaptureIntentHandler {
         stack: production.stack, liveActivity: coordinator, outbox: service, microphone: nil,
         canRecord: production.canRecord, isConfigured: { credentials.load() != nil },
         requestPermission: { await AVAudioApplication.requestRecordPermission() })
-      history = HistoryModel(client: client)
+      history = HistoryModel(
+        client: client, hiddenStore: UserDefaultsHiddenMemoStore(),
+        evictMedia: { MediaDownloader.shared.evict(memoID: $0) })
       stats = StatsModel(client: client)
       settings = SettingsModel(client: client, queue: service, credentials: credentials)
       fakeCapture = nil
@@ -143,20 +152,45 @@ final class CompositionRoot: CaptureIntentHandler {
         requestPermission: { await AVAudioApplication.requestRecordPermission() })
       replyImages = ReplyImageStore(
         loader: MediaAssetLoader(
-          source: { Self.mediaSource(for: credentials.load()) }, downloader: MediaDownloader()))
+          source: { Self.mediaSource(for: credentials.load()) }, downloader: .shared))
       take = TakeModel(controller: takeController)
       connectionForm = ConnectionModel(store: credentials) { [unowned self] in connectionChanged() }
     }
     CaptureIntents.handler = self
     let history = history
+    // Hide and unhide of one memo must reach History in the order they happened (a discard, then its delete settling): one
+    // stream, one consumer, instead of a task per call.
+    let (hiddenChanges, hiddenChanged) = AsyncStream.makeStream(of: HiddenChange.self)
+    Task {
+      for await change in hiddenChanges {
+        switch change {
+        case .hide(let id): history.hide(id)
+        case .unhide(let id): history.unhide(id)
+        }
+      }
+    }
     Task {
       await outbox.created.setHandler { memo in Task { @MainActor in history.insert(memo) } }
-      await outbox.created.setForgottenHandler { id in Task { @MainActor in history.hide(id) } }
+      await outbox.created.setForgottenHandler { id in hiddenChanged.yield(.hide(id)) }
+      await outbox.created.setSettledHandler { id in hiddenChanged.yield(.unhide(id)) }
     }
   }
 
-  /// A server URL and token are saved (always true on fakes).
-  var isConfigured: Bool { credentials?.load() != nil || mode == .fake }
+  /// How long each fake pipeline stage takes: 1.2 s, or `-IrisFakeStepMs <n>` (a UI test that must catch the pending turn
+  /// before the answer replaces it asks for a slower server).
+  private static func fakePipelineStep(_ arguments: [String]) -> Duration {
+    guard let index = arguments.firstIndex(of: "-IrisFakeStepMs"), arguments.indices.contains(index + 1),
+      let milliseconds = Int(arguments[index + 1]), milliseconds > 0
+    else { return .milliseconds(1_200) }
+    return .milliseconds(milliseconds)
+  }
+
+  /// A server URL and token are saved (always true on fakes). Reads `connectionRevision`, so a view that shows this
+  /// follows the connection form's saves.
+  var isConfigured: Bool {
+    _ = connectionRevision
+    return credentials?.load() != nil || mode == .fake
+  }
 
   /// The model behind one open memo detail.
   func detailModel(for memo: Memo) -> MemoDetailModel {
@@ -185,6 +219,7 @@ final class CompositionRoot: CaptureIntentHandler {
     guard isConfigured else { return }
     // Loads the saved queue and sends what is due: items left over from the last session, or from before a connection change.
     await outbox.resume()
+    history.reconcileHidden(pendingDeletions: await outbox.pendingDeletionIDs())
     // A take's Live Activity does not outlive its process: end the ones the last run left in a client phase.
     await liveActivity.endOrphans()
     if connectionRevision > 0 {

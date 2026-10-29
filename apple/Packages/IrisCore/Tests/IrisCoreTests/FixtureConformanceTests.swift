@@ -218,6 +218,22 @@ struct FixtureConformanceTests {
     #expect(!encoded.contains("\"typed\""))
   }
 
+  @Test("a memo that finished without a summary: `summary` is null, the summarize step is failed, the memo is notified")
+  func summarizeFailedFixture() throws {
+    let detail = try IrisJSON.makeDecoder().decode(
+      MemoDetail.self, from: Contracts.fixtureData("memos.detail.response.summarize-failed"))
+    #expect(detail.memo.state == .notified)
+    #expect(detail.memo.summary == nil)
+    #expect(detail.memo.failedStep == nil)
+    #expect(detail.memo.error == nil)
+    let summarize = try #require(detail.steps.first { $0.step == .summarize })
+    #expect(summarize.status == .failed)
+    #expect(summarize.attempts == 3)
+    #expect(summarize.error == "agw triage failed: 402 payment required")
+    #expect(detail.steps.last?.step == .notify)
+    #expect(detail.steps.last?.status == .done)
+  }
+
   @Test("each step carries `attempts`: 3 on the step that exhausted its automatic retries, 1 elsewhere")
   func stepAttempts() throws {
     let decoder = IrisJSON.makeDecoder()

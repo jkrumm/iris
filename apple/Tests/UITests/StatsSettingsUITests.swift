@@ -1,15 +1,11 @@
 import XCTest
 
-final class StatsSettingsUITests: XCTestCase {
-  override func setUp() {
-    continueAfterFailure = false
-  }
-
+final class StatsSettingsUITests: IrisUITestCase {
   @MainActor
   private func launch() -> XCUIApplication {
     let app = XCUIApplication()
     app.launchArguments = SampleClock.arguments
-    app.launch()
+    start(app)
     XCTAssertTrue(app.descendants(matching: .any)["history.list"].waitForExistence(timeout: 10))
     return app
   }
@@ -40,16 +36,12 @@ final class StatsSettingsUITests: XCTestCase {
 }
 
 /// A saved outbox that cannot be decoded (`-IrisFakeUnreadableOutbox`): Settings offers a reset that sets the file aside.
-final class OutboxResetUITests: XCTestCase {
-  override func setUp() {
-    continueAfterFailure = false
-  }
-
+final class OutboxResetUITests: IrisUITestCase {
   @MainActor
   func testAnUnreadableOutboxCanBeResetAndTheSetAsideFileIsShareable() {
     let app = XCUIApplication()
     app.launchArguments = SampleClock.arguments + ["-IrisFakeUnreadableOutbox"]
-    app.launch()
+    start(app)
     XCTAssertTrue(app.descendants(matching: .any)["history.list"].waitForExistence(timeout: 10))
     app.tabBars.buttons["Settings"].tap()
 
@@ -67,19 +59,22 @@ final class OutboxResetUITests: XCTestCase {
   }
 }
 
-final class ProductionLaunchUITests: XCTestCase {
-  override func setUp() {
-    continueAfterFailure = false
-  }
-
+final class ProductionLaunchUITests: IrisUITestCase {
   @MainActor
   func testWithoutTheFakeFlagAndNoConnectionTheAppOpensOnTheConnectionForm() {
     let app = XCUIApplication()
     app.launchArguments = []
-    app.launch()
+    start(app)
     XCTAssertTrue(app.descendants(matching: .any)["settings.connection.url"].waitForExistence(timeout: 10))
     XCTAssertTrue(app.descendants(matching: .any)["settings.connection.token"].exists)
     XCTAssertTrue(app.descendants(matching: .any)["settings.connection.hint"].exists)
     XCTAssertFalse(app.descendants(matching: .any)["history.list"].exists)
+
+    // History has nothing to load without a connection: it says so and leads back to the form.
+    app.tabBars.buttons["History"].tap()
+    let connect = app.buttons["history.connect"]
+    XCTAssertTrue(connect.waitForExistence(timeout: 10))
+    connect.tap()
+    XCTAssertTrue(app.descendants(matching: .any)["settings.connection.url"].waitForExistence(timeout: 10))
   }
 }

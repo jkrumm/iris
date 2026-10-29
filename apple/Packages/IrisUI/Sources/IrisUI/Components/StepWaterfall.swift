@@ -60,7 +60,7 @@ private struct WaterfallRowView: View {
   var body: some View {
     VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
       HStack(alignment: .firstTextBaseline, spacing: Theme.Spacing.sm) {
-        PhaseIcon(phase: row.phase)
+        PhaseIcon(phase: row.phase, isOptional: row.optionalNote != nil)
           .frame(width: Self.iconWidth)
         Text(verbatim: row.title)
           .themeFont(.subheadline, weight: .semibold)
@@ -68,7 +68,7 @@ private struct WaterfallRowView: View {
         Spacer(minLength: Theme.Spacing.sm)
         metric
       }
-      if row.badge != nil || row.attempts != nil {
+      if row.badge != nil || row.attempts != nil || row.optionalNote != nil {
         ChipFlowLayout(spacing: Theme.Spacing.sm) {
           if let badge = row.badge { BadgeTag(badge: badge) }
           if let attempts = row.attempts {
@@ -76,16 +76,22 @@ private struct WaterfallRowView: View {
               .themeFont(.caption, weight: .medium)
               .foregroundStyle(Theme.Status.warn)
           }
+          if let note = row.optionalNote {
+            Text(verbatim: note)
+              .themeFont(.caption, weight: .medium)
+              .foregroundStyle(Theme.Ink.secondary)
+              .accessibilityIdentifier("detail.step.optional")
+          }
         }
         .padding(.leading, Self.iconWidth + Theme.Spacing.sm)
       }
       if let error = row.error {
         Text(verbatim: error)
           .font(.system(.caption, design: .monospaced))
-          .foregroundStyle(Theme.Status.bad)
+          .foregroundStyle(failureColor)
           .padding(Theme.Spacing.sm)
           .frame(maxWidth: .infinity, alignment: .leading)
-          .background(Theme.Status.bad.opacity(0.1), in: .rect(cornerRadius: Theme.Radius.control))
+          .background(failureColor.opacity(0.1), in: .rect(cornerRadius: Theme.Radius.control))
           .padding(.leading, Self.iconWidth + Theme.Spacing.sm)
       }
       if let retryTitle = row.retryTitle {
@@ -128,17 +134,22 @@ private struct WaterfallRowView: View {
     }
   }
 
+  /// A failure the memo can live without is a warning; any other is the memo's failure.
+  private var failureColor: Color {
+    row.optionalNote == nil ? Theme.Status.bad : Theme.Status.warn
+  }
+
   private var titleColor: Color {
     switch row.phase {
     case .waiting: Theme.Ink.faint
-    case .failed: Theme.Status.bad
+    case .failed: row.optionalNote == nil ? Theme.Status.bad : Theme.Ink.primary
     default: Theme.Ink.primary
     }
   }
 
   private var barColor: Color {
     switch row.phase {
-    case .failed: Theme.Status.bad
+    case .failed: failureColor
     case .running: Theme.Accent.tint.opacity(0.55)
     default: Theme.Accent.tint
     }
@@ -164,6 +175,7 @@ private struct WaterfallRowView: View {
 
 private struct PhaseIcon: View {
   let phase: StepWaterfallRow.Phase
+  var isOptional = false
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
   var body: some View {
@@ -180,7 +192,7 @@ private struct PhaseIcon: View {
     case .waiting: "clock"
     case .running: "circle.dotted"
     case .done: "checkmark.circle.fill"
-    case .failed: "xmark.circle.fill"
+    case .failed: isOptional ? "exclamationmark.triangle.fill" : "xmark.circle.fill"
     }
   }
 
@@ -189,7 +201,7 @@ private struct PhaseIcon: View {
     case .waiting: Theme.Ink.faint
     case .running: Theme.Accent.tint
     case .done: Theme.Status.good
-    case .failed: Theme.Status.bad
+    case .failed: isOptional ? Theme.Status.warn : Theme.Status.bad
     }
   }
 

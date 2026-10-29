@@ -36,8 +36,7 @@ struct WaterfallBuilderTests {
   @Test("the metric chip joins duration and cost; a free step shows the duration alone")
   func metrics() {
     let rows = WaterfallBuilder.rows(for: finished(), baselines: StepBaselines(), now: now)
-    #expect(rows[0].metric?.contains("$0") == true)
-    #expect(rows[0].metric?.contains("0040") == true)
+    #expect(rows[0].metric == "\(StepText.duration(milliseconds: 8_000)) · \(StepText.dollars(0.004))")
     #expect(rows[1].metric == "10 ms")
   }
 
@@ -131,5 +130,38 @@ struct WaterfallBuilderTests {
     #expect(total?.milliseconds == 20_000)
     #expect(abs((total?.costUsd ?? 0) - 0.046) < 1e-6)
     #expect(WaterfallBuilder.totals(for: MemoFactory.detail(MemoFactory.memo("e")), now: now) == nil)
+  }
+
+  @Test("a failed summarize on a finished memo is failed-but-optional and still offers its retry")
+  func skippedSummarize() {
+    let memo = MemoFactory.memo("s", state: .notified, route: "hermes")
+    let detail = MemoFactory.detail(
+      memo,
+      steps: [
+        MemoFactory.step(.transcribe, at: 0, for: 8),
+        MemoFactory.step(.route, at: 8, for: 0.01),
+        MemoFactory.step(.act, at: 8.1, for: 10),
+        MemoFactory.step(.summarize, at: 18.2, for: 3, status: .failed, attempts: 3, error: "402"),
+        MemoFactory.step(.notify, at: 21.3, for: 1),
+      ])
+    let rows = WaterfallBuilder.rows(for: detail, baselines: StepBaselines(), now: now)
+    let summarize = rows[3]
+    #expect(summarize.phase == .failed)
+    #expect(summarize.optionalNote != nil)
+    #expect(summarize.error == "402")
+    #expect(summarize.attempts == "3 attempts")
+    #expect(summarize.retryTitle == "Retry from Summarize")
+    #expect(rows[4].phase == .done)
+    #expect(rows.filter { $0.optionalNote != nil }.count == 1)
+  }
+
+  @Test("a failed step of a failed memo is the memo's failure, not an optional one")
+  func failedMemoIsNotOptional() {
+    let memo = MemoFactory.memo("f", state: .failed, route: "hermes", failedStep: .summarize, error: "boom")
+    let detail = MemoFactory.detail(
+      memo, steps: [MemoFactory.step(.summarize, at: 0, for: 3, status: .failed, error: "boom")])
+    let row = WaterfallBuilder.rows(for: detail, baselines: StepBaselines(), now: now)[0]
+    #expect(row.optionalNote == nil)
+    #expect(row.retryTitle == "Retry from Summarize")
   }
 }

@@ -1,15 +1,12 @@
 import XCTest
 
-final class ThreadUITests: XCTestCase {
-  override func setUp() {
-    continueAfterFailure = false
-  }
-
+final class ThreadUITests: IrisUITestCase {
   @MainActor
   private func launch() -> XCUIApplication {
     let app = XCUIApplication()
-    app.launchArguments = SampleClock.arguments
-    app.launch()
+    // A slower fake server, so the pending turn can be seen before the answer replaces it.
+    app.launchArguments = SampleClock.arguments + ["-IrisFakeStepMs", "3000"]
+    start(app)
     XCTAssertTrue(app.descendants(matching: .any)["history.list"].waitForExistence(timeout: 10))
     return app
   }
@@ -55,7 +52,7 @@ final class ThreadUITests: XCTestCase {
     app.buttons["thread.diagram.close"].tap()
     XCTAssertTrue(thread.waitForExistence(timeout: 10))
 
-    // Reply by text: the composer is bound to the thread (no mode chips), the sent text joins the thread with a pending answer.
+    // Reply by text: the composer is bound to the thread (no mode chips), the sent text joins the thread with a pending answer, then the answer.
     app.buttons["thread.reply.text"].tap()
     let field = app.textViews["composer.field"]
     XCTAssertTrue(field.waitForExistence(timeout: 5))
@@ -65,7 +62,14 @@ final class ThreadUITests: XCTestCase {
     app.buttons["composer.send"].tap()
 
     XCTAssertTrue(app.staticTexts["What about the narrow table?"].waitForExistence(timeout: 10))
-    XCTAssertTrue(app.descendants(matching: .any)["thread.turn.pending"].waitForExistence(timeout: 10))
+    let pending = app.descendants(matching: .any)["thread.turn.pending"]
+    XCTAssertTrue(pending.waitForExistence(timeout: 10))
     XCTAssertFalse(app.buttons["composer.send"].exists)
+
+    // The fake server answers the typed memo, and the answer replaces the pending turn.
+    let answer = app.descendants(matching: .any)
+      .matching(NSPredicate(format: "label CONTAINS %@", "fake answer to your message")).firstMatch
+    XCTAssertTrue(answer.waitForExistence(timeout: 20))
+    XCTAssertTrue(pending.waitForNonExistence(timeout: 10))
   }
 }

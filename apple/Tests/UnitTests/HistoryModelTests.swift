@@ -380,6 +380,85 @@ struct HistoryModelTests {
     #expect(ids == ["b"])
   }
 
+  // MARK: Hidden memos and the media cache
+
+  private final class Evictions {
+    var ids: [String] = []
+  }
+
+  @Test("a hidden memo stays hidden after a relaunch until its delete settles")
+  func hiddenSurvivesRelaunch() async {
+    await seed(MemoFactory.memo("a", age: 1), MemoFactory.memo("b", age: 2))
+    let store = InMemoryHiddenMemoStore()
+    let first = HistoryModel(client: client, hiddenStore: store)
+    await first.load()
+    first.hide("a")
+    #expect(first.memos.map(\.id) == ["b"])
+    #expect(store.load() == ["a"])
+
+    // The relaunch: a new model over the same store never shows the memo, whatever the server still lists.
+    let relaunched = HistoryModel(client: client, hiddenStore: store)
+    await relaunched.load()
+    #expect(relaunched.memos.map(\.id) == ["b"])
+
+    relaunched.unhide("a")
+    #expect(store.load().isEmpty)
+    await relaunched.load()
+    #expect(relaunched.memos.map(\.id) == ["a", "b"])
+  }
+
+  @Test("settling a delete that was never hidden changes nothing")
+  func unhideUnknown() {
+    let store = InMemoryHiddenMemoStore(["x"])
+    let model = HistoryModel(client: client, hiddenStore: store)
+    model.unhide("other")
+    #expect(store.load() == ["x"])
+  }
+
+  @Test("at launch only the ids with a queued delete stay hidden")
+  func reconcileHidden() async {
+    await seed(MemoFactory.memo("a", age: 1), MemoFactory.memo("b", age: 2))
+    let store = InMemoryHiddenMemoStore(["a", "b"])
+    let model = HistoryModel(client: client, hiddenStore: store)
+    model.reconcileHidden(pendingDeletions: ["a"])
+    #expect(store.load() == ["a"])
+    await model.load()
+    #expect(model.memos.map(\.id) == ["b"])
+  }
+
+  @Test("the user defaults store round-trips the ids and removes its key when empty")
+  func userDefaultsStore() throws {
+    let suite = "iris-hidden-\(UUID().uuidString)"
+    let defaults = try #require(UserDefaults(suiteName: suite))
+    defer { defaults.removePersistentDomain(forName: suite) }
+    let store = UserDefaultsHiddenMemoStore(suiteName: suite)
+    #expect(store.load().isEmpty)
+    store.save(["b", "a"])
+    #expect(UserDefaultsHiddenMemoStore(suiteName: suite).load() == ["a", "b"])
+    store.save([])
+    #expect(defaults.object(forKey: UserDefaultsHiddenMemoStore.key) == nil)
+  }
+
+  @Test("a deleted or hidden memo, and one deleted on another device, drops its cached media")
+  func evictsMedia() async throws {
+    await seed(MemoFactory.memo("a", age: 1), MemoFactory.memo("b", age: 2), MemoFactory.memo("c", age: 3))
+    let evictions = Evictions()
+    let model = HistoryModel(client: client, evictMedia: { evictions.ids.append($0) })
+    await model.load()
+
+    await model.delete(model.memos[0])
+    #expect(evictions.ids == ["a"])
+
+    model.hide("b")
+    #expect(evictions.ids == ["a", "b"])
+
+    // Deleted on another device: the event brings the soft-deleted memo.
+    _ = try await client.deleteMemo(id: "c")
+    await model.handle(event("c"))
+    #expect(evictions.ids == ["a", "b", "c"])
+    #expect(model.memos.isEmpty)
+  }
+
   @Test("under a search the server decides whether a new memo belongs")
   func eventUnderSearchReloads() async {
     await seed(MemoFactory.memo("a", age: 1))

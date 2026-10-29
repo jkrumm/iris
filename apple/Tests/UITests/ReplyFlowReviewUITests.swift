@@ -2,16 +2,13 @@ import XCTest
 
 /// The reply flow of a thread, walked once per appearance with a screenshot attached at every step, for the owner's
 /// async review (docs/design/README.md). The flow itself is asserted too, so the test is a regression check as well.
-/// The fake API never answers a typed memo (it stays `transcribed`), so the text reply ends at its pending turn and the
-/// revealed answer comes from the voice reply, whose fake pipeline walks to `notified`.
+/// The fake pipeline answers a typed memo as it does a voice one, so the text reply runs to its answer too.
 /// Export the PNGs with `scripts/reply-flow-shots.sh`.
-final class ReplyFlowReviewUITests: XCTestCase {
-  override func setUp() {
-    continueAfterFailure = false
-  }
-
+final class ReplyFlowReviewUITests: IrisUITestCase {
   /// The appearance outlives the test on the simulator, and every UI test class that runs after this one expects light.
   override func tearDown() {
+    // The app ends first: switching appearance under a running app is what the next launch would have to terminate.
+    super.tearDown()
     MainActor.assumeIsolated { XCUIDevice.shared.appearance = .light }
   }
 
@@ -41,8 +38,9 @@ final class ReplyFlowReviewUITests: XCTestCase {
     XCUIDevice.shared.appearance = appearance
 
     let app = XCUIApplication()
-    app.launchArguments = SampleClock.arguments
-    app.launch()
+    // A slower fake server, so the pending turn is still there when the screenshot is taken.
+    app.launchArguments = SampleClock.arguments + ["-IrisFakeStepMs", "3000"]
+    start(app)
     let list = app.descendants(matching: .any)["history.list"]
     XCTAssertTrue(list.waitForExistence(timeout: 10))
 
@@ -76,11 +74,18 @@ final class ReplyFlowReviewUITests: XCTestCase {
     field.typeText("What about the narrow table?")
     shot(name, "2-text-composer")
 
-    // Sent: the typed turn joins the thread with a pending answer.
+    // Sent: the typed turn joins the thread with a pending answer, then the answer replaces it.
     app.buttons["composer.send"].tap()
     XCTAssertTrue(app.staticTexts["What about the narrow table?"].waitForExistence(timeout: 10))
-    XCTAssertTrue(app.descendants(matching: .any)["thread.turn.pending"].waitForExistence(timeout: 10))
+    let pending = app.descendants(matching: .any)["thread.turn.pending"]
+    XCTAssertTrue(pending.waitForExistence(timeout: 10))
     shot(name, "3-text-pending")
+
+    let answer = app.descendants(matching: .any)
+      .matching(NSPredicate(format: "label CONTAINS %@", "fake answer to your message")).firstMatch
+    XCTAssertTrue(answer.waitForExistence(timeout: 20))
+    XCTAssertTrue(pending.waitForNonExistence(timeout: 10))
+    shot(name, "3b-text-answer")
   }
 
   @MainActor

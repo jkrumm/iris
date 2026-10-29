@@ -63,7 +63,8 @@ nonisolated struct APIOutboxUploader: SegmentUploader {
   }
 
   /// `DELETE` of a discarded take's memo. Done when the server deleted it, never had it (404) or will not delete it any more
-  /// (409 `bad_state`: it left `receiving`, so it is a real memo now); the hand-off to History follows in every case.
+  /// (409 `bad_state`: it left `receiving`, so it is a real memo now); History stops hiding it in every case (`settle`):
+  /// the server's list decides from here, which keeps a deleted or purged memo out and shows a 409 one.
   func delete(memoID: MemoID) async throws {
     do {
       _ = try await client.deleteMemo(id: memoID.wireID)
@@ -72,7 +73,7 @@ nonisolated struct APIOutboxUploader: SegmentUploader {
     } catch {
       throw Self.classified(error)
     }
-    await created.forget(memoID.wireID)
+    await created.settle(memoID.wireID)
   }
 
   static func classified(_ error: any Error) -> any Error {

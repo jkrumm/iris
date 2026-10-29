@@ -549,6 +549,46 @@ acceptable on the tailnet, and the second play is instant. `MediaDownloader` wri
 fetched again on every load, replacing the file. The OS may purge `Caches`; a missing file is simply downloaded again. A non-2xx answer throws
 and leaves no file. Revisit the resource loader only if recordings grow past a few minutes.
 
+**One downloader, bounded (Wave 16 I2).** The app has one `MediaDownloader` (`.shared`), so every player and the reply images share one `URLSession` instead of one per
+`MemoPlayer`. A download is single-flight per URL and cache name: a second ask while the first is on the wire joins it (the download is a task of its own, so a caller that stops
+waiting does not cancel the others'), and a failure is not remembered. The session's resource timeout is 300 s (the default is a week), so a hung request cannot hold a flight or an image slot for good. `ReplyImageStore` fetches at most three files at once; the rest wait for a free slot in order. The cache
+follows the memos: `evict(memoID:)` removes `<memo>.*` (recording, speech, diagrams) when History deletes a memo, hides a discarded one, or sees one deleted on another device
+(`memo.isDeleted` on the refresh, or a 404). Nothing else prunes `Caches`: a memo purged while the app was closed keeps its files until the OS reclaims them.
+
+### Optional summarize, money, offline History (Wave 16 I2)
+
+- **A memo without a summary** (`summary == null`, `notified`, a failed `summarize` step; S1) reads as done. The History row and the detail header fall back to the transcript on
+  one line, cut at 60 characters with an ellipsis (the server's own clip for alerts, `Memo.clipped`); the detail has no summary paragraph. In the waterfall the failed step is
+  **failed-but-optional** (`StepWaterfallRow.optionalNote`): a warning triangle and amber error box instead of the red cross, "Optional · the memo is done without it", the attempts,
+  and **[Retry from Summarize]** (and the retry icon in the action bar), which sends `POST /retry {from: "summarize"}`; the server re-runs summarize and notify, the SSE refresh
+  brings the summary back. Only `summarize` is optional; a failed step of a `failed` memo is still the memo's failure. Fixture: `memos.detail.response.summarize-failed.json`
+  (decode test in `IrisCore`); the fake API takes that retry on a `notified` memo (back to `acted`), and `SampleData` has one such memo.
+- **Money** is `StepText.dollars`: US dollars as the user's locale writes them, two decimals, no fixed `$` ("$0.04", "0,04 $"). The step chip, the waterfall total and the Stats
+  tiles and their per-memo caption all use it. A step that costs under half a cent therefore reads "$0.00"; the old four-decimal chip is gone on purpose (the cents are what the owner
+  asked for, the exact cost is in the server's step row).
+- **History without a connection** shows "Not connected" with an Open Settings button (Settings → Connection) instead of a blank list; it follows the form's saves
+  (`CompositionRoot.isConfigured` reads `connectionRevision`).
+- **The hidden set survives a relaunch.** A memo this device discarded (a cancelled take, a discarded queue row) is hidden from History until the server `DELETE` settles. The ids live in
+  a `HiddenMemoStore` (`UserDefaults`, `iris.history.hiddenMemoIDs`; in memory on fakes, so a UI test starts clean) and are cleared by `CreatedMemoLog.settle`, which the uploader calls when
+  the delete is over (200, 404 or 409) and `discardQueued` calls when the user stops trying a stalled one. After a 409 (the memo left `receiving` before the delete landed) the memo is a real
+  one and shows again with the next refresh. `CreatedMemoLog` hands hide and unhide to History through one ordered stream, and at launch `reconcileHidden` forgets every hidden id that has no delete queued in the outbox (a discarded take
+  whose create never landed has none to settle). Known follow-ups: eviction happens when the delete returns, so an Undo re-downloads the memo's media; a download in flight while its memo is evicted
+  can still land its file.
+- **Detail toasts** follow the thread view's rule: a toast has an id, its timer is a task owned by the model, and a newer toast (or a dismiss) cancels the older timer, so a stale timer
+  never hides a newer toast with the same words.
+- **The fake API answers a typed memo**: `FakePipelineUploader.create` starts the fake pipeline for a text item (routed, then `notified` with a canned answer), so the text reply
+  flow runs to its answer on fakes (`ReplyFlowReviewUITests` shows it).
+
+### UI tests on the hosted runner
+
+"Failed to terminate com.jkrumm.iris" on `StatsSettingsUITests` / `MemoDetailUITests` / `ReplyFlowReviewUITests`: the one log that was kept (run 40829501216) shows it inside
+`XCUIApplication.launch()`. That call first ends the instance the previous test left running (`Terminate com.jkrumm.iris:<pid>`), the loaded VM then answers nothing for ~55 s, and
+the failure is charged to the next test. The app is idle at that moment (no app-side hang found; the earlier flakes have the same shape but their logs were not kept, so that part is
+an inference). Instead of guessing at the app, every UI test class now derives from `IrisUITestCase`: the app is started through
+`start(_:)` and ended in `tearDown` (so the next launch has nothing to end), a terminate that stalls is retried, and its failure is recorded as an expected failure
+(`XCTExpectFailure`, non-strict, matched on the message); the third launch attempt is strict, so an app that really cannot start still fails the test. Sampling the app at teardown on
+the runner needs a workflow step and was left out of this change (owned files: `apple/**`).
+
 ### Capture engine (`IrisCapture`)
 
 - **`AudioSessionController`:**
@@ -734,7 +774,7 @@ pinned simulator in light and dark (`LiveActivitySnapshotTests`, the island thro
 | Screen | Content |
 |-|-|
 | History | Tabs History · Stats · Settings (no Threads tab). Memo rows (route chip · state · headline · relative time, step-progress dashes while in flight), pinned needs-route rows, day sections, search, quick-filter chips (Favorites, Chats, Needs route, Archived), bottom-sheet filter, native swipe actions (done/favorite, archive/delete with a 5 s undo), pull to refresh, SSE live updates, [+] opens the composer |
-| Memo detail | Transcript, player (play/pause, scrubber, 10 s back, no speed), full-width step waterfall with one `duration · cost` chip per step, faster/slower vs the stats baseline only above a sample threshold, attempts, [Retry from step], icon-only actions (play reply, reply → composer, retry), the reply as markdown; SSE refresh |
+| Memo detail | Transcript, player (play/pause, scrubber, 10 s back, no speed), full-width step waterfall with one `duration · cost` chip per step (money in the user's locale, two decimals), faster/slower vs the stats baseline only above a sample threshold, attempts, a failed optional summarize as a warning row, [Retry from step], icon-only actions (play reply, reply → composer, retry), the reply as markdown; SSE refresh |
 | Composer | Typed memo: mode picker (Auto, Journal, Hermes, Tab, Chat), text, send via `POST /v1/memos/text`; from a detail's reply it continues the memo's thread |
 | Stats | Volume per route per day / week (Swift Charts), tiles, per-route trends, from `GET /v1/stats` |
 | Thread | One conversation as a rendered document (`GET /v1/threads/:id`), opened by a History row of a chat or a continued thread (Wave 15 I2, "Thread view" below): question and answer turns, a pending answer with the step dashes, hold-to-talk and a keyboard button at the bottom |

@@ -7,9 +7,25 @@ import SwiftUI
 extension Memo {
   var rowHeadline: String {
     if let headline = summary?.headline { return headline }
-    if let transcript { return transcript }
+    if let transcript { return Self.clipped(transcript) }
     if state == .failed, let error { return error }
     return String(localized: "Processing…", comment: "Row headline while the memo has no transcript yet")
+  }
+
+  /// The longest a transcript reads as a headline: the server's own clip for an alert (`transcriptSummary`).
+  static let headlineLimit = 60
+
+  /// `text` on one line, cut to ``headlineLimit`` characters with an ellipsis when it is longer.
+  static func clipped(_ text: String) -> String {
+    let line = text.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+    guard line.count > headlineLimit else { return line }
+    return line.prefix(headlineLimit).trimmingCharacters(in: .whitespaces) + "…"
+  }
+
+  /// A step that failed for good but that the memo does not need: `notified` with no summary (the server skips a failed
+  /// `summarize` and finishes the memo). Only `summarize` is optional.
+  func isSkippedOptionalStep(_ step: MemoStep) -> Bool {
+    step == .summarize && state == .notified && summary == nil
   }
 
   /// Where the memo went (the tab name for a herdr tab); the mode only before it is routed.

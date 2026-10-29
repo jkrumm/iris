@@ -31,6 +31,7 @@ actor CreatedMemoLog {
   private var order: [String] = []
   private var onCreated: (@Sendable (Memo) -> Void)?
   private var onForgotten: (@Sendable (String) -> Void)?
+  private var onSettled: (@Sendable (String) -> Void)?
 
   init() {}
 
@@ -40,6 +41,12 @@ actor CreatedMemoLog {
 
   func setForgottenHandler(_ handler: (@Sendable (String) -> Void)?) {
     onForgotten = handler
+  }
+
+  /// Called when the server `DELETE` of a discarded memo is over (done, or given up by the user): History no longer needs
+  /// to hide it, the server's list decides from here on.
+  func setSettledHandler(_ handler: (@Sendable (String) -> Void)?) {
+    onSettled = handler
   }
 
   func record(_ memo: Memo) {
@@ -57,6 +64,14 @@ actor CreatedMemoLog {
     memos[id] = nil
     order.removeAll { $0 == id }
     onForgotten?(id)
+  }
+
+  /// The discard's server `DELETE` settled: the memo is gone from the server (or the user stopped trying), so History
+  /// stops hiding it. Repeatable.
+  func settle(_ id: String) {
+    memos[id] = nil
+    order.removeAll { $0 == id }
+    onSettled?(id)
   }
 }
 
@@ -139,6 +154,12 @@ nonisolated final class OutboxService: QueuedItemSource {
     _ = await discardQueued(id: id)
   }
 
+  /// The memos whose server `DELETE` is still queued (running, waiting for a retry or stalled), by wire id.
+  func pendingDeletionIDs() async -> Set<String> {
+    guard let outbox = try? await stack.outbox() else { return [] }
+    return Set(await outbox.queue().filter(\.isDeletion).map { $0.id.wireID })
+  }
+
   func discardQueued(id: String) async -> Bool {
     guard let memoID = UUID(uuidString: id) else { return false }
     guard let outbox = try? await stack.outbox() else {
@@ -148,6 +169,7 @@ nonisolated final class OutboxService: QueuedItemSource {
     // A row that is a stalled server `DELETE` has nothing to discard but the attempt itself.
     if await outbox.queue().first(where: { $0.id == memoID })?.isDeletion == true {
       await outbox.abandonDeletion(memoID)
+      await created.settle(memoID.wireID)
       return true
     }
     return await discard(memoID)

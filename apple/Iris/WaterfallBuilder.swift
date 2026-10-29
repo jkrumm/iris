@@ -20,6 +20,7 @@ enum WaterfallBuilder {
     var rows = entries.map { entry -> StepWaterfallRow in
       let ms = durationMs(entry, now: now)
       let title = title(of: entry.step, memo: memo)
+      let optional = entry.status == .failed && memo.isSkippedOptionalStep(entry.step)
       return StepWaterfallRow(
         id: entry.step.rawValue,
         title: title,
@@ -30,7 +31,10 @@ enum WaterfallBuilder {
         attempts: entry.attempts > 1
           ? String(localized: "\(entry.attempts) attempts", comment: "Step row: how many tries the step used") : nil,
         error: entry.status == .failed ? entry.error : nil,
-        retryTitle: memo.state == .failed && memo.failedStep == entry.step
+        optionalNote: optional
+          ? String(localized: "Optional · the memo is done without it", comment: "Failed step the memo does not need")
+          : nil,
+        retryTitle: (memo.state == .failed && memo.failedStep == entry.step) || optional
           ? String(localized: "Retry from \(entry.step.title)", comment: "Button on the step a memo failed at") : nil,
         start: span.fraction(of: entry.startedAt),
         length: span.length == 0 ? 0 : Double(ms) / 1_000 / span.length)

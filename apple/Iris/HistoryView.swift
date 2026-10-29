@@ -4,6 +4,10 @@ import SwiftUI
 
 struct HistoryView: View {
   @Bindable var model: HistoryModel
+  /// A server URL and token are saved. Without them there is nothing to load, and the list says how to connect.
+  let isConfigured: Bool
+  /// Opens Settings → Connection (the prompt's button).
+  let onConnect: () -> Void
   /// Builds the detail model of a tapped row (the composition root owns the client and the media source).
   let makeDetail: (Memo) -> MemoDetailModel
   /// Builds the model of the composer sheet (the composition root owns the client).
@@ -130,7 +134,21 @@ struct HistoryView: View {
   }
 
   @ViewBuilder private var emptyState: some View {
-    if model.loadFailed && model.memos.isEmpty {
+    if !isConfigured {
+      ContentUnavailableView {
+        Label(
+          String(localized: "Not connected", comment: "History title without a server connection"),
+          systemImage: "network.slash")
+      } description: {
+        Text("Add your server URL and device token to see your memos.", comment: "History prompt without a connection")
+      } actions: {
+        Button(String(localized: "Open Settings", comment: "Opens Settings → Connection"), action: onConnect)
+          .buttonStyle(.borderedProminent)
+          .accessibilityIdentifier("history.connect")
+      }
+      .accessibilityElement(children: .contain)
+      .accessibilityIdentifier("history.connectPrompt")
+    } else if model.loadFailed && model.memos.isEmpty {
       ContentUnavailableView(
         String(localized: "Could not load memos", comment: "History error title"),
         systemImage: "exclamationmark.triangle")

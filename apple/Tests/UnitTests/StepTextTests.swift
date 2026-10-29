@@ -17,10 +17,18 @@ struct StepTextTests {
 
   @Test("the chip is duration · cost, and only the duration for a free step")
   func metric() {
+    let english = Locale(identifier: "en_US")
     #expect(
-      StepText.metric(milliseconds: 1_800, costUsd: 0.004).replacingOccurrences(of: ",", with: ".") == "1.8 s · $0.0040"
+      StepText.metric(milliseconds: 1_800, costUsd: 0.0412, locale: english).replacingOccurrences(of: ",", with: ".")
+        == "1.8 s · $0.04"
     )
     #expect(StepText.metric(milliseconds: 12, costUsd: nil) == "12 ms")
+  }
+
+  @Test("the chip writes money in the user's locale, with no fixed dollar sign")
+  func metricLocale() {
+    let german = StepText.metric(milliseconds: 64_000, costUsd: 1.6, locale: Locale(identifier: "de_DE"))
+    #expect(plain(german) == "1 min 4 s · 1,60 $")
   }
 
   /// The currency pattern puts a no-break space between the amount and the symbol; compare with a plain one.

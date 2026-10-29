@@ -1,15 +1,11 @@
 import XCTest
 
-final class TypedMemoUITests: XCTestCase {
-  override func setUp() {
-    continueAfterFailure = false
-  }
-
+final class TypedMemoUITests: IrisUITestCase {
   @MainActor
   func testSendingATypedMemoShowsItInHistory() {
     let app = XCUIApplication()
     app.launchArguments = SampleClock.arguments
-    app.launch()
+    start(app)
     XCTAssertTrue(app.descendants(matching: .any)["history.list"].waitForExistence(timeout: 10))
 
     app.buttons["history.compose"].tap()

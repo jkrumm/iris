@@ -30,13 +30,23 @@ final class HistoryModel {
   /// flag change or refresh cannot put a deleted memo back.
   private var lifecycle: [String: Int] = [:]
   /// Memos this device discarded (a cancelled take): never shown, whatever a refresh, an event or a late create brings back
-  /// before the server's delete lands.
-  private var hidden: Set<String> = []
+  /// before the server's delete lands. Kept in the ``HiddenMemoStore``, so a relaunch before the delete settles still
+  /// hides them; ``unhide(_:)`` clears an id once its delete is over.
+  private var hidden: Set<String>
+  private let hiddenStore: any HiddenMemoStore
+  /// Drops the cached media (recording, spoken reply, diagrams) of a memo that is deleted or gone.
+  private let evictMedia: (String) -> Void
   /// Bumped by every first-page load; a response that finds it changed belongs to filters that are gone.
   private var generation = 0
 
-  init(client: any APIClient) {
+  init(
+    client: any APIClient, hiddenStore: any HiddenMemoStore = InMemoryHiddenMemoStore(),
+    evictMedia: @escaping (String) -> Void = { _ in }
+  ) {
     self.client = client
+    self.hiddenStore = hiddenStore
+    self.evictMedia = evictMedia
+    hidden = hiddenStore.load()
   }
 
   // MARK: Loading
@@ -148,11 +158,13 @@ final class HistoryModel {
     do {
       let memo = try await client.memo(id: id).memo
       guard lifecycle[id] == started else { return }
+      if memo.isDeleted { evictMedia(id) }
       place(memo)
     } catch let error as APIError {
       if case .server(404, _) = error {
         guard lifecycle[id] == started else { return }
         remove(id)
+        evictMedia(id)
       } else {
         logger.error("history refresh failed: \(String(describing: error), privacy: .public)")
       }
@@ -185,6 +197,7 @@ final class HistoryModel {
     do {
       let deleted = try await client.deleteMemo(id: before.id)
       guard lifecycle[before.id] == started else { return }
+      evictMedia(deleted.id)
       toast = HistoryToast(
         kind: .undoDelete(memoID: deleted.id),
         message: String(localized: "Memo deleted", comment: "Toast after a swipe delete"))
@@ -222,8 +235,26 @@ final class HistoryModel {
   /// Drops a memo this device discarded (a cancelled take) and keeps it out of the list from here on.
   func hide(_ id: String) {
     hidden.insert(id)
+    hiddenStore.save(hidden)
     lifecycle[id, default: 0] += 1
     remove(id)
+    evictMedia(id)
+  }
+
+  /// Keeps the hidden ids whose server `DELETE` is still queued and forgets the rest: a discarded take whose create never
+  /// reached the server has no delete to settle, and a crash can lose a settle. Runs once the outbox is loaded at launch.
+  func reconcileHidden(pendingDeletions: Set<String>) {
+    let stale = hidden.subtracting(pendingDeletions)
+    guard !stale.isEmpty else { return }
+    hidden.subtract(stale)
+    hiddenStore.save(hidden)
+  }
+
+  /// The discard's server delete is over: the server's list decides again. A memo that is gone stays out of it, and one the
+  /// server kept (it left `receiving` before the delete landed) shows up with the next refresh.
+  func unhide(_ id: String) {
+    guard hidden.remove(id) != nil else { return }
+    hiddenStore.save(hidden)
   }
 
   /// A memo went to the outbox instead of the server: say so, it shows up here once it is sent.

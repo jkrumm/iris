@@ -1,15 +1,11 @@
 import XCTest
 
-final class SmokeUITests: XCTestCase {
-  override func setUp() {
-    continueAfterFailure = false
-  }
-
+final class SmokeUITests: IrisUITestCase {
   @MainActor
   func testHistoryListOpensDetail() {
     let app = XCUIApplication()
     app.launchArguments = SampleClock.arguments
-    app.launch()
+    start(app)
 
     let list = app.descendants(matching: .any)["history.list"]
     XCTAssertTrue(list.waitForExistence(timeout: 10))
