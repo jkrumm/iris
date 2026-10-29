@@ -182,4 +182,8 @@ export const MIGRATIONS: readonly string[] = [
   `
   ALTER TABLE route_decisions ADD COLUMN prefix_words INTEGER;
   `,
+  // Set when a committed reply has Mermaid fences and not one rendered, so the boot backfill does not try it again; a changed reply clears it.
+  `
+  ALTER TABLE memos ADD COLUMN reply_assets_failed INTEGER NOT NULL DEFAULT 0;
+  `,
 ];

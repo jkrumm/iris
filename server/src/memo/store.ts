@@ -164,22 +164,16 @@ export interface MemoStore extends ThreadStore {
   purge(id: string): boolean;
 
   /**
-   * Replaces the memo's reply assets in one transaction (an empty list clears them). False when the memo is unknown.
-   * The files behind the ids are the caller's: the rows only say which ones belong to the reply.
-   *
-   * With `pending` the rows describe a reply that `completeStep` has not committed yet (the `act` handler renders before
-   * its patch lands). They stay until `completeStep` settles that reply: a patch with `pending.replyText` that wins
-   * keeps them; one that loses its compare-and-set deletes them and calls `pending.onDiscard` (the files are the caller's
-   * to remove); a winning patch with any other reply text deletes them (they describe a reply that is gone). Only the
-   * latest `pending` of a memo is tracked, in memory (a newer one replaces it: its caller already pruned the older files), and
-   * `resetForRetry` from `act` and `purge` settle it too (reset calls `onDiscard`), so the entry never outlives its reply.
-   * A restart re-runs the step.
+   * Stages the assets rendered for a reply that `completeStep` has not committed yet (the `act` handler renders before its
+   * patch lands). Nothing is visible, no row is written, until `completeStep` commits a patch whose `replyText` is
+   * `staged.replyText`: that transaction replaces the memo's rows with the staged ones (and sets or clears the failed
+   * marker) and `onSettled("committed")` follows. A patch that loses its compare-and-set changes nothing, so the rows
+   * of an earlier committed reply stay, and `onSettled("discarded")` follows (the new files are the caller's to remove).
+   * A winning patch with any other reply text drops the rows (they describe a reply that is gone). Only the latest
+   * staging of a memo is tracked, in memory: a newer one settles the older as discarded. `resetForRetry` from `act`
+   * discards it too, `purge` forgets it. A restart re-runs the step. False when the memo is unknown (nothing staged).
    */
-  replaceReplyAssets(
-    id: string,
-    assets: readonly ReplyAsset[],
-    pending?: PendingReplyAssets,
-  ): boolean;
+  stageReplyAssets(id: string, staged: StagedReplyAssets): boolean;
   /**
    * Stores assets for a reply that is already committed (the backfill): only when the memo is live, its `reply_text` is
    * still `replyText` and it has no assets yet. False otherwise; the caller removes its files.
@@ -190,13 +184,19 @@ export interface MemoStore extends ThreadStore {
     assets: readonly ReplyAsset[];
   }): boolean;
   /**
-   * Live memos whose `reply_text` mentions mermaid and that have no reply asset rows, newest first (`seq` below
-   * `beforeSeq`). The caller decides whether a reply really contains a fence.
+   * Live memos whose `reply_text` mentions mermaid, that have no reply asset rows and are not marked failed, newest first
+   * (`seq` below `beforeSeq`). The caller decides whether a reply really contains a fence.
    */
   listReplyAssetCandidates(params: {
     beforeSeq?: number | undefined;
     limit: number;
   }): { id: string; seq: number; replyText: string }[];
+  /**
+   * Marks the memo's committed reply as one whose diagrams all failed to render, so `listReplyAssetCandidates` skips it.
+   * Only while `reply_text` is still `replyText`; a changed reply (a winning `completeStep` with a reply, `resetForRetry`
+   * from `act`) clears it. False when the memo is unknown or its reply changed.
+   */
+  markReplyAssetsFailed(params: { id: string; replyText: string }): boolean;
   /** One asset of the memo, whatever its state (the media route checks deletion itself); null when unknown. */
   getReplyAsset(id: string, assetId: string): ReplyAsset | null;
 
@@ -204,9 +204,12 @@ export interface MemoStore extends ThreadStore {
   listNonTerminal(): Memo[];
 }
 
-/** Reply assets written before their reply is committed; see `MemoStore.replaceReplyAssets`. */
-export interface PendingReplyAssets {
+/** Reply assets rendered before their reply is committed; see `MemoStore.stageReplyAssets`. */
+export interface StagedReplyAssets {
   replyText: string;
-  /** Called once, after the rows are gone, when the reply lost its compare-and-set. Must not throw. */
-  onDiscard: () => void;
+  assets: readonly ReplyAsset[];
+  /** The reply has Mermaid fences and not one rendered: stored as the failed marker with the commit. */
+  failed: boolean;
+  /** Called once, after the transaction, when the reply is settled. Must not throw. */
+  onSettled: (outcome: "committed" | "discarded") => void;
 }

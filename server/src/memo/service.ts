@@ -293,12 +293,20 @@ export function createMemoService(deps: {
         await audio.put({ id, index, bytes });
         // `complete` or `delete` may have run while the write was in flight; the check and the insert below
         // are synchronous, so no row can land after the memo left `receiving` or was deleted.
-        const current = mustGet(id);
-        if (current.state !== "receiving") {
-          throw new MemoError("bad_state", `memo ${id} is no longer receiving`);
+        try {
+          const current = mustGet(id);
+          if (current.state !== "receiving") {
+            throw new MemoError("bad_state", `memo ${id} is no longer receiving`);
+          }
+          assertLive(current);
+          store.recordSegment({ id, index, bytes: bytes.byteLength, sha256 });
+        } catch (err) {
+          // No row names this file, so nothing the memo (or a restore of it) needs is lost; the purge would only find it later.
+          await audio.removeSegment({ id, index }).catch((cleanup: unknown) => {
+            log("segment.cleanup_failed", { memo_id: id, index, error: String(cleanup) });
+          });
+          throw err;
         }
-        assertLive(current);
-        store.recordSegment({ id, index, bytes: bytes.byteLength, sha256 });
       });
     },
 

@@ -1027,13 +1027,39 @@ const files = (block: number, tag: string): ReplyAsset[] =>
     })),
   );
 
+type Store = ReturnType<typeof testStore>["store"];
+
+/** Stages `assets` for `replyText` and commits the act step with it: the way a handler's render reaches the rows. */
+function commitReply(params: {
+  store: Store;
+  id: string;
+  replyText: string;
+  assets?: ReplyAsset[];
+  failed?: boolean;
+  from?: "routed" | "acted";
+  settled?: string[];
+}) {
+  const { store, id, replyText, assets = [], failed = false, from = "routed", settled } = params;
+  store.stageReplyAssets(id, {
+    replyText,
+    assets,
+    failed,
+    onSettled: (outcome) => void settled?.push(`${replyText}:${outcome}`),
+  });
+  return store.completeStep({ id, step: "act", from, to: "summarized", patch: { replyText } });
+}
+
+const candidates = (store: Store) => store.listReplyAssetCandidates({ limit: 10 }).map((c) => c.id);
+
 describe("reply assets", () => {
-  it("a memo has no blocks until assets are stored; they group per block and come back ordered", () => {
+  it("a memo has no blocks until a reply commits with assets; they group per block and come back ordered", () => {
     const { store } = testStore();
-    const { id } = seedMemo(store, "acted");
+    const { id } = seedMemo(store, "routed");
     expect(store.getMemo(id)?.replyBlocks).toEqual([]);
 
-    expect(store.replaceReplyAssets(id, [...files(2, "b"), ...files(0, "a")])).toBe(true);
+    expect(
+      commitReply({ store, id, replyText: "r", assets: [...files(2, "b"), ...files(0, "a")] }),
+    ).toBe(true);
     expect(store.getMemo(id)?.replyBlocks).toEqual([
       {
         index: 0,
@@ -1059,106 +1085,219 @@ describe("reply assets", () => {
 
   it("a stored row that no longer parses drops the blocks with a warning instead of failing the read", async () => {
     const { store, db } = testStore();
-    const { id } = seedMemo(store, "acted");
-    store.replaceReplyAssets(id, files(0, "a"));
+    const { id } = seedMemo(store, "routed");
+    commitReply({ store, id, replyText: "r", assets: files(0, "a") });
     db.query("UPDATE reply_assets SET width = 'wide' WHERE id = 'a-svg-light'").run();
     const { result, lines } = await captureLogs(async () => store.getMemo(id));
     expect(result?.replyBlocks).toEqual([]);
     expect(lines.map((l) => l["event"])).toEqual(["memo.reply_assets_invalid"]);
   });
 
-  it("replaces the previous set, drops a block that lacks a rendering, and refuses an unknown memo", () => {
+  it("staged assets are invisible (no row, no asset) until the reply commits, then settle as committed once", () => {
+    const { store, db } = testStore();
+    const { id } = seedMemo(store, "routed");
+    const settled: string[] = [];
+    store.markStepStarted({ id, step: "act" });
+    expect(
+      store.stageReplyAssets(id, {
+        replyText: "r",
+        assets: files(0, "a"),
+        failed: false,
+        onSettled: (outcome) => void settled.push(outcome),
+      }),
+    ).toBe(true);
+    expect(db.query("SELECT 1 FROM reply_assets").all()).toEqual([]);
+    expect(store.getMemo(id)?.replyBlocks).toEqual([]);
+    expect(store.getReplyAsset(id, "a-svg-light")).toBeNull();
+
+    store.completeStep({
+      id,
+      step: "act",
+      from: "routed",
+      to: "acted",
+      patch: { replyText: "r" },
+    });
+    expect(store.getReplyAsset(id, "a-svg-light")).not.toBeNull();
+    expect(store.getMemo(id)?.replyBlocks).toHaveLength(1);
+    expect(settled).toEqual(["committed"]);
+    expect(
+      store.stageReplyAssets("unknown", {
+        replyText: "r",
+        assets: [],
+        failed: false,
+        onSettled() {},
+      }),
+    ).toBe(false);
+  });
+
+  it("a winning commit replaces the earlier reply's rows; a reply with no staged assets leaves none", () => {
     const { store } = testStore();
-    const { id } = seedMemo(store, "acted");
-    store.replaceReplyAssets(id, files(0, "old"));
-    store.replaceReplyAssets(id, [...files(0, "new"), ...files(1, "half").slice(0, 3)]);
+    const { id } = seedMemo(store, "routed");
+    store.markStepStarted({ id, step: "act" });
+    commitReply({ store, id, replyText: "r1", assets: files(0, "old") });
+    store.transition({ id, from: "summarized", to: "acted" });
+    store.transition({ id, from: "acted", to: "routed" });
+    commitReply({
+      store,
+      id,
+      replyText: "r2",
+      assets: [...files(0, "new"), ...files(1, "half").slice(0, 3)],
+    });
     expect(store.getReplyAsset(id, "old-svg-light")).toBeNull();
     expect(store.getMemo(id)?.replyBlocks.map((b) => b.index)).toEqual([0]);
-    expect(store.replaceReplyAssets("unknown", files(0, "x"))).toBe(false);
-  });
 
-  it("resetForRetry from act drops them, purge removes them with the memo", () => {
-    const { store, clock } = testStore();
-    const { id } = seedMemo(store, "routed");
-    act(store, id, { replyText: "x" });
-    store.replaceReplyAssets(id, files(0, "a"));
-    store.markStepStarted({ id, step: "summarize" });
-    store.markStepFailed({ id, step: "summarize", error: "boom" });
-
-    store.resetForRetry({ id, from: "summarize" });
-    expect(store.getMemo(id)?.replyBlocks).toHaveLength(1);
-    store.markStepFailed({ id, step: "summarize", error: "boom" });
-    store.resetForRetry({ id, from: "act" });
+    store.transition({ id, from: "summarized", to: "acted" });
+    store.transition({ id, from: "acted", to: "routed" });
+    commitReply({ store, id, replyText: "r3" });
     expect(store.getMemo(id)?.replyBlocks).toEqual([]);
-
-    store.replaceReplyAssets(id, files(0, "b"));
-    store.markDeleted({ id, at: clock.now().toISOString() });
-    expect(store.purge(id)).toBe(true);
-    expect(store.getReplyAsset(id, "b-svg-light")).toBeNull();
   });
 
-  describe("pending assets", () => {
-    const lose = (store: ReturnType<typeof testStore>["store"], id: string, replyText: string) =>
+  it("a lost compare-and-set leaves the earlier committed reply's assets and settles the new ones as discarded", () => {
+    const { store } = testStore();
+    const { id } = seedMemo(store, "routed");
+    const settled: string[] = [];
+    commitReply({ store, id, replyText: "r1", assets: files(0, "old"), settled });
+
+    // The step ran again from a stale state and lost.
+    expect(
+      commitReply({ store, id, replyText: "r2", assets: files(0, "new"), from: "routed", settled }),
+    ).toBe(false);
+    expect(settled).toEqual(["r1:committed", "r2:discarded"]);
+    expect(store.getMemo(id)?.replyBlocks.map((b) => b.svg.light)).toEqual(["old-svg-light"]);
+    expect(store.getReplyAsset(id, "new-svg-light")).toBeNull();
+  });
+
+  it("only the latest staging of a memo settles with a commit; a newer one discards the older", () => {
+    const { store } = testStore();
+    const { id } = seedMemo(store, "routed");
+    const settled: string[] = [];
+    store.markStepStarted({ id, step: "act" });
+    for (const replyText of ["r1", "r2"]) {
+      store.stageReplyAssets(id, {
+        replyText,
+        assets: files(0, replyText),
+        failed: false,
+        onSettled: (outcome) => void settled.push(`${replyText}:${outcome}`),
+      });
+    }
+    expect(settled).toEqual(["r1:discarded"]);
+
+    // A commit of a reply nothing was staged for leaves the staging of the newer one alone.
+    store.transition({ id, from: "routed", to: "needs_route" });
+    expect(
       store.completeStep({
         id,
         step: "act",
-        from: "acted",
-        to: "summarized",
-        patch: { replyText },
-      });
-    const discards = () => {
-      const calls: string[] = [];
-      return { calls, of: (name: string) => () => void calls.push(name) };
-    };
+        from: "routed",
+        to: "acted",
+        patch: { replyText: "r1" },
+      }),
+    ).toBe(false);
+    expect(settled).toEqual(["r1:discarded"]);
 
-    it("a newer pending replaces the older one: only the latest reply settles", () => {
-      const { store } = testStore();
-      const { id } = seedMemo(store, "routed");
-      const d = discards();
-      store.replaceReplyAssets(id, files(0, "a"), { replyText: "r1", onDiscard: d.of("r1") });
-      store.replaceReplyAssets(id, files(0, "b"), { replyText: "r2", onDiscard: d.of("r2") });
+    store.transition({ id, from: "needs_route", to: "routed" });
+    store.completeStep({
+      id,
+      step: "act",
+      from: "routed",
+      to: "acted",
+      patch: { replyText: "r2" },
+    });
+    expect(settled).toEqual(["r1:discarded", "r2:committed"]);
+    expect(store.getMemo(id)?.replyBlocks).toHaveLength(1);
+  });
 
-      expect(lose(store, id, "r1")).toBe(false);
-      expect(d.calls).toEqual([]);
-      expect(store.getMemo(id)?.replyBlocks).toHaveLength(1);
-
-      expect(lose(store, id, "r2")).toBe(false);
-      expect(lose(store, id, "r2")).toBe(false);
-      expect(d.calls).toEqual(["r2"]);
-      expect(store.getMemo(id)?.replyBlocks).toEqual([]);
+  it("resetForRetry from act drops the rows and discards a staging once; a reset from a later step leaves both", () => {
+    const { store } = testStore();
+    const { id } = seedMemo(store, "routed");
+    const settled: string[] = [];
+    commitReply({ store, id, replyText: "x", assets: files(0, "a"), settled });
+    store.stageReplyAssets(id, {
+      replyText: "y",
+      assets: files(0, "b"),
+      failed: false,
+      onSettled: (outcome) => void settled.push(`y:${outcome}`),
     });
 
-    it("resetForRetry from act settles it (rows gone, discard once); a reset from a later step leaves it", () => {
+    store.markStepStarted({ id, step: "summarize" });
+    store.markStepFailed({ id, step: "summarize", error: "boom" });
+    store.resetForRetry({ id, from: "summarize" });
+    expect(store.getMemo(id)?.replyBlocks).toHaveLength(1);
+    expect(settled).toEqual(["x:committed"]);
+
+    store.markStepFailed({ id, step: "act", error: "boom" });
+    store.resetForRetry({ id, from: "act" });
+    expect(settled).toEqual(["x:committed", "y:discarded"]);
+    expect(store.getMemo(id)?.replyBlocks).toEqual([]);
+
+    // Nothing is left to settle: a stale commit of the old reply discards nothing a second time.
+    store.transition({ id, from: "routed", to: "needs_route" });
+    expect(
+      store.completeStep({
+        id,
+        step: "act",
+        from: "routed",
+        to: "acted",
+        patch: { replyText: "y" },
+      }),
+    ).toBe(false);
+    expect(settled).toEqual(["x:committed", "y:discarded"]);
+  });
+
+  it("purge removes the rows with the memo and forgets a staging", () => {
+    const { store, clock } = testStore();
+    const { id } = seedMemo(store, "routed");
+    const settled: string[] = [];
+    commitReply({ store, id, replyText: "x", assets: files(0, "b"), settled });
+    store.stageReplyAssets(id, {
+      replyText: "y",
+      assets: files(0, "c"),
+      failed: false,
+      onSettled: (outcome) => void settled.push(`y:${outcome}`),
+    });
+    store.markDeleted({ id, at: clock.now().toISOString() });
+    expect(store.purge(id)).toBe(true);
+    expect(store.getReplyAsset(id, "b-svg-light")).toBeNull();
+    expect(settled).toEqual(["x:committed"]);
+  });
+
+  describe("failed marker", () => {
+    const mermaid = "```mermaid\nA-->B\n```";
+
+    it("a commit staged as failed hides the memo from the backfill candidates; a changed reply clears it", () => {
       const { store } = testStore();
       const { id } = seedMemo(store, "routed");
-      act(store, id, { replyText: "x" });
-      const d = discards();
-      store.replaceReplyAssets(id, files(0, "a"), { replyText: "x", onDiscard: d.of("x") });
+      commitReply({ store, id, replyText: mermaid, failed: true });
+      expect(candidates(store)).toEqual([]);
 
-      store.markStepFailed({ id, step: "summarize", error: "boom" });
-      store.resetForRetry({ id, from: "summarize" });
-      expect(d.calls).toEqual([]);
+      store.transition({ id, from: "summarized", to: "acted" });
+      store.transition({ id, from: "acted", to: "routed" });
+      commitReply({ store, id, replyText: `${mermaid} changed` });
+      expect(candidates(store)).toEqual([id]);
+    });
 
+    it("a reply committed without a staging is a candidate; marking applies only to the reply it names", () => {
+      const { store } = testStore();
+      const { id } = seedMemo(store, "routed");
+      commitReply({ store, id, replyText: mermaid });
+      expect(candidates(store)).toEqual([id]);
+
+      expect(store.markReplyAssetsFailed({ id, replyText: "another reply" })).toBe(false);
+      expect(candidates(store)).toEqual([id]);
+      expect(store.markReplyAssetsFailed({ id, replyText: mermaid })).toBe(true);
+      expect(candidates(store)).toEqual([]);
+      expect(store.markReplyAssetsFailed({ id: "unknown", replyText: mermaid })).toBe(false);
+    });
+
+    it("resetForRetry from act clears it", () => {
+      const { store, db } = testStore();
+      const { id } = seedMemo(store, "routed");
+      commitReply({ store, id, replyText: mermaid, failed: true });
       store.markStepFailed({ id, step: "act", error: "boom" });
       store.resetForRetry({ id, from: "act" });
-      expect(d.calls).toEqual(["x"]);
-      expect(store.getMemo(id)?.replyBlocks).toEqual([]);
-
-      // Nothing is left to settle: a stale commit of the old reply discards nothing a second time.
-      expect(lose(store, id, "x")).toBe(false);
-      expect(d.calls).toEqual(["x"]);
-    });
-
-    it("purge forgets it", () => {
-      const { store, clock } = testStore();
-      const { id } = seedMemo(store, "routed");
-      const d = discards();
-      store.replaceReplyAssets(id, files(0, "a"), { replyText: "x", onDiscard: d.of("x") });
-      store.markDeleted({ id, at: clock.now().toISOString() });
-      expect(store.purge(id)).toBe(true);
-
-      expect(lose(store, id, "x")).toBe(false);
-      expect(d.calls).toEqual([]);
+      expect(
+        db.query("SELECT reply_assets_failed AS failed FROM memos WHERE id = ?").get(id),
+      ).toEqual({ failed: 0 });
     });
   });
 });

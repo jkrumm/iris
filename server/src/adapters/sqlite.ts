@@ -25,7 +25,7 @@ import {
   PINNED_LIMIT,
   type AnswerDecision,
   type MemoStore,
-  type PendingReplyAssets,
+  type StagedReplyAssets,
   type ThreadStore,
 } from "../memo/store.js";
 import type { Clock } from "../ports/clock.js";
@@ -304,6 +304,7 @@ export function createSqliteMemoStore(params: { db: Database; clock: Clock }): M
       db.query("UPDATE memos SET thread_id = NULL WHERE id = ? AND thread_id = id").run(id);
       // The reply they were rendered from is gone; their files go with the next render or the purge.
       db.query("DELETE FROM reply_assets WHERE memo_id = ?").run(id);
+      db.query("UPDATE memos SET reply_assets_failed = 0 WHERE id = ?").run(id);
     }
     db.query(
       `DELETE FROM memo_steps WHERE memo_id = ? AND step IN (${cleared.map(() => "?").join(",")})`,
@@ -361,8 +362,16 @@ export function createSqliteMemoStore(params: { db: Database; clock: Clock }): M
     return true;
   });
 
-  /** Reply assets awaiting their reply's commit, by memo (`MemoStore.replaceReplyAssets`). */
-  const pendingAssets = new Map<string, PendingReplyAssets>();
+  const insertReplyAssets = (id: string, assets: readonly ReplyAsset[]) => {
+    const insert = db.query(
+      `INSERT INTO reply_assets (memo_id, id, block_index, format, scheme, width, height)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    );
+    for (const a of assets) insert.run(id, a.id, a.block, a.format, a.scheme, a.width, a.height);
+  };
+
+  /** Reply assets awaiting their reply's commit, by memo (`MemoStore.stageReplyAssets`). */
+  const stagedAssets = new Map<string, StagedReplyAssets>();
 
   const completeStep = db.transaction(
     (input: Parameters<MemoStore["completeStep"]>[0]): boolean => {
@@ -371,15 +380,19 @@ export function createSqliteMemoStore(params: { db: Database; clock: Clock }): M
       const moved = db
         .query("UPDATE memos SET state = ?, updated_at = ? WHERE id = ? AND state = ?")
         .run(to, at, id, from);
-      // Reply assets rendered before this commit: kept only when this very reply is what committed.
+      // A lost compare-and-set changes nothing: the rows of an earlier committed reply stay.
+      if (moved.changes === 0) return false;
+      // A committed reply brings its own assets (rendered before this commit) or none: the rows of the reply it replaces go.
       const replyText = patch?.replyText;
-      const ownsAssets = replyText !== undefined && pendingAssets.get(id)?.replyText === replyText;
-      if (moved.changes === 0) {
-        if (ownsAssets) db.query("DELETE FROM reply_assets WHERE memo_id = ?").run(id);
-        return false;
-      }
-      if (replyText !== undefined && !ownsAssets) {
+      if (replyText !== undefined) {
+        const staged = stagedAssets.get(id);
+        const own = staged?.replyText === replyText ? staged : undefined;
         db.query("DELETE FROM reply_assets WHERE memo_id = ?").run(id);
+        insertReplyAssets(id, own?.assets ?? []);
+        db.query("UPDATE memos SET reply_assets_failed = ? WHERE id = ?").run(
+          own?.failed ? 1 : 0,
+          id,
+        );
       }
       db.query(
         `UPDATE memo_steps SET status = 'done', finished_at = ?, error = NULL, usage_json = ?, cost_usd = ?
@@ -403,23 +416,6 @@ export function createSqliteMemoStore(params: { db: Database; clock: Clock }): M
       db.query(
         `UPDATE memos SET ${fields.map((f) => `${PATCH_COLUMNS[f]} = ?`).join(", ")} WHERE id = ?`,
       ).run(...values, id);
-      return true;
-    },
-  );
-
-  const insertReplyAssets = (id: string, assets: readonly ReplyAsset[]) => {
-    const insert = db.query(
-      `INSERT INTO reply_assets (memo_id, id, block_index, format, scheme, width, height)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    );
-    for (const a of assets) insert.run(id, a.id, a.block, a.format, a.scheme, a.width, a.height);
-  };
-
-  const replaceReplyAssets = db.transaction(
-    (id: string, assets: readonly ReplyAsset[]): boolean => {
-      if (!db.query("SELECT 1 FROM memos WHERE id = ?").get(id)) return false;
-      db.query("DELETE FROM reply_assets WHERE memo_id = ?").run(id);
-      insertReplyAssets(id, assets);
       return true;
     },
   );
@@ -633,11 +629,11 @@ export function createSqliteMemoStore(params: { db: Database; clock: Clock }): M
     completeStep(input) {
       const won = completeStep(input);
       const text = input.patch?.replyText;
-      const pending = pendingAssets.get(input.id);
-      // The reply the pending assets were rendered for is settled either way; the rows were handled in the transaction.
-      if (text !== undefined && pending?.replyText === text) {
-        pendingAssets.delete(input.id);
-        if (!won) pending.onDiscard();
+      const staged = stagedAssets.get(input.id);
+      // The reply the staged assets were rendered for is settled either way; the rows were handled in the transaction.
+      if (text !== undefined && staged?.replyText === text) {
+        stagedAssets.delete(input.id);
+        staged.onSettled(won ? "committed" : "discarded");
       }
       return won;
     },
@@ -648,11 +644,11 @@ export function createSqliteMemoStore(params: { db: Database; clock: Clock }): M
 
     resetForRetry({ id, from }) {
       const reset = resetForRetry(id, from);
-      // The transaction dropped the rows of a reply that is gone; no completeStep will settle its pending assets.
-      const pending = pendingAssets.get(id);
-      if (reset && pending && stepsFrom(from).includes("act")) {
-        pendingAssets.delete(id);
-        pending.onDiscard();
+      // The transaction dropped the rows of a reply that is gone; no completeStep will settle its staged assets.
+      const staged = stagedAssets.get(id);
+      if (reset && staged && stepsFrom(from).includes("act")) {
+        stagedAssets.delete(id);
+        staged.onSettled("discarded");
       }
       return reset;
     },
@@ -738,15 +734,16 @@ export function createSqliteMemoStore(params: { db: Database; clock: Clock }): M
 
     purge(id) {
       const purged = purge(id);
-      if (purged) pendingAssets.delete(id);
+      if (purged) stagedAssets.delete(id);
       return purged;
     },
 
-    replaceReplyAssets(id, assets, pending) {
-      const replaced = replaceReplyAssets(id, assets);
-      if (!replaced) return false;
-      if (pending) pendingAssets.set(id, pending);
-      else pendingAssets.delete(id);
+    stageReplyAssets(id, staged) {
+      if (!db.query("SELECT 1 FROM memos WHERE id = ?").get(id)) return false;
+      const older = stagedAssets.get(id);
+      stagedAssets.set(id, staged);
+      // Its caller is done with it: the newer staging owns the memo's next commit.
+      if (older) older.onSettled("discarded");
       return true;
     },
 
@@ -759,11 +756,19 @@ export function createSqliteMemoStore(params: { db: Database; clock: Clock }): M
         .query<{ id: string; seq: number; reply_text: string }, [number, number]>(
           `SELECT id, seq, reply_text FROM memos
            WHERE deleted_at IS NULL AND reply_text LIKE '%mermaid%' AND seq < ?
+             AND reply_assets_failed = 0
              AND NOT EXISTS (SELECT 1 FROM reply_assets a WHERE a.memo_id = memos.id)
            ORDER BY seq DESC LIMIT ?`,
         )
         .all(beforeSeq ?? Number.MAX_SAFE_INTEGER, limit)
         .map((row) => ({ id: row.id, seq: row.seq, replyText: row.reply_text }));
+    },
+
+    markReplyAssetsFailed({ id, replyText }) {
+      const result = db
+        .query("UPDATE memos SET reply_assets_failed = 1 WHERE id = ? AND reply_text = ?")
+        .run(id, replyText);
+      return result.changes === 1;
     },
 
     getReplyAsset(id, assetId) {

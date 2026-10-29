@@ -326,11 +326,12 @@ async function withBlock() {
   const assets = fakeAssetStore();
   const h = testApp({ assets });
   const { id } = seedMemo(h.store, "acted");
-  await createReplyAssets({
-    store: h.store,
-    assets,
-    renderer: fakeDiagramRenderer(),
-  }).sync({ memoId: id, replyText: "```mermaid\nA-->B\n```" });
+  const replyText = "```mermaid\nA-->B\n```";
+  const replies = createReplyAssets({ store: h.store, assets, renderer: fakeDiagramRenderer() });
+  await replies.sync({ memoId: id, replyText });
+  // Staged assets are not on the wire until the reply commits.
+  expect(h.store.getMemo(id)?.replyBlocks).toEqual([]);
+  h.store.completeStep({ id, step: "act", from: "acted", to: "acted", patch: { replyText } });
   const block = h.store.getMemo(id)?.replyBlocks[0];
   if (!block) throw new Error("no block rendered");
   const get = (assetId: string, memoId = id, headers?: Record<string, string>) =>

@@ -54,17 +54,19 @@ export const BACKFILL_LIMIT = 50;
 
 export interface ReplyAssets {
   /**
-   * Makes the memo's stored assets match `replyText`: every Mermaid block is rendered and stored, the assets of an earlier
-   * reply are removed. Never throws: a block that cannot be rendered (`reply.render_failed`) or stored (`reply.store_failed`)
-   * stays a code block, and a failure of the whole pass (`reply.assets_failed`, its new files removed) leaves the reply as
-   * plain markdown. The rows are provisional until `MemoStore.completeStep` commits this reply: if it loses its
-   * compare-and-set, the rows and the files go (`reply.assets_discarded`).
+   * Renders every Mermaid block of `replyText` and stores the files, then stages them with the store: no row, so nothing on
+   * the wire, until `MemoStore.completeStep` commits this reply. A commit that wins replaces the rows of the earlier reply
+   * and prunes its files; one that loses its compare-and-set leaves the earlier reply's rows and files alone and removes
+   * only these new files (`reply.assets_discarded`). Never throws: a block that cannot be rendered (`reply.render_failed`)
+   * or stored (`reply.store_failed`) stays a code block, a reply whose blocks all fail commits with the failed marker (the
+   * backfill skips it), and a failure of the whole pass (`reply.assets_failed`, its new files removed) leaves the reply as
+   * plain markdown.
    */
   sync(params: { memoId: string; replyText: string }): Promise<void>;
   /**
    * Renders the assets of older, committed replies that contain a Mermaid fence and have none: at most `limit` memos,
-   * newest first, each serialized with the memo's other passes. Idempotent: a memo that has assets is not a candidate.
-   * Never throws. Resolves with how many memos got assets.
+   * newest first, each serialized with the memo's other passes. Idempotent: a memo that has assets, or whose blocks all
+   * failed to render (marked until its reply changes), is not a candidate. Never throws. Resolves with how many memos got assets.
    */
   backfill(params?: { limit?: number }): Promise<number>;
   /** Ends a running or future `backfill` after the memo it is on; `sync` is unaffected. Call before `idle()` at shutdown. */
@@ -126,7 +128,7 @@ export function createReplyAssets(deps: {
     return files.map((f) => f.asset);
   }
 
-  /** Renders and stores every block of the reply (capped); the files exist, nothing references them yet. */
+  /** Renders and stores every block of the reply (capped); the files exist, nothing references them yet. `blocks` is how many were tried. */
   async function renderReply(memoId: string, replyText: string) {
     const stored: ReplyAsset[] = [];
     const sources = extractMermaidBlocks(replyText);
@@ -138,7 +140,7 @@ export function createReplyAssets(deps: {
       await new Promise((resolve) => setImmediate(resolve));
       stored.push(...(await renderBlock({ memoId, block, source })));
     }
-    return stored;
+    return { stored, blocks: Math.min(sources.length, MAX_BLOCKS) };
   }
 
   /** Deletes every file of the memo that no row names. */
@@ -148,32 +150,41 @@ export function createReplyAssets(deps: {
     await assets.prune({ memoId, keep });
   }
 
+  /** What follows the store settling a staged reply, inside the memo's queue. */
+  function settled(params: { memoId: string; stored: readonly ReplyAsset[] }) {
+    const { memoId, stored } = params;
+    return (outcome: "committed" | "discarded") => {
+      if (outcome === "discarded") log("reply.assets_discarded", { memo_id: memoId });
+      // Committed: the earlier reply's files are unreferenced now. Discarded: only this attempt's files go.
+      const cleanup =
+        outcome === "committed"
+          ? () => pruneToRows(memoId)
+          : () => assets.remove({ memoId, assetIds: stored.map((a) => a.id) });
+      void track(perMemo(memoId, cleanup)).catch((err: unknown) =>
+        log("reply.assets_failed", { memo_id: memoId, error: String(err) }),
+      );
+    };
+  }
+
   async function run(memoId: string, replyText: string) {
     let stored: ReplyAsset[] = [];
-    // Once the rows name the new files they own them: from then on nothing may delete them as leftovers.
-    let committed = false;
+    // Once the store holds them it settles them (committed or discarded): from then on they are not ours to delete.
+    let staged = false;
     try {
-      stored = await renderReply(memoId, replyText);
+      const rendered = await renderReply(memoId, replyText);
+      stored = rendered.stored;
       // A memo purged while it rendered has no row left to own the files.
-      committed = store.replaceReplyAssets(memoId, stored, {
+      staged = store.stageReplyAssets(memoId, {
         replyText,
-        // The reply lost its compare-and-set: the store dropped the rows, the files go too.
-        onDiscard: () => {
-          log("reply.assets_discarded", { memo_id: memoId });
-          void track(perMemo(memoId, () => pruneToRows(memoId))).catch((err: unknown) =>
-            log("reply.assets_failed", { memo_id: memoId, error: String(err) }),
-          );
-        },
-      });
-      await assets.prune({
-        memoId,
-        keep: new Set(committed ? stored.map((a) => a.id) : []),
+        assets: stored,
+        failed: rendered.blocks > 0 && stored.length === 0,
+        onSettled: settled({ memoId, stored }),
       });
     } catch (err) {
       log("reply.assets_failed", { memo_id: memoId, error: String(err) });
-      if (!committed) {
-        await assets.remove({ memoId, assetIds: stored.map((a) => a.id) }).catch(() => undefined);
-      }
+    }
+    if (!staged) {
+      await assets.remove({ memoId, assetIds: stored.map((a) => a.id) }).catch(() => undefined);
     }
   }
 
@@ -185,8 +196,13 @@ export function createReplyAssets(deps: {
       const memo = store.getMemo(memoId);
       if (!memo || memo.deletedAt !== null || memo.replyText !== replyText) return false;
       if (memo.replyBlocks.length > 0) return false;
-      stored.push(...(await renderReply(memoId, replyText)));
-      if (stored.length === 0) return false;
+      const rendered = await renderReply(memoId, replyText);
+      stored.push(...rendered.stored);
+      if (stored.length === 0) {
+        // Every diagram failed: remember it, or the next boot renders them all again.
+        store.markReplyAssetsFailed({ id: memoId, replyText });
+        return false;
+      }
       attached = store.attachReplyAssets({ id: memoId, replyText, assets: stored });
       return attached;
     } catch (err) {
