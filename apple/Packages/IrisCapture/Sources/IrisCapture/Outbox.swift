@@ -187,9 +187,14 @@ public actor Outbox: SegmentOutbox {
       // The dispatched state is saved before anything goes out: a kill with a create on the wire must leave
       // `createMayHaveLanded` on disk, or a later discard would not delete a memo the server may have.
       starting += work.count
-      await persist()
+      let saved = await persist()
       starting -= work.count
-      for item in work where isStillDispatched(item) && !isShutDown { start(item) }
+      if saved {
+        for item in work where isStillDispatched(item) && !isShutDown { start(item) }
+      } else {
+        // Nothing went out on a state the disk does not have; the save is retried on its timer, which resumes the work.
+        machine.revertDispatch(work)
+      }
     }
     scheduleWake(after: now)
     resolveIdleWaiters()

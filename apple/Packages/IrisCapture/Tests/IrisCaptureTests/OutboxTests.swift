@@ -580,9 +580,10 @@ struct OutboxDurabilityTests {
     let id = memo(1)
     let store = ScriptedSaveStore()
     let uploader = TestUploader()
+    let clock = ManualClock()
     let outbox = try await Outbox(
-      store: store, uploader: uploader, clock: ManualClock(), policy: OutboxPolicy(jitter: { 0 }))
-    // The segment is saved and goes up; the disk fails while it is in flight, so the completed state cannot be saved.
+      store: store, uploader: uploader, clock: clock, policy: OutboxPolicy(jitter: { 0 }))
+    // The segment is saved and goes up; the disk fails while it is in flight, so the `complete` dispatch cannot be saved.
     await uploader.hold()
     await outbox.enqueue(ClosedSegment(memoID: id, index: 0, fileURL: file, byteCount: 5, duration: 1))
     await outbox.finishMemo(id, segmentCount: 1)
@@ -590,14 +591,18 @@ struct OutboxDurabilityTests {
     await store.fail(true)
     await uploader.releaseAll()
     await outbox.settled()
-    #expect(await uploader.completed.count == 1)
+    #expect(await uploader.completed.isEmpty, "a complete is not sent on a state the disk does not have")
     #expect(FileManager.default.fileExists(atPath: file.path), "the record on disk still lists this segment")
 
     await store.fail(false)
+    await clock.advance(by: 3)  // the save's retry timer
+    await outbox.settled()
     await outbox.flush()
+    #expect(await uploader.completed.count == 1, "sent once the dispatch could be saved")
     #expect(!FileManager.default.fileExists(atPath: file.path), "deleted once the completed state is on disk")
     let saved = await store.load()
     #expect(saved.memos.isEmpty && saved.entries.isEmpty)
+    await outbox.shutdown()
   }
 
   @Test func aDiscardKeepsTheFilesUntilItIsSaved() async throws {

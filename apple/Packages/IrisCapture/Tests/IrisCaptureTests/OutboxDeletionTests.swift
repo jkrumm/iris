@@ -213,18 +213,24 @@ struct OutboxDeletionTests {
     await relaunched.outbox.shutdown()
   }
 
-  @Test func aRecordWithoutTheCreateFlagReadsItFromTheCreateState() throws {
+  /// Only a create that was never handed out is known not to have landed; everything else may have (a stalled one may have
+  /// run out of attempts after the server made the memo, a pending one with failures behind it was sent before).
+  @Test func aRecordWithoutTheCreateFlagReadsItFromTheCreateStateAndItsAttempts() throws {
     let id = memo(1)
-    for (state, expected): (OutboxState, Bool) in [
-      (.pending, false), (.stalled, false), (.uploading, true), (.uploaded, true),
-    ] {
+    let retryAt = Date(timeIntervalSince1970: 2_000_000)
+    let cases: [(OutboxState, Int, Bool)] = [
+      (.pending, 0, false), (.pending, 3, true), (.stalled, 10, true), (.stalled, 0, true),
+      (.uploading, 0, true), (.uploaded, 0, true), (.failed(retryAt: retryAt), 1, true),
+    ]
+    for (state, attempts, expected) in cases {
       var item = voiceItem(id)
       item.create = state
+      item.attempts = attempts
       var json = try #require(
         try JSONSerialization.jsonObject(with: JSONEncoder().encode(item)) as? [String: Any])
       json["createMayHaveLanded"] = nil
       let decoded = try JSONDecoder().decode(OutboxItem.self, from: JSONSerialization.data(withJSONObject: json))
-      #expect(decoded.createMayHaveLanded == expected, "\(state)")
+      #expect(decoded.createMayHaveLanded == expected, "\(state), \(attempts) attempts")
     }
   }
 

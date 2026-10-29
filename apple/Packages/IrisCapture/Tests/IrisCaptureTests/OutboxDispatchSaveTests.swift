@@ -115,3 +115,74 @@ struct OutboxDispatchSaveTests {
     await harness.outbox.shutdown()
   }
 }
+
+/// Refuses every save that carries a transfer as handed out while `failing`: a full disk at the worst moment.
+private actor FailingDispatchStore: OutboxStore {
+  struct DiskFull: Error {}
+
+  private var record = OutboxRecord()
+  var failing = true
+  private(set) var refused = 0
+
+  func load() -> OutboxRecord { record }
+
+  func save(_ record: OutboxRecord) throws {
+    let handedOut =
+      record.items.contains { $0.create == .uploading } || record.entries.contains { $0.state == .uploading }
+      || record.memos.contains { $0.completion == .uploading }
+    if failing, handedOut {
+      refused += 1
+      throw DiskFull()
+    }
+    self.record = record
+  }
+
+  func recover() { failing = false }
+}
+
+struct OutboxFailedDispatchSaveTests {
+  @Test func aFailedDispatchSaveSendsNothingAndTheNextDispatchRetries() async throws {
+    let store = FailingDispatchStore()
+    let uploader = TestUploader()
+    let clock = ManualClock()
+    let outbox = try await Outbox(
+      store: store, uploader: uploader, clock: clock, policy: OutboxPolicy(jitter: { 0 }))
+    let id = memo(1)
+    try await outbox.enqueueItem(voiceItem(id))
+
+    await outbox.enqueue(segment(id, 0))  // dispatches the create; its save is refused
+    try await Task.sleep(for: .milliseconds(100))
+
+    #expect(await store.refused >= 1)
+    #expect(await uploader.createAttempts == 0, "nothing goes out on a state the disk does not have")
+    let item = try #require(await outbox.items().first)
+    #expect(item.create == .pending && !item.createMayHaveLanded, "reverted to what it was before the dispatch")
+    #expect(await outbox.saveFailure() != nil)
+
+    await store.recover()
+    await clock.advance(by: 3)  // the save's retry timer
+    await outbox.settled()
+    #expect(await uploader.created.map(\.memoID) == [id], "the next dispatch sent it")
+    #expect(await outbox.saveFailure() == nil)
+    await outbox.shutdown()
+  }
+
+  @Test func aRevertedCreateKeepsAFlagThatWasAlreadySet() async throws {
+    var item = voiceItem(memo(1))
+    item.create = .failed(retryAt: Date(timeIntervalSince1970: 1_000_000))
+    item.attempts = 1
+    item.createMayHaveLanded = true
+    var machine = OutboxStateMachine(
+      record: OutboxRecord(
+        entries: [OutboxEntry(segment: segment(memo(1), 0), sequence: 0, state: .pending, attempts: 0)],
+        items: [item], nextSequence: 1))
+
+    let work = machine.dispatch(now: Date(timeIntervalSince1970: 2_000_000), inFlight: 0)
+    #expect(work.count == 1)
+    machine.revertDispatch(work)
+
+    let reverted = try #require(machine.items[memo(1)])
+    #expect(reverted.create == .pending)
+    #expect(reverted.createMayHaveLanded, "an earlier attempt may have landed; the revert does not forget it")
+  }
+}

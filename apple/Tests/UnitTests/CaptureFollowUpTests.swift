@@ -67,6 +67,22 @@ struct CaptureFollowUpTests {
     try await controller.stop()
   }
 
+  @Test("two overlapping starts while a take already runs both get that take")
+  func overlappingStartsWhileRunning() async throws {
+    let rig = OutboxRig(client: client)
+    let activity = RecordingLiveActivity()
+    let (controller, _) = controller(rig, activity: activity)
+    let running = try await controller.start(mode: .auto)
+
+    async let first = controller.start(mode: .auto)
+    async let second = controller.start(mode: .auto)
+    let (a, b) = try await (first, second)
+
+    #expect(a == running && b == running, "the joined caller recovers the running take too, not alreadyRecording")
+    #expect(await activity.starts.count == 1)
+    try await controller.stop()
+  }
+
   @Test("a start after a failed one is a new attempt")
   func startAfterFailure() async throws {
     let rig = OutboxRig(client: client)

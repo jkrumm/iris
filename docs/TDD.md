@@ -601,14 +601,14 @@ and leaves no file. Revisit the resource loader only if recordings grow past a f
   exists but cannot be read (data protection before the first unlock; only a missing file is permanent) are retried and do count.
   A segment is held back from upload until a save that carries it has landed (a crash between the upload and the save would
   orphan a segment the server already has); a failed save is retried on a timer with the same backoff, `Outbox.saveFailure()` says
-  why, and Settings shows it. A finished take's record is saved the same way but its `complete` is not held (a relaunch finishes it
-  from the segments on disk).
+  why, and Settings shows it. A finished take's record is saved the same way (a relaunch finishes it from the segments on disk). Since every dispatch is saved before it is
+  sent, a save that fails sends nothing: the handed-out transfers go back to pending (a create's `createMayHaveLanded` as it was) and the save's retry timer resumes them.
   A first attempt the server refuses for good (a 4xx a retry cannot change) answers `SendOutcome.stalled(reason)`, not `queued`: the
   composer stays open with the text and the reason, and the refused item is removed from the queue so it cannot go out as a second
   copy. A take's stalled item stays queued for Retry and Discard.
   An item is saved before it is handed out (it is withheld from dispatch while the first save is out, so the server never creates a memo
   the queue then refuses), and so is every dispatch: `resume()` saves the state that marks a transfer as handed out (`createMayHaveLanded`
-  among it) *before* the request starts, and drops a transfer that was discarded or retried while that save was out, so a kill with a create on the wire
+  among it) *before* the request starts, and drops a transfer that was discarded or retried while that save was out (and sends none of them when the save fails), so a kill with a create on the wire
   still leaves the flag a later discard needs, and a segment file is deleted only after a save that no longer lists it has landed (a failed write keeps
   the files; the next successful save removes them). A take that is still being recorded always shows as `recording` in the queue,
   whatever its create is doing, so Settings offers neither Retry nor Discard on it.
