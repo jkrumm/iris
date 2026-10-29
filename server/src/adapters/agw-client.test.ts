@@ -20,14 +20,14 @@ function setup(respond: (init: RequestInit) => Response | Promise<Response>, tim
     ...(timeoutMs !== undefined && { timeoutMs }),
   });
   const call = () => client.call({ memoId: "m", path: "/triage", body: { a: 1 }, schema: Answer });
-  return { calls, call };
+  return { calls, call, client };
 }
 
 const json = (body: unknown, status = 200) =>
   Response.json(body, { status, headers: { "agw-run-id": RUN_ID } });
 
 describe("agw client", () => {
-  it("posts JSON with the bearer, purpose iris, a hang guard and no redirects", async () => {
+  it("posts JSON with the bearer, purpose, caller and project iris, a hang guard and no redirects", async () => {
     const { calls, call } = setup(() => json({ ok: true }));
     expect(await call()).toEqual({ data: { ok: true }, runId: RUN_ID });
 
@@ -37,10 +37,22 @@ describe("agw client", () => {
       "content-type": "application/json",
       authorization: `Bearer ${SECRET}`,
       "x-agw-purpose": "iris",
+      "x-agw-caller": "iris",
+      "x-agw-project": "iris",
     });
     expect(JSON.parse(String(calls[0]?.init.body))).toEqual({ a: 1 });
     expect(calls[0]?.init.redirect).toBe("error");
     expect(calls[0]?.init.signal).toBeInstanceOf(AbortSignal);
+  });
+
+  it.each(["/triage", "/decide"])("%s carries purpose, caller and project iris", async (path) => {
+    const { calls, client } = setup(() => json({ ok: true }));
+    await client.call({ memoId: "m", path, body: {}, schema: Answer });
+    const headers = calls.at(-1)?.init.headers as Record<string, string>;
+    expect(calls.at(-1)?.url).toBe(`http://127.0.0.1:7791${path}`);
+    expect(headers["x-agw-purpose"]).toBe("iris");
+    expect(headers["x-agw-caller"]).toBe("iris");
+    expect(headers["x-agw-project"]).toBe("iris");
   });
 
   it("returns a null run id when the header is absent", async () => {
