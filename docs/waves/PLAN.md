@@ -866,7 +866,9 @@ not answered by the time of writing; A loses nothing, so it ships. A delete vari
 Requested 2026-10-29 by agent-workflows-mother (the owner sunsets agent-gateway, research-gateway and audio-gateway). Server-only
 (`server/**`, `scripts/**`, env templates, TDD, AGENTS.md). Starts when Wave 16 has closed **and** agent-workflows has sent the
 contract for `decide` and the summary call (endpoints, auth, env names); until then it waits, and backlog work continues. Written in full then.
-- [ ] `Decider` → the new `agw` host's `decide`; `Summarizer` → a schema-constrained call on the new host (`{headline ≤60, detail ≤240,
+**Decision (agent-workflows-mother, 2026-10-29):** `triage` is ported as-is (parity) on the new host, `decide` too, both with cancel,
+`caller: "iris"`, usage + `cost_usd` in the response and no Requesty route; their lead sends the contract via `rd say iris-mother`.
+- [ ] `Decider` → the new `agw` host's `decide`; `Summarizer` → the ported `triage` on the new host (`{headline ≤60, detail ≤240,
       spoken ≤2 sentences}` over destination + transcript excerpt + reply; not `llm.classify`); job cancel kept for the 30-min hang guard;
       `caller: "iris"` attribution and per-call usage/cost kept (TDD §Cost).
 - [x] STT/TTS → the audio door: moved into Wave 16 S3 (contract arrived 2026-10-29).
