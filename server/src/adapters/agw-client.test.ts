@@ -74,10 +74,12 @@ describe("agw client", () => {
   });
 
   it("a 200 body that is not JSON is final", async () => {
-    const { call } = setup(() => new Response("<html>", { headers: { "agw-run-id": RUN_ID } }));
+    const { call } = setup(
+      () => new Response("geheim <html", { headers: { "agw-run-id": RUN_ID } }),
+    );
     const err = await call().catch((e: unknown) => e);
     expect(err).not.toBeInstanceOf(TransientError);
-    expect((err as Error).message).toContain(`response is not JSON (run ${RUN_ID})`);
+    expect((err as Error).message).toBe(`agw triage response is not JSON (run ${RUN_ID})`);
   });
 
   it.each([500, 503])("%d is transient after the send", async (status) => {
@@ -114,4 +116,84 @@ describe("agw client", () => {
     expect(err).not.toBeInstanceOf(TransientError);
     expect((err as Error).message).toContain(`does not match its schema (run ${RUN_ID}): ok`);
   });
+
+  it("a 5xx whose body stalls past the guard is a hang, not a transient failure", async () => {
+    const { call } = setup(
+      (init) =>
+        new Response(
+          new ReadableStream({
+            start(controller) {
+              init.signal?.addEventListener("abort", () => controller.error(init.signal?.reason));
+            },
+          }),
+          { status: 503, headers: { "agw-run-id": RUN_ID } },
+        ),
+      30,
+    );
+    const err = await call().catch((e: unknown) => e);
+    expect(err).not.toBeInstanceOf(TransientError);
+    expect((err as Error).message).toContain("agw triage timed out after 30 ms");
+  });
+
+  it("an unreadable error body (not a timeout) still classifies by status", async () => {
+    const { call } = setup(
+      () =>
+        new Response(
+          new ReadableStream({
+            start(controller) {
+              controller.error(new Error("socket closed"));
+            },
+          }),
+          { status: 503 },
+        ),
+    );
+    expect(transientKind(await call().catch((e: unknown) => e))).toBe("after_send");
+  });
+});
+
+/** The guard against a real `fetch` (Bun's own abort path), not a fake that rejects with the signal's reason. */
+describe("agw client against a real server", () => {
+  const stall = (mode: "headers" | "body" | "error-body") =>
+    Bun.serve({
+      port: 0,
+      hostname: "127.0.0.1",
+      async fetch() {
+        if (mode === "headers") await Bun.sleep(5000);
+        const stalled = new ReadableStream({
+          async start(controller) {
+            controller.enqueue(new TextEncoder().encode(mode === "error-body" ? '{"co' : '{"ok":'));
+            await Bun.sleep(5000);
+            controller.close();
+          },
+        });
+        return new Response(stalled, {
+          status: mode === "error-body" ? 503 : 200,
+          headers: { "agw-run-id": RUN_ID },
+        });
+      },
+    });
+
+  it.each(["headers", "body", "error-body"] as const)(
+    "a stall in the %s ends as a hang guard failure at the window",
+    async (mode) => {
+      const server = stall(mode);
+      try {
+        const client = createAgwClient({
+          baseUrl: `http://127.0.0.1:${server.port}`,
+          secret: SECRET,
+          timeoutMs: 200,
+        });
+        const started = Date.now();
+        const err = await client
+          .call({ memoId: "m", path: "/triage", body: {}, schema: Answer })
+          .catch((e: unknown) => e);
+        expect(err).toBeInstanceOf(Error);
+        expect(err).not.toBeInstanceOf(TransientError);
+        expect((err as Error).message).toContain("agw triage timed out after 200 ms");
+        expect(Date.now() - started).toBeLessThan(2000);
+      } finally {
+        await server.stop(true);
+      }
+    },
+  );
 });

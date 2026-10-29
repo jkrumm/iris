@@ -90,14 +90,22 @@ export function createAgwClient(opts: AgwClientOptions): AgwClient {
         span.setAttributes({ status: res.status, [RUN_ID_ATTR]: runId });
 
         if (!res.ok) {
-          const text = (await res.text().catch(() => "")).slice(0, BODY_MAX);
+          // The guard also covers this read: a 5xx whose body stalls is the same hang, not a transient failure.
+          const text = (
+            await res.text().catch((err: unknown) => {
+              if (err instanceof Error && err.name === "TimeoutError") throw hungOr(what, err);
+              return "";
+            })
+          ).slice(0, BODY_MAX);
           const code = errorCode(text);
-          // The step error is stored and served: status, host code and run id only. The raw body (which may echo the request) goes to the log.
+          // The step error is stored and served: status, host code and run id only. The body may echo the request
+          // (transcript, reply), so the log gets its length and the code, never the text.
           log("agw.error_body", {
             memo_id: memoId,
             [RUN_ID_ATTR]: runId,
             status: res.status,
-            body: text,
+            code,
+            body_chars: text.length,
           });
           const message = `agw ${what} failed: ${res.status}${code ? ` ${code}` : ""}${runId ? ` (run ${runId})` : ""}`;
           // 502 INVALID_OUTPUT: the model failed twice, another call would only pay again. Any other 502 (a proxy, a restart) is a try-again.
@@ -109,10 +117,15 @@ export function createAgwClient(opts: AgwClientOptions): AgwClient {
         // The answer is already billed: a body that is not JSON is final, only the guard firing is a hang.
         const json: unknown = await res.json().catch((err: unknown) => {
           if (err instanceof Error && err.name === "TimeoutError") throw hungOr(what, err);
-          throw new Error(
-            `agw ${what} response is not JSON${runId ? ` (run ${runId})` : ""}: ${err instanceof Error ? err.message : String(err)}`,
-            { cause: err },
-          );
+          // The parser's message quotes the offending bytes, so it goes to the log and the step error stays generic.
+          log("agw.response_unreadable", {
+            memo_id: memoId,
+            [RUN_ID_ATTR]: runId,
+            error: err instanceof Error ? err.message : String(err),
+          });
+          throw new Error(`agw ${what} response is not JSON${runId ? ` (run ${runId})` : ""}`, {
+            cause: err,
+          });
         });
         const parsed = schema.safeParse(json);
         if (!parsed.success) {
