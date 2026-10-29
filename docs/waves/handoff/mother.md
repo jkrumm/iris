@@ -59,8 +59,10 @@ Build Iris R1–R5 (PRD §Release plan) as a self-driving loop: backlog item →
   Previously expected ~2026-10-28: then the APNs `.p8` and App Store Connect key go into 1Password
   via `ask-human.sh`, and TestFlight (backlog 3) opens.
 - **iPhone paired 2026-10-29 19:51** (wired): iPhone 15 (`iPhone15,4`, Dynamic Island), **iOS 26.6.1** (the simulator runs 27: device
-  checks cover the iOS 26 code paths; app target is 26.0). UDID in `xcrun devicectl list devices` (name JoPhone). At pairing: Developer Mode
-  **off**, no Apple ID in Xcode, 0 signing identities: the owner's to do. Then spikes S1–S3, every device exit check.
+  checks cover the iOS 26 code paths; app target is 26.0). UDID in `xcrun devicectl list devices` (name JoPhone). Since 2026-10-29 ~20:00: Developer
+  Mode on, owner's Apple ID in Xcode (Personal Team until enrollment clears), one valid Apple Development identity (the WWDR G3
+  intermediate had to be added to the login keychain: identity showed but `-v` said 0 valid). Device not yet registered (first
+  `-allowProvisioningUpdates` build does it). A codesign key-access dialog on the mini's screen needs the owner's "Always Allow". Then spikes S1–S3, every device exit check.
 - **Outbox reset (asked 2026-10-28 in chat):** A quarantine vs B delete. No answer by Wave 16's writing: A ships in Wave 16 I1;
   a delete variant only on the owner's word.
 - **Swipe detail:** "further right/left" is a second swipe button, not a second full-swipe threshold (native `.swipeActions`).
