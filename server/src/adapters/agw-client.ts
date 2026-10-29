@@ -6,8 +6,11 @@ import { RUN_ID_ATTR } from "../telemetry/run-id.js";
 
 const RUN_ID_HEADER = "agw-run-id";
 const BODY_MAX = 300;
-// Names iris on the run record; a label, not a scope.
+// Name iris on the run record and in the ledger; labels, not scopes. The host validates them:
+// caller `[a-z][a-z0-9-]{0,31}`, project `[A-Za-z0-9][A-Za-z0-9._-]{0,63}`, a malformed value is a 400.
 const PURPOSE = "iris";
+const CALLER = "iris";
+const PROJECT = "iris";
 
 export interface AgwClientOptions {
   /** The agent-workflows host: `http://127.0.0.1:7791`. */
@@ -53,7 +56,7 @@ const DEFAULT_TIMEOUT_MS = 1_800_000;
 
 /**
  * The one way iris calls the agent-workflows host's capabilities: a synchronous `POST` with the bearer,
- * `x-agw-purpose: iris`, no redirects (the bearer never follows one to another host) and the
+ * `x-agw-purpose: iris`, `x-agw-caller: iris`, `x-agw-project: iris`, no redirects (the bearer never follows one to another host) and the
  * `agw-run-id` of every answer, errors included. The hang guard aborts the request, which cancels
  * the run and the provider call on the host. 400, 401 and 502 `INVALID_OUTPUT` are final; 500, 503
  * and a lost connection are transient (the runner retries); the guard firing is a `hangGuardFailure`.
@@ -79,6 +82,8 @@ export function createAgwClient(opts: AgwClientOptions): AgwClient {
             "content-type": "application/json",
             authorization: `Bearer ${opts.secret}`,
             "x-agw-purpose": PURPOSE,
+            "x-agw-caller": CALLER,
+            "x-agw-project": PROJECT,
           },
           body: JSON.stringify(body),
           redirect: "error",
