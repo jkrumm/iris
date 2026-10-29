@@ -23,8 +23,9 @@ protocol TakeLiveActivity {
   func handOverToServer(memoID: String) async
   /// Ends the activity for good, showing `finalState` until it is dismissed.
   func end(memoID: String, finalState: LiveActivityContentState?, dismissal: ActivityDismissal) async
-  /// Ends every activity still in a client phase (`recording`, `paused`, `uploading`): after a relaunch nothing moves them on.
-  func endClientPhaseActivities() async
+  /// Ends every activity still in a client phase (`recording`, `paused`, `uploading`) except those of `memoIDs`, the takes this
+  /// process is driving: after a relaunch nothing moves the others on, but a take that runs now must keep its activity.
+  func endClientPhaseActivities(except memoIDs: Set<String>) async
 }
 
 /// Drives the Live Activity of a take the app started on its own (the start intent): recording while the take runs,
@@ -40,6 +41,8 @@ final class TakeLiveActivityCoordinator {
   private let stack: CaptureStack
   private let created: CreatedMemoLog
   private var followers: [MemoID: Task<Void, Never>] = [:]
+  /// Takes this process started whose activity has not settled: from the request of the activity until its follower is done.
+  private var live: Set<MemoID> = []
 
   init(activity: any TakeLiveActivity, stack: CaptureStack, created: CreatedMemoLog) {
     self.activity = activity
@@ -49,10 +52,14 @@ final class TakeLiveActivityCoordinator {
 
   /// Requests the activity for the take that just started and follows it until the memo is sent.
   func begin(memoID: MemoID, mode: MemoMode, startedAt: Date) async {
+    live.insert(memoID)
     await activity.start(
       memoID: memoID.wireID, mode: mode, startedAt: startedAt,
       state: Self.state(.recording, inputName: nil, note: otherMemosNote(besides: memoID)))
-    guard let session = try? await stack.session(), let outbox = try? await stack.outbox() else { return }
+    guard let session = try? await stack.session(), let outbox = try? await stack.outbox() else {
+      live.remove(memoID)
+      return
+    }
     let updates = await session.updates()
     let changes = await outbox.changes()
     followers[memoID]?.cancel()
@@ -60,6 +67,7 @@ final class TakeLiveActivityCoordinator {
     followers[memoID] = Task {
       await follow(memoID, updates: updates, changes: changes, outbox: outbox)
       followers[memoID] = nil
+      live.remove(memoID)
     }
   }
 
@@ -107,7 +115,8 @@ final class TakeLiveActivityCoordinator {
       registered = true
       await activity.memoCreated(memoID: id)
     }
-    guard let row = await outbox.queue().first(where: { $0.id == memoID }) else {
+    // A queued `DELETE` of the discarded take is not the take: the activity does not wait for it.
+    guard let row = await outbox.queue().first(where: { $0.id == memoID && !$0.isDeletion }) else {
       guard !Task.isCancelled else { return true }
       // The row also leaves the queue when the take was discarded: its memo is being deleted, there is nothing to hand over.
       if sent, await !outbox.wasDiscarded(memoID) {
@@ -134,13 +143,16 @@ final class TakeLiveActivityCoordinator {
   func stop() async {
     let running = Array(followers.values)
     followers = [:]
+    live = []
     for follower in running { follower.cancel() }
     for follower in running { await follower.value }
   }
 
-  /// At launch: a take's activity does not outlive the process that ran it (its memo goes on in the outbox).
+  /// A take's activity does not outlive the process that ran it (its memo goes on in the outbox), so the activities left in a
+  /// client phase by an earlier run are ended. Safe to call whenever the connection changes: the takes this process is
+  /// recording or sending keep theirs.
   func endOrphans() async {
-    await activity.endClientPhaseActivities()
+    await activity.endClientPhaseActivities(except: Set(live.map(\.wireID)))
   }
 
   /// The state of a client phase. `note` rides in `headline` (a short line about another memo still being sent, well under
@@ -227,12 +239,14 @@ final class TakeLiveActivityCoordinator {
       await activity.end(content, dismissalPolicy: policy)
     }
 
-    func endClientPhaseActivities() async {
-      for orphan in Activity<MemoAttributes>.activities where orphan.content.state.phase.isClientPhase {
+    func endClientPhaseActivities(except memoIDs: Set<String>) async {
+      for orphan in Activity<MemoAttributes>.activities
+      where orphan.content.state.phase.isClientPhase && !memoIDs.contains(orphan.attributes.memoId)
+        && activities[orphan.attributes.memoId] == nil
+      {
         await orphan.end(nil, dismissalPolicy: .immediate)
+        tokens.finish(orphan.attributes.memoId)
       }
-      for memoID in activities.keys { tokens.finish(memoID) }
-      activities = [:]
     }
 
     /// Forwards the activity's token, now and at every rotation, until the activity ends and its stream finishes.
@@ -271,6 +285,8 @@ final class RecordingLiveActivity: TakeLiveActivity {
   private(set) var ends: [End] = []
   private(set) var endedIDs: [String] = []
   private(set) var orphanSweeps = 0
+  /// The memos each orphan sweep spared.
+  private(set) var sparedBySweeps: [Set<String>] = []
 
   func start(memoID: String, mode: MemoMode, startedAt: Date, state: LiveActivityContentState) {
     starts.append(Start(memoID: memoID, mode: mode, startedAt: startedAt))
@@ -288,7 +304,10 @@ final class RecordingLiveActivity: TakeLiveActivity {
     endedIDs.append(memoID)
   }
 
-  func endClientPhaseActivities() { orphanSweeps += 1 }
+  func endClientPhaseActivities(except memoIDs: Set<String>) {
+    orphanSweeps += 1
+    sparedBySweeps.append(memoIDs)
+  }
 
   private func record(_ memoID: String, _ state: LiveActivityContentState) {
     states.append(state)

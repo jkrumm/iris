@@ -66,6 +66,8 @@ public actor CaptureSession {
   private let recorder: any SegmentRecorder
   private let outbox: Outbox
   private let clock: any CaptureClock
+  /// How long `stop()` and `cancel()` wait for the recorder's last event before they give up on it.
+  private let stopTimeout: TimeInterval
 
   private var state = TakeState.idle
   private var observers: [UUID: AsyncStream<TakeState>.Continuation] = [:]
@@ -77,20 +79,23 @@ public actor CaptureSession {
   private var closedCounts: [MemoID: Int] = [:]
   /// Why the recorder failed, per take.
   private var failures: [MemoID: String] = [:]
-  private var finishWaiter: (id: MemoID, continuation: CheckedContinuation<Int, Never>)?
+  /// Takes whose `stop()` gave up waiting for the recorder; a `stopped` event that arrives later is ignored.
+  private var abandoned: Set<MemoID> = []
+  private var finishWaiter: (id: MemoID, continuation: CheckedContinuation<Int?, Never>)?
   /// The gate: true while a start, stop or cancel is running; the others wait in `queue`, first come first served.
   private var isBusy = false
   private var queue: [CheckedContinuation<Void, Never>] = []
 
   public init(
     session: any AudioSessionController, routes: any RouteManager, recorder: any SegmentRecorder, outbox: Outbox,
-    clock: any CaptureClock
+    clock: any CaptureClock, stopTimeout: TimeInterval = 10
   ) {
     self.session = session
     self.routes = routes
     self.recorder = recorder
     self.outbox = outbox
     self.clock = clock
+    self.stopTimeout = stopTimeout
   }
 
   public var current: TakeState { state }
@@ -177,9 +182,15 @@ public actor CaptureSession {
         throw error
       }
     }
-    let count = await finishedCount(memoID)
+    let reported = await finishedCount(memoID)
+    let count = reported ?? closedCounts[memoID, default: 0]
+    if reported == nil {
+      // The recorder never said it stopped: the segments that closed are what the take has, and the failure says why.
+      abandoned.insert(memoID)
+      if failures[memoID] == nil { failures[memoID] = Self.recorderSilent }
+    }
     let failure = failures[memoID]
-    if recorderStopped, count > 0 { await outbox.finishMemo(memoID, segmentCount: count) }
+    if recorderStopped || reported == nil, count > 0 { await outbox.finishMemo(memoID, segmentCount: count) }
     forget(memoID)
     try? await session.deactivate()
     setState(.idle)
@@ -209,7 +220,7 @@ public actor CaptureSession {
     if state.failure == nil {
       do {
         try await recorder.stop()
-        _ = await finishedCount(memoID)
+        if await finishedCount(memoID) == nil { abandoned.insert(memoID) }
       } catch {
         Log.capture.error("recorder stop after cancel failed: \(String(describing: error), privacy: .public)")
       }
@@ -307,6 +318,8 @@ public actor CaptureSession {
             // A failed take waits for the user's stop (which sends what it has) or cancel (which drops it).
             let isHeldBack = state.phase == .failed && state.memoID == memoID
             let kept = keptCount(memoID, reported: count)
+            // A stop that gave up on this event has finished the memo with what it had.
+            if abandoned.contains(memoID) { break }
             if !cancelled.contains(memoID), !isHeldBack { await outbox.finishMemo(memoID, segmentCount: kept) }
             didFinish(memoID, count: kept)
           case .failed(let reason): await recorderFailed(reason)
@@ -374,11 +387,29 @@ public actor CaptureSession {
     }
   }
 
-  /// The pump has handed the stopped take to the outbox; returns its segment count.
-  private func finishedCount(_ memoID: MemoID) async -> Int {
+  /// The pump has handed the stopped take to the outbox; returns its segment count, or `nil` when the recorder's last
+  /// event did not come within `stopTimeout` (the gate must not be held for ever by a recorder that went silent).
+  private func finishedCount(_ memoID: MemoID) async -> Int? {
+    // The deadline is read before the check, so nothing suspends between the check and the waiter being registered.
+    let deadline = await clock.now().addingTimeInterval(stopTimeout)
     if let count = finished.removeValue(forKey: memoID) { return count }
+    // Owned by this call; ends with the wait.
+    let timer = Task { [clock] in
+      do { try await clock.sleep(until: deadline) } catch { return }
+      self.finishTimedOut(memoID)
+    }
+    defer { timer.cancel() }
     return await withCheckedContinuation { finishWaiter = (memoID, $0) }
   }
+
+  private func finishTimedOut(_ memoID: MemoID) {
+    guard let waiter = finishWaiter, waiter.id == memoID else { return }
+    Log.capture.error("recorder did not stop within \(self.stopTimeout, privacy: .public) s")
+    finishWaiter = nil
+    waiter.continuation.resume(returning: nil)
+  }
+
+  private static let recorderSilent = "the recorder did not stop"
 
   private func interrupted() async {
     await enter()

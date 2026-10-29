@@ -9,6 +9,8 @@ nonisolated struct QueuedItem: Identifiable, Equatable, Sendable {
     case typedMemo
     case chatMessage
     case textReply
+    /// A discarded take whose memo the server still has: its `DELETE` is queued and shows until it goes through.
+    case removal
   }
 
   enum State: Equatable, Sendable {
@@ -30,6 +32,11 @@ nonisolated struct QueuedItem: Identifiable, Equatable, Sendable {
   var canDiscard: Bool { state != .recording }
 }
 
+extension QueuedItem.Kind {
+  /// Its Discard drops the row, not a memo: the app stops trying to remove the memo from the server.
+  var discardStopsTrying: Bool { self == .removal }
+}
+
 /// Where Settings reads the queue from, and what it can do to an item.
 nonisolated protocol QueuedItemSource: Sendable {
   func queuedItems() async -> [QueuedItem]
@@ -45,10 +52,19 @@ nonisolated protocol QueuedItemSource: Sendable {
   /// Why the queue could not be saved to disk, `nil` while it can: new segments of a take wait for a save before they go up,
   /// and a crash now could lose what is not saved.
   func saveFailure() async -> String?
+  /// Whether the persistent queue is there but cannot be decoded, so that only a reset gets past it.
+  func isUnreadable() async -> Bool
+  /// Sets the unreadable queue file aside (kept, never deleted) and opens a fresh queue. `false` when that did not work.
+  func resetOutbox() async -> Bool
+  /// The queue files earlier resets set aside.
+  func quarantinedFiles() async -> [URL]
 }
 
 extension QueuedItemSource {
   func saveFailure() async -> String? { nil }
+  func isUnreadable() async -> Bool { false }
+  func resetOutbox() async -> Bool { false }
+  func quarantinedFiles() async -> [URL] { [] }
 }
 
 nonisolated struct EmptyQueue: QueuedItemSource {

@@ -15,6 +15,9 @@ final class TakeController {
   private let requestPermission: @Sendable () async -> Bool
   /// `false` when the engine recorder could not be built: nothing can record.
   let canRecord: Bool
+  /// The start in flight: a second start while it runs joins it instead of racing it (the Control and the record button
+  /// pressed together, a double tap), so the two calls yield one take.
+  private var starting: Task<MemoID, any Error>?
 
   init(
     stack: CaptureStack, liveActivity: TakeLiveActivityCoordinator, outbox: OutboxService, microphone: FakeMicrophone?,
@@ -32,9 +35,36 @@ final class TakeController {
   /// Whether a take can be started right now (a server is saved and a recorder exists).
   var canStart: Bool { canRecord && isConfigured() }
 
-  /// Starts a take in `mode` with its Live Activity.
+  /// Starts a take in `mode` with its Live Activity. Starts that overlap are one take: the later call returns the memo the
+  /// first one started, and so does a start that finds a take already running.
   @discardableResult
   func start(mode: MemoMode) async throws -> MemoID {
+    if let starting { return try await starting.value }
+    let task = Task { try await begin(mode: mode) }
+    starting = task
+    defer { starting = nil }
+    do {
+      return try await task.value
+    } catch CaptureError.alreadyRecording {
+      // A take that was already running (started by something that is not in flight any more): that is the take.
+      guard let session = try? await stack.session(), let running = await runningMemoID(of: session) else {
+        throw CaptureError.alreadyRecording
+      }
+      return running
+    }
+  }
+
+  private func runningMemoID(of session: CaptureSession) async -> MemoID? {
+    let state = await session.current
+    // A reply bound to a thread (its own hold-to-talk) is not the take a start was asking for.
+    guard state.request?.threadID == nil else { return nil }
+    switch state.phase {
+    case .starting, .recording, .paused: return state.memoID
+    case .idle, .stopping, .failed: return nil
+    }
+  }
+
+  private func begin(mode: MemoMode) async throws -> MemoID {
     guard isConfigured() else { throw StartMemoError.notConfigured }
     guard canRecord else { throw StartMemoError.queueUnavailable }
     guard await requestPermission() else { throw StartMemoError.microphoneDenied }
@@ -57,10 +87,11 @@ final class TakeController {
 
   /// Drops the take. History stops showing its memo at once (the server may already have it), and the outbox deletes it there.
   /// Only the memo the session actually discarded is hidden: a Stop already in flight wins the session's gate, the take is
-  /// then sent, and the Discard that arrived late changes nothing.
-  func cancel() async {
+  /// then sent, and the Discard that arrived late changes nothing. Throws `queueUnavailable` when the capture session cannot
+  /// be opened (the outbox file is unreadable): nothing was discarded, and the caller says so instead of looking done.
+  func cancel() async throws {
     await microphone?.stop()
-    guard let session = try? await stack.session() else { return }
+    guard let session = try? await stack.session() else { throw StartMemoError.queueUnavailable }
     if let id = await session.cancel() { await outbox.created.forget(id.wireID) }
   }
 

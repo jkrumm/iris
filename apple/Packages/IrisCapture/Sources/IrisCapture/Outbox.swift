@@ -21,8 +21,9 @@ public actor Outbox: SegmentOutbox {
     }
   }
 
-  private var machine: OutboxStateMachine
-  private let store: any OutboxStore
+  /// Module-internal for the startup sweep (`OutboxSweep.swift`); every other caller goes through the actor's methods.
+  var machine: OutboxStateMachine
+  let store: any OutboxStore
   private let uploader: any SegmentUploader
   private let clock: any CaptureClock
   private let deletesFilesWhenDone: Bool
@@ -36,17 +37,17 @@ public actor Outbox: SegmentOutbox {
   private var flushWaiters: [(generation: Int, continuation: CheckedContinuation<Bool, Never>)] = []
   /// Every `persist()` call takes the next number; a save carries the highest number requested when its snapshot was taken,
   /// so a call knows its own change is on disk when `savedThrough` has reached its number.
-  private var requested = 0
+  var requested = 0
   private var savedThrough = 0
   private var isDirty = false
   /// Segments held back from upload, with the number of the `persist()` call that will carry them.
-  private var unsavedSegments: [SegmentKey: Int] = [:]
+  var unsavedSegments: [SegmentKey: Int] = [:]
   private var lastSaveError: String?
   private var saveRetry: Task<Void, Never>?
   private let policy: OutboxPolicy
   /// Segment files no queue entry needs any more. Deleted once a save that no longer lists them has landed: if the write
   /// fails, the record on disk still names them and a relaunch needs them.
-  private var obsoleteFiles: [(url: URL, generation: Int)] = []
+  var obsoleteFiles: [(url: URL, generation: Int)] = []
   private var isShutDown = false
   private var observers: [UUID: AsyncStream<Void>.Continuation] = [:]
 
@@ -138,6 +139,15 @@ public actor Outbox: SegmentOutbox {
     await persist()
     await creating?.value
     machine.releaseDeletion(memoID)
+    await resume()
+  }
+
+  /// The user stops trying to remove a discarded take's memo from the server (its `DELETE` stalled and stays in the queue until
+  /// they do, or until a retry succeeds).
+  public func abandonDeletion(_ memoID: MemoID) async {
+    inFlight[.deletion(memoID)]?.cancel()
+    machine.abandonDeletion(memoID)
+    await persist()
     await resume()
   }
 
@@ -273,7 +283,8 @@ public actor Outbox: SegmentOutbox {
     case (.deletion(let memoID), .failure(let error)):
       Log.outbox.error("delete failed: \(String(describing: error), privacy: .public)")
       machine.deleteFailed(
-        memoID, now: now, permanent: Self.isPermanent(error), transient: Self.isTransient(error))
+        memoID, now: now, permanent: Self.isPermanent(error), transient: Self.isTransient(error),
+        reason: Self.reason(error))
     }
     await persist()
     await resume()
@@ -347,7 +358,7 @@ public actor Outbox: SegmentOutbox {
   /// newer one; every caller returns after the latest state is saved. The answer is whether a save that was started after
   /// this call (so it carries this call's change) landed: a failure of a later save does not undo an earlier one.
   @discardableResult
-  private func persist() async -> Bool {
+  func persist() async -> Bool {
     requested += 1
     let mine = requested
     isDirty = true

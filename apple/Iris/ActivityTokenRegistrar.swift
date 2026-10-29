@@ -10,6 +10,8 @@ final class ActivityTokenRegistrar {
     var memoExists = false
     var registeredToken: String?
     var handedOver = false
+    /// A `PUT` is out: the next one waits for its answer, so answers arrive in the order the tokens were sent.
+    var isSending = false
     var retry: Task<Void, Never>?
     var retryDelay = Duration.seconds(2)
   }
@@ -55,19 +57,27 @@ final class ActivityTokenRegistrar {
 
   /// Sends the current token when the server has the memo and has not confirmed that token yet. A failure is logged; a
   /// handed-over activity has no later update to try again with, so it retries on its own with a growing delay.
+  ///
+  /// One request per memo at a time: a token that rotates while a `PUT` is out is sent after its answer, never beside it, so
+  /// a slow answer for an older token cannot land after (and replace) a newer one, here or on the server. The call that
+  /// finds a `PUT` out returns at once; the call that sent it carries on with the newest token.
   func attempt(_ memoID: String) async {
-    guard let entry = entries[memoID], entry.memoExists, let token = entry.token, token != entry.registeredToken else {
-      return
-    }
-    do {
-      try await client.setActivityToken(memoID: memoID, request: ActivityTokenRequest(token: token))
+    guard entries[memoID]?.isSending == false else { return }
+    entries[memoID]?.isSending = true
+    defer { entries[memoID]?.isSending = false }
+    while let entry = entries[memoID], entry.memoExists, let token = entry.token, token != entry.registeredToken {
+      do {
+        try await client.setActivityToken(memoID: memoID, request: ActivityTokenRequest(token: token))
+      } catch {
+        logger.error("activity token not registered: \(String(describing: error), privacy: .public)")
+        retryLater(memoID)
+        return
+      }
+      guard entries[memoID] != nil else { return }  // the activity ended while the request was out
       entries[memoID]?.registeredToken = token
       entries[memoID]?.retry?.cancel()
       entries[memoID]?.retry = nil
       entries[memoID]?.retryDelay = .seconds(2)
-    } catch {
-      logger.error("activity token not registered: \(String(describing: error), privacy: .public)")
-      retryLater(memoID)
     }
   }
 

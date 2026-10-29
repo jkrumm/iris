@@ -91,7 +91,7 @@ struct CancelledTakeTests {
 
     await session.cancel()
     #expect(await waitFor { await client.calls.contains(.deleteMemo(id: id.wireID)) })
-    #expect(await rig.service.queuedItems().isEmpty, "a deletion is bookkeeping, not a queue row")
+    #expect(await rig.service.queuedItems().map(\.kind) == [.removal], "the pending delete shows in the queue")
     #expect(await !deleted(id))
     // The retry timer is armed once the outbox has recorded the failure (a persisted deadline).
     #expect(
@@ -101,6 +101,7 @@ struct CancelledTakeTests {
 
     await rig.clock.advance(by: 2)
     #expect(await waitFor { await deleted(id) })
+    #expect(await waitFor { await rig.service.queuedItems().isEmpty }, "an acknowledged delete leaves the queue")
   }
 
   @Test("a segment that was on the wire when the take was cancelled is dropped on its 409, not stalled")
@@ -158,11 +159,11 @@ struct CancelledTakeTests {
     // The Stop is flushing its last segment when Discard is tapped: Discard waits for it and finds the take over.
     let stopping = Task { try await controller.stop() }
     #expect(await waitFor { await gate.arrived > 0 }, "the stop is suspended inside the recorder")
-    let discarding = Task { await controller.cancel() }
+    let discarding = Task { try await controller.cancel() }
     try await Task.sleep(for: .milliseconds(100))
     await gate.open()
     let result = try await stopping.value
-    await discarding.value
+    try await discarding.value
 
     #expect(result != nil, "the stop won: the take was sent")
     #expect(forgotten.withLock { $0 }.isEmpty, "a take that was sent is not hidden from History")

@@ -39,6 +39,34 @@ final class StatsSettingsUITests: XCTestCase {
   }
 }
 
+/// A saved outbox that cannot be decoded (`-IrisFakeUnreadableOutbox`): Settings offers a reset that sets the file aside.
+final class OutboxResetUITests: XCTestCase {
+  override func setUp() {
+    continueAfterFailure = false
+  }
+
+  @MainActor
+  func testAnUnreadableOutboxCanBeResetAndTheSetAsideFileIsShareable() {
+    let app = XCUIApplication()
+    app.launchArguments = SampleClock.arguments + ["-IrisFakeUnreadableOutbox"]
+    app.launch()
+    XCTAssertTrue(app.descendants(matching: .any)["history.list"].waitForExistence(timeout: 10))
+    app.tabBars.buttons["Settings"].tap()
+
+    let reset = app.buttons["settings.outbox.reset"]
+    XCTAssertTrue(reset.waitForExistence(timeout: 10))
+    XCTAssertTrue(app.descendants(matching: .any)["settings.outbox.unavailable"].exists)
+    reset.tap()
+
+    XCTAssertTrue(app.descendants(matching: .any)["settings.outbox.empty"].waitForExistence(timeout: 10))
+    XCTAssertFalse(app.buttons["settings.outbox.reset"].exists)
+    XCTAssertFalse(app.descendants(matching: .any)["settings.outbox.unavailable"].exists)
+
+    app.buttons["settings.diagnostics"].tap()
+    XCTAssertTrue(app.descendants(matching: .any)["diagnostics.quarantined"].waitForExistence(timeout: 10))
+  }
+}
+
 final class ProductionLaunchUITests: XCTestCase {
   override func setUp() {
     continueAfterFailure = false

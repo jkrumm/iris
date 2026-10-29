@@ -32,7 +32,8 @@ public struct OutboxEntry: Sendable, Equatable, Codable {
 /// A finished take waiting for its `complete` call.
 public struct OutboxMemo: Sendable, Equatable, Codable {
   public let memoID: MemoID
-  public let segmentCount: Int
+  /// Grows only when the startup sweep adopts the next segment file of a take the app died in (`adopt(_:)`).
+  public internal(set) var segmentCount: Int
   /// `.pending`, `.uploading` or `.failed`; the memo is removed once `complete` succeeds.
   public var completion: OutboxState
   public var attempts: Int
@@ -45,19 +46,39 @@ public enum OutboxItemKind: Sendable, Equatable, Codable {
   case text(String)
 }
 
-/// A take that was discarded after the server created its memo: `DELETE /v1/memos/:id` goes out until the server
+/// A take that was discarded after the server may have created its memo: `DELETE /v1/memos/:id` goes out until the server
 /// acknowledges it (or answers that the memo is gone or cannot be deleted), so the cancelled take does not stay behind as
-/// a `receiving` memo. The item itself and its segments are already gone from the queue.
+/// a `receiving` memo. It is never dropped: when it stalls it shows in the queue (`OutboxQueueItem.isDeletion`) until a
+/// retry succeeds or the user stops it. The item itself and its segments are already gone from the queue.
 public struct OutboxDeletion: Sendable, Equatable, Codable {
   public let memoID: MemoID
-  /// `.pending`, `.uploading` or `.failed`; the record is removed once the delete is acknowledged.
+  /// `.pending`, `.uploading`, `.failed` or `.stalled`; the record is removed once the delete is acknowledged.
   public var state: OutboxState
   public var attempts: Int
+  /// The discarded take's queue title and time, for its row in the queue.
+  public var title: String
+  public var queuedAt: Date
+  /// Why the last attempt failed, for the queue row.
+  public var lastError: String?
 
-  public init(memoID: MemoID) {
+  public init(memoID: MemoID, title: String = "", queuedAt: Date = Date(timeIntervalSince1970: 0)) {
     self.memoID = memoID
+    self.title = title
+    self.queuedAt = queuedAt
     state = .pending
     attempts = 0
+    lastError = nil
+  }
+
+  /// Records written before the row existed have no title, time or error.
+  public init(from decoder: any Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    memoID = try container.decode(MemoID.self, forKey: .memoID)
+    state = try container.decode(OutboxState.self, forKey: .state)
+    attempts = try container.decode(Int.self, forKey: .attempts)
+    title = try container.decodeIfPresent(String.self, forKey: .title) ?? ""
+    queuedAt = try container.decodeIfPresent(Date.self, forKey: .queuedAt) ?? Date(timeIntervalSince1970: 0)
+    lastError = try container.decodeIfPresent(String.self, forKey: .lastError)
   }
 }
 
@@ -79,6 +100,10 @@ public struct OutboxItem: Sendable, Equatable, Codable {
   public var attempts: Int
   /// Why the last transfer failed, for the queue row.
   public var lastError: String?
+  /// A `create` has been sent and the server did not refuse it, so the memo may exist there even if no answer ever came
+  /// (the app was killed, the connection dropped on the way back). Set when the create is handed out, cleared by a refusal:
+  /// a discard deletes the memo on the server exactly while this holds.
+  public var createMayHaveLanded: Bool
 
   public init(
     memoID: MemoID, kind: OutboxItemKind, mode: String, threadID: String? = nil, startedAt: Date, queuedAt: Date,
@@ -94,6 +119,29 @@ public struct OutboxItem: Sendable, Equatable, Codable {
     create = .pending
     attempts = 0
     lastError = nil
+    createMayHaveLanded = false
+  }
+
+  /// Records written before `createMayHaveLanded` read it from the create state: anything but a create that was never
+  /// handed out or was refused for good may have landed.
+  public init(from decoder: any Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    memoID = try container.decode(MemoID.self, forKey: .memoID)
+    kind = try container.decode(OutboxItemKind.self, forKey: .kind)
+    mode = try container.decode(String.self, forKey: .mode)
+    threadID = try container.decodeIfPresent(String.self, forKey: .threadID)
+    startedAt = try container.decode(Date.self, forKey: .startedAt)
+    queuedAt = try container.decode(Date.self, forKey: .queuedAt)
+    title = try container.decode(String.self, forKey: .title)
+    create = try container.decode(OutboxState.self, forKey: .create)
+    attempts = try container.decode(Int.self, forKey: .attempts)
+    lastError = try container.decodeIfPresent(String.self, forKey: .lastError)
+    switch create {
+    case .pending, .stalled:
+      createMayHaveLanded = try container.decodeIfPresent(Bool.self, forKey: .createMayHaveLanded) ?? false
+    case .uploading, .uploaded, .failed:
+      createMayHaveLanded = try container.decodeIfPresent(Bool.self, forKey: .createMayHaveLanded) ?? true
+    }
   }
 }
 
@@ -130,11 +178,14 @@ public enum OutboxItemStatus: Sendable, Equatable {
 public struct OutboxQueueItem: Sendable, Equatable, Identifiable {
   public let item: OutboxItem
   public let status: OutboxItemStatus
+  /// A discarded take's server `DELETE` still waiting to be acknowledged (`item` only carries its title and time).
+  public let isDeletion: Bool
   public var id: MemoID { item.memoID }
 
-  public init(item: OutboxItem, status: OutboxItemStatus) {
+  public init(item: OutboxItem, status: OutboxItemStatus, isDeletion: Bool = false) {
     self.item = item
     self.status = status
+    self.isDeletion = isDeletion
   }
 }
 

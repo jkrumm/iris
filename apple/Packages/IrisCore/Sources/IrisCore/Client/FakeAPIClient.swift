@@ -102,7 +102,7 @@ public actor FakeAPIClient: APIClient {
   /// Holds back the answer of the next call to `endpoint` (its result or its scripted failure) until the returned
   /// gate is released; the call's effect on the fake's state happens at once, as on a server whose response is slow.
   /// Queued gates are consumed one per call, in order. Gated endpoints: `health`, `listMemos`, `memo`, `setFlags`,
-  /// `deleteMemo`, `restoreMemo`, `createTextMemo` and `stats`.
+  /// `deleteMemo`, `restoreMemo`, `createTextMemo`, `setActivityToken` and `stats`.
   public func hold(_ endpoint: Endpoint) -> Gate {
     let gate = Gate()
     gates[endpoint, default: []].append(gate)
@@ -458,9 +458,10 @@ public actor FakeAPIClient: APIClient {
 
   public func setActivityToken(memoID: String, request: ActivityTokenRequest) async throws {
     calls.append(.setActivityToken(memoID: memoID, request: request))
-    try failIfScripted(.setActivityToken)
-    guard memos[memoID] != nil else { throw notFound("memo not found") }
-    activityTokens[memoID] = request.token
+    try await respond(.setActivityToken) {
+      guard memos[memoID] != nil else { throw notFound("memo not found") }
+      activityTokens[memoID] = request.token
+    }
   }
 
   public func herd() async throws -> Herd {
