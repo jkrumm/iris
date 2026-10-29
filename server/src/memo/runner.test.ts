@@ -123,10 +123,10 @@ describe("drive", () => {
   });
 
   it("fails the step when a handler that may not park asks to", async () => {
-    const { store, runner } = setup({ summarize: async () => ({ outcome: "needs_route" }) });
-    const { id } = seedMemo(store, "acted");
+    const { store, runner } = setup({ transcribe: async () => ({ outcome: "needs_route" }) });
+    const { id } = seedMemo(store, "received");
     await runner.drive(id);
-    expect(store.getMemo(id)).toMatchObject({ state: "failed", failedStep: "summarize" });
+    expect(store.getMemo(id)).toMatchObject({ state: "failed", failedStep: "transcribe" });
   });
 
   it("is single-flight: concurrent drives share one run and run each handler once", async () => {
@@ -204,14 +204,14 @@ function codeOf(fn: () => unknown) {
 
 describe("retry", () => {
   it("resets from the failed step, clears the error and completes", async () => {
-    const { store, runner, id, heal, emitted } = failedAt("summarize");
+    const { store, runner, id, heal, emitted } = failedAt("notify");
     await runner.drive(id);
     expect(store.getMemo(id)?.state).toBe("failed");
 
     heal();
-    const reset = runner.retry({ id, from: "summarize" });
-    expect(reset).toMatchObject({ state: "acted", failedStep: null, error: null });
-    expect(emitted.at(-1)).toMatchObject({ state: "acted", step: null });
+    const reset = runner.retry({ id, from: "notify" });
+    expect(reset).toMatchObject({ state: "summarized", failedStep: null, error: null });
+    expect(emitted.at(-1)).toMatchObject({ state: "summarized", step: null });
     await runner.drive(id);
 
     expect(store.getMemo(id)?.state).toBe("notified");
@@ -242,6 +242,89 @@ describe("retry", () => {
       "bad_state",
     );
     expect(store.getMemo(id)?.state).toBe("failed");
+  });
+});
+
+describe("optional summarize", () => {
+  it("skips a failed summarize: the step stays failed, the memo goes on to notify and ends notified", async () => {
+    const { store, runner, calls, emitted } = setup({
+      summarize: async () => {
+        throw new Error("402 payment required");
+      },
+    });
+    const { id } = seedMemo(store, "acted");
+    await runner.drive(id);
+
+    expect(store.getMemo(id)).toMatchObject({
+      state: "notified",
+      failedStep: null,
+      error: null,
+      summary: null,
+    });
+    expect(calls).toEqual(["notify"]);
+    expect(store.listStepRecords(id).map((s) => [s.step, s.status])).toEqual([
+      ["summarize", "failed"],
+      ["notify", "done"],
+    ]);
+    expect(stepRecord(store, id, "summarize")).toMatchObject({
+      error: "402 payment required",
+      attempts: 1,
+    });
+    expect(emitted.map((e) => [e.step, e.state])).toEqual([
+      ["summarize", "summarized"],
+      ["notify", "notified"],
+    ]);
+  });
+
+  it("still fails the memo when any other step fails", async () => {
+    const { store, runner } = setup({
+      notify: async () => {
+        throw new Error("apns down");
+      },
+    });
+    const { id } = seedMemo(store, "acted");
+    await runner.drive(id);
+    expect(store.getMemo(id)).toMatchObject({ state: "failed", failedStep: "notify" });
+  });
+
+  it("retries a skipped summarize on the notified memo: summarize then notify run again", async () => {
+    let broken = true;
+    const { store, runner, calls, emitted } = setup({
+      summarize: async () => {
+        if (broken) throw new Error("402");
+        return { patch: { summary: { headline: "H", detail: "D", spoken: "S" } } };
+      },
+    });
+    const { id } = seedMemo(store, "acted");
+    await runner.drive(id);
+    expect(store.getMemo(id)?.state).toBe("notified");
+
+    broken = false;
+    const reset = runner.retry({ id, from: "summarize" });
+    expect(reset).toMatchObject({ state: "acted", summary: null });
+    expect(emitted.at(-1)).toMatchObject({ state: "acted", step: null });
+    await runner.idle();
+
+    expect(store.getMemo(id)).toMatchObject({ state: "notified", summary: { headline: "H" } });
+    expect(calls).toEqual(["notify", "notify"]);
+    expect(store.listStepRecords(id).every((r) => r.status === "done")).toBe(true);
+  });
+
+  it("does not retry a notified memo whose summarize succeeded, or from another step", async () => {
+    const { store, runner } = setup({
+      summarize: async () => {
+        throw new Error("402");
+      },
+    });
+    const skipped = seedMemo(store, "acted").id;
+    await runner.drive(skipped);
+    expect(codeOf(() => runner.retry({ id: skipped, from: "notify" }))).toBe("bad_state");
+    expect(codeOf(() => runner.retry({ id: skipped, from: "act" }))).toBe("bad_state");
+
+    const healthy = setup();
+    const ok = seedMemo(healthy.store, "acted").id;
+    await healthy.runner.drive(ok);
+    expect(codeOf(() => healthy.runner.retry({ id: ok, from: "summarize" }))).toBe("bad_state");
   });
 });
 
@@ -649,11 +732,7 @@ describe("automatic retries", () => {
 
     expect(state.calls).toBe(3);
     expect(delays).toEqual([2000, 8000]);
-    expect(store.getMemo(id)).toMatchObject({
-      state: "failed",
-      failedStep: "summarize",
-      error: "gateway 503",
-    });
+    expect(store.getMemo(id)).toMatchObject({ state: "notified", failedStep: null, error: null });
     expect(stepRecord(store, id, "summarize")).toMatchObject({
       status: "failed",
       attempts: 3,
@@ -704,7 +783,7 @@ describe("automatic retries", () => {
 
     expect(polls).toBeGreaterThan(0);
     expect(delays).toEqual([]);
-    expect(store.getMemo(id)).toMatchObject({ state: "failed", failedStep: "summarize" });
+    expect(store.getMemo(id)).toMatchObject({ state: "notified", failedStep: null });
     expect(stepRecord(store, id, "summarize")).toMatchObject({ status: "failed", attempts: 1 });
     expect(stepRecord(store, id, "summarize")?.error).toContain("timed out after 3000 ms");
   });

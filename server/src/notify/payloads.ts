@@ -2,7 +2,8 @@ import { t } from "elysia";
 import type { Memo, MemoState, Summary } from "../memo/memo.js";
 import type { ApnsMessage } from "../ports/apns.js";
 
-// Pure payload builders: no clock, no network. Apple limits both an alert and a Live Activity
+// Pure payload builders: no clock, no network. The headline comes from the summary; when summarize failed, `notify` passes a
+// transcript-derived one (pipeline/steps.ts), clipped to HEADLINE_MAX. Apple limits both an alert and a Live Activity
 // push to 4 KB; every free-text field is capped far below that. The two TypeBox schemas below are
 // the push shapes the Swift clients decode; `contracts/` exports them.
 

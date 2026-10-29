@@ -504,12 +504,47 @@ describe("notify", () => {
     expect(notifier.calls).toEqual([{ memo, summary }]);
   });
 
-  it("throws when the memo has no summary", async () => {
+  it("announces a clipped transcript when the memo has no summary", async () => {
     const { store, handlers, notifier } = setup();
-    await expect(handlers.notify?.({ memo: seedMemo(store, "summarized") })).rejects.toThrow(
-      "no summary",
-    );
-    expect(notifier.calls).toEqual([]);
+    const transcript = `  Bitte   erinnere mich ${"morgen ".repeat(20)}an den Termin `;
+    const memo = { ...seedMemo(store, "summarized"), route: "hermes", transcript };
+    expect(await handlers.notify?.({ memo })).toEqual({});
+    const [call] = notifier.calls;
+    expect(call?.memo).toBe(memo);
+    expect(call?.summary.headline).toHaveLength(60);
+    expect(call?.summary.headline.startsWith("Bitte erinnere mich morgen morgen")).toBe(true);
+    expect(call?.summary.headline.endsWith("…")).toBe(true);
+    expect(call?.summary.spoken).toBe("");
+  });
+
+  it("clips the delivered transcript, without a spoken routing prefix", async () => {
+    const { store, handlers, notifier } = setup();
+    const memo = {
+      ...seedMemo(store, "summarized"),
+      route: "hermes",
+      transcript: "Hermes, kauf Milch",
+    };
+    store.completeStep({
+      id: memo.id,
+      step: "route",
+      from: "summarized",
+      to: "summarized",
+      patch: {
+        routeDecision: {
+          source: "prefix",
+          destination: "hermes",
+          tab: null,
+          confidence: 1,
+          model: null,
+          costUsd: null,
+          reason: null,
+          outcome: "routed",
+          prefixWords: 1,
+        },
+      },
+    });
+    await handlers.notify?.({ memo });
+    expect(notifier.calls[0]?.summary.headline).toBe("kauf Milch");
   });
 });
 
@@ -548,15 +583,21 @@ describe("pipeline end to end", () => {
         return inner.summarize(params);
       },
     };
-    const { store, runner, transcriber, destination } = setup({ summarizer });
+    const { store, runner, transcriber, destination, notifier } = setup({ summarizer });
     const { id } = seedWithSegments(store, [0]);
     await runner.drive(id);
+    // The memo ends notified without a summary; the alert carries the transcript's headline.
     expect(store.getMemo(id)).toMatchObject({
-      state: "failed",
-      failedStep: "summarize",
-      error: "agw down",
+      state: "notified",
+      failedStep: null,
+      summary: null,
       transcript: "hello iris",
     });
+    expect(store.listStepRecords(id).find((s) => s.step === "summarize")).toMatchObject({
+      status: "failed",
+      error: "agw down",
+    });
+    expect(notifier.calls.map((c) => c.summary.headline)).toEqual(["hello iris"]);
 
     broken = false;
     runner.retry({ id, from: "summarize" });
@@ -569,6 +610,20 @@ describe("pipeline end to end", () => {
     expect(transcriber.calls).toHaveLength(1);
     expect(destination.calls).toHaveLength(1);
     expect(inner.calls).toHaveLength(1);
+    // notify re-sent with the real headline (the alert's collapse id replaces the banner)
+    expect(notifier.calls.map((c) => c.summary.headline)).toEqual(["hello iris", "Headline"]);
+  });
+
+  it("skips to notify for a hermes memo when no summarizer is configured", async () => {
+    const { store, runner, notifier } = setup({ summarizer: null });
+    const { id } = seedWithSegments(store, [0]);
+    await runner.drive(id);
+    expect(store.getMemo(id)).toMatchObject({ state: "notified", summary: null });
+    expect(store.listStepRecords(id).find((s) => s.step === "summarize")).toMatchObject({
+      status: "failed",
+      error: expect.stringContaining("no summarizer configured"),
+    });
+    expect(notifier.calls).toHaveLength(1);
   });
 });
 

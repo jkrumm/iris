@@ -59,6 +59,12 @@ function templatedSummary(params: {
   };
 }
 
+/** What notify announces when summarize failed for good: the transcript clipped to a headline, nothing is stored. */
+function transcriptSummary(transcript: string): Summary {
+  const text = transcript.replace(/\s+/g, " ").trim();
+  return { headline: clip(text, HEADLINE_MAX), detail: clip(text, DETAIL_MAX), spoken: "" };
+}
+
 /** The route of a memo that continues a thread: forced to `hermes`, no model call. */
 function continuationRoute(registered: readonly DestinationName[]): RouteDecision {
   if (!registered.includes("hermes")) {
@@ -263,7 +269,8 @@ export function createStepHandlers(deps: {
     }
   };
 
-  // Always present: journal and herdr are summarized from a template, only the model-backed routes need the port.
+  // Always present: journal and herdr are summarized from a template, only the model-backed routes need the port. A failure
+  // here (no summarizer included) is skipped by the runner: `summarize` is an optional step.
   handlers.summarize = async ({ memo }) => {
     const name = required(memo.route, "route", "summarize");
     const transcript = delivered(memo, "summarize");
@@ -291,7 +298,8 @@ export function createStepHandlers(deps: {
   };
 
   handlers.notify = async ({ memo }: { memo: Memo }) => {
-    const summary = required(memo.summary, "summary", "notify");
+    // `summarize` is optional: without its result the alert carries the start of what was said.
+    const summary = memo.summary ?? transcriptSummary(delivered(memo, "notify"));
     await notifier.notify({ memo, summary });
     return {};
   };
