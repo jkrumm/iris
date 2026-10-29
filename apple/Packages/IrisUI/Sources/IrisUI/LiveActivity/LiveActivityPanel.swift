@@ -2,7 +2,7 @@ import SwiftUI
 
 /// The body of a memo's Live Activity: the Lock Screen card and, with `style: .island`, the bottom region of the expanded
 /// Dynamic Island (whose leading and trailing regions carry what the lock-screen header carries).
-public struct LiveActivityPanel<Controls: View>: View {
+public struct LiveActivityPanel<Controls: View, DoneAction: View>: View {
   public enum Style: Sendable {
     case lockScreen, island
   }
@@ -10,14 +10,17 @@ public struct LiveActivityPanel<Controls: View>: View {
   private let presentation: ActivityPresentation
   private let style: Style
   private let controls: Controls
+  private let doneAction: DoneAction
 
-  /// `controls` is shown while the phase is `recording` or `paused`.
+  /// `controls` is shown while the phase is `recording` or `paused`; `doneAction` (Play) while it is `done`.
   public init(
-    _ presentation: ActivityPresentation, style: Style = .lockScreen, @ViewBuilder controls: () -> Controls
+    _ presentation: ActivityPresentation, style: Style = .lockScreen, @ViewBuilder controls: () -> Controls,
+    @ViewBuilder doneAction: () -> DoneAction
   ) {
     self.presentation = presentation
     self.style = style
     self.controls = controls()
+    self.doneAction = doneAction()
   }
 
   private var primary: Color { style == .island ? .white : Theme.Ink.primary }
@@ -28,6 +31,7 @@ public struct LiveActivityPanel<Controls: View>: View {
       if style == .lockScreen { header }
       content
       if presentation.phase == .recording || presentation.phase == .paused { controls }
+      if presentation.phase == .done { doneAction }
       if let note = presentation.note { noteRow(note) }
     }
     .frame(maxWidth: .infinity, alignment: .leading)
@@ -140,9 +144,21 @@ public struct LiveActivityPanel<Controls: View>: View {
   }
 }
 
-extension LiveActivityPanel where Controls == EmptyView {
+extension LiveActivityPanel where DoneAction == EmptyView {
+  public init(
+    _ presentation: ActivityPresentation, style: Style = .lockScreen, @ViewBuilder controls: () -> Controls
+  ) {
+    self.init(presentation, style: style, controls: controls) { EmptyView() }
+  }
+}
+
+extension LiveActivityPanel where Controls == EmptyView, DoneAction == EmptyView {
   public init(_ presentation: ActivityPresentation, style: Style = .lockScreen) {
-    self.init(presentation, style: style) { EmptyView() }
+    self.init(presentation, style: style) {
+      EmptyView()
+    } doneAction: {
+      EmptyView()
+    }
   }
 }
 

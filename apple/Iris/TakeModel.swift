@@ -26,6 +26,8 @@ final class TakeModel {
   /// The full take screen is up (otherwise a running take shows as the banner).
   var showsFull = false
   var showsInputPicker = false
+  /// The mode picker of the record control (a long press) is up.
+  var showsModePicker = false
   private(set) var isEnding = false
   private var pausedAt: Date?
   private var pausedTotal: TimeInterval = 0

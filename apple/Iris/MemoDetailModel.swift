@@ -23,7 +23,9 @@ final class MemoDetailModel {
   private(set) var failure: Failure?
 
   private let client: any APIClient
-  private let media: any MemoMediaSource
+  let media: any MemoMediaSource
+  /// The app's one spoken-reply player (Play, `PlayReplyIntent` and spoken replies share it).
+  let speech: SpeechPlayer
   private let logger = Logger(subsystem: "com.jkrumm.iris", category: "detail")
   private var baselinesLoaded = false
   private var toastCount = 0
@@ -33,12 +35,14 @@ final class MemoDetailModel {
 
   /// `memo` is what the list already knows; the steps arrive with the first ``load()``.
   init(
-    memo: Memo, client: any APIClient, media: any MemoMediaSource, toastDuration: Duration = .seconds(4),
+    memo: Memo, client: any APIClient, media: any MemoMediaSource, speech: SpeechPlayer = SpeechPlayer(),
+    toastDuration: Duration = .seconds(4),
     sleep: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
   ) {
     detail = MemoDetail(memo: memo, steps: [])
     self.client = client
     self.media = media
+    self.speech = speech
     self.toastDuration = toastDuration
     self.sleep = sleep
   }
@@ -124,6 +128,12 @@ final class MemoDetailModel {
       logger.error("retry failed: \(String(describing: error), privacy: .public)")
       showFailure(String(localized: "Could not retry the memo", comment: "Toast when a retry failed"))
     }
+  }
+
+  /// The server accepted a route for the memo: the screen shows the answer at once and reloads the timeline.
+  func didRoute(_ routed: Memo) async {
+    detail.memo = routed
+    await load()
   }
 
   func dismissFailure() {

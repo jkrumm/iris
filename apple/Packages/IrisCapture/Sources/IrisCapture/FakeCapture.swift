@@ -35,10 +35,11 @@ public actor FakeRouteManager: RouteManager {
 
   public init(
     inputs: [InputPort] = [FakeRouteManager.builtInMic, FakeRouteManager.headsetMic],
-    outputUIDs: [String] = ["fake-speaker"]
+    outputUIDs: [String] = ["fake-speaker"], outputNames: [String] = ["iPhone Speaker"]
   ) {
     (routeChanges, continuation) = AsyncStream.makeStream(of: RouteChange.self)
-    route = RouteSnapshot(availableInputs: inputs, currentInput: inputs.first, outputUIDs: outputUIDs)
+    route = RouteSnapshot(
+      availableInputs: inputs, currentInput: inputs.first, outputUIDs: outputUIDs, outputNames: outputNames)
   }
 
   public func currentRoute() -> RouteSnapshot { route }
@@ -54,7 +55,9 @@ public actor FakeRouteManager: RouteManager {
       target = route.availableInputs.first
     }
     guard target != route.currentInput else { return }
-    route = RouteSnapshot(availableInputs: route.availableInputs, currentInput: target, outputUIDs: route.outputUIDs)
+    route = RouteSnapshot(
+      availableInputs: route.availableInputs, currentInput: target, outputUIDs: route.outputUIDs,
+      outputNames: route.outputNames)
     continuation.yield(RouteChange(snapshot: route, reason: .userSelection))
   }
 
@@ -65,9 +68,12 @@ public actor FakeRouteManager: RouteManager {
   }
 
   /// Script hook: a device appears or disappears.
-  public func setAvailable(inputs: [InputPort], outputUIDs: [String], reason: RouteChangeReason) {
+  public func setAvailable(
+    inputs: [InputPort], outputUIDs: [String], outputNames: [String] = [], reason: RouteChangeReason
+  ) {
     let current = route.currentInput.flatMap { inputs.contains($0) ? $0 : nil } ?? inputs.first
-    route = RouteSnapshot(availableInputs: inputs, currentInput: current, outputUIDs: outputUIDs)
+    route = RouteSnapshot(
+      availableInputs: inputs, currentInput: current, outputUIDs: outputUIDs, outputNames: outputNames)
     continuation.yield(RouteChange(snapshot: route, reason: reason))
   }
 }

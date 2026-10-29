@@ -5,41 +5,64 @@ import Testing
 @MainActor
 @Suite("MemoPlayback")
 struct MemoPlaybackTests {
+  private let memo = MemoFactory.memo("p", audioSeconds: 3, replyText: "ok")
+  private let source = FakeMediaSource()
+
   private func loaded() async -> MemoPlayback {
-    let memo = MemoFactory.memo("p", audioSeconds: 3, replyText: "ok")
-    let playback = MemoPlayback(recordingDuration: 3)
-    await playback.recording.load(FakeMediaSource().audio(for: memo))
-    await playback.reply.load(FakeMediaSource().speech(for: memo))
+    let playback = MemoPlayback(memoID: memo.id, recordingDuration: 3)
+    await playback.recording.load(source.audio(for: memo))
     return playback
   }
 
   @Test("starting the reply stops the recording, and starting the recording stops the reply")
   func exclusive() async {
-    let memo = MemoFactory.memo("p", audioSeconds: 3, replyText: "ok")
     let playback = await loaded()
 
     playback.toggleRecording()
-    #expect(playback.recording.isPlaying && !playback.reply.isPlaying)
+    #expect(playback.recording.isPlaying && !playback.isReplyPlaying)
 
-    await playback.toggleReply(loading: FakeMediaSource().speech(for: memo))
-    #expect(playback.reply.isPlaying && !playback.recording.isPlaying)
+    await playback.toggleReply(memo, source: source)
+    #expect(playback.isReplyPlaying && !playback.recording.isPlaying)
 
     playback.toggleRecording()
-    #expect(playback.recording.isPlaying && !playback.reply.isPlaying)
+    #expect(playback.recording.isPlaying && !playback.isReplyPlaying)
 
     playback.pauseAll()
-    #expect(!playback.recording.isPlaying && !playback.reply.isPlaying)
+    #expect(!playback.recording.isPlaying && !playback.isReplyPlaying)
     playback.teardown()
-    #expect(!playback.recording.isObserving && !playback.reply.isObserving)
+    #expect(!playback.recording.isObserving && !playback.speech.player.isObserving)
   }
 
   @Test("the reply is loaded the first time it plays, not before")
   func lazyReply() async {
-    let memo = MemoFactory.memo("p", audioSeconds: 3, replyText: "ok")
-    let playback = MemoPlayback(recordingDuration: 3)
-    #expect(!playback.reply.isLoaded)
-    await playback.toggleReply(loading: FakeMediaSource().speech(for: memo))
-    #expect(playback.reply.isLoaded && playback.reply.isPlaying)
+    let playback = MemoPlayback(memoID: memo.id, recordingDuration: 3)
+    #expect(!playback.speech.player.isLoaded)
+    await playback.toggleReply(memo, source: source)
+    #expect(playback.speech.player.isLoaded && playback.isReplyPlaying)
     playback.teardown()
+  }
+
+  @Test("a reply that starts on its own (a spoken reply) pauses the recording that is playing")
+  func spokenReplyPausesTheRecording() async {
+    let playback = await loaded()
+    playback.toggleRecording()
+    #expect(playback.recording.isPlaying)
+
+    // Not through the screen: the spoken-replies path calls the shared player directly.
+    await playback.speech.play(memo, source: source)
+    #expect(playback.isReplyPlaying && !playback.recording.isPlaying)
+    playback.teardown()
+  }
+
+  @Test("leaving a memo's screen does not stop another memo's reply")
+  func teardownLeavesOtherReplies() async {
+    let speech = SpeechPlayer()
+    let other = MemoFactory.memo("other", replyText: "hello")
+    await speech.play(other, source: source)
+    let playback = MemoPlayback(memoID: memo.id, recordingDuration: 3, speech: speech)
+
+    playback.teardown()
+    #expect(speech.isPlaying("other"))
+    speech.stop()
   }
 }

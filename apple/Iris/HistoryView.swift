@@ -14,8 +14,11 @@ struct HistoryView: View {
   let makeComposer: (ComposerRequest) -> ComposerModel
   /// Builds the model of a conversation screen.
   let makeThread: (ThreadRoute) -> ThreadModel
+  /// Builds the model of the route sheet (answer a parked memo, correct a finished one).
+  let makeRouteAnswer: (Memo) -> RouteAnswerModel
   @State private var showingFilters = false
   @State private var composer: ComposerRequest?
+  @State private var routing: Memo?
 
   var body: some View {
     NavigationStack {
@@ -30,7 +33,7 @@ struct HistoryView: View {
               }
               .accessibilityIdentifier("history.row")
               .listRowBackground(HistoryRowBackground(needsAttention: memo.isOpenNeedsRoute))
-              .modifier(MemoSwipeActions(memo: memo, model: model))
+              .modifier(MemoSwipeActions(memo: memo, model: model, onRoute: { routing = $0 }))
               .task { await model.loadMoreIfNeeded(current: memo) }
             }
           } header: {
@@ -61,7 +64,8 @@ struct HistoryView: View {
         } else {
           MemoDetailView(
             model: makeDetail(memo), refreshToken: { model.revision(of: memo.id) },
-            onReply: { composer = .reply(to: $0) })
+            onReply: { composer = .reply(to: $0) }, makeRouteAnswer: makeRouteAnswer,
+            onRouted: { model.insert($0) })
         }
       }
       .navigationDestination(for: ThreadRoute.self) { route in
@@ -95,6 +99,11 @@ struct HistoryView: View {
       .sheet(item: $composer) { request in
         ComposerView(
           model: makeComposer(request), onSent: { model.insert($0) }, onQueued: { model.didQueue() })
+      }
+      .sheet(item: $routing) { memo in
+        RouteAnswerSheet(model: makeRouteAnswer(memo), onRouted: { model.insert($0) })
+          .presentationDetents([.medium, .large])
+          .presentationDragIndicator(.visible)
       }
       .refreshable { await model.load() }
       .task(id: model.filters) {

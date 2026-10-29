@@ -64,6 +64,20 @@
       SnapshotSupport.assertLightAndDark(both, width: 390, height: 280)
     }
 
+    @Test("lock screen: the done card with Play", .tags(.snapshot))
+    func lockDonePlay() {
+      let presentation = CaptureSamples.presentation(.done, headline: "Weekly plan agreed", routeChip: "Hermes")
+      let panel = LiveActivityPanel(presentation) {
+        EmptyView()
+      } doneAction: {
+        ActivityControlLabel(.play, title: "Play", onDark: false)
+      }
+      .padding(Theme.Spacing.lg)
+      .background(Theme.Surface.panel, in: .rect(cornerRadius: 24))
+      .padding(Theme.Spacing.md)
+      SnapshotSupport.assertLightAndDark(panel, width: 390, height: 190)
+    }
+
     @Test("lock screen: failed", .tags(.snapshot))
     func lockFailed() {
       SnapshotSupport.assertLightAndDark(card(CaptureSamples.presentation(.failed)), width: 390, height: 110)
@@ -131,6 +145,25 @@
     @Test("island expanded: processing with the stage dashes", .tags(.snapshot))
     func expandedProcessing() {
       SnapshotSupport.assertLightAndDark(expanded(CaptureSamples.presentation(.processing)), width: 390, height: 170)
+    }
+
+    @Test("island expanded: done with Play", .tags(.snapshot))
+    func expandedDonePlay() {
+      let presentation = CaptureSamples.presentation(
+        .done, headline: "Weekly plan agreed, release on Thursday", routeChip: "Hermes")
+      let island = IslandMock(.expanded) {
+        ActivityPhaseTitle(presentation, onDark: true)
+      } trailing: {
+        ActivityHeaderTrailing(presentation, onDark: true)
+      } bottom: {
+        LiveActivityPanel(presentation, style: .island) {
+          EmptyView()
+        } doneAction: {
+          ActivityControlLabel(.play, title: "Play", onDark: true)
+        }
+      }
+      .padding(.vertical, Theme.Spacing.md)
+      SnapshotSupport.assertLightAndDark(island, width: 390, height: 220)
     }
 
     @Test("island expanded: done", .tags(.snapshot))

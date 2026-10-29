@@ -7,6 +7,8 @@ struct SettingsView: View {
   let model: SettingsModel
   let history: HistoryModel
   let diagnostics: DiagnosticsModel
+  let micRules: MicRulesModel
+  let spokenReplies: SpokenReplies
   /// The editable URL and token; nil when the app runs on fakes and has no connection to edit.
   var connectionForm: ConnectionModel?
 
@@ -49,6 +51,9 @@ struct SettingsView: View {
         .listRowBackground(Theme.Surface.panel)
 
         outbox
+
+        playback
+        microphone
       }
       .accessibilityIdentifier("settings.view")
       .takeBanner()
@@ -56,9 +61,59 @@ struct SettingsView: View {
       .background(Theme.Surface.background)
       .navigationTitle(String(localized: "Settings", comment: "Navigation title of the Settings tab"))
       .task { await model.load() }
+      .task { await micRules.load() }
       .task { await model.observeQueue() }
-      .refreshable { await model.load() }
+      .refreshable {
+        await model.load()
+        await micRules.load()
+      }
     }
+  }
+
+  /// Spoken replies: a finished memo is read out on its own while the app is open.
+  private var playback: some View {
+    @Bindable var spokenReplies = spokenReplies
+    return Section {
+      Toggle(isOn: $spokenReplies.isOn) {
+        Label {
+          Text("Spoken replies", comment: "Settings toggle")
+        } icon: {
+          Image(systemName: "speaker.wave.2").foregroundStyle(Theme.Accent.tint)
+        }
+      }
+      .accessibilityIdentifier("settings.spokenReplies")
+    } header: {
+      Text("Playback", comment: "Settings section")
+    } footer: {
+      Text(
+        "When on, the reply to a memo you recorded here is read out as soon as it is done, while Iris is open. Play always speaks it on demand.",
+        comment: "Settings spoken replies hint")
+    }
+    .listRowBackground(Theme.Surface.panel)
+  }
+
+  /// The microphone rule of the audio route in use right now.
+  private var microphone: some View {
+    Section {
+      MicRuleList(
+        routeTitle: micRules.routeTitle,
+        routeCaption: String(
+          localized: "Recording starts with the microphone you pick for this route.",
+          comment: "Settings mic rule caption"),
+        choices: micRules.choices, selection: micRules.selection
+      ) { uid in
+        Task { await micRules.pick(uid) }
+      }
+      .accessibilityElement(children: .contain)
+      .accessibilityIdentifier("settings.mic")
+    } header: {
+      Text("Microphone", comment: "Settings section")
+    } footer: {
+      Text(
+        "Rules are kept on this device, one per audio route (for example the car's Bluetooth). Connect to another route to set its rule.",
+        comment: "Settings mic rule hint")
+    }
+    .listRowBackground(Theme.Surface.panel)
   }
 
   private var connectionLabel: some View {
