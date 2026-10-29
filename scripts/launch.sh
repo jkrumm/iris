@@ -65,10 +65,10 @@ export IRIS_DATA="$HOME/.iris/data"
 [[ -d "$HOME/SourceRoot/brain" ]] && export BRAIN_DIR="$HOME/SourceRoot/brain"
 
 # The audio door's caller token: the `iris=<token>` line of the local caller-token file (0600, not 1Password).
-# Never echoed. A missing file or line starts degraded (`transcribe` and `speech` in /health), the reason goes to stderr.
+# Whitespace and a CR from a CRLF edit are stripped before the empty check. Never echoed. A missing file or line starts degraded (`transcribe` and `speech` in /health), the reason goes to stderr.
 DOOR_TOKENS="$HOME/.agent-workflows/data/door-tokens"
 if [[ -r "$DOOR_TOKENS" ]]; then
-  AUDIO_DOOR_TOKEN=$(/usr/bin/awk -F= '$1=="iris" { sub(/^[^=]*=/, ""); print; exit }' "$DOOR_TOKENS")
+  AUDIO_DOOR_TOKEN=$(/usr/bin/awk -F= '$1=="iris" { sub(/^[^=]*=/, ""); print; exit }' "$DOOR_TOKENS" | /usr/bin/tr -d '[:space:]')
   if [[ -n "$AUDIO_DOOR_TOKEN" ]]; then
     export AUDIO_DOOR_TOKEN
   else

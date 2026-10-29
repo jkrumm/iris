@@ -3,28 +3,22 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
 import type { AudioCombiner } from "../ports/audio.js";
-import { fetchFailure, hangGuardFailure, httpFailure } from "../ports/transient.js";
+import { fetchFailure, hangGuardFailure, httpFailure, TransientError } from "../ports/transient.js";
 import type { Transcriber, TranscriptionResult } from "../ports/transcriber.js";
 import { log } from "../telemetry/log.js";
 import { withSpan } from "../telemetry/otel.js";
+import { RUN_ID_ATTR, type AudioDoorClient } from "./audio-door-client.js";
 
 const MODEL = "voxtral-mini-transcribe-3-0";
 // A hang guard, not a budget: long recordings are chunked and transcribed server-side.
 const TIMEOUT_MS = 1_800_000;
 const BODY_MAX = 300;
 const STDERR_TAIL = 500;
-/** The response header naming the agent-workflows run that recorded the call, and its span / log key. */
-const RUN_ID_HEADER = "agw-run-id";
-const RUN_ID_ATTR = "agw.run_id";
 
 export type ConcatFn = (paths: string[]) => Promise<{ bytes: Uint8Array; seconds: number }>;
 
 export interface AudioDoorTranscriberOptions {
-  /** The door base including the version segment: `http://127.0.0.1:7792/v1`. */
-  baseUrl: string;
-  /** The `iris` line of the door's caller-token file. */
-  token: string;
-  fetch?: typeof fetch;
+  client: AudioDoorClient;
   concat?: ConcatFn;
   /** The hang guard; tests shorten it. */
   timeoutMs?: number;
@@ -127,7 +121,6 @@ export const ffmpegCombiner: AudioCombiner = {
  * stamped on the span and the log lines in place of the old `x-audio-source` attribution.
  */
 export function createAudioDoorTranscriber(opts: AudioDoorTranscriberOptions): Transcriber {
-  const doFetch = opts.fetch ?? fetch;
   const concat = opts.concat ?? ffmpegConcat;
   const timeoutMs = opts.timeoutMs ?? TIMEOUT_MS;
   // The hang guard fired: the step fails after this one window, it is not retried (`hangGuardFailure`).
@@ -137,7 +130,15 @@ export function createAudioDoorTranscriber(opts: AudioDoorTranscriberOptions): T
           cause: err,
         })
       : otherwise(err);
-  const url = `${opts.baseUrl.replace(/\/+$/, "")}/audio/transcriptions`;
+
+  const unreadable = (err: unknown): Error => {
+    const classified = fetchFailure(err);
+    if (classified instanceof TransientError) return classified;
+    const reason = err instanceof Error ? err.message : String(err);
+    return new Error(`audio door transcription response is unreadable: ${reason}`, {
+      cause: err,
+    });
+  };
 
   return {
     async transcribe({ memoId, segmentPaths, language }): Promise<TranscriptionResult> {
@@ -153,15 +154,11 @@ export function createAudioDoorTranscriber(opts: AudioDoorTranscriberOptions): T
         "audio_door.transcribe",
         { memo_id: memoId, downstream: "audio-door" },
         async (span) => {
-          const res = await doFetch(url, {
-            method: "POST",
-            headers: { authorization: `Bearer ${opts.token}` },
-            body: form,
-            signal: AbortSignal.timeout(timeoutMs),
-          }).catch((err: unknown) => {
-            throw hungOr(err, fetchFailure);
-          });
-          const runId = res.headers.get(RUN_ID_HEADER);
+          const { res, runId } = await opts.client
+            .post({ path: "/audio/transcriptions", body: form, timeoutMs })
+            .catch((err: unknown) => {
+              throw hungOr(err, fetchFailure);
+            });
           span.setAttributes({ status: res.status, [RUN_ID_ATTR]: runId });
           if (!res.ok) {
             const body = (await res.text().catch(() => "")).slice(0, BODY_MAX);
@@ -174,8 +171,10 @@ export function createAudioDoorTranscriber(opts: AudioDoorTranscriberOptions): T
 
           const parsed = TranscriptionResponse.safeParse(
             await res.json().catch((err: unknown) => {
-              // The window also covers the body: a timeout while it streams is the same hang.
-              throw hungOr(err, () => null);
+              // The window also covers the body: a timeout while it streams is the same hang. A lost
+              // connection is as transient as one on the request; anything else (a 200 that is not
+              // JSON) is a final failure that names itself.
+              throw hungOr(err, unreadable);
             }),
           );
           if (!parsed.success) {

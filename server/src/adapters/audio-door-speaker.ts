@@ -2,13 +2,11 @@ import { MemoError } from "../memo/errors.js";
 import type { Speaker } from "../ports/speaker.js";
 import { log } from "../telemetry/log.js";
 import { withSpan } from "../telemetry/otel.js";
+import { RUN_ID_ATTR, type AudioDoorClient } from "./audio-door-client.js";
 
 // A hang guard, not a budget: a spoken summary is a few sentences.
 const TIMEOUT_MS = 120_000;
 const BODY_MAX = 300;
-/** The response header naming the agent-workflows run that recorded the call, and its span / log key. */
-const RUN_ID_HEADER = "agw-run-id";
-const RUN_ID_ATTR = "agw.run_id";
 
 /** A network error, timeout or abort is the door being unavailable, not a bug: a 503, not a 500. */
 function unreachable(memoId: string, err: unknown): never {
@@ -18,11 +16,7 @@ function unreachable(memoId: string, err: unknown): never {
 }
 
 export interface AudioDoorSpeakerOptions {
-  /** The door base including the version segment: `http://127.0.0.1:7792/v1`. */
-  baseUrl: string;
-  /** The `iris` line of the door's caller-token file. */
-  token: string;
-  fetch?: typeof fetch;
+  client: AudioDoorClient;
   /** The hang guard; tests shorten it. */
   timeoutMs?: number;
 }
@@ -34,9 +28,7 @@ export interface AudioDoorSpeakerOptions {
  * envelope); `agw-run-id` names the run that recorded the call and goes on the span and the log lines.
  */
 export function createAudioDoorSpeaker(opts: AudioDoorSpeakerOptions): Speaker {
-  const doFetch = opts.fetch ?? fetch;
   const timeoutMs = opts.timeoutMs ?? TIMEOUT_MS;
-  const url = `${opts.baseUrl.replace(/\/+$/, "")}/audio/speech`;
 
   return {
     async speak({ memoId, text }) {
@@ -44,16 +36,14 @@ export function createAudioDoorSpeaker(opts: AudioDoorSpeakerOptions): Speaker {
         "audio_door.speak",
         { memo_id: memoId, downstream: "audio-door", text_chars: text.length },
         async (span) => {
-          const res = await doFetch(url, {
-            method: "POST",
-            headers: {
-              "content-type": "application/json",
-              authorization: `Bearer ${opts.token}`,
-            },
-            body: JSON.stringify({ input: text, response_format: "mp3" }),
-            signal: AbortSignal.timeout(timeoutMs),
-          }).catch((err: unknown) => unreachable(memoId, err));
-          const runId = res.headers.get(RUN_ID_HEADER);
+          const { res, runId } = await opts.client
+            .post({
+              path: "/audio/speech",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ input: text, response_format: "mp3" }),
+              timeoutMs,
+            })
+            .catch((err: unknown) => unreachable(memoId, err));
           span.setAttributes({ status: res.status, [RUN_ID_ATTR]: runId });
           if (!res.ok) {
             const body = (await res.text().catch(() => "")).slice(0, BODY_MAX);
