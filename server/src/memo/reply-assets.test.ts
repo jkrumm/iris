@@ -48,13 +48,23 @@ function setup() {
   const replies = createReplyAssets({ store, assets, renderer });
   const { id } = seedMemo(store, "acted");
   const blocks = () => store.getMemo(id)?.replyBlocks ?? [];
-  return { store, assets, renderer, replies, id, blocks };
+  /** The act step's commit of `replyText` on the seeded (acted) memo. */
+  const commit = (replyText: string) =>
+    store.completeStep({ id, step: "act", from: "acted", to: "acted", patch: { replyText } });
+  /** What the act handler and the runner do: render and stage, then commit the reply. */
+  const render = async (replyText: string) => {
+    await replies.sync({ memoId: id, replyText });
+    const won = commit(replyText);
+    await replies.idle();
+    return won;
+  };
+  return { store, assets, renderer, replies, id, blocks, commit, render };
 }
 
 describe("sync", () => {
   it("renders each block to svg and png for light and dark, stores the files and references them per block", async () => {
-    const { replies, assets, id, blocks, store } = setup();
-    await replies.sync({ memoId: id, replyText: `${fence("A-->B")}\n\ntext\n\n${fence("C-->D")}` });
+    const { render, assets, id, blocks, store } = setup();
+    await render(`${fence("A-->B")}\n\ntext\n\n${fence("C-->D")}`);
 
     expect(blocks().map((b) => [b.index, b.kind, b.width, b.height])).toEqual([
       [0, "mermaid", 120, 60],
@@ -72,12 +82,9 @@ describe("sync", () => {
   });
 
   it("leaves a block the renderer rejects as a code block: logged, no asset, the others still render", async () => {
-    const { replies, id, blocks, assets } = setup();
+    const { render, id, blocks, assets } = setup();
     const { lines } = await captureLogs(() =>
-      replies.sync({
-        memoId: id,
-        replyText: `${fence("A-->B")}\n${fence("unrenderable")}\n${fence("E-->F")}`,
-      }),
+      render(`${fence("A-->B")}\n${fence("unrenderable")}\n${fence("E-->F")}`),
     );
     expect(blocks().map((b) => b.index)).toEqual([0, 2]);
     expect(assets.files.size).toBe(8);
@@ -87,24 +94,24 @@ describe("sync", () => {
   });
 
   it("replaces the assets of an earlier reply: new ids, the old files gone", async () => {
-    const { replies, id, blocks, assets } = setup();
-    await replies.sync({ memoId: id, replyText: fence("A-->B") });
+    const { render, blocks, assets } = setup();
+    await render(fence("A-->B"));
     const before = blocks();
     const oldFiles = [...assets.files.keys()];
 
-    await replies.sync({ memoId: id, replyText: fence("X-->Y") });
+    await render(fence("X-->Y"));
     expect(blocks()).toHaveLength(1);
     expect(blocks()[0]?.svg.light).not.toBe(before[0]?.svg.light);
     expect(assets.files.size).toBe(4);
     for (const key of oldFiles) expect(assets.files.has(key)).toBe(false);
 
-    await replies.sync({ memoId: id, replyText: "no diagram any more" });
+    await render("no diagram any more");
     expect(blocks()).toEqual([]);
     expect(assets.files.size).toBe(0);
   });
 
   it("never throws: a failing store of the files costs the block (reply.store_failed) and leaves no file behind", async () => {
-    const { store, renderer, id, blocks } = setup();
+    const { store, renderer, id, blocks, commit } = setup();
     const files = fakeAssetStore();
     let puts = 0;
     const broken = {
@@ -115,25 +122,27 @@ describe("sync", () => {
         await files.put(params);
       },
     };
-    const { lines } = await captureLogs(() =>
-      createReplyAssets({ store, assets: broken, renderer }).sync({
+    const reply = `${fence("A-->B")}\n${fence("C-->D")}`;
+    const { lines } = await captureLogs(async () => {
+      await createReplyAssets({ store, assets: broken, renderer }).sync({
         memoId: id,
-        replyText: `${fence("A-->B")}\n${fence("C-->D")}`,
-      }),
-    );
+        replyText: reply,
+      });
+      commit(reply);
+    });
     expect(blocks().map((b) => b.index)).toEqual([1]);
     expect(files.files.size).toBe(4);
     expect(lines.map((l) => [l["event"], l["block"]])).toEqual([["reply.store_failed", 0]]);
   });
 
   it("never throws: a failing database costs the whole pass, its new files are removed and the earlier reply survives", async () => {
-    const { store, renderer, id, blocks, assets, replies } = setup();
-    await replies.sync({ memoId: id, replyText: fence("A-->B") });
+    const { store, renderer, id, blocks, assets, render } = setup();
+    await render(fence("A-->B"));
     const before = { files: [...assets.files.keys()], blocks: blocks() };
 
     const failingStore = {
       ...store,
-      replaceReplyAssets: (): boolean => {
+      stageReplyAssets: (): boolean => {
         throw new Error("db locked");
       },
     };
@@ -155,11 +164,13 @@ describe("sync", () => {
   });
 
   it("runs the passes of one memo one after another, so the last reply wins and no file is orphaned", async () => {
-    const { replies, assets, id, blocks } = setup();
+    const { replies, assets, id, blocks, commit } = setup();
     await Promise.all([
       replies.sync({ memoId: id, replyText: `${fence("A-->B")}\n${fence("C-->D")}` }),
       replies.sync({ memoId: id, replyText: fence("E-->F") }),
     ]);
+    commit(fence("E-->F"));
+    await replies.idle();
     expect(blocks()).toHaveLength(1);
     expect(assets.files.size).toBe(4);
     for (const asset of [blocks()[0]?.svg.light, blocks()[0]?.png.dark]) {
@@ -168,9 +179,9 @@ describe("sync", () => {
   });
 
   it(`renders at most ${MAX_BLOCKS} blocks and logs reply.blocks_capped`, async () => {
-    const { replies, id, blocks } = setup();
+    const { render, id, blocks } = setup();
     const reply = Array.from({ length: MAX_BLOCKS + 3 }, (_, i) => fence(`A${i}-->B`)).join("\n");
-    const { lines } = await captureLogs(() => replies.sync({ memoId: id, replyText: reply }));
+    const { lines } = await captureLogs(() => render(reply));
     expect(blocks()).toHaveLength(MAX_BLOCKS);
     expect(lines.filter((l) => l["event"] === "reply.blocks_capped")).toEqual([
       expect.objectContaining({ memo_id: id, total: MAX_BLOCKS + 3, cap: MAX_BLOCKS }),
@@ -196,11 +207,17 @@ const commitAct = (store: ReturnType<typeof setup>["store"], id: string, replyTe
   });
 
 describe("sync and the commit of the reply", () => {
-  it("keeps the assets once completeStep commits the reply they were rendered for", async () => {
+  it("keeps the assets invisible until completeStep commits the reply they were rendered for", async () => {
     const { store, replies, assets } = setup();
     const id = routedMemo(store);
     const reply = fence("A-->B");
     await replies.sync({ memoId: id, replyText: reply });
+
+    // Rendered and stored, but nothing names the files yet.
+    expect(assets.files.size).toBe(4);
+    expect(store.getMemo(id)?.replyBlocks).toEqual([]);
+    const [anyFile] = [...assets.files.keys()];
+    expect(store.getReplyAsset(id, anyFile?.split("/")[1] ?? "")).toBeNull();
 
     expect(commitAct(store, id, reply)).toBe(true);
     await replies.idle();
@@ -208,12 +225,51 @@ describe("sync and the commit of the reply", () => {
     expect(assets.files.size).toBe(4);
   });
 
-  it("removes rows and files when the step loses its compare-and-set", async () => {
+  it("a commit prunes the files of the earlier reply only once it has won", async () => {
+    const { replies, assets, id, blocks, commit } = setup();
+    await replies.sync({ memoId: id, replyText: fence("A-->B") });
+    commit(fence("A-->B"));
+    await replies.idle();
+    const earlier = [...assets.files.keys()];
+
+    await replies.sync({ memoId: id, replyText: fence("X-->Y") });
+    await replies.idle();
+    // The new reply is staged, not committed: the earlier reply is still served in full.
+    expect(blocks()).toHaveLength(1);
+    for (const key of earlier) expect(assets.files.has(key)).toBe(true);
+
+    commit(fence("X-->Y"));
+    await replies.idle();
+    expect(assets.files.size).toBe(4);
+    for (const key of earlier) expect(assets.files.has(key)).toBe(false);
+  });
+
+  it("removes only the new files when the step loses its compare-and-set, keeping the committed reply's assets", async () => {
+    const { store, replies, assets, id, blocks, commit } = setup();
+    await replies.sync({ memoId: id, replyText: fence("A-->B") });
+    commit(fence("A-->B"));
+    await replies.idle();
+    const before = { keys: [...assets.files.keys()], blocks: blocks() };
+
+    await replies.sync({ memoId: id, replyText: fence("X-->Y") });
+    expect(assets.files.size).toBe(8);
+    // The memo moved on (retried, parked elsewhere) while the handler rendered.
+    store.transition({ id, from: "acted", to: "needs_route" });
+
+    const { lines } = await captureLogs(async () => {
+      expect(commit(fence("X-->Y"))).toBe(false);
+      await replies.idle();
+    });
+    expect(blocks()).toEqual(before.blocks);
+    expect([...assets.files.keys()]).toEqual(before.keys);
+    expect(lines.filter((l) => l["event"] === "reply.assets_discarded")).toHaveLength(1);
+  });
+
+  it("removes the files when the step loses its compare-and-set and nothing was committed before", async () => {
     const { store, replies, assets } = setup();
     const id = routedMemo(store);
     const reply = fence("A-->B");
     await replies.sync({ memoId: id, replyText: reply });
-    // The memo moved on (retried, parked elsewhere) while the handler rendered.
     store.transition({ id, from: "routed", to: "needs_route" });
 
     const { lines } = await captureLogs(async () => {
@@ -234,7 +290,7 @@ describe("sync and the commit of the reply", () => {
     expect(store.getMemo(id)?.replyBlocks).toEqual([]);
   });
 
-  it("a lost step does not touch the assets a newer pass stored for the same memo", async () => {
+  it("a lost step does not touch the assets a newer pass staged for the same memo", async () => {
     const { store, replies, assets } = setup();
     const id = routedMemo(store);
     await replies.sync({ memoId: id, replyText: fence("A-->B") });
@@ -243,6 +299,11 @@ describe("sync and the commit of the reply", () => {
     await replies.sync({ memoId: id, replyText: fence("X-->Y") });
 
     expect(commitAct(store, id, fence("A-->B"))).toBe(false);
+    await replies.idle();
+    expect(assets.files.size).toBe(4);
+
+    store.transition({ id, from: "needs_route", to: "routed" });
+    expect(commitAct(store, id, fence("X-->Y"))).toBe(true);
     await replies.idle();
     expect(store.getMemo(id)?.replyBlocks).toHaveLength(1);
     expect(assets.files.size).toBe(4);
@@ -336,12 +397,48 @@ describe("backfill", () => {
     expect(assets.files.size).toBe(0);
   });
 
-  it("stores nothing for a reply whose diagrams all fail to render", async () => {
-    const { store, replies, assets } = setup();
+  it("stores nothing for a reply whose diagrams all fail to render, and does not try it again", async () => {
+    const { store, replies, assets, renderer } = setup();
     const id = committed(store, fence("unrenderable"));
 
     expect(await replies.backfill()).toBe(0);
     expect(store.getMemo(id)?.replyBlocks).toEqual([]);
     expect(assets.files.size).toBe(0);
+    expect(renderer.calls).toEqual(["unrenderable"]);
+
+    expect(await replies.backfill()).toBe(0);
+    expect(renderer.calls).toEqual(["unrenderable"]);
+  });
+
+  it("a reply whose diagrams all failed in the act step is marked with the commit, not retried at boot", async () => {
+    const { store, replies, renderer } = setup();
+    const id = routedMemo(store);
+    const reply = fence("unrenderable");
+    await replies.sync({ memoId: id, replyText: reply });
+    expect(commitAct(store, id, reply)).toBe(true);
+    await replies.idle();
+    expect(renderer.calls).toEqual(["unrenderable"]);
+
+    expect(await replies.backfill()).toBe(0);
+    expect(renderer.calls).toEqual(["unrenderable"]);
+  });
+
+  it("a changed reply clears the marker, so the new diagrams are rendered", async () => {
+    const { store, replies, renderer, assets } = setup();
+    const id = routedMemo(store);
+    await replies.sync({ memoId: id, replyText: fence("unrenderable") });
+    commitAct(store, id, fence("unrenderable"));
+    expect(await replies.backfill()).toBe(0);
+
+    // A retry from act produces another reply, committed without a render pass (no replyAssets wired).
+    store.markStepFailed({ id, step: "act", error: "boom" });
+    store.resetForRetry({ id, from: "act" });
+    store.markStepStarted({ id, step: "act" });
+    commitAct(store, id, fence("A-->B"));
+
+    expect(await replies.backfill()).toBe(1);
+    expect(renderer.calls).toEqual(["unrenderable", "A-->B"]);
+    expect(store.getMemo(id)?.replyBlocks).toHaveLength(1);
+    expect(assets.files.size).toBe(4);
   });
 });

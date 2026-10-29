@@ -31,6 +31,16 @@ describe("fs AudioStore", () => {
     await audio.remove(id);
   });
 
+  it("removes one segment and leaves the others; an unknown one is a no-op", async () => {
+    const audio = createFsAudioStore(root);
+    await audio.put({ id, index: 0, bytes: new Uint8Array([1]) });
+    await audio.put({ id, index: 1, bytes: new Uint8Array([2]) });
+    await audio.removeSegment({ id, index: 1 });
+    await audio.removeSegment({ id, index: 1 });
+    await audio.removeSegment({ id: "1f8fad5b-d9cb-469f-a165-70867728950e", index: 0 });
+    expect(await readdir(join(root, id))).toEqual(["000000.m4a"]);
+  });
+
   it("rejects ids and indices that could escape the root", async () => {
     const audio = createFsAudioStore(root);
     await expect(

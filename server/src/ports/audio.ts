@@ -14,6 +14,8 @@ export interface AudioStore {
   /** Atomic: a reader sees the previous bytes or the new ones, never a partial file. */
   put(params: { id: string; index: number; bytes: Uint8Array }): Promise<void>;
   path(params: { id: string; index: number }): string;
+  /** Drops one segment file (a write whose row was refused). Unknown ones are a no-op. */
+  removeSegment(params: { id: string; index: number }): Promise<void>;
   /** Drops every segment of a memo, and its combined recording. Unknown ids are a no-op. */
   remove(id: string): Promise<void>;
   /** The cached combined recording, or null when none was stored yet. */

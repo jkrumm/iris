@@ -275,6 +275,49 @@ describe("putSegment", () => {
     gate.resolve();
     expect(await late).toBe("bad_state");
     expect(store.listSegmentIndices(memo.id)).toEqual([0]);
+    expect([...audio.files.keys()]).toEqual([`${memo.id}/0`]);
+  });
+
+  it("removes the file of a segment whose write was in flight when its memo was deleted, and keeps the recorded ones", async () => {
+    const { service, audio, store } = setup();
+    const { memo } = service.createMemo(input());
+    await service.putSegment({ id: memo.id, index: 0, bytes: bytes() });
+    const gate = deferred();
+    const put = audio.put.bind(audio);
+    audio.put = async (params) => {
+      await gate.promise;
+      return put(params);
+    };
+    const late = codeOf(() => service.putSegment({ id: memo.id, index: 1, bytes: bytes() }));
+    service.delete(memo.id);
+    gate.resolve();
+
+    expect(await late).toBe("bad_state");
+    expect(store.listSegmentIndices(memo.id)).toEqual([0]);
+    // Only the unrecorded file went; what the memo has recorded stays for a restore within the undo window.
+    expect([...audio.files.keys()]).toEqual([`${memo.id}/0`]);
+    expect(service.restore(memo.id).deletedAt).toBeNull();
+    expect(store.listSegmentIndices(memo.id)).toEqual([0]);
+  });
+
+  it("a failing cleanup of a refused segment is logged and the refusal still reaches the caller", async () => {
+    const { service, audio } = setup();
+    const { memo } = service.createMemo(input());
+    const gate = deferred();
+    const put = audio.put.bind(audio);
+    audio.put = async (params) => {
+      await gate.promise;
+      return put(params);
+    };
+    audio.removeSegment = async () => {
+      throw new Error("disk gone");
+    };
+    const late = codeOf(() => service.putSegment({ id: memo.id, index: 0, bytes: bytes() }));
+    service.delete(memo.id);
+    gate.resolve();
+    const { result, lines } = await captureLogs(() => late);
+    expect(result).toBe("bad_state");
+    expect(lines.map((l) => l["event"])).toEqual(["segment.cleanup_failed"]);
   });
 
   it("refuses segments once the memo is past receiving", async () => {

@@ -257,6 +257,15 @@ describe("act", () => {
 
     expect(result?.patch?.replyText).toBe(reply);
     expect(renderer.calls).toEqual(["A-->B", "unrenderable"]);
+    // The assets are staged: they reach the wire with the commit of the reply.
+    expect(store.getMemo(memo.id)?.replyBlocks).toEqual([]);
+    store.completeStep({
+      id: memo.id,
+      step: "act",
+      from: "routed",
+      to: "acted",
+      patch: result?.patch ?? {},
+    });
     expect(store.getMemo(memo.id)?.replyBlocks.map((b) => b.index)).toEqual([0]);
     expect(assets.files.size).toBe(4);
   });

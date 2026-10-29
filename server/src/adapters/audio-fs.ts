@@ -25,6 +25,9 @@ export function createFsAudioStore(root: string): AudioStore {
       await writeAtomic(pathOf({ id, index }), bytes);
     },
     path: pathOf,
+    async removeSegment(params) {
+      await rm(pathOf(params), { force: true });
+    },
     async readCombined(id) {
       const file = Bun.file(combinedOf(id));
       return (await file.exists()) ? file : null;

@@ -22,6 +22,9 @@ export function fakeAudio(): FakeAudio {
       files.set(key({ id, index }), bytes);
     },
     path: (params) => `/fake/${key(params)}.m4a`,
+    async removeSegment(params) {
+      files.delete(key(params));
+    },
     async remove(id) {
       for (const k of Array.from(files.keys())) if (k.startsWith(`${id}/`)) files.delete(k);
       combined.delete(id);
