@@ -68,11 +68,16 @@ public struct RouteSnapshot: Sendable, Equatable {
   public let availableInputs: [InputPort]
   public let currentInput: InputPort?
   public let outputUIDs: [String]
+  /// The names of the output ports, for showing a route to the user ("AirPods Pro, Car"); the rules key on `outputUIDs`.
+  public let outputNames: [String]
 
-  public init(availableInputs: [InputPort], currentInput: InputPort?, outputUIDs: [String]) {
+  public init(
+    availableInputs: [InputPort], currentInput: InputPort?, outputUIDs: [String], outputNames: [String] = []
+  ) {
     self.availableInputs = availableInputs
     self.currentInput = currentInput
     self.outputUIDs = outputUIDs
+    self.outputNames = outputNames
   }
 
   /// Identifies the situation a rule applies to (for example "AirPods + car"): the sorted output port UIDs.

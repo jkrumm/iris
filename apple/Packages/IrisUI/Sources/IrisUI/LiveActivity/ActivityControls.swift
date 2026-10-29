@@ -5,6 +5,8 @@ import SwiftUI
 public struct ActivityControlLabel: View {
   public enum Kind: Sendable {
     case stop, switchInput, pause, resume
+    /// Speaks the finished memo's reply (the done card's action).
+    case play
   }
 
   private let kind: Kind
@@ -47,6 +49,13 @@ public struct ActivityControlLabel: View {
       icon("pause.fill")
     case .resume:
       icon("play.fill")
+    case .play:
+      Label(title, systemImage: "speaker.wave.2.fill")
+        .labelStyle(.titleAndIcon)
+        .font(.system(size: 15, weight: .semibold))
+        .foregroundStyle(iconInk)
+        .frame(maxWidth: .infinity, minHeight: 36)
+        .background(iconFill, in: .capsule)
     }
   }
 

@@ -28,7 +28,7 @@ private enum HiddenChange: Sendable {
 
 @MainActor
 @Observable
-final class CompositionRoot: CaptureIntentHandler {
+final class CompositionRoot: CaptureIntentHandler, PlaybackIntentHandler {
   enum Mode: Equatable {
     case fake
     case production
@@ -44,6 +44,12 @@ final class CompositionRoot: CaptureIntentHandler {
   let stats: StatsModel
   let settings: SettingsModel
   let diagnostics: DiagnosticsModel
+  /// The microphone rule of the active audio route (Settings).
+  let micRules: MicRulesModel
+  /// The spoken-replies setting and the reader of finished replies.
+  let spokenReplies: SpokenReplies
+  /// The app's one spoken-reply player: the detail's Play, `PlayReplyIntent` and spoken replies.
+  let speech = SpeechPlayer()
   /// The queue of whole memos and messages: submissions go in here, Settings reads it.
   let outbox: OutboxService
   /// The take in progress, for the take screen, the banner and the record control.
@@ -102,6 +108,7 @@ final class CompositionRoot: CaptureIntentHandler {
           policy: OutboxPolicy(baseDelay: 30), deletesFilesWhenDone: false))
       let service = OutboxService(stack: stack, created: created)
       outbox = service
+      micRules = MicRulesModel(routes: stack.routes)
       let mic = FakeMicrophone(capture: capture)
       simulatesOffline = arguments.contains("-IrisFakeOffline")
       let recording = RecordingLiveActivity()
@@ -132,6 +139,7 @@ final class CompositionRoot: CaptureIntentHandler {
       let production = Self.productionStack(client: client, created: created)
       let service = OutboxService(stack: production.stack, created: created)
       outbox = service
+      micRules = MicRulesModel(routes: production.stack.routes)
       simulatesOffline = false
       fakeLiveActivity = nil
       let coordinator = TakeLiveActivityCoordinator(
@@ -154,9 +162,21 @@ final class CompositionRoot: CaptureIntentHandler {
         loader: MediaAssetLoader(
           source: { Self.mediaSource(for: credentials.load()) }, downloader: .shared))
       take = TakeModel(controller: takeController)
-      connectionForm = ConnectionModel(store: credentials) { [unowned self] in connectionChanged() }
     }
+    let outbox = outbox
+    let fake = mode == .fake
+    let saved = self.credentials
+    let reader = SpokenReplies(
+      store: fake ? InMemorySpokenRepliesStore() : UserDefaultsSpokenRepliesStore(), speech: speech, client: api,
+      media: { fake ? FakeMediaSource() : Self.mediaSource(for: saved?.load()) },
+      createdHere: { await outbox.created.memo(id: $0) != nil })
+    spokenReplies = reader
+    history.onMemoDone = { id in Task { await reader.memoDone(id: id) } }
     CaptureIntents.handler = self
+    PlaybackIntents.handler = self
+    if mode == .production, let store = self.credentials {
+      connectionForm = ConnectionModel(store: store) { [unowned self] in connectionChanged() }
+    }
     let history = history
     // Hide and unhide of one memo must reach History in the order they happened (a discard, then its delete settling): one
     // stream, one consumer, instead of a task per call.
@@ -194,12 +214,18 @@ final class CompositionRoot: CaptureIntentHandler {
 
   /// The model behind one open memo detail.
   func detailModel(for memo: Memo) -> MemoDetailModel {
-    MemoDetailModel(memo: memo, client: api, media: mediaSource())
+    MemoDetailModel(memo: memo, client: api, media: mediaSource(), speech: speech)
   }
 
   /// The model behind one open composer sheet.
   func composerModel(for request: ComposerRequest) -> ComposerModel {
     ComposerModel(request: request, outbox: outbox)
+  }
+
+  /// The model behind one route sheet. A 409 (somebody answered first) refreshes the list.
+  func routeAnswerModel(for memo: Memo) -> RouteAnswerModel {
+    let history = history
+    return RouteAnswerModel(memo: memo, client: api, onStale: { Task { await history.load() } })
   }
 
   /// The model behind one open conversation.
@@ -255,6 +281,16 @@ final class CompositionRoot: CaptureIntentHandler {
   @discardableResult
   func stopMemo() async throws -> TakeResult? {
     try await takeController.stop()
+  }
+
+  // MARK: PlaybackIntentHandler
+
+  /// Speaks the reply of `memoID` (the Play intent): the memo is fetched fresh, so a reply that finished while the app was
+  /// away is there.
+  func playReply(memoID: String) async throws {
+    let memo = try await api.memo(id: memoID).memo
+    guard memo.hasReply, !memo.isDeleted else { throw PlayReplyError.noReply }
+    guard await speech.play(memo, source: mediaSource()) else { throw PlayReplyError.busy }
   }
 
   /// The media routes for the connection saved right now, so a detail opened after a change uses the new token.

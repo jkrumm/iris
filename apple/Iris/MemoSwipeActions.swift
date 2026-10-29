@@ -3,10 +3,14 @@ import IrisUI
 import SwiftUI
 
 /// The History swipes (round 2). Native `swipeActions`: the first button of an edge is the full swipe, the second
-/// one is revealed by a partial swipe. Right: done, favorite. Left: archive, delete (settled memos only).
+/// one is revealed by a partial swipe. Right: done, favorite. Left: route (a pinned needs-route memo only), archive, delete
+/// (settled memos only). The route action is a swipe, not a button in the row: a button and a `NavigationLink` in one list row
+/// fight over the tap, and an extra row under the pinned memo made the top bars blur it.
 struct MemoSwipeActions: ViewModifier {
   let memo: Memo
   let model: HistoryModel
+  /// Opens the route sheet for a pinned needs-route memo.
+  let onRoute: (Memo) -> Void
 
   func body(content: Content) -> some View {
     content
@@ -23,6 +27,16 @@ struct MemoSwipeActions: ViewModifier {
         .accessibilityIdentifier("history.swipe.favorite")
       }
       .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+        if memo.isOpenNeedsRoute {
+          Button(
+            String(localized: "Route…", comment: "Swipe action on a pinned needs-route memo"),
+            systemImage: "arrow.triangle.branch"
+          ) {
+            onRoute(memo)
+          }
+          .tint(Theme.Accent.tint)
+          .accessibilityIdentifier("history.swipe.route")
+        }
         Button(archiveTitle, systemImage: memo.archived ? "tray.and.arrow.up" : "archivebox") {
           Task { await model.toggleArchived(memo) }
         }

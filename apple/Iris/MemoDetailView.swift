@@ -9,20 +9,33 @@ struct MemoDetailView: View {
   @State private var playback: MemoPlayback
   private let refreshToken: () -> Int
   private let onReply: (Memo) -> Void
+  private let makeRouteAnswer: ((Memo) -> RouteAnswerModel)?
+  private let onRouted: (Memo) -> Void
+  @State private var routing: Memo?
 
-  /// - Parameter onReply: The reply hook: History opens the composer from here, continuing `memo.threadId`.
-  init(model: MemoDetailModel, refreshToken: @escaping () -> Int = { 0 }, onReply: @escaping (Memo) -> Void = { _ in })
-  {
+  /// - Parameters:
+  ///   - onReply: The reply hook: History opens the composer from here, continuing `memo.threadId`.
+  ///   - makeRouteAnswer: Builds the route sheet's model (answer a parked memo, correct a finished one); nil hides both.
+  ///   - onRouted: Told the memo the server answered with, so History shows it at once.
+  init(
+    model: MemoDetailModel, refreshToken: @escaping () -> Int = { 0 }, onReply: @escaping (Memo) -> Void = { _ in },
+    makeRouteAnswer: ((Memo) -> RouteAnswerModel)? = nil, onRouted: @escaping (Memo) -> Void = { _ in }
+  ) {
     _model = State(initialValue: model)
-    _playback = State(initialValue: MemoPlayback(recordingDuration: model.memo.audioSeconds ?? 0))
+    _playback = State(
+      initialValue: MemoPlayback(
+        memoID: model.memo.id, recordingDuration: model.memo.audioSeconds ?? 0, speech: model.speech))
     self.refreshToken = refreshToken
     self.onReply = onReply
+    self.makeRouteAnswer = makeRouteAnswer
+    self.onRouted = onRouted
   }
 
   var body: some View {
     ScrollView {
       VStack(alignment: .leading, spacing: Theme.Spacing.lg) {
         header
+        routeCard
         if model.audioRequest != nil { player }
         steps
         transcript
@@ -54,6 +67,19 @@ struct MemoDetailView: View {
         }
       }
     }
+    .sheet(item: $routing) { memo in
+      if let makeRouteAnswer {
+        RouteAnswerSheet(
+          model: makeRouteAnswer(memo),
+          onRouted: { routed in
+            onRouted(routed)
+            Task { await model.didRoute(routed) }
+          }
+        )
+        .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
+      }
+    }
     .task(id: refreshToken()) { await model.load() }
     .task(id: model.audioRequest) { await playback.recording.load(model.audioRequest) }
     .onDisappear { playback.teardown() }
@@ -69,6 +95,15 @@ struct MemoDetailView: View {
         Text(verbatim: metaLine(memo))
           .themeFont(.footnote)
           .foregroundStyle(Theme.Ink.muted)
+        if canCorrectRoute {
+          Spacer(minLength: Theme.Spacing.sm)
+          Button(String(localized: "Wrong route?", comment: "Corrects the route of a finished memo")) {
+            routing = memo
+          }
+          .buttonStyle(.borderless)
+          .themeFont(.footnote, weight: .medium)
+          .accessibilityIdentifier("detail.route.correct")
+        }
       }
       Text(verbatim: memo.rowHeadline)
         .themeFont(.title, weight: .bold)
@@ -84,6 +119,49 @@ struct MemoDetailView: View {
           .foregroundStyle(Theme.Ink.secondary)
       }
     }
+  }
+
+  /// A finished memo's route can be corrected (the server only logs it); a parked one is answered in ``routeCard``.
+  private var canCorrectRoute: Bool {
+    makeRouteAnswer != nil && model.memo.state != .needsRoute && RouteAnswerModel.canRoute(model.memo)
+  }
+
+  /// Why the memo is parked and the button that answers it.
+  @ViewBuilder private var routeCard: some View {
+    let memo = model.memo
+    if makeRouteAnswer != nil, memo.state == .needsRoute {
+      VStack(alignment: .leading, spacing: Theme.Spacing.md) {
+        Label {
+          Text(verbatim: parkReason(memo))
+        } icon: {
+          Image(systemName: "questionmark.circle.fill").foregroundStyle(Theme.Status.warn)
+        }
+        .themeFont(.callout)
+        .foregroundStyle(Theme.Ink.secondary)
+        .accessibilityIdentifier("detail.route.reason")
+        Button {
+          routing = memo
+        } label: {
+          Label(routeActionTitle(memo), systemImage: "arrow.triangle.branch")
+            .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.borderedProminent)
+        .accessibilityIdentifier("detail.route.answer")
+      }
+      .padding(Theme.Spacing.md)
+      .detailCard()
+    }
+  }
+
+  private func parkReason(_ memo: Memo) -> String {
+    memo.routeReason ?? String(localized: "Where should this go?", comment: "Detail: parked memo")
+  }
+
+  private func routeActionTitle(_ memo: Memo) -> String {
+    guard let suggestion = memo.routeSuggestion.flatMap(RouteDestination.init(spoken:)) else {
+      return String(localized: "Choose a route…", comment: "Detail action on a parked memo")
+    }
+    return String(localized: "Route to \(suggestion.title)…", comment: "Detail action with the model's suggestion")
   }
 
   private func metaLine(_ memo: Memo) -> String {
@@ -167,12 +245,12 @@ struct MemoDetailView: View {
 
   private var actions: some View {
     DetailActionBar(
-      isPlayingReply: playback.reply.isPlaying,
+      isPlayingReply: playback.isReplyPlaying,
       canPlayReply: model.canPlayReply,
       canReply: model.canReply,
       retryOptions: model.retrySteps.map { DetailRetryOption(id: $0.rawValue, title: $0.title) },
       primaryRetryID: model.primaryRetryStep?.rawValue,
-      onPlayReply: { Task { await playback.toggleReply(loading: model.speechRequest) } },
+      onPlayReply: { Task { await playback.toggleReply(model.memo, source: model.media) } },
       onReply: { onReply(model.memo) },
       onRetry: retry
     )

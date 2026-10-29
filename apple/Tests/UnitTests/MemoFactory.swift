@@ -9,13 +9,15 @@ nonisolated enum MemoFactory {
     _ id: String, age: TimeInterval = 0, state: MemoState = .notified, mode: MemoMode = .auto, route: String? = nil,
     destinationRef: String? = nil, favorite: Bool = false, done: Bool = false, archived: Bool = false,
     failedStep: MemoStep? = nil, error: String? = nil, audioSeconds: Double? = nil, transcript: String? = nil,
-    summary: MemoSummary? = nil, replyText: String? = nil, typed: Bool = false
+    summary: MemoSummary? = nil, replyText: String? = nil, typed: Bool = false, routeReason: String? = nil,
+    routeSuggestion: String? = nil
   ) -> Memo {
     let created = now.addingTimeInterval(-age)
     return Memo(
       id: id, mode: mode, device: "iphone", startedAt: created, state: state, failedStep: failedStep, error: error,
       audioSeconds: audioSeconds, transcript: transcript ?? "memo \(id)", route: route, destinationRef: destinationRef,
-      replyText: replyText, summary: summary, isTyped: typed, done: done, favorite: favorite, archived: archived,
+      replyText: replyText, summary: summary, routeReason: routeReason, routeSuggestion: routeSuggestion,
+      isTyped: typed, done: done, favorite: favorite, archived: archived,
       createdAt: created, updatedAt: created)
   }
 

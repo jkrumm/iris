@@ -21,7 +21,9 @@ enum SampleData {
           id: "2f8d5b06-9c1e-4a73-b4d8-0e6a3c7f1d95", mode: .auto, device: "iphone",
           startedAt: now.addingTimeInterval(-1_500), state: .needsRoute, segmentCount: 2, audioSeconds: 14.9,
           transcript: "Schreib das bitte in mein Journal und gib mir morgen früh eine Zusammenfassung.",
-          createdAt: now.addingTimeInterval(-1_499), updatedAt: now.addingTimeInterval(-1_480)),
+          routeReason: "Not sure whether this is a journal entry or a request for Hermes.",
+          routeSuggestion: "journal", createdAt: now.addingTimeInterval(-1_499),
+          updatedAt: now.addingTimeInterval(-1_480)),
         steps: [
           StepEntry(
             step: .transcribe, status: .done, startedAt: now.addingTimeInterval(-1_495),
@@ -184,7 +186,14 @@ enum SampleData {
       await client.seed(thread)
     }
     await client.setStats(stats(now: now))
+    await client.setHerd(herd)
   }
+
+  /// The live herdr tabs the route sheet picks from: two, so a herdr answer has to choose.
+  static let herd = Herd(tabs: [
+    HerdTab(id: "tab-dotfiles", repo: "dotfiles", label: "dotfiles", agentState: .working),
+    HerdTab(id: "tab-iris", repo: "iris", label: "iris · w16", agentState: .idle),
+  ])
 
   /// The launch argument that pins the sample clock (`-IrisSampleNow 2027-01-15T12:00:00Z`), so UI tests see the same
   /// History whatever time of day they run: the sample memos are relative to it, and a memo from 90 minutes ago is

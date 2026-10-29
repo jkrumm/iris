@@ -11,10 +11,13 @@ struct RootView: View {
   let stats: StatsModel
   let settings: SettingsModel
   let diagnostics: DiagnosticsModel
+  let micRules: MicRulesModel
+  let spokenReplies: SpokenReplies
   var connectionForm: ConnectionModel?
   let makeDetail: (Memo) -> MemoDetailModel
   let makeComposer: (ComposerRequest) -> ComposerModel
   let makeThread: (ThreadRoute) -> ThreadModel
+  let makeRouteAnswer: (Memo) -> RouteAnswerModel
 
   /// The tab shown first and the one the app jumps to when the connection is missing.
   enum Section: Hashable {
@@ -25,9 +28,10 @@ struct RootView: View {
 
   init(
     history: HistoryModel, isConfigured: Bool = true, take: TakeModel, stats: StatsModel, settings: SettingsModel,
-    diagnostics: DiagnosticsModel, connectionForm: ConnectionModel? = nil, startsOnSettings: Bool = false,
+    diagnostics: DiagnosticsModel, micRules: MicRulesModel, spokenReplies: SpokenReplies,
+    connectionForm: ConnectionModel? = nil, startsOnSettings: Bool = false,
     makeDetail: @escaping (Memo) -> MemoDetailModel, makeComposer: @escaping (ComposerRequest) -> ComposerModel,
-    makeThread: @escaping (ThreadRoute) -> ThreadModel
+    makeThread: @escaping (ThreadRoute) -> ThreadModel, makeRouteAnswer: @escaping (Memo) -> RouteAnswerModel
   ) {
     self.history = history
     self.isConfigured = isConfigured
@@ -35,10 +39,13 @@ struct RootView: View {
     self.stats = stats
     self.settings = settings
     self.diagnostics = diagnostics
+    self.micRules = micRules
+    self.spokenReplies = spokenReplies
     self.connectionForm = connectionForm
     self.makeDetail = makeDetail
     self.makeComposer = makeComposer
     self.makeThread = makeThread
+    self.makeRouteAnswer = makeRouteAnswer
     _selection = State(initialValue: startsOnSettings ? .settings : .history)
   }
 
@@ -47,13 +54,15 @@ struct RootView: View {
       Tab(String(localized: "History", comment: "Tab title"), systemImage: "clock", value: Section.history) {
         HistoryView(
           model: history, isConfigured: isConfigured, onConnect: { selection = .settings }, makeDetail: makeDetail,
-          makeComposer: makeComposer, makeThread: makeThread)
+          makeComposer: makeComposer, makeThread: makeThread, makeRouteAnswer: makeRouteAnswer)
       }
       Tab(String(localized: "Stats", comment: "Tab title"), systemImage: "chart.bar", value: Section.stats) {
         StatsView(model: stats)
       }
       Tab(String(localized: "Settings", comment: "Tab title"), systemImage: "gearshape", value: Section.settings) {
-        SettingsView(model: settings, history: history, diagnostics: diagnostics, connectionForm: connectionForm)
+        SettingsView(
+          model: settings, history: history, diagnostics: diagnostics, micRules: micRules,
+          spokenReplies: spokenReplies, connectionForm: connectionForm)
       }
     }
     .tint(Theme.Accent.tint)
@@ -64,6 +73,11 @@ struct RootView: View {
     .environment(take)
     .fullScreenCover(isPresented: $take.showsFull) {
       TakeView(model: take)
+    }
+    .sheet(isPresented: $take.showsModePicker) {
+      RecordModeSheet(model: take)
+        .presentationDetents([.height(320)])
+        .presentationDragIndicator(.visible)
     }
     .alert(
       String(localized: "Recording", comment: "Take failure alert title"),
