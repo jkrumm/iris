@@ -128,8 +128,8 @@ public struct OutboxItem: Sendable, Equatable, Codable {
     createMayHaveLanded = false
   }
 
-  /// Records written before `createMayHaveLanded` read it from the create state: anything but a create that was never
-  /// handed out or was refused for good may have landed.
+  /// Records written before `createMayHaveLanded` read it from the create state and its attempts: only a create that was
+  /// never handed out is known not to have landed.
   public init(from decoder: any Decoder) throws {
     let container = try decoder.container(keyedBy: CodingKeys.self)
     memoID = try container.decode(MemoID.self, forKey: .memoID)
@@ -142,12 +142,14 @@ public struct OutboxItem: Sendable, Equatable, Codable {
     create = try container.decode(OutboxState.self, forKey: .create)
     attempts = try container.decode(Int.self, forKey: .attempts)
     lastError = try container.decodeIfPresent(String.self, forKey: .lastError)
-    switch create {
-    case .pending, .stalled:
-      createMayHaveLanded = try container.decodeIfPresent(Bool.self, forKey: .createMayHaveLanded) ?? false
-    case .uploading, .uploaded, .failed:
-      createMayHaveLanded = try container.decodeIfPresent(Bool.self, forKey: .createMayHaveLanded) ?? true
-    }
+    // Only a create that was never handed out is known not to have landed: a stalled one may have been refused or may have
+    // run out of attempts after the server made the memo, and a pending one with failures behind it was sent before.
+    let sentBefore =
+      switch create {
+      case .pending: attempts > 0
+      case .stalled, .uploading, .uploaded, .failed: true
+      }
+    createMayHaveLanded = try container.decodeIfPresent(Bool.self, forKey: .createMayHaveLanded) ?? sentBefore
   }
 }
 

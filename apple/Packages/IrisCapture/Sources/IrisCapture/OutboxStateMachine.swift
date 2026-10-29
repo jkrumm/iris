@@ -31,6 +31,8 @@ public struct OutboxStateMachine: Sendable {
   /// Takes the app died in the middle of, finished by `recoverUnfinishedTakes` with the segments the saved queue had. Not
   /// persisted: only the load that recovered them may add the segment files that never made it into the saved queue.
   private var recoveredTakes: Set<MemoID> = []
+  /// `createMayHaveLanded` as it was before `dispatch` handed the create out, for `revertDispatch`. Not persisted.
+  private var flagBeforeDispatch: [MemoID: Bool] = [:]
   /// Memos discarded in this run, so a follower can tell a discard from a memo the server has completed.
   private var discarded: Set<MemoID> = []
   /// Oldest first; bounded so the persisted record does not grow without limit. Holds the memos that completed and the
@@ -354,6 +356,7 @@ public struct OutboxStateMachine: Sendable {
 
     for item in orderedItems where capacity > 0 && isCreatable(item) && isDue(item.create, now: now) {
       items[item.memoID]?.create = .uploading
+      flagBeforeDispatch[item.memoID] = item.createMayHaveLanded
       items[item.memoID]?.createMayHaveLanded = true
       var started = item
       started.create = .uploading
@@ -386,6 +389,27 @@ public struct OutboxStateMachine: Sendable {
       work.append(.upload(entry.segment))
     }
     return work
+  }
+
+  /// The dispatched work could not be saved, so it was not sent: every transfer still marked in flight goes back to pending,
+  /// and a create gets its `createMayHaveLanded` back as it was. The next dispatch hands it out again.
+  public mutating func revertDispatch(_ work: [OutboxWork]) {
+    for item in work {
+      switch item {
+      case .create(let sent):
+        guard items[sent.memoID]?.create == .uploading else { continue }
+        items[sent.memoID]?.create = .pending
+        items[sent.memoID]?.createMayHaveLanded = flagBeforeDispatch[sent.memoID] ?? false
+        flagBeforeDispatch[sent.memoID] = nil
+      case .upload(let segment):
+        let key = SegmentKey(memoID: segment.memoID, index: segment.index)
+        if entries[key]?.state == .uploading { entries[key]?.state = .pending }
+      case .complete(let memoID, _):
+        if memos[memoID]?.completion == .uploading { memos[memoID]?.completion = .pending }
+      case .delete(let memoID):
+        if deletions[memoID]?.state == .uploading { deletions[memoID]?.state = .pending }
+      }
+    }
   }
 
   public mutating func uploadSucceeded(_ key: SegmentKey) {
@@ -444,6 +468,7 @@ public struct OutboxStateMachine: Sendable {
     }
     memos[memoID] = nil
     items[memoID] = nil
+    flagBeforeDispatch[memoID] = nil
     withheld.remove(memoID)
     withheldSegments = withheldSegments.filter { $0.memoID != memoID }
     entries = entries.filter { $0.key.memoID != memoID }

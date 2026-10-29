@@ -40,11 +40,16 @@ final class TakeController {
   @discardableResult
   func start(mode: MemoMode) async throws -> MemoID {
     if let starting { return try await starting.value }
-    let task = Task { try await begin(mode: mode) }
+    let task = Task { try await beginOrJoinRunning(mode: mode) }
     starting = task
     defer { starting = nil }
+    return try await task.value
+  }
+
+  /// The shared start: callers that joined it get the same answer, the recovery included.
+  private func beginOrJoinRunning(mode: MemoMode) async throws -> MemoID {
     do {
-      return try await task.value
+      return try await begin(mode: mode)
     } catch CaptureError.alreadyRecording {
       // A take that was already running (started by something that is not in flight any more): that is the take.
       guard let session = try? await stack.session(), let running = await runningMemoID(of: session) else {
