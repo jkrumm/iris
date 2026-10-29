@@ -387,7 +387,7 @@ store `MemoStore.stageReplyAssets(id, {replyText, assets, failed, onSettled})`, 
 on the wire (`replyBlocks`, `GET /memos/:id/assets/:assetId`) and the earlier reply keeps its rows and files. `completeStep` settles it in its own transaction: a patch whose `replyText` equals the staged one that
 **wins** deletes the memo's rows, inserts the staged ones and writes the failed marker (below); a winning patch with any other reply text deletes the rows (they describe a reply that is gone) and clears the marker.
 A patch that **loses its compare-and-set** changes nothing, so the rows and files of the earlier committed reply stay intact. After the transaction `onSettled` runs inside the memo's queue: `"committed"` prunes
-the memo's files down to the rows (the earlier reply's files go), `"discarded"` removes only the files of that attempt by id (`reply.assets_discarded`). A newer staging settles the older one as discarded;
+the memo's files down to the rows (the earlier reply's files go), `"discarded"` removes only the files of that attempt by id (`reply.assets_discarded`). A `completeStep` whose transaction throws rolls back and settles the matching staging as discarded before the error propagates. A newer staging settles the older one as discarded;
 `resetForRetry` from `act` discards the staging and clears rows and marker; the purge forgets it. Rows are not written at `sync` because they would be visible for the window before the commit and a lost CAS would
 have to delete rows that may belong to the earlier reply; staging in memory instead of carrying the assets in `MemoPatch` keeps the runner and the handler contract unchanged. The staging is process memory: after a crash the re-run `act`
 re-renders and its prune removes the leftovers.
@@ -398,9 +398,9 @@ It reads live memos whose `reply_text` mentions mermaid, that have no `reply_ass
 and takes at most `BACKFILL_LIMIT` (50) of them; each goes through the memo's own queue, re-reads the memo there and stores through `attachReplyAssets`, which only writes when the memo is live, its
 `reply_text` is still the one rendered and it still has no rows (a retry or deletion in between wins; the files are removed). Idempotent: a memo with assets is no candidate, so a second run renders nothing.
 A boot sweep rather than a `make` target because it runs in the one process that owns the database, the per-memo queue and the asset directory (no second writer on the mini's live service, no extra deploy step);
-a memo whose blocks all fail to render carries a **failed marker** (`memos.reply_assets_failed`, migration 13), so it is no candidate on the next start: the `act` pass sets it with the commit (`failed` in the staging: the reply
-has fences and not one rendered), the backfill sets it through `markReplyAssetsFailed` (only while `reply_text` is still the one it rendered). A commit that carries a reply (any `replyText`) and `resetForRetry` from `act` clear it, so a changed reply is tried again.
-A reply where only some blocks failed has rows and is no candidate either way. A transient cause (a full disk making every `put` fail) marks the memo too; `POST /retry {from: act}` is the way to render again.
+a memo whose blocks the renderer all refused carries a **failed marker** (`memos.reply_assets_failed`, migration 13), so it is no candidate on the next start: the `act` pass sets it with the commit (`failed` in the staging: the reply
+has fences and Pele refused every one; logged as `reply.assets_marked_failed`), the backfill sets it through `markReplyAssetsFailed` (only while `reply_text` is still the one it rendered). A commit that carries a reply (any `replyText`) and `resetForRetry` from `act` clear it, so a changed reply is tried again.
+A reply where only some blocks failed has rows and is no candidate either way. A block that rendered but could not be stored (`reply.store_failed`, a full disk) is not a refusal: it never marks, so the memo stays a candidate for the next start. A marked memo renders again through `POST /retry {from: act}`.
 
 Wire (additive, `contracts/`): `Memo.replyBlocks` (memo detail, list, thread detail memos and every other memo body; **omitted** when no block rendered, never
 `null` or empty) is `[{index, kind: "mermaid", width, height, svg: {light, dark}, png: {light, dark}}]` with asset ids; `width` and `height` are points, the
