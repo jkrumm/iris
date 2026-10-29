@@ -807,7 +807,7 @@ relaunch; a double-start race; `cancel()` returns silently after a session-open 
 the fake API never answers a typed memo, so the text reply flow cannot be shown to its end on fakes. CI: the hosted runner's
 "Failed to terminate com.jkrumm.iris" UI-test failures (worth sampling the app at teardown on the runner).
 
-## Wave 16 — summarize optional + Wave 15 debt ∥ R2 routing on iOS            <!-- status: pending -->
+## Wave 16 — summarize optional + Wave 15 debt ∥ R2 routing on iOS            <!-- status: active -->
 The owner-confirmed summarize item, the outbox reset, Wave 15's follow-ups that touch data or correctness, and backlog 5's simulator part.
 Tracks as in Wave 15: **S** (`server/**`, `contracts/**`, `scripts/**` + `IrisCore` follow-ups) ∥ **I** (`apple/**`, one `xcodebuild`
 worker at a time, I1 → I2 → I3). S PRs land one at a time with `make e2e` before the train. Review convergence rule from Wave 15 round 5
@@ -828,11 +828,15 @@ not answered by the time of writing; A loses nothing, so it ships. A delete vari
       is renamed aside (timestamped, kept), its segment files stay, a fresh outbox opens, Diagnostics can share the quarantined file. A
       startup sweep **adopts or quarantines** segment files whose record never saved (never deletes). `endOrphans()` no longer ends a live
       take's Live Activity on a connection change; `stop()` cannot hold the gate if the recorder never emits `stopped` (bounded wait);
-      `ActivityTokenRegistrar` ignores out-of-order token responses. Tests for each.
+      `ActivityTokenRegistrar` ignores out-of-order token responses. From I4: a discard's server `DELETE` is durable (queued in the
+      outbox, retried, never dropped silently), including a take whose create reached the server but whose answer was lost (it must not
+      stay `receiving`); the double-start race; `cancel()` after a session-open failure reports it. Tests for each.
 - [ ] **I2. iOS follow-ups (I1/I2 of Wave 15):** money in the step chip and the Stats per-memo caption uses the I1 formatter (no fixed `$`,
       two decimals); History without a connection shows a prompt to connect, not a blank list; `MemoDetailView` gets the thread view's toast
       fix; reply-image loading is bounded and `MediaDownloader` single-flight; one shared `URLSession` for players; the media cache drops
-      files of deleted memos. The `StatsSettingsUITests` "Failed to terminate" flake: find the cause or make the teardown robust.
+      files of deleted memos. History's hidden set (pending deletes) survives a relaunch; the fake API answers a
+      typed memo so the text reply flow runs to its end on fakes. The `StatsSettingsUITests` "Failed to terminate" flake: find the cause or
+      make the teardown robust.
 - [ ] **I3. R2 routing on iOS (backlog 5, simulator part):** the mode picker incl. Chat for voice takes (and the composer's, one
       component); needs-route actions on pinned History rows and in detail (answer with a route, correct a decision) through the
       existing answer/correction endpoints; [Play] via `PlayReplyIntent` speaking the server's speech variant; per-route mic rules;
