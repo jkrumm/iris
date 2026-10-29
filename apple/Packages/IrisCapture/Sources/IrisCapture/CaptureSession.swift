@@ -191,11 +191,15 @@ public actor CaptureSession {
     return TakeResult(memoID: memoID, segmentCount: count, startedAt: startedAt, failure: failure)
   }
 
-  /// Drops the take: nothing is sent, the memo is discarded from the outbox and the files are deleted.
-  public func cancel() async {
+  /// Drops the take: nothing is sent, the memo is discarded from the outbox and the files are deleted. Returns the memo it
+  /// discarded, or `nil` when there was nothing to drop: a `stop()` that was already running holds the gate first, so the take
+  /// is over (and sent) by the time this gets it. Callers act on the memo they get back (hide it, delete it), never on the
+  /// one they saw before the call.
+  @discardableResult
+  public func cancel() async -> MemoID? {
     await enter()
     defer { leave() }
-    guard let memoID = state.memoID, state.phase != .idle else { return }
+    guard let memoID = state.memoID, state.phase != .idle else { return nil }
     state.phase = .stopping
     publish()
     // Discarded first so a segment that closes while the recorder stops is deleted, not queued.
@@ -213,6 +217,7 @@ public actor CaptureSession {
     forget(memoID)
     try? await session.deactivate()
     setState(.idle)
+    return memoID
   }
 
   public func pause() async {

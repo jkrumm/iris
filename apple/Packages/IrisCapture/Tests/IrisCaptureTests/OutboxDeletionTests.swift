@@ -131,6 +131,51 @@ struct OutboxDeletionTests {
     await harness.outbox.shutdown()
   }
 
+  /// A kill after Discard returned: the relaunch loads what the store held at that moment. The take is still unfinished
+  /// there (no `complete` record), which is exactly what `recoverUnfinishedTakes` finishes after a crash, so the discard must
+  /// already have taken the item and its segments out of the saved record.
+  @Test func aRelaunchRightAfterADiscardDoesNotCompleteTheDiscardedTake() async throws {
+    let first = try await OutboxHarness()
+    let id = memo(1)
+    try await first.outbox.enqueueItem(voiceItem(id))
+    await first.outbox.enqueue(segment(id, 0))
+    await first.outbox.enqueue(segment(id, 1))
+    await first.outbox.settled()
+    await first.outbox.discard(id)
+
+    let saved = await first.store.load()
+    #expect(saved.items.isEmpty && saved.entries.isEmpty && saved.memos.isEmpty)
+    #expect(saved.deletions.map(\.memoID) == [id])
+
+    let second = try await OutboxHarness(record: saved)
+    await second.outbox.settled()
+    #expect(await second.outbox.queue().isEmpty)
+    #expect(await second.uploader.completed.isEmpty, "the discarded take is not finished and sent")
+    #expect(await second.uploader.uploaded.isEmpty)
+    #expect(await second.uploader.deleted == [id], "its memo is deleted instead")
+    await first.outbox.shutdown()
+    await second.outbox.shutdown()
+  }
+
+  @Test func aRelaunchRightAfterDiscardingATakeTheServerNeverGotSendsNothing() async throws {
+    let first = try await OutboxHarness()
+    let id = memo(1)
+    await first.uploader.failNextCreates(1, permanent: true)
+    try await first.outbox.enqueueItem(voiceItem(id))
+    await first.outbox.enqueue(segment(id, 0))
+    await first.outbox.settled()
+    await first.outbox.discard(id)
+
+    let second = try await OutboxHarness(record: await first.store.load())
+    await second.outbox.settled()
+    #expect(await second.outbox.queue().isEmpty)
+    #expect(await second.uploader.created.isEmpty)
+    #expect(await second.uploader.completed.isEmpty)
+    #expect(await second.uploader.deleteAttempts == 0)
+    await first.outbox.shutdown()
+    await second.outbox.shutdown()
+  }
+
   @Test func theRecordWithoutDeletionsStillDecodes() throws {
     let json = #"{"entries":[],"memos":[],"nextSequence":0}"#
     let record = try JSONDecoder().decode(OutboxRecord.self, from: Data(json.utf8))

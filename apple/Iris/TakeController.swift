@@ -56,11 +56,12 @@ final class TakeController {
   }
 
   /// Drops the take. History stops showing its memo at once (the server may already have it), and the outbox deletes it there.
+  /// Only the memo the session actually discarded is hidden: a Stop already in flight wins the session's gate, the take is
+  /// then sent, and the Discard that arrived late changes nothing.
   func cancel() async {
     await microphone?.stop()
     guard let session = try? await stack.session() else { return }
-    if let id = await session.current.memoID { await outbox.created.forget(id.wireID) }
-    await session.cancel()
+    if let id = await session.cancel() { await outbox.created.forget(id.wireID) }
   }
 
   /// Pauses a recording take, resumes a paused one.
