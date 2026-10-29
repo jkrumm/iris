@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { Decider, Choice, Decision } from "../ports/decider.js";
 import { log } from "../telemetry/log.js";
 import type { AgwClient } from "./agw-client.js";
-import { RUN_ID_ATTR } from "./audio-door-client.js";
+import { RUN_ID_ATTR } from "../telemetry/run-id.js";
 
 const DESTINATION_INSTRUCTIONS =
   "A voice memo was dictated. Decide where it should go. The memo is in German or English; choose the destination whose description fits what the speaker wants.";

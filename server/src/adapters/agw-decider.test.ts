@@ -138,6 +138,8 @@ describe("agw decider", () => {
     const { decider } = setup(() =>
       Response.json({ code: "BAD_REQUEST" }, { status: 400, headers: { "agw-run-id": RUN_ID } }),
     );
-    await expect(decider.decide(request)).rejects.toThrow(`agw decide failed: 400 (run ${RUN_ID})`);
+    await expect(decider.decide(request)).rejects.toThrow(
+      `agw decide failed: 400 BAD_REQUEST (run ${RUN_ID})`,
+    );
   });
 });

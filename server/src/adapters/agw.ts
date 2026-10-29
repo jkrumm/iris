@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { Summarization, Summarizer } from "../ports/summarizer.js";
 import { log } from "../telemetry/log.js";
 import type { AgwClient } from "./agw-client.js";
-import { RUN_ID_ATTR } from "./audio-door-client.js";
+import { RUN_ID_ATTR } from "../telemetry/run-id.js";
 
 const HEADLINE_MAX = 60;
 const DETAIL_MAX = 240;

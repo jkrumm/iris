@@ -1,7 +1,8 @@
 import { z } from "zod";
 import { fetchFailure, hangGuardFailure, httpFailure } from "../ports/transient.js";
+import { log } from "../telemetry/log.js";
 import { withSpan } from "../telemetry/otel.js";
-import { RUN_ID_ATTR } from "./audio-door-client.js";
+import { RUN_ID_ATTR } from "../telemetry/run-id.js";
 
 const RUN_ID_HEADER = "agw-run-id";
 const BODY_MAX = 300;
@@ -35,6 +36,16 @@ export interface AgwResult<T> {
 
 export interface AgwClient {
   call<T extends z.ZodType>(call: AgwCall<T>): Promise<AgwResult<z.infer<T>>>;
+}
+
+/** The host's error `code` (`INVALID_OUTPUT`, `BAD_REQUEST`, ...); null when the body is not its envelope. */
+function errorCode(body: string): string | null {
+  try {
+    const code = (JSON.parse(body) as { code?: unknown }).code;
+    return typeof code === "string" && /^[A-Z_]{1,40}$/.test(code) ? code : null;
+  } catch {
+    return null;
+  }
 }
 
 // A hang guard, not a budget: a model call can be slow, and cutting it off turns a slow answer into a failure.
@@ -80,13 +91,28 @@ export function createAgwClient(opts: AgwClientOptions): AgwClient {
 
         if (!res.ok) {
           const text = (await res.text().catch(() => "")).slice(0, BODY_MAX);
-          // 502 INVALID_OUTPUT: the model failed twice, another call would only pay again.
-          const message = `agw ${what} failed: ${res.status}${runId ? ` (run ${runId})` : ""} ${text}`;
-          throw res.status === 502 ? new Error(message) : httpFailure(message, res.status);
+          const code = errorCode(text);
+          // The step error is stored and served: status, host code and run id only. The raw body (which may echo the request) goes to the log.
+          log("agw.error_body", {
+            memo_id: memoId,
+            [RUN_ID_ATTR]: runId,
+            status: res.status,
+            body: text,
+          });
+          const message = `agw ${what} failed: ${res.status}${code ? ` ${code}` : ""}${runId ? ` (run ${runId})` : ""}`;
+          // 502 INVALID_OUTPUT: the model failed twice, another call would only pay again. Any other 502 (a proxy, a restart) is a try-again.
+          throw res.status === 502 && code === "INVALID_OUTPUT"
+            ? new Error(message)
+            : httpFailure(message, res.status);
         }
 
+        // The answer is already billed: a body that is not JSON is final, only the guard firing is a hang.
         const json: unknown = await res.json().catch((err: unknown) => {
-          throw hungOr(what, err);
+          if (err instanceof Error && err.name === "TimeoutError") throw hungOr(what, err);
+          throw new Error(
+            `agw ${what} response is not JSON${runId ? ` (run ${runId})` : ""}: ${err instanceof Error ? err.message : String(err)}`,
+            { cause: err },
+          );
         });
         const parsed = schema.safeParse(json);
         if (!parsed.success) {
