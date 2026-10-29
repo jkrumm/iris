@@ -58,7 +58,9 @@ Build Iris R1–R5 (PRD §Release plan) as a self-driving loop: backlog item →
   research run `01a1888f-…`). Owner is home, iPhone can be paired. Next: device wave after Wave 16 (S1–S3, device exit checks, TestFlight).
   Previously expected ~2026-10-28: then the APNs `.p8` and App Store Connect key go into 1Password
   via `ask-human.sh`, and TestFlight (backlog 3) opens.
-- **iPhone pairing** when the owner is home: spikes S1–S3, every device exit check.
+- **iPhone paired 2026-10-29 19:51** (wired): iPhone 15 (`iPhone15,4`, Dynamic Island), **iOS 26.6.1** (the simulator runs 27: device
+  checks cover the iOS 26 code paths; app target is 26.0). UDID in `xcrun devicectl list devices` (name JoPhone). At pairing: Developer Mode
+  **off**, no Apple ID in Xcode, 0 signing identities: the owner's to do. Then spikes S1–S3, every device exit check.
 - **Outbox reset (asked 2026-10-28 in chat):** A quarantine vs B delete. No answer by Wave 16's writing: A ships in Wave 16 I1;
   a delete variant only on the owner's word.
 - **Swipe detail:** "further right/left" is a second swipe button, not a second full-swipe threshold (native `.swipeActions`).
