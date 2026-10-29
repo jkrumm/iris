@@ -15,7 +15,7 @@ struct SettingsView: View {
       List {
         Section {
           NavigationLink {
-            DiagnosticsView(model: diagnostics, history: history)
+            DiagnosticsView(model: diagnostics, history: history, quarantinedFiles: model.quarantinedFiles)
           } label: {
             Label {
               VStack(alignment: .leading, spacing: 2) {
@@ -97,6 +97,30 @@ struct SettingsView: View {
         .foregroundStyle(Theme.Ink.secondary)
         .accessibilityIdentifier("settings.outbox.unavailable")
       }
+      if model.queueUnreadable {
+        VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
+          Text(
+            "The saved outbox cannot be read, so it is set aside. Resetting renames the file and keeps it, recordings included, and opens an empty outbox. Diagnostics can share the old file.",
+            comment: "Outbox unreadable"
+          )
+          .themeFont(.footnote)
+          .foregroundStyle(Theme.Ink.secondary)
+          if model.resetFailed {
+            Text("The outbox could not be reset. Nothing was changed.", comment: "Outbox reset failed")
+              .themeFont(.footnote)
+              .foregroundStyle(Theme.Status.bad)
+              .accessibilityIdentifier("settings.outbox.resetfailed")
+          }
+          Button(String(localized: "Reset outbox", comment: "Outbox action"), role: .destructive) {
+            Task { await model.resetOutbox() }
+          }
+          .buttonStyle(.borderless)
+          .themeFont(.footnote, weight: .medium)
+          .accessibilityIdentifier("settings.outbox.reset")
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("settings.outbox.unreadable")
+      }
       if model.queueSaveFailure != nil {
         Label {
           Text(
@@ -139,7 +163,7 @@ struct SettingsView: View {
         HStack(spacing: Theme.Spacing.lg) {
           Button(String(localized: "Retry now", comment: "Outbox action")) { Task { await model.retry(item) } }
             .accessibilityIdentifier("settings.outbox.retry")
-          Button(String(localized: "Discard", comment: "Outbox action"), role: .destructive) {
+          Button(discardTitle(of: item), role: .destructive) {
             Task { await model.discard(item) }
           }
           .accessibilityIdentifier("settings.outbox.discard")
@@ -150,7 +174,7 @@ struct SettingsView: View {
     }
     .swipeActions(edge: .trailing) {
       if item.canDiscard {
-        Button(String(localized: "Discard", comment: "Outbox action"), role: .destructive) {
+        Button(discardTitle(of: item), role: .destructive) {
           Task { await model.discard(item) }
         }
       }
@@ -162,11 +186,18 @@ struct SettingsView: View {
         }
       }
       if item.canDiscard {
-        Button(String(localized: "Discard", comment: "Outbox action"), systemImage: "trash", role: .destructive) {
+        Button(discardTitle(of: item), systemImage: "trash", role: .destructive) {
           Task { await model.discard(item) }
         }
       }
     }
+  }
+
+  /// A queued server delete is not discarded, the app stops trying to send it.
+  private func discardTitle(of item: QueuedItem) -> String {
+    item.kind.discardStopsTrying
+      ? String(localized: "Stop trying", comment: "Outbox action on a discarded memo's queued removal")
+      : String(localized: "Discard", comment: "Outbox action")
   }
 
   /// What it is and how long it has waited: "Voice reply · 4 min ago".
@@ -194,6 +225,7 @@ extension QueuedItem.Kind {
     case .voiceMemo, .voiceReply: "waveform"
     case .typedMemo: "square.and.pencil"
     case .chatMessage, .textReply: "text.bubble"
+    case .removal: "trash"
     }
   }
 
@@ -204,6 +236,8 @@ extension QueuedItem.Kind {
     case .typedMemo: String(localized: "Typed memo", comment: "Outbox item kind")
     case .chatMessage: String(localized: "Chat message", comment: "Outbox item kind")
     case .textReply: String(localized: "Reply", comment: "Outbox item kind")
+    case .removal:
+      String(localized: "Discarded memo", comment: "Outbox item kind: its removal from the server is queued")
     }
   }
 }

@@ -571,17 +571,22 @@ and leaves no file. Revisit the resource loader only if recordings grow past a f
   - an engine configuration change restarts the engine and starts a new
     segment.
 - **`Outbox`** (Wave 15 I3): a persistent queue of **whole items**, in one JSON file (`Application Support/Iris/outbox.json`,
-  written atomically). A file that cannot be read or decoded (including a newer build's enum case) is an **error, never an empty queue**: it is left on disk untouched and the outbox reports itself closed (below). An item whose write fails (a full disk) is taken back out and refused, so nothing is ever "queued" that a kill would lose. Three kinds of work, all
+  written atomically). A file that cannot be read or decoded (including a newer build's enum case) is an **error, never an empty queue**: it is left on disk untouched and the outbox reports itself closed (below), until Settings **"Reset outbox"** (Wave 16 I1) renames it aside: `outbox.quarantined-<UTC timestamp>.json`, kept next to it, never deleted, its segment files untouched, and a fresh empty outbox opens. Diagnostics lists the set-aside files with a `ShareLink`. An item whose write fails (a full disk) is taken back out and refused, so nothing is ever "queued" that a kill would lose. Three kinds of work, all
   idempotent on the server, so a retry after a lost answer is harmless:
   - **`create`**, one per memo or message (`OutboxItem`: memo id, mode, thread id, text or voice, queued-at). A typed memo or chat
     message is `POST /memos/text` and is done with that call; a take is `POST /memos`. A take is created once it has something to
     send (its first closed segment, or its end), so a take cancelled early never reaches the server and leaves no stuck `receiving`
     memo; the segments of a memo and its `complete` wait for its `create`. A take cancelled *after* its first
     segment closed (so after the memo was created) is deleted on the server: discarding queues an `OutboxDeletion` (persisted, `DELETE /memos/:id`,
-    which the server allows on a `receiving` memo) next to the other transfers, retried with the same backoff and kept until the server answers; a 404
-    (gone), a 409 (the memo left `receiving`) or a refusal a retry cannot change ends it, so it never lingers. The `DELETE` waits for a `create` still on
-    the wire, so it cannot overtake the request that makes the memo; only a voice item whose create was sent gets one (a refused create may belong to
-    another device's memo and is not ours to delete). The item and its segments leave the queue at once and the files go with the next save, so a segment or
+    which the server allows on a `receiving` memo) next to the other transfers, retried with the same backoff and kept until the server answers. Only a 200, a 404
+    (gone) or a 409 (the memo left `receiving`) ends it; **anything else is never dropped**: a delete that stalls (a refusal a retry cannot change, a 401, out of attempts)
+    stays in the queue as a row of its own (`OutboxQueueItem.isDeletion`, kind "Discarded memo" in Settings, the stall reason shown) until "Retry now" succeeds or the user chooses "Stop trying".
+    The `DELETE` waits for a `create` still on
+    the wire, so it cannot overtake the request that makes the memo. It is queued whenever the create **may have reached the server**:
+    `OutboxItem.createMayHaveLanded` is set when the create is handed out and cleared only by a refusal for good (that may belong to another device's memo and is
+    not ours to delete), so a create whose answer was lost, was cut off by shutdown, or was on the wire when the app died (a relaunch resets it to pending)
+    still gets its `DELETE`; a take that was never created and a typed item get none. A discarded take's queued `DELETE` is not the take: the Live Activity follower and
+    the first-attempt watch ignore it, and the banner does not count it as sending. The item and its segments leave the queue at once and the files go with the next save, so a segment or
     `complete` that arrives late (the server answers 409 `bad_state` for the deleted memo) finds nothing queued and is dropped, never a stall. History hides
     the take from the moment of the cancel (`CreatedMemoLog.forget` → `HistoryModel.hide`; a refresh or a late create cannot bring it back);
   - **segments** (`PUT /memos/:id/segments/:n`), one entry per (memo, segment), uploaded while the take runs, at most two in flight;
@@ -607,6 +612,11 @@ and leaves no file. Revisit the resource loader only if recordings grow past a f
   whatever its create is doing, so Settings offers neither Retry nor Discard on it.
   `OutboxService.resume()` (launch, a changed connection, the app coming to the foreground) makes every transfer that is waiting
   out a backoff due at once, keeping its attempt count; a stalled one waits for the user. A take the app died in the middle of is finished with the segments it had (contiguous from 0), or dropped when it had none.
+  **Startup sweep** (`Outbox.sweepOrphans`, run by `CaptureStack` right after the queue loads and before anything is sent or recorded): a segment file is written before the
+  queue file that names it is saved, so a crash or a failed save leaves files no record owns. Each `<memo id>-<index>.m4a` in the capture directory that the queue does not
+  know is **adopted** when it belongs to a take the queue holds, fills one of its indices (below its count, or the next one after a take recovered from a crash, which then grows) and
+  opens as audio with frames in it (a truncated AAC file does not); otherwise it is **moved** into `capture/quarantine/`. A file that a set-aside queue file names stays where it is.
+  **Nothing is deleted** (the files of a memo the server completed, left by a crash between the save and the removal, are quarantined too).
   Everything runs on a default `URLSession` (`URLSessionAPIClient`); the background `URLSession` and the `result?wait=600`
   long-poll as a background download are not built (device-only, below). The app side is `OutboxService` (submit text, await the
   first attempt for six seconds and answer `sent(memo)` or `queued`, retry, discard, the queue for Settings) over a lazy
@@ -629,12 +639,16 @@ and leaves no file. Revisit the resource loader only if recordings grow past a f
   `start`, `stop`, `cancel`, `pause`, `resume`, `switchInput` and the interruption handlers run one at a time through an internal FIFO gate (a late resume cannot write `recording` over a take that has stopped), and `start` claims the take (phase `starting`) with no
   suspension after the gate: a second start finds the first take and is rejected, a `cancel` that lands while the take is starting or
   stopping waits for that to finish and then ends it (so no microphone is left running with no state), and a stop's wait for the
-  recorder's last event is never shared with another caller.
+  recorder's last event is never shared with another caller. That wait is **bounded** (10 s on the injected clock, `stopTimeout`): a recorder that never emits `.stopped` must not hold the gate,
+  so `stop()` gives up, finishes the memo with the segments that closed (`TakeResult.failure` = "the recorder did not stop") or, with none, throws `CaptureError.recordingFailed`; a `.stopped` that
+  arrives later is ignored. `cancel()` has the same bound. `TakeController.start` is single-flight: a second start while one is in flight (the Control and the record button together, a double tap)
+  joins it and returns the same memo, as does a start that finds a take already running; `TakeController.cancel()` throws when the capture session cannot be opened and `TakeModel` shows the failure instead of looking done.
 - **`CaptureStack` never queues into memory.** If the persistent queue cannot be loaded (the file unreadable before the first unlock after
   a reboot), the stack stays unbuilt: the composer keeps the text and shows why, a voice take and the start intent refuse to start,
   Settings shows "the outbox cannot be opened", and nothing is written anywhere. The next call (`resume()` at launch, a pull to refresh, the
   next send) tries the real store again. Callers that wait on the same failed build all get the error, and only the build they
-  waited for is cleared, so two builds never run over one `outbox.json`.
+  waited for is cleared, so two builds never run over one `outbox.json`. A file this build cannot **decode** is told apart from one that cannot be read right now (`OutboxAvailability.unreadable`
+  vs `.unavailable`): only the first offers the reset, and only the first is touched by it.
 - **Memo ids** are minted at start: a UUID v4, which also serves as the trace
   id.
 
@@ -667,13 +681,14 @@ and leaves no file. Revisit the resource loader only if recordings grow past a f
     runs, paused during an interruption, uploading from the stop until the outbox has sent the memo), then `processing`, and the
     server's pushes (`processing`, `needsRoute`, `done`, `failed`; the wire enum and fixtures are unchanged) carry it from there.
     The activity's push token is kept by `ActivityTokenRegistrar` per memo until the activity ends, not until the hand-over: a PUT
-    that failed is retried with a growing delay, and a token that rotates later is sent too.
+    that failed is retried with a growing delay, and a token that rotates later is sent too. One `PUT` per memo is out at a time, so a rotation that arrives while one is in flight is sent after its answer and an older token's slow answer
+    can never replace a newer one.
     The coordinator follows each memo on its own and the activity handle is kept per memo, so a take that starts while the last one is
     still uploading neither cancels nor overwrites it, and a stopped follower writes nothing more.
     A retryable failure (no network, a 5xx) keeps the activity on `uploading`; a stall or a recorder failure ends it as `failed`
     (shown 15 minutes) and a discard ends it at once (`Activity.end`); a sent memo is handed over to the server, not ended. The activity's push token is registered
     (`PUT /memos/:id/activity-token`) once the server has the memo, since it answers 404 before that, and retried on the next update; at
-    launch every activity still in a client phase is ended, because nothing moves it on after its process is gone.
+    launch every activity still in a client phase is ended, because nothing moves it on after its process is gone (`endOrphans()` also runs when the connection changes, and spares the takes this process is driving, so changing the server URL mid-take does not end that take's activity).
     The widget renders all seven (timer for recording and processing); never rendered on a device (the snapshot tests render its IrisUI views, below). A new take's `headline` carries one line about earlier memos still sending ("1 earlier memo is still sending", client phases only), which the card shows as a note;
   - `inputName`;
   - `routeChip`;

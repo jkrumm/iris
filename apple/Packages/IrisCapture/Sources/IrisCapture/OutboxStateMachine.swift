@@ -28,6 +28,9 @@ public struct OutboxStateMachine: Sendable {
   /// Deletions held back while the discarded take's `create` may still be on the wire: the `DELETE` must come after it.
   /// Not persisted (after a relaunch nothing is on the wire).
   private var withheldDeletions: Set<MemoID> = []
+  /// Takes the app died in the middle of, finished by `recoverUnfinishedTakes` with the segments the saved queue had. Not
+  /// persisted: only the load that recovered them may add the segment files that never made it into the saved queue.
+  private var recoveredTakes: Set<MemoID> = []
   /// Memos discarded in this run, so a follower can tell a discard from a memo the server has completed.
   private var discarded: Set<MemoID> = []
   /// Oldest first; bounded so the persisted record does not grow without limit. Holds the memos that completed and the
@@ -118,6 +121,8 @@ public struct OutboxStateMachine: Sendable {
     item.attempts += 1
     item.create = failedState(attempts: item.attempts, now: now, permanent: permanent, transient: transient)
     item.lastError = reason
+    // A refusal for good means the memo was not made (a 409 can even mean another device's id): nothing of ours to delete.
+    if permanent { item.createMayHaveLanded = false }
     items[memoID] = item
   }
 
@@ -149,6 +154,13 @@ public struct OutboxStateMachine: Sendable {
       memos[memoID] = memo
       changed = true
     }
+    if var deletion = deletions[memoID], Self.isRetryable(deletion.state) {
+      deletion.state = .pending
+      deletion.attempts = 0
+      deletion.lastError = nil
+      deletions[memoID] = deletion
+      changed = true
+    }
     if changed { items[memoID]?.lastError = nil }
     return changed
   }
@@ -177,15 +189,12 @@ public struct OutboxStateMachine: Sendable {
     return changed
   }
 
-  /// Whether discarding this memo has to delete it on the server too: a take whose `create` has been sent (it may have
-  /// landed, even if the answer was lost). A text item, a take that was never created and an item the server refused
-  /// (a 409 can mean another device's memo with that id) leave nothing of ours behind.
+  /// Whether discarding this memo has to delete it on the server too: a take whose `create` has been sent and not refused
+  /// (it may have landed even if the answer was lost, or the app was killed with the request on the wire). A text item, a
+  /// take that was never created and an item the server refused leave nothing of ours behind.
   public func needsServerDelete(_ memoID: MemoID) -> Bool {
     guard let item = items[memoID], item.kind == .voice else { return false }
-    switch item.create {
-    case .uploading, .uploaded, .failed: return true
-    case .pending, .stalled: return false
-    }
+    return item.createMayHaveLanded
   }
 
   /// Forgets the memo and everything queued for it; returns the segment files that are no longer needed. A segment of a
@@ -194,10 +203,12 @@ public struct OutboxStateMachine: Sendable {
   @discardableResult
   public mutating func discard(_ memoID: MemoID, deleteOnServer: Bool = false) -> [URL] {
     let files = entries.values.filter { $0.key.memoID == memoID }.map(\.segment.fileURL)
+    let item = items[memoID]
     forget(memoID)
     discarded.insert(memoID)
     if deleteOnServer {
-      deletions[memoID] = OutboxDeletion(memoID: memoID)
+      deletions[memoID] = OutboxDeletion(
+        memoID: memoID, title: item?.title ?? "", queuedAt: item?.queuedAt ?? Date(timeIntervalSince1970: 0))
       withheldDeletions.insert(memoID)
     }
     return files
@@ -215,18 +226,22 @@ public struct OutboxStateMachine: Sendable {
     deletions[memoID] = nil
   }
 
-  /// A refusal the server will repeat, or out of attempts, drops the deletion: nothing in the UI could retry it. Anything
-  /// else backs off.
-  public mutating func deleteFailed(_ memoID: MemoID, now: Date, permanent: Bool = false, transient: Bool = false) {
+  /// A failed `DELETE` is kept: it backs off, and once it stalls (a refusal the server will repeat, or out of attempts) it
+  /// waits in the queue for "retry now" or the user's `abandonDeletion`. It is never dropped silently.
+  public mutating func deleteFailed(
+    _ memoID: MemoID, now: Date, permanent: Bool = false, transient: Bool = false, reason: String? = nil
+  ) {
     guard var deletion = deletions[memoID] else { return }
     deletion.attempts += 1
-    let state = failedState(attempts: deletion.attempts, now: now, permanent: permanent, transient: transient)
-    if state == .stalled {
-      deletions[memoID] = nil
-      return
-    }
-    deletion.state = state
+    deletion.state = failedState(attempts: deletion.attempts, now: now, permanent: permanent, transient: transient)
+    deletion.lastError = reason
     deletions[memoID] = deletion
+  }
+
+  /// The user gives up on removing the discarded memo from the server.
+  public mutating func abandonDeletion(_ memoID: MemoID) {
+    deletions[memoID] = nil
+    withheldDeletions.remove(memoID)
   }
 
   public mutating func deleteCancelled(_ memoID: MemoID) {
@@ -235,7 +250,27 @@ public struct OutboxStateMachine: Sendable {
 
   /// The queue, oldest first, with where each item stands.
   public func queue() -> [OutboxQueueItem] {
-    orderedItems.map { OutboxQueueItem(item: $0, status: status(of: $0)) }
+    let removals = deletions.values.map { deletion in
+      OutboxQueueItem(item: Self.row(of: deletion), status: status(of: deletion), isDeletion: true)
+    }
+    let rows = orderedItems.map { OutboxQueueItem(item: $0, status: status(of: $0)) } + removals
+    return rows.sorted { ($0.item.queuedAt, $0.id.uuidString) < ($1.item.queuedAt, $1.id.uuidString) }
+  }
+
+  /// A discarded take's pending `DELETE` as the queue row it shows.
+  private static func row(of deletion: OutboxDeletion) -> OutboxItem {
+    OutboxItem(
+      memoID: deletion.memoID, kind: .voice, mode: "", startedAt: deletion.queuedAt, queuedAt: deletion.queuedAt,
+      title: deletion.title)
+  }
+
+  private func status(of deletion: OutboxDeletion) -> OutboxItemStatus {
+    switch deletion.state {
+    case .pending, .uploaded: .waiting
+    case .uploading: .sending
+    case .failed(let retryAt): .failed(retryAt: retryAt, reason: deletion.lastError)
+    case .stalled: .failed(retryAt: nil, reason: deletion.lastError)
+    }
   }
 
   private func status(of item: OutboxItem) -> OutboxItemStatus {
@@ -261,6 +296,7 @@ public struct OutboxStateMachine: Sendable {
       while indices.contains(count) { count += 1 }
       if count > 0 {
         memos[item.memoID] = OutboxMemo(memoID: item.memoID, segmentCount: count, completion: .pending, attempts: 0)
+        recoveredTakes.insert(item.memoID)
       } else {
         items[item.memoID] = nil
       }
@@ -280,6 +316,20 @@ public struct OutboxStateMachine: Sendable {
     entries[key] = OutboxEntry(segment: segment, sequence: nextSequence, state: .pending, attempts: 0)
     nextSequence += 1
     if withheld { withheldSegments.insert(key) }
+    return true
+  }
+
+  /// Takes in a segment file the saved queue never named (the startup sweep): it fills an index below the take's count, or,
+  /// for a take recovered after a crash, the next index after it (the take grows). `false` when the segment does not belong
+  /// to a take this queue holds or would not fit; the caller quarantines the file. Held back like any new segment.
+  public mutating func adopt(_ segment: ClosedSegment) -> Bool {
+    guard items[segment.memoID]?.kind == .voice, let memo = memos[segment.memoID],
+      entries[SegmentKey(memoID: segment.memoID, index: segment.index)] == nil
+    else { return false }
+    let grows = segment.index == memo.segmentCount && recoveredTakes.contains(memo.memoID)
+    guard segment.index < memo.segmentCount || grows else { return false }
+    guard enqueue(segment, withheld: true) else { return false }
+    if grows { memos[memo.memoID]?.segmentCount += 1 }
     return true
   }
 
@@ -304,8 +354,10 @@ public struct OutboxStateMachine: Sendable {
 
     for item in orderedItems where capacity > 0 && isCreatable(item) && isDue(item.create, now: now) {
       items[item.memoID]?.create = .uploading
+      items[item.memoID]?.createMayHaveLanded = true
       var started = item
       started.create = .uploading
+      started.createMayHaveLanded = true
       work.append(.create(started))
       capacity -= 1
     }

@@ -105,7 +105,7 @@ final class TakeModel {
   private func refreshQueue() async {
     sending = await controller.queuedItems().count { item in
       switch item.state {
-      case .waiting, .sending: true
+      case .waiting, .sending: item.kind != .removal
       case .recording, .failed: false
       }
     }
@@ -171,7 +171,12 @@ final class TakeModel {
     guard isActive, !isEnding else { return }
     isEnding = true
     defer { isEnding = false }
-    await controller.cancel()
+    do {
+      try await controller.cancel()
+    } catch {
+      logger.error("take not discarded: \(String(describing: error), privacy: .public)")
+      failure = String(localized: "Iris could not discard the recording.", comment: "Take failure")
+    }
   }
 
   func togglePause() async {

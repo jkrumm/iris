@@ -82,10 +82,13 @@ final class CompositionRoot: CaptureIntentHandler {
       let capture = FakeCapture(directory: FileManager.default.temporaryDirectory.appending(path: "iris-fake-capture"))
       fakeCapture = capture
       let created = CreatedMemoLog()
+      // `-IrisFakeUnreadableOutbox`: a saved queue that cannot be decoded, for the Settings reset row.
+      let fakeStore: any OutboxStore =
+        arguments.contains("-IrisFakeUnreadableOutbox") ? UnreadableOutboxStore() : InMemoryOutboxStore()
       let stack = CaptureStack(
         .init(
           session: capture.session, routes: capture.routes, recorder: capture.recorder, clock: SystemCaptureClock(),
-          store: InMemoryOutboxStore(),
+          store: fakeStore,
           uploader: FakePipelineUploader(
             base: APIOutboxUploader(client: fake, created: created), pipeline: FakePipeline(client: fake)),
           // A slow first retry: a queued item stays visible until "retry now", whatever the speed of the test runner.
@@ -247,14 +250,14 @@ final class CompositionRoot: CaptureIntentHandler {
     client: any APIClient, created: CreatedMemoLog
   ) -> (stack: CaptureStack, canRecord: Bool) {
     let root = URL.applicationSupportDirectory.appending(path: "Iris", directoryHint: .isDirectory)
-    let recorder = try? AVAudioEngineSegmentRecorder(
-      directory: root.appending(path: "capture", directoryHint: .isDirectory))
+    let captureDirectory = root.appending(path: "capture", directoryHint: .isDirectory)
+    let recorder = try? AVAudioEngineSegmentRecorder(directory: captureDirectory)
     let stack = CaptureStack(
       .init(
         session: AVAudioSessionController(), routes: AVAudioSessionRouteManager(),
         recorder: recorder ?? UnavailableSegmentRecorder(), clock: SystemCaptureClock(),
         store: JSONFileOutboxStore(fileURL: root.appending(path: "outbox.json")),
-        uploader: APIOutboxUploader(client: client, created: created)))
+        uploader: APIOutboxUploader(client: client, created: created), captureDirectory: captureDirectory))
     return (stack, recorder != nil)
   }
 }

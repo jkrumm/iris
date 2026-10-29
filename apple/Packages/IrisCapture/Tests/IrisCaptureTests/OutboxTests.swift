@@ -404,9 +404,12 @@ struct OutboxItemTests {
     await harness.outbox.settled()
 
     await harness.outbox.discard(memo(1))
-    #expect(await harness.outbox.queue().isEmpty)
     #expect(await harness.outbox.entries().isEmpty)
     #expect(!FileManager.default.fileExists(atPath: file.path))
+    // The failed create may have landed, so the server's copy is deleted; that `DELETE` is the only thing left in the queue.
+    await harness.outbox.settled()
+    #expect(await harness.uploader.deleted == [memo(1)])
+    #expect(await harness.outbox.queue().isEmpty)
     await harness.outbox.shutdown()
   }
 

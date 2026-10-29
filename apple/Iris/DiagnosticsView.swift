@@ -6,6 +6,8 @@ import SwiftUI
 struct DiagnosticsView: View {
   @Bindable var model: DiagnosticsModel
   let history: HistoryModel
+  /// Outbox files a reset set aside; they can be shared from here.
+  var quarantinedFiles: [URL] = []
 
   var body: some View {
     let memos = history.memos
@@ -50,6 +52,28 @@ struct DiagnosticsView: View {
           comment: "Diagnostics footer")
       }
       .listRowBackground(Theme.Surface.panel)
+
+      if !quarantinedFiles.isEmpty {
+        Section {
+          ForEach(quarantinedFiles, id: \.self) { file in
+            ShareLink(item: file) {
+              Label {
+                Text(verbatim: file.lastPathComponent).lineLimit(1).truncationMode(.middle)
+              } icon: {
+                Image(systemName: "square.and.arrow.up")
+              }
+            }
+            .accessibilityIdentifier("diagnostics.quarantined")
+          }
+        } header: {
+          Text("Set-aside outbox", comment: "Diagnostics section")
+        } footer: {
+          Text(
+            "A reset renamed the unreadable outbox file instead of deleting it. Share it to have the queue looked at.",
+            comment: "Diagnostics footer")
+        }
+        .listRowBackground(Theme.Surface.panel)
+      }
     }
     .accessibilityIdentifier("diagnostics.view")
     .scrollContentBackground(.hidden)

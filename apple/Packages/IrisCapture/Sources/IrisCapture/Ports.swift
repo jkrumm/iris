@@ -68,6 +68,18 @@ public protocol SegmentUploader: Sendable {
 
 /// Persistence for the outbox queue (App Group container in production).
 public protocol OutboxStore: Sendable {
+  /// Throws `OutboxStoreError.undecodable` when the saved queue is there but cannot be read; it is left as it is.
   func load() async throws -> OutboxRecord
   func save(_ record: OutboxRecord) async throws
+  /// Sets the unreadable saved queue aside under a timestamped name next to it, so the next `load()` opens an empty
+  /// queue. Never deletes. The moved file, or `nil` when there was none.
+  func quarantine() async throws -> URL?
+  /// The queue files `quarantine()` has set aside, oldest first.
+  func quarantined() async -> [URL]
+}
+
+extension OutboxStore {
+  /// A store with no file of its own has nothing to set aside.
+  public func quarantine() async throws -> URL? { nil }
+  public func quarantined() async -> [URL] { [] }
 }

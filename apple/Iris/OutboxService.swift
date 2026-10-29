@@ -137,6 +137,12 @@ nonisolated final class OutboxService: QueuedItemSource {
 
   func discard(id: String) async {
     guard let memoID = UUID(uuidString: id) else { return }
+    guard let outbox = try? await stack.outbox() else { return }
+    // A row that is a stalled server `DELETE` has nothing to discard but the attempt itself.
+    if await outbox.queue().first(where: { $0.id == memoID })?.isDeletion == true {
+      await outbox.abandonDeletion(memoID)
+      return
+    }
     await discard(memoID)
   }
 
@@ -154,6 +160,24 @@ nonisolated final class OutboxService: QueuedItemSource {
 
   func isAvailable() async -> Bool {
     await stack.isAvailable()
+  }
+
+  func isUnreadable() async -> Bool {
+    await stack.availability() == .unreadable
+  }
+
+  func resetOutbox() async -> Bool {
+    do {
+      try await stack.resetOutbox()
+      return true
+    } catch {
+      logger.error("outbox not reset: \(String(describing: error), privacy: .public)")
+      return false
+    }
+  }
+
+  func quarantinedFiles() async -> [URL] {
+    await stack.quarantinedFiles()
   }
 
   func saveFailure() async -> String? {
@@ -191,7 +215,8 @@ nonisolated final class OutboxService: QueuedItemSource {
   /// The outcome when the memo is settled one way or the other, `nil` while the outbox is still on it.
   private func settled(_ memoID: MemoID, outbox: Outbox) async -> SendOutcome? {
     if let memo = await created.memo(id: memoID.wireID) { return .sent(memo) }
-    switch await outbox.queue().first(where: { $0.id == memoID })?.status {
+    // A discarded take's queued `DELETE` is not the memo: it never makes the memo "on its way".
+    switch await outbox.queue().first(where: { $0.id == memoID && !$0.isDeletion })?.status {
     case .failed(nil, let reason)?: return .stalled(reason: reason ?? String(localized: "refused by the server"))
     case .failed?, nil: return .queued
     default: return nil
@@ -204,6 +229,7 @@ extension QueuedItem {
     let item = queued.item
     let kind: Kind =
       switch (item.kind, item.threadID) {
+      case _ where queued.isDeletion: .removal
       case (.voice, nil): .voiceMemo
       case (.voice, _): .voiceReply
       case (.text, nil): item.mode == MemoMode.chat.rawValue ? .chatMessage : .typedMemo

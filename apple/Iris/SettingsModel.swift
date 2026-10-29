@@ -1,3 +1,4 @@
+import Foundation
 import IrisCore
 import Observation
 import os
@@ -18,6 +19,12 @@ final class SettingsModel {
   private(set) var queue: [QueuedItem] = []
   /// The persistent queue cannot be opened, so new memos are refused until it can (asking again retries).
   private(set) var queueUnavailable = false
+  /// The saved queue is there but cannot be decoded, so nothing is accepted until it is reset (it is renamed aside, kept).
+  private(set) var queueUnreadable = false
+  /// The reset did not go through; the file is still where it was.
+  private(set) var resetFailed = false
+  /// Queue files earlier resets set aside, for Diagnostics to share.
+  private(set) var quarantinedFiles: [URL] = []
   /// Why the queue could not be saved to disk; it is retried on its own. `nil` while it can be.
   private(set) var queueSaveFailure: String?
 
@@ -53,7 +60,17 @@ final class SettingsModel {
     let available = await source.isAvailable()
     queue = available ? await source.queuedItems() : []
     queueUnavailable = !available
+    queueUnreadable = available ? false : await source.isUnreadable()
     queueSaveFailure = available ? await source.saveFailure() : nil
+    quarantinedFiles = await source.quarantinedFiles()
+  }
+
+  /// Sets the unreadable outbox file aside and opens a fresh queue. The old file and its recordings are kept.
+  func resetOutbox() async {
+    resetFailed = false
+    guard queueUnreadable else { return }
+    resetFailed = !(await source.resetOutbox())
+    await refreshQueue()
   }
 
   /// Sends a failed or stalled item again now.
@@ -78,11 +95,15 @@ final class SettingsModel {
     let available = await source.isAvailable()
     let items = available ? await source.queuedItems() : []
     let saveFailure = available ? await source.saveFailure() : nil
+    let unreadable = available ? false : await source.isUnreadable()
+    let quarantined = await source.quarantinedFiles()
     do {
       let health = try await client.health()
       guard current == generation else { return }
       queue = items
       queueUnavailable = !available
+      queueUnreadable = unreadable
+      quarantinedFiles = quarantined
       queueSaveFailure = saveFailure
       connection = health.status == .ok ? .connected : .degraded(health.degraded)
     } catch is CancellationError {
@@ -92,6 +113,8 @@ final class SettingsModel {
       logger.error("health check failed: \(String(describing: error), privacy: .public)")
       queue = items
       queueUnavailable = !available
+      queueUnreadable = unreadable
+      quarantinedFiles = quarantined
       queueSaveFailure = saveFailure
       connection = .unreachable
     }
