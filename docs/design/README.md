@@ -105,4 +105,15 @@ Stats colours: Hermes blue, Journal green, Chat violet, Tabs orange, checked wit
 - **Typed-memo entry point:** the keyboard button beside the mic picker on Record. Alternatives: a long-press on the record button in History, or a button in the History search bar.
 - **Stats as a dock tab:** four tabs plus Record fit at 402 pt. Alternative: a button in the History header and keep three tabs. Stats also shows cost; the Lock Screen toggle does not touch it.
 - **Chat in the Threads list:** assumed Chat memos create threads like Hermes ones (violet route chip), and a Chat reply by hold-to-talk stays in that thread. Confirm.
+- **Reply flow as built (Wave 15 I5):** does the reply flow read right? Pending bubble, the reveal, the voice reply affordance. Simulator renders of the shipped
+  thread view on the fake stack (iPhone 17, iOS 27.0), light and dark, from `scripts/reply-flow-shots.sh` (`ReplyFlowReviewUITests`). The images are private objects
+  in the image store, not committed; links are on request (`imgcli private-url <key> --expires 7d`). Keys are `private/<key>`, light then dark:
+  1. Thread view: question, rendered answer, follow-up, the reply bar with the keyboard button and Hold to talk. `gew7ap64kpq5sty1.png` / `k4ueh8b4pg8k73sb.png` (under `2026/10/`)
+  2. Reply by text: the composer bound to the thread ("Continues this conversation.", no mode chips). `n6vgrzz45gvoish5.png` / `souyficsiwty2k2f.png`
+  3. Text reply sent: the typed turn joined the thread, the pending bubble shows step dashes and "Asking Hermes...". `kbg2fwkljkwk814d.png` / `t03644gb8foy1i7j.png`
+  4. Reply by voice, sent: the transcript turn and the pending bubble. `6lyuhlxpixuben7f.png` / `qwqqeatr8ggqnixb.png`
+  5. Answer revealed: the pending bubble replaced by the reply. `a6ib11coivztggmz.png` / `v0mhr280o6495zxk.png`
+
+  Not shown: the fake stack never answers a typed memo, so step 3 ends at pending and the reveal comes from the voice reply. The recording state of Hold to talk
+  was not captured; the Live Activity and notification Reply need a device. Uploaded 2026-10-29 with a 7-day presign, so ask for fresh links after 2026-11-05.
 - **Not designed:** the later routing refinement for herdr-bound memos (orchestration queue, factory), and Settings beyond Diagnostics.
