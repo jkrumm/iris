@@ -27,7 +27,12 @@ mkdirSync(env.IRIS_DATA, { recursive: true });
 const db = openDatabase(join(env.IRIS_DATA, "iris.db"));
 const clock = systemClock;
 const store = createSqliteMemoStore({ db, clock });
-repairFailedSummaries({ db, clock, dataDir: env.IRIS_DATA });
+// Best effort: a full disk or an existing backup name must not keep the server from booting.
+try {
+  repairFailedSummaries({ db, clock, dataDir: env.IRIS_DATA });
+} catch (err) {
+  log("repair.failed_summaries_error", { error: err instanceof Error ? err.message : String(err) });
+}
 const devices = createSqliteDeviceStore({ db, clock });
 const events = createMemoEvents();
 const audio = createFsAudioStore(join(env.IRIS_DATA, "audio"));

@@ -15,7 +15,7 @@ export function repairFailedSummaries(params: {
   dataDir: string;
 }): number {
   const { db, clock, dataDir } = params;
-  const candidates = `state = 'failed' AND failed_step = 'summarize' AND reply_text IS NOT NULL AND trim(reply_text) <> ''`;
+  const candidates = `state = 'failed' AND failed_step = 'summarize' AND reply_text IS NOT NULL AND trim(reply_text, ' ' || char(9) || char(10) || char(13)) <> ''`;
   const pending =
     db.query<{ n: number }, []>(`SELECT count(*) AS n FROM memos WHERE ${candidates}`).get()?.n ??
     0;

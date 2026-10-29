@@ -276,6 +276,38 @@ describe("optional summarize", () => {
     ]);
   });
 
+  it("fails the step when summarize asks to park: only a thrown handler error is skipped", async () => {
+    const { store, runner } = setup({ summarize: async () => ({ outcome: "needs_route" }) });
+    const { id } = seedMemo(store, "acted");
+    await runner.drive(id);
+    expect(store.getMemo(id)).toMatchObject({ state: "failed", failedStep: "summarize" });
+  });
+
+  it("logs runner.lost_skip, not step.skipped, when the memo left its state during the failed step", async () => {
+    const gate = deferred();
+    const { store, runner } = setup({
+      summarize: async () => {
+        await gate.promise;
+        throw new Error("402");
+      },
+    });
+    const { id } = seedMemo(store, "acted");
+    const { lines } = await captureLogs(async () => {
+      const driven = runner.drive(id);
+      await Promise.resolve();
+      await Promise.resolve();
+      store.transition({ id, from: "acted", to: "summarized" });
+      gate.resolve();
+      await driven;
+    });
+
+    const events = lines.map((l) => l["event"]);
+    expect(events).toContain("runner.lost_skip");
+    expect(events).not.toContain("step.skipped");
+    expect(store.getMemo(id)?.state).toBe("summarized");
+    expect(stepRecord(store, id, "summarize")?.status).toBe("running");
+  });
+
   it("still fails the memo when any other step fails", async () => {
     const { store, runner } = setup({
       notify: async () => {
