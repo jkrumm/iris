@@ -156,7 +156,7 @@ notified (summarize step failed) ──retry(from: summarize)──> acted
   that clears nothing the memo needs). Repair of data from before: memos in `failed(summarize)` with a non-empty reply are moved to `notified` by
   `repairFailedSummaries` at boot (no push, step row kept); it first writes `<IRIS_DATA>/iris.db.bak-<timestamp>` with `VACUUM INTO`, only when
   there is something to repair, and is idempotent (repaired memos no longer match). It is a boot repair, not a migration, because a migration
-  cannot take a backup first. Delete the backup once production runs cleanly.
+  cannot take a backup first. Delete the backup once production runs cleanly. One-way: a rollback to a build before this change fails summary-less `notified` memos at `notify` if they are driven again.
 - **Idempotent steps:** each step is keyed by `(memo_id, step, attempt)`. On
   boot and on every `complete`, the runner drives each non-terminal memo from
   its last finished step.

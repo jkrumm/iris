@@ -8,7 +8,6 @@ import {
   advance,
   isOptionalStep,
   nextStep,
-  stateAfter,
   stepIndex,
   STEPS,
   type HandlerStep,
@@ -194,27 +193,31 @@ export function createRunner(deps: {
     const { memo, step, handler } = params;
     store.markStepStarted({ id: memo.id, step });
     let result: StepResult | null;
-    let to: MemoState;
     try {
       result = await attempt({ memo, step, handler });
-      if (result === null) return false;
-      to = advance({ state: memo.state, step, outcome: result.outcome });
     } catch (err) {
       const error = errorMessage(err);
       if (isOptionalStep(step)) {
         // The step stays failed on the timeline; the memo carries on without its result.
-        const skipped = store.skipStep({
-          id: memo.id,
-          step,
-          from: memo.state,
-          to: stateAfter(step),
-          error,
-        });
+        if (!store.skipStep({ id: memo.id, step, from: memo.state, error })) {
+          log("runner.lost_skip", { memo_id: memo.id, step, from: memo.state, error });
+          return false;
+        }
         log("step.skipped", { memo_id: memo.id, step, error });
-        if (skipped) publish(memo.id, step);
-        return skipped;
+        publish(memo.id, step);
+        return true;
       }
       store.markStepFailed({ id: memo.id, step, error });
+      publish(memo.id, step);
+      return false;
+    }
+    if (result === null) return false;
+    let to: MemoState;
+    try {
+      to = advance({ state: memo.state, step, outcome: result.outcome });
+    } catch (err) {
+      // A handler that asks for something its step cannot do is a real failure, optional step or not.
+      store.markStepFailed({ id: memo.id, step, error: errorMessage(err) });
       publish(memo.id, step);
       return false;
     }

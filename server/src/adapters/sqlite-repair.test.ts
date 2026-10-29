@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { Database } from "bun:sqlite";
-import { mkdtempSync, readdirSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { manualClock } from "../ports/clock.js";
@@ -39,6 +39,7 @@ describe("repairFailedSummaries", () => {
     const withReply = failedSummarize("Erledigt.");
     const noReply = failedSummarize(null);
     const blankReply = failedSummarize("  ");
+    const newlineReply = failedSummarize("\n\t \r\n");
 
     expect(repairFailedSummaries({ db, clock, dataDir: dir })).toBe(1);
 
@@ -53,16 +54,23 @@ describe("repairFailedSummaries", () => {
     });
     expect(store.getMemo(noReply)).toMatchObject({ state: "failed", failedStep: "summarize" });
     expect(store.getMemo(blankReply)).toMatchObject({ state: "failed", failedStep: "summarize" });
+    expect(store.getMemo(newlineReply)).toMatchObject({ state: "failed", failedStep: "summarize" });
 
     // The backup is a database as it was before the repair.
-    const [backup] = backups();
     expect(backups()).toHaveLength(1);
-    const copy = new Database(join(dir, backup ?? ""), { readonly: true });
-    expect(
-      copy
-        .query<{ state: string }, [string]>("SELECT state FROM memos WHERE id = ?")
-        .get(withReply),
-    ).toEqual({ state: "failed" });
+    const backup = join(dir, backups()[0] ?? "");
+    expect(existsSync(backup)).toBe(true);
+    const copy = new Database(backup, { readonly: true });
+    try {
+      expect(
+        copy
+          .query<{ state: string }, [string]>("SELECT state FROM memos WHERE id = ?")
+          .get(withReply),
+      ).toEqual({ state: "failed" });
+    } finally {
+      copy.close();
+      db.close();
+    }
   });
 
   it("is idempotent and writes no backup when nothing matches", () => {
@@ -74,5 +82,6 @@ describe("repairFailedSummaries", () => {
     expect(repairFailedSummaries({ db, clock, dataDir: dir })).toBe(1);
     expect(repairFailedSummaries({ db, clock, dataDir: dir })).toBe(0);
     expect(backups()).toHaveLength(1);
+    db.close();
   });
 });
