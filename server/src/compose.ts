@@ -5,8 +5,8 @@ import { createPeleRenderer } from "./adapters/diagram-pele.js";
 import { createFsSpeechCache } from "./adapters/speech-fs.js";
 import { createAgwSummarizer } from "./adapters/agw.js";
 import { createAgwDecider } from "./adapters/agw-decider.js";
-import { createAudioGatewaySpeaker } from "./adapters/audio-gateway-speaker.js";
-import { createAudioGatewayTranscriber, ffmpegCombiner } from "./adapters/audio-gateway.js";
+import { createAudioDoorSpeaker } from "./adapters/audio-door-speaker.js";
+import { createAudioDoorTranscriber, ffmpegCombiner } from "./adapters/audio-door.js";
 import { createHerdrDestination, createHerdrHerd } from "./adapters/herdr.js";
 import { createHermesDestination } from "./adapters/hermes.js";
 import { createJournalDestination } from "./adapters/journal.js";
@@ -48,7 +48,8 @@ export type ComposeEnv = Partial<
     | "IRIS_FAKES"
     | "IRIS_DEVICE_TOKENS"
     | "OTEL_EXPORTER_OTLP_ENDPOINT"
-    | "AUDIO_GATEWAY_URL"
+    | "AUDIO_DOOR_URL"
+    | "AUDIO_DOOR_TOKEN"
     | "AGW_URL"
     | "HERMES_URL"
     | "HERMES_TOKEN"
@@ -133,8 +134,8 @@ export function compose(deps: {
 
   const ports = {
     transcriber: choose<Transcriber>("transcribe", fakes?.transcriber, () =>
-      env.AUDIO_GATEWAY_URL
-        ? createAudioGatewayTranscriber({ baseUrl: env.AUDIO_GATEWAY_URL })
+      env.AUDIO_DOOR_URL && env.AUDIO_DOOR_TOKEN
+        ? createAudioDoorTranscriber({ baseUrl: env.AUDIO_DOOR_URL, token: env.AUDIO_DOOR_TOKEN })
         : undefined,
     ),
     // Only destinations with an act adapter are routing choices. Each is optional on its own; `act`
@@ -158,8 +159,8 @@ export function compose(deps: {
       env.AGW_URL ? createAgwSummarizer({ baseUrl: env.AGW_URL }) : undefined,
     ),
     speaker: choose<Speaker>("speech", fakes?.speaker, () =>
-      env.AUDIO_GATEWAY_URL
-        ? createAudioGatewaySpeaker({ baseUrl: env.AUDIO_GATEWAY_URL })
+      env.AUDIO_DOOR_URL && env.AUDIO_DOOR_TOKEN
+        ? createAudioDoorSpeaker({ baseUrl: env.AUDIO_DOOR_URL, token: env.AUDIO_DOOR_TOKEN })
         : undefined,
     ),
     herd: choose<Herd>("herd", fakes?.herd, () =>

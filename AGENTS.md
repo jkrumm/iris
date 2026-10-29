@@ -63,7 +63,7 @@ Never start dev servers for a human to look at; simulators are fine, shut them d
   returns a `RouteDecision`, never throws; a spoken or mode `tab` is resolved against the herd to a tab id), `index.ts`.
 - `server/src/adapters/` — `sqlite.ts` (+ `sqlite-migrations.ts`, `PRAGMA user_version`; migration 7 adds the `memo_fts` FTS5 index behind history search), `sqlite-devices.ts`
   (`DeviceStore`, same db), `sqlite-threads.ts` (`ThreadStore`: the thread read queries, composed into the memo store), `sqlite-stats.ts` (`StatsStore`: read-only aggregates behind `GET /stats`), `audio-fs.ts` (segments + `combined.m4a`), `speech-fs.ts` (`<id>.mp3` + `<id>.txt`), `assets-fs.ts` (`<id>/<asset id>` reply assets), `diagram-pele.ts` (`DiagramRenderer`: Pele + resvg-js; migration 11 adds `reply_assets`),
-  and the downstream adapters (audio-gateway transcriber + ffmpeg combiner, `audio-gateway-speaker.ts`, Hermes, agw (`agw.ts`: `triage` summarizer
+  and the downstream adapters (`audio-door.ts`: the audio-door transcriber + the ffmpeg combiner, `audio-door-speaker.ts`, Hermes, agw (`agw.ts`: `triage` summarizer
   and the shared job runner; `agw-decider.ts`: the `decide` job),
   `herdr.ts` over the unix socket: the `Herd` and the `herdr` `Destination`, log notifier), and the APNs pair: `notifier-apns.ts` (`Notifier` over an `ApnsTransport`)
   and `apns-node.ts` (the transport on `@parse/node-apn`; `apns-test-support.ts` generates test keys and certs).
@@ -121,7 +121,7 @@ All under `/v1`, `Authorization: Bearer <token>`. Errors: `{error: <code>, messa
 | `PUT /memos/:id/activity-token` `{token}` (hex) | 204, replaces the stored token; 404 unknown memo |
 | `GET /memos/:id/audio` | `audio/mp4`, concatenated on first request and cached; `Range` → 206 / 416; 404; 409 while `receiving` or soft-deleted |
 | `GET /memos/:id/assets/:assetId` | a rendered Mermaid file of the reply (ids in the memo's `replyBlocks`): `image/svg+xml` (CSP `default-src 'none'`) or `image/png`, immutable cache; 404 unknown memo or asset; 409 when soft-deleted |
-| `GET /memos/:id/speech` | `audio/mpeg` TTS of the speech-ready variant (`speechVariant`: cleaned reply, or `summary.spoken` + "details on screen" past 600 chars; else `summary.spoken`), cached; 404; 409 with neither or when soft-deleted; 503 without audio-gateway |
+| `GET /memos/:id/speech` | `audio/mpeg` TTS of the speech-ready variant (`speechVariant`: cleaned reply, or `summary.spoken` + "details on screen" past 600 chars; else `summary.spoken`), cached; 404; 409 with neither or when soft-deleted; 503 without the audio door (`AUDIO_DOOR_URL` + `AUDIO_DOOR_TOKEN`) |
 | `GET /herd` | `{tabs: [{id, repo, label, agentState, lastActivity}]}` from herdr; 503 without `HERDR_SOCKET` or when herdr is unreachable |
 | `GET /stats?days=<n>` | `{days, from, to, perDay, perWeek, stepMedians (per step and route, with n), costPerRoute}` over the last `n` local days (default 30, 1..365 else 400); read-only SQL/JS aggregates, `null` route = `unrouted` |
 | `GET /events` | SSE: `ready`, `memo.updated` per state change (and per flag change, delete or restore, without `memo.done`), plus `memo.done` when result-ready, `: keepalive` every 15 s |
@@ -191,16 +191,20 @@ Push to master deploys. LaunchAgent `com.jkrumm.iris` (KeepAlive, `ExitTimeOut` 
 - First install or a changed `launchd/` template: `make mini-setup` / `make launchd-install` on the mini.
 - Secrets: `.env.local.tpl` + `.env.mini.tpl` (+ optional `.env.mini.otel.tpl`) via `secrets-run`.
   `launch.sh` refuses to start if a base ref does not resolve; a missing OTel overlay starts degraded.
-  Device tokens, the audio-gateway URL and the OTLP endpoint live in `op://mini/iris/*` (listed in
+  Device tokens and the OTLP endpoint live in `op://mini/iris/*` (listed in
   `dotfiles-private/headless.refs`). Rotate a token: edit the field, `make secrets-seed` from the
-  MacBook, `make launchd-restart`. `APNS_*` is unset (no `op://` ref yet, so not in `.env.mini.tpl`; add both at enrolment), so the log notifier runs.
+  MacBook, `make launchd-restart`. The audio door is not a secret ref: `AUDIO_DOOR_URL` is a plain value in `.env.local.tpl`
+  (`http://127.0.0.1:7792/v1`) and `launch.sh` reads the `iris=<token>` line of `~/.agent-workflows/data/door-tokens` (0600, local, owned by
+  agent-workflows) into `AUDIO_DOOR_TOKEN` without echoing it; a missing file or line starts degraded (`transcribe`, `speech`) and says why on stderr.
+  Rotate it by editing that file and restarting both LaunchAgents. `APNS_*` is unset (no `op://` ref yet, so not in `.env.mini.tpl`; add both at enrolment), so the log notifier runs.
 - `HERMES_URL` is composed in `launch.sh` from `HERMES_HOST` + `HERMES_PORT`. The journal takes brain-sync's mkdir lock exactly as `brain/brain-sync.sh` does (own pid in `<lockDir>/pid`; a live pid or a pidless lock under 60 s waits, a dead pid or an older pidless lock is reclaimed; release only while the pid is still ours). It pushes the brain checkout over HTTPS with the mini's headless credential helper (no prompt); `launch.sh` exports `BRAIN_DIR` only when the checkout exists.
 - agent-gateway jobs (`triage`, `decide`) are submitted with `caller: "iris"` at the top level of the `POST /api/jobs` body, for per-consumer spend attribution; an older gateway ignores it.
 
 
 ## Verify & Monitor
 
-- `make verify` — exit 0 iff `GET /health` answers `status: ok` (public; `{status, degraded[], inflight}`).
+- `make verify` — exit 0 iff `GET /health` answers `status: ok` (public; `{status, degraded[], inflight}`) and the audio door's
+  `GET http://127.0.0.1:7792/health` does too (the downstream check).
   `degraded` lists `otel`, `device-tokens` and steps without a downstream (`transcribe`, `act` (no destination at all), `summarize`, and `decide` when two or more destinations have no decider).
 - `make smoke` — a real German 96 s recording (`fixtures/audio/de-90s.m4a`) through the pipeline to
   `notified`; it pins `--mode hermes`, because an `auto` memo could land in the real brain or a live tab. `IRIS_URL=https://iris.mini.<domain> make smoke` goes through the tailnet door. Uses the
@@ -242,7 +246,7 @@ Push to master deploys. LaunchAgent `com.jkrumm.iris` (KeepAlive, `ExitTimeOut` 
   change and the done row; a lost compare-and-set writes nothing. `resetForRetry` clears the columns of
   the re-run steps and later. A store error in `completeStep` is bookkeeping, not a step failure: it
   propagates and the drive failure is logged.
-- **Downstream env** (all optional, empty = unset): `AUDIO_GATEWAY_URL`, `AGW_URL`, `HERMES_URL` +
+- **Downstream env** (all optional, empty = unset): `AUDIO_DOOR_URL` + `AUDIO_DOOR_TOKEN` (both, for `transcribe` and `speech`), `AGW_URL`, `HERMES_URL` +
   `HERMES_TOKEN`, `HERDR_SOCKET` and `BRAIN_DIR` (`launch.sh` sets each on the mini only when it exists: the herdr socket, `~/SourceRoot/brain`; a herdr started after iris needs `make launchd-restart`). Each of
   `BRAIN_DIR` (journal), `HERDR_SOCKET` (herdr, also the herd) and `HERMES_*` registers its destination on its own; a missing one is not
   `degraded`, `act` is only when none is registered. Without the rest, `/health` lists `transcribe` /
@@ -299,9 +303,13 @@ Push to master deploys. LaunchAgent `com.jkrumm.iris` (KeepAlive, `ExitTimeOut` 
   under `<IRIS_DATA>/assets/<memo>/<uuid>`, staged with the store (`stageReplyAssets`, no row yet) and written to `reply_assets` by the `completeStep` that commits that reply; the wire carries `replyBlocks` (omitted when empty: `{index, kind, width, height, svg, png}`, each
   `{light, dark}` asset ids; `index` counts the reply's mermaid fences from 0). A block Pele rejects stays a code block (`reply.render_failed`; a failed file write is `reply.store_failed`; more than 12 blocks `reply.blocks_capped`; no asset, never a step failure),
   a changed reply re-renders and prunes the old files once its commit wins; a lost compare-and-set leaves the earlier reply's rows and files and removes only the new attempt's files; a boot sweep (`ReplyAssets.backfill`, 50 memos per start) renders older replies that have a fence and no rows; a memo whose blocks Pele all refused (not a failed file write) carries `memos.reply_assets_failed` (migration 13) and is skipped until its reply changes; the purge removes files before rows. Library choice and why: TDD §3 "Reply assets".
-- **audio-gateway timeouts are hang guards:** the STT call (30 min) throws `hangGuardFailure` and the speech call (2 min) a plain 503; neither is retried (one window, then `POST /retry`).
-- **Speech request** to audio-gateway: `POST /v1/audio/speech {input, response_format: "mp3"}` with `x-audio-source: iris`.
-  No `model` or `voice`: the gateway owns both and detects the language. A non-2xx is 503 `unavailable`.
+- **Audio door timeouts are hang guards:** the STT call (30 min) throws `hangGuardFailure` and the speech call (2 min) a plain 503; neither is retried (one window, then `POST /retry`).
+- **Audio door** (agent-workflows `audio` process, `AUDIO_DOOR_URL` = `http://127.0.0.1:7792/v1`, bearer `AUDIO_DOOR_TOKEN`; contract: agent-workflows `packages/audio/README.md` "The door on the process"):
+  `POST /audio/transcriptions` (multipart) and `POST /audio/speech`, OpenAI-compatible. Every answer, errors included, carries `agw-run-id`, the
+  run that records the call and its cost; both adapters put it on the span and the `audio_door.*` log lines as `agw.run_id` (the old `x-audio-source`
+  attribution is gone). A 401 (`{error:{message:'unauthorized'}}`, an unknown or rotated token) is a plain, non-transient failure.
+- **Speech request** to the door: `POST /audio/speech {input, response_format: "mp3"}`.
+  No `model` or `voice`: the door owns both and detects the language. A non-2xx is 503 `unavailable`.
 - **herdr:** one connection per request, newline-delimited JSON, `session.snapshot`, `pane.send_text`, `pane.send_keys` (verified on herdr 0.9.3,
   protocol 22; request shapes in the `adapters/herdr.ts` header). Delivery types the transcript into the tab's agent pane and presses `enter` (the agent's
   answer stays in its terminal, `replyText` is empty). At most 8 deliveries wait per pane; the ninth fails "herdr pane <id> queue is full" (503, not transient).
