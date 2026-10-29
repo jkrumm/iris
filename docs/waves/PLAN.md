@@ -836,6 +836,27 @@ not answered by the time of writing; A loses nothing, so it ships. A delete vari
       latter its own commit there); fakes and conformance tests move to the new adapters. TDD (§3 downstream facts, §Cost) and AGENTS.md
       amended. Docs: `~/SourceRoot/agent-workflows/packages/audio/README.md` ("The door on the process", "Caller auth"). Proof: a
       production voice memo transcribes through the door and `/speech` returns audio, both with an `agw-run-id`.
+- [ ] **S4. decide + triage switch (gateway sunset; contract from the agent-workflows lead 2026-10-29, release `3f29cb5`; lands after
+      S3, both touch env/compose/launch):** the agw adapters move from agent-gateway's job API to the agent-workflows host.
+      Host `http://127.0.0.1:7791` (`AGW_URL` keeps its name, new value). Auth `Authorization: Bearer <AGW_API_SECRET>` from
+      `op://mini/agent-workflows/API_SECRET` through the env template and `secrets-run` (already in the mini's cache; check
+      `dotfiles-private/headless.refs` lists it). Header `x-agw-purpose: iris` on every call replaces the body's `caller: "iris"`.
+      **Calls are synchronous** (no submit/poll): `POST /triage {destination, transcript, reply?}` with the raw fields, sent whole (the
+      server cuts at 4000 chars and owns the prompt: delete Iris's `buildPrompt`), 200 → **flat** `{headline ≤60, detail ≤240, spoken ≤300,
+      model, attempts, latencyMs, usage}` (no `{result}` wrapper); `POST /decide {state, questions}` unchanged, 200 → `{answers, model,
+      truncatedChars, latencyMs, usage}`. `usage` = `{inputTokens, outputTokens, reasoningTokens, totalTokens, cacheReadTokens, costUsd}`
+      (agent-gateway's names); `costUsd` may be `null` (store null, never 0). Every response, errors too, carries `agw-run-id`: store it on
+      the step (log + span attribute). **Hang guard = abort the request** (no `Idempotency-Key`; the run and the provider call are
+      cancelled); `POST /runs/{runId}/cancel` only if an explicit cancel is needed. Errors: 400 and 401 are permanent, 502
+      `INVALID_OUTPUT` (the model failed twice) is permanent, 503 and 500 and network errors are transient. **decide's model changed**
+      (off Requesty, `decision-1-eu`): re-run the decision fixtures/probes against it and record per-route confidences in TDD; change a
+      threshold only if routing no longer matches the old behaviour, and say so in Left behind. Delete the job-API code (submit, poll,
+      `/api/jobs` cancel), the old 7705 health check in `make verify` (add the new host's health if it has one), and anything else
+      agent-gateway-only; fakes and conformance tests follow the new wire. TDD (§3 downstream facts, step 5, §Cost) and AGENTS.md amended.
+      Docs: `~/SourceRoot/agent-workflows/packages/capabilities/README.md` (triage/decide), `packages/host/README.md` (auth, cancel,
+      idempotency); questions to `rd say agent-workflows-w1`. Proof: **`make smoke` green with a real summary**; a production memo
+      decided by `decide` and summarized by `triage`, both with an `agw-run-id` and purpose `iris`; then retry the memos left without a
+      summary since Wave 14 (`POST /v1/memos/:id/retry {from: "summarize"}`, bounded batch) so they get one.
 - [ ] **I1. Outbox reset + capture follow-ups (I3 of Wave 15):** Settings "Reset outbox" when `outbox.json` cannot be decoded: the file
       is renamed aside (timestamped, kept), its segment files stay, a fresh outbox opens, Diagnostics can share the quarantined file. A
       startup sweep **adopts or quarantines** segment files whose record never saved (never deletes). `endOrphans()` no longer ends a live
@@ -861,19 +882,6 @@ not answered by the time of writing; A loses nothing, so it ships. A delete vari
       (marking the I5 question answered) for another async look.
 - [ ] Deploy and prove: `make verify` + **`make smoke` green**; the `failed(summarize)` memos since Wave 14 read `done` in production;
       `apple.yml` green; TDD and AGENTS.md amended.
-
-## Wave 17 — switch to the agent-workflows platform, delete the old gateway adapters            <!-- status: pending -->
-Requested 2026-10-29 by agent-workflows-mother (the owner sunsets agent-gateway, research-gateway and audio-gateway). Server-only
-(`server/**`, `scripts/**`, env templates, TDD, AGENTS.md). Starts when Wave 16 has closed **and** agent-workflows has sent the
-contract for `decide` and the summary call (endpoints, auth, env names); until then it waits, and backlog work continues. Written in full then.
-**Decision (agent-workflows-mother, 2026-10-29):** `triage` is ported as-is (parity) on the new host, `decide` too, both with cancel,
-`caller: "iris"`, usage + `cost_usd` in the response and no Requesty route; their lead sends the contract via `rd say iris-mother`.
-- [ ] `Decider` → the new `agw` host's `decide`; `Summarizer` → the ported `triage` on the new host (`{headline ≤60, detail ≤240,
-      spoken ≤2 sentences}` over destination + transcript excerpt + reply; not `llm.classify`); job cancel kept for the 30-min hang guard;
-      `caller: "iris"` attribution and per-call usage/cost kept (TDD §Cost).
-- [x] STT/TTS → the audio door: moved into Wave 16 S3 (contract arrived 2026-10-29).
-- [ ] Delete `agw.ts`, `agw-decider.ts` and `AGW_URL`; new refs into `dotfiles-private/headless.refs` and seeded via `ask-human.sh`. Fakes and conformance tests move with the ports.
-- [ ] Deploy and prove: `make verify` + `make smoke` (decide, summarize with a real summary, STT, `/speech`) in production.
 
 ## Fleet backlog (for the long-running fleet: mother → lead → workers)
 
