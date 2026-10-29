@@ -60,7 +60,7 @@ private struct WaterfallRowView: View {
   var body: some View {
     VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
       HStack(alignment: .firstTextBaseline, spacing: Theme.Spacing.sm) {
-        PhaseIcon(phase: row.phase, isOptional: row.optionalNote != nil)
+        PhaseIcon(phase: row.phase, isOptional: row.isOptional)
           .frame(width: Self.iconWidth)
         Text(verbatim: row.title)
           .themeFont(.subheadline, weight: .semibold)
@@ -136,13 +136,13 @@ private struct WaterfallRowView: View {
 
   /// A failure the memo can live without is a warning; any other is the memo's failure.
   private var failureColor: Color {
-    row.optionalNote == nil ? Theme.Status.bad : Theme.Status.warn
+    row.isOptional ? Theme.Status.warn : Theme.Status.bad
   }
 
   private var titleColor: Color {
     switch row.phase {
     case .waiting: Theme.Ink.faint
-    case .failed: row.optionalNote == nil ? Theme.Status.bad : Theme.Ink.primary
+    case .failed: row.isOptional ? Theme.Ink.primary : Theme.Status.bad
     default: Theme.Ink.primary
     }
   }

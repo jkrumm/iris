@@ -33,6 +33,8 @@ final class HistoryModel {
   /// before the server's delete lands. Kept in the ``HiddenMemoStore``, so a relaunch before the delete settles still
   /// hides them; ``unhide(_:)`` clears an id once its delete is over.
   private var hidden: Set<String>
+  /// The ids ``hiddenStore`` held at launch; ``reconcileHidden(pendingDeletions:)`` is the only reader.
+  private var restoredHidden: Set<String>
   private let hiddenStore: any HiddenMemoStore
   /// Drops the cached media (recording, spoken reply, diagrams) of a memo that is deleted or gone.
   private let evictMedia: (String) -> Void
@@ -46,7 +48,9 @@ final class HistoryModel {
     self.client = client
     self.hiddenStore = hiddenStore
     self.evictMedia = evictMedia
-    hidden = hiddenStore.load()
+    let restored = hiddenStore.load()
+    hidden = restored
+    restoredHidden = restored
   }
 
   // MARK: Loading
@@ -234,6 +238,7 @@ final class HistoryModel {
 
   /// Drops a memo this device discarded (a cancelled take) and keeps it out of the list from here on.
   func hide(_ id: String) {
+    restoredHidden.remove(id)
     hidden.insert(id)
     hiddenStore.save(hidden)
     lifecycle[id, default: 0] += 1
@@ -241,11 +246,13 @@ final class HistoryModel {
     evictMedia(id)
   }
 
-  /// Keeps the hidden ids whose server `DELETE` is still queued and forgets the rest: a discarded take whose create never
-  /// reached the server has no delete to settle, and a crash can lose a settle. Runs once the outbox is loaded at launch.
+  /// Forgets the hidden ids restored from the last session that have no server `DELETE` queued any more (a discarded take
+  /// whose create never reached the server has none to settle, and a crash can lose a settle). Only ids restored at launch
+  /// are considered, so a memo hidden in this session while the outbox was being read is never dropped. Runs once.
   func reconcileHidden(pendingDeletions: Set<String>) {
-    let stale = hidden.subtracting(pendingDeletions)
-    guard !stale.isEmpty else { return }
+    let stale = restoredHidden.subtracting(pendingDeletions)
+    restoredHidden = []
+    guard !hidden.isDisjoint(with: stale) else { return }
     hidden.subtract(stale)
     hiddenStore.save(hidden)
   }

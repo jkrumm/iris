@@ -60,7 +60,7 @@
         StepWaterfallRow(
           id: "summarize", title: "Summarize", phase: .failed, metric: "3.0 s", attempts: "3 attempts",
           error: "agw triage failed: 402 payment required",
-          optionalNote: "Optional · the memo is done without it", retryTitle: "Retry from Summarize",
+          isOptional: true, optionalNote: "Optional · the memo is done without it", retryTitle: "Retry from Summarize",
           start: 0.725, length: 0.109),
         StepWaterfallRow(id: "notify", title: "Notify", phase: .done, metric: "0.8 s", start: 0.934, length: 0.066),
       ]

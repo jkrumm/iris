@@ -415,7 +415,7 @@ struct HistoryModelTests {
     #expect(store.load() == ["x"])
   }
 
-  @Test("at launch only the ids with a queued delete stay hidden")
+  @Test("at launch only the restored ids with a queued delete stay hidden")
   func reconcileHidden() async {
     await seed(MemoFactory.memo("a", age: 1), MemoFactory.memo("b", age: 2))
     let store = InMemoryHiddenMemoStore(["a", "b"])
@@ -424,6 +424,22 @@ struct HistoryModelTests {
     #expect(store.load() == ["a"])
     await model.load()
     #expect(model.memos.map(\.id) == ["b"])
+  }
+
+  @Test("a memo hidden this session is never dropped by the launch reconcile, even when it has no delete listed yet")
+  func reconcileKeepsWhatWasHiddenSinceLaunch() async {
+    let store = InMemoryHiddenMemoStore(["old"])
+    let model = HistoryModel(client: client, hiddenStore: store)
+    model.hide("new")  // discarded while the outbox was still being read
+    model.reconcileHidden(pendingDeletions: [])
+    #expect(store.load() == ["new"])
+
+    // Hidden again in this session, a restored id is this session's too.
+    let againStore = InMemoryHiddenMemoStore(["x"])
+    let again = HistoryModel(client: client, hiddenStore: againStore)
+    again.hide("x")
+    again.reconcileHidden(pendingDeletions: [])
+    #expect(againStore.load() == ["x"])
   }
 
   @Test("the user defaults store round-trips the ids and removes its key when empty")

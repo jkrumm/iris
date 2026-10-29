@@ -219,7 +219,8 @@ final class CompositionRoot: CaptureIntentHandler {
     guard isConfigured else { return }
     // Loads the saved queue and sends what is due: items left over from the last session, or from before a connection change.
     await outbox.resume()
-    history.reconcileHidden(pendingDeletions: await outbox.pendingDeletionIDs())
+    // An outbox that cannot be opened says nothing about its deletes: the persisted hidden ids are left as they are.
+    if let pending = await outbox.pendingDeletionIDs() { history.reconcileHidden(pendingDeletions: pending) }
     // A take's Live Activity does not outlive its process: end the ones the last run left in a client phase.
     await liveActivity.endOrphans()
     if connectionRevision > 0 {
