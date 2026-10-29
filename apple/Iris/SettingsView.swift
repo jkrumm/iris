@@ -96,6 +96,18 @@ struct SettingsView: View {
         .foregroundStyle(Theme.Ink.secondary)
         .accessibilityIdentifier("settings.outbox.unavailable")
       }
+      if model.queueSaveFailure != nil {
+        Label {
+          Text(
+            "The queue could not be saved to this device. Recordings wait to be sent until it can, and Iris keeps trying.",
+            comment: "Outbox save failed")
+        } icon: {
+          Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(Theme.Status.warn)
+        }
+        .themeFont(.footnote)
+        .foregroundStyle(Theme.Ink.secondary)
+        .accessibilityIdentifier("settings.outbox.savefailed")
+      }
       if model.queue.isEmpty && !model.queueUnavailable {
         Text("Nothing waiting. Memos and chat messages that cannot be sent yet queue here.", comment: "Outbox empty")
           .themeFont(.footnote)

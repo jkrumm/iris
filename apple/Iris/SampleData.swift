@@ -154,13 +154,25 @@ enum SampleData {
   }
 
   /// Fills a `FakeAPIClient` with the sample memos.
-  static func seed(_ client: FakeAPIClient) async {
-    for detail in details() {
+  static func seed(_ client: FakeAPIClient, now: Date = Date()) async {
+    for detail in details(now: now) {
       await client.seed(detail)
     }
-    for thread in threadDetails() {
+    for thread in threadDetails(now: now) {
       await client.seed(thread)
     }
-    await client.setStats(stats())
+    await client.setStats(stats(now: now))
+  }
+
+  /// The launch argument that pins the sample clock (`-IrisSampleNow 2027-01-15T12:00:00Z`), so UI tests see the same
+  /// History whatever time of day they run: the sample memos are relative to it, and a memo from 90 minutes ago is
+  /// on another day for the first hour and a half after midnight.
+  static let nowArgument = "-IrisSampleNow"
+
+  static func now(arguments: [String], fallback: Date = Date()) -> Date {
+    guard let index = arguments.firstIndex(of: nowArgument), arguments.indices.contains(index + 1),
+      let pinned = try? Date(arguments[index + 1], strategy: .iso8601)
+    else { return fallback }
+    return pinned
   }
 }

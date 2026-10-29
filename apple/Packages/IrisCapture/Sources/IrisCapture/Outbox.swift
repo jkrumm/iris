@@ -38,6 +38,11 @@ public actor Outbox: SegmentOutbox {
   private var requested = 0
   private var savedThrough = 0
   private var isDirty = false
+  /// Segments held back from upload, with the number of the `persist()` call that will carry them.
+  private var unsavedSegments: [SegmentKey: Int] = [:]
+  private var lastSaveError: String?
+  private var saveRetry: Task<Void, Never>?
+  private let policy: OutboxPolicy
   /// Segment files no queue entry needs any more. Deleted once a save that no longer lists them has landed: if the write
   /// fails, the record on disk still names them and a relaunch needs them.
   private var obsoleteFiles: [(url: URL, generation: Int)] = []
@@ -55,6 +60,7 @@ public actor Outbox: SegmentOutbox {
     deletesFilesWhenDone: Bool = true
   ) async throws {
     self.deletesFilesWhenDone = deletesFilesWhenDone
+    self.policy = policy
     self.store = store
     self.uploader = uploader
     self.clock = clock
@@ -64,11 +70,17 @@ public actor Outbox: SegmentOutbox {
   // MARK: SegmentOutbox
 
   public func enqueue(_ segment: ClosedSegment) async {
-    guard machine.enqueue(segment) else { return }
+    // Withheld from upload until a save that carries it has landed (`persist()` releases it): a segment the server has but
+    // the queue file does not know is lost to a crash, and its file is orphaned. A failed save is retried on a timer and
+    // shows in `saveFailure()`.
+    guard machine.enqueue(segment, withheld: true) else { return }
+    unsavedSegments[SegmentKey(memoID: segment.memoID, index: segment.index)] = requested + 1
     await persist()
     await resume()
   }
 
+  /// A finished take whose record could not be saved is recoverable (a relaunch finishes it with the segments on disk), so
+  /// its `complete` is not held; the save is retried and the failure shown like any other.
   public func finishMemo(_ memoID: MemoID, segmentCount: Int) async {
     machine.finishMemo(memoID, segmentCount: segmentCount)
     await persist()
@@ -116,6 +128,7 @@ public actor Outbox: SegmentOutbox {
   public func discard(_ memoID: MemoID) async {
     for (id, task) in inFlight where id.memoID == memoID { task.cancel() }
     retire(machine.discard(memoID))
+    unsavedSegments = unsavedSegments.filter { $0.key.memoID != memoID }
     await persist()
     await resume()
   }
@@ -163,6 +176,8 @@ public actor Outbox: SegmentOutbox {
 
   public func shutdown() {
     isShutDown = true
+    saveRetry?.cancel()
+    saveRetry = nil
     wakeTask?.cancel()
     wakeTask = nil
     wakeDeadline = nil
@@ -170,6 +185,9 @@ public actor Outbox: SegmentOutbox {
     for observer in observers.values { observer.finish() }
     observers = [:]
   }
+
+  /// Why the last save failed, or `nil` when the queue on disk is current.
+  public func saveFailure() -> String? { lastSaveError }
 
   /// Current queue, oldest first.
   public func entries() -> [OutboxEntry] { machine.record.entries }
@@ -245,6 +263,27 @@ public actor Outbox: SegmentOutbox {
   }
 
   /// Called right before the `persist()` that records why the files are obsolete, so that call's number is the next one.
+  /// Saves again on a growing delay until a save lands, then lets whatever it released go out. One timer at a time.
+  private func retrySave() {
+    guard saveRetry == nil, !isShutDown else { return }
+    // Owned by `saveRetry`; ends with the first save that lands and is cancelled by `shutdown()`.
+    saveRetry = Task { [clock, policy] in
+      var attempt = 0
+      while !Task.isCancelled {
+        attempt += 1
+        let wake = (await clock.now()).addingTimeInterval(policy.delay(forAttempt: attempt))
+        do { try await clock.sleep(until: wake) } catch { break }
+        if await self.persist() { break }
+      }
+      await self.saveRetryEnded()
+    }
+  }
+
+  private func saveRetryEnded() async {
+    saveRetry = nil
+    await resume()
+  }
+
   private func retire(_ files: [URL]) {
     obsoleteFiles.append(contentsOf: files.map { ($0, requested + 1) })
   }
@@ -303,11 +342,18 @@ public actor Outbox: SegmentOutbox {
       do {
         try await store.save(machine.record)
         savedThrough = max(savedThrough, generation)
+        lastSaveError = nil
       } catch {
         Log.outbox.error("outbox save failed: \(String(describing: error), privacy: .public)")
+        lastSaveError = String(describing: error)
       }
     }
     isFlushing = false
+    for (key, generation) in unsavedSegments where generation <= savedThrough {
+      machine.release(key)
+      unsavedSegments[key] = nil
+    }
+    if lastSaveError != nil { retrySave() }
     let (due, later) = (
       obsoleteFiles.filter { $0.generation <= savedThrough }, obsoleteFiles.filter { $0.generation > savedThrough }
     )

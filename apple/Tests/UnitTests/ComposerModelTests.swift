@@ -54,6 +54,21 @@ struct ComposerModelTests {
       ])
   }
 
+  @Test(
+    "a refusal the server will repeat keeps the composer open with the text and the reason, and sends nothing twice")
+  func stalledKeepsTheText() async throws {
+    // An unknown thread is a 404: waiting does not help.
+    let (composer, rig) = model(ComposerRequest(mode: .hermes, threadId: "gone"))
+    composer.text = "do not lose me"
+
+    #expect(await composer.send() == nil, "the sheet stays open")
+    #expect(composer.text == "do not lose me")
+    #expect(
+      composer.failure?.contains("thread gone not found") == true,
+      "and says why: \(String(describing: composer.failure))")
+    #expect(await rig.service.queuedItems().isEmpty, "nothing is left in the queue to go out a second time")
+  }
+
   @Test("the counter counts Unicode code points like the server and blocks past the limit")
   func limit() {
     let (composer, _) = model()

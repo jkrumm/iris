@@ -29,6 +29,8 @@ final class CompositionRoot: CaptureIntentHandler {
   }
 
   let mode: Mode
+  /// The clock the fake sample memos are relative to: the real one, or the one a UI test pinned (`-IrisSampleNow`).
+  private let sampleNow: Date
   /// Production with nothing saved at launch: the app opens on Settings.
   let opensOnSettings: Bool
   let fakeCapture: FakeCapture?
@@ -64,8 +66,13 @@ final class CompositionRoot: CaptureIntentHandler {
   ) {
     let diagnostics = DiagnosticsModel(pasteboard: SystemPasteboard())
     self.diagnostics = diagnostics
+    let pinnedNow = SampleData.now(arguments: arguments)
+    sampleNow = pinnedNow
     if FakeCapture.isRequested(arguments: arguments) {
-      let fake = FakeAPIClient()
+      // The fake server's clock starts at the sample clock and runs from there, so a memo created in the app is newer than the
+      // samples whatever instant they were pinned to.
+      let launched = Date()
+      let fake = FakeAPIClient(now: { pinnedNow.addingTimeInterval(Date().timeIntervalSince(launched)) })
       mode = .fake
       opensOnSettings = false
       api = fake
@@ -163,7 +170,7 @@ final class CompositionRoot: CaptureIntentHandler {
         await fakeAPI.enqueueFailure(.transport(.notConnectedToInternet), for: endpoint)
       }
     }
-    if let fakeAPI { await SampleData.seed(fakeAPI) }
+    if let fakeAPI { await SampleData.seed(fakeAPI, now: sampleNow) }
     guard isConfigured else { return }
     // Loads the saved queue and sends what is due: items left over from the last session, or from before a connection change.
     await outbox.resume()

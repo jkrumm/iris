@@ -77,13 +77,23 @@ struct OutboxServiceTests {
   func refusalStalls() async throws {
     let rig = OutboxRig(client: client)
     // An unknown thread is a 404 on the server: waiting does not help.
-    #expect(await rig.service.submitText(submission(1, threadId: "gone", mode: .hermes)) == .queued)
+    let outcome = await rig.service.submitText(submission(1, threadId: "gone", mode: .hermes))
+    #expect(outcome == .stalled(reason: "thread gone not found"), "not 'queued': it will never be sent by itself")
 
-    let item = try #require(await rig.service.queuedItems().first)
-    #expect(item.kind == .textReply)
-    #expect(item.state == .failed(retryAt: nil, reason: "thread gone not found"))
+    // The refused text stays with the caller, so the stalled item does not stay behind to be sent twice.
+    #expect(await rig.service.queuedItems().isEmpty)
     await rig.clock.advance(by: 10_000)
     #expect(await client.calls.count == 1, "a stalled item is never retried by itself")
+  }
+
+  @Test("a stalled item a voice take left in the queue stays there for Retry and Discard")
+  func stalledTakeStays() async throws {
+    let rig = OutboxRig(client: client)
+    let voice = rig.voice()
+    try await voice.begin(VoiceReplyRequest(threadId: "gone", mode: .hermes))
+    #expect(try await voice.end(cancelled: false) == .queued)
+    let item = try #require(await rig.service.queuedItems().first)
+    #expect(item.state == .failed(retryAt: nil, reason: "thread gone not found"))
   }
 
   @Test("the same submission twice is one memo")

@@ -365,9 +365,12 @@ Push to master deploys. LaunchAgent `com.jkrumm.iris` (KeepAlive, `ExitTimeOut` 
 - **Capture and outbox failures:** the outbox stalls a transfer on a refusal (`PermanentTransferError`) or after 10 non-transient failures; no network, a
   5xx, a 408 and a 429 are `TransientTransferError` and never count. `OutboxService.resume()` skips the backoff (launch, new connection settings, app
   foreground); it does not touch a stalled item. A recorder `.failed` event puts the take in phase `failed`; `CaptureSession.stop()` throws
-  `CaptureError.recordingFailed` when nothing was kept. Live Activity calls name the memo (`TakeLiveActivity` is per memo, one follower each). Known gap: a
+  `CaptureError.recordingFailed` when nothing was kept. A segment is withheld from upload until a save that carries it has landed (retried on a timer, `Outbox.saveFailure()` shows in Settings). `SendOutcome.stalled` is a refusal the server will repeat: the composer keeps the text and shows the reason, and the item is not left in the queue. Live Activity calls name the memo (`TakeLiveActivity` is per memo, one follower each). Known gap: a
   take cancelled after its first segment leaves a `receiving` memo (the server refuses to delete it), TDD §4 Outbox.
-- **UI tests and the clock:** the sample memos are relative to now, so `HistorySwipeUITests` and `MemoDetailUITests` (they look for the "Wochenplan" row without scrolling) fail for about two hours after local midnight, when that row moves into a Yesterday group below the fold. Worse, for the first 25 minutes a pinned `needs_route` memo from yesterday and the Yesterday section share one `HistoryDaySection.id` (the day), so SwiftUI drops the real Yesterday rows. Both predate Wave 15 (same failures on the round-4 commit at 01:00); fix the section id and make the tests scroll before relying on a run in that window.
+- **UI tests and the clock:** the fake sample memos are relative to a clock, and the UI tests pin it (`-IrisSampleNow <ISO-8601>`, `Tests/UITests/SampleClock.swift`: noon today),
+  so History looks the same at 00:30 and at 14:00 (a memo from 90 minutes ago is on another day for the first hour and a half after midnight). The fake
+  server's clock starts there and runs on, so a memo created in the app is newer than the samples. `HistoryDaySection.id` is (day, occurrence): a pinned
+  `needs_route` memo from yesterday and yesterday's own memos are two sections of one day and must not share an id (SwiftUI dropped the rows).
 - **Snapshots** only compare on the pinned simulator; a diff on a clean tree means a different runtime. They do not render the glass layer.
 - **`scripts/mbm tap`** needs `--element-ref` from the latest `snapshot-ui` and `--post-delay 2`; `snapshot-ui` straight after a launch times out
   (`make ui-snapshot` waits first). Live Activity, widgets, the notification card and the Mac panel compile but have never been rendered; the

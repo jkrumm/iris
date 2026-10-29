@@ -9,6 +9,9 @@ enum SendOutcome: Equatable, Sendable {
   case queued
   /// The outbox could not be opened, so nothing was taken: the caller keeps the text and says so.
   case refused
+  /// The server refused it for good (a 4xx a retry cannot change): it will never be sent as it is. The item is not kept, the
+  /// caller keeps the text and shows the reason.
+  case stalled(reason: String)
 }
 
 /// A typed memo or chat message handed to the outbox.
@@ -78,7 +81,13 @@ nonisolated final class OutboxService: QueuedItemSource {
       logger.error("item not queued: \(String(describing: error), privacy: .public)")
       return .refused
     }
-    return await outcome(of: submission.id, outbox: outbox, changes: changes, window: window)
+    let outcome = await outcome(of: submission.id, outbox: outbox, changes: changes, window: window)
+    if case .stalled = outcome {
+      // The caller keeps the text and shows the reason: an item that can never be sent must not stay behind and go out as a
+      // second copy of whatever the user sends next.
+      await outbox.discard(submission.id)
+    }
+    return outcome
   }
 
   /// The outcome of a memo that is already in the outbox (a take that just stopped): `.sent` once the server has it.
@@ -122,6 +131,11 @@ nonisolated final class OutboxService: QueuedItemSource {
     await stack.isAvailable()
   }
 
+  func saveFailure() async -> String? {
+    guard let outbox = try? await stack.outbox() else { return nil }
+    return await outbox.saveFailure()
+  }
+
   // MARK: Internals
 
   private func outcome(
@@ -141,15 +155,22 @@ nonisolated final class OutboxService: QueuedItemSource {
 
   /// Ends with the memo as soon as the server has created it, or `.queued` once the item failed or left the queue.
   private func watch(_ memoID: MemoID, outbox: Outbox, changes: AsyncStream<Void>) async -> SendOutcome {
-    if let memo = await created.memo(id: memoID.wireID) { return .sent(memo) }
+    // The state right now first: a stall that happened before the watch began raises no further change.
+    if let settled = await settled(memoID, outbox: outbox) { return settled }
     for await _ in changes {
-      if let memo = await created.memo(id: memoID.wireID) { return .sent(memo) }
-      switch await outbox.queue().first(where: { $0.id == memoID })?.status {
-      case .failed, nil: return .queued
-      default: continue
-      }
+      if let settled = await settled(memoID, outbox: outbox) { return settled }
     }
     return .queued
+  }
+
+  /// The outcome when the memo is settled one way or the other, `nil` while the outbox is still on it.
+  private func settled(_ memoID: MemoID, outbox: Outbox) async -> SendOutcome? {
+    if let memo = await created.memo(id: memoID.wireID) { return .sent(memo) }
+    switch await outbox.queue().first(where: { $0.id == memoID })?.status {
+    case .failed(nil, let reason)?: return .stalled(reason: reason ?? String(localized: "refused by the server"))
+    case .failed?, nil: return .queued
+    default: return nil
+    }
   }
 }
 

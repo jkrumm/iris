@@ -31,7 +31,8 @@ final class ComposerModel {
   var mode: MemoMode
   let threadId: String?
   private(set) var isSending = false
-  /// Why the last send was refused (the outbox could not be opened); the text stays. Cleared by the next send.
+  /// Why the last send was refused (the outbox could not be opened, or the server said no for good); the text stays. Cleared
+  /// by the next send.
   private(set) var failure: String?
 
   private let outbox: OutboxService
@@ -64,7 +65,8 @@ final class ComposerModel {
   /// Cancel closes the sheet and would drop the answer of a send that is already on the wire.
   var canCancel: Bool { !isSending }
 
-  /// Hands the text over; nil when there is nothing to send or the outbox refused it (``failure`` says so).
+  /// Hands the text over; nil when there is nothing to send, the outbox refused it or the server did for good (``failure``
+  /// says so).
   func send() async -> SendOutcome? {
     guard canSend else { return nil }
     isSending = true
@@ -73,12 +75,20 @@ final class ComposerModel {
     let submission = TextSubmission(
       id: makeID(), mode: mode, text: trimmedText, threadId: threadId, startedAt: now())
     let outcome = await outbox.submitText(submission)
-    guard outcome != .refused else {
+    switch outcome {
+    case .refused:
       failure = String(
         localized: "Could not queue the memo. Your text is still here.",
         comment: "Composer error when the outbox is closed")
       return nil
+    case .stalled(let reason):
+      // The server will say no again: the sheet stays open with the text, and the reason tells what to change.
+      failure = String(
+        localized: "The server refused it: \(reason). Your text is still here.",
+        comment: "Composer error when the server refused the memo for good")
+      return nil
+    case .sent, .queued:
+      return outcome
     }
-    return outcome
   }
 }

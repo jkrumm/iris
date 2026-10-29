@@ -10,7 +10,7 @@ final class HistorySwipeUITests: XCTestCase {
   @MainActor
   private func launch() -> XCUIApplication {
     let app = XCUIApplication()
-    app.launchArguments = ["-IrisFakeCapture", "-IrisUndoSeconds", "60"]
+    app.launchArguments = SampleClock.arguments + ["-IrisUndoSeconds", "60"]
     app.launch()
     XCTAssertTrue(app.descendants(matching: .any)["history.list"].waitForExistence(timeout: 10))
     return app

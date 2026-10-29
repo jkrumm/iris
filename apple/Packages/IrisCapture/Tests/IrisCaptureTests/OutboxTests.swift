@@ -579,10 +579,13 @@ struct OutboxDurabilityTests {
     let uploader = TestUploader()
     let outbox = try await Outbox(
       store: store, uploader: uploader, clock: ManualClock(), policy: OutboxPolicy(jitter: { 0 }))
-    await store.fail(true)
-
+    // The segment is saved and goes up; the disk fails while it is in flight, so the completed state cannot be saved.
+    await uploader.hold()
     await outbox.enqueue(ClosedSegment(memoID: id, index: 0, fileURL: file, byteCount: 5, duration: 1))
     await outbox.finishMemo(id, segmentCount: 1)
+    await uploader.waitUntilStarted(1)
+    await store.fail(true)
+    await uploader.releaseAll()
     await outbox.settled()
     #expect(await uploader.completed.count == 1)
     #expect(FileManager.default.fileExists(atPath: file.path), "the record on disk still lists this segment")
@@ -692,5 +695,54 @@ struct OutboxConcurrentSaveTests {
     await #expect(throws: OutboxError.notSaved) { try await outbox.enqueueItem(voiceItem(memo(1))) }
     #expect(await store.load().items.isEmpty)
     #expect(await outbox.items().isEmpty)
+  }
+}
+
+struct OutboxSegmentSaveTests {
+  private func poll(_ condition: () async -> Bool) async throws -> Bool {
+    for _ in 0..<300 {
+      if await condition() { return true }
+      try await Task.sleep(for: .milliseconds(10))
+    }
+    return await condition()
+  }
+
+  @Test func aSegmentIsNotUploadedUntilASaveThatCarriesItHasLanded() async throws {
+    let store = ScriptedSaveStore()
+    let uploader = TestUploader()
+    let clock = ManualClock()
+    let outbox = try await Outbox(store: store, uploader: uploader, clock: clock, policy: OutboxPolicy(jitter: { 0 }))
+    await store.fail(true)
+
+    await outbox.enqueue(segment(memo(1), 0))
+    await outbox.finishMemo(memo(1), segmentCount: 1)
+    try await Task.sleep(for: .milliseconds(100))
+    #expect(
+      await uploader.started == 0, "a crash now would lose a segment the server already has: nothing goes out yet")
+    #expect(await outbox.saveFailure() != nil, "and the failure is visible")
+
+    await store.fail(false)
+    await clock.advance(by: 3)  // the save is retried on its own timer
+    #expect(try await poll { await uploader.completed.count == 1 }, "once a save landed the segment goes out")
+    #expect(await outbox.saveFailure() == nil)
+    #expect(await outbox.queue().isEmpty)
+  }
+
+  @Test func theSaveIsRetriedWithBackoffUntilItLands() async throws {
+    let store = ScriptedSaveStore()
+    let clock = ManualClock()
+    let outbox = try await Outbox(
+      store: store, uploader: TestUploader(), clock: clock, policy: OutboxPolicy(jitter: { 0 }))
+    await store.fail(true)
+    await outbox.enqueue(segment(memo(1), 0))
+
+    await clock.advance(by: 2)  // first retry: fails again
+    try await Task.sleep(for: .milliseconds(50))
+    #expect(await outbox.saveFailure() != nil)
+    await store.fail(false)
+    await clock.advance(by: 4)  // second retry: lands
+    #expect(try await poll { await outbox.saveFailure() == nil })
+    let saved = await store.load()
+    #expect(saved.entries.map(\.key.memoID) == [memo(1)])
   }
 }

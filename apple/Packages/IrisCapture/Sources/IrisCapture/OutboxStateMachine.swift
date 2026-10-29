@@ -21,6 +21,9 @@ public struct OutboxStateMachine: Sendable {
   /// Items whose first save has not landed: in the queue, but never handed out, because the caller may still be told the
   /// queue refused them. Not persisted (after a relaunch an item on disk was saved).
   private var withheld: Set<MemoID> = []
+  /// Segments whose first save has not landed: queued, but never uploaded, because a crash now would lose a segment the
+  /// server already has. Not persisted.
+  private var withheldSegments: Set<SegmentKey> = []
   /// Oldest first; bounded so the persisted record does not grow without limit. Holds the memos that completed and the
   /// ones that were discarded: both refuse a late `enqueue`.
   private var completedMemos: [MemoID]
@@ -205,14 +208,22 @@ public struct OutboxStateMachine: Sendable {
   // MARK: Segments
 
   /// Returns `false` if (memo, index) is already known, whatever its state, or the memo already completed.
+  ///
+  /// With `withheld`, the segment is held back from `dispatch` until `release(_:)`: the caller saves the queue first.
   @discardableResult
-  public mutating func enqueue(_ segment: ClosedSegment) -> Bool {
+  public mutating func enqueue(_ segment: ClosedSegment, withheld: Bool = false) -> Bool {
     guard !completedMemos.contains(segment.memoID) else { return false }
     let key = SegmentKey(memoID: segment.memoID, index: segment.index)
     guard entries[key] == nil else { return false }
     entries[key] = OutboxEntry(segment: segment, sequence: nextSequence, state: .pending, attempts: 0)
     nextSequence += 1
+    if withheld { withheldSegments.insert(key) }
     return true
+  }
+
+  /// Lets a withheld segment go out.
+  public mutating func release(_ key: SegmentKey) {
+    withheldSegments.remove(key)
   }
 
   /// A take with no segments has nothing to complete and is ignored, as is a memo that is already
@@ -245,8 +256,10 @@ public struct OutboxStateMachine: Sendable {
       capacity -= 1
     }
 
-    let due = entries.values.filter { isCreated($0.key.memoID) && isDue($0.state, now: now) }
-      .sorted { $0.sequence < $1.sequence }
+    let due = entries.values.filter {
+      isCreated($0.key.memoID) && isDue($0.state, now: now) && !withheldSegments.contains($0.key)
+    }
+    .sorted { $0.sequence < $1.sequence }
     for entry in due.prefix(capacity) {
       entries[entry.key]?.state = .uploading
       work.append(.upload(entry.segment))
@@ -311,6 +324,7 @@ public struct OutboxStateMachine: Sendable {
     memos[memoID] = nil
     items[memoID] = nil
     withheld.remove(memoID)
+    withheldSegments = withheldSegments.filter { $0.memoID != memoID }
     entries = entries.filter { $0.key.memoID != memoID }
   }
 

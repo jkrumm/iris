@@ -129,12 +129,15 @@ struct UploaderHardeningTests {
   @Test("resume leaves a refused item stalled: that one waits for the user")
   func resumeLeavesRefusalsAlone() async throws {
     let rig = OutboxRig(client: client)
-    let refused = TextSubmission(
-      id: MemoID(), mode: .hermes, text: "x", threadId: "gone", startedAt: MemoFactory.now)
-    #expect(await rig.service.submitText(refused) == .queued)
+    // A recorded take for an unknown thread: the server answers 404, so the item stalls and stays queued.
+    let voice = rig.voice()
+    try await voice.begin(VoiceReplyRequest(threadId: "gone", mode: .hermes))
+    #expect(try await voice.end(cancelled: false) == .queued)
+    let calls = await client.calls.count
+
     await rig.service.resume()
     try await Task.sleep(for: .milliseconds(100))
-    #expect(await client.calls.count == 1)
+    #expect(await client.calls.count == calls, "nothing was sent again")
     #expect(await rig.service.queuedItems().first?.state == .failed(retryAt: nil, reason: "thread gone not found"))
   }
 }
@@ -181,6 +184,13 @@ struct OverlappingTakeTests {
     await rig.capture.recordWithoutClock(seconds: 3)
     _ = try await session.stop()
     #expect(await waitFor { await activity.phases(of: first.wireID).contains(.uploading) })
+    // The first create has failed and is waiting out its backoff before the second take starts.
+    #expect(
+      await waitFor {
+        await rig.service.queuedItems().contains {
+          if case .failed(let at?, _) = $0.state { at > Date.distantPast } else { false }
+        }
+      })
 
     let second = try await session.start(TakeRequest(mode: "auto", title: "Voice memo"))
     await coordinator.begin(memoID: second, mode: .auto, startedAt: MemoFactory.now)

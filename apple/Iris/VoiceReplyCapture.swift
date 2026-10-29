@@ -98,7 +98,7 @@ final class OutboxVoiceReplyCapture: VoiceReplyCapture {
     }
     switch await service.awaitCreated(result.memoID) {
     case .sent(let memo): return .sent(memo)
-    case .queued, .refused: return .queued
+    case .queued, .refused, .stalled: return .queued
     }
   }
 }
