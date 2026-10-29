@@ -92,6 +92,8 @@ describe("agw summarizer", () => {
     const { summarizer } = setup(() =>
       Response.json({ code: "INVALID_OUTPUT" }, { status: 502, headers: { "agw-run-id": RUN_ID } }),
     );
-    await expect(summarizer.summarize(params)).rejects.toThrow(`502 (run ${RUN_ID})`);
+    await expect(summarizer.summarize(params)).rejects.toThrow(
+      `502 INVALID_OUTPUT (run ${RUN_ID})`,
+    );
   });
 });

@@ -1,5 +1,8 @@
-/** The response header naming the agent-workflows run that recorded the call, and its span / log key. */
-export const RUN_ID_ATTR = "agw.run_id";
+import { RUN_ID_ATTR } from "../telemetry/run-id.js";
+
+export { RUN_ID_ATTR };
+
+/** The response header naming the agent-workflows run that recorded the call. */
 const RUN_ID_HEADER = "agw-run-id";
 
 export interface AudioDoorClientOptions {

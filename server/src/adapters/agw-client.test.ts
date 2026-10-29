@@ -48,12 +48,36 @@ describe("agw client", () => {
     expect((await call()).runId).toBeNull();
   });
 
-  it.each([400, 401, 502])("%d is final and names the run", async (status) => {
-    const { call } = setup(() => json({ code: "X", message: "nope" }, status));
+  it.each([
+    [400, "BAD_REQUEST"],
+    [401, "UNAUTHORIZED"],
+    [502, "INVALID_OUTPUT"],
+  ])("%d %s is final and names the code and the run", async (status, code) => {
+    const { call } = setup(() => json({ code, message: "nope" }, status));
     const err = await call().catch((e: unknown) => e);
     expect(err).toBeInstanceOf(Error);
     expect(err).not.toBeInstanceOf(TransientError);
-    expect((err as Error).message).toContain(`${status} (run ${RUN_ID})`);
+    expect((err as Error).message).toContain(`${status} ${code} (run ${RUN_ID})`);
+  });
+
+  it("a 502 that is not INVALID_OUTPUT is transient", async () => {
+    const { call } = setup(() => new Response("Bad Gateway", { status: 502 }));
+    expect(transientKind(await call().catch((e: unknown) => e))).toBe("after_send");
+  });
+
+  it("keeps the raw error body out of the error", async () => {
+    const { call } = setup(() =>
+      json({ code: "BAD_REQUEST", message: "transcript: Kauf Milch, geheim" }, 400),
+    );
+    const err = await call().catch((e: unknown) => e);
+    expect((err as Error).message).not.toContain("geheim");
+  });
+
+  it("a 200 body that is not JSON is final", async () => {
+    const { call } = setup(() => new Response("<html>", { headers: { "agw-run-id": RUN_ID } }));
+    const err = await call().catch((e: unknown) => e);
+    expect(err).not.toBeInstanceOf(TransientError);
+    expect((err as Error).message).toContain(`response is not JSON (run ${RUN_ID})`);
   });
 
   it.each([500, 503])("%d is transient after the send", async (status) => {
