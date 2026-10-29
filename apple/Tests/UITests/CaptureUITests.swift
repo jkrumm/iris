@@ -33,11 +33,7 @@ final class CaptureUITests: XCTestCase {
       scrolls += 1
     }
     XCTAssertTrue(row.waitForExistence(timeout: 10))
-    var attempts = 0
-    while !row.isHittable, attempts < 8 {
-      list.swipeUp()
-      attempts += 1
-    }
+    row.scrollIntoClearBand(of: list, app: app)
     row.tap()
     XCTAssertTrue(app.descendants(matching: .any)["thread.view"].waitForExistence(timeout: 10))
   }

@@ -50,7 +50,8 @@ final class TakeLiveActivityCoordinator {
   /// Requests the activity for the take that just started and follows it until the memo is sent.
   func begin(memoID: MemoID, mode: MemoMode, startedAt: Date) async {
     await activity.start(
-      memoID: memoID.wireID, mode: mode, startedAt: startedAt, state: Self.state(.recording, inputName: nil))
+      memoID: memoID.wireID, mode: mode, startedAt: startedAt,
+      state: Self.state(.recording, inputName: nil, note: otherMemosNote(besides: memoID)))
     guard let session = try? await stack.session(), let outbox = try? await stack.outbox() else { return }
     let updates = await session.updates()
     let changes = await outbox.changes()
@@ -71,8 +72,12 @@ final class TakeLiveActivityCoordinator {
       guard !Task.isCancelled, take.memoID == memoID else { break }
       switch take.phase {
       case .starting, .idle: break
-      case .recording: await activity.update(memoID: id, Self.state(.recording, inputName: take.inputName))
-      case .paused: await activity.update(memoID: id, Self.state(.paused, inputName: take.inputName))
+      case .recording:
+        await activity.update(
+          memoID: id, Self.state(.recording, inputName: take.inputName, note: otherMemosNote(besides: memoID)))
+      case .paused:
+        await activity.update(
+          memoID: id, Self.state(.paused, inputName: take.inputName, note: otherMemosNote(besides: memoID)))
       case .stopping: await activity.update(memoID: id, Self.state(.uploading, inputName: take.inputName))
       case .failed:
         // The recorder died: the take will not get better. A memo that was kept goes on in the outbox without it.
@@ -104,7 +109,8 @@ final class TakeLiveActivityCoordinator {
     }
     guard let row = await outbox.queue().first(where: { $0.id == memoID }) else {
       guard !Task.isCancelled else { return true }
-      if sent {
+      // The row also leaves the queue when the take was discarded: its memo is being deleted, there is nothing to hand over.
+      if sent, await !outbox.wasDiscarded(memoID) {
         await activity.update(memoID: id, Self.state(.processing, inputName: nil))
         await activity.handOverToServer(memoID: id)
       } else {
@@ -137,8 +143,21 @@ final class TakeLiveActivityCoordinator {
     await activity.endClientPhaseActivities()
   }
 
-  static func state(_ phase: LiveActivityPhase, inputName: String?) -> LiveActivityContentState {
-    LiveActivityContentState(phase: phase, hasReply: false, inputName: inputName)
+  /// The state of a client phase. `note` rides in `headline` (a short line about another memo still being sent, well under
+  /// the 60 characters, never transcript or reply text); the widget shows it as a note while the take records.
+  static func state(_ phase: LiveActivityPhase, inputName: String?, note: String? = nil) -> LiveActivityContentState {
+    LiveActivityContentState(phase: phase, headline: note, hasReply: false, inputName: inputName)
+  }
+
+  /// "1 earlier memo is still sending" while other memos of this run are still on their way up, so the activity of a new
+  /// take explains the queue behind it. `nil` when there is none.
+  private func otherMemosNote(besides memoID: MemoID) -> String? {
+    let others = followers.keys.count { $0 != memoID }
+    switch others {
+    case 0: return nil
+    case 1: return String(localized: "1 earlier memo is still sending", comment: "Live Activity note")
+    default: return String(localized: "\(others) earlier memos are still sending", comment: "Live Activity note")
+    }
   }
 }
 

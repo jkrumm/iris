@@ -11,10 +11,11 @@ public actor Outbox: SegmentOutbox {
     case creation(MemoID)
     case segment(SegmentKey)
     case completion(MemoID)
+    case deletion(MemoID)
 
     var memoID: MemoID {
       switch self {
-      case .creation(let id), .completion(let id): id
+      case .creation(let id), .completion(let id), .deletion(let id): id
       case .segment(let key): key.memoID
       }
     }
@@ -124,14 +125,24 @@ public actor Outbox: SegmentOutbox {
   }
 
   /// Drops the item and everything queued for it, and deletes its segment files. A transfer already on the wire is
-  /// cancelled; the server keeps whatever it already has.
+  /// cancelled. A take whose memo the server may already have is deleted there too: the `DELETE` is queued like any other
+  /// transfer (it survives a relaunch and is retried until the server answers) and goes out after a `create` that was on
+  /// the wire has ended, so it cannot overtake the request that makes the memo. A late segment or `complete` for that memo
+  /// is a 409 the server gives; nothing of the memo is queued any more, so it is dropped, never a stall.
   public func discard(_ memoID: MemoID) async {
+    let deleteOnServer = machine.needsServerDelete(memoID)
+    let creating = inFlight[.creation(memoID)]
     for (id, task) in inFlight where id.memoID == memoID { task.cancel() }
-    retire(machine.discard(memoID))
+    retire(machine.discard(memoID, deleteOnServer: deleteOnServer))
     unsavedSegments = unsavedSegments.filter { $0.key.memoID != memoID }
     await persist()
+    await creating?.value
+    machine.releaseDeletion(memoID)
     await resume()
   }
+
+  /// The memo left the queue because it was discarded in this run, not because the server has it complete.
+  public func wasDiscarded(_ memoID: MemoID) -> Bool { machine.wasDiscarded(memoID) }
 
   /// The queue for the UI, oldest first.
   public func queue() -> [OutboxQueueItem] { machine.queue() }
@@ -204,6 +215,7 @@ public actor Outbox: SegmentOutbox {
     case .create(let item): id = .creation(item.memoID)
     case .upload(let segment): id = .segment(SegmentKey(memoID: segment.memoID, index: segment.index))
     case .complete(let memoID, _): id = .completion(memoID)
+    case .delete(let memoID): id = .deletion(memoID)
     }
     // Owned by `inFlight` and cancelled by `shutdown()`.
     inFlight[id] = Task { [uploader] in
@@ -213,6 +225,7 @@ public actor Outbox: SegmentOutbox {
         case .create(let item): try await uploader.create(item)
         case .upload(let segment): try await uploader.upload(segment)
         case .complete(let memoID, let count): try await uploader.complete(memoID: memoID, segmentCount: count)
+        case .delete(let memoID): try await uploader.delete(memoID: memoID)
         }
         outcome = .success(())
       } catch {
@@ -255,6 +268,12 @@ public actor Outbox: SegmentOutbox {
       machine.completeFailed(
         memoID, now: now, permanent: Self.isPermanent(error), transient: Self.isTransient(error),
         reason: Self.reason(error))
+    case (.deletion(let memoID), .success): machine.deleteSucceeded(memoID)
+    case (.deletion(let memoID), .failure) where cancelled: machine.deleteCancelled(memoID)
+    case (.deletion(let memoID), .failure(let error)):
+      Log.outbox.error("delete failed: \(String(describing: error), privacy: .public)")
+      machine.deleteFailed(
+        memoID, now: now, permanent: Self.isPermanent(error), transient: Self.isTransient(error))
     }
     await persist()
     await resume()

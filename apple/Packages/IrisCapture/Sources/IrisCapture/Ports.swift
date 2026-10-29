@@ -61,6 +61,9 @@ public protocol SegmentUploader: Sendable {
   func create(_ item: OutboxItem) async throws
   func upload(_ segment: ClosedSegment) async throws
   func complete(memoID: MemoID, segmentCount: Int) async throws
+  /// Removes the memo of a discarded take (`DELETE /memos/:id`). Done when the server has deleted it, no longer has it, or
+  /// refuses for good (the memo moved past `receiving`): the latter two return normally. Anything else throws and is retried.
+  func delete(memoID: MemoID) async throws
 }
 
 /// Persistence for the outbox queue (App Group container in production).

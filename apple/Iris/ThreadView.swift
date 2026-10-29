@@ -59,6 +59,7 @@ struct ThreadView: View {
       }
     }
     .accessibilityIdentifier("thread.view")
+    .takeBanner()
     .background(Theme.Surface.background)
     .scrollEdgeEffectStyle(.soft, for: .bottom)
     .overlay { placeholder }

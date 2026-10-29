@@ -103,7 +103,7 @@ struct ComposerView: View {
 }
 
 extension MemoMode {
-  fileprivate var composerTitle: String {
+  var composerTitle: String {
     switch self {
     case .auto, .unknown: String(localized: "Auto", comment: "Memo mode")
     case .journal: String(localized: "Journal", comment: "Memo mode")

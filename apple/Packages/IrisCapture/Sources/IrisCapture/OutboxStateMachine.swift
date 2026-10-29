@@ -17,6 +17,7 @@ public struct OutboxStateMachine: Sendable {
   private(set) var entries: [SegmentKey: OutboxEntry] = [:]
   private(set) var memos: [MemoID: OutboxMemo] = [:]
   private(set) var items: [MemoID: OutboxItem] = [:]
+  private(set) var deletions: [MemoID: OutboxDeletion] = [:]
   private var nextSequence: Int
   /// Items whose first save has not landed: in the queue, but never handed out, because the caller may still be told the
   /// queue refused them. Not persisted (after a relaunch an item on disk was saved).
@@ -24,6 +25,11 @@ public struct OutboxStateMachine: Sendable {
   /// Segments whose first save has not landed: queued, but never uploaded, because a crash now would lose a segment the
   /// server already has. Not persisted.
   private var withheldSegments: Set<SegmentKey> = []
+  /// Deletions held back while the discarded take's `create` may still be on the wire: the `DELETE` must come after it.
+  /// Not persisted (after a relaunch nothing is on the wire).
+  private var withheldDeletions: Set<MemoID> = []
+  /// Memos discarded in this run, so a follower can tell a discard from a memo the server has completed.
+  private var discarded: Set<MemoID> = []
   /// Oldest first; bounded so the persisted record does not grow without limit. Holds the memos that completed and the
   /// ones that were discarded: both refuse a late `enqueue`.
   private var completedMemos: [MemoID]
@@ -48,6 +54,10 @@ public struct OutboxStateMachine: Sendable {
       if item.create == .uploading { item.create = .pending }
       items[item.memoID] = item
     }
+    for var deletion in record.deletions {
+      if deletion.state == .uploading { deletion.state = .pending }
+      deletions[deletion.memoID] = deletion
+    }
     recoverUnfinishedTakes()
   }
 
@@ -56,6 +66,7 @@ public struct OutboxStateMachine: Sendable {
       entries: entries.values.sorted { $0.sequence < $1.sequence },
       memos: memos.values.sorted { $0.memoID.uuidString < $1.memoID.uuidString },
       items: orderedItems,
+      deletions: deletions.values.sorted { $0.memoID.uuidString < $1.memoID.uuidString },
       nextSequence: nextSequence,
       completedMemos: completedMemos
     )
@@ -159,16 +170,67 @@ public struct OutboxStateMachine: Sendable {
       memos[id]?.completion = .pending
       changed = true
     }
+    for (id, deletion) in deletions where Self.isBackedOff(deletion.state) {
+      deletions[id]?.state = .pending
+      changed = true
+    }
     return changed
   }
 
+  /// Whether discarding this memo has to delete it on the server too: a take whose `create` has been sent (it may have
+  /// landed, even if the answer was lost). A text item, a take that was never created and an item the server refused
+  /// (a 409 can mean another device's memo with that id) leave nothing of ours behind.
+  public func needsServerDelete(_ memoID: MemoID) -> Bool {
+    guard let item = items[memoID], item.kind == .voice else { return false }
+    switch item.create {
+    case .uploading, .uploaded, .failed: return true
+    case .pending, .stalled: return false
+    }
+  }
+
   /// Forgets the memo and everything queued for it; returns the segment files that are no longer needed. A segment of a
-  /// discarded memo that shows up later (a take still closing) is refused.
+  /// discarded memo that shows up later (a take still closing) is refused. With `deleteOnServer` the memo's `DELETE` is
+  /// queued (withheld until `releaseDeletion`).
   @discardableResult
-  public mutating func discard(_ memoID: MemoID) -> [URL] {
+  public mutating func discard(_ memoID: MemoID, deleteOnServer: Bool = false) -> [URL] {
     let files = entries.values.filter { $0.key.memoID == memoID }.map(\.segment.fileURL)
     forget(memoID)
+    discarded.insert(memoID)
+    if deleteOnServer {
+      deletions[memoID] = OutboxDeletion(memoID: memoID)
+      withheldDeletions.insert(memoID)
+    }
     return files
+  }
+
+  /// Lets a queued `DELETE` go out (the discarded take's `create` is no longer on the wire).
+  public mutating func releaseDeletion(_ memoID: MemoID) {
+    withheldDeletions.remove(memoID)
+  }
+
+  /// The memo was discarded in this run (so its leaving the queue is not a completed upload).
+  public func wasDiscarded(_ memoID: MemoID) -> Bool { discarded.contains(memoID) }
+
+  public mutating func deleteSucceeded(_ memoID: MemoID) {
+    deletions[memoID] = nil
+  }
+
+  /// A refusal the server will repeat, or out of attempts, drops the deletion: nothing in the UI could retry it. Anything
+  /// else backs off.
+  public mutating func deleteFailed(_ memoID: MemoID, now: Date, permanent: Bool = false, transient: Bool = false) {
+    guard var deletion = deletions[memoID] else { return }
+    deletion.attempts += 1
+    let state = failedState(attempts: deletion.attempts, now: now, permanent: permanent, transient: transient)
+    if state == .stalled {
+      deletions[memoID] = nil
+      return
+    }
+    deletion.state = state
+    deletions[memoID] = deletion
+  }
+
+  public mutating func deleteCancelled(_ memoID: MemoID) {
+    deletions[memoID]?.state = .pending
   }
 
   /// The queue, oldest first, with where each item stands.
@@ -248,6 +310,13 @@ public struct OutboxStateMachine: Sendable {
       capacity -= 1
     }
 
+    for deletion in deletions.values.sorted(by: { $0.memoID.uuidString < $1.memoID.uuidString })
+    where capacity > 0 && !withheldDeletions.contains(deletion.memoID) && isDue(deletion.state, now: now) {
+      deletions[deletion.memoID]?.state = .uploading
+      work.append(.delete(deletion.memoID))
+      capacity -= 1
+    }
+
     for memo in memos.values.sorted(by: { $0.memoID.uuidString < $1.memoID.uuidString }) {
       guard capacity > 0 else { break }
       guard isCreated(memo.memoID), isDue(memo.completion, now: now), allUploaded(memo) else { continue }
@@ -310,7 +379,7 @@ public struct OutboxStateMachine: Sendable {
   public func nextWake(after now: Date) -> Date? {
     let deadlines =
       entries.values.compactMap { Self.retryAt($0.state) } + memos.values.compactMap { Self.retryAt($0.completion) }
-      + items.values.compactMap { Self.retryAt($0.create) }
+      + items.values.compactMap { Self.retryAt($0.create) } + deletions.values.compactMap { Self.retryAt($0.state) }
     return deadlines.filter { $0 > now }.min()
   }
 

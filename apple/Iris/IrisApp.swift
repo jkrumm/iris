@@ -8,7 +8,8 @@ struct IrisApp: App {
   var body: some Scene {
     WindowGroup {
       RootView(
-        history: root.history, stats: root.stats, settings: root.settings, diagnostics: root.diagnostics,
+        history: root.history, take: root.take, stats: root.stats, settings: root.settings,
+        diagnostics: root.diagnostics,
         connectionForm: root.connectionForm, startsOnSettings: root.opensOnSettings,
         makeDetail: root.detailModel(for:), makeComposer: root.composerModel(for:),
         makeThread: root.threadModel(for:)

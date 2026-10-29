@@ -45,6 +45,22 @@ public enum OutboxItemKind: Sendable, Equatable, Codable {
   case text(String)
 }
 
+/// A take that was discarded after the server created its memo: `DELETE /v1/memos/:id` goes out until the server
+/// acknowledges it (or answers that the memo is gone or cannot be deleted), so the cancelled take does not stay behind as
+/// a `receiving` memo. The item itself and its segments are already gone from the queue.
+public struct OutboxDeletion: Sendable, Equatable, Codable {
+  public let memoID: MemoID
+  /// `.pending`, `.uploading` or `.failed`; the record is removed once the delete is acknowledged.
+  public var state: OutboxState
+  public var attempts: Int
+
+  public init(memoID: MemoID) {
+    self.memoID = memoID
+    state = .pending
+    attempts = 0
+  }
+}
+
 /// One whole memo or chat message the user handed over: the queue Settings shows. A voice item's segments and
 /// completion are tracked by `OutboxEntry` / `OutboxMemo` under the same memo id; the item owns the `create` call, which
 /// must succeed before any of them goes out.
@@ -128,6 +144,8 @@ public struct OutboxRecord: Sendable, Equatable, Codable {
   public var memos: [OutboxMemo]
   /// Whole memos and messages, oldest first. Added with the item queue: records written without it decode to `[]`.
   public var items: [OutboxItem]
+  /// Discarded takes whose memo the server still has. Added with the cancel-delete: records written without it decode to `[]`.
+  public var deletions: [OutboxDeletion]
   public var nextSequence: Int
   /// Memos whose `complete` succeeded, oldest first and capped by the state machine. Lets a repeated
   /// `finishMemo` or late `enqueue` be recognised after the memo and its entries were forgotten.
@@ -135,12 +153,13 @@ public struct OutboxRecord: Sendable, Equatable, Codable {
   public var completedMemos: [MemoID]
 
   public init(
-    entries: [OutboxEntry] = [], memos: [OutboxMemo] = [], items: [OutboxItem] = [], nextSequence: Int = 0,
-    completedMemos: [MemoID] = []
+    entries: [OutboxEntry] = [], memos: [OutboxMemo] = [], items: [OutboxItem] = [],
+    deletions: [OutboxDeletion] = [], nextSequence: Int = 0, completedMemos: [MemoID] = []
   ) {
     self.entries = entries
     self.memos = memos
     self.items = items
+    self.deletions = deletions
     self.nextSequence = nextSequence
     self.completedMemos = completedMemos
   }
@@ -150,6 +169,7 @@ public struct OutboxRecord: Sendable, Equatable, Codable {
     entries = try container.decode([OutboxEntry].self, forKey: .entries)
     memos = try container.decode([OutboxMemo].self, forKey: .memos)
     items = try container.decodeIfPresent([OutboxItem].self, forKey: .items) ?? []
+    deletions = try container.decodeIfPresent([OutboxDeletion].self, forKey: .deletions) ?? []
     nextSequence = try container.decode(Int.self, forKey: .nextSequence)
     completedMemos = try container.decodeIfPresent([MemoID].self, forKey: .completedMemos) ?? []
   }
@@ -197,6 +217,8 @@ public enum OutboxWork: Sendable, Equatable {
   case create(OutboxItem)
   case upload(ClosedSegment)
   case complete(MemoID, segmentCount: Int)
+  /// `DELETE` of a discarded take's memo.
+  case delete(MemoID)
 }
 
 public enum OutboxError: Error, Sendable, Equatable {

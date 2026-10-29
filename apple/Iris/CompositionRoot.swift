@@ -40,6 +40,8 @@ final class CompositionRoot: CaptureIntentHandler {
   let diagnostics: DiagnosticsModel
   /// The queue of whole memos and messages: submissions go in here, Settings reads it.
   let outbox: OutboxService
+  /// The take in progress, for the take screen, the banner and the record control.
+  let take: TakeModel
   /// The Live Activity requests of takes the app starts on its own; the tests read the fake's record.
   let fakeLiveActivity: RecordingLiveActivity?
   /// The decoded images of every reply on screen (Mermaid diagrams), shared by all thread screens.
@@ -50,14 +52,12 @@ final class CompositionRoot: CaptureIntentHandler {
   private(set) var connectionRevision = 0
 
   private let api: any APIClient
-  private let fakeAPI: FakeAPIClient?
+  let fakeAPI: FakeAPIClient?
   private let credentials: (any CredentialStore)?
   private let reconfigurable: ReconfigurableAPIClient?
   private let voiceReply: any VoiceReplyCapture
-  private let stack: CaptureStack
   private let liveActivity: TakeLiveActivityCoordinator
-  private let microphone: FakeMicrophone?
-  private let requestPermission: @Sendable () async -> Bool
+  private let takeController: TakeController
   private let simulatesOffline: Bool
 
   init(
@@ -90,16 +90,17 @@ final class CompositionRoot: CaptureIntentHandler {
             base: APIOutboxUploader(client: fake, created: created), pipeline: FakePipeline(client: fake)),
           // A slow first retry: a queued item stays visible until "retry now", whatever the speed of the test runner.
           policy: OutboxPolicy(baseDelay: 30), deletesFilesWhenDone: false))
-      self.stack = stack
       let service = OutboxService(stack: stack, created: created)
       outbox = service
       let mic = FakeMicrophone(capture: capture)
-      microphone = mic
-      requestPermission = { true }
       simulatesOffline = arguments.contains("-IrisFakeOffline")
       let recording = RecordingLiveActivity()
       fakeLiveActivity = recording
-      liveActivity = TakeLiveActivityCoordinator(activity: recording, stack: stack, created: created)
+      let coordinator = TakeLiveActivityCoordinator(activity: recording, stack: stack, created: created)
+      liveActivity = coordinator
+      takeController = TakeController(
+        stack: stack, liveActivity: coordinator, outbox: service, microphone: mic, canRecord: true,
+        isConfigured: { true }, requestPermission: { true })
       history = HistoryModel(client: fake)
       stats = StatsModel(client: fake)
       settings = SettingsModel(client: fake, queue: service)
@@ -107,6 +108,7 @@ final class CompositionRoot: CaptureIntentHandler {
         loader: MediaAssetLoader(source: { FakeMediaSource() }, downloader: MediaDownloader()))
       voiceReply = OutboxVoiceReplyCapture(
         stack: stack, service: service, onBegan: { mic.start() }, willEnd: { await mic.stop() })
+      take = TakeModel(controller: takeController)
     } else {
       let saved = credentials.load()
       let client = ReconfigurableAPIClient(credentials: saved)
@@ -118,15 +120,17 @@ final class CompositionRoot: CaptureIntentHandler {
       reconfigurable = client
       let created = CreatedMemoLog()
       let production = Self.productionStack(client: client, created: created)
-      stack = production.stack
       let service = OutboxService(stack: production.stack, created: created)
       outbox = service
-      microphone = nil
-      requestPermission = { await AVAudioApplication.requestRecordPermission() }
       simulatesOffline = false
       fakeLiveActivity = nil
-      liveActivity = TakeLiveActivityCoordinator(
+      let coordinator = TakeLiveActivityCoordinator(
         activity: ActivityKitTakeLiveActivity(client: client), stack: production.stack, created: created)
+      liveActivity = coordinator
+      takeController = TakeController(
+        stack: production.stack, liveActivity: coordinator, outbox: service, microphone: nil,
+        canRecord: production.canRecord, isConfigured: { credentials.load() != nil },
+        requestPermission: { await AVAudioApplication.requestRecordPermission() })
       history = HistoryModel(client: client)
       stats = StatsModel(client: client)
       settings = SettingsModel(client: client, queue: service, credentials: credentials)
@@ -137,11 +141,15 @@ final class CompositionRoot: CaptureIntentHandler {
       replyImages = ReplyImageStore(
         loader: MediaAssetLoader(
           source: { Self.mediaSource(for: credentials.load()) }, downloader: MediaDownloader()))
+      take = TakeModel(controller: takeController)
       connectionForm = ConnectionModel(store: credentials) { [unowned self] in connectionChanged() }
     }
     CaptureIntents.handler = self
     let history = history
-    Task { await outbox.created.setHandler { memo in Task { @MainActor in history.insert(memo) } } }
+    Task {
+      await outbox.created.setHandler { memo in Task { @MainActor in history.insert(memo) } }
+      await outbox.created.setForgottenHandler { id in Task { @MainActor in history.hide(id) } }
+    }
   }
 
   /// A server URL and token are saved (always true on fakes).
@@ -188,22 +196,26 @@ final class CompositionRoot: CaptureIntentHandler {
 
   /// Starts a take in `auto` mode with its Live Activity: what the Control, Siri and the Shortcuts app run.
   func startMemo() async throws {
-    guard isConfigured else { throw StartMemoError.notConfigured }
-    guard await requestPermission() else { throw StartMemoError.microphoneDenied }
-    guard let session = try? await stack.session() else { throw StartMemoError.queueUnavailable }
-    let request = TakeRequest(
-      mode: MemoMode.auto.rawValue, title: String(localized: "Voice memo", comment: "Outbox row of a recorded memo"))
-    let id = try await session.start(request)
-    microphone?.start()
-    let startedAt = await session.current.startedAt ?? Date()
-    await liveActivity.begin(memoID: id, mode: .auto, startedAt: startedAt)
+    try await takeController.start(mode: .auto)
+  }
+
+  /// Ends the take and sends it: the Live Activity's Stop.
+  func endTake() async throws {
+    _ = try await takeController.stop()
+  }
+
+  func toggleTakePause() async {
+    await takeController.togglePause()
+  }
+
+  func switchTakeInput() async throws {
+    try await takeController.switchToNextInput()
   }
 
   /// Ends the take the intent started: the memo is finished in the outbox. `nil` when there is none, or nothing was said.
   @discardableResult
   func stopMemo() async throws -> TakeResult? {
-    await microphone?.stop()
-    return try await stack.session().stop()
+    try await takeController.stop()
   }
 
   /// The media routes for the connection saved right now, so a detail opened after a change uses the new token.

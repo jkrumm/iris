@@ -241,7 +241,8 @@ public actor FakeAPIClient: APIClient {
   public func uploadSegment(memoID: String, index: Int, data: Data) async throws {
     calls.append(.uploadSegment(memoID: memoID, index: index, byteCount: data.count))
     try failIfScripted(.uploadSegment)
-    guard memos[memoID] != nil else { throw notFound("memo not found") }
+    guard let detail = memos[memoID] else { throw notFound("memo not found") }
+    guard !detail.memo.isDeleted else { throw badState("memo \(memoID) is deleted") }
     segments[memoID, default: [:]][index] = data
   }
 
@@ -249,6 +250,7 @@ public actor FakeAPIClient: APIClient {
     calls.append(.completeMemo(id: id, request: request))
     try failIfScripted(.completeMemo)
     guard var detail = memos[id] else { throw notFound("memo not found") }
+    guard !detail.memo.isDeleted else { throw badState("memo \(id) is deleted") }
     let received = Set(segments[id, default: [:]].keys)
     let missing = (0..<request.segmentCount).filter { !received.contains($0) }
     guard missing.isEmpty else {
@@ -332,7 +334,7 @@ public actor FakeAPIClient: APIClient {
       guard var detail = memos[id] else { throw notFound("memo not found") }
       if detail.memo.isDeleted { return detail.memo }
       guard detail.memo.state.isDeletable else {
-        throw badState("memo \(id) is \(detail.memo.state.rawValue), only settled memos can be deleted")
+        throw badState("memo \(id) is \(detail.memo.state.rawValue), only settled or receiving memos can be deleted")
       }
       let timestamp = now()
       detail.memo.deletedAt = timestamp

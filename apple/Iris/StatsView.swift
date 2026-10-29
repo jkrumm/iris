@@ -14,6 +14,7 @@ struct StatsView: View {
           .padding(.vertical, Theme.Spacing.md)
       }
       .accessibilityIdentifier("stats.view")
+      .takeBanner()
       .background(Theme.Surface.background)
       .navigationTitle(String(localized: "Stats", comment: "Navigation title of the Stats tab"))
       .refreshable { await model.load() }

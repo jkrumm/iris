@@ -1,96 +1,100 @@
+import AppIntents
 import IrisCore
 import IrisUI
 import SwiftUI
 import WidgetKit
 
 /// The Live Activity of one memo. The phone sets `recording`, `paused` and `uploading` itself while the take is on the
-/// device (recording and processing show the running timer from `startedAt`); the server's pushes then carry
-/// `processing`, `needsRoute`, `done` and `failed`. Compiled, never rendered (device checklist).
+/// device; the server's pushes then carry `processing`, `needsRoute`, `done` and `failed`. The views are IrisUI's (snapshot
+/// tested); this file maps the state onto them and wires the icon controls to the `LiveActivityIntent`s. Rendering on a
+/// device is checked on the device checklist.
 struct MemoLiveActivity: Widget {
   var body: some WidgetConfiguration {
     ActivityConfiguration(for: MemoAttributes.self) { context in
-      LockScreenView(attributes: context.attributes, state: context.state)
-        .padding(Theme.Spacing.lg)
-        .activityBackgroundTint(Theme.Surface.panel)
+      LiveActivityPanel(context.presentation) {
+        RecordingControls(paused: context.state.phase == .paused, onDark: false)
+      }
+      .padding(Theme.Spacing.lg)
+      .activityBackgroundTint(Theme.Surface.panel)
     } dynamicIsland: { context in
-      DynamicIsland {
+      let presentation = context.presentation
+      return DynamicIsland {
         DynamicIslandExpandedRegion(.leading) {
-          PhaseLabel(phase: context.state.phase)
+          ActivityPhaseTitle(presentation, onDark: true)
         }
         DynamicIslandExpandedRegion(.trailing) {
-          ElapsedTimer(attributes: context.attributes, state: context.state)
+          ActivityHeaderTrailing(presentation, onDark: true)
         }
         DynamicIslandExpandedRegion(.bottom) {
-          Text(context.state.headline ?? "")
-            .themeFont(.footnote)
-            .lineLimit(2)
+          LiveActivityPanel(presentation, style: .island) {
+            RecordingControls(paused: context.state.phase == .paused, onDark: true)
+          }
         }
       } compactLeading: {
-        Image(systemName: context.state.phase.symbol)
-          .accessibilityHidden(true)
+        IslandGlyph(phase: presentation.phase)
       } compactTrailing: {
-        ElapsedTimer(attributes: context.attributes, state: context.state)
-          .frame(maxWidth: 52)
+        IslandCompactTrailing(presentation)
       } minimal: {
-        Image(systemName: context.state.phase.symbol)
-          .accessibilityHidden(true)
+        IslandGlyph(phase: presentation.phase)
       }
     }
   }
 }
 
-private struct LockScreenView: View {
-  let attributes: MemoAttributes
-  let state: LiveActivityContentState
+/// Stop, swap the microphone, pause or resume: each an intent that runs in the app, which holds the take.
+private struct RecordingControls: View {
+  let paused: Bool
+  let onDark: Bool
 
   var body: some View {
-    VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
-      HStack {
-        PhaseLabel(phase: state.phase)
-        Spacer()
-        ElapsedTimer(attributes: attributes, state: state)
+    ActivityControlsRow {
+      Button(intent: StopMemoIntent()) {
+        ActivityControlLabel(.stop, title: String(localized: "Stop", comment: "Live Activity control"))
       }
-      if let routeChip = state.routeChip {
-        RouteChip(label: routeChip, systemImage: "arrow.triangle.branch")
+    } switchInput: {
+      Button(intent: SwitchInputIntent()) {
+        ActivityControlLabel(
+          .switchInput, title: String(localized: "Switch microphone", comment: "Live Activity control"),
+          onDark: onDark)
       }
-      if let headline = state.headline {
-        Text(headline)
-          .themeFont(.subheadline, weight: .semibold)
-          .foregroundStyle(Theme.Ink.primary)
-          .lineLimit(2)
+    } pause: {
+      Button(intent: PauseMemoIntent()) {
+        ActivityControlLabel(
+          paused ? .resume : .pause,
+          title: paused
+            ? String(localized: "Resume", comment: "Live Activity control")
+            : String(localized: "Pause", comment: "Live Activity control"),
+          onDark: onDark)
       }
     }
+    .buttonStyle(.plain)
   }
 }
 
-private struct PhaseLabel: View {
-  let phase: LiveActivityPhase
-
-  var body: some View {
-    Label(phase.title, systemImage: phase.symbol)
-      .themeFont(.footnote, weight: .medium)
-      .foregroundStyle(Theme.Ink.secondary)
-  }
-}
-
-/// Counts up from `startedAt` while the take is recording or being processed; hidden otherwise.
-private struct ElapsedTimer: View {
-  let attributes: MemoAttributes
-  let state: LiveActivityContentState
-
-  var body: some View {
-    if state.phase == .recording || state.phase == .processing {
-      Text(timerInterval: attributes.startedAt...Date.distantFuture, countsDown: false)
-        .themeFont(.footnote, weight: .medium)
-        .monospacedDigit()
-        .contentTransition(.numericText())
-        .multilineTextAlignment(.trailing)
-        .foregroundStyle(Theme.Accent.tint)
-    }
+extension ActivityViewContext<MemoAttributes> {
+  fileprivate var presentation: ActivityPresentation {
+    let phase = state.phase.activityPhase
+    return ActivityPresentation(
+      phase: phase, phaseTitle: state.phase.title, modeLabel: attributes.mode.title,
+      subtitle: state.phase.subtitle, inputName: state.inputName, routeChip: state.routeChip,
+      headline: state.headline, note: phase == .recording || phase == .paused ? state.headline : nil,
+      start: attributes.startedAt)
   }
 }
 
 extension LiveActivityPhase {
+  fileprivate var activityPhase: ActivityPhase {
+    switch self {
+    case .recording: .recording
+    case .paused: .paused
+    case .uploading: .uploading
+    case .processing: .processing
+    case .needsRoute: .needsRoute
+    case .done: .done
+    case .failed: .failed
+    }
+  }
+
   fileprivate var title: String {
     switch self {
     case .recording: String(localized: "Recording", comment: "Live Activity phase")
@@ -103,15 +107,26 @@ extension LiveActivityPhase {
     }
   }
 
-  fileprivate var symbol: String {
+  /// The line under the phase for the phases that have no timer or headline of their own.
+  fileprivate var subtitle: String? {
     switch self {
-    case .recording: "mic.fill"
-    case .paused: "pause.circle.fill"
-    case .uploading: "arrow.up.circle.fill"
-    case .processing: "waveform"
-    case .needsRoute: "arrow.triangle.branch"
-    case .done: "checkmark.circle.fill"
-    case .failed: "exclamationmark.triangle.fill"
+    case .uploading: String(localized: "Sending the recording", comment: "Live Activity subtitle")
+    case .processing: String(localized: "Iris is working on it", comment: "Live Activity subtitle")
+    case .needsRoute: String(localized: "Where should this go?", comment: "Live Activity subtitle")
+    case .failed: String(localized: "Iris could not finish this memo", comment: "Live Activity subtitle")
+    case .recording, .paused, .done: nil
+    }
+  }
+}
+
+extension MemoMode {
+  fileprivate var title: String {
+    switch self {
+    case .auto, .unknown: String(localized: "Auto", comment: "Memo mode")
+    case .journal: String(localized: "Journal", comment: "Memo mode")
+    case .hermes: String(localized: "Hermes", comment: "Memo mode")
+    case .tab: String(localized: "Tab", comment: "Memo mode")
+    case .chat: String(localized: "Chat", comment: "Memo mode")
     }
   }
 }
