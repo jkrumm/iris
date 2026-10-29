@@ -2,18 +2,21 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { captureLogs } from "../memo/test-support.js";
 import { transientKind } from "../ports/transient.js";
-import { createAudioGatewayTranscriber, ffmpegConcat, type ConcatFn } from "./audio-gateway.js";
+import { createAudioDoorTranscriber, ffmpegConcat, type ConcatFn } from "./audio-door.js";
 
 const MEMO_ID = "0f8fad5b-d9cb-469f-a165-70867728950e";
 const AUDIO = new Uint8Array([1, 2, 3, 4]);
+const TOKEN = "door-token-0123456789abcdef0123456789";
+const RUN_ID = "0198e5a0-7c1d-7000-8000-000000000001";
 
 interface Call {
   url: string;
   init: RequestInit;
 }
 
-function setup(respond: () => Response, baseUrl = "http://127.0.0.1:1234") {
+function setup(respond: () => Response, baseUrl = "http://127.0.0.1:1234/v1") {
   const calls: Call[] = [];
   const concatCalls: string[][] = [];
   const concat: ConcatFn = async (paths) => {
@@ -24,13 +27,18 @@ function setup(respond: () => Response, baseUrl = "http://127.0.0.1:1234") {
     calls.push({ url: String(input), init: init ?? {} });
     return respond();
   }) as typeof fetch;
-  const transcriber = createAudioGatewayTranscriber({ baseUrl, fetch: fakeFetch, concat });
+  const transcriber = createAudioDoorTranscriber({
+    baseUrl,
+    token: TOKEN,
+    fetch: fakeFetch,
+    concat,
+  });
   return { calls, concatCalls, transcriber };
 }
 
 const params = { memoId: MEMO_ID, segmentPaths: ["/seg/0.m4a", "/seg/1.m4a"] };
 
-describe("audio-gateway transcriber", () => {
+describe("audio door transcriber", () => {
   it("concats the segments, posts the multipart form and returns text with the audio seconds", async () => {
     const { calls, concatCalls, transcriber } = setup(() => Response.json({ text: "hello world" }));
     const result = await transcriber.transcribe(params);
@@ -41,7 +49,7 @@ describe("audio-gateway transcriber", () => {
     const call = calls[0] as Call;
     expect(call.url).toBe("http://127.0.0.1:1234/v1/audio/transcriptions");
     expect(call.init.method).toBe("POST");
-    expect((call.init.headers as Record<string, string>)["x-audio-source"]).toBe("iris");
+    expect(call.init.headers).toEqual({ authorization: `Bearer ${TOKEN}` });
     expect(call.init.signal).toBeInstanceOf(AbortSignal);
 
     const form = call.init.body as FormData;
@@ -54,6 +62,17 @@ describe("audio-gateway transcriber", () => {
     expect([...new Uint8Array(await file.arrayBuffer())]).toEqual([...AUDIO]);
   });
 
+  it("records the agw-run-id on the log line", async () => {
+    const { transcriber } = setup(() =>
+      Response.json({ text: "hi" }, { headers: { "agw-run-id": RUN_ID } }),
+    );
+    const { lines } = await captureLogs(() => transcriber.transcribe(params));
+    expect(lines.find((l) => l["event"] === "audio_door.transcribed")).toMatchObject({
+      "agw.run_id": RUN_ID,
+      memo_id: MEMO_ID,
+    });
+  });
+
   it("sends language only when given", async () => {
     const { calls, transcriber } = setup(() => Response.json({ text: "hallo" }));
     await transcriber.transcribe({ ...params, language: "de" });
@@ -64,17 +83,30 @@ describe("audio-gateway transcriber", () => {
   it("tolerates a trailing slash on the base URL", async () => {
     const { calls, transcriber } = setup(
       () => Response.json({ text: "x" }),
-      "http://127.0.0.1:1234//",
+      "http://127.0.0.1:1234/v1//",
     );
     await transcriber.transcribe(params);
     expect(calls[0]?.url).toBe("http://127.0.0.1:1234/v1/audio/transcriptions");
+  });
+
+  it("treats a 401 as final and names the run", async () => {
+    const { transcriber } = setup(() =>
+      Response.json(
+        { error: { message: "unauthorized", type: "invalid_request_error" } },
+        { status: 401, headers: { "agw-run-id": RUN_ID } },
+      ),
+    );
+    const error = await transcriber.transcribe(params).catch((e: unknown) => e);
+    expect((error as Error).message).toContain(`failed: 401 (run ${RUN_ID})`);
+    expect((error as Error).message).toContain("unauthorized");
+    expect(transientKind(error)).toBeNull();
   });
 
   it("throws with the status and a truncated body on a non-2xx", async () => {
     const { transcriber } = setup(() => new Response("y".repeat(1000), { status: 502 }));
     const error = await transcriber.transcribe(params).catch((e: Error) => e);
     expect((error as Error).message).toBe(
-      `audio-gateway transcription failed: 502 ${"y".repeat(300)}`,
+      `audio door transcription failed: 502 ${"y".repeat(300)}`,
     );
   });
 
@@ -107,15 +139,16 @@ describe("audio-gateway transcriber", () => {
         init?.signal?.addEventListener("abort", () => reject(init.signal?.reason), { once: true });
       });
     }) as unknown as typeof fetch;
-    const transcriber = createAudioGatewayTranscriber({
-      baseUrl: "http://127.0.0.1:1234",
+    const transcriber = createAudioDoorTranscriber({
+      baseUrl: "http://127.0.0.1:1234/v1",
+      token: TOKEN,
       fetch: hangs,
       concat: async () => ({ bytes: AUDIO, seconds: 1 }),
       timeoutMs: 20,
     });
     const error = await transcriber.transcribe(params).catch((e: unknown) => e);
     expect(error).toBeInstanceOf(Error);
-    expect((error as Error).message).toBe("audio-gateway transcription timed out after 20 ms");
+    expect((error as Error).message).toBe("audio door transcription timed out after 20 ms");
     expect(transientKind(error)).toBeNull();
     expect(attempts).toBe(1);
   });
@@ -130,7 +163,7 @@ describe("audio-gateway transcriber", () => {
     const { calls, transcriber } = setup(() => new Response(stalled, { status: 200 }));
     const error = await transcriber.transcribe(params).catch((e: unknown) => e);
     expect(error).toBeInstanceOf(Error);
-    expect((error as Error).message).toBe("audio-gateway transcription timed out after 1800000 ms");
+    expect((error as Error).message).toBe("audio door transcription timed out after 1800000 ms");
     expect(transientKind(error)).toBeNull();
     expect(calls).toHaveLength(1);
   });
@@ -149,8 +182,9 @@ describe("audio-gateway transcriber", () => {
 
   it("does not call the gateway when the concat fails", async () => {
     const calls: string[] = [];
-    const transcriber = createAudioGatewayTranscriber({
-      baseUrl: "http://127.0.0.1:1234",
+    const transcriber = createAudioDoorTranscriber({
+      baseUrl: "http://127.0.0.1:1234/v1",
+      token: TOKEN,
       fetch: (async (input: string | URL | Request) => {
         calls.push(String(input));
         return Response.json({ text: "x" });

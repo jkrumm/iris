@@ -64,6 +64,21 @@ export IRIS_DATA="$HOME/.iris/data"
 # Registers the journal destination; left unset when the checkout is missing, so the server still boots.
 [[ -d "$HOME/SourceRoot/brain" ]] && export BRAIN_DIR="$HOME/SourceRoot/brain"
 
+# The audio door's caller token: the `iris=<token>` line of the local caller-token file (0600, not 1Password).
+# Never echoed. A missing file or line starts degraded (`transcribe` and `speech` in /health), the reason goes to stderr.
+DOOR_TOKENS="$HOME/.agent-workflows/data/door-tokens"
+if [[ -r "$DOOR_TOKENS" ]]; then
+  AUDIO_DOOR_TOKEN=$(/usr/bin/awk -F= '$1=="iris" { sub(/^[^=]*=/, ""); print; exit }' "$DOOR_TOKENS")
+  if [[ -n "$AUDIO_DOOR_TOKEN" ]]; then
+    export AUDIO_DOOR_TOKEN
+  else
+    unset AUDIO_DOOR_TOKEN
+    print -u2 "iris: ERROR no iris= line in $DOOR_TOKENS — starting DEGRADED without STT/TTS."
+  fi
+else
+  print -u2 "iris: ERROR $DOOR_TOKENS missing or unreadable — starting DEGRADED without STT/TTS."
+fi
+
 # HERMES_URL is composed here: the host is a secret, the port is not.
 exec "$SECRETS_RUN" run --env-file="$TPL_BASE" --env-file="$TPL_MINI" "${OTEL_ARGS[@]}" -- \
   /bin/zsh -c 'export HERMES_URL="http://${HERMES_HOST}:${HERMES_PORT}"; exec bun run src/index.ts'

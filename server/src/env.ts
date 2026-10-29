@@ -14,7 +14,11 @@ const Env = z.object({
   IRIS_DEVICE_TOKENS: z.string().default(""),
   // Downstream adapters. Each is optional: unset leaves its step without a handler (memos park)
   // and shows up in /health `degraded`.
-  AUDIO_GATEWAY_URL: z.preprocess(emptyToUndefined, z.url().optional()),
+  // The agent-workflows audio door (STT + TTS): base with the version segment, `http://127.0.0.1:7792/v1` on the
+  // mini, and the caller token (`iris=` line of `~/.agent-workflows/data/door-tokens`, read by `launch.sh`). Both are
+  // required for `transcribe` and `speech` to register.
+  AUDIO_DOOR_URL: z.preprocess(emptyToUndefined, z.url().optional()),
+  AUDIO_DOOR_TOKEN: z.preprocess(emptyToUndefined, z.string().optional()),
   AGW_URL: z.preprocess(emptyToUndefined, z.url().optional()),
   HERMES_URL: z.preprocess(emptyToUndefined, z.url().optional()),
   HERMES_TOKEN: z.preprocess(emptyToUndefined, z.string().optional()),

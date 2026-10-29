@@ -17,8 +17,8 @@ Iris has three deliverables in one monorepo:
 **How a memo flows:**
 - **Capture:** the phone records 10 s segments and uploads them while I am
   still talking.
-- **Processing:** the server concatenates, transcribes (audio-gateway,
-  Voxtral), routes (spoken prefix, then agent-gateway `decide`), acts
+- **Processing:** the server concatenates, transcribes (the agent-workflows
+  audio door, Voxtral), routes (spoken prefix, then agent-gateway `decide`), acts
   (journal, herdr or Hermes), summarizes (`triage`) and notifies (APNs: Live
   Activity update plus a rich alert).
 - **Tracing:** one trace per memo, keyed by the memo UUID, spans all three
@@ -58,7 +58,7 @@ Iris has three deliverables in one monorepo:
  iPhone (iOS app · IrisWidgets · IrisNotifications) ─┐
                                                      ├─ HTTPS, tailnet ─> iris.mini.<domain> (Caddy) ─> iris-server :7730
  MacBook (Iris for macOS, menu bar) ─────────────────┘                                              │
-          ▲                                                                                         ├─> audio-gateway (VPS)  STT · TTS
+          ▲                                                                                         ├─> audio door 127.0.0.1:7792  STT · TTS
           └──────────── APNs (alert · liveactivity) <───────────────────────────────────────────────┤
                                                                                                     ├─> agent-gateway 127.0.0.1:7705  decide · triage
                                                                                                     ├─> Hermes :8642 (mini tailnet IP)  sessions
@@ -181,7 +181,7 @@ notified (summarize step failed) ──retry(from: summarize)──> acted
   **A hang guard is not transient.** The 30-minute guard of a model call (the agw job runner behind decide and triage) and the
   idle watchdogs (Hermes: no response, or a stream gone idle, within the idle window) mean the downstream is wedged, so a retry would only
   wait out the same window again (~90 minutes for three tries). They throw a plain error (`hangGuardFailure` in `ports/transient.ts`): the step fails after one window and `POST /retry` is the decision. A short request
-  timeout that means "try again" (the 15 s agw request, the 30 s Hermes session create) stays transient, as do 5xx and connection errors. The audio-gateway STT timeout (30 minutes, `timeoutMs` in the adapter) is a hang guard too: one window, then `hangGuardFailure`. The speech timeout (2 minutes) is not retried either: `/speech` is a request, not a step, and answers 503.
+  timeout that means "try again" (the 15 s agw request, the 30 s Hermes session create) stays transient, as do 5xx and connection errors. The audio-door STT timeout (30 minutes, `timeoutMs` in the adapter) is a hang guard too: one window, then `hangGuardFailure`. The speech timeout (2 minutes) is not retried either: `/speech` is a request, not a step, and answers 503.
 
   | Step | Retried on |
   |-|-|
@@ -305,12 +305,12 @@ machine, Retries); retention (audio deleted 30 days after `notified`) is not bui
 
 1. **concat:** `ffmpeg -f concat` over the segments → decode → mono 16 kHz
    AAC. Records `audio_seconds`.
-2. **transcribe:** `POST <audio-gateway>/v1/audio/transcriptions`.
+2. **transcribe:** `POST <audio door>/audio/transcriptions` (`AUDIO_DOOR_URL` carries the `/v1`).
    - Fields: `model=voxtral-mini-transcribe-3-0`, `language` (the device hint or
      auto), and `context_bias` (repo names, live tab labels, recent thread
      titles).
-   - Header: `x-audio-source: iris`.
-   - The gateway handles chunking up to about 2 h. A 413 is terminal.
+   - Header: `Authorization: Bearer <AUDIO_DOOR_TOKEN>`; the answer carries `agw-run-id`, logged and set on the span as `agw.run_id`. A 401 is final.
+   - The door handles chunking up to about 2 h. A 413 is terminal.
 3. **route:** only destinations with a registered act adapter are choices (`Destinations`).
    - If the memo's mode is not auto, it wins (`journal` → journal, `hermes` → hermes, `tab` → herdr, `chat` → hermes). Source `mode`; a chat memo is never routed elsewhere by prefix or `decide`. Mode `tab` carries no name:
      it routes to the only live tab, and parks with "which tab?" when there are several or none.
@@ -444,7 +444,7 @@ The research gateway was down for this item (503), so the facts above come from 
 |-|-|-|
 | Pele | npm `pele` 1.10.0 (MIT), `render(text, {fontFamily}) → {svg, width, height}` sync, throws `PeleError`; theme = `--pele-bg/fg/muted/line/surface/surface-alt/border/accent/critical/error/font` and `--pele-series-1..8` on the root `<svg>` | https://pele.run, `node_modules/pele/dist/*.d.ts` |
 | resvg-js | `@resvg/resvg-js` 2.6.2: `new Resvg(svg, {background, fitTo: {mode: "zoom", value}, font: {loadSystemFonts, defaultFontFamily}}).render().asPng()`; no CSS `var()` support, so the SVG is resolved first | https://github.com/thx/resvg-js |
-| audio-gateway | Synchronous multipart; `{text}` (`verbose_json` = one segment, so no timestamps); TTS at `POST /v1/audio/speech`, `response_format` mp3 | `audio-gateway/README.md` |
+| audio door | agent-workflows `audio` process, `http://127.0.0.1:7792/v1`, `Authorization: Bearer` from the `iris=` line of `~/.agent-workflows/data/door-tokens`. Synchronous multipart; `{text}` (`verbose_json` = one segment, so no timestamps); TTS at `POST /audio/speech`, `response_format` mp3. 401 `{error:{message:'unauthorized'}}`. Every response, errors included, has `agw-run-id` (the run that records the call and its cost). `GET :7792/health` is `make verify`'s downstream check | `agent-workflows/packages/audio/README.md` ("The door on the process", "Caller auth") |
 | agent-gateway | `POST :7705/api/jobs {tool, params}` → id; `GET /api/jobs/:id`; loopback, no auth; results carry `usage`, `model`, `latencyMs` | `agent-gateway/server/routes/jobs.ts`, AGENTS.md |
 | Hermes | Bearer from `op://hermes/gateway/api-server-key`; SSE named events | `argo/apps/api/src/lib/hermes-upstream.ts` |
 | herdr | Newline-delimited JSON over `~/.config/herdr/herdr.sock`: `session.snapshot`, `pane.send_text`, `pane.send_keys` | collie `HERDR_API.md` |
@@ -460,7 +460,7 @@ The research gateway was down for this item (503), so the facts above come from 
 |-|-|
 | `IRIS_DEVICE_TOKENS` | Device tokens |
 | `IRIS_DATA` | The data directory |
-| `AUDIO_GATEWAY_URL` | audio-gateway base URL |
+| `AUDIO_DOOR_URL`, `AUDIO_DOOR_TOKEN` | The audio door base (with `/v1`) and the `iris` caller token. Both register `transcribe` and `speech`. The URL is a plain value in `.env.local.tpl`; `launch.sh` reads the token from the local `door-tokens` file (no 1Password ref) |
 | `AGW_URL` | agent-gateway base URL |
 | `HERMES_URL`, `HERMES_TOKEN` | Hermes endpoint and bearer |
 | `HERDR_SOCKET` | Path to the herdr socket; registers the `herdr` destination and serves `GET /v1/herd` |
@@ -836,12 +836,13 @@ the `IrisCore` dependency when R1 wires them together.
     is part of the OTel flush at shutdown. Without `OTEL_EXPORTER_OTLP_ENDPOINT`
     the batch is accepted and discarded (`degraded` already lists `otel`).
   - On iOS, MetricKit crash and hang diagnostics are relayed on the next launch.
-- **Propagation:** audio-gateway and agw don't accept `traceparent` (factory
+- **Propagation:** the audio door and agw don't accept `traceparent` (factory
   ADR-006 plans it), so Iris spans carry the memo id as an attribute on every
   downstream call. Once ADR-006 lands, `traceparent` is added.
 - **Cost:**
-  - STT/TTS spend is recorded by audio-gateway (`raw.caller=iris` via
-    `x-audio-source`);
+  - STT/TTS spend is recorded by the audio door as a run per request (caller `iris`, from the bearer token's
+    name); the `agw-run-id` of each call is on the Iris span and log line (`agw.run_id`), so a memo's trace
+    leads to its run record;
   - `decide`/`triage` spend goes into agw's NDJSON feed for usage-tracker, attributed to
     `caller: "iris"` (top level of the job body, set by the agw adapters);
   - Iris posts no usage rows (they would double-count). It stores per-step
@@ -945,7 +946,7 @@ the `IrisCore` dependency when R1 wires them together.
 - **Exposure:** the server binds loopback and Caddy is the only door, on the
   tailnet. There is no public exposure.
 - **Content:** transcripts and audio never leave the mini except to
-  audio-gateway (STT/TTS) and the agw models. APNs payloads carry headlines
+  the audio door (STT/TTS) and the agw models. APNs payloads carry headlines
   only, never full transcripts; when `summarize` failed, the headline is the
   first 60 characters of the transcript (owner-confirmed, Wave 16).
 

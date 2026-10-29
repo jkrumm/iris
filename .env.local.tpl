@@ -8,8 +8,9 @@ PORT=7730
 # `token=device,token=device`; the `smoke` entry is what `make smoke` uses.
 IRIS_DEVICE_TOKENS=op://mini/iris/device-tokens
 
-# audio-gateway (STT) base URL
-AUDIO_GATEWAY_URL=op://mini/iris/audio-gateway-url
+# agent-workflows audio door (STT + TTS): loopback, with the version segment. The caller token is not
+# a secret ref: scripts/launch.sh reads the `iris=` line of ~/.agent-workflows/data/door-tokens into AUDIO_DOOR_TOKEN.
+AUDIO_DOOR_URL=http://127.0.0.1:7792/v1
 
 # agent-gateway: loopback, no auth
 AGW_URL=http://127.0.0.1:7705

@@ -142,7 +142,8 @@ describe("compose", () => {
       IRIS_FAKES: true,
       IRIS_DEVICE_TOKENS: DEVICE_TOKENS,
       OTEL_EXPORTER_OTLP_ENDPOINT: "http://127.0.0.1:4318",
-      AUDIO_GATEWAY_URL: "http://127.0.0.1:1",
+      AUDIO_DOOR_URL: "http://127.0.0.1:1/v1",
+      AUDIO_DOOR_TOKEN: "door-token",
     });
     const { transcriber, destinations, summarizer, speaker, herd } = composed.ports;
     for (const port of [transcriber, destinations, summarizer, speaker, herd]) {
@@ -177,7 +178,8 @@ describe("compose", () => {
     const { composed } = build({
       OTEL_EXPORTER_OTLP_ENDPOINT: "http://127.0.0.1:1",
       IRIS_DEVICE_TOKENS: DEVICE_TOKENS,
-      AUDIO_GATEWAY_URL: "http://127.0.0.1:1",
+      AUDIO_DOOR_URL: "http://127.0.0.1:1/v1",
+      AUDIO_DOOR_TOKEN: "door-token",
       AGW_URL: "http://127.0.0.1:1",
       HERMES_URL: "http://127.0.0.1:1",
       HERMES_TOKEN: "token",
@@ -191,6 +193,21 @@ describe("compose", () => {
     expect(composed.degraded).toEqual([]);
     expect(composed.ports.decider).toBeDefined();
     expect(composed.notifierKind).toBe("log");
+  });
+
+  it("the audio door needs both its URL and its token, else transcribe and speech are degraded", () => {
+    const url = "http://127.0.0.1:1/v1";
+    for (const env of [{ AUDIO_DOOR_URL: url }, { AUDIO_DOOR_TOKEN: "t" }]) {
+      const { ports, degraded } = build(env).composed;
+      expect([ports.transcriber, ports.speaker]).toEqual([undefined, undefined]);
+      expect(degraded).toContain("transcribe");
+      expect(degraded).toContain("speech");
+    }
+    const both = build({ AUDIO_DOOR_URL: url, AUDIO_DOOR_TOKEN: "t" }).composed;
+    expect(both.ports.transcriber).toBeDefined();
+    expect(both.ports.speaker).toBeDefined();
+    expect(both.degraded).not.toContain("transcribe");
+    expect(both.degraded).not.toContain("speech");
   });
 
   it("registers each destination on its own env and turns decide on from two", () => {

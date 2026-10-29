@@ -13,11 +13,17 @@ const MODEL = "voxtral-mini-transcribe-3-0";
 const TIMEOUT_MS = 1_800_000;
 const BODY_MAX = 300;
 const STDERR_TAIL = 500;
+/** The response header naming the agent-workflows run that recorded the call, and its span / log key. */
+const RUN_ID_HEADER = "agw-run-id";
+const RUN_ID_ATTR = "agw.run_id";
 
 export type ConcatFn = (paths: string[]) => Promise<{ bytes: Uint8Array; seconds: number }>;
 
-export interface AudioGatewayTranscriberOptions {
+export interface AudioDoorTranscriberOptions {
+  /** The door base including the version segment: `http://127.0.0.1:7792/v1`. */
   baseUrl: string;
+  /** The `iris` line of the door's caller-token file. */
+  token: string;
   fetch?: typeof fetch;
   concat?: ConcatFn;
   /** The hang guard; tests shorten it. */
@@ -115,18 +121,23 @@ export const ffmpegCombiner: AudioCombiner = {
   },
 };
 
-export function createAudioGatewayTranscriber(opts: AudioGatewayTranscriberOptions): Transcriber {
+/**
+ * `POST <audio door>/audio/transcriptions` (multipart, OpenAI-compatible) with `Authorization: Bearer`.
+ * Every answer carries `agw-run-id`, the agent-workflows run that records the call and its cost; it is
+ * stamped on the span and the log lines in place of the old `x-audio-source` attribution.
+ */
+export function createAudioDoorTranscriber(opts: AudioDoorTranscriberOptions): Transcriber {
   const doFetch = opts.fetch ?? fetch;
   const concat = opts.concat ?? ffmpegConcat;
   const timeoutMs = opts.timeoutMs ?? TIMEOUT_MS;
   // The hang guard fired: the step fails after this one window, it is not retried (`hangGuardFailure`).
   const hungOr = (err: unknown, otherwise: (err: unknown) => unknown): unknown =>
     err instanceof Error && err.name === "TimeoutError"
-      ? hangGuardFailure(`audio-gateway transcription timed out after ${timeoutMs} ms`, {
+      ? hangGuardFailure(`audio door transcription timed out after ${timeoutMs} ms`, {
           cause: err,
         })
       : otherwise(err);
-  const url = `${opts.baseUrl.replace(/\/+$/, "")}/v1/audio/transcriptions`;
+  const url = `${opts.baseUrl.replace(/\/+$/, "")}/audio/transcriptions`;
 
   return {
     async transcribe({ memoId, segmentPaths, language }): Promise<TranscriptionResult> {
@@ -139,23 +150,24 @@ export function createAudioGatewayTranscriber(opts: AudioGatewayTranscriberOptio
       if (language) form.append("language", language);
 
       return withSpan(
-        "audio_gateway.transcribe",
-        { memo_id: memoId, downstream: "audio-gateway" },
+        "audio_door.transcribe",
+        { memo_id: memoId, downstream: "audio-door" },
         async (span) => {
           const res = await doFetch(url, {
             method: "POST",
-            headers: { "x-audio-source": "iris" },
+            headers: { authorization: `Bearer ${opts.token}` },
             body: form,
             signal: AbortSignal.timeout(timeoutMs),
           }).catch((err: unknown) => {
             throw hungOr(err, fetchFailure);
           });
-          span.setAttributes({ status: res.status });
+          const runId = res.headers.get(RUN_ID_HEADER);
+          span.setAttributes({ status: res.status, [RUN_ID_ATTR]: runId });
           if (!res.ok) {
             const body = (await res.text().catch(() => "")).slice(0, BODY_MAX);
             const kind = res.status === 413 ? " (413 is terminal: the audio is too large)" : "";
             throw httpFailure(
-              `audio-gateway transcription failed: ${res.status}${kind} ${body}`,
+              `audio door transcription failed: ${res.status}${kind}${runId ? ` (run ${runId})` : ""} ${body}`,
               res.status,
             );
           }
@@ -167,10 +179,11 @@ export function createAudioGatewayTranscriber(opts: AudioGatewayTranscriberOptio
             }),
           );
           if (!parsed.success) {
-            throw new Error("audio-gateway transcription response has no text field");
+            throw new Error("audio door transcription response has no text field");
           }
-          log("audio_gateway.transcribed", {
+          log("audio_door.transcribed", {
             memo_id: memoId,
+            [RUN_ID_ATTR]: runId,
             audio_seconds: seconds,
             text_chars: parsed.data.text.length,
           });

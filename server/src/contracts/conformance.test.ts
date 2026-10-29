@@ -286,7 +286,7 @@ describe("flows: every response conforms", () => {
   it("a failed memo: result, detail and the retry round trip", async () => {
     const failing = handlers({
       transcribe: async () => {
-        throw new Error("audio-gateway transcribe failed: 502");
+        throw new Error("audio door transcription failed: 502");
       },
     });
     const { app } = testApp({ handlers: failing });

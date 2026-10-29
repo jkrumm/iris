@@ -10,6 +10,7 @@ REPO_URL     := https://github.com/jkrumm/iris.git
 LABEL        := com.jkrumm.iris
 LABEL_DEPLOY := com.jkrumm.iris-deploy
 HEALTH_URL   := http://127.0.0.1:7730/health
+AUDIO_DOOR_HEALTH_URL := http://127.0.0.1:7792/health
 LINES        ?= 100
 
 .PHONY: help
@@ -124,6 +125,9 @@ verify: ## Probe production: exit 0 iff /health answers ok and no launchd change
 	@curl -fsS --max-time 5 $(HEALTH_URL) | grep -q '"status":"ok"' \
 		|| { echo "  iris not healthy ($(HEALTH_URL))"; exit 1; }
 	@echo "  iris healthy ($(HEALTH_URL))"
+	@curl -fsS --max-time 5 $(AUDIO_DOOR_HEALTH_URL) | grep -Eq '"status" *: *"ok"' \
+		|| { echo "  audio door not healthy ($(AUDIO_DOOR_HEALTH_URL))"; exit 1; }
+	@echo "  audio door healthy ($(AUDIO_DOOR_HEALTH_URL))"
 
 .PHONY: logs
 logs: ## Bounded tail (last $(LINES) lines) of the production logs, then exits (no -f)
