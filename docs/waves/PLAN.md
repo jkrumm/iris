@@ -824,6 +824,18 @@ not answered by the time of writing; A loses nothing, so it ships. A delete vari
 - [ ] **S2. Server follow-ups (Wave 15):** reply asset rows are not visible before the reply commits, and a lost compare-and-set keeps
       the earlier reply's assets (no wait for the boot backfill); a memo whose every block fails is marked and not re-rendered each boot;
       a segment write in flight when its memo is deleted removes its file with the delete, not at the 10-minute purge.
+- [ ] **S3. Audio door switch (gateway sunset, contract from the agent-workflows lead 2026-10-29; parity only, no tuning):** STT and TTS
+      move from audio-gateway to the agent-workflows audio door: base `http://127.0.0.1:7792/v1`, `POST /audio/transcriptions` (multipart)
+      and `POST /audio/speech`, audio-gateway's OpenAI-compatible request/response contract unchanged (same models, voices, formats).
+      Auth `Authorization: Bearer <token>`: iris's caller token is the `iris=<token>` line of `~/.agent-workflows/data/door-tokens` (0600,
+      local, not 1Password), read at start by `scripts/launch.sh` into `AUDIO_DOOR_TOKEN`; `AUDIO_DOOR_URL` replaces `AUDIO_GATEWAY_URL`.
+      401 is `{error:{message:'unauthorized'}}` and is not transient. Every response carries `agw-run-id` (the run that records the call
+      and its cost): store it on the step (log + span attribute) in place of the `x-audio-source` attribution. Health `GET
+      http://127.0.0.1:7792/health` joins `make verify`'s downstream checks. Delete `audio-gateway.ts`, `audio-gateway-speaker.ts`,
+      `AUDIO_GATEWAY_URL` and the `op://mini/iris/audio-gateway-url` ref (iris env template and `dotfiles-private/headless.refs`, the
+      latter its own commit there); fakes and conformance tests move to the new adapters. TDD (§3 downstream facts, §Cost) and AGENTS.md
+      amended. Docs: `~/SourceRoot/agent-workflows/packages/audio/README.md` ("The door on the process", "Caller auth"). Proof: a
+      production voice memo transcribes through the door and `/speech` returns audio, both with an `agw-run-id`.
 - [ ] **I1. Outbox reset + capture follow-ups (I3 of Wave 15):** Settings "Reset outbox" when `outbox.json` cannot be decoded: the file
       is renamed aside (timestamped, kept), its segment files stay, a fresh outbox opens, Diagnostics can share the quarantined file. A
       startup sweep **adopts or quarantines** segment files whose record never saved (never deletes). `endOrphans()` no longer ends a live
@@ -853,14 +865,12 @@ not answered by the time of writing; A loses nothing, so it ships. A delete vari
 ## Wave 17 — switch to the agent-workflows platform, delete the old gateway adapters            <!-- status: pending -->
 Requested 2026-10-29 by agent-workflows-mother (the owner sunsets agent-gateway, research-gateway and audio-gateway). Server-only
 (`server/**`, `scripts/**`, env templates, TDD, AGENTS.md). Starts when Wave 16 has closed **and** agent-workflows has sent the
-contract (endpoints, auth, env names) with its audio door live; until then it waits, and backlog work continues. Written in full then.
+contract for `decide` and the summary call (endpoints, auth, env names); until then it waits, and backlog work continues. Written in full then.
 - [ ] `Decider` → the new `agw` host's `decide`; `Summarizer` → a schema-constrained call on the new host (`{headline ≤60, detail ≤240,
       spoken ≤2 sentences}` over destination + transcript excerpt + reply; not `llm.classify`); job cancel kept for the 30-min hang guard;
       `caller: "iris"` attribution and per-call usage/cost kept (TDD §Cost).
-- [ ] STT (`/v1/audio/transcriptions`) and TTS (`/v1/audio/speech`) → the new OpenAI-compatible audio door, keeping the caller
-      attribution that `x-audio-source` gives today.
-- [ ] Delete `agw.ts`, `agw-decider.ts`, `audio-gateway.ts`, `audio-gateway-speaker.ts`, `AGW_URL`, `AUDIO_GATEWAY_URL` and its `op://`
-      ref; new refs into `dotfiles-private/headless.refs` and seeded via `ask-human.sh`. Fakes and conformance tests move with the ports.
+- [x] STT/TTS → the audio door: moved into Wave 16 S3 (contract arrived 2026-10-29).
+- [ ] Delete `agw.ts`, `agw-decider.ts` and `AGW_URL`; new refs into `dotfiles-private/headless.refs` and seeded via `ask-human.sh`. Fakes and conformance tests move with the ports.
 - [ ] Deploy and prove: `make verify` + `make smoke` (decide, summarize with a real summary, STT, `/speech`) in production.
 
 ## Fleet backlog (for the long-running fleet: mother → lead → workers)
