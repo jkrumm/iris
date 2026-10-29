@@ -712,7 +712,7 @@ stale-completion tests rewritten, `PipelineSteps.applicable(to:)`, `MemoPlayback
 **For the next wave:** the fleet is **paused** after this wave (owner, 2026-10-28); Wave 15 stays pending. On resume: move triage off Requesty
 (or top it up) before trusting `make smoke`; wire a production composition (real `URLSessionAPIClient` + `AuthenticatedMediaSource`).
 
-## Wave 15 — R3 conversations (iOS) + simulator parts of R1 capture ∥ server debt            <!-- status: active -->
+## Wave 15 — R3 conversations (iOS) + simulator parts of R1 capture ∥ server debt            <!-- status: done -->
 Backlog 7, the simulator-testable part of backlog 2, Wave 14's "for the next wave" (production composition) and the server carry-forward
 debt. Design is binding: `feedback-round-1.md` + `feedback-round-2.md` (round 2 wins); TDD §4 Screens names Textual for the thread.
 Two tracks: **S** (`server/**`, `contracts/**`, `scripts/**` + any contract's `IrisCore` follow-up) and **I** (`apple/**`). S and I run in
@@ -743,7 +743,7 @@ with `make e2e` before the train. Workers touching `IrisCapture`, intents or the
       **compact top banner** (tap returns to the full take); leaving the app moves it to the Live Activity; Dynamic Island with icon controls
       (stop, mic swap, pause), animated step progress, several queued memos; the done card's checkmark aligned. Snapshot tests on the
       pinned simulator (Dynamic Island model). Device exit checks (lock screen, background take, Bluetooth) stay for pairing.
-- [ ] **I5. iPhone reply flow review render:** the reply flow (thread view → reply by voice/text → pending → answer) as simulator
+- [x] **I5. iPhone reply flow review render:** the reply flow (thread view → reply by voice/text → pending → answer) as simulator
       screenshots light + dark, uploaded as private links via `/img`, listed in `docs/design/README.md` under open questions for the
       owner's async review. Built as designed in I2/I4; the review never blocks the wave.
 - [x] **S1. Server debt:** audio-gateway STT/speech timeouts fail after one window like the hang guard (not retried as transient);
@@ -752,10 +752,10 @@ with `make e2e` before the train. Workers touching `IrisCapture`, intents or the
       a backfill renders assets for older replies (idempotent, a `make` target or a boot-time sweep, bounded). TDD amended.
 - [x] **S2. Multi-word spoken tab names:** the decision row records the matched word count so a spoken prefix can name a
       multi-word herdr tab; tests with one-, two- and three-word labels and a near-miss. Contract only if the wire changes.
-- [ ] Deploy and prove: `make verify` (+ `make smoke`, which still fails at `summarize` until triage leaves Requesty: note it, do not
+- [x] Deploy and prove: `make verify` (+ `make smoke`, which still fails at `summarize` until triage leaves Requesty: note it, do not
       block); a production thread probe (typed chat, then a continuation) reads back through `GET /v1/threads/:id`; `apple.yml` green;
       TDD and AGENTS.md amended.
-**Left behind (in progress, lead):** merged by the train so far: #26 S1a, #27 S1b, #28 S2 (server: `make check-server check-contracts guard`
+**Left behind (lead, closed 2026-10-29):** merged by the train: #26 S1a, #27 S1b, #28 S2 (server: `make check-server check-contracts guard`
 + `make e2e` per merge; the full `make check` builds Xcode and collided with a running I worker), #29 I1, #30 I2 (full `make check`).
 `agw review` (CLI) on every PR, blocking findings fixed before merge (#28: a failed herd read was re-read, so a label-less prefix could
 resolve to the wrong tab). Non-blocking fixes taken: #26 per-drive slot tokens, body-read timeouts as hang guards; #27 stale pending
@@ -779,6 +779,14 @@ memos are still sending" line. The client half of cancel-delete: a take cancelle
 and sends no `DELETE` (the thread voice reply had the same pattern). Limits: no per-step progress in the Live Activity (the phase drives
 it; the step needs a server push); detail and thread hide the tab bar, so no record control there (the banner shows); the device checks
 (lock screen and island rendering, island buttons while suspended, a background take, Bluetooth) are listed in TDD §4.
+**I5:** #35 merged as `99ea781`. `ReplyFlowReviewUITests` walks the reply flow light and dark with a screenshot per step (and asserts it,
+so it doubles as a regression test; it restores light appearance on teardown); `scripts/reply-flow-shots.sh` exports the PNGs. Ten
+renders are private image-store objects, listed by key under the open questions in `docs/design/README.md` (links on request; the
+repo is public, so no presigned URLs are committed). Not shown: the fake never answers a typed memo, so the reveal comes from the voice
+reply; the Hold to talk recording state; the Live Activity and notification Reply (device).
+**Deploy and prove (final):** `make verify` healthy after #33 (the last server change); `apple.yml` and `check` green on master through
+#35; the production thread probe above stands (no server change since). `make smoke` not rerun: it fails at `summarize` until Wave 16.
+TDD and AGENTS.md amended by each PR.
 **Deploy:** server `3028113` deployed, `make verify` healthy; the boot backfill ran (`reply.backfill` examined 0). Production thread probe
 with the smoke token: typed chat `256ac9d0-…` then a continuation `f859f57c-…`, both `notified`; `GET /v1/threads/:id` returned kind
 `chat`, 2 memos, 4 messages in order. `make smoke` not rerun (fails at `summarize` until Wave 16).
@@ -795,7 +803,9 @@ change, so changing the server URL mid-take ends that take's Live Activity; out-
 leave a stale push token registered; a segment file whose record never saved is orphaned after a crash (no startup sweep of the capture
 directory); the unit-test host hang seen locally is unexplained. I4: a discarded take whose create reached the server but whose answer was
 lost gets no server `DELETE` (it stays `receiving`); a stalled `DELETE` is dropped silently; History's hidden set does not survive a
-relaunch; a double-start race; `cancel()` returns silently after a session-open failure; take and outbox state-machine duplication.
+relaunch; a double-start race; `cancel()` returns silently after a session-open failure; take and outbox state-machine duplication. I5:
+the fake API never answers a typed memo, so the text reply flow cannot be shown to its end on fakes. CI: the hosted runner's
+"Failed to terminate com.jkrumm.iris" UI-test failures (worth sampling the app at teardown on the runner).
 
 ## Wave 16 — summarize optional + Wave 15 debt ∥ R2 routing on iOS            <!-- status: pending -->
 The owner-confirmed summarize item, the outbox reset, Wave 15's follow-ups that touch data or correctness, and backlog 5's simulator part.
