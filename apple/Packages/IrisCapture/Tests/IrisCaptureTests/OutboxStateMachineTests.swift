@@ -86,6 +86,25 @@ struct OutboxStateMachineTests {
     #expect(machine.record == OutboxRecord(nextSequence: 2, completedMemos: [memo(1)]))
   }
 
+  @Test func handingOutCompleteIsRememberedAcrossARelaunchAndRevertGivesItBack() {
+    var machine = makeMachine()
+    machine.enqueue(segment(memo(1), 0))
+    machine.finishMemo(memo(1), segmentCount: 1)
+    _ = machine.dispatch(now: t0, inFlight: 0)
+    machine.uploadSucceeded(SegmentKey(memoID: memo(1), index: 0))
+    #expect(machine.record.memos.first?.completeMayHaveLanded == nil, "nothing sent yet")
+
+    let work = machine.dispatch(now: t0, inFlight: 0)
+    #expect(work == [.complete(memo(1), segmentCount: 1)])
+    #expect(machine.record.memos.first?.completeMayHaveLanded == true)
+    let relaunched = OutboxStateMachine(record: machine.record, policy: policy)
+    #expect(relaunched.record.memos.first?.completeMayHaveLanded == true, "an in-flight complete may have landed")
+
+    // The dispatch could not be saved, so nothing was sent: the memo is as it was.
+    machine.revertDispatch(work)
+    #expect(machine.record.memos.first?.completeMayHaveLanded == nil)
+  }
+
   @Test func completeWaitsForSegmentsThatWereNeverEnqueued() {
     var machine = makeMachine()
     machine.enqueue(segment(memo(1), 0))

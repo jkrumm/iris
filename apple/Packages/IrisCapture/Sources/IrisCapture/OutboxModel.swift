@@ -32,11 +32,15 @@ public struct OutboxEntry: Sendable, Equatable, Codable {
 /// A finished take waiting for its `complete` call.
 public struct OutboxMemo: Sendable, Equatable, Codable {
   public let memoID: MemoID
-  /// Grows only when the startup sweep adopts the next segment file of a take the app died in (`adopt(_:)`).
+  /// Grows only when the startup sweep adopts the next segment file of a take the app died in, or of a memo whose
+  /// `complete` was never sent (`adopt(_:)`).
   public internal(set) var segmentCount: Int
   /// `.pending`, `.uploading` or `.failed`; the memo is removed once `complete` succeeds.
   public var completion: OutboxState
   public var attempts: Int
+  /// Set when `complete` is handed out and saved with it, never cleared: from then on the server may hold the memo closed with
+  /// `segmentCount` segments, so a tail segment found later cannot join it. `nil` in a record written before the flag.
+  public internal(set) var completeMayHaveLanded: Bool? = nil
 }
 
 public enum OutboxItemKind: Sendable, Equatable, Codable {
