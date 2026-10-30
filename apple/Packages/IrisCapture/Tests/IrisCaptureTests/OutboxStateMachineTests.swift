@@ -92,7 +92,7 @@ struct OutboxStateMachineTests {
     machine.finishMemo(memo(1), segmentCount: 1)
     _ = machine.dispatch(now: t0, inFlight: 0)
     machine.uploadSucceeded(SegmentKey(memoID: memo(1), index: 0))
-    #expect(machine.record.memos.first?.completeMayHaveLanded == nil, "nothing sent yet")
+    #expect(machine.record.memos.first?.completeMayHaveLanded == false, "nothing sent yet")
 
     let work = machine.dispatch(now: t0, inFlight: 0)
     #expect(work == [.complete(memo(1), segmentCount: 1)])
@@ -102,7 +102,7 @@ struct OutboxStateMachineTests {
 
     // The dispatch could not be saved, so nothing was sent: the memo is as it was.
     machine.revertDispatch(work)
-    #expect(machine.record.memos.first?.completeMayHaveLanded == nil)
+    #expect(machine.record.memos.first?.completeMayHaveLanded == false)
   }
 
   @Test func completeWaitsForSegmentsThatWereNeverEnqueued() {

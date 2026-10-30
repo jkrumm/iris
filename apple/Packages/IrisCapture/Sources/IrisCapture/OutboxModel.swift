@@ -39,8 +39,34 @@ public struct OutboxMemo: Sendable, Equatable, Codable {
   public var completion: OutboxState
   public var attempts: Int
   /// Set when `complete` is handed out and saved with it, never cleared: from then on the server may hold the memo closed with
-  /// `segmentCount` segments, so a tail segment found later cannot join it. `nil` in a record written before the flag.
-  public internal(set) var completeMayHaveLanded: Bool? = nil
+  /// `segmentCount` segments, so a tail segment found later cannot join it. Always written; a record from before the flag
+  /// reads it from the completion state (see `init(from:)`).
+  public internal(set) var completeMayHaveLanded: Bool
+
+  init(memoID: MemoID, segmentCount: Int, completion: OutboxState, attempts: Int, completeMayHaveLanded: Bool = false) {
+    self.memoID = memoID
+    self.segmentCount = segmentCount
+    self.completion = completion
+    self.attempts = attempts
+    self.completeMayHaveLanded = completeMayHaveLanded
+  }
+
+  /// A record written before `completeMayHaveLanded` has no flag. Only a completion that was never handed out is known not to
+  /// have landed (`pending` with no failure behind it; one in flight at the kill is saved as `uploading`): any other state
+  /// may have reached the server, and a tail must not grow a memo it may have closed.
+  public init(from decoder: any Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    memoID = try container.decode(MemoID.self, forKey: .memoID)
+    segmentCount = try container.decode(Int.self, forKey: .segmentCount)
+    completion = try container.decode(OutboxState.self, forKey: .completion)
+    attempts = try container.decode(Int.self, forKey: .attempts)
+    let sentBefore =
+      switch completion {
+      case .pending: attempts > 0
+      case .uploading, .uploaded, .failed, .stalled: true
+      }
+    completeMayHaveLanded = try container.decodeIfPresent(Bool.self, forKey: .completeMayHaveLanded) ?? sentBefore
+  }
 }
 
 public enum OutboxItemKind: Sendable, Equatable, Codable {

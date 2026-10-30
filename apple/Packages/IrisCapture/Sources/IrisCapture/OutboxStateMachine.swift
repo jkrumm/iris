@@ -37,7 +37,7 @@ public struct OutboxStateMachine: Sendable {
   /// `createMayHaveLanded` as it was before `dispatch` handed the create out, for `revertDispatch`. Not persisted.
   private var flagBeforeDispatch: [MemoID: Bool] = [:]
   /// The same for a memo's `completeMayHaveLanded`.
-  private var completeFlagBeforeDispatch: [MemoID: Bool?] = [:]
+  private var completeFlagBeforeDispatch: [MemoID: Bool] = [:]
   /// Memos discarded in this run, so a follower can tell a discard from a memo the server has completed.
   private var discarded: Set<MemoID> = []
   /// Oldest first; bounded so the persisted record does not grow without limit. Holds the memos that completed and the
@@ -340,7 +340,7 @@ public struct OutboxStateMachine: Sendable {
     guard items[memoID]?.kind == .voice || revived != nil, let memo = memos[memoID] ?? revived.map(Self.emptyMemo),
       entries[SegmentKey(memoID: memoID, index: segment.index)] == nil
     else { return false }
-    let completeNotSent = memo.completeMayHaveLanded != true
+    let completeNotSent = !memo.completeMayHaveLanded
     let grows =
       segment.index == memo.segmentCount && (recoveredTakes.contains(memoID) || revived != nil || completeNotSent)
     guard segment.index < memo.segmentCount || grows else { return false }
@@ -433,7 +433,7 @@ public struct OutboxStateMachine: Sendable {
       case .complete(let memoID, _):
         guard memos[memoID]?.completion == .uploading else { continue }
         memos[memoID]?.completion = .pending
-        memos[memoID]?.completeMayHaveLanded = completeFlagBeforeDispatch.removeValue(forKey: memoID) ?? nil
+        memos[memoID]?.completeMayHaveLanded = completeFlagBeforeDispatch.removeValue(forKey: memoID) ?? false
       case .delete(let memoID):
         if deletions[memoID]?.state == .uploading { deletions[memoID]?.state = .pending }
       }
