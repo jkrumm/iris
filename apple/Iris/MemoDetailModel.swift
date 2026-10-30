@@ -35,7 +35,7 @@ final class MemoDetailModel {
 
   /// `memo` is what the list already knows; the steps arrive with the first ``load()``.
   init(
-    memo: Memo, client: any APIClient, media: any MemoMediaSource, speech: SpeechPlayer = SpeechPlayer(),
+    memo: Memo, client: any APIClient, media: any MemoMediaSource, speech: SpeechPlayer,
     toastDuration: Duration = .seconds(4),
     sleep: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
   ) {

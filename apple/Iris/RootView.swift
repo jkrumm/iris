@@ -25,6 +25,7 @@ struct RootView: View {
   }
 
   @State private var selection: Section
+  @State private var routing: Memo?
 
   init(
     history: HistoryModel, isConfigured: Bool = true, take: TakeModel, stats: StatsModel, settings: SettingsModel,
@@ -54,7 +55,8 @@ struct RootView: View {
       Tab(String(localized: "History", comment: "Tab title"), systemImage: "clock", value: Section.history) {
         HistoryView(
           model: history, isConfigured: isConfigured, onConnect: { selection = .settings }, makeDetail: makeDetail,
-          makeComposer: makeComposer, makeThread: makeThread, makeRouteAnswer: makeRouteAnswer)
+          makeComposer: makeComposer, makeThread: makeThread, makeRouteAnswer: makeRouteAnswer,
+          onRoute: { routing = $0 })
       }
       Tab(String(localized: "Stats", comment: "Tab title"), systemImage: "chart.bar", value: Section.stats) {
         StatsView(model: stats)
@@ -73,6 +75,11 @@ struct RootView: View {
     .environment(take)
     .fullScreenCover(isPresented: $take.showsFull) {
       TakeView(model: take)
+    }
+    .sheet(item: $routing) { memo in
+      RouteAnswerSheet(model: makeRouteAnswer(memo), onRouted: { history.insert($0) })
+        .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
     }
     .sheet(isPresented: $take.showsModePicker) {
       RecordModeSheet(model: take)
