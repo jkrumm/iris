@@ -1,4 +1,5 @@
 import Foundation
+import Synchronization
 
 nonisolated enum MediaDownloadError: Error, Equatable {
   case status(Int)
@@ -19,6 +20,7 @@ nonisolated struct MediaDownloader: Sendable {
   let session: URLSession
   let directory: URL
   private let flights = Flights()
+  private let evictions = Evictions()
 
   init(
     session: URLSession = MediaDownloader.makeSession(),
@@ -42,7 +44,8 @@ nonisolated struct MediaDownloader: Sendable {
     let destination = directory.appending(path: name)
     // The cache check runs on the flights' actor, the same one eviction runs on, so a file is either seen before an
     // eviction that was asked for earlier removes it, or not at all.
-    if request.isReusable, await flights.useFile(at: destination) { return destination }
+    // A memo whose eviction was asked for (and has not run yet) has no cache hit: the ask is answered by the download.
+    if request.isReusable, !evictions.isPending(name), await flights.useFile(at: destination) { return destination }
     let session = session
     let directory = directory
     let flights = flights
@@ -62,7 +65,12 @@ nonisolated struct MediaDownloader: Sendable {
     let flights = flights
     let directory = directory
     let prefix = Self.safeName(memoID) + "."
-    Task { await flights.evict(prefix: prefix, in: directory) }
+    let evictions = evictions
+    evictions.begin(prefix)
+    Task {
+      await flights.evict(prefix: prefix, in: directory)
+      evictions.end(prefix)
+    }
   }
 
   /// Removes cached files nobody has touched for `age` seconds: spoken replies that were played (not reusable, so kept only
@@ -81,7 +89,10 @@ nonisolated struct MediaDownloader: Sendable {
 
   /// ``evict(memoID:)``, returning once the files are gone.
   func evictAndWait(memoID: String) async {
-    await flights.evict(prefix: Self.safeName(memoID) + ".", in: directory)
+    let prefix = Self.safeName(memoID) + "."
+    evictions.begin(prefix)
+    await flights.evict(prefix: prefix, in: directory)
+    evictions.end(prefix)
   }
 
   private static func download(
@@ -103,6 +114,25 @@ nonisolated struct MediaDownloader: Sendable {
   /// A cache name never leaves the cache directory, whatever the memo id holds.
   private static func safeName(_ name: String) -> String {
     name.replacingOccurrences(of: "/", with: "_")
+  }
+
+  /// The evictions asked for and not yet run. ``evict(memoID:)`` returns before its scan, so this is what makes an ask that
+  /// comes after it miss the cache instead of being handed a file that is about to go.
+  private final class Evictions: Sendable {
+    private let pending = Mutex<[String: Int]>([:])
+
+    func begin(_ prefix: String) { pending.withLock { $0[prefix, default: 0] += 1 } }
+
+    func end(_ prefix: String) {
+      pending.withLock {
+        let left = ($0[prefix] ?? 1) - 1
+        $0[prefix] = left > 0 ? left : nil
+      }
+    }
+
+    func isPending(_ name: String) -> Bool {
+      pending.withLock { $0.keys.contains { name.hasPrefix($0) } }
+    }
   }
 
   /// The downloads on the wire, by request. The download itself is an unstructured task of its own: a caller that is

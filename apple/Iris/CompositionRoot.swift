@@ -173,6 +173,7 @@ final class CompositionRoot: CaptureIntentHandler, PlaybackIntentHandler {
       createdHere: { await outbox.created.memo(id: $0) != nil },
       takes: { [take] in TakeActivity(isOpen: take.isCapturing, started: take.takesStarted) })
     spokenReplies = reader
+    history.onMemoUpdated = { id in reader.memoUpdated(id: id) }
     history.onMemoDone = { id in
       // Sampled here, on the event, not after the task hop: a take that opens in between still blocks the reply.
       let takes = reader.takeSample

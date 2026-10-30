@@ -184,8 +184,15 @@ struct StaleActivitySweeper {
   }
 
   private func lookup(_ activity: HandedOverActivity) async -> (memo: Memo?, gone: Bool) {
-    if let own = serverKey(), let origin = activity.serverKey, own != origin { return (nil, false) }
-    let memoID = activity.memoID
+    let own = serverKey()
+    if let own, let origin = activity.serverKey, own != origin { return (nil, false) }
+    let answer = await ask(activity.memoID)
+    // The connection switched while the request was out: the answer may be another server's (its 404 included).
+    guard serverKey() == own else { return (nil, false) }
+    return answer
+  }
+
+  private func ask(_ memoID: String) async -> (memo: Memo?, gone: Bool) {
     do {
       return (try await client.memo(id: memoID).memo, false)
     } catch let error as APIError {

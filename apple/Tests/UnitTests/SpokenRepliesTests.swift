@@ -199,6 +199,19 @@ struct SpokenRepliesTests {
     #expect(speech.memoID == nil)
   }
 
+  @Test(
+    "a take that opened and closed between the update and the done event, behind the refresh, still blocks the reply")
+  func takeBehindTheRefresh() async {
+    await seed()
+    var activity = TakeActivity()
+    let replies = replies(takes: { activity })
+    replies.memoUpdated(id: "m")
+    activity = TakeActivity(isOpen: false, started: 1)
+    // The done event's own sample is taken after the take is over: only the update's sample shows it.
+    await replies.memoDone(id: "m", takes: replies.takeSample)
+    #expect(speech.memoID == nil)
+  }
+
   @Test("the open detail's recording keeps playing and the reply is skipped")
   func recordingPlayback() async {
     await seed()

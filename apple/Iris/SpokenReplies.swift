@@ -36,6 +36,8 @@ final class SpokenReplies {
   /// Memos that were read out or skipped because something was busy, and those being fetched or downloaded right now (a second `memo.done` waits for the first).
   private var spoken: Set<String> = []
   private var inFlight: Set<String> = []
+  /// The take activity when each memo's latest update arrived (``memoUpdated(id:)``), consumed by its `memo.done`.
+  private var noted: [String: TakeActivity] = [:]
   private let logger = Logger(subsystem: "com.jkrumm.iris", category: "spoken-replies")
 
   /// - Parameters:
@@ -60,15 +62,24 @@ final class SpokenReplies {
   /// on another passes this sample from the first: a take that opened in between still counts.
   var takeSample: TakeActivity { takes() }
 
+  /// `memo.updated` for `id` reached the app: remembers what the microphone was doing. `memo.done` always follows the
+  /// update of the same state, but waits behind its list refresh, so a take that opens and closes in that gap is only
+  /// visible in this sample.
+  func memoUpdated(id: String) {
+    if noted.count > 100 { noted.removeAll() }
+    noted[id] = takes()
+  }
+
   /// `memo.done` for `id`: speaks the reply when everything allows it. `takes` is the sample from when the event arrived
   /// (``takeSample``); without one the sample is taken here.
   func memoDone(id: String, takes sampled: TakeActivity? = nil) async {
     guard isOn, isForeground, !spoken.contains(id), inFlight.insert(id).inserted else { return }
     defer { inFlight.remove(id) }
-    let sample = sampled ?? takes()
+    let earlier = noted.removeValue(forKey: id)
+    let sample = earlier ?? sampled ?? takes()
     let takesBefore = sample.started
     // A take that was open when the event arrived counts even if it has closed again since.
-    guard !sample.isOpen, !isBusy(takesStartedAfter: takesBefore) else { return skip(id) }
+    guard !sample.isOpen, !(sampled?.isOpen ?? false), !isBusy(takesStartedAfter: takesBefore) else { return skip(id) }
     guard await createdHere(id) else { return }
     do {
       let memo = try await client.memo(id: id).memo

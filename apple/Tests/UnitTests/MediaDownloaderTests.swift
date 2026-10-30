@@ -190,6 +190,20 @@ struct MediaDownloaderTests {
     #expect(try FileManager.default.contentsOfDirectory(atPath: directory.path).count == 2)
   }
 
+  @Test("an ask right after evict(memoID:) is not handed the file that is about to go")
+  func askAfterEvictMisses() async throws {
+    defer { try? FileManager.default.removeItem(at: directory) }
+    MediaStub.serve(host: host, .init(status: 200, body: Data("one".utf8)))
+    let downloader = downloader()
+    let kept = try request(reusable: true)
+    _ = try await downloader.localURL(for: kept)
+    downloader.evict(memoID: "m1")
+    MediaStub.serve(host: host, .init(status: 200, body: Data("two".utf8)))
+    let again = try await downloader.localURL(for: kept)
+    #expect(MediaStub.requests(host: host).count == 2)
+    _ = again
+  }
+
   @Test("a download still on the wire when its memo is evicted never lands")
   func evictionDuringDownload() async throws {
     defer { try? FileManager.default.removeItem(at: directory) }
