@@ -93,6 +93,21 @@ struct MediaDownloaderTests {
     #expect(try Data(contentsOf: replaced) == Data("three".utf8))
   }
 
+  @Test("the launch sweep removes files nobody touched for the age and keeps newer ones")
+  func staleSweep() async throws {
+    defer { try? FileManager.default.removeItem(at: directory) }
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    let old = directory.appending(path: "gone.speech.mp3")
+    let fresh = directory.appending(path: "kept.audio.m4a")
+    for url in [old, fresh] { try Data("x".utf8).write(to: url) }
+    let now = Date()
+    try FileManager.default.setAttributes(
+      [.modificationDate: now.addingTimeInterval(-15 * 24 * 3600)], ofItemAtPath: old.path)
+    await downloader().sweepStaleAndWait(olderThan: 14 * 24 * 3600, now: now)
+    #expect(!FileManager.default.fileExists(atPath: old.path))
+    #expect(FileManager.default.fileExists(atPath: fresh.path))
+  }
+
   @Test("a non-2xx answer throws and leaves nothing behind; a file URL passes through")
   func failures() async throws {
     defer { try? FileManager.default.removeItem(at: directory) }

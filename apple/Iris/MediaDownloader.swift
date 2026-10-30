@@ -40,7 +40,9 @@ nonisolated struct MediaDownloader: Sendable {
     if request.url.isFileURL { return request.url }
     let name = Self.safeName(request.cacheName ?? UUID().uuidString)
     let destination = directory.appending(path: name)
-    if request.isReusable, FileManager.default.fileExists(atPath: destination.path) { return destination }
+    // The cache check runs on the flights' actor, the same one eviction runs on, so a file is either seen before an
+    // eviction that was asked for earlier removes it, or not at all.
+    if request.isReusable, await flights.hasFile(at: destination) { return destination }
     let session = session
     let directory = directory
     let flights = flights
@@ -61,6 +63,20 @@ nonisolated struct MediaDownloader: Sendable {
     let directory = directory
     let prefix = Self.safeName(memoID) + "."
     Task { await flights.evict(prefix: prefix, in: directory) }
+  }
+
+  /// Removes cached files nobody has touched for `age` seconds: spoken replies that were played (not reusable, so kept only
+  /// by accident), recordings and images of memos deleted on another device or while the app was killed. Runs once at
+  /// launch; the scan is off the caller's actor and the call returns at once. A removed file is simply downloaded again.
+  func sweepStale(olderThan age: TimeInterval = 14 * 24 * 3600, now: Date = Date()) {
+    let flights = flights
+    let directory = directory
+    Task { await flights.sweep(in: directory, notModifiedSince: now.addingTimeInterval(-age)) }
+  }
+
+  /// ``sweepStale(olderThan:now:)``, returning once the files are gone.
+  func sweepStaleAndWait(olderThan age: TimeInterval, now: Date = Date()) async {
+    await flights.sweep(in: directory, notModifiedSince: now.addingTimeInterval(-age))
   }
 
   /// ``evict(memoID:)``, returning once the files are gone.
@@ -108,6 +124,22 @@ nonisolated struct MediaDownloader: Sendable {
       running[key] = Flight(id: id, name: name, task: task)
       defer { if running[key]?.id == id { running[key] = nil } }
       return try await task.value
+    }
+
+    func hasFile(at url: URL) -> Bool {
+      FileManager.default.fileExists(atPath: url.path)
+    }
+
+    /// Removes files last modified before `cutoff`, except those a download on the wire is about to replace.
+    func sweep(in directory: URL, notModifiedSince cutoff: Date) {
+      let busy = Set(running.values.map(\.name))
+      let urls =
+        (try? FileManager.default.contentsOfDirectory(
+          at: directory, includingPropertiesForKeys: [.contentModificationDateKey])) ?? []
+      for url in urls where !busy.contains(url.lastPathComponent) {
+        let modified = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
+        if let modified, modified < cutoff { try? FileManager.default.removeItem(at: url) }
+      }
     }
 
     /// Moves a finished download into the cache, unless its flight was evicted meanwhile.
