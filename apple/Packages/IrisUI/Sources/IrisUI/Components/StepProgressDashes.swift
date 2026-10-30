@@ -22,7 +22,7 @@ public struct StepProgressDashes: View {
   }
 
   public var body: some View {
-    HStack(spacing: 2) {
+    HStack(spacing: Theme.Spacing.hair) {
       ForEach(0..<progress.total, id: \.self) { index in
         Capsule()
           .fill(fill(at: index))

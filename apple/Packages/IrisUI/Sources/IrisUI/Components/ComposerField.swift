@@ -29,7 +29,7 @@ public struct ComposerField: View {
             Text(verbatim: placeholder)
               .font(.system(size: 19))
               .foregroundStyle(Theme.Ink.faint)
-              .padding(.top, 8)
+              .padding(.top, Theme.Spacing.sm)
               .padding(.leading, 5)
               .allowsHitTesting(false)
               .accessibilityHidden(true)

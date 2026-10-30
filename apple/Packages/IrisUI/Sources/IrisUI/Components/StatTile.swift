@@ -13,7 +13,7 @@ public struct StatTile: View {
   }
 
   public var body: some View {
-    VStack(alignment: .leading, spacing: 2) {
+    VStack(alignment: .leading, spacing: Theme.Spacing.hair) {
       Text(verbatim: title)
         .themeFont(.caption)
         .foregroundStyle(Theme.Ink.muted)

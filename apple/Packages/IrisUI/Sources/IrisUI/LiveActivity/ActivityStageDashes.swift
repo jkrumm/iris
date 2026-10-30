@@ -13,7 +13,7 @@ public struct ActivityStageDashes: View {
 
   public var body: some View {
     if let stage = phase.stage {
-      HStack(spacing: 4) {
+      HStack(spacing: Theme.Spacing.xs) {
         ForEach(0..<4, id: \.self) { index in
           Capsule()
             .fill(fill(at: index, stage: stage))

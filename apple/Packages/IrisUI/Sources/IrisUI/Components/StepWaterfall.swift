@@ -260,7 +260,7 @@ private struct BadgeTag: View {
       .themeFont(.caption, weight: .semibold)
       .foregroundStyle(color)
       .padding(.horizontal, Theme.Spacing.sm)
-      .padding(.vertical, 2)
+      .padding(.vertical, Theme.Spacing.hair)
       .background(color.opacity(0.14), in: .capsule)
   }
 

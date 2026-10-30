@@ -31,4 +31,5 @@ Generic Swift lives in `.claude/rules/swift.md`; this file is what only Iris has
   in-memory fakes shipped in the package; no mocking frameworks.
 - **Capture facts are in `apple-capture-notes`** (session options, interruption API, Live Activity start rule, APNs headers); load it
   before touching `IrisCapture` or the intents. Anything not device-verified is marked so there; do not state it as fact elsewhere.
+- **No spacing literals in views.** Every padding, stack/grid spacing and inset is a step or role of `Theme.Spacing` (`IrisUI/Theme/Spacing.swift`: `hair…xl` steps, `screenMargin`, `sectionTop`, `rowVertical`, `chipGap`, `barInset`, ...), derived from `docs/design/mockups/*.css`. A value the scale lacks is added there (with the mockup it comes from), never typed in a view. Control sizes (a 44 pt button, a 3 pt dash) are not spacing.
 - Verify with `make check-apple`; look at UI changes with `make run-sim` + `make screenshot` (skill `ios-verify`).

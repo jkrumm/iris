@@ -33,7 +33,7 @@ public struct MicRuleList: View {
 
   public var body: some View {
     VStack(alignment: .leading, spacing: 0) {
-      VStack(alignment: .leading, spacing: 2) {
+      VStack(alignment: .leading, spacing: Theme.Spacing.hair) {
         Text(verbatim: routeTitle)
           .themeFont(.callout, weight: .semibold)
           .foregroundStyle(Theme.Ink.primary)

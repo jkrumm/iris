@@ -165,7 +165,7 @@ public struct RouteAnswerPanel: View {
       tabSelection = tab.id
     } label: {
       HStack(spacing: Theme.Spacing.md) {
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: Theme.Spacing.hair) {
           Text(verbatim: tab.title)
             .themeFont(.callout, weight: .medium)
             .foregroundStyle(Theme.Ink.primary)

@@ -71,7 +71,7 @@ public struct TakeScreen: View {
         .themeFont(.subheadline, weight: .medium)
         .foregroundStyle(Theme.Accent.onFill)
         .padding(.horizontal, Theme.Spacing.md)
-        .padding(.vertical, Theme.Spacing.xs + 2)
+        .padding(.vertical, Theme.Spacing.snug)
         .background(Theme.Accent.fill, in: .capsule)
       Spacer(minLength: 0)
       ElapsedTimerText(start: start, frozenAt: frozenAt)
