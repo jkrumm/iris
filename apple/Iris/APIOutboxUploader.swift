@@ -49,6 +49,9 @@ nonisolated struct APIOutboxUploader: SegmentUploader {
     }
     do {
       try await client.uploadSegment(memoID: segment.memoID.wireID, index: segment.index, data: data)
+    } catch let APIError.server(status, body) where status == 409 && body.error == .badState {
+      // The memo has left `receiving`: the server completed it with these segments (the answer to an upload that was lost,
+      // or sent by hand), so this one is delivered. `complete` then answers with the memo it has, and the queue clears.
     } catch {
       throw Self.classified(error)
     }

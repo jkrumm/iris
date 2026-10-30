@@ -138,6 +138,49 @@ struct OutboxServiceTests {
     #expect(item(.text("x"), mode: "chat", thread: "t").kind == .textReply)
   }
 
+  @Test("segments the server already has for a completed memo are delivered on its 409, and the queue clears")
+  func completedMemoClearsTheQueue() async throws {
+    let id = MemoID()
+    let wire = id.wireID
+    // The server has the whole take and has completed it (the audio was sent by hand, or the answers were lost).
+    _ = try await client.createMemo(CreateMemoRequest(id: wire, mode: .auto, startedAt: MemoFactory.now))
+    for index in 0..<3 { try await client.uploadSegment(memoID: wire, index: index, data: Data("audio".utf8)) }
+    _ = try await client.completeMemo(id: wire, request: CompleteMemoRequest(segmentCount: 3))
+    let uploadsBefore = await client.calls.count
+    for _ in 0..<3 {
+      await client.enqueueFailure(
+        .server(status: 409, body: ErrorBody(error: .badState, message: "memo is received, no longer receiving")),
+        for: .uploadSegment)
+    }
+
+    // The phone's queue: the take is created, its three segments and its `complete` are still waiting.
+    let directory = FileManager.default.temporaryDirectory.appending(path: "iris-unit-\(UUID().uuidString)")
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    var item = OutboxItem(
+      memoID: id, kind: .voice, mode: "auto", startedAt: MemoFactory.now, queuedAt: MemoFactory.now, title: "Voice memo")
+    item.create = .uploaded
+    var machine = OutboxStateMachine()
+    machine.enqueueItem(item)
+    for index in 0..<3 {
+      let url = directory.appending(path: "\(index).m4a")
+      try Data("audio".utf8).write(to: url)
+      machine.enqueue(ClosedSegment(memoID: id, index: index, fileURL: url, byteCount: 5, duration: 1))
+    }
+    machine.finishMemo(id, segmentCount: 3)
+    let rig = OutboxRig(client: client, store: InMemoryOutboxStore(record: machine.record))
+
+    #expect(await rig.drain())
+    let outbox = try await rig.stack.outbox()
+    #expect(await outbox.entries().isEmpty)
+    #expect(await outbox.items().isEmpty)
+    #expect(await outbox.memos().isEmpty)
+    #expect(await rig.service.queuedItems().isEmpty, "no failed row, no error")
+    let calls = await client.calls.dropFirst(uploadsBefore)
+    #expect(calls.filter { if case .uploadSegment = $0 { true } else { false } }.count == 3, "each segment once, no loop")
+    #expect(calls.last == .completeMemo(id: wire, request: CompleteMemoRequest(segmentCount: 3)))
+  }
+
   @Test("the change stream tells Settings when the queue moves")
   func changes() async throws {
     let rig = OutboxRig(client: client)
@@ -194,6 +237,28 @@ struct APIOutboxUploaderTests {
         .createMemo(CreateMemoRequest(id: id.wireID, mode: .hermes, startedAt: MemoFactory.now, threadId: "t"))
       ])
     #expect(await created.memo(id: id.wireID)?.threadId == "t")
+  }
+
+  private func uploadWithAnswer(_ error: APIError) async throws {
+    let client = FakeAPIClient()
+    await client.enqueueFailure(error, for: .uploadSegment)
+    let file = FileManager.default.temporaryDirectory.appending(path: "iris-unit-\(UUID().uuidString).m4a")
+    try Data("audio".utf8).write(to: file)
+    defer { try? FileManager.default.removeItem(at: file) }
+    let uploader = APIOutboxUploader(client: client, created: CreatedMemoLog())
+    try await uploader.upload(ClosedSegment(memoID: MemoID(), index: 0, fileURL: file, byteCount: 5, duration: 1))
+  }
+
+  @Test("a segment of a memo that has left receiving is delivered, not a stall")
+  func segmentOfACompletedMemo() async throws {
+    try await uploadWithAnswer(.server(status: 409, body: ErrorBody(error: .badState, message: "no longer receiving")))
+  }
+
+  @Test("a segment whose bytes differ from the server's stays a refusal")
+  func segmentConflict() async throws {
+    await #expect(throws: PermanentTransferError.self) {
+      try await uploadWithAnswer(.server(status: 409, body: ErrorBody(error: .conflict, message: "other bytes")))
+    }
   }
 
   @Test("a segment whose file is gone is a permanent failure")
