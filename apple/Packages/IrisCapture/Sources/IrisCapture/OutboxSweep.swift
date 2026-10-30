@@ -14,8 +14,13 @@ public struct SweepReport: Sendable, Equatable {
   public var kept: [URL] = []
   /// Segments rebuilt from the PCM shadow a kill left (their `.m4a`, which then went on as any orphan: adopted or quarantined).
   public var recovered: [URL] = []
+  /// Files the sweep could neither attach nor move, and shadows it could not read: still in the capture directory, tried again
+  /// at the next launch. Settings lists them so they are not invisible.
+  public var stuck: [URL] = []
 
-  public var isEmpty: Bool { adopted.isEmpty && quarantined.isEmpty && kept.isEmpty && recovered.isEmpty }
+  public var isEmpty: Bool {
+    adopted.isEmpty && quarantined.isEmpty && kept.isEmpty && recovered.isEmpty && stuck.isEmpty
+  }
 }
 
 /// What became of a PCM shadow (`SegmentShadow`) the sweep found.
@@ -156,10 +161,7 @@ extension Outbox {
       }
       return (left.0.uuidString, left.1) < (right.0.uuidString, right.1)
     }
-    guard !candidates.isEmpty else {
-      logSweep(report)
-      return report
-    }
+    guard !candidates.isEmpty else { return concluded(report) }
     var heldQueues: [Data] = []
     var unreadable: [String] = []
     for file in await setAsideQueueFiles() {
@@ -186,19 +188,23 @@ extension Outbox {
         report.adopted.append(url)
       } else if let moved = await files.setAside(url) {
         report.quarantined.append(moved)
+      } else {
+        report.stuck.append(url)
       }
     }
     // Saved before anything goes up, as for any new segment (the save releases the withheld ones).
     if !report.adopted.isEmpty { await flush() }
-    logSweep(report)
-    return report
+    return concluded(report)
   }
 
-  private func logSweep(_ report: SweepReport) {
-    guard !report.isEmpty else { return }
+  /// Logs the sweep and remembers the files it could not deal with, for Settings.
+  private func concluded(_ report: SweepReport) -> SweepReport {
+    noteStrays(report.stuck)
+    guard !report.isEmpty else { return report }
     Log.outbox.notice(
-      "capture sweep: \(report.adopted.count) adopted, \(report.quarantined.count) quarantined, \(report.kept.count) kept, \(report.recovered.count) recovered"
+      "capture sweep: \(report.adopted.count) adopted, \(report.quarantined.count) quarantined, \(report.kept.count) kept, \(report.recovered.count) recovered, \(report.stuck.count) stuck"
     )
+    return report
   }
 
   /// A kill leaves the open segment's m4a without its index and the PCM shadow beside it whole. A shadow whose m4a is
@@ -213,14 +219,14 @@ extension Outbox {
       if files.inspect(segment) != nil {
         await files.discard(shadow: shadow)
       } else if owned.contains(segment.lastPathComponent) {
-        report.kept.append(shadow)  // the queue's own file does not play: the shadow is the other copy
+        report.stuck.append(shadow)  // the queue's own file does not play: the shadow is the other copy
       } else {
         switch await files.recover(shadow: shadow) {
         case .recovered(let url):
           await files.discard(shadow: shadow)
           report.recovered.append(url)
         case .empty: await files.discard(shadow: shadow)
-        case .failed: report.kept.append(shadow)
+        case .failed: report.stuck.append(shadow)
         }
       }
     }

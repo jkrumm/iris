@@ -271,7 +271,7 @@ struct SettingsView: View {
         Text("Set-aside files", comment: "Settings section")
       } footer: {
         Text(
-          "Outbox files that could not be read and recordings no queue entry owned. They are kept, never deleted on their own.",
+          "Outbox files that could not be read and recordings no queue entry owned, including any Iris could not move out of the way yet. They are kept, never deleted on their own.",
           comment: "Settings set-aside footer")
       }
       .listRowBackground(Theme.Surface.panel)

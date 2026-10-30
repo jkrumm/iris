@@ -228,6 +228,17 @@ struct OutboxResetTests {
     #expect(FileManager.default.fileExists(atPath: moved.path), "kept, not deleted")
   }
 
+  @Test("a recording the sweep could not move is counted, listed and marked in the shared report")
+  func unmovedRecordingsShow() {
+    let moved = SetAsideFile(url: URL(fileURLWithPath: "/in-memory/a.m4a"), byteCount: 10, modifiedAt: nil)
+    let stuck = SetAsideFile(url: URL(fileURLWithPath: "/in-memory/b.m4a"), byteCount: 5, modifiedAt: nil)
+    let summary = SetAsideSummary(recordings: [moved], unmoved: [stuck])
+
+    #expect(summary.count == 2 && summary.byteCount == 15 && !summary.isEmpty)
+    #expect(summary.report.contains("b.m4a") && summary.report.contains("(not moved)"))
+    #expect(SetAsideSummary(unmoved: [stuck]).isEmpty == false, "alone it is enough to show the section")
+  }
+
   @Test("a pile of set-aside files is flagged, by count or by size, but still only reported")
   func setAsideBound() {
     let file = SetAsideFile(url: URL(fileURLWithPath: "/in-memory/a.m4a"), byteCount: 1, modifiedAt: nil)

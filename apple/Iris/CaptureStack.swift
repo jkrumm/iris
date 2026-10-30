@@ -147,7 +147,9 @@ actor CaptureStack {
       let values = try? url.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey])
       return SetAsideFile(url: url, byteCount: values?.fileSize ?? 0, modifiedAt: values?.contentModificationDate)
     }
-    return SetAsideSummary(queueFiles: queues, recordings: await parts.segmentFiles?.setAsideFiles() ?? [])
+    return SetAsideSummary(
+      queueFiles: queues, recordings: await parts.segmentFiles?.setAsideFiles() ?? [],
+      unmoved: await built?.outbox.strayFiles() ?? [])
   }
 
   private func open() async throws -> Built {

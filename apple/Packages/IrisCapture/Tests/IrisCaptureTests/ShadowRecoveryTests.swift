@@ -218,7 +218,7 @@
 
       let report = await harness.outbox.sweepOrphans(using: DirectorySegmentFiles(directory: directory))
 
-      #expect(report.kept == [shadow])
+      #expect(report.stuck == [shadow])
       #expect(FileManager.default.fileExists(atPath: shadow.path))
       await harness.outbox.shutdown()
     }
