@@ -23,7 +23,7 @@ nonisolated protocol MemoMediaSource: Sendable {
 
 /// The server's media routes with the device token in the `Authorization` header (``MediaDownloader`` sends it; the
 /// player only ever sees the downloaded file). The speech route answers 409 when the memo has no reply, so it is only
-/// offered for one that has. The recording is immutable and kept; the speech is derived per call and fetched fresh.
+/// offered for a speakable memo. The recording is immutable and kept; the speech is derived per call and fetched fresh.
 nonisolated struct AuthenticatedMediaSource: MemoMediaSource {
   let baseURL: URL
   let bearerToken: String
@@ -34,7 +34,7 @@ nonisolated struct AuthenticatedMediaSource: MemoMediaSource {
   }
 
   func speech(for memo: Memo) -> MediaRequest? {
-    guard memo.hasReply, !memo.isDeleted else { return nil }
+    guard memo.isSpeakable else { return nil }
     return request(memo, "speech", fileExtension: "mp3", isReusable: false)
   }
 
@@ -68,7 +68,7 @@ nonisolated struct FakeMediaSource: MemoMediaSource {
   }
 
   func speech(for memo: Memo) -> MediaRequest? {
-    guard memo.hasReply else { return nil }
+    guard memo.isSpeakable else { return nil }
     return clip(named: "\(memo.id).speech", seconds: 4)
   }
 
@@ -116,6 +116,12 @@ extension Memo {
   /// There is a reply to speak: the server's `/speech` is a 409 with neither the reply text nor a spoken summary.
   nonisolated var hasReply: Bool {
     replyText?.isEmpty == false || summary?.spoken.isEmpty == false
+  }
+
+  /// The one rule for speaking a reply, shared by the detail's Play, `PlayReplyIntent` and spoken replies: the memo is
+  /// finished (a reply of a memo still in flight may change), has something to say and is not deleted.
+  nonisolated var isSpeakable: Bool {
+    state == .notified && hasReply && !isDeleted
   }
 }
 

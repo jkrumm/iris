@@ -4,7 +4,7 @@ import SwiftUI
 /// recording (mic with a lock) that keeps recording without a finger on the screen. Holding past the first touch starts a
 /// take; releasing sends it, sliding up before releasing cancels it. The locked recording starts with a tap and ends with
 /// the send button, or the cross to discard it. Both voice takes go through the same `onHoldBegan` / `onHoldEnded`.
-/// VoiceOver gets a plain toggle instead of a hold.
+/// VoiceOver gets a plain toggle instead of a hold (the hint says so).
 public struct ThreadReplyBar: View {
   private let holdStartedAt: Date?
   private let isVoiceAvailable: Bool
@@ -14,7 +14,7 @@ public struct ThreadReplyBar: View {
 
   @State private var began = false
   @State private var isCancelling = false
-  @State private var isLocked = false
+  @State private var lock = VoiceTakeLock()
 
   private static let cancelDistance: CGFloat = 70
   private static let buttonSize: CGFloat = 56
@@ -34,7 +34,7 @@ public struct ThreadReplyBar: View {
   }
 
   private var isRecording: Bool { holdStartedAt != nil }
-  private var isLockedRecording: Bool { isRecording && isLocked }
+  private var isLockedRecording: Bool { isRecording && lock.isLocked }
 
   public var body: some View {
     GlassEffectContainer(spacing: Theme.Spacing.md) {
@@ -53,10 +53,10 @@ public struct ThreadReplyBar: View {
     .animation(.snappy, value: isRecording)
     // A take the app ended on its own (a cancel on disappear) never reaches the gesture's `onEnded`.
     .onChange(of: holdStartedAt) {
+      lock.takeChanged(isRecording: holdStartedAt != nil)
       guard holdStartedAt == nil else { return }
       began = false
       isCancelling = false
-      isLocked = false
     }
   }
 
@@ -77,7 +77,7 @@ public struct ThreadReplyBar: View {
 
   private var lockButton: some View {
     Button {
-      isLocked = true
+      lock.request()
       onHoldBegan()
     } label: {
       LockedMicIcon()
@@ -131,14 +131,22 @@ public struct ThreadReplyBar: View {
         ? Text("Stop and send", bundle: #bundle, comment: "VoiceOver label while a voice reply is recording")
         : Text("Reply by voice", bundle: #bundle, comment: "VoiceOver label of the hold-to-talk button")
     )
+    // The VoiceOver action toggles (a hold is not possible with it), so the hint says what the next activation does.
     .accessibilityHint(
       isRecording
-        ? Text(verbatim: "")
-        : Text("Hold to talk, release to send", bundle: #bundle, comment: "VoiceOver hint of the hold-to-talk button")
+        ? Text("Double-tap to send", bundle: #bundle, comment: "VoiceOver hint of the talk button while recording")
+        : Text(
+          "Double-tap to start recording, double-tap again to send", bundle: #bundle,
+          comment: "VoiceOver hint of the talk button while idle")
     )
     .accessibilityAddTraits(.isButton)
     .accessibilityAction {
-      if !isRecording { onHoldBegan() } else { onHoldEnded(false) }
+      if !isRecording {
+        lock.beginUnlocked()
+        onHoldBegan()
+      } else {
+        onHoldEnded(false)
+      }
     }
     .accessibilityIdentifier("thread.reply.voice")
   }
@@ -204,7 +212,7 @@ public struct ThreadReplyBar: View {
       .onChanged { value in
         if !began {
           began = true
-          isLocked = false
+          lock.beginUnlocked()
           onHoldBegan()
         }
         isCancelling = value.translation.height < -Self.cancelDistance

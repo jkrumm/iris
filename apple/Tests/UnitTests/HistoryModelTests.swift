@@ -407,6 +407,39 @@ struct HistoryModelTests {
     #expect(relaunched.memos.map(\.id) == ["a", "b"])
   }
 
+  @Test("a create hand-off that arrives after the discard's delete settled does not bring the memo back")
+  func lateInsertAfterUnhide() async {
+    await seed(MemoFactory.memo("a", age: 100))
+    await model.load()
+    let discarded = MemoFactory.memo("gone", age: 1, typed: true)
+    model.hide("gone")
+    model.unhide("gone")
+    model.insert(discarded)  // the unordered hand-off, now behind both changes
+    #expect(ids == ["a"])
+
+    model.insert(MemoFactory.memo("other", age: 2, typed: true))
+    #expect(ids == ["other", "a"])
+  }
+
+  @Test("a deleted memo comes back after Undo, also one this session hid and unhid before")
+  func undoBringsTheRowBack() async {
+    await seed(MemoFactory.memo("a", age: 100), MemoFactory.memo("b", age: 50))
+    await model.load()
+    await model.delete(model.memos[0])
+    #expect(ids == ["a"])
+    await model.undoDelete()
+    #expect(ids == ["b", "a"])
+
+    model.hide("b")
+    model.unhide("b")
+    model.insert(MemoFactory.memo("b", age: 50))  // the late create hand-off is ignored
+    #expect(ids == ["a"])
+    await model.load()
+    await model.delete(model.memos[0])
+    await model.undoDelete()
+    #expect(ids == ["b", "a"])
+  }
+
   @Test("settling a delete that was never hidden changes nothing")
   func unhideUnknown() {
     let store = InMemoryHiddenMemoStore(["x"])
@@ -496,5 +529,82 @@ struct HistoryModelTests {
     for _ in 0..<200 where ids != ["b", "a"] { try await Task.sleep(for: .milliseconds(10)) }
     follow.cancel()
     #expect(ids == ["b", "a"])
+  }
+
+  // MARK: Server link
+
+  @Test("the link follows the list loads: live after an answer, unreachable without one, rejected on a 401")
+  func linkFollowsLoads() async {
+    #expect(model.link == .unknown)
+    await model.load()
+    #expect(model.link == .live)
+
+    await client.enqueueFailure(.transport(.notConnectedToInternet), for: .listMemos)
+    await model.load()
+    #expect(model.link == .unreachable)
+
+    await client.enqueueFailure(.unauthorized, for: .listMemos)
+    await model.load()
+    #expect(model.link == .rejected)
+
+    await client.enqueueFailure(.unexpectedStatus(502), for: .listMemos)
+    await model.load()
+    // A server that answers with an error is there: the link is not reset to unreachable.
+    #expect(model.link == .rejected)
+
+    await model.load()
+    #expect(model.link == .live)
+  }
+
+  @Test("a dropped event stream marks the server unreachable, the next event live again")
+  func linkFollowsTheStream() async throws {
+    let follow = Task { await model.observeEvents() }
+    client.emit(.ready)
+    for _ in 0..<200 where model.link != .live { try await Task.sleep(for: .milliseconds(10)) }
+    #expect(model.link == .live)
+
+    client.finishEvents(throwing: APIError.transport(.networkConnectionLost))
+    for _ in 0..<200 where model.link != .unreachable { try await Task.sleep(for: .milliseconds(10)) }
+    follow.cancel()
+    #expect(model.link == .unreachable)
+  }
+
+  @Test("a load that was superseded and then fails does not mark the server unreachable")
+  func supersededLoadFailure() async {
+    await client.enqueueFailure(.transport(.notConnectedToInternet), for: .listMemos)
+    let gate = await client.hold(.listMemos)
+    let older = Task { await model.load() }
+    await gate.waitUntilHeld()
+    await model.load()
+    #expect(model.link == .live)
+
+    gate.release()
+    await older.value
+    #expect(model.link == .live)
+  }
+
+  @Test("only a missing answer marks the server unreachable: a body that does not decode leaves the link")
+  func decodingFailureIsAnAnswer() async {
+    await model.load()
+    await client.enqueueFailure(.decoding("bad body"), for: .listMemos)
+    await model.load()
+    #expect(model.link == .live)
+  }
+
+  @Test("cancelling the follow, or a clean close of the stream, does not mark the server down")
+  func cancelledFollowKeepsTheLink() async throws {
+    let follow = Task { await model.observeEvents() }
+    client.emit(.ready)
+    for _ in 0..<200 where model.link != .live { try await Task.sleep(for: .milliseconds(10)) }
+    follow.cancel()
+    await follow.value
+    #expect(model.link == .live)
+
+    let second = HistoryModel(client: client)
+    let closed = Task { await second.observeEvents() }
+    client.finishEvents()
+    for _ in 0..<50 { try await Task.sleep(for: .milliseconds(10)) }
+    closed.cancel()
+    #expect(second.link != .unreachable)
   }
 }

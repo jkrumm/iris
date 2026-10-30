@@ -20,6 +20,19 @@ final class StatsSettingsUITests: IrisUITestCase {
     XCTAssertTrue(waitForPresence(app.descendants(matching: .any)["stats.chart"], timeout: 5))
   }
 
+  /// The fake server answers, so the row reads Connected (the unreachable and rejected rows are unit-tested on the model).
+  @MainActor
+  func testTheServerRowReadsConnectedWhenTheFakeServerAnswers() {
+    let app = launch()
+    app.tabBars.buttons["Settings"].tap()
+    let status = app.staticTexts["settings.server.status"]
+    XCTAssertTrue(waitForPresence(status))
+    let settled = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label != 'Checking…'"), object: status)
+    _ = XCTWaiter().wait(for: [settled], timeout: 15)
+    XCTAssertTrue(status.label.hasSuffix("Connected"), status.label)
+    XCTAssertTrue(waitForAbsence(app.descendants(matching: .any)["settings.server.hint"], timeout: 2))
+  }
+
   @MainActor
   func testDiagnosticsCopiesTheMemoIDAndConfirms() {
     let app = launch()

@@ -124,6 +124,25 @@ struct MicRulesModelTests {
     #expect(await routes.rules() == ["car": FakeRouteManager.builtInMic.uid])
   }
 
+  @Test("a load that starts while a pick is saving shows the saved choice")
+  func loadOverlappingAPick() async {
+    let inner = FakeRouteManager(outputUIDs: ["car"], outputNames: ["Car"])
+    let gate = RouteGate()
+    let model = MicRulesModel(routes: GatedRoutes(inner: inner, gate: gate))
+    await model.load()
+
+    await gate.arm()
+    let pick = Task { await model.pick(FakeRouteManager.builtInMic.uid) }
+    while !(await gate.isHeld) { await Task.yield() }
+    await model.load()  // started after the pick, finishes before it saves
+    #expect(model.selection == nil)
+    await gate.release()
+    await pick.value
+
+    #expect(await inner.rules() == ["car": FakeRouteManager.builtInMic.uid])
+    #expect(model.selection == FakeRouteManager.builtInMic.uid)
+  }
+
   @Test("a route without named outputs still has a title")
   func unnamedRoute() async {
     let (model, _) = await makeModel(names: [])

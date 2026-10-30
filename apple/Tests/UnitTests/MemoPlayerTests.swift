@@ -107,6 +107,20 @@ struct MemoMediaSourceTests {
     #expect(source.speech(for: MemoFactory.memo("s", summary: spoken)) != nil)
   }
 
+  @Test("a reply is speakable once the memo is notified, whichever source asks (Play, the intent, spoken replies)")
+  func speakableRule() throws {
+    let authenticated = AuthenticatedMediaSource(
+      baseURL: try #require(URL(string: "https://example.com")), bearerToken: "token")
+    let sources: [any MemoMediaSource] = [FakeMediaSource(), authenticated]
+    for source in sources {
+      for state in [MemoState.received, .acted, .summarized, .failed, .needsRoute] {
+        #expect(source.speech(for: MemoFactory.memo("m", state: state, replyText: "ok")) == nil)
+      }
+      #expect(source.speech(for: MemoFactory.memo("m", state: .notified, replyText: "ok")) != nil)
+    }
+    #expect(MemoFactory.memo("m", state: .acted, replyText: "ok").isSpeakable == false)
+  }
+
   @Test("the authenticated source points at the memo's media routes with the bearer token")
   func authenticated() throws {
     let source = AuthenticatedMediaSource(
