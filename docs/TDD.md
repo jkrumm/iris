@@ -687,6 +687,11 @@ the runner needs a workflow step and was left out of this change (owned files: `
     change to the AirPods, or a start with them connected), which aborts the app.
     The fixes are Wave 17 I7: build the tap format from the node's current format,
     never let `installTap` throw, put a failed recorder where the user sees it.**
+  - on a resume recommendation the session is reactivated first (a session an interruption deactivated makes `engine.start()`
+    fail; up to four tries), then the engine restarts, and an engine that will not restart is replaced by a fresh one with the tap;
+  - `mediaServicesWereResetNotification` (the audio daemon restarted) closes the open segment of a recording take, sets the
+    category again and continues in a new segment on a new engine; a take that was paused (by the user, or by an interruption
+    that did not recommend resuming) stays paused.
 - **`RouteManager`:**
   - lists `availableInputs`, applies `setPreferredInput` after activation, and
     reads back `currentRoute`;
@@ -700,8 +705,16 @@ the runner needs a workflow step and was left out of this change (owned files: `
     interruption;
   - each closed file goes to the `Outbox`; a segment still open when the app dies or the recorder fails stays an unfinalised m4a (no `moov` atom, ffprobe cannot read it), which the startup sweep quarantines (Wave 17 D2: three such files, a few seconds of audio each; a crash-safe container is the fix);
   - a level meter is fed from tap RMS;
-  - an engine configuration change restarts the engine and starts a new
-    segment.
+  - an engine configuration change (a mic switch, AirPods connecting) closes the segment and replaces the engine with a fresh
+    one carrying the tap. The tap's format is the node's current `outputFormat`, installed only when it is non-empty and its
+    sample rate equals the hardware's (`inputFormat`); otherwise the bring-up is retried for about 1.5 s, then the take fails
+    with its segments kept. The audio engine calls (`installTap`, `start`, `stop`, `removeTap`) run through `IrisObjCGuard`, a
+    small Objective-C target that turns the exceptions AVAudioEngine raises into errors. Wave 17 D2.6: switching to AirPods
+    mid-take aborted the app (`SIGABRT`, uncaught `NSException` from `installTapOnBus` in the config-change re-install, which
+    used the old format after the HFP route change). The converter follows each buffer's format.
+    The first engine of a take is brought up the same way (up to four tries), since a start with AirPods connected hit the same
+    exception. While a restart is in flight `pause()` and `resume()` only record the wanted state (`EngineRun`), which the
+    restart applies to the new engine; a take that ends or begins meanwhile makes the restart's engine stale and it is torn down.
 - **`Outbox`** (Wave 15 I3): a persistent queue of **whole items**, in one JSON file (`Application Support/Iris/outbox.json`,
   written atomically, each segment named by **file name only**: the app's data container gets a new path when a build is installed over it (found on the first device, Wave 17 D1b), so an absolute path saved by an earlier run pointed at nothing, the upload failed as "the recording file is gone" and stalled while the audio sat unharmed in the new container. `JSONFileOutboxStore(segmentDirectory:)` puts every segment in the current capture directory on load, which also heals a record written with absolute paths, and a segment that had stalled on such a stale path with its file present is retried once; a file that is really gone stays stalled. A file that cannot be read or decoded (including a newer build's enum case) is an **error, never an empty queue**: it is left on disk untouched and the outbox reports itself closed (below), until Settings **"Reset outbox"** (Wave 16 I1) renames it aside: `outbox.quarantined-<UTC timestamp>.json`, kept next to it, never deleted, its segment files untouched, and a fresh empty outbox opens. Diagnostics lists the set-aside files with a `ShareLink`. A second tap while the reset runs joins it (`CaptureStack` keeps the one reset task) and gets its outcome; it is not reported as a failure. The reset claims the move in the same actor turn it starts (the stack already knows the file is unreadable from the refresh that offered the button), so no `open()` can read the file between the tap and the rename. An item whose write fails (a full disk) is taken back out and refused, so nothing is ever "queued" that a kill would lose. Three kinds of work, all
   idempotent on the server, so a retry after a lost answer is harmless:
@@ -769,8 +782,11 @@ the runner needs a workflow step and was left out of this change (owned files: `
   recommends; `switchInput` rolls the segment, and so does a route rule that applies mid-take (behind the same gate, only while
   recording or paused), so one file never holds two inputs. `updates()` is the state stream the UI and the Live Activity follow.
   A recorder failure (`.failed`: a segment write error, an engine that will not resume or restart) is a take failure: the session
-  stops the recorder, moves the take to phase `failed` (`TakeState.failure` says why) and holds it for the user's `stop()` or
-  `cancel()`. `stop()` then finishes the memo with the segments that really closed (`TakeResult.failure` set) or, with none, throws
+  stops the recorder (which closes the open segment), moves the take to phase `failed` (`TakeState.failure` says why) and
+  finishes the memo with the segments that closed, at once: a locked phone or a killed app must not hold captured audio
+  back for a stop that never comes. The user's `stop()` then acknowledges the failure and `cancel()` drops what the outbox
+  still holds (a memo the server already completed stays). An interruption that ends without a resume recommendation leaves
+  the take visibly `paused` with everything before it closed and queued. `stop()` on a failed take returns the memo with the segments that really closed (`TakeResult.failure` set) or, with none, throws
   `CaptureError.recordingFailed` instead of returning `nil` (which means nothing was said); the thread screen tells the user.
   Both actors are reentrant, so every write that follows an `await` re-checks what it assumed or is authoritative: `pause` and
   `resume` (and the interruption handlers) leave a take that failed meanwhile as `failed`, a failure that comes in while the

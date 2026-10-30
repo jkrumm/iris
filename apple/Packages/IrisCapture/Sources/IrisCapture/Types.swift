@@ -108,6 +108,8 @@ public struct RouteChange: Sendable, Equatable {
 public enum InterruptionEvent: Sendable, Equatable {
   case began
   case ended(shouldResume: Bool)
+  /// The audio daemon restarted: the session configuration and every engine are gone and must be rebuilt.
+  case mediaServicesReset
 }
 
 public enum CaptureError: Error, Sendable, Equatable {

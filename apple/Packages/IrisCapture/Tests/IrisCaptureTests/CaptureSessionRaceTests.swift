@@ -40,10 +40,10 @@ private struct BlockingSession: AudioSessionController {
 
   func configure() async throws {
     await latch.wait()
-    await base.configure()
+    try await base.configure()
   }
 
-  func activate() async throws { await base.activate() }
+  func activate() async throws { try await base.activate() }
   func deactivate() async throws { await base.deactivate() }
 }
 

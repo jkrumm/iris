@@ -8,8 +8,10 @@ let package = Package(
     .library(name: "IrisCapture", targets: ["IrisCapture"])
   ],
   targets: [
-    .target(name: "IrisCapture"),
-    .testTarget(name: "IrisCaptureTests", dependencies: ["IrisCapture"]),
+    // Turns the Objective-C exceptions AVAudioEngine raises (a tap format that disagrees with the hardware) into errors.
+    .target(name: "IrisObjCGuard"),
+    .target(name: "IrisCapture", dependencies: ["IrisObjCGuard"]),
+    .testTarget(name: "IrisCaptureTests", dependencies: ["IrisCapture", "IrisObjCGuard"]),
   ],
   swiftLanguageModes: [.v6]
 )

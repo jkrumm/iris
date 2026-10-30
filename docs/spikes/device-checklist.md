@@ -116,3 +116,15 @@ Filled in phase 2: each row is `pass` / `fail` / `after enrolment`, with date, d
   first take were sent from the current capture directory, the server answered 409 `bad_state` (the memo had been completed by hand) and
   `segmentCount` 3 covered them, `complete` cleared the take, and `outbox.json` ended with no entries, items or memos and the memo in
   `completedMemos`. Pass.
+
+## Wave 17 I7: a take across a lock-time interruption (2026-10-30, iPhone 15, iOS 26.6.1)
+
+- Finding (owner device, memo `8cffd169…`): the take screen showed 1:04 and "The recorder stopped: engine resume failed"; the server held
+  41.4 s in 5 segments. The missing ~23 s are the interruption window itself (the engine is paused while the session is interrupted), not audio
+  lost after capture: the phone's container held no leftover segment file, and `outbox.json` lists the memo in `completedMemos`. The resume
+  called `engine.start()` without reactivating the session, so it failed and the take was parked as `failed`. A 45 s locked take that met no
+  interruption was fine. Whether the system interrupted the session, and why, is not known from the logs we have (unverified).
+- Fix (fakes only): reactivate the session before the resume, rebuild the engine when it will not restart, rebuild after a media-services reset,
+  finish a failed take at once.
+- To verify on the phone (pending, owner step): start a take, lock the phone for 90 s while speaking numbered sentences, unlock, stop. Pass:
+  every sentence is in the transcript, or the screen says the take ended early and the transcript holds everything before that.
