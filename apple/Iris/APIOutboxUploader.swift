@@ -52,7 +52,7 @@ nonisolated struct APIOutboxUploader: SegmentUploader {
     } catch let APIError.server(status, body) where status == 409 && body.error == .badState {
       // The memo has left `receiving`. When the server completed it with this segment, the segment is delivered and `complete`
       // then answers with the memo it has. When it completed it with fewer, this file is the only copy of that audio: the
-      // outbox makes it a `transcribe` memo of its own (`LateSegmentError`), and the take's own memo stays as the server has it.
+      // outbox makes it a `transcribe` memo of its own (`LateSegmentError`), and the take's own memo stays as the server has it. A deleted memo is the exception: its segment is dropped.
       try await settleClosedMemo(segment, answer: body.message)
     } catch {
       throw Self.classified(error)
@@ -62,7 +62,11 @@ nonisolated struct APIOutboxUploader: SegmentUploader {
   private func settleClosedMemo(_ segment: ClosedSegment, answer: String) async throws {
     let held: Int
     do {
-      held = try await client.memo(id: segment.memoID.wireID).memo.segmentCount ?? 0
+      let memo = try await client.memo(id: segment.memoID.wireID).memo
+      // A deleted memo answers 409 `bad_state` too, and its audio was thrown away on purpose: the segment is dropped with
+      // the rest of the take, never turned into a memo the user did not keep.
+      guard !memo.isDeleted else { return }
+      held = memo.segmentCount ?? 0
     } catch {
       throw Self.classified(error)  // not knowing what the server holds is not an answer: try again later
     }

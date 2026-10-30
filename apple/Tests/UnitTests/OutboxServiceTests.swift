@@ -288,6 +288,33 @@ struct APIOutboxUploaderTests {
     await #expect(throws: LateSegmentError.self) { try await memo.uploader.upload(memo.segment) }
   }
 
+  @Test("a deleted memo also answers 409: its segment is dropped, never turned into a late-tail memo")
+  func segmentOfADeletedMemo() async throws {
+    let memo = try await ClosedMemo(held: 0)
+    defer { memo.remove() }
+    _ = try await memo.client.deleteMemo(id: memo.id.wireID)
+
+    try await memo.uploader.upload(memo.segment)  // returns: the entry clears, nothing is queued
+
+    let created = CreatedMemoLog()
+    let outbox = try await Outbox(
+      store: InMemoryOutboxStore(), uploader: APIOutboxUploader(client: memo.client, created: created),
+      clock: ManualClock(), policy: OutboxPolicy(jitter: { 0 }))
+    await memo.client.enqueueFailure(
+      .server(status: 409, body: ErrorBody(error: .badState, message: "memo is deleted")), for: .uploadSegment)
+    try await outbox.enqueueItem(
+      OutboxItem(
+        memoID: memo.id, kind: .voice, mode: "auto", startedAt: MemoFactory.now, queuedAt: MemoFactory.now,
+        title: "Voice memo"))
+    await outbox.enqueue(memo.segment)
+    await outbox.settled()
+    let makes = await memo.client.calls.filter {
+      if case .createMemo(let request) = $0 { request.mode == .transcribe } else { false }
+    }
+    #expect(makes.isEmpty)
+    await outbox.shutdown()
+  }
+
   @Test("when the server cannot be asked what it holds, nothing is decided: retried later, file untouched")
   func segmentLookupFails() async throws {
     let memo = try await ClosedMemo(held: 1)
