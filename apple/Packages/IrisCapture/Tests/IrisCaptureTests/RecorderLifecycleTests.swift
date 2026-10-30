@@ -234,3 +234,57 @@ struct EngineRecoveryTests {
     #expect(made == 1)
   }
 }
+
+struct EngineRunTests {
+  private func recording() -> EngineRun {
+    var run = EngineRun()
+    run.begin()
+    return run
+  }
+
+  @Test func pauseAndResumeInsideARestartNeverTouchTheTornDownEngine() {
+    var run = recording()
+    let token = run.beginRestart()
+    #expect(run.pause() == .none, "the old engine is gone; there is nothing to pause")
+    #expect(run.isPaused)
+    #expect(run.resume() == .none, "and nothing to start: the restart brings the engine up")
+    #expect(run.isPaused == false)
+    #expect(run.endRestart(token) == .keepRunning)
+  }
+
+  @Test func aPauseThatLandsInsideARestartIsAppliedToTheNewEngine() {
+    var run = recording()
+    let token = run.beginRestart()
+    #expect(run.pause() == .none)
+    #expect(run.endRestart(token) == .keepPaused)
+    #expect(run.isRestarting == false)
+  }
+
+  @Test func outsideARestartPauseAndResumeActOnTheEngine() {
+    var run = recording()
+    #expect(run.pause() == .pauseEngine)
+    #expect(run.resume() == .startEngine)
+    #expect(run.isPaused, "a start that fails keeps the take paused until it is confirmed")
+    run.resumed()
+    #expect(run.isPaused == false)
+  }
+
+  @Test func aRestartThatOutlivesItsTakeIsDiscarded() {
+    var run = recording()
+    let token = run.beginRestart()
+    run.end()
+    #expect(run.isRestarting == false)
+    #expect(run.endRestart(token) == .discard)
+  }
+
+  @Test func aRestartOfAnEarlierTakeCannotTouchTheNextOne() {
+    var run = recording()
+    let stale = run.beginRestart()
+    run.end()
+    run.begin()
+    let current = run.beginRestart()
+    #expect(run.endRestart(stale) == .discard)
+    #expect(run.isRestarting, "the stale restart did not end the new take's")
+    #expect(run.endRestart(current) == .keepRunning)
+  }
+}

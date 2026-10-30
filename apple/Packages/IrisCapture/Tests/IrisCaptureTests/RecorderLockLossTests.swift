@@ -172,6 +172,79 @@ struct RecorderLockLossTests {
     await finish(rig)
   }
 
+  @Test func aMediaServicesResetDoesNotResumeATakeTheUserPaused() async throws {
+    let rig = try await makeRig()
+    try await rig.session.start(request)
+    await rig.fake.record(seconds: 3)
+    await rig.session.pause()
+    #expect(await rig.session.current.phase == .paused)
+    let configured = await rig.fake.session.configureCount
+    let activated = await rig.fake.session.activationCount
+    await rig.fake.mediaServicesReset()
+    for _ in 0..<300 where await rig.fake.session.configureCount == configured {
+      try await Task.sleep(for: .milliseconds(10))
+    }
+    try await Task.sleep(for: .milliseconds(50))
+
+    #expect(await rig.fake.session.configureCount == configured + 1, "the category is set again for the later resume")
+    #expect(await rig.fake.session.activationCount == activated, "but nothing starts recording")
+    #expect(await rig.session.current.phase == .paused)
+    await rig.session.resume()
+    #expect(await rig.session.current.phase == .recording)
+    await rig.session.cancel()
+    await finish(rig)
+  }
+
+  @Test func aMediaServicesResetDoesNotResumeATakeAnInterruptionLeftPaused() async throws {
+    let rig = try await makeRig()
+    try await rig.session.start(request)
+    await rig.fake.record(seconds: 3)
+    try await interrupt(rig)
+    await rig.fake.session.deliver(.ended(shouldResume: false))
+    let configured = await rig.fake.session.configureCount
+    let activated = await rig.fake.session.activationCount
+    await rig.fake.mediaServicesReset()
+    for _ in 0..<300 where await rig.fake.session.configureCount == configured {
+      try await Task.sleep(for: .milliseconds(10))
+    }
+    try await Task.sleep(for: .milliseconds(50))
+
+    #expect(await rig.session.current.phase == .paused)
+    #expect(await rig.fake.session.activationCount == activated)
+    let result = try #require(try await rig.session.stop())
+    #expect(result.segmentCount == 1, "the 3 s before the interruption are kept")
+    await finish(rig)
+  }
+
+  @Test func aMediaServicesResetRetriesTheConfigurationUntilTheDaemonIsBack() async throws {
+    let rig = try await makeRig()
+    try await rig.session.start(request)
+    await rig.fake.record(seconds: 2)
+    await rig.fake.session.failConfigures(2)
+    let configured = await rig.fake.session.configureCount
+    await rig.fake.mediaServicesReset()
+    for _ in 0..<300 where await rig.fake.session.configureCount == configured {
+      try await Task.sleep(for: .milliseconds(10))
+    }
+    try await wait(.recording, in: rig.session)
+    #expect(await rig.fake.session.configureCount == configured + 1)
+    await rig.session.cancel()
+    await finish(rig)
+  }
+
+  @Test func aMediaServicesResetThatNeverRecoversFailsTheTakeAndSendsWhatItHas() async throws {
+    let rig = try await makeRig()
+    let id = try await rig.session.start(request)
+    await rig.fake.record(seconds: 5)
+    await rig.fake.session.failConfigures(100)
+    await rig.fake.mediaServicesReset()
+    try await wait(.failed, in: rig.session)
+
+    let call = try #require(try await waitForCompletion(of: id, in: rig))
+    #expect(call.segmentCount == 1)
+    await finish(rig)
+  }
+
   @Test func aMediaServicesResetWithNoTakeDoesNothing() async throws {
     let rig = try await makeRig()
     await rig.fake.mediaServicesReset()

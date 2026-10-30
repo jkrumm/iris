@@ -119,3 +119,70 @@ extension EngineStartup {
     throw lastError
   }
 }
+
+/// Whether the engine is running, paused or being replaced, kept free of AVFoundation so the ordering rules are testable.
+///
+/// A configuration change tears the engine down and brings a fresh one up with `await`s in between. While that restart is in
+/// flight `pause()` and `resume()` only record what the take should be doing; the engine they would act on is gone, and
+/// starting it would leave a running engine without a tap that nothing owns. The restart applies the recorded state when it
+/// finishes. A take that ends (or a new one that starts) meanwhile makes the restart's result stale.
+struct EngineRun: Sendable, Equatable {
+  /// What the caller does to the engine right now.
+  enum Action: Sendable, Equatable {
+    /// Nothing: a restart in flight will bring the engine up in the recorded state.
+    case none
+    case pauseEngine
+    case startEngine
+  }
+
+  enum Verdict: Sendable, Equatable {
+    /// The take ended or another began: tear the new engine down.
+    case discard
+    case keepRunning
+    /// The take was paused while the engine came up: pause the new engine.
+    case keepPaused
+  }
+
+  private(set) var isPaused = false
+  private(set) var isRestarting = false
+  private var generation = 0
+
+  /// A take starts: running, nothing in flight, and any restart of an earlier take is stale.
+  mutating func begin() {
+    generation += 1
+    isPaused = false
+    isRestarting = false
+  }
+
+  /// The take ends: a restart in flight is stale.
+  mutating func end() {
+    generation += 1
+    isRestarting = false
+  }
+
+  mutating func pause() -> Action {
+    isPaused = true
+    return isRestarting ? .none : .pauseEngine
+  }
+
+  /// `.startEngine` leaves `isPaused` for `resumed()` (a start that fails keeps the take paused).
+  mutating func resume() -> Action {
+    guard isRestarting else { return .startEngine }
+    isPaused = false
+    return .none
+  }
+
+  mutating func resumed() { isPaused = false }
+
+  /// The generation to hand back to `endRestart`.
+  mutating func beginRestart() -> Int {
+    isRestarting = true
+    return generation
+  }
+
+  mutating func endRestart(_ token: Int) -> Verdict {
+    guard token == generation else { return .discard }
+    isRestarting = false
+    return isPaused ? .keepPaused : .keepRunning
+  }
+}

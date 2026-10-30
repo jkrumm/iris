@@ -12,15 +12,23 @@ public actor FakeAudioSessionController: AudioSessionController {
   public private(set) var configureCount = 0
   public private(set) var activationCount = 0
   private var failingActivations = 0
+  private var failingConfigures = 0
 
   public init() {
     (interruptions, continuation) = AsyncStream.makeStream(of: InterruptionEvent.self)
   }
 
-  public func configure() {
+  public func configure() throws {
+    if failingConfigures > 0 {
+      failingConfigures -= 1
+      throw CaptureError.sessionFailure("session could not be configured")
+    }
     isConfigured = true
     configureCount += 1
   }
+
+  /// Script hook: the next `count` configurations throw (the audio daemon is still restarting).
+  public func failConfigures(_ count: Int) { failingConfigures = count }
 
   public func activate() throws {
     if failingActivations > 0 {
@@ -232,7 +240,7 @@ public actor FakeCapture {
 
   @discardableResult
   public func startTake(memoID: MemoID = MemoID()) async throws -> MemoID {
-    await session.configure()
+    try await session.configure()
     try await session.activate()
     try await recorder.start(memoID: memoID)
     return memoID

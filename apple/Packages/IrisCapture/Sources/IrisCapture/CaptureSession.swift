@@ -558,22 +558,28 @@ public actor CaptureSession {
     await resumeRecorder()
   }
 
-  /// The audio daemon restarted under a running take: close the open segment, rebuild the session and carry on in a new
-  /// one. A take that cannot be brought back fails (and keeps what it has) instead of staying silently dead.
+  /// The audio daemon restarted under a take: the category and activation are gone and the engine is dead. A recording take
+  /// closes its open segment, gets its session back and carries on in a new one. A paused take (the user's pause, or an
+  /// interruption that did not recommend resuming) gets its category back and stays paused: a reset is no reason to
+  /// start recording what the user, or the system, stopped. A take that cannot be brought back fails and keeps what it has.
   private func mediaServicesReset() async {
     await enter()
     defer { leave() }
     guard state.phase == .recording || state.phase == .paused else { return }
-    if state.phase == .recording { await recorder.pause() }
-    guard state.phase == .recording || state.phase == .paused else { return }
-    state.phase = .paused
-    publish()
+    let wasRecording = state.phase == .recording
+    if wasRecording {
+      await recorder.pause()
+      guard state.phase == .recording else { return }
+      state.phase = .paused
+      publish()
+    }
     do {
-      try await session.configure()
+      try await retrying { try await session.configure() }
     } catch {
       await sessionLost(error)
       return
     }
+    guard wasRecording else { return }
     await resumeRecorder()
   }
 
@@ -581,7 +587,7 @@ public actor CaptureSession {
   /// Behind the gate. A session that stays inactive fails the take: its segments are closed, queued and finished.
   private func resumeRecorder() async {
     do {
-      try await reactivateSession()
+      try await retrying { try await session.activate() }
     } catch {
       await sessionLost(error)
       return
@@ -593,15 +599,17 @@ public actor CaptureSession {
     publish()
   }
 
-  private func reactivateSession() async throws {
+  /// Runs a session call that fails while the audio daemon is not ready, a few times with a pause between, for as long as the
+  /// take is still waiting for it.
+  private func retrying(_ operation: () async throws -> Void) async throws {
     var attempt = 1
     while true {
       do {
-        try await session.activate()
+        try await operation()
         return
       } catch {
         guard attempt < Self.reactivationAttempts, state.phase == .paused else { throw error }
-        Log.capture.error("session reactivation \(attempt) failed: \(String(describing: error), privacy: .public)")
+        Log.capture.error("session call failed, try \(attempt): \(String(describing: error), privacy: .public)")
         attempt += 1
         let deadline = await clock.now().addingTimeInterval(reactivationDelay)
         try await clock.sleep(until: deadline)

@@ -26,7 +26,7 @@
     private var sampleSink: AsyncStream<[Float]>.Continuation?
     private var consumeTask: Task<Void, Never>?
     private var configurationTask: Task<Void, Never>?
-    private var isPaused = false
+    private var run = EngineRun()
 
     private var memoID: MemoID? { take.activeMemoID }
 
@@ -43,15 +43,15 @@
       (levels, levelContinuation) = AsyncStream.makeStream(of: Float.self, bufferingPolicy: .bufferingNewest(1))
     }
 
-    public func start(memoID: MemoID) throws {
+    public func start(memoID: MemoID) async throws {
       try take.begin(memoID)
+      run.begin()
       do {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let (stream, sink) = AsyncStream.makeStream(of: [Float].self)
         sampleSink = sink
-        try installTapAndStartEngine(sink: sink)
+        try await bringUpFirstEngine(sink: sink)
         rotator = SegmentRotator(policy: policy)
-        isPaused = false
         // Owned by the recorder; ends when `stop()` finishes the stream.
         consumeTask = Task {
           for await samples in stream { self.ingest(samples) }
@@ -69,6 +69,7 @@
     public func stop() async throws {
       // Claimed synchronously: the awaits below let other calls in, and they must see a stopping take.
       let memoID = try take.beginStop()
+      run.end()
       configurationTask?.cancel()
       configurationTask = nil
       engine.inputNode.removeTap(onBus: 0)
@@ -88,21 +89,22 @@
     }
 
     public func pause() {
-      guard take.isRecording, !isPaused else { return }
+      guard take.isRecording, !run.isPaused else { return }
       apply(rotator.rotate(for: .interruption), samples: [])
-      isPaused = true
-      engine.pause()
+      if run.pause() == .pauseEngine { engine.pause() }
     }
 
     public func resume() {
-      guard take.isRecording, isPaused, let sink = sampleSink else { return }
+      guard take.isRecording, run.isPaused, let sink = sampleSink else { return }
+      // A restart in flight brings the engine up running; the old one is torn down and must stay so.
+      guard run.resume() == .startEngine else { return }
       do {
         let target = targetFormat
         let resumed = try EngineStartup.resume(
           InputTapEngine(engine: engine, target: target, sink: sink),
           replacement: { InputTapEngine(engine: AVAudioEngine(), target: target, sink: sink) })
         engine = resumed.engine
-        isPaused = false
+        run.resumed()
       } catch {
         Log.capture.error("engine resume failed: \(String(describing: error), privacy: .public)")
         eventContinuation.yield(.failed(reason: "engine resume failed"))
@@ -111,8 +113,33 @@
 
     // MARK: Engine
 
-    private func installTapAndStartEngine(sink: AsyncStream<[Float]>.Continuation) throws {
-      try EngineStartup.bringUp(InputTapEngine(engine: engine, target: targetFormat, sink: sink))
+    /// The first engine of a take. With AirPods already connected the input can report no format for a moment after the session
+    /// activates (an `installTap` then aborts the process), so it is retried like a restart before the start fails.
+    private func bringUpFirstEngine(sink: AsyncStream<[Float]>.Continuation) async throws {
+      let target = targetFormat
+      let token = run.beginRestart()
+      let fresh: InputTapEngine?
+      do {
+        fresh = try await EngineStartup.recover(
+          InputTapEngine(engine: engine, target: target, sink: sink),
+          replacement: { InputTapEngine(engine: AVAudioEngine(), target: target, sink: sink) },
+          attempts: Self.startAttempts,
+          pause: {
+            try? await Task.sleep(for: .milliseconds(Self.restartDelayMilliseconds))
+            return true
+          })
+      } catch {
+        _ = run.endRestart(token)
+        throw error
+      }
+      let verdict = run.endRestart(token)
+      guard let fresh else { throw CaptureError.engineFailure("the engine did not start") }
+      guard verdict != .discard, take.isRecording else {
+        fresh.removeTap()
+        fresh.stop()
+        throw CaptureError.engineFailure("the take ended while the engine started")
+      }
+      engine = fresh.engine
     }
 
     /// Production `TapEngine`: the input tap converts to the target format and feeds `sink`.
@@ -222,11 +249,13 @@
     }
 
     private func handleConfigurationChange() async {
-      guard take.isRecording, !isPaused, let sink = sampleSink else { return }
+      guard take.isRecording, !run.isPaused, let sink = sampleSink else { return }
       apply(rotator.rotate(for: .configurationChange), samples: [])
       let target = targetFormat
+      let token = run.beginRestart()
+      let fresh: InputTapEngine?
       do {
-        let fresh = try await EngineStartup.recover(
+        fresh = try await EngineStartup.recover(
           InputTapEngine(engine: engine, target: target, sink: sink),
           replacement: { InputTapEngine(engine: AVAudioEngine(), target: target, sink: sink) },
           attempts: Self.restartAttempts,
@@ -235,24 +264,35 @@
             guard let self else { return false }
             return await self.isStillRecording
           })
-        // `nil`: the take ended while the input was not ready, nothing is running.
-        guard let fresh else { return }
-        engine = fresh.engine
-        if isPaused { engine.pause() }  // paused while the engine was coming up
       } catch {
+        // A stale restart (the take ended, another began) has nothing to report.
+        guard run.endRestart(token) != .discard, take.isRecording else { return }
         Log.capture.error("engine restart failed: \(String(describing: error), privacy: .public)")
         eventContinuation.yield(.failed(reason: "engine restart failed"))
+        return
       }
+      let verdict = run.endRestart(token)
+      guard let fresh else { return }  // the take ended while the input was not ready: nothing is running
+      // The take ended while the fresh engine came up (the check inside `recover` and this line are two actor turns apart).
+      guard verdict != .discard, take.isRecording else {
+        fresh.removeTap()
+        fresh.stop()
+        return
+      }
+      engine.stop()
+      engine = fresh.engine
+      if verdict == .keepPaused { engine.pause() }  // paused while the engine was coming up
     }
 
     private static let restartAttempts = 6
+    private static let startAttempts = 4
     private static let restartDelayMilliseconds = 250
     private var isStillRecording: Bool { take.isRecording }
 
     // MARK: Segments
 
     private func ingest(_ samples: [Float]) {
-      guard memoID != nil, !isPaused, !samples.isEmpty else { return }
+      guard memoID != nil, !run.isPaused, !samples.isEmpty else { return }
       levelContinuation.yield(Self.rms(samples))
       apply(rotator.append(frames: samples.count), samples: samples)
     }
