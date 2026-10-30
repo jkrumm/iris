@@ -1126,6 +1126,12 @@ cannot double-act); its row names the take it belongs to.
       Live Activity views): render the mockup and screenshot the app at the same size, light and dark, list every spacing / alignment /
       type / colour delta in a table, fix them, re-record snapshots. One shared spacing scale in IrisUI instead of per-view literals.
       D1 adds device screenshots of every screen and the places the owner points at. Large: split per screen group across workers.
+- [ ] **I6. Device observability (owner, 2026-10-30 22:05):** device testing must not depend on the owner narrating what he saw. Every
+      capture, route-change, interruption, outbox, intent and Live Activity event is an `os.Logger` line **and** a relayed `IrisTelemetry`
+      record (HyperDX, `service.name=iris-ios`, the memo trace id), flushed on background and at launch; MetricKit crash and hang
+      diagnostics (`MXDiagnosticPayload`) are uploaded through `POST /v1/telemetry` at the next launch; a `memo-debug` / `device` skill
+      recipe shows one take's device timeline next to its server timeline. Ask the D worker (`w17-d2r-device-retest`) what it was
+      missing in Wave 17/18 and cover that first. Prove it on the simulator, then with one device take in D1.
 - [ ] **S1. Server debt (Wave 17 Follow-ups #47, #50):** sweep limit / ENOENT / stat concurrency, fake order, hold simplification; a
       `RoutableMode` type. Deploy, `make verify`, `make smoke`.
 - [ ] **C1. CI flake:** `CaptureUITests.testAMemoTypedOfflineIsQueuedThenSentWithRetryNow` (`history.toast` 10 s wait) made deterministic
