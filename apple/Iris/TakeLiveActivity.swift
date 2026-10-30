@@ -127,14 +127,19 @@ struct StaleActivitySweeper {
 
   /// Launch: asks the server about every handed-over activity and ends the ones the rule names. Returns the memos of the
   /// activities it kept that have no push token: nothing will ever move those on, so the caller follows them (``follow(memoID:)``).
-  func sweep() async -> [String] {
-    // Each activity is looked up and settled on its own, so a slow lookup holds up that activity only.
+  func sweep(onKept follow: (String) -> Void = { _ in }) async -> [String] {
+    // Each activity is looked up and settled on its own, so a slow lookup holds up that activity only: `follow` is told of
+    // each kept memo as soon as its own answer is in.
     let followed = await withTaskGroup(of: (Int, String?).self) { group in
       for (index, activity) in catalog.handedOverActivities().enumerated() {
         group.addTask { (index, await settle(activity)) }
       }
       var found: [(Int, String)] = []
-      for await (index, memoID) in group { if let memoID { found.append((index, memoID)) } }
+      for await (index, memoID) in group {
+        guard let memoID else { continue }
+        found.append((index, memoID))
+        follow(memoID)
+      }
       return found.sorted { $0.0 < $1.0 }.map(\.1)
     }
     return followed
@@ -454,7 +459,7 @@ final class TakeLiveActivityCoordinator {
         var key: String?
         repeat {
           key = serverKey()
-          for memoID in await sweeper.sweep() { follow(memoID) }
+          _ = await sweeper.sweep(onKept: { follow($0) })
         } while serverKey() != key
       }
       sweeping = task

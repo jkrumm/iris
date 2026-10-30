@@ -44,9 +44,11 @@ nonisolated struct MediaDownloader: Sendable {
     let destination = directory.appending(path: name)
     // The cache check runs on the flights' actor, the same one eviction runs on, so a file is either seen before an
     // eviction that was asked for earlier removes it, or not at all.
-    let mark = evictions.mark()
-    // An eviction asked for earlier finishes first: no cache hit on a file about to go, no flight it would cancel.
-    await evictions.settled(for: name)
+    // The evictions asked for before this ask, and the point in time after them, in one step. Those finish first (no cache hit
+    // on a file about to go, no flight they would cancel); one asked for after the point discards a download that began
+    // before it.
+    let (earlier, mark) = evictions.snapshot(for: name)
+    for task in earlier { await task.value }
     if request.isReusable, await flights.useFile(at: destination) { return destination }
     let session = session
     let directory = directory
@@ -146,10 +148,7 @@ nonisolated struct MediaDownloader: Sendable {
       }
     }
 
-    /// A point in time for ``evicted(_:since:)``.
-    func mark() -> Int { state.withLock { $0.next } }
-
-    /// Whether an eviction covering `name` was asked for after `mark`.
+    /// Whether an eviction covering `name` was asked for after `mark` (from ``snapshot(for:)``).
     func evicted(_ name: String, since mark: Int) -> Bool {
       state.withLock { state in state.evictedAt.contains { name.hasPrefix($0.key) && $0.value > mark } }
     }
@@ -158,9 +157,10 @@ nonisolated struct MediaDownloader: Sendable {
       state.withLock { _ = $0.running.removeValue(forKey: id) }
     }
 
-    func settled(for name: String) async {
-      let tasks = state.withLock { $0.running.values.filter { name.hasPrefix($0.prefix) }.map(\.task) }
-      for task in tasks { await task.value }
+    func snapshot(for name: String) -> (pending: [Task<Void, Never>], mark: Int) {
+      state.withLock { state in
+        (state.running.values.filter { name.hasPrefix($0.prefix) }.map(\.task), state.next)
+      }
     }
   }
 
