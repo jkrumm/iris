@@ -223,6 +223,11 @@ public struct OutboxStateMachine: Sendable {
     withheldDeletions.remove(memoID)
   }
 
+  /// The memos split off from `memoID` as late tails, still queued.
+  func lateTails(of memoID: MemoID) -> [MemoID] {
+    items.values.filter { $0.parentMemoID == memoID }.map(\.memoID).sorted { $0.uuidString < $1.uuidString }
+  }
+
   /// The memo was discarded in this run (so its leaving the queue is not a completed upload).
   public func wasDiscarded(_ memoID: MemoID) -> Bool { discarded.contains(memoID) }
 

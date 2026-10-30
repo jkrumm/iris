@@ -105,6 +105,9 @@ public struct OutboxItem: Sendable, Equatable, Codable {
   public var mode: String
   /// Continues this thread; `nil` for a new memo.
   public var threadID: String?
+  /// The take this memo was split off from (a late tail, `LateSegmentError`). Saved with the item: discarding the parent
+  /// discards the memos split off from it in the same step, so no saved queue holds a tail whose take is gone.
+  public var parentMemoID: MemoID?
   public var startedAt: Date
   public var queuedAt: Date
   /// One line for the queue: the text, or what the take is.
@@ -119,13 +122,14 @@ public struct OutboxItem: Sendable, Equatable, Codable {
   public var createMayHaveLanded: Bool
 
   public init(
-    memoID: MemoID, kind: OutboxItemKind, mode: String, threadID: String? = nil, startedAt: Date, queuedAt: Date,
-    title: String
+    memoID: MemoID, kind: OutboxItemKind, mode: String, threadID: String? = nil, parentMemoID: MemoID? = nil,
+    startedAt: Date, queuedAt: Date, title: String
   ) {
     self.memoID = memoID
     self.kind = kind
     self.mode = mode
     self.threadID = threadID
+    self.parentMemoID = parentMemoID
     self.startedAt = startedAt
     self.queuedAt = queuedAt
     self.title = title
@@ -143,6 +147,7 @@ public struct OutboxItem: Sendable, Equatable, Codable {
     kind = try container.decode(OutboxItemKind.self, forKey: .kind)
     mode = try container.decode(String.self, forKey: .mode)
     threadID = try container.decodeIfPresent(String.self, forKey: .threadID)
+    parentMemoID = try container.decodeIfPresent(MemoID.self, forKey: .parentMemoID)
     startedAt = try container.decode(Date.self, forKey: .startedAt)
     queuedAt = try container.decode(Date.self, forKey: .queuedAt)
     title = try container.decode(String.self, forKey: .title)

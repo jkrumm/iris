@@ -132,14 +132,19 @@ public actor Outbox: SegmentOutbox {
   /// the wire has ended, so it cannot overtake the request that makes the memo. A late segment or `complete` for that memo
   /// is a 409 the server gives; nothing of the memo is queued any more, so it is dropped, never a stall.
   public func discard(_ memoID: MemoID) async {
-    let deleteOnServer = machine.needsServerDelete(memoID)
-    let creating = inFlight[.creation(memoID)]
-    for (id, task) in inFlight where id.memoID == memoID { task.cancel() }
-    retire(machine.discard(memoID, deleteOnServer: deleteOnServer))
-    unsavedSegments = unsavedSegments.filter { $0.key.memoID != memoID }
+    // The memos split off from the take as late tails go with it, in the same step: no saved queue holds a tail without its take.
+    let family = [memoID] + machine.lateTails(of: memoID)
+    var creations: [Task<Void, Never>] = []
+    for id in family {
+      let deleteOnServer = machine.needsServerDelete(id)
+      if let creating = inFlight[.creation(id)] { creations.append(creating) }
+      for (transfer, task) in inFlight where transfer.memoID == id { task.cancel() }
+      retire(machine.discard(id, deleteOnServer: deleteOnServer))
+      unsavedSegments = unsavedSegments.filter { $0.key.memoID != id }
+    }
     await persist()
-    await creating?.value
-    machine.releaseDeletion(memoID)
+    for creating in creations { await creating.value }
+    for id in family { machine.releaseDeletion(id) }
     await resume()
   }
 
@@ -364,7 +369,9 @@ public actor Outbox: SegmentOutbox {
     }
     let original = machine.items[key.memoID]
     let item = OutboxItem(
-      memoID: tailID, kind: .voice, mode: LateTail.mode, startedAt: original?.startedAt ?? now, queuedAt: now,
+      memoID: tailID, kind: .voice, mode: LateTail.mode, parentMemoID: key.memoID,
+      startedAt: original?.startedAt ?? now,
+      queuedAt: now,
       title: LateTail.title(label: late.label, original: original, memoID: key.memoID))
     // `false`: already queued, done or discarded, a replay that finds the memo it made before.
     if machine.enqueueItem(item, withheld: true) {

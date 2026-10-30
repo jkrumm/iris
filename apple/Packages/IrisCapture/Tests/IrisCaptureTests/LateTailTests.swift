@@ -217,6 +217,42 @@ struct LateTailTests {
     await outbox.shutdown()
   }
 
+  @Test func theTailRecordsItsTakeAndDiscardingTheTakeDiscardsTheTailInTheSameSave() async throws {
+    let directory = try temporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let segments = try files(directory, indices: [0, 1])
+    let tail = LateTail.memoID(of: original, index: 1)
+    let store = InMemoryOutboxStore()
+    let base = TestUploader()
+    let uploader = LateTailUploader(base: base, late: [SegmentKey(memoID: original, index: 1)])
+    await uploader.holdCreates(of: [tail])
+    let outbox = try await outbox(uploader, store: store)
+
+    // The take is still recording (no `finishMemo`), so it stays in the queue while its tail waits to be created.
+    try await outbox.enqueueItem(voiceItem(original))
+    for segment in segments { await outbox.enqueue(segment) }
+    for _ in 0..<500 where await !outbox.items().contains(where: { $0.memoID == tail }) {
+      try await Task.sleep(for: .milliseconds(10))
+    }
+    let saved = try await store.load()
+    #expect(
+      saved.items.first { $0.memoID == tail }?.parentMemoID == original, "the relation is part of the saved queue")
+
+    // The tail's create is on the wire (held): the discard waits for it to end, so the server's DELETE can follow it.
+    let releasing = Task {
+      try await Task.sleep(for: .milliseconds(100))
+      await uploader.release()
+    }
+    await outbox.discard(original)
+    try await releasing.value
+
+    let after = try await store.load()
+    #expect(after.items.isEmpty && after.entries.isEmpty, "the saved queue holds neither the take nor its tail")
+    await outbox.settled()
+    #expect(await base.deleted.contains(tail), "the tail's memo is removed on the server, not left behind")
+    await outbox.shutdown()
+  }
+
   @Test func aLinkLeftByAKillBeforeTheItemWasSavedIsReused() async throws {
     let directory = try temporaryDirectory()
     defer { try? FileManager.default.removeItem(at: directory) }
