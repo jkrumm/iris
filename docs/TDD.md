@@ -674,9 +674,18 @@ the runner needs a workflow step and was left out of this change (owned files: `
     `.allowBluetoothA2DP` and `.bluetoothHighQualityRecording` (falls back to
     HFP; not available in the EU);
   - `setPrefersNoInterruptionsFromSystemAlerts(true)`;
-  - interruptions handled through the iOS 26 notifications (`didBecomeInactive`,
-    `resumptionRecommendation`). The take pauses (a segment boundary) and
-    resumes.
+  - interruptions: iOS 27 `didBecomeInactive` / `resumptionRecommendation`, iOS 26
+    `AVAudioSession.interruptionNotification` (what the iOS 26.6.1 test phone runs;
+    `AVAudioSessionAdapters.swift`). The take pauses (a segment boundary) and
+    resumes. **Device (Wave 17 D2, iPhone 15, iOS 26.6.1): a Siri interruption mid-take
+    paused and resumed cleanly (the `interruptionNotification` branch works), but
+    three other paths lost audio and, in the first, left the UI saying RECORDING:
+    a resume with the app in the background and one lock case ("engine resume
+    failed"), a stop that hit a 10 s scene-update watchdog, and an uncaught
+    `NSException` from `installTap` inside `handleConfigurationChange()` (a route
+    change to the AirPods, or a start with them connected), which aborts the app.
+    The fixes are Wave 17 I7: build the tap format from the node's current format,
+    never let `installTap` throw, put a failed recorder where the user sees it.**
 - **`RouteManager`:**
   - lists `availableInputs`, applies `setPreferredInput` after activation, and
     reads back `currentRoute`;
@@ -688,7 +697,7 @@ the runner needs a workflow step and was left out of this change (owned files: `
     16 kHz mono, about 32 kbps);
   - rotates files every 10 s of frames, on a mic switch, and on an
     interruption;
-  - each closed file goes to the `Outbox`;
+  - each closed file goes to the `Outbox`; a segment still open when the app dies or the recorder fails stays an unfinalised m4a (no `moov` atom, ffprobe cannot read it), which the startup sweep quarantines (Wave 17 D2: three such files, a few seconds of audio each; a crash-safe container is the fix);
   - a level meter is fed from tap RMS;
   - an engine configuration change restarts the engine and starts a new
     segment.
@@ -794,7 +803,10 @@ the runner needs a workflow step and was left out of this change (owned files: `
   registered at launch (`startMemo()`: server saved, microphone permission, `CaptureSession.start` in `auto` mode, then the
   Live Activity through `TakeLiveActivityCoordinator`). It compiles and runs in the unit tests on the simulator
   (`StartMemoIntentTests`: the fake stack, a recording `TakeLiveActivity`); **pressing the Control and a real
-  `Activity.request` from the background are device-only** (S1 decides the `openAppWhenRun` fallback).
+  `Activity.request` from the background are device-only.** Device result (Wave 17 D2, iPhone 15, iOS 26.6.1, `docs/spikes/S1-lock-screen-start.md`): the Record control, from the Lock
+  Screen and from Control Center, starts nothing (no take, the app is not launched, only the widget extension runs); Siri has no phrase (no `AppShortcutsProvider`); a take started in the app
+  requests its Live Activity and runs fine. So S1 has not yet shown that an `AudioRecordingIntent` start works from a control: the likely cause is the intent running in the extension
+  process without the app's handler, and Wave 17 I8 decides between a fix and the `openAppWhenRun` fallback below.
 - **Callers:** the `ControlWidget` button calls the intent. So do Siri ("Record
   with Iris") and Control Center.
 - **Fallback, accepted by the PRD:** if the system refuses to start a Live
@@ -822,7 +834,7 @@ the runner needs a workflow step and was left out of this change (owned files: `
     (shown 15 minutes) and a discard ends it at once (`Activity.end`); a sent memo is handed over to the server, not ended. The activity's push token is registered
     (`PUT /memos/:id/activity-token`) once the server has the memo, since it answers 404 before that, and retried on the next update; at
     launch every activity still in a client phase is ended, because nothing moves it on after its process is gone (`endOrphans()` also runs when the connection changes, and spares the takes this process is driving, so changing the server URL mid-take does not end that take's activity).
-    The widget renders all seven (timer for recording and processing); never rendered on a device (the snapshot tests render its IrisUI views, below). A new take's `headline` carries one line about earlier memos still sending ("1 earlier memo is still sending", client phases only), which the card shows as a note;
+    The widget renders all seven (timer for recording and processing); on the device (Wave 17 D2) recording, paused and processing were seen, on the Lock Screen and in the island (compact and expanded), the other four not yet. **Without APNs (a Personal Team) nothing moves a processing activity on: every finished take left a "Processing" card counting up, and the system showed one of those in the island instead of the running take, so its Stop / Pause / mic swap were unreachable (Wave 17 I8).** A new take's `headline` carries one line about earlier memos still sending ("1 earlier memo is still sending", client phases only), which the card shows as a note;
   - `inputName`;
   - `routeChip`;
   - `headline` (≤ 60 chars; the Lock Screen truncates around 160 pt);
@@ -841,7 +853,7 @@ pinned simulator in light and dark (`LiveActivitySnapshotTests`, the island thro
 - **Uploading / processing:** a line and the four-stage dashes (record, upload, process, done; the phase decides the stage). There is no per-step progress, because `ContentState` carries no step (the server would have to push one); the dashes fill when the activity updates, which the system animates.
 - **Several memos:** each memo has its own activity, so the Lock Screen stacks them and the system picks the most recent for the island and shows the other as a small circle. A take that starts while another is sending also says so inside its own card.
 - **Done card (round 2):** the checkmark and the headline share a first-baseline row, so the mark stays on the first line however far the headline wraps; the phase title has no second check.
-- **Device exit checks** (left for pairing; `docs/spikes/device-checklist.md` is not edited here): the Lock Screen card and the island rendering (compact, minimal, expanded, two activities), the Stop / mic swap / pause buttons performed from the island with the app suspended, a background take, a Bluetooth route, and the recording's Live Activity request from the background.
+- **Device exit checks** (Wave 17 D2, results in `docs/spikes/device-checklist.md`): the Lock Screen card and the compact and expanded island **pass**; the compact banner and the keyboard-up composer **pass**; island Pause works and island Resume **fails** (I7); minimal island, two activities in the island (the stale ones, I8), Stop and mic swap from the island, a Bluetooth route and the car are **not run**.
 
 ### Notifications
 
@@ -1087,8 +1099,11 @@ the `IrisCore` dependency when R1 wires them together.
 
 | Risk | Plan |
 |-|-|
-| A Live Activity start from a control intent may need the foreground (one forum report) | S1; the fallback is `openAppWhenRun` + auto-start, accepted by the PRD |
-| Built-in mic while connected to the car's Bluetooth is undocumented | S2 on hardware |
+| A Live Activity start from a control intent may need the foreground (one forum report) | S1 (Wave 17 D2, iOS 26.6.1): the control starts nothing at all, with no visible error; not yet the "needs the foreground" refusal, more likely the missing handler in the extension process. I8 fixes it or takes the fallback `openAppWhenRun` + auto-start, accepted by the PRD |
+| Built-in mic while connected to the car's Bluetooth is undocumented | S2 on hardware; Wave 17 D2: the AirPods switch crashes the app before the car question can be asked, the car was not run, still open |
+| An audio engine cannot restart in the background | Device (Wave 17 D2): resume from the island and one lock case failed with "engine resume failed" and the UI kept counting; a route change to the AirPods (or a start with them connected) aborts the app with an uncaught `NSException` in `installTap`; the take loses its open segment (I7) |
+| A segment open at a crash is unreadable | Device (Wave 17 D2): three quarantined segments have no `moov` atom; the "at most 10 s lost" holds but the seconds are gone; a crash-safe segment container |
+| Live Activities are server-owned after the hand-over | Without APNs (Personal Team) they stay on "Processing" and hijack the island; I8, and the paid team's pushes must be re-checked in D3 |
 | TTS playback from a Live Activity intent while the app is suspended | S3; fall back to opening the app |
 | Bun `node:http2` over-dispatch to APNs | Cap in-flight streams (D6); Bun 1.3.14's HTTP/2 `fetch` as a fallback |
 | `xcode-27` is a preview CI image | Fall back to `macos-26` (D14) |
