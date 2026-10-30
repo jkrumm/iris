@@ -27,6 +27,28 @@ capability facts; #51 two readability items. Owner notes: three device tokens pr
 reported done within a second; mini load (Spotlight). Train lesson: the local `lockf … make check` in `rd merge` times out under load, use
 server checks + CI for Apple; `rd merge` with `--check 'true' --no-ci` for a checked, CI-green head behind docs-only master commits.
 
+## Batch 2 (2026-10-30 afternoon)
+
+- #59 (D2 docs) head stopped syncing on GitHub after a rebase; close+reopen failed, so it was replaced by #62, merged `b2b78f9`.
+- Reviews: #52 round 2 clean; #61 clean; #60 clean; #58 actionable (sweep never follows kept tokenless activities) -> I8 fixing;
+  #57 actionable (reset resumes a user/interruption pause; resume during config-change recovery hits the torn-down engine) -> I7 fixing.
+- Round 2: #57 clean; #58 two 'blocking' judged follow-ups (implicit self in Task{} compiles, check-apple built; a server-URL switch
+  404 ends a Live Activity early, no data). I9 rebase verified code-identical.
+- Batch 2 = PR #63 (`w17-batch-2`, worktree /tmp/iris-batch2): #52, #57, #58, #60, #61; docs conflicts resolved in the #60 merge.
+  Merged `73efd51` (apple 46 min green); no server change, no deploy. Members auto-closed as merged.
+- Running (fanned ~17:40): D2r device re-test (`w17-d2r-device-retest`, rows 1/4/15/20/21, §8 scroll, banner stop, ddaad4d8 tail as its
+  own transcribe memo), I5 (`w17-i5-memo-detail`, device proof only after the lead clears the phone), I3 (`w17-i3-spoken-reply-defer`).
+- Owner question for Left behind: late tail of a closed memo (I9's (b): follow-up memo vs append route).
+- After batch 2: fresh device build for the owner re-test of checklist rows 1, 4, 15, 20, 21 + I10 scroll jump + ddaad4d8 tail; then
+  `rd fan iris /tmp/iris-w17/brief-i5.md` and `rd fan iris /tmp/iris-w17/brief-i3.md` (disjoint files).
+- Left behind adds: #52 gateway 5xx keeps "Connected", insert suppression for unhidden ids, eviction ordering + launch sweep, probe vs link
+  recency; #60 legacy outbox records without completeMayHaveLanded may grow a completed take, Bool?? flag map, StopOffMainTests cannot
+  catch a real thread block, TakeView animation gate; #61 two doc-wording items; #57/#58 improvements after their round 2.
+
+## Queued briefs
+
+- I3 and I5 launched after batch 2 (briefs in /tmp/iris-w17/).
+
 ## Apple build slot
 
 Every xcodebuild/simctl/devicectl command runs under `lockf -t 900 /tmp/iris-apple.lock …` (exit 75 = busy, retry). This lets D and I
