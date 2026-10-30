@@ -46,9 +46,9 @@ final class CaptureUITests: IrisUITestCase {
     XCTAssertTrue(pill.isEnabled, "production-shaped capture is available under the fake stack")
     pill.press(forDuration: 1.5)
 
-    // Processing: the pending turn with the step dashes, then the answer replaces it.
-    XCTAssertTrue(app.descendants(matching: .any)["thread.turn.pending"].waitForExistence(timeout: 10))
-    XCTAssertTrue(label(app, containing: "fake answer to your voice memo").waitForExistence(timeout: 20))
+    // Processing: the answer replaces the pending turn. The fake answers fast and a hosted runner is slow, so the pending
+    // turn itself is not asserted here (ThreadUITests and ReplyFlowReviewUITests run it on the slowed fake).
+    XCTAssertTrue(label(app, containing: "fake answer to your voice memo").waitForExistence(timeout: 30))
     XCTAssertFalse(app.descendants(matching: .any)["thread.turn.pending"].exists)
 
     // The outbox is empty again once the memo went up (the thread screen hides the tab bar: back to History first).

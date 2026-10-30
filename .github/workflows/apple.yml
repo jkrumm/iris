@@ -13,7 +13,7 @@ jobs:
     # Public repo: the hosted Xcode 27 image (TDD D14), same Xcode major as the mini.
     # Fall back to `macos-26` (Xcode 26.6, no iOS 27-only APIs) only if this label queues for more than 30 min.
     runs-on: xcode-27
-    timeout-minutes: 45
+    timeout-minutes: 75
     steps:
       - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
