@@ -94,6 +94,9 @@ describe("mode transcribe", () => {
     expect(() => advance({ state: "summarized", step: "notify", mode: "transcribe" })).toThrow(
       IllegalTransitionError,
     );
+    expect(() => stateBefore({ step: "route", mode: "transcribe" })).toThrow(
+      IllegalTransitionError,
+    );
   });
 
   it("leaves every other mode's pipeline whole", () => {

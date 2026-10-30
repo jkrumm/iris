@@ -2,6 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
     "from": {
+      "description": "The step to re-run from. 400 `bad_request` for a typed memo's `transcribe` (no recording) and for a step the memo's mode has no part in (mode `transcribe` runs only `transcribe` and `notify`).",
       "enum": [
         "ingest",
         "transcribe",

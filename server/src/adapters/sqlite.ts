@@ -60,7 +60,7 @@ export function migrate(db: Database, migrations: readonly string[] = MIGRATIONS
 interface MemoRow {
   seq: number;
   id: string;
-  mode: string;
+  mode: MemoMode;
   device: string;
   started_at: string;
   state: string;
@@ -171,7 +171,7 @@ function parseReplyBlocks(row: MemoRow) {
 
 const toMemo = (row: MemoRow): Memo => ({
   id: row.id,
-  mode: row.mode as MemoMode,
+  mode: row.mode,
   device: row.device,
   startedAt: row.started_at,
   state: row.state as MemoState,
@@ -299,7 +299,7 @@ export function createSqliteMemoStore(params: { db: Database; clock: Clock }): M
   });
 
   const resetForRetry = db.transaction((id: string, from: Step) => {
-    const mode = memoById(id)?.mode as MemoMode | undefined;
+    const mode = memoById(id)?.mode;
     if (mode === undefined) return false;
     // A failed memo, or a finished one whose optional step failed on the way (`from` is that step).
     const reset = db

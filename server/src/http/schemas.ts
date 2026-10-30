@@ -199,7 +199,13 @@ export const CreateTextMemoBody = t.Object({
 });
 export const CompleteBody = t.Object({ segmentCount: Int });
 // `UnionEnum` defaults a missing value to its first member; a missing `from` must be a 400, not "ingest".
-export const RetryBody = t.Object({ from: t.UnionEnum([...STEPS], { default: undefined }) });
+export const RetryBody = t.Object({
+  from: t.UnionEnum([...STEPS], {
+    default: undefined,
+    description:
+      "The step to re-run from. 400 `bad_request` for a typed memo's `transcribe` (no recording) and for a step the memo's mode has no part in (mode `transcribe` runs only `transcribe` and `notify`).",
+  }),
+});
 /** `tab` is required for `herdr` and rejected for the others (400 `bad_request`). */
 export const RouteBody = t.Object({
   // `UnionEnum` defaults a missing value to its first member; a missing destination must be a 400, not "hermes".
