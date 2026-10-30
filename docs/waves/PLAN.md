@@ -422,7 +422,7 @@ no in-session `/code-review` fallback; if `agw review` is degraded, re-run it la
 pushed to master, the poller deploys, then `make verify` + `make smoke` on the mini. Apple changes gate on `apple.yml`.
 **Mini CPU diet (owner, 2026-10-30):** the full `make uitest` suite runs only in CI (hosted `xcode-27`, off the mini). Locally a worker
 builds, runs `make snapshots` and only the UI tests of the screens it touched (`-only-testing`), on one simulator, then `xcrun simctl
-shutdown all`; one `xcodebuild` on the mini at a time, fleet-wide. A worker never re-runs the full suite locally to bisect a CI failure:
+shutdown all`; one `xcodebuild` on the mini at a time, fleet-wide, enforced by the lock: every `xcodebuild`, `make snapshots`, `make uitest`, `make check-apple`, `make run-sim` and `make device` runs as `lockf -t 1800 /tmp/iris-apple.lock <cmd>` (2026-10-31 00:45: five parallel builds and three simulators took the load to 248). A worker never re-runs the full suite locally to bisect a CI failure:
 it reads the CI logs and runs the failing test alone.
 **Merge train under load (Wave 18 C1):** `rd merge`'s `lockf … make check` times out when the mini is busy, so a train runs the server checks + `make e2e` locally and lets `apple.yml` gate Apple.
 **Batch train (owner, 2026-10-30):** Apple PRs no longer wait for one `apple.yml` run each. Every PR is still reviewed and passes
