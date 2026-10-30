@@ -956,7 +956,7 @@ frame, so snapshots show neither; `scripts/reply-flow-shots.sh` only exports (up
 `ReplyFlowReviewUITests` "Timed out while evaluating UI query" (on #40 and on master after #44); `diagram-pele.test.ts` times out locally under xcodebuild
 load (retry).
 
-## Wave 17 — the iPhone: spikes S1–S2 and device exit checks ∥ Wave 16 debt            <!-- status: active -->
+## Wave 17 — the iPhone: spikes S1–S2 and device exit checks ∥ Wave 16 debt            <!-- status: done -->
 The paired iPhone opens backlog 1 and the device halves of 2, 5 and 7, next to Wave 16's follow-ups. Tracks: **D** (device: signing and
 `apple/project.yml`/entitlement config, `docs/spikes/**`, TDD §4/§13 findings) ∥ **S** (`server/**`, `contracts/**`, `scripts/**` +
 `IrisCore` follow-ups) ∥ **I** (`apple/**` app code). D and I share the one-`xcodebuild`-at-a-time slot (a device build counts): the lead
@@ -972,15 +972,15 @@ The first `-allowProvisioningUpdates` build registers the device; a codesign key
 "Always Allow" once. **Owner-hands steps** (lock screen, Bluetooth, driving, a tap on the phone) go to the owner one at a time with
 `ask-human.sh ask '<step: what to do and what to look for>' --cmd true` (Run = passed, Deny = failed, a timeout = not run yet; never
 treat silence as a pass); everything else is headless (`devicectl` install/launch, device screenshots, `log stream`).
-- [ ] **D1. Device bring-up:** a repeatable `make` target that builds, signs (Personal Team now, the paid team later by changing one
+- [x] **D1. Device bring-up:** a repeatable `make` target that builds, signs (Personal Team now, the paid team later by changing one
       setting), installs and launches Iris and its extensions on the paired iPhone, and screenshots it; the production composition
       reaches the server over the tailnet (prove it: a typed memo from the phone lands `done`). Document it in AGENTS.md and the `device`
       skill. Anything a Personal Team cannot sign is gated off for device builds only and listed.
-- [ ] **D1b. The owner's first device take never arrived (urgent, data):** memo `82c8d008-2f34-40fe-99c9-61341de76089` exists on the
+- [x] **D1b. The owner's first device take never arrived (urgent, data):** memo `82c8d008-2f34-40fe-99c9-61341de76089` exists on the
       server since 2026-10-30 07:49Z (take started 06:59Z on the phone) with `segmentCount 0`, stuck `receiving`. Find where the audio is
       (the phone's outbox / quarantine, device `log stream`), get it delivered so the memo completes, then fix the cause with a test. Never
       delete or reset the phone's outbox to get there. The owner's feedback in it is what `docs/design/feedback-device-1.md` records.
-- [ ] **D2. Spikes S1 and S2 + device exit checks** (`docs/spikes/S1-…`, `S2-…`, `device-checklist.md`): Lock Screen control starts a take
+- [x] **D2. Spikes S1 and S2 + device exit checks** (`docs/spikes/S1-…`, `S2-…`, `device-checklist.md`): Lock Screen control starts a take
       with a Live Activity and survives 30 minutes; mic switch mid-take incl. Bluetooth and the built-in mic; background take; Dynamic
       Island controls (stop, mic swap, pause) and the compact banner; the reply flow's keyboard-up composer (screenshot, Wave 16 I4);
       the iOS 26 paths of the Wave 15/16 code (interruption API, Liquid Glass fallbacks). Findings appended to each spike file and TDD
@@ -990,42 +990,96 @@ treat silence as a pass); everything else is headless (`devicectl` install/launc
       Activity + [Play] from a suspended app) and TestFlight (backlog 3, `make testflight`). Needs the APNs `.p8` (Key ID, Team ID) and an
       App Store Connect API key in 1Password first, seeded with `make secrets-seed` through `ask-human.sh`; the owner creates the keys.
       Not cleared → Left behind, Wave 18.
-- [ ] **S1. Server follow-ups (Wave 16):** a boot sweep of reply-asset files orphaned by a crash between commit and prune; the five
+- [x] **S1. Server follow-ups (Wave 16):** a boot sweep of reply-asset files orphaned by a crash between commit and prune; the five
       contract fixtures still carrying "audio-gateway transcribe failed: 502" use the door's wording; whatever of the older server debt
       is still open (mother handoff "Carry-forward debt": STT/speech timeouts counted transient, a thread-queue waiter holding a
       `driveAll` slot, herdr's unbounded per-pane queue, Pele assets written outside `completeStep`'s transaction, no asset backfill for
       older replies) after checking the Wave 15/16 Left behind. Deploy, `make verify`, `make smoke`.
-- [ ] **I1. Capture and outbox follow-ups (Wave 16 I1), data-safety first:** a discard hides the memo only once the outbox is known to
+- [x] **I1. Capture and outbox follow-ups (Wave 16 I1), data-safety first:** a discard hides the memo only once the outbox is known to
       open; the `ActivityTokenRegistrar` defer never clears `isSending` on a re-registered entry; a second Reset tap mid-reset; the
       `finishTimedOut` vs `abandoned` window; the tail segment after a stop timeout is uploaded, not quarantined; the startup sweep behind
       a store port; a crash between the create send and its save; quarantined files bounded (count or age, never silently deleted
       without the owner's word: surface them in Settings); a recorder that never emits `stopped` no longer blocks the next take.
-- [ ] **I2. UI follow-ups (Wave 16 I2–I4):** History's insert ordered against the hidden-change channel; eviction scans off the main
+- [x] **I2. UI follow-ups (Wave 16 I2–I4):** History's insert ordered against the hidden-change channel; eviction scans off the main
       actor; a download in flight never lands after eviction; a `load()` overlapping a mic-rule pick shows the saved choice; `playReply`
       shares the speakable rule (incl. `state == .notified`); one route-sheet wiring; a locked take that fails to start clears
       `isLocked`; VoiceOver hint matches the toggle, no empty hint while recording; the "too short" toast's `de` entry; heading-style
       constants; the `ReplyFlowReviewUITests` "Timed out while evaluating UI query" flake made deterministic.
-- [ ] **I3. Spoken reply vs. playing reply or recording — owner answered 2026-10-30: B (defer).** While a reply is playing or a take
+- [x] **I3. Spoken reply vs. playing reply or recording — owner answered 2026-10-30: B (defer).** While a reply is playing or a take
       is recording, a finished memo's spoken reply does not auto-play: it never interrupts the player and never pauses a recording; it
       waits as the memo's notification / [Play]. (Mother's reading of "rather B, pause playing, not allowing auto-playing".) TDD amended.
-- [ ] **S2 + I4. Transcribe-only mode** (owner, `feedback-device-1.md` §2): a mode `transcribe` the owner picks up front; the memo
+- [x] **S2 + I4. Transcribe-only mode** (owner, `feedback-device-1.md` §2): a mode `transcribe` the owner picks up front; the memo
       ends `done` after `transcribe` with the transcript, no decide, act or summarize. Contract + fixtures + `IrisCore`; the mode picker
       gets the entry; History and the detail show it as a transcript. TDD amended.
 - [ ] **I5. Memo detail per `feedback-device-1.md` §1, §4, §5:** copy transcript and reply as plain text (proven on the device: paste
       into Notes); the waterfall collapsed by default to one line (total time · total cost), expanding to the steps; no gaps or
       misdrawn bars between steps; cost shown with a precision that never reads $0.00 for a real cost (e.g. `$0.0002` / `<$0.001`).
       Snapshots light and dark plus a device screenshot. The take screen's level meter rises visibly for normal speech (§6, proven on the device).
-- [ ] **I6. Route configuration (render only, `feedback-device-1.md` §3):** where the owner sees and configures what Iris can route to
+- [x] **I6. Route configuration (render only, `feedback-device-1.md` §3):** where the owner sees and configures what Iris can route to
       (destinations, their targets, the per-route mic rules that exist). Render it in the Wave 15 I5 manner and list it in
       `docs/design/README.md` for async owner review; do not build it.
+- [x] **I2a. UI-query flake (lead, from CI):** UI tests wait on specific elements (`waitForPresence` / `waitForAbsence` / `revealRow`
+      with a query retry), no broad queries under load.
+- [x] **I7. Recorder survives a lock and a mic switch (lead, from D2 rows 4/21 and two crash reports):** no "engine resume failed" at the
+      lock, the AirPods switch rebuilds the tap on the new format instead of a SIGABRT, a stopped recorder never drops audio.
+- [x] **I8. Lock Screen record control and stale Live Activities (lead, from D2 rows 1/20):** the control runs `StartMemoIntent` in the
+      app process (`LiveActivityIntent`); a handed-over activity without a push token is ended by the app (follower + launch sweep).
+- [x] **I9. Stop watchdog and late tail (lead, from D2's 0x8BADF00D on memo `ddaad4d8`):** stop never blocks the main actor; a tail
+      segment of a take whose `complete` was never handed out is adopted by the sweep.
+- [x] **I10. History scroll jump (owner, `feedback-device-1.md` §8):** the filter chips are the list's first row, so the large title
+      tracks the scroll.
 - [ ] **H1. Housekeeping (backlog 10, R3's screens have shipped):** delete the round-1/2 mockup image objects via `/img` (incl. the stray
       `r2-detail-light`), `iumac:/tmp/iris-mockups.html` + `/tmp/iris-mockups/`, and the round-1/2 files under `docs/design/renders/`.
       Keep every render `docs/design/README.md` lists for Wave 15 I5 and Wave 16 I4 and anything a feedback file links; list what was
       deleted in the close-out.
-- [ ] **C1. CI diet:** `apple.yml` gets a `concurrency` group per ref with `cancel-in-progress` (a new push cancels the stale run on a
+- [x] **C1. CI diet:** `apple.yml` gets a `concurrency` group per ref with `cancel-in-progress` (a new push cancels the stale run on a
       PR, never on master); the local `make` targets get a targeted UI-test entry (`make uitest ONLY=<TestClass>`) and AGENTS.md says the
       full suite is CI's. No test is dropped from CI.
-- [ ] **Deploy + prove:** server deployed, `make verify` healthy, `make smoke` green; `apple.yml` green on master.
+- [x] **Deploy + prove:** server deployed, `make verify` healthy, `make smoke` green; `apple.yml` green on master.
+
+**Left behind:** (lead, closed 2026-10-30) merged by the train or a batch train (owner direction 2026-10-30: reviewed Apple PRs stacked
+on one `w17-batch-N` branch, one merge commit each, one `apple.yml` run), every PR reviewed with `agw review --pr`, blocking findings fixed
+before merge: #46 H1 (`200194f`), #48 D1 (`d24476b`), #51 I2a (`1be110b`), #50 S2+I4 (`903b5e4`, deployed), #53 I6 (`e4a142c`), batch 1
+`2b54375` (#47 S1, #49 I1, #55 D1b, #54 C1; deployed, `make verify` healthy, `make smoke` green), #62 D2 (`b2b78f9`, replaces #59 whose
+head stopped syncing on GitHub), batch 2 `73efd51` (#52 I2 two rounds, #57 I7 two blocking: a media-services reset resumed a user or
+interruption pause, resume during a config-change recovery hit the torn-down engine; #58 I8 blocking: the launch sweep never followed kept
+tokenless activities; #60 I9; #61 I10), batch 3 `e83b19f` (#64 I3 blocking: a take that opened and closed during the speech download did
+not cancel the reply; #65 I5 three blocking in plain-text copy: URL repeated per formatted run, first-line indentation, empty table cells).
+`make verify` healthy, `make smoke` green after batch 3; `apple.yml` green on master at `e83b19f`. Memo `82c8d008` (the lost first take)
+was delivered from a container backup and sits at `needs_route` for the owner's choice.
+**Device re-test (paused, Wave 18 carries it; worker `w17-d2r-device-retest` kept open):** with the owner on the iPhone, install master
+and re-test checklist rows 1 (Lock Screen / Control Center Record starts a take, I8), 4 (AirPods switch, I7), 15 (island Stop / mic swap /
+Pause-Resume), 20 (no Processing Live Activity outlives its take, I8), 21 (lock + island pause/resume, I7), the History scroll jump (§8,
+I10, screen recording), Stop from the History banner (no watchdog, I9), and I5's device proof (copy into Notes, the level meter while
+speaking; German steps in #65's body). Recover `ddaad4d8`'s tail segment from the phone's `capture/quarantine/` as its own transcribe memo.
+Row 5 (car Bluetooth) is still not run.
+**D3 not run:** the enrolment question went to the owner via `ask-human.sh` at 20:36 and is pending in the human queue (MacBook
+unreachable); S3 (APNs Live Activity, [Play] from a suspended app) and TestFlight move to Wave 18.
+**H1 remainder:** the round-1/2 mockup objects under the image bucket's `private/` prefix cannot be deleted by any key on the mini (the
+private lane has no delete, `imgcli rm` is MacBook-only and `img/` only): the owner removes them in the B2 console. `docs/design/renders/`
+round-1/2 files and the README cross-references are gone (#46); `iumac:/tmp/iris-mockups*` not checked (MacBook unreachable).
+**Owner questions:** (1) starting a take while a spoken reply plays: today the reply keeps playing and is recorded into the take; pause the
+player on take start, or document it (#64 review). (2) A late tail for a memo the server already closed: a follow-up transcribe memo
+(client only) or an append route that re-runs from transcribe (server + contract, may double-act) (#60, I9's option b).
+**CI:** `CaptureUITests.testAMemoTypedOfflineIsQueuedThenSentWithRetryNow:64` (the `history.toast` 10 s wait) failed once on master at
+`73efd51` while the identical tree was green on the batch head and 3/3 green alone locally: a hosted-runner timing flake. The rd merge
+train's local `lockf … make check` times out under load; trains used server checks + `make e2e` and let CI gate Apple.
+**Follow-ups:** #47 S1: sweep limit / ENOENT / stat concurrency, fake order, hold simplification. #49 I1: unmovable stray files invisible
+in Settings, a hung stop deactivates the session, zero-segment grace, duplicated set-aside read, take-state consolidation. D1b: a stalled
+`complete` when the server holds fewer segments than the phone sent. #50: a `RoutableMode` type, Swift capability facts. #51: two
+readability items. #52 I2: a gateway 5xx keeps "Connected", the insert suppression for unhidden ids is broader than the create hand-off,
+eviction not ordered against `localURL` and no launch sweep of cached files, probe vs link recency in `ConnectionStatusLine`. #57 I7:
+`failTake` skips `outbox.finishMemo` when stop throws, `bringUpFirstEngine` ignores `.keepPaused`, duplicated restart sequence, teardown
+NSExceptions unlogged, configuration-change observer armed after the first bring-up. #58 I8: a server-URL switch makes the new server's
+404 end a valid activity of the old one, ends are not logged, sequential sweep lookups on start, no single-flight sweep, the follower is
+suspended in the background. #60 I9: legacy outbox records without `completeMayHaveLanded` may grow a completed take, the `Bool??` flag
+map, `StopOffMainTests` cannot catch a real thread block, the `TakeView` animation gate is unproven. #61: two doc-wording items. #64 I3:
+the take sample in `memoDone` happens after a task hop, `skipWhileBusy` mixes check and effect, three loose recording-binding fields, name
+collisions. #65 I5: `PlainMarkdown` duplicates `ReplyMarkdown`'s parsing, the Copied timer duplicates the toast timer, `InputLevel` sits
+behind the recorder's `canImport`, the duplicated step-end rule in `WaterfallBuilder`, snapshot costs are literals (pinned by a test).
+**Owner notes:** three device tokens were printed in D1's session (rotate if wanted); device-token entry on the phone is clumsy;
+`ask-human` once reported done within a second (never treated as a pass); the mini ran at load ~88 and Spotlight indexed `apple/.dd`
+(now `apple/.dd.noindex`, C1).
 
 ## Fleet backlog (for the long-running fleet: mother → lead → workers)
 

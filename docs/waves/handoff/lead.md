@@ -2,6 +2,9 @@
 
 State as of 2026-10-30. PLAN.md is the plan; this file is the lead's working memory.
 
+**Wave 17 closed 2026-10-30 ~20:45 (PLAN.md status: done, Left behind written).** D2r worker pane kept open for Wave 18's re-test;
+D3 enrolment question pending in the human queue (`20261030T203639-25481`).
+
 ## State (2026-10-30 ~11:05, lead stopped at a usage limit)
 
 | Item | PR | State |
