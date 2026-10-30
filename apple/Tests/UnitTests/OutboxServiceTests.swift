@@ -259,11 +259,8 @@ struct APIOutboxUploaderTests {
         .server(status: 409, body: ErrorBody(error: .badState, message: "no longer receiving")), for: .uploadSegment)
     }
 
-    var keeping: DirectorySegmentFiles { DirectorySegmentFiles(directory: directory) }
     var segment: ClosedSegment { ClosedSegment(memoID: id, index: 2, fileURL: file, byteCount: 5, duration: 1) }
-    func uploader(keeping: (any SegmentFileStore)?) -> APIOutboxUploader {
-      APIOutboxUploader(client: client, created: CreatedMemoLog(), keeping: keeping)
-    }
+    var uploader: APIOutboxUploader { APIOutboxUploader(client: client, created: CreatedMemoLog()) }
     func remove() { try? FileManager.default.removeItem(at: directory) }
   }
 
@@ -271,36 +268,24 @@ struct APIOutboxUploaderTests {
   func segmentTheServerHolds() async throws {
     let memo = try await ClosedMemo(held: 3)
     defer { memo.remove() }
-    try await memo.uploader(keeping: memo.keeping).upload(memo.segment)
+    try await memo.uploader.upload(memo.segment)
     #expect(FileManager.default.fileExists(atPath: memo.file.path))
-    #expect(await memo.keeping.setAsideFiles().isEmpty)
   }
 
-  @Test("a segment the server's completed memo lacks is the only copy: set aside, kept, and the entry clears")
+  @Test(
+    "a segment the server's completed memo lacks is a late tail: the uploader hands it to the outbox, file untouched")
   func segmentTheServerLacks() async throws {
     let memo = try await ClosedMemo(held: 1)
     defer { memo.remove() }
-    try await memo.uploader(keeping: memo.keeping).upload(memo.segment)
-    #expect(!FileManager.default.fileExists(atPath: memo.file.path))
-    let kept = await memo.keeping.setAsideFiles()
-    #expect(kept.count == 1 && kept.first?.byteCount == 5)
-    #expect(try kept.first.map { try Data(contentsOf: $0.url) } == Data("audio".utf8))
+    await #expect(throws: LateSegmentError.self) { try await memo.uploader.upload(memo.segment) }
+    #expect(try Data(contentsOf: memo.file) == Data("audio".utf8))
   }
 
-  @Test("a memo that never received a segment is the same: the file is kept")
+  @Test("a memo that never received a segment is the same: a late tail")
   func segmentOfAMemoWithNone() async throws {
     let memo = try await ClosedMemo(held: 0)
     defer { memo.remove() }
-    try await memo.uploader(keeping: memo.keeping).upload(memo.segment)
-    #expect(await memo.keeping.setAsideFiles().count == 1)
-  }
-
-  @Test("without a place to keep it the file stays where it is and the entry stalls")
-  func segmentNothingToKeepWith() async throws {
-    let memo = try await ClosedMemo(held: 1)
-    defer { memo.remove() }
-    await #expect(throws: PermanentTransferError.self) { try await memo.uploader(keeping: nil).upload(memo.segment) }
-    #expect(FileManager.default.fileExists(atPath: memo.file.path))
+    await #expect(throws: LateSegmentError.self) { try await memo.uploader.upload(memo.segment) }
   }
 
   @Test("when the server cannot be asked what it holds, nothing is decided: retried later, file untouched")
@@ -308,11 +293,41 @@ struct APIOutboxUploaderTests {
     let memo = try await ClosedMemo(held: 1)
     defer { memo.remove() }
     await memo.client.enqueueFailure(.transport(.notConnectedToInternet), for: .memo)
-    await #expect(throws: TransientTransferError.self) {
-      try await memo.uploader(keeping: memo.keeping).upload(memo.segment)
-    }
+    await #expect(throws: TransientTransferError.self) { try await memo.uploader.upload(memo.segment) }
     #expect(FileManager.default.fileExists(atPath: memo.file.path))
-    #expect(await memo.keeping.setAsideFiles().isEmpty)
+  }
+
+  @Test(
+    "through the outbox a late tail is created on the server as its own transcribe memo, and the take is left alone")
+  func lateTailThroughTheOutbox() async throws {
+    let memo = try await ClosedMemo(held: 1)
+    defer { memo.remove() }
+    let created = CreatedMemoLog()
+    let outbox = try await Outbox(
+      store: InMemoryOutboxStore(), uploader: APIOutboxUploader(client: memo.client, created: created),
+      clock: ManualClock(), policy: OutboxPolicy(jitter: { 0 }))
+
+    try await outbox.enqueueItem(
+      OutboxItem(
+        memoID: memo.id, kind: .voice, mode: "auto", startedAt: MemoFactory.now, queuedAt: MemoFactory.now,
+        title: "Voice memo"))
+    await outbox.enqueue(memo.segment)
+    await outbox.finishMemo(memo.id, segmentCount: 3)
+    await outbox.settled()
+
+    let calls = await memo.client.calls
+    let makes = calls.compactMap { call -> CreateMemoRequest? in
+      guard case .createMemo(let request) = call, request.mode == .transcribe else { return nil }
+      return request
+    }
+    let tail = try #require(makes.first)
+    #expect(makes.count == 1 && tail.threadId == nil && tail.id != memo.id.wireID)
+    #expect(calls.contains(.uploadSegment(memoID: tail.id, index: 0, byteCount: 5)))
+    #expect(calls.contains(.completeMemo(id: tail.id, request: CompleteMemoRequest(segmentCount: 1))))
+    #expect(await created.memo(id: tail.id)?.mode == .transcribe)
+    let detail = try await memo.client.memo(id: tail.id)
+    #expect(detail.memo.segmentCount == 1)
+    await outbox.shutdown()
   }
 
   @Test("a segment whose bytes differ from the server's stays a refusal")

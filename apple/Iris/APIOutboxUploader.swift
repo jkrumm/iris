@@ -17,8 +17,6 @@ extension UUID {
 nonisolated struct APIOutboxUploader: SegmentUploader {
   let client: any APIClient
   let created: CreatedMemoLog
-  /// Where a segment goes when the server closed its memo without it (see `upload`); the capture directory's set-aside folder.
-  var keeping: (any SegmentFileStore)?
 
   func create(_ item: OutboxItem) async throws {
     let id = item.memoID.wireID
@@ -53,8 +51,8 @@ nonisolated struct APIOutboxUploader: SegmentUploader {
       try await client.uploadSegment(memoID: segment.memoID.wireID, index: segment.index, data: data)
     } catch let APIError.server(status, body) where status == 409 && body.error == .badState {
       // The memo has left `receiving`. When the server completed it with this segment, the segment is delivered and `complete`
-      // then answers with the memo it has. When it completed it with fewer, this file is the only copy of that audio: it is
-      // set aside where Settings shows it, never deleted with the rest of the take.
+      // then answers with the memo it has. When it completed it with fewer, this file is the only copy of that audio: the
+      // outbox makes it a `transcribe` memo of its own (`LateSegmentError`), and the take's own memo stays as the server has it.
       try await settleClosedMemo(segment, answer: body.message)
     } catch {
       throw Self.classified(error)
@@ -69,9 +67,10 @@ nonisolated struct APIOutboxUploader: SegmentUploader {
       throw Self.classified(error)  // not knowing what the server holds is not an answer: try again later
     }
     guard held <= segment.index else { return }
-    guard let keeping, await keeping.setAside(segment.fileURL) != nil else {
-      throw PermanentTransferError("the server closed this memo without this recording, which is kept: \(answer)")
-    }
+    throw LateSegmentError(
+      label: String(
+        localized: "Late recording", comment: "Outbox row: the end of a take that reached a memo already closed"),
+      answer: answer)
   }
 
   func complete(memoID: MemoID, segmentCount: Int) async throws {

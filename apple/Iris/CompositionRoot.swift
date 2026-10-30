@@ -332,7 +332,7 @@ final class CompositionRoot: CaptureIntentHandler, PlaybackIntentHandler {
         session: AVAudioSessionController(), routes: AVAudioSessionRouteManager(),
         recorder: recorder ?? UnavailableSegmentRecorder(), clock: SystemCaptureClock(),
         store: JSONFileOutboxStore(fileURL: root.appending(path: "outbox.json"), segmentDirectory: captureDirectory),
-        uploader: APIOutboxUploader(client: client, created: created, keeping: segmentFiles),
+        uploader: APIOutboxUploader(client: client, created: created),
         segmentFiles: segmentFiles))
     return (stack, recorder != nil)
   }

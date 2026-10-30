@@ -303,6 +303,8 @@ public actor Outbox: SegmentOutbox {
         reason: Self.reason(error))
     case (.segment(let key), .success): machine.uploadSucceeded(key)
     case (.segment(let key), .failure) where cancelled: machine.uploadCancelled(key)
+    case (.segment(let key), .failure(let error as LateSegmentError)):
+      await divertLateTail(key, error, now: now)
     case (.segment(let key), .failure(let error)):
       Log.outbox.error("upload failed: \(String(describing: error), privacy: .public)")
       machine.uploadFailed(
@@ -332,6 +334,43 @@ public actor Outbox: SegmentOutbox {
     await resume()
     finishing -= 1
     resolveIdleWaiters()
+  }
+
+  /// A segment the server refused because it had closed the memo without it (`LateSegmentError`): the audio becomes a memo of
+  /// its own, mode `transcribe`, queued like any take (create, segment 0, `complete`) and named after the take it belongs to.
+  /// The original entry counts as delivered only once that memo is queued and saved, and the audio is linked, not moved:
+  /// the take's own file clean-up cannot remove it, and only the new memo's `complete` retires it. A failure leaves the
+  /// original entry to be tried again.
+  private func divertLateTail(_ key: SegmentKey, _ late: LateSegmentError, now: Date) async {
+    guard let entry = machine.entries[key] else { return }
+    Log.outbox.notice("late tail of \(key.memoID.uuidString, privacy: .public): \(late.answer, privacy: .public)")
+    let tailID = LateTail.memoID(of: key.memoID, index: key.index)
+    let source = entry.segment.fileURL
+    let tailFile = source.deletingLastPathComponent().appending(path: "\(tailID.uuidString)-0.m4a")
+    guard FileManager.default.fileExists(atPath: source.path) else {
+      machine.uploadFailed(key, now: now, permanent: true, reason: "the recording file is gone")
+      return
+    }
+    do {
+      try LateTail.link(source, as: tailFile)
+      let original = machine.items[key.memoID]
+      let item = OutboxItem(
+        memoID: tailID, kind: .voice, mode: LateTail.mode, startedAt: original?.startedAt ?? now, queuedAt: now,
+        title: LateTail.title(label: late.label, original: original, memoID: key.memoID))
+      // `false`: already queued or done, a replay that finds the memo it made before.
+      if try await enqueueItem(item) {
+        await enqueue(
+          ClosedSegment(
+            memoID: tailID, index: 0, fileURL: tailFile, byteCount: entry.segment.byteCount,
+            duration: entry.segment.duration))
+        await finishMemo(tailID, segmentCount: 1)
+      }
+    } catch {
+      Log.outbox.error("late tail not queued: \(String(describing: error), privacy: .public)")
+      machine.uploadFailed(key, now: now, transient: true, reason: "the late recording could not be queued: \(error)")
+      return
+    }
+    machine.uploadSucceeded(key)
   }
 
   /// Called right before the `persist()` that records why the files are obsolete, so that call's number is the next one.
