@@ -208,7 +208,7 @@ nonisolated enum PlainMarkdown {
     let options = AttributedString.MarkdownParsingOptions(
       interpretedSyntax: .full, failurePolicy: .returnPartiallyParsedIfPossible)
     guard let parsed = try? AttributedString(markdown: markdown, options: options) else {
-      return markdown.trimmingCharacters(in: .whitespacesAndNewlines)
+      return trimmed(markdown)
     }
     var output = ""
     var previous: Block?
@@ -222,10 +222,8 @@ nonisolated enum PlainMarkdown {
       let block = Block(run.presentationIntent?.components ?? [])
       if block != previous {
         closeLink()
-        if let previous {
-          while output.hasSuffix("\n") { output.removeLast() }  // a code block carries its own last line break
-          output += block.separator(after: previous)
-        }
+        while output.hasSuffix("\n") { output.removeLast() }  // a code block carries its own last line break
+        output += block.separator(after: previous)
         output += block.marker
         previous = block
       }
@@ -238,7 +236,17 @@ nonisolated enum PlainMarkdown {
       output += piece
     }
     closeLink()
-    return output.trimmingCharacters(in: .whitespacesAndNewlines)
+    return trimmed(output)
+  }
+
+  /// Without the blank lines before the text and the whitespace after it; the first line keeps its indentation (a reply
+  /// that opens with an indented code block).
+  private static func trimmed(_ text: String) -> String {
+    var lines = text.split(separator: "\n", omittingEmptySubsequences: false)
+    while let first = lines.first, first.allSatisfy(\.isWhitespace) { lines.removeFirst() }
+    var result = lines.joined(separator: "\n")
+    while let last = result.last, last.isWhitespace { result.removeLast() }
+    return result
   }
 
   /// The block a run sits in: the identities of its enclosing blocks tell two blocks apart; the rest is what the
@@ -246,21 +254,22 @@ nonisolated enum PlainMarkdown {
   private struct Block: Equatable {
     let identities: [Int]
     let rowIdentity: Int?
-    let isCell: Bool
+    /// The cell's column: empty cells emit no run, so the gap between two columns is what says how many tabs to write.
+    let column: Int?
     let listOrdinal: Int?
     let isOrdered: Bool
 
     init(_ components: [PresentationIntent.IntentType]) {
       identities = components.map(\.identity)
       var row: Int?
-      var cell = false
+      var cell: Int?
       var ordinal: Int?
       var ordered: Bool?
       // Innermost first: the nearest list item and list decide the marker of a nested item.
       for component in components {
         switch component.kind {
         case .tableRow, .tableHeaderRow: row = component.identity
-        case .tableCell: cell = true
+        case .tableCell(let columnIndex): cell = columnIndex
         case .listItem(let value): ordinal = ordinal ?? value
         case .orderedList: ordered = ordered ?? true
         case .unorderedList: ordered = ordered ?? false
@@ -268,17 +277,25 @@ nonisolated enum PlainMarkdown {
         }
       }
       rowIdentity = row
-      isCell = cell
+      column = cell
       listOrdinal = ordinal
       isOrdered = ordered ?? false
     }
 
-    /// A tab between the cells of a row, a line break between rows and between list items, a blank line otherwise
-    /// (so a list or a table starts after a blank line).
-    func separator(after previous: Block) -> String {
-      if isCell, let rowIdentity, rowIdentity == previous.rowIdentity { return "\t" }
-      if isCell && previous.isCell || listOrdinal != nil && previous.listOrdinal != nil { return "\n" }
-      return "\n\n"
+    var isCell: Bool { column != nil }
+
+    /// One tab per column between the cells of a row (an empty cell has no run, so two tabs mark it), a line break
+    /// between rows and between list items, a blank line otherwise (so a list or a table starts after a blank line).
+    /// Leading empty cells of a row show as leading tabs.
+    func separator(after previous: Block?) -> String {
+      let leading = String(repeating: "\t", count: column ?? 0)
+      guard let previous else { return leading }
+      if let column, let before = previous.column, let rowIdentity, rowIdentity == previous.rowIdentity {
+        return String(repeating: "\t", count: max(column - before, 1))
+      }
+      if isCell && previous.isCell { return "\n" + leading }
+      if listOrdinal != nil && previous.listOrdinal != nil { return "\n" }
+      return "\n\n" + leading
     }
 
     var marker: String {

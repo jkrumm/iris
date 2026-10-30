@@ -48,6 +48,20 @@ struct PlainMarkdownTests {
     #expect(text == "A\tB\n1\t2")
   }
 
+  @Test("an empty table cell keeps its column: one tab per column boundary")
+  func emptyTableCells() {
+    #expect(PlainMarkdown.text(from: "| a | b | c |\n|-|-|-|\n| x | | z |") == "a\tb\tc\nx\t\tz")
+    #expect(PlainMarkdown.text(from: "| a | b | c |\n|-|-|-|\n| | y | |") == "a\tb\tc\n\ty")
+    #expect(PlainMarkdown.text(from: "| a | b |\n|-|-|\n| | |") == "a\tb")
+  }
+
+  @Test("the first line keeps its indentation; only blank lines before it and whitespace after the text go")
+  func indentationSurvives() {
+    #expect(PlainMarkdown.text(from: "```\n  let x = 1\n    return x\n```") == "  let x = 1\n    return x")
+    #expect(PlainMarkdown.text(from: "\n\n   \n```\n  indented\n```\n\n  ") == "  indented")
+    #expect(PlainMarkdown.text(from: "  \n\nplain text  \n\n") == "plain text")
+  }
+
   @Test("no markup character survives in a mixed reply")
   func mixed() {
     let text = PlainMarkdown.text(from: "# Title\n\n**Bold** and *italic*, `code`.\n\n> quoted\n\n- [x] item")
