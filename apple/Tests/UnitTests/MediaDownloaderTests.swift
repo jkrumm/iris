@@ -108,6 +108,21 @@ struct MediaDownloaderTests {
     #expect(FileManager.default.fileExists(atPath: fresh.path))
   }
 
+  @Test("a cache hit counts as use: the sweep right after it keeps the file")
+  func hitSurvivesTheSweep() async throws {
+    defer { try? FileManager.default.removeItem(at: directory) }
+    MediaStub.serve(host: host, .init(status: 200, body: Data("one".utf8)))
+    let downloader = downloader()
+    let kept = try request(reusable: true)
+    let file = try await downloader.localURL(for: kept)
+    let now = Date()
+    try FileManager.default.setAttributes(
+      [.modificationDate: now.addingTimeInterval(-30 * 24 * 3600)], ofItemAtPath: file.path)
+    _ = try await downloader.localURL(for: kept)
+    await downloader.sweepStaleAndWait(olderThan: 14 * 24 * 3600, now: now)
+    #expect(FileManager.default.fileExists(atPath: file.path))
+  }
+
   @Test("a non-2xx answer throws and leaves nothing behind; a file URL passes through")
   func failures() async throws {
     defer { try? FileManager.default.removeItem(at: directory) }

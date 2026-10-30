@@ -42,7 +42,7 @@ nonisolated struct MediaDownloader: Sendable {
     let destination = directory.appending(path: name)
     // The cache check runs on the flights' actor, the same one eviction runs on, so a file is either seen before an
     // eviction that was asked for earlier removes it, or not at all.
-    if request.isReusable, await flights.hasFile(at: destination) { return destination }
+    if request.isReusable, await flights.useFile(at: destination) { return destination }
     let session = session
     let directory = directory
     let flights = flights
@@ -126,8 +126,12 @@ nonisolated struct MediaDownloader: Sendable {
       return try await task.value
     }
 
-    func hasFile(at url: URL) -> Bool {
-      FileManager.default.fileExists(atPath: url.path)
+    /// Whether the cached file exists; a hit marks it as just used, so the launch sweep (which drops files by age) cannot
+    /// remove it between this answer and the player opening it.
+    func useFile(at url: URL) -> Bool {
+      guard FileManager.default.fileExists(atPath: url.path) else { return false }
+      try? FileManager.default.setAttributes([.modificationDate: Date()], ofItemAtPath: url.path)
+      return true
     }
 
     /// Removes files last modified before `cutoff`, except those a download on the wire is about to replace.

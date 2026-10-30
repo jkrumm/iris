@@ -17,7 +17,10 @@ struct ConnectionStatusLine: Equatable {
     connection: SettingsModel.Connection, link observed: ServerLink, probedAt: Date? = nil, linkObservedAt: Date? = nil
   ) {
     // A probe answered after the last traffic observation is the fresher word: the traffic is then not weighed against it.
-    let link = (probedAt ?? .distantPast) > (linkObservedAt ?? .distantPast) ? ServerLink.unknown : observed
+    // Except a refused token: the health probe is public, so its answer says nothing about the token, and only
+    // authenticated traffic that gets an answer clears the rejection.
+    let probeIsNewer = (probedAt ?? .distantPast) > (linkObservedAt ?? .distantPast)
+    let link = probeIsNewer && observed != .rejected ? ServerLink.unknown : observed
     switch (connection, link) {
     case (.notConfigured, _):
       self.init(

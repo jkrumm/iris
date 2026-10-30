@@ -191,6 +191,14 @@ struct SpokenRepliesTests {
     #expect(speech.memoID == nil)
   }
 
+  @Test("a take open at the event that closed before the reply task ran still blocks the reply")
+  func takeOpenAtTheEvent() async {
+    await seed()
+    let replies = replies()
+    await replies.memoDone(id: "m", takes: TakeActivity(isOpen: true, started: 0))
+    #expect(speech.memoID == nil)
+  }
+
   @Test("the open detail's recording keeps playing and the reply is skipped")
   func recordingPlayback() async {
     await seed()

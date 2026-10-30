@@ -8,6 +8,16 @@ import Testing
 @MainActor
 @Suite("Connection")
 struct ConnectionTests {
+  @Test("the server key ignores host and scheme case but tells paths apart")
+  func serverKey() throws {
+    func key(_ url: String) throws -> String {
+      try #require(ConnectionCredentials(urlText: url, token: "t")).serverKey
+    }
+    #expect(try key("https://Iris.Example.com/api") == key("HTTPS://iris.example.com/api"))
+    #expect(try key("https://iris.example.com/Iris") != key("https://iris.example.com/iris"))
+    #expect(try key("https://iris.example.com") != key("https://other.example.com"))
+  }
+
   @Test("the form needs an https URL with a host and a token; whitespace is trimmed")
   func parsing() {
     let ok = ConnectionCredentials(urlText: "  https://iris.example.com/ \n", token: " abc ")

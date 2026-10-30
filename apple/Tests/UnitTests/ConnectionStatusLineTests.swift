@@ -42,6 +42,10 @@ struct ConnectionStatusLineTests {
     let dropped = ConnectionStatusLine(
       connection: .connected, link: .unreachable, probedAt: earlier, linkObservedAt: later)
     #expect(dropped.title == "Unreachable")
+    // A refused token survives a newer probe: the probe is public and does not use the token.
+    let refused = ConnectionStatusLine(
+      connection: .connected, link: .rejected, probedAt: later, linkObservedAt: earlier)
+    #expect(refused.title == "Token rejected")
     // The probe failed after traffic last got an answer.
     let failed = ConnectionStatusLine(
       connection: .unreachable, link: .live, probedAt: later, linkObservedAt: earlier)

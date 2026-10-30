@@ -17,7 +17,16 @@ nonisolated struct ConnectionCredentials: Equatable, Sendable {
   /// A short digest of the server URL: tells servers apart (a Live Activity remembers which one its memo lives on) without
   /// keeping the address.
   var serverKey: String {
-    let digest = SHA256.hash(data: Data(serverURL.absoluteString.lowercased().utf8))
+    // Scheme and host are case-insensitive, the path is not (`/Iris` and `/iris` are different servers behind one proxy).
+    var normalized = serverURL.absoluteString
+    if var parts = URLComponents(url: serverURL, resolvingAgainstBaseURL: false) {
+      let scheme = parts.scheme?.lowercased()
+      let host = parts.host?.lowercased()
+      parts.scheme = scheme
+      parts.host = host
+      normalized = parts.string ?? normalized
+    }
+    let digest = SHA256.hash(data: Data(normalized.utf8))
     return digest.prefix(6).map { String(format: "%02x", $0) }.joined()
   }
 

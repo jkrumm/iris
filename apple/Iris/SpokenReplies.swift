@@ -65,8 +65,10 @@ final class SpokenReplies {
   func memoDone(id: String, takes sampled: TakeActivity? = nil) async {
     guard isOn, isForeground, !spoken.contains(id), inFlight.insert(id).inserted else { return }
     defer { inFlight.remove(id) }
-    let takesBefore = (sampled ?? takes()).started
-    guard !isBusy(takesStartedAfter: takesBefore) else { return skip(id) }
+    let sample = sampled ?? takes()
+    let takesBefore = sample.started
+    // A take that was open when the event arrived counts even if it has closed again since.
+    guard !sample.isOpen, !isBusy(takesStartedAfter: takesBefore) else { return skip(id) }
     guard await createdHere(id) else { return }
     do {
       let memo = try await client.memo(id: id).memo
