@@ -1,6 +1,17 @@
+import Foundation
+import IrisCore
 import Testing
 
 @testable import Iris
+
+/// A source whose speech download always fails (nothing listens on the port).
+private struct UnreachableSource: MemoMediaSource {
+  func audio(for memo: Memo) -> MediaRequest? { nil }
+  func speech(for memo: Memo) -> MediaRequest? {
+    MediaRequest(url: URL(string: "http://127.0.0.1:9/speech")!, headers: [:])
+  }
+  func asset(memoID: String, assetID: String) -> MediaRequest? { nil }
+}
 
 @MainActor
 @Suite("SpeechPlayer")
@@ -67,5 +78,14 @@ struct SpeechPlayerTests {
     #expect(speech.isPlaying("first"))
     speech.stop(memoID: "first")
     #expect(speech.memoID == nil && !speech.player.isLoaded)
+  }
+
+  @Test("a download that fails leaves the player holding no memo")
+  func failedLoadClearsTheMemo() async {
+    let speech = SpeechPlayer()
+    let started = await speech.play(first, source: UnreachableSource())
+    #expect(!started)
+    #expect(speech.memoID == nil)
+    #expect(!speech.isPlaying("first"))
   }
 }

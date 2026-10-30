@@ -37,14 +37,36 @@ struct MicRulesModelTests {
     #expect(model.selection == nil)
   }
 
-  @Test("a rule goes to the route that is active when it is picked, not the one the screen last read")
+  @Test("a choice made on a route that is gone is not saved: the screen refreshes to the active route")
   func staleRoute() async {
     let (model, routes) = await makeModel(outputs: ["car"], names: ["Car"])
     await routes.setAvailable(
       inputs: [FakeRouteManager.builtInMic], outputUIDs: ["speaker"], outputNames: ["Speaker"], reason: .deviceAppeared)
+    await model.pick(FakeRouteManager.headsetMic.uid)
+    #expect(await routes.rules().isEmpty)
+    #expect(model.routeTitle == "Speaker")
+    #expect(model.choices.map(\.id) == [nil, FakeRouteManager.builtInMic.uid])
+
     await model.pick(FakeRouteManager.builtInMic.uid)
     #expect(await routes.rules() == ["speaker": FakeRouteManager.builtInMic.uid])
-    #expect(model.routeTitle == "Speaker")
+  }
+
+  @Test("a pick before any route was read saves nothing")
+  func pickWithoutARoute() async {
+    let routes = FakeRouteManager()
+    let model = MicRulesModel(routes: routes)
+    await model.pick(FakeRouteManager.builtInMic.uid)
+    #expect(await routes.rules().isEmpty)
+  }
+
+  @Test("a load that finishes after a newer read does not overwrite it")
+  func lateLoadIsDropped() async {
+    let (model, routes) = await makeModel(outputs: ["car"], names: ["Car"])
+    async let late: Void = model.load()
+    await model.pick(FakeRouteManager.builtInMic.uid)
+    await late
+    #expect(model.selection == FakeRouteManager.builtInMic.uid)
+    #expect(await routes.rules() == ["car": FakeRouteManager.builtInMic.uid])
   }
 
   @Test("a route without named outputs still has a title")

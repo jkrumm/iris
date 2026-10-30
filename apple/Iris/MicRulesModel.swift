@@ -2,6 +2,7 @@ import Foundation
 import IrisCapture
 import IrisUI
 import Observation
+import OSLog
 
 /// Settings → Microphone: the rule of the audio route that is active right now ("car → built-in mic", R-CAP-4). A rule is
 /// keyed by the route's fingerprint (its output ports) and applied by the capture session whenever a take starts on that
@@ -12,6 +13,10 @@ final class MicRulesModel {
   private(set) var rules: [String: String] = [:]
 
   private let routes: any RouteManager
+  /// Bumped by every `load()` and `pick()`; a read that finds it changed belongs to a call that was overtaken, so a late
+  /// `load()` never writes an older route or rule set over a newer one.
+  private var generation = 0
+  private let logger = Logger(subsystem: "com.jkrumm.iris", category: "mic-rules")
 
   init(routes: any RouteManager) {
     self.routes = routes
@@ -38,16 +43,37 @@ final class MicRulesModel {
   }
 
   func load() async {
-    route = await routes.currentRoute()
-    rules = await routes.rules()
+    generation += 1
+    let mine = generation
+    let current = await routes.currentRoute()
+    let stored = await routes.rules()
+    guard mine == generation else { return }
+    route = current
+    rules = stored
   }
 
-  /// Sets (or, for `nil`, removes) the active route's rule.
+  /// Sets (or, for `nil`, removes) the rule of the route the screen shows. `uid` was chosen from that route's inputs, so when
+  /// the active route is another one by now nothing is saved: the screen refreshes to the new route and the choice is made again.
   func pick(_ uid: String?) async {
-    // The route may have changed since the screen last read it: the rule goes to the route that is active now.
-    route = await routes.currentRoute()
-    guard let fingerprint = route?.fingerprint else { return }
-    await routes.setRule(fingerprint: fingerprint, preferredPortUID: uid)
-    rules = await routes.rules()
+    guard let shown = route?.fingerprint else {
+      logger.notice("mic rule not saved: no route is shown")
+      return
+    }
+    generation += 1
+    let mine = generation
+    let current = await routes.currentRoute()
+    guard current.fingerprint == shown else {
+      logger.notice("mic rule not saved: the route changed since the choices were shown")
+      let stored = await routes.rules()
+      guard mine == generation else { return }
+      route = current
+      rules = stored
+      return
+    }
+    await routes.setRule(fingerprint: shown, preferredPortUID: uid)
+    let stored = await routes.rules()
+    guard mine == generation else { return }
+    route = current
+    rules = stored
   }
 }
