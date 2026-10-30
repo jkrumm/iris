@@ -3,6 +3,9 @@ import { join } from "node:path";
 import type { AssetStore } from "../ports/assets.js";
 import { writeAtomic } from "./fs-atomic.js";
 
+/** Directories stat-ed at once by `listMemos`: a data dir with thousands of memos must not open thousands of handles together. */
+const STAT_BATCH = 32;
+
 const SAFE_ID = /^[0-9a-f-]{8,64}$/i;
 
 /** Only a missing file or directory is "not there"; a permission or I/O error must reach the caller. */
@@ -44,22 +47,25 @@ export function createFsAssetStore(dir: string): AssetStore {
         if (missing(err)) return [];
         throw err;
       }
-      const memos = await Promise.all(
-        entries
-          .filter((entry) => entry.isDirectory() && SAFE_ID.test(entry.name))
-          .map(async ({ name }) => {
-            // A directory that vanishes between the two calls is not a memo to sweep.
-            const changed = await stat(join(dir, name)).then(
-              (info) => info.mtimeMs,
-              () => null,
-            );
-            return changed === null ? null : { name, changed };
+      const names = entries
+        .filter((entry) => entry.isDirectory() && SAFE_ID.test(entry.name))
+        .map((entry) => entry.name);
+      const memos: { name: string; changed: number }[] = [];
+      for (let start = 0; start < names.length; start += STAT_BATCH) {
+        const batch = await Promise.all(
+          names.slice(start, start + STAT_BATCH).map(async (name) => {
+            try {
+              return { name, changed: (await stat(join(dir, name))).mtimeMs };
+            } catch (err) {
+              // A directory that vanishes between the two calls is not a memo to sweep; any other failure is the caller's.
+              if (missing(err)) return null;
+              throw err;
+            }
           }),
-      );
-      return memos
-        .filter((memo) => memo !== null)
-        .sort((a, b) => b.changed - a.changed)
-        .map((memo) => memo.name);
+        );
+        for (const memo of batch) if (memo) memos.push(memo);
+      }
+      return memos.sort((a, b) => b.changed - a.changed).map((memo) => memo.name);
     },
     async list(memoId) {
       try {

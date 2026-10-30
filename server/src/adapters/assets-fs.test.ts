@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createFsAssetStore } from "./assets-fs.js";
@@ -76,6 +76,29 @@ describe("fs AssetStore listing", () => {
 
     expect(await store.listMemos()).toEqual([other, memoId]);
     expect(await store.list(memoId)).toEqual([a]);
+  });
+
+  it("lists every directory when there are more than one stat batch", async () => {
+    const store = createFsAssetStore(dir);
+    const ids = Array.from(
+      { length: 70 },
+      (_, i) => `aaaaaaaa-0000-4000-8000-${i.toString(16).padStart(12, "0")}`,
+    );
+    for (const id of ids) await mkdir(join(dir, id));
+    expect((await store.listMemos()).toSorted()).toEqual(ids.toSorted());
+  });
+
+  it("rejects when a directory cannot be stat-ed for a reason other than being gone", async () => {
+    const store = createFsAssetStore(dir);
+    await store.put({ memoId, assetId: a, bytes: new Uint8Array([1]) });
+    // Readable but not searchable: the listing works, stat-ing an entry is EACCES, not ENOENT.
+    await chmod(dir, 0o444);
+    try {
+      if (process.getuid?.() === 0) return;
+      await expect(store.listMemos()).rejects.toThrow();
+    } finally {
+      await chmod(dir, 0o755);
+    }
   });
 
   it("lists nothing for a missing directory or an unknown memo", async () => {

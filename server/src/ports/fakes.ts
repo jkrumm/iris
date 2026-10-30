@@ -235,20 +235,25 @@ export function fakeDiagramRenderer(
 /** In-memory asset files keyed `<memo id>/<asset id>`. */
 export function fakeAssetStore(): AssetStore & { files: Map<string, Uint8Array> } {
   const files = new Map<string, Uint8Array>();
+  // A memo's directory changes when a file is added or deleted (the file system's mtime); a counter stands in for the clock.
+  const changed = new Map<string, number>();
+  let tick = 0;
+  const touch = (memoId: string) => changed.set(memoId, ++tick);
   return {
     files,
     async put({ memoId, assetId, bytes }) {
       files.set(`${memoId}/${assetId}`, bytes);
+      touch(memoId);
     },
     async read({ memoId, assetId }) {
       return files.get(`${memoId}/${assetId}`) ?? null;
     },
     async remove({ memoId, assetIds }) {
-      for (const assetId of assetIds) files.delete(`${memoId}/${assetId}`);
+      for (const assetId of assetIds) if (files.delete(`${memoId}/${assetId}`)) touch(memoId);
     },
     async listMemos() {
-      // Map order is insertion order: newest put last, so reverse it.
-      return [...new Set([...files.keys()].map((key) => key.split("/")[0] as string))].reverse();
+      const memos = new Set([...files.keys()].map((key) => key.split("/")[0] as string));
+      return [...memos].sort((a, b) => (changed.get(b) ?? 0) - (changed.get(a) ?? 0));
     },
     async list(memoId) {
       return [...files.keys()]
@@ -257,12 +262,19 @@ export function fakeAssetStore(): AssetStore & { files: Map<string, Uint8Array> 
     },
     async prune({ memoId, keep }) {
       for (const key of files.keys()) {
-        if (key.startsWith(`${memoId}/`) && !keep.has(key.slice(memoId.length + 1)))
+        if (key.startsWith(`${memoId}/`) && !keep.has(key.slice(memoId.length + 1))) {
           files.delete(key);
+          touch(memoId);
+        }
       }
     },
     async removeAll(memoId) {
-      for (const key of files.keys()) if (key.startsWith(`${memoId}/`)) files.delete(key);
+      for (const key of files.keys()) {
+        if (key.startsWith(`${memoId}/`)) {
+          files.delete(key);
+          touch(memoId);
+        }
+      }
     },
   };
 }
