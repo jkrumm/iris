@@ -17,3 +17,12 @@ Overall: "for the first draft it is actually really strong now".
 6. **Level meter:** while speaking, the volume bars rise too little; the take screen otherwise "looks actually quite beautiful",
    including the microphone selection. (From the take itself, which arrived after the D1b fix: "the increase in the volume bars is
    not too high".)
+7. **Accessibility text sizes are not a target (owner, 2026-10-30).** Iris is a tool for technical people steering their agents, not a
+   general-audience app; nobody will run it at the largest Dynamic Type sizes. The device check for accessibility sizes is dropped. Do not
+   spend work on layouts for the accessibility size categories; default and nearby sizes must still look right.
+8. **Scrolling jumps.** On History the large "History" title and the content jump while scrolling; he believes Stats and Settings do the
+   same. A real bug on every tab: scrolling must be smooth, with the native large-title collapse.
+9. **Device steps in German.** His iPhone runs in German. Any instruction that names an iOS setting gives the German path
+   (e.g. Einstellungen › Bedienungshilfen › Anzeige & Textgröße), English optional in brackets.
+10. **Record crashed again** during the accessibility check: tapping Record closed the app, the Live Activity stayed at the top, and on
+    reopening the take was gone (crash report from the phone, 2026-10-30 ~14:45).
