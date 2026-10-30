@@ -424,6 +424,11 @@ pushed to master, the poller deploys, then `make verify` + `make smoke` on the m
 builds, runs `make snapshots` and only the UI tests of the screens it touched (`-only-testing`), on one simulator, then `xcrun simctl
 shutdown all`; one `xcodebuild` on the mini at a time, fleet-wide. A worker never re-runs the full suite locally to bisect a CI failure:
 it reads the CI logs and runs the failing test alone.
+**Batch train (owner, 2026-10-30):** Apple PRs no longer wait for one `apple.yml` run each. Every PR is still reviewed and passes
+its own `make check` + local targeted tests; the lead then stacks all ready Apple PRs onto one integration branch (`w<N>-batch-<k>`,
+each PR merged in with its own merge commit so history stays per-PR), opens it as one PR, and `apple.yml` runs once. Green → merge
+the batch, close the member PRs as merged by it. Red → the failing test names the PR; fix it on the batch branch (or drop that PR
+from the batch and re-run), never bisect the whole suite. Server-only PRs (no `apple/**`, `contracts/**`) don't wait for any batch.
 API changes run `make contracts` and update fixtures, and the same brief carries the Swift `IrisCore` follow-up (models + client
 call) so `apple.yml` stays green. TDD and AGENTS.md change in the same commit as the code they describe.
 
