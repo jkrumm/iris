@@ -31,6 +31,9 @@ public struct OutboxStateMachine: Sendable {
   /// Takes the app died in the middle of, finished by `recoverUnfinishedTakes` with the segments the saved queue had. Not
   /// persisted: only the load that recovered them may add the segment files that never made it into the saved queue.
   private var recoveredTakes: Set<MemoID> = []
+  /// Takes the app died in before any segment reached the saved queue, dropped on load. The sweep may still find their first
+  /// segment on disk (a kill loses the open segment's m4a, the PCM shadow recovers it) and brings the take back. Not persisted.
+  private var emptyTakes: [MemoID: OutboxItem] = [:]
   /// `createMayHaveLanded` as it was before `dispatch` handed the create out, for `revertDispatch`. Not persisted.
   private var flagBeforeDispatch: [MemoID: Bool] = [:]
   /// The same for a memo's `completeMayHaveLanded`.
@@ -302,6 +305,7 @@ public struct OutboxStateMachine: Sendable {
         memos[item.memoID] = OutboxMemo(memoID: item.memoID, segmentCount: count, completion: .pending, attempts: 0)
         recoveredTakes.insert(item.memoID)
       } else {
+        emptyTakes[item.memoID] = item
         items[item.memoID] = nil
       }
     }
@@ -330,15 +334,29 @@ public struct OutboxStateMachine: Sendable {
   /// out. `false` when the segment does not belong to a take this queue holds or would not fit; the caller quarantines the
   /// file. Held back like any new segment.
   public mutating func adopt(_ segment: ClosedSegment) -> Bool {
-    guard items[segment.memoID]?.kind == .voice, let memo = memos[segment.memoID],
-      entries[SegmentKey(memoID: segment.memoID, index: segment.index)] == nil
+    let memoID = segment.memoID
+    // A take that was dropped on load for having no segment comes back with its first one.
+    let revived = memos[memoID] == nil && segment.index == 0 ? emptyTakes[memoID] : nil
+    guard items[memoID]?.kind == .voice || revived != nil, let memo = memos[memoID] ?? revived.map(Self.emptyMemo),
+      entries[SegmentKey(memoID: memoID, index: segment.index)] == nil
     else { return false }
     let completeNotSent = memo.completeMayHaveLanded != true
-    let grows = segment.index == memo.segmentCount && (recoveredTakes.contains(memo.memoID) || completeNotSent)
+    let grows =
+      segment.index == memo.segmentCount && (recoveredTakes.contains(memoID) || revived != nil || completeNotSent)
     guard segment.index < memo.segmentCount || grows else { return false }
     guard enqueue(segment, withheld: true) else { return false }
-    if grows { memos[memo.memoID]?.segmentCount += 1 }
+    if let revived {
+      emptyTakes[memoID] = nil
+      items[memoID] = revived
+      memos[memoID] = memo
+      recoveredTakes.insert(memoID)
+    }
+    if grows { memos[memoID]?.segmentCount += 1 }
     return true
+  }
+
+  private static func emptyMemo(of item: OutboxItem) -> OutboxMemo {
+    OutboxMemo(memoID: item.memoID, segmentCount: 0, completion: .pending, attempts: 0)
   }
 
   /// Lets a withheld segment go out.

@@ -12,8 +12,20 @@ public struct SweepReport: Sendable, Equatable {
   public var quarantined: [URL] = []
   /// Files left where they are because a quarantined queue file names them.
   public var kept: [URL] = []
+  /// Segments rebuilt from the PCM shadow a kill left (their `.m4a`, which then went on as any orphan: adopted or quarantined).
+  public var recovered: [URL] = []
 
-  public var isEmpty: Bool { adopted.isEmpty && quarantined.isEmpty && kept.isEmpty }
+  public var isEmpty: Bool { adopted.isEmpty && quarantined.isEmpty && kept.isEmpty && recovered.isEmpty }
+}
+
+/// What became of a PCM shadow (`SegmentShadow`) the sweep found.
+public enum ShadowRecovery: Sendable, Equatable {
+  /// Transcoded to this playable `.m4a`.
+  case recovered(URL)
+  /// The shadow holds no audio: nothing to lose, it can go.
+  case empty
+  /// Could not be read or transcoded: left where it is for the next launch.
+  case failed
 }
 
 /// Reads a segment file back: its size and length, or `nil` when it is not a complete audio file (a take the app died in the
@@ -45,20 +57,38 @@ public protocol SegmentFileStore: Sendable {
   func setAside(_ url: URL) async -> URL?
   /// Every file earlier sweeps set aside, oldest first.
   func setAsideFiles() async -> [SetAsideFile]
+  /// The PCM shadows (`<memo>-<index>.caf`) directly in the capture directory.
+  func shadowFiles() async -> [URL]
+  /// Rebuilds the segment a shadow stands for as a playable `.m4a` beside it (replacing the truncated one a kill left).
+  func recover(shadow: URL) async -> ShadowRecovery
+  /// Removes a shadow whose audio is safe elsewhere (its m4a plays, or it holds none).
+  func discard(shadow: URL) async
 }
+
+extension SegmentFileStore {
+  public func shadowFiles() async -> [URL] { [] }
+  public func recover(shadow: URL) async -> ShadowRecovery { .failed }
+  public func discard(shadow: URL) async {}
+}
+
+/// Transcodes a shadow to its m4a.
+public typealias ShadowTranscoder = @Sendable (URL) -> ShadowRecovery
 
 /// Production store: a capture directory and a `quarantine/` folder next to its files.
 public struct DirectorySegmentFiles: SegmentFileStore {
   private let directory: URL
   private let quarantineDirectory: URL
   private let inspector: SegmentInspector
+  private let transcoder: ShadowTranscoder
 
   public init(
-    directory: URL, quarantineDirectory: URL? = nil, inspect: @escaping SegmentInspector = Outbox.inspectAudioFile
+    directory: URL, quarantineDirectory: URL? = nil, inspect: @escaping SegmentInspector = Outbox.inspectAudioFile,
+    transcode: @escaping ShadowTranscoder = Outbox.transcodeShadow
   ) {
     self.directory = directory
     self.quarantineDirectory = quarantineDirectory ?? directory.appending(path: "quarantine")
     inspector = inspect
+    transcoder = transcode
   }
 
   public func segmentFiles() async -> [URL] {
@@ -67,6 +97,15 @@ public struct DirectorySegmentFiles: SegmentFileStore {
   }
 
   public func inspect(_ url: URL) -> (byteCount: Int, duration: TimeInterval)? { inspector(url) }
+
+  public func shadowFiles() async -> [URL] {
+    let names = (try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []
+    return names.filter(SegmentShadow.isShadow).map { directory.appending(path: $0) }
+  }
+
+  public func recover(shadow: URL) async -> ShadowRecovery { transcoder(shadow) }
+
+  public func discard(shadow: URL) async { try? FileManager.default.removeItem(at: shadow) }
 
   /// Moves the file into the quarantine folder under its own name, or a unique one when that is taken.
   public func setAside(_ url: URL) async -> URL? {
@@ -109,6 +148,7 @@ extension Outbox {
   public func sweepOrphans(using files: any SegmentFileStore) async -> SweepReport {
     var report = SweepReport()
     let owned = segmentFileNames()
+    await recoverShadows(using: files, owned: owned, into: &report)
     // By take and index, so a take that grows is adopted in order.
     let candidates = await files.segmentFiles().filter { !owned.contains($0.lastPathComponent) }.sorted {
       guard let left = Self.parse($0.lastPathComponent), let right = Self.parse($1.lastPathComponent) else {
@@ -116,7 +156,10 @@ extension Outbox {
       }
       return (left.0.uuidString, left.1) < (right.0.uuidString, right.1)
     }
-    guard !candidates.isEmpty else { return report }
+    guard !candidates.isEmpty else {
+      logSweep(report)
+      return report
+    }
     var heldQueues: [Data] = []
     var unreadable: [String] = []
     for file in await setAsideQueueFiles() {
@@ -147,12 +190,40 @@ extension Outbox {
     }
     // Saved before anything goes up, as for any new segment (the save releases the withheld ones).
     if !report.adopted.isEmpty { await flush() }
-    if !report.isEmpty {
-      Log.outbox.notice(
-        "capture sweep: \(report.adopted.count) adopted, \(report.quarantined.count) quarantined, \(report.kept.count) kept"
-      )
-    }
+    logSweep(report)
     return report
+  }
+
+  private func logSweep(_ report: SweepReport) {
+    guard !report.isEmpty else { return }
+    Log.outbox.notice(
+      "capture sweep: \(report.adopted.count) adopted, \(report.quarantined.count) quarantined, \(report.kept.count) kept, \(report.recovered.count) recovered"
+    )
+  }
+
+  /// A kill leaves the open segment's m4a without its index and the PCM shadow beside it whole. A shadow whose m4a is
+  /// complete (the queue holds it, or it plays) is redundant and goes; otherwise it is transcoded to the m4a, which from then
+  /// on is an orphan like any other (adopted by its take, or quarantined). The shadow goes as soon as that m4a plays: a kill
+  /// right after leaves a playable orphan, never a loss.
+  private func recoverShadows(using files: any SegmentFileStore, owned: Set<String>, into report: inout SweepReport)
+    async
+  {
+    for shadow in await files.shadowFiles().sorted(by: { $0.lastPathComponent < $1.lastPathComponent }) {
+      let segment = SegmentShadow.segment(of: shadow)
+      if files.inspect(segment) != nil {
+        await files.discard(shadow: shadow)
+      } else if owned.contains(segment.lastPathComponent) {
+        report.kept.append(shadow)  // the queue's own file does not play: the shadow is the other copy
+      } else {
+        switch await files.recover(shadow: shadow) {
+        case .recovered(let url):
+          await files.discard(shadow: shadow)
+          report.recovered.append(url)
+        case .empty: await files.discard(shadow: shadow)
+        case .failed: report.kept.append(shadow)
+        }
+      }
+    }
   }
 
   /// `<memo id>-<index>.m4a` that belongs to a take the queue holds (`OutboxStateMachine.adopt`) and plays.
@@ -172,6 +243,15 @@ extension Outbox {
       let index = Int(stem[stem.index(after: separator)...]), index >= 0
     else { return nil }
     return (memoID, index)
+  }
+
+  /// The production transcoder: the shadow read back and encoded as the recorder's AAC.
+  public static let transcodeShadow: ShadowTranscoder = { shadow in
+    #if canImport(AVFAudio)
+      return SegmentWriter.recover(shadow: shadow, sampleRate: SegmentRotationPolicy().sampleRate)
+    #else
+      return .failed
+    #endif
   }
 
   /// The production inspector: the file opens as audio and holds frames.

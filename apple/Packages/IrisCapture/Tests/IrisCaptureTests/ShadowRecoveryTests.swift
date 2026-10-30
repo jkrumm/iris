@@ -1,0 +1,226 @@
+#if canImport(AVFAudio)
+  import AVFAudio
+  import Foundation
+  import Testing
+
+  @testable import IrisCapture
+
+  /// A force-quit loses the open segment's m4a (no index, `docs/research/2026-10-30-avaudiofile-kill.md`) but not the PCM shadow
+  /// beside it. The files are copied while the writer is still open: the state a kill leaves on disk, since a process kill drops
+  /// no written byte. Real AVFoundation on the macOS host, no fakes.
+  struct ShadowRecoveryTests {
+    private let format = AVAudioFormat(
+      commonFormat: .pcmFormatFloat32, sampleRate: 16_000, channels: 1, interleaved: false)!
+
+    /// `seconds` of speech-like noise through a real `SegmentWriter`.
+    private func writeSegment(_ id: MemoID, _ index: Int, seconds: Double, in directory: URL) throws -> SegmentWriter {
+      let writer = try SegmentWriter(
+        url: directory.appending(path: "\(id.uuidString)-\(index).m4a"), sampleRate: 16_000)
+      for _ in 0..<Int(seconds * 10) {
+        let buffer = try #require(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 1_600))
+        for frame in 0..<1_600 { buffer.floatChannelData![0][frame] = Float.random(in: -0.3...0.3) }
+        buffer.frameLength = 1_600
+        try writer.write(buffer)
+      }
+      return writer
+    }
+
+    /// What a SIGKILL leaves of `writer`'s files: copies taken while it is still open.
+    private func killed(_ writer: SegmentWriter, into directory: URL) throws {
+      for source in [writer.url, SegmentShadow.url(of: writer.url)] {
+        try FileManager.default.copyItem(at: source, to: directory.appending(path: source.lastPathComponent))
+      }
+    }
+
+    private func names(_ directory: URL) -> [String] {
+      ((try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []).sorted()
+    }
+
+    @Test func aKilledSegmentHasNoPlayableM4aButAWholeShadow() throws {
+      let live = try temporaryDirectory()
+      let dead = try temporaryDirectory()
+      defer { for directory in [live, dead] { try? FileManager.default.removeItem(at: directory) } }
+      let writer = try writeSegment(memo(1), 0, seconds: 4, in: live)
+      try killed(writer, into: dead)
+      writer.close()
+
+      let m4a = dead.appending(path: "\(memo(1).uuidString)-0.m4a")
+      #expect(Outbox.inspectAudioFile(m4a) == nil, "the premise: an AAC m4a killed before close does not play")
+      let shadow = try AVAudioFile(forReading: SegmentShadow.url(of: m4a))
+      #expect(Double(shadow.length) / 16_000 >= 3.9, "the shadow holds the audio")
+    }
+
+    @Test func aCleanCloseRemovesTheShadowAndLeavesAPlayableM4a() throws {
+      let directory = try temporaryDirectory()
+      defer { try? FileManager.default.removeItem(at: directory) }
+      let writer = try writeSegment(memo(1), 0, seconds: 2, in: directory)
+      writer.close()
+
+      #expect(names(directory) == ["\(memo(1).uuidString)-0.m4a"])
+      let audio = try #require(Outbox.inspectAudioFile(writer.url))
+      #expect(abs(audio.duration - 2) < 0.2)
+    }
+
+    @Test func recoveringAShadowGivesAPlayableM4aOfTheSameLength() throws {
+      let live = try temporaryDirectory()
+      let dead = try temporaryDirectory()
+      defer { for directory in [live, dead] { try? FileManager.default.removeItem(at: directory) } }
+      let writer = try writeSegment(memo(1), 3, seconds: 6, in: live)
+      try killed(writer, into: dead)
+      writer.close()
+      let shadow = dead.appending(path: "\(memo(1).uuidString)-3.caf")
+
+      let result = SegmentWriter.recover(shadow: shadow, sampleRate: 16_000)
+
+      guard case .recovered(let url) = result else {
+        Issue.record("expected a recovered file, got \(result)")
+        return
+      }
+      #expect(url.lastPathComponent == "\(memo(1).uuidString)-3.m4a", "it replaces the truncated m4a")
+      let audio = try #require(Outbox.inspectAudioFile(url))
+      #expect(abs(audio.duration - 6) < 0.5, "got \(audio.duration) s")
+      #expect(FileManager.default.fileExists(atPath: shadow.path), "recover never touches the shadow")
+    }
+
+    @Test func aHeaderOnlyShadowIsEmptyAndGarbageIsAFailure() throws {
+      let directory = try temporaryDirectory()
+      defer { try? FileManager.default.removeItem(at: directory) }
+      let header = directory.appending(path: "\(memo(1).uuidString)-0.caf")
+      try Data(count: 100).write(to: header)
+      let garbage = directory.appending(path: "\(memo(1).uuidString)-1.caf")
+      try Data(repeating: 7, count: 9_000).write(to: garbage)
+
+      #expect(SegmentWriter.recover(shadow: header, sampleRate: 16_000) == .empty)
+      #expect(SegmentWriter.recover(shadow: garbage, sampleRate: 16_000) == .failed)
+    }
+
+    // MARK: Sweep
+
+    @Test func theSweepRecoversTheKilledSegmentAndTheTakeGrowsByIt() async throws {
+      let live = try temporaryDirectory()
+      let directory = try temporaryDirectory()
+      defer { for url in [live, directory] { try? FileManager.default.removeItem(at: url) } }
+      let id = memo(1)
+      var item = voiceItem(id)
+      item.create = .uploaded
+      item.createMayHaveLanded = true
+      let entries = try (0..<2).map { index in
+        let closed = try writeSegment(id, index, seconds: 1, in: directory)
+        closed.close()
+        return OutboxEntry(
+          segment: ClosedSegment(memoID: id, index: index, fileURL: closed.url, byteCount: 5, duration: 1),
+          sequence: index,
+          state: .uploaded, attempts: 0)
+      }
+      let open = try writeSegment(id, 2, seconds: 5, in: live)
+      try killed(open, into: directory)
+      open.close()
+      let harness = try await OutboxHarness(record: OutboxRecord(entries: entries, items: [item], nextSequence: 2))
+
+      let report = await harness.outbox.sweepOrphans(using: DirectorySegmentFiles(directory: directory))
+
+      #expect(report.recovered.map(\.lastPathComponent) == ["\(id.uuidString)-2.m4a"])
+      #expect(report.adopted.map(\.lastPathComponent) == ["\(id.uuidString)-2.m4a"])
+      #expect(report.quarantined.isEmpty)
+      #expect(await harness.outbox.memos().first?.segmentCount == 3, "the killed segment is part of the take")
+      #expect(!names(directory).contains { $0.hasSuffix(".caf") }, "the shadow is gone once its m4a plays")
+      let recovered = try #require(await harness.outbox.entries().first { $0.segment.index == 2 })
+      #expect(abs(recovered.segment.duration - 5) < 0.5)
+
+      await harness.outbox.settled()
+      #expect(await harness.uploader.uploaded.map(\.index).sorted() == [2])
+      #expect(await harness.uploader.completed == [.init(memoID: id, segmentCount: 3)])
+      await harness.outbox.shutdown()
+    }
+
+    @Test func aTakeKilledBeforeItsFirstSegmentSavedComesBackWithTheRecoveredSegment() async throws {
+      let live = try temporaryDirectory()
+      let directory = try temporaryDirectory()
+      defer { for url in [live, directory] { try? FileManager.default.removeItem(at: url) } }
+      let id = memo(1)
+      let open = try writeSegment(id, 0, seconds: 5, in: live)
+      try killed(open, into: directory)
+      open.close()
+      let harness = try await OutboxHarness(record: OutboxRecord(items: [voiceItem(id)]))
+      #expect(await harness.outbox.items().isEmpty, "a take with no segment is dropped on load")
+
+      let report = await harness.outbox.sweepOrphans(using: DirectorySegmentFiles(directory: directory))
+
+      #expect(report.adopted.count == 1 && report.quarantined.isEmpty)
+      #expect(await harness.outbox.items().map(\.memoID) == [id], "the take is back, with its mode and start")
+      #expect(await harness.outbox.memos().first?.segmentCount == 1)
+      #expect(await harness.store.load().items.map(\.memoID) == [id], "saved before anything goes up")
+
+      await harness.outbox.settled()
+      #expect(await harness.uploader.created.map(\.memoID) == [id])
+      #expect(await harness.uploader.completed == [.init(memoID: id, segmentCount: 1)])
+      await harness.outbox.shutdown()
+    }
+
+    @Test func aTakeWithNothingOnDiskStaysDropped() async throws {
+      let directory = try temporaryDirectory()
+      defer { try? FileManager.default.removeItem(at: directory) }
+      let harness = try await OutboxHarness(record: OutboxRecord(items: [voiceItem(memo(1))]))
+
+      await harness.outbox.sweepOrphans(using: DirectorySegmentFiles(directory: directory))
+
+      #expect(await harness.outbox.items().isEmpty)
+      await harness.outbox.shutdown()
+    }
+
+    @Test func aRecoveredSegmentOfNoTakeIsQuarantinedPlayableNotDeleted() async throws {
+      let live = try temporaryDirectory()
+      let directory = try temporaryDirectory()
+      defer { for url in [live, directory] { try? FileManager.default.removeItem(at: url) } }
+      let open = try writeSegment(memo(9), 0, seconds: 3, in: live)
+      try killed(open, into: directory)
+      open.close()
+      let harness = try await OutboxHarness()
+
+      let report = await harness.outbox.sweepOrphans(using: DirectorySegmentFiles(directory: directory))
+
+      #expect(report.recovered.count == 1 && report.quarantined.count == 1)
+      let kept = directory.appending(path: "quarantine/\(memo(9).uuidString)-0.m4a")
+      #expect(Outbox.inspectAudioFile(kept) != nil, "what the owner can recover from Settings plays")
+      #expect(names(directory) == ["quarantine"])
+      await harness.outbox.shutdown()
+    }
+
+    @Test func aShadowBesideAPlayableM4aIsRedundantAndGoes() async throws {
+      let directory = try temporaryDirectory()
+      defer { try? FileManager.default.removeItem(at: directory) }
+      let id = memo(1)
+      let writer = try writeSegment(id, 0, seconds: 2, in: directory)
+      // Killed between the m4a's close and the shadow's removal: both files, the m4a whole.
+      let shadow = SegmentShadow.url(of: writer.url)
+      let copy = directory.appending(path: "copy.caf")
+      try FileManager.default.copyItem(at: shadow, to: copy)
+      writer.close()
+      try FileManager.default.moveItem(at: copy, to: shadow)
+      let harness = try await OutboxHarness()
+
+      let report = await harness.outbox.sweepOrphans(using: DirectorySegmentFiles(directory: directory))
+
+      #expect(report.recovered.isEmpty)
+      #expect(!names(directory).contains { $0.hasSuffix(".caf") })
+      let kept = directory.appending(path: "quarantine/\(writer.url.lastPathComponent)")
+      #expect(
+        Outbox.inspectAudioFile(kept) != nil, "the m4a itself is untouched (no take holds it, so it is kept aside)")
+      await harness.outbox.shutdown()
+    }
+
+    @Test func anUnreadableShadowIsKeptForTheNextLaunch() async throws {
+      let directory = try temporaryDirectory()
+      defer { try? FileManager.default.removeItem(at: directory) }
+      let shadow = directory.appending(path: "\(memo(1).uuidString)-0.caf")
+      try Data(repeating: 7, count: 9_000).write(to: shadow)
+      let harness = try await OutboxHarness()
+
+      let report = await harness.outbox.sweepOrphans(using: DirectorySegmentFiles(directory: directory))
+
+      #expect(report.kept == [shadow])
+      #expect(FileManager.default.fileExists(atPath: shadow.path))
+      await harness.outbox.shutdown()
+    }
+  }
+#endif
