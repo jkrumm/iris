@@ -40,3 +40,7 @@ Findings that change the design go to the matching spike file and into `docs/TDD
   had moved the container, and every upload failed as "the recording file is gone" (permanent, so stalled) with the audio intact in the new
   container. Fixed by saving file names and resolving them against the current capture directory; row 7 and 8 (airplane mode, kill) must
   also pass **across an install of a new build** over the same bundle id. The take was delivered by hand from a copy of the container.
+- Verified on the phone with the fixed build installed over the old one (same bundle id and team, container kept): the three stalled segments of the
+  first take were sent from the current capture directory, the server answered 409 `bad_state` (the memo had been completed by hand) and
+  `segmentCount` 3 covered them, `complete` cleared the take, and `outbox.json` ended with no entries, items or memos and the memo in
+  `completedMemos`. Pass.
