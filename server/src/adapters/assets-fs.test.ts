@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { chmod, mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { captureLogs } from "../memo/test-support.js";
 import { createFsAssetStore } from "./assets-fs.js";
 
 const memoId = "0f8fad5b-d9cb-469f-a165-70867728950e";
@@ -88,14 +89,18 @@ describe("fs AssetStore listing", () => {
     expect((await store.listMemos()).toSorted()).toEqual(ids.toSorted());
   });
 
-  it("rejects when a directory cannot be stat-ed for a reason other than being gone", async () => {
+  it("skips a directory it cannot stat for a reason other than being gone, and logs its name", async () => {
+    if (process.getuid?.() === 0) return;
     const store = createFsAssetStore(dir);
     await store.put({ memoId, assetId: a, bytes: new Uint8Array([1]) });
     // Readable but not searchable: the listing works, stat-ing an entry is EACCES, not ENOENT.
     await chmod(dir, 0o444);
     try {
-      if (process.getuid?.() === 0) return;
-      await expect(store.listMemos()).rejects.toThrow();
+      const { result, lines } = await captureLogs(() => store.listMemos());
+      expect(result).toEqual([]);
+      expect(lines.find((l) => l["event"] === "reply.sweep_failed")).toMatchObject({
+        memo_id: memoId,
+      });
     } finally {
       await chmod(dir, 0o755);
     }
