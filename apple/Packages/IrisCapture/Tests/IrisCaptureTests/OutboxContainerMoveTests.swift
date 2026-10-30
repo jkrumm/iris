@@ -64,7 +64,9 @@ struct OutboxContainerMoveTests {
     }
     machine.finishMemo(rig.id, segmentCount: 3)
     var record = machine.record
-    record.entries = record.entries.map { var entry = $0; entry.state = state; entry.attempts = 1; return entry }
+    record.entries = record.entries.map {
+      var entry = $0; entry.state = state; entry.attempts = 1; return entry
+    }
     // Written without a directory to resolve against: the absolute paths stay in the file, as the old build wrote them.
     try await JSONFileOutboxStore(fileURL: rig.queueFile).save(record)
   }
@@ -130,7 +132,9 @@ struct OutboxContainerMoveTests {
       deletesFilesWhenDone: false)
     await first.flush()
     var record = try await rig.store.load()
-    record.entries = record.entries.map { var entry = $0; entry.state = .stalled; return entry }
+    record.entries = record.entries.map {
+      var entry = $0; entry.state = .stalled; return entry
+    }
     try await rig.store.save(record)
     await first.shutdown()
 

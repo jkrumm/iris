@@ -35,7 +35,7 @@ Findings that change the design go to the matching spike file and into `docs/TDD
 
 ## Wave 17 D1b: the first device take (2026-10-30, iPhone 15, iOS 26.6.1)
 
-- a take recorded while the phone was offline created its memo when the
+- A take recorded while the phone was offline created its memo when the
   tailnet came up but never sent a segment. The saved queue named the three segment files by absolute container path, an install over the app
   had moved the container, and every upload failed as "the recording file is gone" (permanent, so stalled) with the audio intact in the new
   container. Fixed by saving file names and resolving them against the current capture directory; row 7 and 8 (airplane mode, kill) must
