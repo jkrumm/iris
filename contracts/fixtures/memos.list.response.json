@@ -53,7 +53,7 @@
       "startedAt": "2026-03-13T17:44:02.000Z",
       "state": "failed",
       "failedStep": "transcribe",
-      "error": "audio-gateway transcribe failed: 502",
+      "error": "audio door transcription failed: 502",
       "segmentCount": 3,
       "audioSeconds": null,
       "transcript": null,
