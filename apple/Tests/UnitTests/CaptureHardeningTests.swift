@@ -83,6 +83,20 @@ struct UploaderHardeningTests {
     #expect(!(thrown is PermanentTransferError), "a read error is not a refusal: \(String(describing: thrown))")
   }
 
+  @Test("a complete the server refuses for missing segments says which, so the outbox can send them again")
+  func missingSegmentsAreNamed() async throws {
+    let id = MemoID()
+    _ = try await client.createMemo(
+      CreateMemoRequest(id: id.wireID, mode: .auto, startedAt: MemoFactory.now, threadId: nil))
+    try await client.uploadSegment(memoID: id.wireID, index: 0, data: Data("a".utf8))
+    let uploader = APIOutboxUploader(client: client, created: CreatedMemoLog())
+
+    let thrown = await #expect(throws: MissingSegmentsError.self) {
+      try await uploader.complete(memoID: id, segmentCount: 3)
+    }
+    #expect(thrown?.indices == [1, 2])
+  }
+
   @Test("twelve attempts without a network do not stall the item; it goes out when the network is back")
   func offlineNeverStalls() async throws {
     let rig = OutboxRig(client: client)

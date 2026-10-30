@@ -77,6 +77,9 @@ nonisolated struct APIOutboxUploader: SegmentUploader {
   func complete(memoID: MemoID, segmentCount: Int) async throws {
     do {
       _ = try await client.completeMemo(id: memoID.wireID, request: CompleteMemoRequest(segmentCount: segmentCount))
+    } catch let APIError.missingSegments(message, missing) {
+      // The server holds fewer segments than were sent: the outbox sends the listed ones again (the files are still here).
+      throw MissingSegmentsError(indices: missing, message: message)
     } catch {
       throw Self.classified(error)
     }
@@ -105,6 +108,7 @@ nonisolated struct APIOutboxUploader: SegmentUploader {
       return isTransient(status) ? TransientTransferError(body.message) : PermanentTransferError(body.message)
     case .unexpectedStatus(let status):
       return isTransient(status) ? TransientTransferError("HTTP \(status)") : PermanentTransferError("HTTP \(status)")
+    // `complete` turns `missingSegments` into a retry itself; anywhere else it is a refusal.
     case .missingSegments(let message, _), .tooLarge(let message, _): return PermanentTransferError(message)
     case .notScripted(let call): return PermanentTransferError("not scripted: \(call)")
     }

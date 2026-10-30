@@ -166,6 +166,19 @@ public struct PermanentTransferError: Error, Sendable, Equatable {
   }
 }
 
+/// `complete` was refused because the server holds fewer segments than the phone sent (422 `missing_segments`): a segment it
+/// had was lost (a restored backup, a write that was refused in flight). The files are still here until `complete` succeeds, so
+/// the outbox sends the listed ones again and then tries `complete` again, on a backoff, instead of stalling for good.
+public struct MissingSegmentsError: Error, Sendable, Equatable {
+  public let indices: [Int]
+  public let message: String
+
+  public init(indices: [Int], message: String) {
+    self.indices = indices
+    self.message = message
+  }
+}
+
 /// A transfer that failed for a reason that says nothing about the transfer itself (no network, a 5xx, a 408 or 429): it
 /// backs off and is tried again for as long as it takes, and does not count toward `OutboxPolicy.maxAttempts`.
 public struct TransientTransferError: Error, Sendable, Equatable {
