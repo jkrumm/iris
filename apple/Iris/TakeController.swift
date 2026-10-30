@@ -81,7 +81,8 @@ final class TakeController {
     guard canRecord else { throw StartMemoError.queueUnavailable }
     guard await requestPermission() else { throw StartMemoError.microphoneDenied }
     guard let session = try? await stack.session() else { throw StartMemoError.queueUnavailable }
-    speech?.pauseForTake()
+    speech?.willOpenTake()
+    defer { speech?.didOpenTake() }
     let request = TakeRequest(
       mode: mode.rawValue, title: String(localized: "Voice memo", comment: "Outbox row of a recorded memo"))
     let id = try await session.start(request)
@@ -141,6 +142,16 @@ final class TakeController {
   func levels() async -> AsyncStream<Float>? {
     guard let session = try? await stack.session() else { return nil }
     return session.levels
+  }
+
+  /// A take holds the microphone: starting, recording, paused or stopping, a thread's hold-to-talk included (it is the one
+  /// capture session). The playback gate asks this.
+  func isCapturing() async -> Bool {
+    guard let session = try? await stack.session() else { return false }
+    switch await session.current.phase {
+    case .starting, .recording, .paused, .stopping: return true
+    case .idle, .failed: return false
+    }
   }
 
   func queueChanges() async -> AsyncStream<Void> { await outbox.changes() }

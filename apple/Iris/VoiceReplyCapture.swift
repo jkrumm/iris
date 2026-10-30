@@ -41,7 +41,8 @@ struct UnavailableVoiceReplyCapture: VoiceReplyCapture {
 
 /// A take recorded through the capture session and handed to the outbox: the memo is created when the take starts, the
 /// segments go up while it runs, `complete` follows the stop. Under `-IrisFakeCapture` the same code runs on fake audio;
-/// `willBegin` runs right before the session opens (the app pauses playback there: the microphone must never hear it);
+/// `willBegin` runs right before the session opens (the app pauses playback there: the microphone must never hear it) and
+/// `didBegin` once the session has answered, started or not;
 /// `onBegan` / `willEnd` let the fake composition feed its silent microphone.
 final class OutboxVoiceReplyCapture: VoiceReplyCapture {
   private let stack: CaptureStack
@@ -49,6 +50,7 @@ final class OutboxVoiceReplyCapture: VoiceReplyCapture {
   private let isRecorderAvailable: Bool
   private let requestPermission: @Sendable () async -> Bool
   private let willBegin: () -> Void
+  private let didBegin: () -> Void
   private let onBegan: () -> Void
   private let willEnd: () async -> Void
   private(set) var requests: [VoiceReplyRequest] = []
@@ -57,6 +59,7 @@ final class OutboxVoiceReplyCapture: VoiceReplyCapture {
   init(
     stack: CaptureStack, service: OutboxService, isAvailable: Bool = true,
     requestPermission: @escaping @Sendable () async -> Bool = { true }, willBegin: @escaping () -> Void = {},
+    didBegin: @escaping () -> Void = {},
     onBegan: @escaping () -> Void = {},
     willEnd: @escaping () async -> Void = {}
   ) {
@@ -65,6 +68,7 @@ final class OutboxVoiceReplyCapture: VoiceReplyCapture {
     isRecorderAvailable = isAvailable
     self.requestPermission = requestPermission
     self.willBegin = willBegin
+    self.didBegin = didBegin
     self.onBegan = onBegan
     self.willEnd = willEnd
   }
@@ -76,6 +80,7 @@ final class OutboxVoiceReplyCapture: VoiceReplyCapture {
     guard await requestPermission() else { throw CaptureError.sessionFailure("microphone access was denied") }
     let session = try await stack.session()
     willBegin()
+    defer { didBegin() }
     try await session.start(
       TakeRequest(
         mode: request.mode.rawValue, threadID: request.threadId,

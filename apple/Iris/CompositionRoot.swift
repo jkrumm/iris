@@ -124,7 +124,8 @@ final class CompositionRoot: CaptureIntentHandler, PlaybackIntentHandler {
       replyImages = ReplyImageStore(
         loader: MediaAssetLoader(source: { FakeMediaSource() }, downloader: .shared))
       voiceReply = OutboxVoiceReplyCapture(
-        stack: stack, service: service, willBegin: { [speech] in speech.pauseForTake() }, onBegan: { mic.start() },
+        stack: stack, service: service, willBegin: { [speech] in speech.willOpenTake() },
+        didBegin: { [speech] in speech.didOpenTake() }, onBegan: { mic.start() },
         willEnd: { await mic.stop() })
       take = TakeModel(controller: takeController)
     } else {
@@ -159,7 +160,7 @@ final class CompositionRoot: CaptureIntentHandler, PlaybackIntentHandler {
       voiceReply = OutboxVoiceReplyCapture(
         stack: production.stack, service: service, isAvailable: production.canRecord,
         requestPermission: { await AVAudioApplication.requestRecordPermission() },
-        willBegin: { [speech] in speech.pauseForTake() })
+        willBegin: { [speech] in speech.willOpenTake() }, didBegin: { [speech] in speech.didOpenTake() })
       replyImages = ReplyImageStore(
         loader: MediaAssetLoader(
           source: { Self.mediaSource(for: credentials.load()) }, downloader: .shared))
@@ -168,6 +169,10 @@ final class CompositionRoot: CaptureIntentHandler, PlaybackIntentHandler {
     let outbox = outbox
     let fake = mode == .fake
     let saved = self.credentials
+    // Every playback start (Play, the Play intent, a spoken reply, the recording) asks the capture session before and after it
+    // waits for anything, so a start that began before a take cannot land inside it.
+    speech.bindCapture(
+      isOpen: { [takeController] in await takeController.isCapturing() }, isOpenNow: { [take] in take.isCapturing })
     let reader = SpokenReplies(
       store: fake ? InMemorySpokenRepliesStore() : UserDefaultsSpokenRepliesStore(), speech: speech, client: api,
       media: { fake ? FakeMediaSource() : Self.mediaSource(for: saved?.load()) },

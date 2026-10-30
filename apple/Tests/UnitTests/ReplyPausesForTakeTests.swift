@@ -77,6 +77,59 @@ struct ReplyPausesForTakeTests {
     _ = try await voice.end(cancelled: true)
   }
 
+  @Test("while a take is open no playback starts: Play, the Play intent's path, the recording; it works again after")
+  func nothingStartsDuringATake() async throws {
+    let rig = OutboxRig(client: client)
+    let speech = SpeechPlayer()
+    let controller = controller(rig, speech: speech)
+    speech.bindCapture(isOpen: { await controller.isCapturing() }, isOpenNow: { false })
+
+    try await controller.start(mode: .auto)
+    // A Play that fetched its memo before the take reaches the player now.
+    #expect(await speech.play(memo, source: source) == false)
+    await speech.toggle(memo, source: source)
+    #expect(!speech.isPlaying(memo.id) && !speech.player.isLoaded)
+
+    try await controller.stop()
+    #expect(await speech.play(memo, source: source), "the take is over: playing is allowed again")
+    speech.stop()
+  }
+
+  @Test("a start whose speech was still downloading when the take opened never begins")
+  func downloadOverlappingATake() async {
+    let speech = SpeechPlayer()
+    var asked = 0
+    // Free when the start begins, taken by the time the download is done.
+    speech.bindCapture(
+      isOpen: {
+        asked += 1
+        return asked > 1
+      }, isOpenNow: { false })
+
+    #expect(await speech.play(memo, source: source) == false)
+    #expect(!speech.isPlaying(memo.id) && asked == 2, "checked before and after the download")
+    speech.stop()
+  }
+
+  @Test(
+    "a take that is opening blocks every start, the recording's play button included, until the session has answered")
+  func openingTakeBlocks() async {
+    let speech = SpeechPlayer()
+    let playback = MemoPlayback(memoID: memo.id, recordingDuration: 3, speech: speech)
+    playback.attach()
+    await playback.recording.load(source.audio(for: memo))
+
+    speech.willOpenTake()
+    playback.toggleRecording()
+    #expect(!playback.recording.isPlaying)
+    #expect(await speech.play(memo, source: source) == false)
+
+    speech.didOpenTake()
+    playback.toggleRecording()
+    #expect(playback.recording.isPlaying)
+    playback.teardown()
+  }
+
   @Test("a start with nothing playing changes nothing")
   func nothingPlaying() async throws {
     let rig = OutboxRig(client: client)

@@ -17,6 +17,14 @@ final class SpeechPlayer {
   /// Whether that screen's recording is playing, for ``isBusy``.
   private var recordingIsPlaying: (() -> Bool)?
   private weak var recordingOwner: AnyObject?
+  /// Whether a take holds the microphone, asked of the capture session itself (it also knows a thread's hold-to-talk). Bound
+  /// by the composition root; unbound (tests, previews) nothing is ever blocked.
+  private var captureIsOpen: (() async -> Bool)?
+  /// The same from what the screens already know, for the starts that cannot wait for an answer (the recording's play button).
+  private var captureIsOpenNow: (() -> Bool)?
+  /// Takes between `willOpenTake()` and `didOpenTake()`: the session has not published its state yet, but the microphone is
+  /// about to open.
+  private var openingTakes = 0
   /// Bumped by every start, pause and stop; a download that finds it changed belongs to a start that was overtaken (the
   /// user paused, stopped, or started the recording, while the speech was downloading).
   private var attempt = 0
@@ -30,6 +38,21 @@ final class SpeechPlayer {
   /// Something is audible or about to be: a reply loading or playing, or the open detail's recording playing. A reply that
   /// starts on its own (``SpokenReplies``) waits instead of interrupting it; a start the user asks for does not look at it.
   var isBusy: Bool { player.isLoading || player.isPlaying || recordingIsPlaying?() == true }
+
+  func bindCapture(isOpen: @escaping () async -> Bool, isOpenNow: @escaping () -> Bool) {
+    captureIsOpen = isOpen
+    captureIsOpenNow = isOpenNow
+  }
+
+  /// A take is about to open the microphone, or has one open: nothing may start playing. Every playback start asks, and asks
+  /// again after whatever it waited for (a memo fetched, a speech downloaded), so a start that began before the take cannot
+  /// land inside it.
+  var isCaptureBusyNow: Bool { openingTakes > 0 || captureIsOpenNow?() == true }
+
+  private func captureIsBusy() async -> Bool {
+    if openingTakes > 0 { return true }
+    return await captureIsOpen?() == true
+  }
 
   /// `owner` is the screen whose recording `pause` stops before a reply starts; the last screen to bind wins.
   func bindRecording(owner: AnyObject, isPlaying: @escaping () -> Bool, pause: @escaping () -> Void) {
@@ -51,7 +74,10 @@ final class SpeechPlayer {
   func toggle(_ memo: Memo, source: any MemoMediaSource) async {
     guard !player.isLoading else { return }
     if memoID == memo.id, player.isLoaded {
-      if !player.isPlaying { pauseRecording?() }
+      if !player.isPlaying {
+        guard !(await captureIsBusy()) else { return }
+        pauseRecording?()
+      }
       player.toggle()
       return
     }
@@ -63,7 +89,7 @@ final class SpeechPlayer {
   /// done, so a reply the caller no longer wants (the app went to the background meanwhile) stays silent.
   @discardableResult
   func play(_ memo: Memo, source: any MemoMediaSource, shouldPlay: () -> Bool = { true }) async -> Bool {
-    guard !player.isLoading, let request = source.speech(for: memo) else { return false }
+    guard !player.isLoading, let request = source.speech(for: memo), !(await captureIsBusy()) else { return false }
     attempt += 1
     let mine = attempt
     memoID = memo.id
@@ -76,6 +102,8 @@ final class SpeechPlayer {
       return false
     }
     guard shouldPlay() else { return false }
+    // A take may have opened while the speech downloaded (or the memo was fetched before it): it has priority.
+    guard !(await captureIsBusy()), attempt == mine else { return false }
     pauseRecording?()
     player.seek(to: 0)
     player.play()
@@ -88,11 +116,23 @@ final class SpeechPlayer {
     player.pause()
   }
 
-  /// A take is starting: recording takes priority, so the reply (a download still under way included) and the open detail's
+  /// A take is starting (``willOpenTake()`` pairs it with ``didOpenTake()``): recording takes priority, so the reply (a download still under way included) and the open detail's
   /// recording stop at once, and the microphone never hears either. Nothing resumes by itself afterwards.
   func pauseForTake() {
     pause()
     pauseRecording?()
+  }
+
+  /// A take is about to open the microphone: playback stops and nothing starts until ``didOpenTake()`` and the session says
+  /// the take is over. Call right before the capture session opens.
+  func willOpenTake() {
+    openingTakes += 1
+    pauseForTake()
+  }
+
+  /// The session answered the start (the take is open, or failed to open).
+  func didOpenTake() {
+    openingTakes = max(0, openingTakes - 1)
   }
 
   /// Stops and releases the player, for the memo it speaks (`id`), or whichever when `id` is nil.
