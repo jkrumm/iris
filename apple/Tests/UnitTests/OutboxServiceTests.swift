@@ -338,8 +338,13 @@ struct APIOutboxUploaderTests {
       OutboxItem(
         memoID: memo.id, kind: .voice, mode: "auto", startedAt: MemoFactory.now, queuedAt: MemoFactory.now,
         title: "Voice memo"))
-    await outbox.enqueue(memo.segment)
-    await outbox.finishMemo(memo.id, segmentCount: 3)
+    // The server holds segment 0 and completed the memo; the take's segment 1 arrives late and is refused.
+    let late = ClosedSegment(memoID: memo.id, index: 1, fileURL: memo.file, byteCount: 5, duration: 1)
+    await outbox.enqueue(late)
+    await outbox.settled()
+    let first = directoryFile(memo, "0")
+    await outbox.enqueue(ClosedSegment(memoID: memo.id, index: 0, fileURL: first, byteCount: 1, duration: 1))
+    await outbox.finishMemo(memo.id, segmentCount: 2)
     await outbox.settled()
 
     let calls = await memo.client.calls
@@ -354,6 +359,10 @@ struct APIOutboxUploaderTests {
     #expect(await created.memo(id: tail.id)?.mode == .transcribe)
     let detail = try await memo.client.memo(id: tail.id)
     #expect(detail.memo.segmentCount == 1)
+    #expect(
+      calls.contains(.completeMemo(id: memo.id.wireID, request: CompleteMemoRequest(segmentCount: 1))),
+      "the take is completed with what the server holds, so the server does not refuse it")
+    #expect(await outbox.queue().isEmpty, "the take clears too, nothing stalls")
     await outbox.shutdown()
   }
 

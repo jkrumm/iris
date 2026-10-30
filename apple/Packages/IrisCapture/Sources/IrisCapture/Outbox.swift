@@ -384,7 +384,7 @@ public actor Outbox: SegmentOutbox {
       }
       machine.release(tailID)
     }
-    machine.uploadSucceeded(key)
+    machine.deliveredAsLateTail(key, serverHeld: late.serverSegmentCount)
   }
 
   /// Called right before the `persist()` that records why the files are obsolete, so that call's number is the next one.

@@ -8,31 +8,34 @@ import Testing
 private actor LateTailUploader: SegmentUploader {
   let base: TestUploader
   private let late: Set<SegmentKey>
+  private let held: Int
   private var holding: Set<MemoID> = []
-  private var held: [CheckedContinuation<Void, Never>] = []
+  private var waiting: [CheckedContinuation<Void, Never>] = []
 
-  init(base: TestUploader, late: Set<SegmentKey>) {
+  /// `held`: the segment count the server completed the take's memo with.
+  init(base: TestUploader, late: Set<SegmentKey>, held: Int = 1) {
     self.base = base
     self.late = late
+    self.held = held
   }
 
   func holdCreates(of ids: Set<MemoID>) { holding = ids }
 
   func release() {
     holding = []
-    let waiting = held
-    held = []
-    for continuation in waiting { continuation.resume() }
+    let continuations = waiting
+    waiting = []
+    for continuation in continuations { continuation.resume() }
   }
 
   func create(_ item: OutboxItem) async throws {
-    if holding.contains(item.memoID) { await withCheckedContinuation { held.append($0) } }
+    if holding.contains(item.memoID) { await withCheckedContinuation { waiting.append($0) } }
     try await base.create(item)
   }
 
   func upload(_ segment: ClosedSegment) async throws {
     if late.contains(SegmentKey(memoID: segment.memoID, index: segment.index)) {
-      throw LateSegmentError(label: "Late recording", answer: "no longer receiving")
+      throw LateSegmentError(label: "Late recording", answer: "no longer receiving", serverSegmentCount: held)
     }
     try await base.upload(segment)
   }
@@ -120,6 +123,9 @@ struct LateTailTests {
     #expect(item.title.hasSuffix(original.uuidString.prefix(8).lowercased()))
     #expect(await base.uploaded.contains(SegmentKey(memoID: tail, index: 0)))
     #expect(await base.completed.contains(.init(memoID: tail, segmentCount: 1)))
+    #expect(
+      await base.completed.contains(.init(memoID: original, segmentCount: 1)),
+      "the take is completed with the count the server holds, so its complete is not refused")
     #expect(await outbox.queue().isEmpty)
     await outbox.shutdown()
   }
@@ -139,7 +145,7 @@ struct LateTailTests {
     await outbox.finishMemo(original, segmentCount: 2)
     // The take completes and removes its own files while the new memo's create is still on the wire.
     for _ in 0..<500 where await base.completed.isEmpty { try await Task.sleep(for: .milliseconds(10)) }
-    #expect(await base.completed.contains(.init(memoID: original, segmentCount: 2)))
+    #expect(await base.completed.contains(.init(memoID: original, segmentCount: 1)))
 
     let kept = directory.appending(path: "\(tail.uuidString)-0.m4a")
     #expect(try Data(contentsOf: kept) == Data("audio-1".utf8), "the audio is still there")
@@ -173,7 +179,7 @@ struct LateTailTests {
 
     #expect(await base.created.map(\.memoID).filter { $0 == tail }.count == 1)
     #expect(await base.completed.filter { $0.memoID == tail }.count == 1)
-    #expect(await base.completed.contains(.init(memoID: original, segmentCount: 2)))
+    #expect(await base.completed.contains(.init(memoID: original, segmentCount: 1)))
     #expect(await outbox.queue().isEmpty)
     await outbox.shutdown()
   }

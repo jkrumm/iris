@@ -74,7 +74,7 @@ nonisolated struct APIOutboxUploader: SegmentUploader {
     throw LateSegmentError(
       label: String(
         localized: "Late recording", comment: "Outbox row: the end of a take that reached a memo already closed"),
-      answer: answer)
+      answer: answer, serverSegmentCount: held)
   }
 
   func complete(memoID: MemoID, segmentCount: Int) async throws {

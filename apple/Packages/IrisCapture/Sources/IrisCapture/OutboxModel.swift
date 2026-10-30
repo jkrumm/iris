@@ -25,6 +25,9 @@ public struct OutboxEntry: Sendable, Equatable, Codable {
   public var sequence: Int
   public var state: OutboxState
   public var attempts: Int
+  /// Set when this segment was refused as a late tail (`LateSegmentError`): the segment count the server completed the memo
+  /// with. `complete` goes out with the smallest such count. `nil` for every other segment and in an older record.
+  public internal(set) var serverHeld: Int? = nil
 
   public var key: SegmentKey { SegmentKey(memoID: segment.memoID, index: segment.index) }
 }

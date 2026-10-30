@@ -10,10 +10,15 @@ public struct LateSegmentError: Error, Sendable, Equatable {
   public let label: String
   /// What the server said, for the log.
   public let answer: String
+  /// How many segments the server completed the take's memo with. The take's own `complete` goes out with this count, not
+  /// the local one: the server would refuse a larger count (409 `conflict`) and the take would stall for a segment that
+  /// now lives in a memo of its own.
+  public let serverSegmentCount: Int
 
-  public init(label: String, answer: String) {
+  public init(label: String, answer: String, serverSegmentCount: Int) {
     self.label = label
     self.answer = answer
+    self.serverSegmentCount = serverSegmentCount
   }
 }
 

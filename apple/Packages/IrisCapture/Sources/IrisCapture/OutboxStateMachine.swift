@@ -384,7 +384,7 @@ public struct OutboxStateMachine: Sendable {
       memos[memo.memoID]?.completion = .uploading
       completeFlagBeforeDispatch[memo.memoID] = memo.completeMayHaveLanded
       memos[memo.memoID]?.completeMayHaveLanded = true
-      work.append(.complete(memo.memoID, segmentCount: memo.segmentCount))
+      work.append(.complete(memo.memoID, segmentCount: completionCount(of: memo)))
       capacity -= 1
     }
 
@@ -425,6 +425,20 @@ public struct OutboxStateMachine: Sendable {
   public mutating func uploadSucceeded(_ key: SegmentKey) {
     entries[key]?.state = .uploaded
     items[key.memoID]?.lastError = nil
+  }
+
+  /// The segment was refused as a late tail and now lives in a memo of its own: it counts as delivered, and the take's
+  /// `complete` will carry the count the server holds (`completionCount(of:)`).
+  mutating func deliveredAsLateTail(_ key: SegmentKey, serverHeld: Int) {
+    entries[key]?.serverHeld = serverHeld
+    uploadSucceeded(key)
+  }
+
+  /// What `complete` says: the memo's segment count, or the smaller count the server completed it with when a late tail
+  /// was diverted (a count of zero is no `complete` the server would take, so it is left alone).
+  private func completionCount(of memo: OutboxMemo) -> Int {
+    let held = entries.values.filter { $0.key.memoID == memo.memoID }.compactMap(\.serverHeld).filter { $0 > 0 }.min()
+    return min(held ?? memo.segmentCount, memo.segmentCount)
   }
 
   public mutating func uploadFailed(
