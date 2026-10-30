@@ -24,4 +24,5 @@ jq -r '.[].attachments[] | select(.suggestedHumanReadableName | startswith("rout
     cp "$raw/$file" "$out/$clean.png"
   done
 rm -rf "$raw"
+ls "$out"/*.png >/dev/null 2>&1 || { echo "no screenshots exported to $out" >&2; exit 1; }
 ls "$out"
