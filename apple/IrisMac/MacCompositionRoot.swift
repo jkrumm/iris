@@ -15,7 +15,7 @@ enum MacPanelPage: Equatable {
 /// - `-IrisFakeData` (screenshots, tests): the fake API client with the sample memos, an in-memory credential store (an
 ///   unsigned build has no Keychain, `-34018`) and a poster that records instead of notifying.
 /// - Otherwise: production. The server URL and device token come from the panel's Settings page (token in the Keychain),
-///   and every model holds one ``ReconfigurableAPIClient``, which follows the saved connection. With nothing saved the
+///   and each connection gets its own ``ReconfigurableAPIClient``. With nothing saved the
 ///   panel opens on Settings and nothing loads.
 ///
 /// History's list and event stream run from launch, not from the first time the popover opens: a notification per finished
@@ -48,6 +48,8 @@ final class MacCompositionRoot {
   private(set) var reconnects = 0
 
   let notifier: MemoNotifier
+  /// Signals each `ready` of the current connection's event stream (see ``StreamTappingClient``).
+  private var streamReady: AsyncStream<Void>
   /// The client of the current connection. Each connection gets its own, so a task that started on the old server can never
   /// reach the new one.
   private var api: any APIClient
@@ -84,16 +86,16 @@ final class MacCompositionRoot {
       self.credentials = store
       page = saved == nil ? .settings : .history
     }
-    api = client
-    history = Self.makeHistory(client: client, mode: mode)
+    let (ready, signal) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+    streamReady = ready
+    let tapped = StreamTappingClient(base: client, ready: signal)
+    api = tapped
+    history = Self.makeHistory(client: tapped, mode: mode)
     let isFake = mode == .fake
     notifier = MemoNotifier(
       poster: poster ?? (isFake ? RecordingNotificationPoster() : UserNotificationPoster()), lookup: { _ in nil })
-    notifier.lookup = { [weak self] id in
-      guard let self else { return nil }
-      if let known = history.memos.first(where: { $0.id == id }) { return known }
-      return try? await api.memo(id: id).memo
-    }
+    // Always fetched: the list's copy can be stale, and a failed refresh must not announce a memo that is still running.
+    notifier.lookup = { [weak self] id in try? await self?.api.memo(id: id).memo }
     wireNotifications()
   }
 
@@ -136,7 +138,7 @@ final class MacCompositionRoot {
     return mode == .fake || credentials.load() != nil
   }
 
-  /// Starts following the server: the list, its event stream and the watch for memos that finished unseen. Called once at launch
+  /// Starts following the server: the list and its event stream. Called once at launch
   /// and again on each connection change.
   func begin() {
     following?.cancel()
@@ -151,8 +153,16 @@ final class MacCompositionRoot {
     notifier.requestPermissionIfNeeded()
     let history = history
     async let events: Void = followEvents(of: history)
-    async let completions: Void = watch(history)
-    _ = await (events, completions)
+    async let returns: Void = countReturns(of: streamReady)
+    _ = await (events, returns)
+  }
+
+  /// Every `ready` of the event stream after the first is the server coming back; an open detail reloads on it.
+  private func countReturns(of ready: AsyncStream<Void>) async {
+    for await _ in ready {
+      guard !Task.isCancelled else { return }
+      reconnects += 1
+    }
   }
 
   private func followEvents(of history: HistoryModel) async {
@@ -160,41 +170,20 @@ final class MacCompositionRoot {
     await history.observeEvents()
   }
 
-  /// Follows what History shows. A memo that is done in a snapshot but was not in the one before is announced (a `memo.done`
-  /// lost to an outage; the notifier drops the ones the event already announced), and every return of the connection bumps
-  /// ``reconnects``.
-  private func watch(_ history: HistoryModel) async {
-    let revision = connectionRevision
-    var catchUp = DoneCatchUp()
-    var link = LinkTracker()
-    let snapshots = Observations {
-      Snapshot(memos: history.memos, hasLoaded: history.hasLoaded, filters: history.filters, link: history.link)
-    }
-    for await snapshot in snapshots {
-      // A snapshot of the old server that is still in flight when the connection changes must not touch the new one.
-      guard !Task.isCancelled, revision == connectionRevision else { return }
-      if link.cameBack(snapshot.link) {
-        reconnects += 1
-        notifier.retryFailed()
-      }
-      let finished = catchUp.newlyDone(in: snapshot.memos, hasLoaded: snapshot.hasLoaded, filters: snapshot.filters)
-      for id in finished { announce(id, with: notifier) }
-    }
-  }
-
-  private struct Snapshot: Sendable {
-    let memos: [Memo]
-    let hasLoaded: Bool
-    let filters: HistoryFilters
-    let link: ServerLink
-  }
-
   /// Installs the click handler that opens a memo from its notification banner. Production only: the fake never posts.
   func installNotificationClicks() {
     guard mode == .production, clickHandler == nil else { return }
-    let handler = NotificationClickHandler { [weak self] id in self?.openDetail(id) }
+    let handler = NotificationClickHandler { [weak self] id, connection in
+      self?.openFromNotification(id, connection: connection)
+    }
     handler.install()
     clickHandler = handler
+  }
+
+  /// A clicked banner: opens the memo unless the banner is of another connection (posted before a server switch).
+  func openFromNotification(_ id: String, connection: String) {
+    guard connection == notifier.connectionID else { return }
+    openDetail(id)
   }
 
   /// Shows `id` in the detail panel: a row, or a clicked notification banner.
@@ -213,7 +202,11 @@ final class MacCompositionRoot {
   /// what was announced), the client points at the new one, and following starts over.
   private func connectionChanged() {
     following?.cancel()
-    if mode == .production { api = ReconfigurableAPIClient(credentials: credentials.load()) }
+    let base: any APIClient =
+      fakeAPI ?? ReconfigurableAPIClient(credentials: credentials.load())
+    let (ready, signal) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+    streamReady = ready
+    api = StreamTappingClient(base: base, ready: signal)
     history = Self.makeHistory(client: api, mode: mode)
     wireNotifications()
     notifier.reset()

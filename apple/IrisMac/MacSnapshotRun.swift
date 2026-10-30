@@ -24,7 +24,11 @@ struct MacSnapshotRun {
   }
 
   func run() async {
-    try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    do {
+      try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    } catch {
+      Self.logger.error("snapshot directory not created: \(String(describing: error), privacy: .public)")
+    }
     try? await Task.sleep(for: .seconds(4))
     write(windowTitled: "Iris panel", as: "history")
     root.openDetail(detailMemoID)
@@ -58,7 +62,14 @@ struct MacSnapshotRun {
     window.displayIfNeeded()
     view.layoutSubtreeIfNeeded()
     view.cacheDisplay(in: view.bounds, to: rep)
-    guard let png = rep.representation(using: .png, properties: [:]) else { return }
-    try? png.write(to: directory.appending(path: "\(name).png"))
+    guard let png = rep.representation(using: .png, properties: [:]) else {
+      Self.logger.error("\(name, privacy: .public) not encoded as PNG")
+      return
+    }
+    do {
+      try png.write(to: directory.appending(path: "\(name).png"))
+    } catch {
+      Self.logger.error("\(name, privacy: .public) not written: \(String(describing: error), privacy: .public)")
+    }
   }
 }

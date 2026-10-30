@@ -29,8 +29,12 @@ struct MemoNotifierTests {
   @Test("a finished memo posts one notification: the route as title, the headline as body")
   func posts() async {
     let poster = RecordingNotificationPoster()
-    await notifier(poster).memoDone(id: "a")
-    #expect(await poster.posted == [MemoNotification(memoID: "a", title: "Journal", body: "Buy oat milk")])
+    let notifier = notifier(poster)
+    await notifier.memoDone(id: "a")
+    #expect(
+      await poster.posted == [
+        MemoNotification(memoID: "a", connectionID: notifier.connectionID, title: "Journal", body: "Buy oat milk")
+      ])
   }
 
   @Test("the same memo announced twice (a replayed event) posts once; two calls at the same time post once")
@@ -145,27 +149,61 @@ struct MemoNotifierTests {
     #expect(await poster.posted.count == 2)
   }
 
-  @Test("a banner never carries the transcript or the reply: a memo without a summary says it is done")
+  @Test(
+    "a banner never carries the transcript, the reply or the park reason: parked and failed memos say generic words")
   func neverTheTranscript() {
-    let noSummary = MemoNotifier.notification(for: Self.memo("a", summary: nil))
-    #expect(noSummary == MemoNotification(memoID: "a", title: "Journal", body: "Done."))
+    let noSummary = MemoNotifier.notification(for: Self.memo("a", summary: nil), connectionID: "c")
+    #expect(noSummary == MemoNotification(memoID: "a", connectionID: "c", title: "Journal", body: "Done."))
 
     var parked = Self.memo("b", state: .needsRoute, route: nil, summary: nil)
-    #expect(MemoNotifier.notification(for: parked).title == "Where should this go?")
-    #expect(MemoNotifier.notification(for: parked).body == "Open Iris to choose a route.")
-    parked.routeReason = "Not sure whether this is a journal entry."
-    #expect(MemoNotifier.notification(for: parked).body == "Not sure whether this is a journal entry.")
-
+    parked.routeReason = "Not sure whether \(Self.secret) means the tab dotfiles / claude."
     var failed = Self.memo("c", state: .failed, route: nil, summary: nil)
     failed.error = Self.secret
     failed.failedStep = .transcribe
-    let notification = MemoNotifier.notification(for: failed)
-    #expect(notification.title == "Memo failed" && notification.body == "Failed at transcribe.")
+
+    let parkedBanner = MemoNotifier.notification(for: parked, connectionID: "c")
+    #expect(parkedBanner.title == "Where should this go?" && parkedBanner.body == "Open Iris to choose a route.")
+    let failedBanner = MemoNotifier.notification(for: failed, connectionID: "c")
+    #expect(failedBanner.title == "Memo failed" && failedBanner.body == "Open Iris to retry it.")
 
     for memo in [Self.memo("a", summary: nil), parked, failed] {
-      let shown = MemoNotifier.notification(for: memo)
+      let shown = MemoNotifier.notification(for: memo, connectionID: "c")
       #expect(!shown.title.contains("secret") && !shown.body.contains("secret"))
+      #expect(!shown.body.contains("dotfiles") && !shown.body.contains("transcribe"))
     }
+  }
+
+  @Test(
+    "a memo the server does not call done yet is not announced, and is not remembered: its own memo.done still posts")
+  func notResultReady() async {
+    let poster = RecordingNotificationPoster()
+    var state = MemoState.acted
+    let notifier = notifier(poster) { Self.memo($0, state: state) }
+    await notifier.memoDone(id: "a")
+    #expect(await poster.posted.isEmpty)
+    state = .notified
+    await notifier.memoDone(id: "a")
+    #expect(await poster.posted.map(\.memoID) == ["a"])
+  }
+
+  @Test("a failed fetch never announces a cached copy: nothing posts until the server answers")
+  func failedFetchPostsNothing() async {
+    let poster = RecordingNotificationPoster()
+    let notifier = notifier(poster) { _ in nil }
+    await notifier.memoDone(id: "a")
+    #expect(await poster.posted.isEmpty)
+  }
+
+  @Test("banners carry the connection they were posted for, and a server switch names a new one")
+  func connectionBinding() async {
+    let poster = RecordingNotificationPoster()
+    let notifier = notifier(poster)
+    let first = notifier.connectionID
+    await notifier.memoDone(id: "a")
+    notifier.reset()
+    await notifier.memoDone(id: "b")
+    let posted = await poster.posted
+    #expect(posted.map(\.connectionID) == [first, notifier.connectionID] && first != notifier.connectionID)
   }
 
   @Test("an event seen before a server switch is dropped when its task only runs after it")
@@ -201,17 +239,15 @@ struct MemoNotifierTests {
     #expect(await poster.posted.map(\.memoID) == ["a"])
   }
 
-  @Test("when every try fails the memo is not recorded as announced, and a reconnect offers it again")
-  func failedMemosAreRetriedOnReconnect() async {
+  @Test("three tries in all, then the id is forgotten: a later event for the memo may try again")
+  func boundedRetries() async {
     let poster = RecordingNotificationPoster()
-    await poster.failNextPosts(3)
+    await poster.failNextPosts(10)
     let notifier = notifier(poster)
     await notifier.memoDone(id: "a")
     #expect(await poster.posted.isEmpty)
-    notifier.retryFailed()
-    #expect(await eventually { await poster.posted.map(\.memoID) == ["a"] })
-    notifier.retryFailed()
+    await poster.failNextPosts(0)
     await notifier.memoDone(id: "a")
-    #expect(await poster.posted.count == 1)
+    #expect(await poster.posted.map(\.memoID) == ["a"])
   }
 }

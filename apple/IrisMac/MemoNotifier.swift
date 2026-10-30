@@ -6,6 +6,8 @@ import os
 /// What one finished memo says in Notification Center.
 nonisolated struct MemoNotification: Equatable, Sendable {
   let memoID: String
+  /// The connection the memo belongs to (``MemoNotifier/connectionID``): a click after a server switch is ignored.
+  let connectionID: String
   let title: String
   let body: String
 }
@@ -28,32 +30,31 @@ nonisolated protocol NotificationPoster: Sendable {
   func post(_ notification: MemoNotification) async throws
 }
 
-/// One local notification per finished memo while the app runs (TDD §5). Fed by History's `memo.done` events and by the
-/// catch-up after a reconnect; APNs for an app that is asleep comes later.
+/// One local notification per finished memo while the app runs (TDD §5), fed by History's live `memo.done` events. A memo that
+/// finished while the stream was down is not announced (known limit); APNs for an app that is asleep comes later.
 ///
-/// A memo is announced once: ``posted`` holds the ones the system accepted, ``inFlight`` the ones being looked up or posted
-/// right now. A lookup or post that fails leaves the memo unannounced, so the next event, or the catch-up of the next
-/// reconnect, tries again; each call also retries a few times itself.
+/// A memo is announced once: ``posted`` holds the ones the system accepted, ``inFlight`` the ones being fetched or posted right
+/// now. Before posting, the memo is fetched and must be result-ready, so a stale copy never announces a running memo. A
+/// fetch or post that keeps failing is tried three times, logged, and then forgotten: the next event for the memo may try again.
 @MainActor
 final class MemoNotifier {
   private let poster: any NotificationPoster
-  /// The memo behind a `memo.done` id: the list's copy, else a fetch; nil when it cannot be had now. Set by the composition
+  /// The memo behind a `memo.done` id, fetched fresh from the server; nil when it cannot be had now. Set by the composition
   /// root once it can name itself.
   var lookup: (String) async -> Memo?
   private let retryDelays: [Duration]
+  private let logger = Logger(subsystem: "com.jkrumm.iris", category: "notifier")
   private var posted: Set<String> = []
   private var inFlight: Set<String> = []
-  /// Memos whose every try failed (a lookup or post that kept failing); not announced.
-  private var failed: Set<String> = []
   /// The prompt in flight. Single-flight: every memo that finishes while it is up waits on it, none starts a second one.
   private var requesting: Task<Bool, Never>?
 
   /// - Parameters:
   ///   - lookup: The memo behind a `memo.done` id: the list's copy, else a fetch; nil when it cannot be had now.
-  ///   - retryDelays: The waits between the tries of one call after a failed lookup or post.
+  ///   - retryDelays: The waits between the tries of one call after a failed lookup or post: three tries in all by default.
   init(
     poster: any NotificationPoster, lookup: @escaping (String) async -> Memo?,
-    retryDelays: [Duration] = [.seconds(1), .seconds(5), .seconds(30)]
+    retryDelays: [Duration] = [.seconds(1), .seconds(5)]
   ) {
     self.poster = poster
     self.lookup = lookup
@@ -70,12 +71,15 @@ final class MemoNotifier {
   /// ``memoDone(id:generation:)``, so a task of the old server that only starts after the switch is dropped.
   private(set) var generation = 0
 
+  /// Names the connection the banners belong to; a click on one of another connection is ignored.
+  private(set) var connectionID = UUID().uuidString
+
   /// Forgets what was announced: the connection moved to another server, whose memos are not these.
   func reset() {
     generation += 1
+    connectionID = UUID().uuidString
     posted = []
     inFlight = []
-    failed = []
   }
 
   /// Announces `id` once. `expected` is the ``generation`` the event was seen under (the current one when nil); every await
@@ -97,27 +101,20 @@ final class MemoNotifier {
         posted.insert(id)
         return
       }
+      // A memo the server does not call done yet is not announced, and not remembered either: its `memo.done` is still to come.
+      guard memo.state.isResultReady else { return }
       do {
-        try await poster.post(Self.notification(for: memo))
+        try await poster.post(Self.notification(for: memo, connectionID: connectionID))
       } catch {
         guard mine == generation else { return }
         continue
       }
       guard mine == generation else { return }
       posted.insert(id)
-      failed.remove(id)
       return
     }
-    // Every try failed: the memo is not announced, and ``retryFailed()`` offers it again when the connection comes back.
-    failed.insert(id)
-  }
-
-  /// Offers the memos whose every try failed again: the connection came back.
-  func retryFailed() {
-    let again = failed
-    failed = []
-    let current = generation
-    for id in again { Task { await memoDone(id: id, generation: current) } }
+    // Every try failed: nothing is recorded, so a later event for the memo may try again.
+    logger.error("notification for a memo not delivered after \(self.retryDelays.count + 1) tries")
   }
 
   private func isAllowed() async -> Bool {
@@ -134,33 +131,31 @@ final class MemoNotifier {
     }
   }
 
-  /// What a banner says. Never the transcript or the reply (the alert contract, AGENTS.md): a finished memo shows its route
-  /// and the summary's headline, a parked one the generic question and the park reason, a failed one the step that failed.
+  /// What a banner says. Never the transcript, the reply or the park reason (a reason can hold a spoken tab name; the alert
+  /// contract, AGENTS.md): a finished memo shows its route and the summary's headline, a parked or failed one generic words.
   /// `rowHeadline` is not used: without a summary it is the transcript.
-  static func notification(for memo: Memo) -> MemoNotification {
+  static func notification(for memo: Memo, connectionID: String) -> MemoNotification {
+    let title: String
+    let body: String
     switch memo.state {
     case .needsRoute:
-      MemoNotification(
-        memoID: memo.id,
-        title: String(localized: "Where should this go?", comment: "Notification title: a parked memo"),
-        body: memo.routeReason
-          ?? String(localized: "Open Iris to choose a route.", comment: "Notification body: a parked memo"))
+      title = String(localized: "Where should this go?", comment: "Notification title: a parked memo")
+      body = String(localized: "Open Iris to choose a route.", comment: "Notification body: a parked memo")
     case .failed:
-      MemoNotification(
-        memoID: memo.id, title: String(localized: "Memo failed", comment: "Notification title: a failed memo"),
-        body: memo.failedStep.map { String(localized: "Failed at \($0.rawValue).", comment: "Notification body") }
-          ?? String(localized: "Open Iris to retry it.", comment: "Notification body: a failed memo"))
+      title = String(localized: "Memo failed", comment: "Notification title: a failed memo")
+      body = String(localized: "Open Iris to retry it.", comment: "Notification body: a failed memo")
     default:
-      MemoNotification(
-        memoID: memo.id, title: memo.routeLabel,
-        body: memo.summary?.headline ?? String(localized: "Done.", comment: "Notification body: no summary"))
+      title = memo.routeLabel
+      body = memo.summary?.headline ?? String(localized: "Done.", comment: "Notification body: no summary")
     }
+    return MemoNotification(memoID: memo.id, connectionID: connectionID, title: title, body: body)
   }
 }
 
 /// `UNUserNotificationCenter`. The memo id travels in `userInfo`, so a click on the banner can open that memo.
 nonisolated struct UserNotificationPoster: NotificationPoster {
   static let memoIDKey = "memoID"
+  static let connectionKey = "connectionID"
   private let logger = Logger(subsystem: "com.jkrumm.iris", category: "notifications")
 
   func permission() async -> NotificationPermission {
@@ -186,7 +181,7 @@ nonisolated struct UserNotificationPoster: NotificationPoster {
     content.title = notification.title
     content.body = notification.body
     content.sound = .default
-    content.userInfo = [Self.memoIDKey: notification.memoID]
+    content.userInfo = [Self.memoIDKey: notification.memoID, Self.connectionKey: notification.connectionID]
     // The memo id is the request id: a second post for the same memo replaces the first instead of stacking.
     try await UNUserNotificationCenter.current().add(
       UNNotificationRequest(identifier: notification.memoID, content: content, trigger: nil))
@@ -196,9 +191,9 @@ nonisolated struct UserNotificationPoster: NotificationPoster {
 /// Shows a banner even while the app is "active" (a menu-bar app often is, with its popover open) and opens the memo a
 /// clicked banner is about.
 final class NotificationClickHandler: NSObject, UNUserNotificationCenterDelegate {
-  private let open: @MainActor @Sendable (String) -> Void
+  private let open: @MainActor @Sendable (_ memoID: String, _ connectionID: String) -> Void
 
-  init(open: @escaping @MainActor @Sendable (String) -> Void) {
+  init(open: @escaping @MainActor @Sendable (_ memoID: String, _ connectionID: String) -> Void) {
     self.open = open
   }
 
@@ -215,10 +210,11 @@ final class NotificationClickHandler: NSObject, UNUserNotificationCenterDelegate
   nonisolated func userNotificationCenter(
     _ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse
   ) async {
-    guard let id = response.notification.request.content.userInfo[UserNotificationPoster.memoIDKey] as? String else {
-      return
-    }
-    await open(id)
+    let info = response.notification.request.content.userInfo
+    guard let id = info[UserNotificationPoster.memoIDKey] as? String,
+      let connection = info[UserNotificationPoster.connectionKey] as? String
+    else { return }
+    await open(id, connection)
   }
 }
 

@@ -20,8 +20,6 @@ func eventually(seconds: Double = 10, _ condition: () async -> Bool) async -> Bo
 struct MacCompositionRootTests {
   /// The sample Hermes memo that finished with a summary.
   private static let finished = "0b6d1f4e-3a52-4c1d-9f0e-7a2c5d8e1b34"
-  /// The sample memo that is still being processed.
-  private static let running = "e41a8c73-2b9d-4f06-8d35-6a7b0c1e9f22"
 
   private func fakeRoot(
     credentials: InMemoryCredentialStore = InMemoryCredentialStore(), poster: RecordingNotificationPoster? = nil,
@@ -109,22 +107,32 @@ struct MacCompositionRootTests {
     #expect(await eventually { await poster.posted.map(\.memoID) == [Self.finished] })
   }
 
-  @Test("a memo that finished while the stream was down is announced after the reload")
-  func announcesWhatFinishedDuringAnOutage() async throws {
-    let poster = RecordingNotificationPoster()
-    let root = fakeRoot(poster: poster)
-    let fake = try #require(root.fakeAPI)
+  @Test("an open detail reloads when the stream says ready, not when a list request succeeds during an outage")
+  func reconnectsCountStreamReady() async {
+    let root = fakeRoot()
     root.begin()
-    #expect(await eventually { root.history.memos.contains { $0.id == Self.running } && root.history.link == .live })
-    let posted = await poster.posted
-    #expect(posted.isEmpty && root.reconnects >= 1)
-
-    var detail = try await fake.memo(id: Self.running)
-    detail.memo.state = .notified
-    detail.memo.updatedAt = .now.addingTimeInterval(60)
-    await fake.seed(detail)
+    #expect(await eventually { root.history.link == .live })
+    let before = root.reconnects
     await root.history.load()
-    #expect(await eventually { await poster.posted.map(\.memoID) == [Self.running] })
+    #expect(root.reconnects == before)
+    root.fakeAPI?.emit(.ready)
+    #expect(await eventually { root.reconnects > before })
+  }
+
+  @Test("a banner click opens the memo, unless the banner is of another connection")
+  func clicksAreBoundToTheirConnection() {
+    let root = fakeRoot()
+    let banner = root.notifier.connectionID
+    root.openFromNotification(Self.finished, connection: banner)
+    #expect(root.detailMemoID == Self.finished)
+
+    root.openFromNotification("other", connection: banner)
+    switchServer(root)
+    #expect(root.detailMemoID == nil)
+    root.openFromNotification(Self.finished, connection: banner)
+    #expect(root.detailMemoID == nil)
+    root.openFromNotification(Self.finished, connection: root.notifier.connectionID)
+    #expect(root.detailMemoID == Self.finished)
   }
 
   @Test("a connection change replaces the list, closes the detail and forgets what was announced")
