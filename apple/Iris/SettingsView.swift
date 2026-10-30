@@ -38,7 +38,6 @@ struct SettingsView: View {
           LabeledContent(String(localized: "Server", comment: "Settings row")) {
             connectionLabel
           }
-          .accessibilityIdentifier("settings.server")
           if let connectionForm { ConnectionForm(model: connectionForm) }
         } header: {
           Text("Connection", comment: "Settings section")
