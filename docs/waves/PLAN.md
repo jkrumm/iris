@@ -1132,6 +1132,14 @@ cannot double-act); its row names the take it belongs to.
       diagnostics (`MXDiagnosticPayload`) are uploaded through `POST /v1/telemetry` at the next launch; a `memo-debug` / `device` skill
       recipe shows one take's device timeline next to its server timeline. Ask the D worker (`w17-d2r-device-retest`) what it was
       missing in Wave 17/18 and cover that first. Prove it on the simulator, then with one device take in D1.
+- [ ] **I7. Device failures of the D1 re-test (2026-10-30 night, `docs/spikes/device-checklist.md` "Wave 18 D1", iPhone 15 / iOS 26.6.1),
+      after I6's logging is in:** row 1 the Lock Screen control does nothing (also after unlock; Lock Screen buttons are inactive until
+      unlock and a plain `AppIntent` control runs in the widget extension, which cannot record: make the Lock Screen control an
+      `OpenIntent`/`ForegroundContinuableIntent` like the Control Center fallback that passed, a66fc402); row 15 / 21 island Resume says
+      "engine resume failed" (cd6f0e19; Wave 17 I7 did not hold on the device: read the `capture.session.error` records first); row 20 a
+      Processing Live Activity survives Stop and the memo's `done` (end stale activities from `Activity.activities` at launch and inside
+      the finishing task, I8's sweep did not catch it). Fake-tested, then one device take with the owner. `ddaad4d8`'s quarantined tail is an
+      unfinalised m4a no tool reads (no `moov`): a raw-AAC frame parser or mark lost (Left behind unless I23's shadow design makes it moot).
 - [ ] **S1. Server debt (Wave 17 Follow-ups #47, #50):** sweep limit / ENOENT / stat concurrency, fake order, hold simplification; a
       `RoutableMode` type. Deploy, `make verify`, `make smoke`.
 - [ ] **C1. CI flake:** `CaptureUITests.testAMemoTypedOfflineIsQueuedThenSentWithRetryNow` (`history.toast` 10 s wait) made deterministic
