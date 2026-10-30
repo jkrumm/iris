@@ -106,19 +106,24 @@ enum WaterfallBuilder {
 
   private static func span(of entries: [StepEntry], now: Date) -> Span {
     guard let start = entries.map(\.startedAt).min() else { return Span(start: now, length: 0) }
-    let end = entries.map { $0.finishedAt ?? ($0.status == .running ? now : $0.startedAt) }.max() ?? start
+    let end = entries.map { end(of: $0, now: now) }.max() ?? start
     return Span(start: start, length: max(end.timeIntervalSince(start), 0))
   }
 
   /// Where a step's bar stops: at the next step's start, never before the step's own end.
   private static func barEnd(of entry: StepEntry, next: StepEntry?, now: Date) -> Date {
-    let own = entry.finishedAt ?? (entry.status == .running ? now : entry.startedAt)
+    let own = end(of: entry, now: now)
     guard let next else { return own }
     return max(own, next.startedAt)
   }
 
   private static func durationMs(_ entry: StepEntry, now: Date) -> Int {
-    let end = entry.finishedAt ?? (entry.status == .running ? now : entry.startedAt)
-    return max(Int((end.timeIntervalSince(entry.startedAt) * 1_000).rounded()), 0)
+    max(Int((end(of: entry, now: now).timeIntervalSince(entry.startedAt) * 1_000).rounded()), 0)
+  }
+
+  /// When a step stopped: its finish, `now` while it runs, its start when it has no finish (a step that never recorded one
+  /// takes no time).
+  private static func end(of entry: StepEntry, now: Date) -> Date {
+    entry.finishedAt ?? (entry.status == .running ? now : entry.startedAt)
   }
 }

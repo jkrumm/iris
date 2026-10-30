@@ -49,11 +49,10 @@ final class MemoDetailModel {
   private let logger = Logger(subsystem: "com.jkrumm.iris", category: "detail")
   private var baselinesLoaded = false
   private var toastCount = 0
-  private var toastTimer: Task<Void, Never>?
-  private var copiedTimer: Task<Void, Never>?
+  private let toastTimer: ExpiryTimer
+  private let copiedTimer: ExpiryTimer
   private let copiedDuration: Duration
   private let toastDuration: Duration
-  private let sleep: @Sendable (Duration) async throws -> Void
 
   /// `memo` is what the list already knows; the steps arrive with the first ``load()``.
   init(
@@ -69,7 +68,8 @@ final class MemoDetailModel {
     self.pasteboard = pasteboard
     self.toastDuration = toastDuration
     self.copiedDuration = copiedDuration
-    self.sleep = sleep
+    toastTimer = ExpiryTimer(sleep: sleep)
+    copiedTimer = ExpiryTimer(sleep: sleep)
   }
 
   var memo: Memo { detail.memo }
@@ -106,22 +106,14 @@ final class MemoDetailModel {
       }
     guard let text else { return }
     pasteboard.copy(text)
-    copiedTimer?.cancel()
     copied = target
     copyCount += 1
-    let count = copyCount
-    let duration = copiedDuration
-    let sleep = sleep
-    copiedTimer = Task { [weak self] in
-      guard (try? await sleep(duration)) != nil, !Task.isCancelled, self?.copyCount == count else { return }
-      self?.clearCopied()
-    }
+    copiedTimer.arm(after: copiedDuration) { [weak self] in self?.clearCopied() }
   }
 
   /// Ends the "Copied" confirmation: its timer, or a newer state, calls this.
   func clearCopied() {
-    copiedTimer?.cancel()
-    copiedTimer = nil
+    copiedTimer.cancel()
     copied = nil
   }
 
@@ -193,22 +185,14 @@ final class MemoDetailModel {
   }
 
   func dismissFailure() {
-    toastTimer?.cancel()
-    toastTimer = nil
+    toastTimer.cancel()
     failure = nil
   }
 
   /// Shows `message` as the toast and starts its timer; the previous toast's timer is cancelled first.
   private func showFailure(_ message: String) {
-    toastTimer?.cancel()
     toastCount += 1
-    let toast = Failure(id: toastCount, message: message)
-    failure = toast
-    let duration = toastDuration
-    let sleep = sleep
-    toastTimer = Task { [weak self] in
-      guard (try? await sleep(duration)) != nil, !Task.isCancelled, self?.failure?.id == toast.id else { return }
-      self?.dismissFailure()
-    }
+    failure = Failure(id: toastCount, message: message)
+    toastTimer.arm(after: toastDuration) { [weak self] in self?.dismissFailure() }
   }
 }
