@@ -967,6 +967,10 @@ treat silence as a pass); everything else is headless (`devicectl` install/launc
       setting), installs and launches Iris and its extensions on the paired iPhone, and screenshots it; the production composition
       reaches the server over the tailnet (prove it: a typed memo from the phone lands `done`). Document it in AGENTS.md and the `device`
       skill. Anything a Personal Team cannot sign is gated off for device builds only and listed.
+- [ ] **D1b. The owner's first device take never arrived (urgent, data):** memo `82c8d008-2f34-40fe-99c9-61341de76089` exists on the
+      server since 2026-10-30 07:49Z (take started 06:59Z on the phone) with `segmentCount 0`, stuck `receiving`. Find where the audio is
+      (the phone's outbox / quarantine, device `log stream`), get it delivered so the memo completes, then fix the cause with a test. Never
+      delete or reset the phone's outbox to get there. The owner's feedback in it is what `docs/design/feedback-device-1.md` records.
 - [ ] **D2. Spikes S1 and S2 + device exit checks** (`docs/spikes/S1-…`, `S2-…`, `device-checklist.md`): Lock Screen control starts a take
       with a Live Activity and survives 30 minutes; mic switch mid-take incl. Bluetooth and the built-in mic; background take; Dynamic
       Island controls (stop, mic swap, pause) and the compact banner; the reply flow's keyboard-up composer (screenshot, Wave 16 I4);
@@ -995,6 +999,16 @@ treat silence as a pass); everything else is headless (`devicectl` install/launc
 - [ ] **I3. Spoken reply vs. playing reply or recording — waits for the owner** (asked 2026-10-30): as built, a finished memo's spoken
       reply interrupts a playing reply and pauses the open detail's recording; alternatives: queue it, or defer while busy. Built only on
       the owner's answer (recorded here by the mother); unanswered at close-out → Left behind.
+- [ ] **S2 + I4. Transcribe-only mode** (owner, `feedback-device-1.md` §2): a mode `transcribe` the owner picks up front; the memo
+      ends `done` after `transcribe` with the transcript, no decide, act or summarize. Contract + fixtures + `IrisCore`; the mode picker
+      gets the entry; History and the detail show it as a transcript. TDD amended.
+- [ ] **I5. Memo detail per `feedback-device-1.md` §1, §4, §5:** copy transcript and reply as plain text (proven on the device: paste
+      into Notes); the waterfall collapsed by default to one line (total time · total cost), expanding to the steps; no gaps or
+      misdrawn bars between steps; cost shown with a precision that never reads $0.00 for a real cost (e.g. `$0.0002` / `<$0.001`).
+      Snapshots light and dark plus a device screenshot.
+- [ ] **I6. Route configuration (render only, `feedback-device-1.md` §3):** where the owner sees and configures what Iris can route to
+      (destinations, their targets, the per-route mic rules that exist). Render it in the Wave 15 I5 manner and list it in
+      `docs/design/README.md` for async owner review; do not build it.
 - [ ] **H1. Housekeeping (backlog 10, R3's screens have shipped):** delete the round-1/2 mockup image objects via `/img` (incl. the stray
       `r2-detail-light`), `iumac:/tmp/iris-mockups.html` + `/tmp/iris-mockups/`, and the round-1/2 files under `docs/design/renders/`.
       Keep every render `docs/design/README.md` lists for Wave 15 I5 and Wave 16 I4 and anything a feedback file links; list what was
