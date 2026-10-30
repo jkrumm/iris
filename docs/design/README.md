@@ -118,4 +118,19 @@ Stats colours: Hermes blue, Journal green, Chat violet, Tabs orange, checked wit
   Not shown: the hold state (a finger cannot be held through a screenshot; the bar shows the timer and the release hint), and the composer with the software keyboard up (the headless
   simulator reports a hardware keyboard, so no keyboard is drawn; the field and Send stay reachable and the flow is asserted by the UI test). The code colors and their token table are in
   TDD §4 "Reply layout and code themes". Uploaded 2026-10-30 with a 7-day presign, so ask for fresh links after 2026-11-06.
+- **Route configuration (Wave 17 I6), for the owner's async review:** answers "where is routing configured?" (`feedback-device-1.md` §3). Render only, nothing is built. Simulator renders on the
+  fake stack (iPhone 17, iOS 27.0), light then dark, from `scripts/route-config-shots.sh` (`RouteConfigReviewUITests`); the screens exist in the app only under the launch argument
+  `-IrisRouteConfigReview`. Private objects in the image store, not committed; links on request (`imgcli private-url <key> --expires 7d`). Keys are `private/<key>`, under `2026/10/`, light then dark:
+  1. Settings → Routes, the overview: the server's three destinations with their status (Journal shown as not set up), and the audio route with its microphone rule. `z9i0l5eaxwh7r5id.png` / `2agzy42djip1qeo3.png`
+  2. Herdr destination: what it does, how to send a memo there (spoken "tab <name>", the Tab record mode), the live tabs and their agent state. `5ypunicd0fhwqc5s.png` / `0mm0tk2bd4bvza1k.png`
+  3. A destination the server has not set up (Journal): it says what the server lacks instead of offering a switch. `dcw2wn4sf4cywh8m.png` / `sc8ktc8byidevjfu.png`
+  4. Audio routes: the connected route's microphone choice (the rule that exists today) and the routes seen before. `8wg5i1cpk9puytoq.png` / `marxo4c35hwog23c.png`
+
+  Two things were both called "routes", so the screen keeps them apart: *destinations* (where a memo goes, decided by the server) and *audio routes* (which microphone, kept on the phone per route). Placement: a "Routes"
+  row in Settings above Microphone. Rejected: a fifth dock tab (four plus Record already fill 402 pt, and Settings is where the feedback looked first) and a sheet from the route chip (the chip only appears on a memo, so it
+  cannot be found in advance). Not shown: a destination that does not exist yet; the list is the server's fixed three (`hermes`, `journal`, `herdr`). The "Fake Headset" and "iPhone Speaker" names in the connected-now card
+  come from the fake audio stack, and the "seen before" rows are sample data: the rule store keeps only a route's fingerprint, so listing earlier routes needs it to remember each route's name when its rule is set.
+  Uploaded 2026-10-30 with a 7-day presign, so ask for fresh links after 2026-11-06.
+  *Open question:* the destinations are server configuration (registered from `BRAIN_DIR` and `HERDR_SOCKET` at boot), so today the phone can only read them; that needs a new `GET /v1/destinations`. Is a read-only view enough, or should
+  something here be editable, for example a fallback destination for a memo Iris is under 80 % sure about, instead of parking it at needs-route?
 - **Not designed:** the later routing refinement for herdr-bound memos (orchestration queue, factory), and Settings beyond Diagnostics.

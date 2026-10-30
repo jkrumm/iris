@@ -53,6 +53,7 @@ struct SettingsView: View {
         outbox
 
         playback
+        RouteConfigEntry(micRules: micRules)
         microphone
       }
       .accessibilityIdentifier("settings.view")
