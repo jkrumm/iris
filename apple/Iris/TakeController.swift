@@ -6,8 +6,9 @@ import IrisCore
 /// through it. A take starts the capture session, feeds the silent microphone under `-IrisFakeCapture`, and requests the
 /// take's Live Activity (Apple stops a background recording that has none), so leaving the app moves the take there.
 ///
-/// Recording takes priority over playback: any take that starts, a thread's hold-to-talk included, pauses the spoken reply
-/// and the open detail's recording (``SpeechPlayer/pauseForTake()``), so the microphone never records them into the take.
+/// Recording takes priority over playback: a take that starts pauses the spoken reply and the open detail's recording
+/// (``SpeechPlayer/pauseForTake()``), right before the capture session opens, so the microphone never records them into the
+/// take. A thread's hold-to-talk does not come through here; ``OutboxVoiceReplyCapture`` does the same before its session.
 @MainActor
 final class TakeController {
   private let stack: CaptureStack
@@ -17,8 +18,6 @@ final class TakeController {
   private let isConfigured: () -> Bool
   private let requestPermission: @Sendable () async -> Bool
   private let speech: SpeechPlayer?
-  /// Follows the capture session for takes this controller did not start (a thread's reply); cancelled with the controller.
-  private var followTakes: Task<Void, Never>?
   /// `false` when the engine recorder could not be built: nothing can record.
   let canRecord: Bool
   /// The start in flight: a second start while it runs joins it instead of racing it (the Control and the record button
@@ -38,23 +37,6 @@ final class TakeController {
     self.isConfigured = isConfigured
     self.requestPermission = requestPermission
     self.speech = speech
-    if speech != nil { followTakes = Task { [weak self] in await self?.pauseSpeechWhenATakeOpens() } }
-  }
-
-  isolated deinit {
-    followTakes?.cancel()
-  }
-
-  /// The pause for takes that start elsewhere (a thread's hold-to-talk goes straight to the session): on the session's
-  /// transition into a take, which is also the moment the microphone opens.
-  private func pauseSpeechWhenATakeOpens() async {
-    guard let updates = await updates() else { return }
-    var wasCapturing = false
-    for await take in updates {
-      let capturing = take.phase == .starting || take.phase == .recording
-      if capturing, !wasCapturing { speech?.pauseForTake() }
-      wasCapturing = capturing || take.phase == .paused || take.phase == .stopping
-    }
   }
 
   /// Whether a take can be started right now (a server is saved and a recorder exists).

@@ -57,26 +57,24 @@ struct ReplyPausesForTakeTests {
     #expect(!speech.isPlaying(memo.id), "ending the take does not resume it")
   }
 
-  @Test("a thread's hold-to-talk take pauses the reply too")
-  func threadTakePausesTheReply() async throws {
+  @Test("a thread's hold-to-talk pauses the reply before its session opens")
+  func threadTakePausesTheReplyFirst() async throws {
     let rig = OutboxRig(client: client)
     let speech = SpeechPlayer()
-    // The controller follows the session for takes it did not start (this one goes straight to the capture session).
-    let following = controller(rig, speech: speech)
     await speech.play(memo, source: source)
     #expect(speech.isPlaying(memo.id))
 
-    let voice = rig.voice()
+    var playingWhenTheSessionOpened: Bool?
+    let voice = rig.voice(willBegin: {
+      playingWhenTheSessionOpened = speech.isPlaying(memo.id)
+      speech.pauseForTake()
+    })
     try await voice.begin(VoiceReplyRequest(threadId: "thread-1", mode: .chat))
 
-    var paused = false
-    for _ in 0..<500 where !paused {
-      paused = !speech.isPlaying(memo.id)
-      if !paused { try await Task.sleep(for: .milliseconds(10)) }
-    }
-    #expect(paused)
+    #expect(playingWhenTheSessionOpened == true, "the hook ran while the reply was still going, before the recorder")
+    #expect(!speech.isPlaying(memo.id))
+    #expect(try await rig.stack.session().current.phase == .recording)
     _ = try await voice.end(cancelled: true)
-    withExtendedLifetime(following) {}
   }
 
   @Test("a start with nothing playing changes nothing")

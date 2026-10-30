@@ -124,7 +124,8 @@ final class CompositionRoot: CaptureIntentHandler, PlaybackIntentHandler {
       replyImages = ReplyImageStore(
         loader: MediaAssetLoader(source: { FakeMediaSource() }, downloader: .shared))
       voiceReply = OutboxVoiceReplyCapture(
-        stack: stack, service: service, onBegan: { mic.start() }, willEnd: { await mic.stop() })
+        stack: stack, service: service, willBegin: { [speech] in speech.pauseForTake() }, onBegan: { mic.start() },
+        willEnd: { await mic.stop() })
       take = TakeModel(controller: takeController)
     } else {
       let saved = credentials.load()
@@ -157,7 +158,8 @@ final class CompositionRoot: CaptureIntentHandler, PlaybackIntentHandler {
       fakeCapture = nil
       voiceReply = OutboxVoiceReplyCapture(
         stack: production.stack, service: service, isAvailable: production.canRecord,
-        requestPermission: { await AVAudioApplication.requestRecordPermission() })
+        requestPermission: { await AVAudioApplication.requestRecordPermission() },
+        willBegin: { [speech] in speech.pauseForTake() })
       replyImages = ReplyImageStore(
         loader: MediaAssetLoader(
           source: { Self.mediaSource(for: credentials.load()) }, downloader: .shared))

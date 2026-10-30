@@ -73,9 +73,10 @@ struct OutboxRig {
   }
 
   /// A voice reply that feeds `seconds` of silence just before the take ends.
-  func voice(seconds: Double = 3) -> OutboxVoiceReplyCapture {
+  func voice(seconds: Double = 3, willBegin: @escaping () -> Void = {}) -> OutboxVoiceReplyCapture {
     OutboxVoiceReplyCapture(
-      stack: stack, service: service, willEnd: { [capture] in await capture.recordWithoutClock(seconds: seconds) })
+      stack: stack, service: service, willBegin: willBegin,
+      willEnd: { [capture] in await capture.recordWithoutClock(seconds: seconds) })
   }
 
   /// Waits (bounded) until the queue is empty: the outbox has sent everything.
