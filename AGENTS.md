@@ -426,6 +426,8 @@ Push to master deploys. LaunchAgent `com.jkrumm.iris` (KeepAlive, `ExitTimeOut` 
   server's clock starts there and runs on, so a memo created in the app is newer than the samples. `HistoryDaySection.id` is (day, occurrence): a pinned
   `needs_route` memo from yesterday and yesterday's own memos are two sections of one day and must not share an id (SwiftUI dropped the rows).
 - **Snapshots** only compare on the pinned simulator; a diff on a clean tree means a different runtime. They do not render the glass layer.
+- **Mac notifications** announce only a live `memo.done` from the open event stream; a memo that finished while the stream was down is not announced
+  (known limit, no catch-up; the list reloads on reconnect). Banners never carry the transcript, reply or park reason (TDD §5).
 - **`scripts/mbm tap`** needs `--element-ref` from the latest `snapshot-ui` and `--post-delay 2`; `snapshot-ui` straight after a launch times out
   (`make ui-snapshot` waits first). Live Activity, widgets and the notification card compile but have never been rendered; the Mac panel renders on the mini
   (`IrisMac -IrisFakeData -IrisMacPanelWindow -IrisMacSnapshot <dir>` writes PNGs of its own windows; `screencapture` has no Screen Recording grant there); the
