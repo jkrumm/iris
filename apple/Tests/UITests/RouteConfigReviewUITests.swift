@@ -47,7 +47,10 @@ final class RouteConfigReviewUITests: IrisUITestCase {
     XCTAssertTrue(herdr.waitForExistence(timeout: 5))
     herdr.tap()
     XCTAssertTrue(app.descendants(matching: .any)["routes.destination.view"].waitForExistence(timeout: 10))
-    XCTAssertTrue(app.staticTexts["iris · w16"].exists)
+    // The tab rows are combined accessibility elements, so the label is matched on whatever element carries it.
+    let tab = app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "iris · w16"))
+      .firstMatch
+    XCTAssertTrue(tab.waitForExistence(timeout: 5))
     shot(name, "2-herdr")
     app.navigationBars.buttons.firstMatch.tap()
 

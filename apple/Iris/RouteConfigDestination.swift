@@ -120,6 +120,9 @@ struct RouteConfigDestination: Identifiable {
   func status(tabCount: Int) -> String {
     guard isAvailable else { return String(localized: "Not set up", comment: "Route destination status") }
     guard kind == .herdr else { return String(localized: "Available", comment: "Route destination status") }
+    guard tabCount != 1 else {
+      return String(localized: "1 tab live", comment: "Route destination status, one herdr tab")
+    }
     return String(localized: "\(tabCount) tabs live", comment: "Route destination status, the placeholder is a count")
   }
 }

@@ -46,7 +46,7 @@ struct RouteConfigAudioView: View {
             Text(verbatim: rule.route)
           }
           .pickerStyle(.menu)
-          .accessibilityIdentifier("routes.audio.rule")
+          .accessibilityIdentifier("routes.audio.rule.\(rule.route)")
         }
       } header: {
         Text("Seen before", comment: "Routes section")
