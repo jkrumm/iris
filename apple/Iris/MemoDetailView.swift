@@ -76,11 +76,6 @@ struct MemoDetailView: View {
     )
     .task(id: refreshToken()) { await model.load() }
     .task(id: model.audioRequest) { await playback.recording.load(model.audioRequest) }
-    .task(id: model.copyCount) {
-      guard model.copied != nil else { return }
-      try? await Task.sleep(for: .seconds(1.5))
-      if !Task.isCancelled { model.clearCopied() }
-    }
     .onAppear { playback.attach() }
     // The sheet is hosted here: a screen covered by it is still on screen, so its players stay.
     .onDisappear { if routing == nil { playback.teardown() } }

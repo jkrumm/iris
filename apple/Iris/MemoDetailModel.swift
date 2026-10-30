@@ -27,9 +27,9 @@ final class MemoDetailModel {
     case transcript, reply
   }
 
-  /// The text last copied, until ``clearCopied()``: the button shows "Copied" meanwhile.
+  /// The text last copied, until the confirmation timer (``copiedDuration``) or ``clearCopied()`` ends it: the button shows "Copied" meanwhile.
   private(set) var copied: CopyTarget?
-  /// Bumped on every copy, so a second copy restarts the view's confirmation timer.
+  /// Bumped on every copy; the confirmation timer of an older copy sees the newer count and leaves "Copied" alone.
   private(set) var copyCount = 0
   /// A toast for the last failed action. The id tells two toasts with the same words apart.
   struct Failure: Equatable, Identifiable {
@@ -50,6 +50,8 @@ final class MemoDetailModel {
   private var baselinesLoaded = false
   private var toastCount = 0
   private var toastTimer: Task<Void, Never>?
+  private var copiedTimer: Task<Void, Never>?
+  private let copiedDuration: Duration
   private let toastDuration: Duration
   private let sleep: @Sendable (Duration) async throws -> Void
 
@@ -57,6 +59,7 @@ final class MemoDetailModel {
   init(
     memo: Memo, client: any APIClient, media: any MemoMediaSource, speech: SpeechPlayer,
     pasteboard: any Pasteboard = SystemPasteboard(), toastDuration: Duration = .seconds(4),
+    copiedDuration: Duration = .seconds(1.5),
     sleep: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
   ) {
     detail = MemoDetail(memo: memo, steps: [])
@@ -65,6 +68,7 @@ final class MemoDetailModel {
     self.speech = speech
     self.pasteboard = pasteboard
     self.toastDuration = toastDuration
+    self.copiedDuration = copiedDuration
     self.sleep = sleep
   }
 
@@ -102,11 +106,24 @@ final class MemoDetailModel {
       }
     guard let text else { return }
     pasteboard.copy(text)
+    copiedTimer?.cancel()
     copied = target
     copyCount += 1
+    let count = copyCount
+    let duration = copiedDuration
+    let sleep = sleep
+    copiedTimer = Task { [weak self] in
+      guard (try? await sleep(duration)) != nil, !Task.isCancelled, self?.copyCount == count else { return }
+      self?.clearCopied()
+    }
   }
 
-  func clearCopied() { copied = nil }
+  /// Ends the "Copied" confirmation: its timer, or a newer state, calls this.
+  func clearCopied() {
+    copiedTimer?.cancel()
+    copiedTimer = nil
+    copied = nil
+  }
 
   // MARK: Loading
 

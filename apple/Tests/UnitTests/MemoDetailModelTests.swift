@@ -250,6 +250,24 @@ struct MemoDetailModelTests {
     #expect(detail.copied == nil)
   }
 
+  @Test("the Copied confirmation ends with the injected timer, and a second copy restarts it")
+  func copiedConfirmationTimer() async {
+    let timers = ToastTimers()
+    let memo = MemoFactory.memo("m", transcript: "hi", replyText: "ok")
+    let detail = await model(memo, sleep: { try await timers.sleep($0) })
+
+    detail.copy(.transcript)
+    await timers.waitForSleeps(1)
+    detail.copy(.reply)
+    await timers.waitForSleeps(2)
+    timers.fire(0)
+    await timers.settle()
+    #expect(detail.copied == .reply, "the first copy's timer was cancelled with the first copy")
+
+    timers.fire(1)
+    #expect(await timers.until { detail.copied == nil })
+  }
+
   @Test("copy puts the reply on the pasteboard without its markdown")
   func copiesTheReplyAsPlainText() async {
     let pasteboard = FakePasteboard()

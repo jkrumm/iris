@@ -212,13 +212,16 @@ nonisolated enum PlainMarkdown {
     }
     var output = ""
     var previous: Block?
+    var link: (url: String, label: String)?
+    // A link's address follows the whole linked text, once, however many styled runs the label has.
+    func closeLink() {
+      if let link, link.url != link.label { output += " (\(link.url))" }
+      link = nil
+    }
     for run in parsed.runs {
-      var piece = String(parsed[run.range].characters)
-      if let link = run.link, link.absoluteString != piece, !piece.isEmpty {
-        piece += " (\(link.absoluteString))"
-      }
       let block = Block(run.presentationIntent?.components ?? [])
       if block != previous {
+        closeLink()
         if let previous {
           while output.hasSuffix("\n") { output.removeLast() }  // a code block carries its own last line break
           output += block.separator(after: previous)
@@ -226,8 +229,15 @@ nonisolated enum PlainMarkdown {
         output += block.marker
         previous = block
       }
+      let piece = String(parsed[run.range].characters)
+      if run.link?.absoluteString != link?.url {
+        closeLink()
+        if let url = run.link?.absoluteString { link = (url, "") }
+      }
+      link?.label += piece
       output += piece
     }
+    closeLink()
     return output.trimmingCharacters(in: .whitespacesAndNewlines)
   }
 

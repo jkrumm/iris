@@ -19,7 +19,7 @@
           id: "transcribe", title: "Transcribe", phase: .done, metric: "8.5 s · $0.0038", start: 0, length: 0.309),
         StepWaterfallRow(id: "route", title: "Route", phase: .done, metric: "12 ms", start: 0.309, length: 0.001),
         StepWaterfallRow(
-          id: "act", title: "Act · Hermes", phase: .done, metric: "11.4 s · $0.0412",
+          id: "act", title: "Act · Hermes", phase: .done, metric: "11.4 s · $0.04",
           badge: .init(text: "+39 % slower", tone: .slower), start: 0.31, length: 0.415),
         StepWaterfallRow(
           id: "summarize", title: "Summarize", phase: .done, metric: "5.7 s · $0.0021",
@@ -28,7 +28,7 @@
       ]
       SnapshotSupport.assertLightAndDark(
         frame(
-          StepWaterfall(rows: rows, totalTitle: "Total", totalValue: "27.5 s · $0.0471", isExpanded: .constant(true))),
+          StepWaterfall(rows: rows, totalTitle: "Total", totalValue: "27.5 s · $0.05", isExpanded: .constant(true))),
         width: 390, height: 420)
     }
 
@@ -37,7 +37,7 @@
         StepWaterfallRow(
           id: "transcribe", title: "Transcribe", phase: .done, metric: "8.5 s · $0.0002", start: 0, length: 0.31),
         StepWaterfallRow(
-          id: "act", title: "Act · Hermes", phase: .done, metric: "11.4 s · $0.0412", start: 0.31, length: 0.42),
+          id: "act", title: "Act · Hermes", phase: .done, metric: "11.4 s · $0.04", start: 0.31, length: 0.42),
         StepWaterfallRow(id: "notify", title: "Notify", phase: .done, metric: "1.9 s", start: 0.73, length: 0.27),
       ]
     }
@@ -47,7 +47,7 @@
       SnapshotSupport.assertLightAndDark(
         frame(
           StepWaterfall(
-            rows: threeSteps, totalTitle: "Total", totalValue: "27.5 s · $0.0414", isExpanded: .constant(false))),
+            rows: threeSteps, totalTitle: "Total", totalValue: "27.5 s · $0.04", isExpanded: .constant(false))),
         width: 390, height: 110)
     }
 
@@ -56,7 +56,7 @@
       SnapshotSupport.assertLightAndDark(
         frame(
           StepWaterfall(
-            rows: threeSteps, totalTitle: "Total", totalValue: "27.5 s · $0.0414", isExpanded: .constant(true))),
+            rows: threeSteps, totalTitle: "Total", totalValue: "27.5 s · $0.04", isExpanded: .constant(true))),
         width: 390, height: 330)
     }
 
@@ -86,7 +86,7 @@
           id: "transcribe", title: "Transcribe", phase: .done, metric: "8.5 s · $0.0004", start: 0, length: 0.309),
         StepWaterfallRow(id: "route", title: "Route", phase: .done, metric: "12 ms", start: 0.309, length: 0.001),
         StepWaterfallRow(
-          id: "act", title: "Act · Hermes", phase: .done, metric: "11.4 s · $0.0412", start: 0.31, length: 0.415),
+          id: "act", title: "Act · Hermes", phase: .done, metric: "11.4 s · $0.04", start: 0.31, length: 0.415),
         StepWaterfallRow(
           id: "summarize", title: "Summarize", phase: .failed, metric: "3.0 s", attempts: "3 attempts",
           error: "agw triage failed: 402",
@@ -96,7 +96,7 @@
       ]
       SnapshotSupport.assertLightAndDark(
         frame(
-          StepWaterfall(rows: rows, totalTitle: "Total", totalValue: "27.5 s · $0.0416", isExpanded: .constant(true))),
+          StepWaterfall(rows: rows, totalTitle: "Total", totalValue: "27.5 s · $0.04", isExpanded: .constant(true))),
         width: 390, height: 560)
     }
 
@@ -113,7 +113,7 @@
       SnapshotSupport.assertLightAndDark(
         frame(
           StepWaterfall(
-            rows: rows, totalTitle: "Total so far", totalValue: "52.0 s · $0.0313", isExpanded: .constant(true))),
+            rows: rows, totalTitle: "Total so far", totalValue: "52.0 s · $0.03", isExpanded: .constant(true))),
         width: 390, height: 380)
     }
   }

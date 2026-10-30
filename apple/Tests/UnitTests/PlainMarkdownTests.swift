@@ -26,6 +26,16 @@ struct PlainMarkdownTests {
     #expect(PlainMarkdown.text(from: "<https://example.com>") == "https://example.com")
   }
 
+  @Test("a link label with emphasis or code gives the address once, after the whole label")
+  func linkWithStyledLabel() {
+    let url = "https://example.com"
+    #expect(PlainMarkdown.text(from: "[foo **bar** baz](\(url))") == "foo bar baz (\(url))")
+    #expect(PlainMarkdown.text(from: "[`make` _check_](\(url)) now") == "make check (\(url)) now")
+    #expect(PlainMarkdown.text(from: "- [**one**](\(url))\n- [two](\(url))") == "- one (\(url))\n- two (\(url))")
+    let text = PlainMarkdown.text(from: "[a **b**](\(url)) and [c **d**](\(url))")
+    #expect(text.components(separatedBy: url).count == 3, "two links, two addresses: \(text)")
+  }
+
   @Test("a code fence is its code, with no fence marks")
   func codeBlock() {
     let text = PlainMarkdown.text(from: "Run:\n\n```sh\nmake check\n```\n\nDone.")
