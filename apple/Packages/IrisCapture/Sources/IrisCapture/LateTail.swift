@@ -45,15 +45,40 @@ enum LateTail {
     return "\(label) · \(take) \(memoID.uuidString.prefix(8).lowercased())"
   }
 
+  /// The file operations `link` uses, injectable so a test can make a copy fail half way.
+  struct FileOperations {
+    var link: (URL, URL) throws -> Void = { try FileManager.default.linkItem(at: $0, to: $1) }
+    var copy: (URL, URL) throws -> Void = { try FileManager.default.copyItem(at: $0, to: $1) }
+    var size: (URL) -> Int? = { (try? FileManager.default.attributesOfItem(atPath: $0.path)[.size] as? Int) ?? nil }
+    var remove: (URL) -> Void = { try? FileManager.default.removeItem(at: $0) }
+    var rename: (URL, URL) throws -> Void = { try FileManager.default.moveItem(at: $0, to: $1) }
+  }
+
   /// A second name for the file next to it, in the recorder's naming (`<memo id>-<index>.m4a`), so the startup sweep and the
   /// store's relative paths treat it like any segment. A hard link: the audio stays on disk until both names are gone, so
-  /// the original take retiring its file cannot take the late tail with it. A copy where linking is not possible.
-  static func link(_ file: URL, as target: URL) throws {
-    if FileManager.default.fileExists(atPath: target.path) { return }
+  /// the original take retiring its file cannot take the late tail with it. Where linking is not possible, a copy: written
+  /// under a temporary name (not `.m4a`, so no sweep or queue picks it up) and renamed into place, so a copy that was cut
+  /// off leaves no file under the real name. An existing target is reused only when it is as large as the source; anything
+  /// else is a leftover of an interrupted run and is made again.
+  static func link(_ file: URL, as target: URL, using files: FileOperations = FileOperations()) throws {
+    let expected = files.size(file)
+    if FileManager.default.fileExists(atPath: target.path) {
+      if let expected, files.size(target) == expected { return }
+      files.remove(target)
+    }
     do {
-      try FileManager.default.linkItem(at: file, to: target)
+      try files.link(file, target)
     } catch {
-      try FileManager.default.copyItem(at: file, to: target)
+      let partial = target.appendingPathExtension("partial")
+      files.remove(partial)
+      do {
+        try files.copy(file, partial)
+        guard files.size(partial) == expected else { throw CocoaError(.fileWriteUnknown) }
+        try files.rename(partial, target)
+      } catch {
+        files.remove(partial)
+        throw error
+      }
     }
   }
 }

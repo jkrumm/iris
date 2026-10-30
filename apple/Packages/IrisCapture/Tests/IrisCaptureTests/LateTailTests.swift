@@ -258,6 +258,44 @@ struct LateTailTests {
     await outbox.shutdown()
   }
 
+  @Test func aCopyCutOffHalfWayLeavesNothingUnderTheRealName() throws {
+    let directory = try temporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let source = directory.appending(path: "source.m4a")
+    let target = directory.appending(path: "target.m4a")
+    try Data("audio-1".utf8).write(to: source)
+    var cutOff = LateTail.FileOperations()
+    cutOff.link = { _, _ in throw CocoaError(.fileWriteVolumeReadOnly) }
+    cutOff.copy = { from, to in
+      try Data("aud".utf8).write(to: to)  // half of it is on disk when the copy fails
+      throw CocoaError(.fileWriteOutOfSpace)
+    }
+
+    #expect(throws: CocoaError.self) { try LateTail.link(source, as: target, using: cutOff) }
+    #expect(!FileManager.default.fileExists(atPath: target.path), "a retry must not find a partial file to reuse")
+    #expect(!FileManager.default.fileExists(atPath: target.appendingPathExtension("partial").path))
+
+    var copyOnly = LateTail.FileOperations()
+    copyOnly.link = { _, _ in throw CocoaError(.fileWriteVolumeReadOnly) }
+    try LateTail.link(source, as: target, using: copyOnly)
+    #expect(try Data(contentsOf: target) == Data("audio-1".utf8))
+  }
+
+  @Test func anExistingTargetIsReusedOnlyWhenItIsAsLargeAsTheSource() throws {
+    let directory = try temporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let source = directory.appending(path: "source.m4a")
+    let target = directory.appending(path: "target.m4a")
+    try Data("audio-1".utf8).write(to: source)
+
+    try Data("aud".utf8).write(to: target)  // left by a run that died while writing
+    try LateTail.link(source, as: target)
+    #expect(try Data(contentsOf: target) == Data("audio-1".utf8), "the short file was replaced")
+
+    try LateTail.link(source, as: target)  // complete already: left alone
+    #expect(try Data(contentsOf: target) == Data("audio-1".utf8))
+  }
+
   @Test func theDerivedIDIsStableDistinctAndAValidUUID() {
     let one = LateTail.memoID(of: original, index: 1)
     #expect(one == LateTail.memoID(of: original, index: 1))
