@@ -6,7 +6,7 @@ and skim `docs/TDD.md`. Role contract: `~/.claude/skills/wave/roles/mother.md` (
 
 ## Status: RESUMED by the owner (2026-10-28), run through the night
 
-Wave 15 done 2026-10-29 08:56 (S1–S3, I1–I5). Wave 16 written in full and active, lead `iris-w16`. Quota: iu and me at 100% weekly (iu resets 10-28 16:00, me 10-29 06:00),
+Wave 15 done 2026-10-29 08:56. Wave 16 done 2026-10-30 07:47 (`29391b6`). Wave 17 (iPhone: spikes S1–S2, device checks ∥ Wave 16 debt) active, lead `iris-w17`. Quota: iu and me at 100% weekly (iu resets 10-28 16:00, me 10-29 06:00),
 me2 has room. All walled → wait for the next reset (`claude-account usage`), never IU API tokens. Stop only for the four reasons.
 
 ## Mission
@@ -50,6 +50,9 @@ Build Iris R1–R5 (PRD §Release plan) as a self-driving loop: backlog item →
   agent-workflows-mother told. agent-gateway's review tool now refuses.
 
 ## Open owner items (none block the code, all wait for the owner)
+
+- **Spoken reply vs. playing reply / recording** (asked 2026-10-30 in chat): as built it interrupts the player and pauses a recording;
+  queue or defer? Wave 17 I3 waits for the answer; record it in PLAN.md.
 
 - **Requesty / triage routing** (above): production summaries are failing. Asked again 2026-10-28 16:49 (move triage off
   Requesty?): **denied**. Leave it; do not re-ask, `make smoke` red at `summarize` is accepted. Owner then decided (same day): **summarize becomes optional

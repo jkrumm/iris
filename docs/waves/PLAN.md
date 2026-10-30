@@ -947,6 +947,60 @@ frame, so snapshots show neither; `scripts/reply-flow-shots.sh` only exports (up
 `ReplyFlowReviewUITests` "Timed out while evaluating UI query" (on #40 and on master after #44); `diagram-pele.test.ts` times out locally under xcodebuild
 load (retry).
 
+## Wave 17 — the iPhone: spikes S1–S2 and device exit checks ∥ Wave 16 debt            <!-- status: active -->
+The paired iPhone opens backlog 1 and the device halves of 2, 5 and 7, next to Wave 16's follow-ups. Tracks: **D** (device: signing and
+`apple/project.yml`/entitlement config, `docs/spikes/**`, TDD §4/§13 findings) ∥ **S** (`server/**`, `contracts/**`, `scripts/**` +
+`IrisCore` follow-ups) ∥ **I** (`apple/**` app code). D and I share the one-`xcodebuild`-at-a-time slot (a device build counts): the lead
+schedules them, D first. S PRs land one at a time with `make e2e` before the train. Review convergence rule holds (after round 2, findings
+that cannot lose or duplicate data become follow-ups). Workers touching `IrisCapture`, intents or the Live Activity load
+`apple-capture-notes`; device workers load `device` and `apple-dev`.
+**Device facts (mother, 2026-10-29):** iPhone 15 (`iPhone15,4`, Dynamic Island), **iOS 26.6.1** (the simulator runs 27, so the device
+covers the iOS 26 code paths; app target 26.0), name in `xcrun devicectl list devices`. Developer Mode on, the owner's Apple ID in Xcode,
+one valid Apple Development identity on the mini. **Signing is a Personal Team until the paid enrolment clears** (bought 2026-10-29,
+pending): no Push/APNs entitlement (`aps-environment` must be off for a device build, without breaking the simulator/CI build or the
+later paid-team build), 7-day profiles, 3 devices / 10 App IDs per 7 days (spend App IDs sparingly: every target and extension is one).
+The first `-allowProvisioningUpdates` build registers the device; a codesign key-access dialog on the mini's screen needs the owner's
+"Always Allow" once. **Owner-hands steps** (lock screen, Bluetooth, driving, a tap on the phone) go to the owner one at a time with
+`ask-human.sh ask '<step: what to do and what to look for>' --cmd true` (Run = passed, Deny = failed, a timeout = not run yet; never
+treat silence as a pass); everything else is headless (`devicectl` install/launch, device screenshots, `log stream`).
+- [ ] **D1. Device bring-up:** a repeatable `make` target that builds, signs (Personal Team now, the paid team later by changing one
+      setting), installs and launches Iris and its extensions on the paired iPhone, and screenshots it; the production composition
+      reaches the server over the tailnet (prove it: a typed memo from the phone lands `done`). Document it in AGENTS.md and the `device`
+      skill. Anything a Personal Team cannot sign is gated off for device builds only and listed.
+- [ ] **D2. Spikes S1 and S2 + device exit checks** (`docs/spikes/S1-…`, `S2-…`, `device-checklist.md`): Lock Screen control starts a take
+      with a Live Activity and survives 30 minutes; mic switch mid-take incl. Bluetooth and the built-in mic; background take; Dynamic
+      Island controls (stop, mic swap, pause) and the compact banner; the reply flow's keyboard-up composer (screenshot, Wave 16 I4);
+      the iOS 26 paths of the Wave 15/16 code (interruption API, Liquid Glass fallbacks). Findings appended to each spike file and TDD
+      §4/§13 amended in the same commit; a check that needs APNs is marked "after enrolment", not failed. A failure that the I track
+      can fix becomes an I item in this wave if small, else a Left behind line.
+- [ ] **D3. Only if the enrolment has cleared by the time D2 lands** (check with the owner via `ask-human.sh`, one question): S3 (APNs Live
+      Activity + [Play] from a suspended app) and TestFlight (backlog 3, `make testflight`). Needs the APNs `.p8` (Key ID, Team ID) and an
+      App Store Connect API key in 1Password first, seeded with `make secrets-seed` through `ask-human.sh`; the owner creates the keys.
+      Not cleared → Left behind, Wave 18.
+- [ ] **S1. Server follow-ups (Wave 16):** a boot sweep of reply-asset files orphaned by a crash between commit and prune; the five
+      contract fixtures still carrying "audio-gateway transcribe failed: 502" use the door's wording; whatever of the older server debt
+      is still open (mother handoff "Carry-forward debt": STT/speech timeouts counted transient, a thread-queue waiter holding a
+      `driveAll` slot, herdr's unbounded per-pane queue, Pele assets written outside `completeStep`'s transaction, no asset backfill for
+      older replies) after checking the Wave 15/16 Left behind. Deploy, `make verify`, `make smoke`.
+- [ ] **I1. Capture and outbox follow-ups (Wave 16 I1), data-safety first:** a discard hides the memo only once the outbox is known to
+      open; the `ActivityTokenRegistrar` defer never clears `isSending` on a re-registered entry; a second Reset tap mid-reset; the
+      `finishTimedOut` vs `abandoned` window; the tail segment after a stop timeout is uploaded, not quarantined; the startup sweep behind
+      a store port; a crash between the create send and its save; quarantined files bounded (count or age, never silently deleted
+      without the owner's word: surface them in Settings); a recorder that never emits `stopped` no longer blocks the next take.
+- [ ] **I2. UI follow-ups (Wave 16 I2–I4):** History's insert ordered against the hidden-change channel; eviction scans off the main
+      actor; a download in flight never lands after eviction; a `load()` overlapping a mic-rule pick shows the saved choice; `playReply`
+      shares the speakable rule (incl. `state == .notified`); one route-sheet wiring; a locked take that fails to start clears
+      `isLocked`; VoiceOver hint matches the toggle, no empty hint while recording; the "too short" toast's `de` entry; heading-style
+      constants; the `ReplyFlowReviewUITests` "Timed out while evaluating UI query" flake made deterministic.
+- [ ] **I3. Spoken reply vs. playing reply or recording — waits for the owner** (asked 2026-10-30): as built, a finished memo's spoken
+      reply interrupts a playing reply and pauses the open detail's recording; alternatives: queue it, or defer while busy. Built only on
+      the owner's answer (recorded here by the mother); unanswered at close-out → Left behind.
+- [ ] **H1. Housekeeping (backlog 10, R3's screens have shipped):** delete the round-1/2 mockup image objects via `/img` (incl. the stray
+      `r2-detail-light`), `iumac:/tmp/iris-mockups.html` + `/tmp/iris-mockups/`, and the round-1/2 files under `docs/design/renders/`.
+      Keep every render `docs/design/README.md` lists for Wave 15 I5 and Wave 16 I4 and anything a feedback file links; list what was
+      deleted in the close-out.
+- [ ] **Deploy + prove:** server deployed, `make verify` healthy, `make smoke` green; `apple.yml` green on master.
+
 ## Fleet backlog (for the long-running fleet: mother → lead → workers)
 
 Not waves of this chain. The fleet's mother turns these into active waves, one at a time,
@@ -981,7 +1035,7 @@ then the simulator-testable parts of 2, 5, 8). Items 1, 3 and the device exit ch
    maintained) and record it in TDD §3. **Speech-ready variant** of every answer, produced next to the rendered reply: code,
    diagrams, tables and URLs stripped or summarized; a long answer speaks the `triage` `spoken` summary plus "details on
    screen"; `/speech` (and so [Play] and spoken replies) speaks this variant. Swift `IrisCore` follow-up.
-5. **R2 routing (iOS):** the mode picker incl. Chat, needs-route actions, [Play] via
+5. ~~R2 routing (iOS)~~ — done (Wave 16; device checks in Wave 17): the mode picker incl. Chat, needs-route actions, [Play] via
    `PlayReplyIntent`, per-route mic rules, spoken-replies setting. (The cost-on-Lock-Screen toggle is dropped by round 2.)
 6. **R3 history (iOS):** tabs **History · Stats · Settings** (no Threads tab, owner-confirmed; the freed slot stays empty,
    reserved for PRD §Later surfaces, which are not built now). History is the one list of everything:
