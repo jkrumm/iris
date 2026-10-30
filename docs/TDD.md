@@ -806,7 +806,7 @@ the runner needs a workflow step and was left out of this change (owned files: `
   finishes the memo with the segments that closed, at once: a locked phone or a killed app must not hold captured audio
   back for a stop that never comes. The user's `stop()` then acknowledges the failure and `cancel()` drops what the outbox
   still holds (a memo the server already completed stays). An interruption that ends without a resume recommendation leaves
-  the take visibly `paused` with everything before it closed and queued. `stop()` on a failed take returns the memo with the segments that really closed (`TakeResult.failure` set) or, with none, throws
+  the take visibly `paused` with everything before it closed and queued. a failed take whose recorder cannot be stopped (the stop throws or hangs) is finished at once with the segments that closed, like one that stopped cleanly, not when the user next stops it (a segment it still closes is late and stays on disk for the sweep); `stop()` on a failed take returns the memo with the segments that really closed (`TakeResult.failure` set) or, with none, throws
   `CaptureError.recordingFailed` instead of returning `nil` (which means nothing was said); the thread screen tells the user.
   Both actors are reentrant, so every write that follows an `await` re-checks what it assumed or is authoritative: `pause` and
   `resume` (and the interruption handlers) leave a take that failed meanwhile as `failed`, a failure that comes in while the
