@@ -1,5 +1,6 @@
 import Foundation
 import IrisCore
+import Synchronization
 import Testing
 
 @testable import Iris
@@ -15,8 +16,44 @@ private final class SilentSource: @unchecked Sendable {
   }
 }
 
+/// The take activity the test drives, readable from the download's thread.
+private nonisolated final class TakeProbe: Sendable {
+  private let value = Mutex(TakeActivity())
+  var activity: TakeActivity { value.withLock { $0 } }
+  func update(_ change: (inout TakeActivity) -> Void) { value.withLock { change(&$0) } }
+}
+
+/// A speech route on a stub host. The stub runs `onRequest` when the download starts, then answers with `clip`: the test
+/// changes the world while the download is pending.
+private nonisolated final class SlowSpeechStub: URLProtocol {
+  nonisolated(unsafe) static var onRequest: @Sendable () -> Void = {}
+  nonisolated(unsafe) static var clip = Data()
+
+  override class func canInit(with request: URLRequest) -> Bool { request.url?.host == "speech.stub.example.com" }
+  override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+  override func stopLoading() {}
+  override func startLoading() {
+    Self.onRequest()
+    guard let url = request.url,
+      let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)
+    else { return }
+    client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+    client?.urlProtocol(self, didLoad: Self.clip)
+    client?.urlProtocolDidFinishLoading(self)
+  }
+}
+
+private struct StubSpeechSource: MemoMediaSource {
+  func audio(for memo: Memo) -> MediaRequest? { nil }
+  func speech(for memo: Memo) -> MediaRequest? {
+    guard memo.isSpeakable, let url = URL(string: "https://speech.stub.example.com/\(memo.id)") else { return nil }
+    return MediaRequest(url: url, headers: [:], cacheName: "\(memo.id).speech.m4a")
+  }
+  func asset(memoID: String, assetID: String) -> MediaRequest? { nil }
+}
+
 @MainActor
-@Suite("SpokenReplies")
+@Suite("SpokenReplies", .serialized)
 struct SpokenRepliesTests {
   let client = FakeAPIClient(now: { MemoFactory.now })
   let speech = SpeechPlayer()
@@ -24,11 +61,11 @@ struct SpokenRepliesTests {
   private func replies(
     on: Bool = true, store: InMemorySpokenRepliesStore? = nil,
     createdHere: @escaping (String) async -> Bool = { _ in true },
-    isRecording: @escaping () -> Bool = { false }
+    takes: @escaping () -> TakeActivity = { TakeActivity() }
   ) -> SpokenReplies {
     SpokenReplies(
       store: store ?? InMemorySpokenRepliesStore(on), speech: speech, client: client, media: { FakeMediaSource() },
-      createdHere: createdHere, isRecording: isRecording)
+      createdHere: createdHere, takes: takes)
   }
 
   private func seed(_ id: String = "m", state: MemoState = .notified, replyText: String? = "Alles notiert.") async {
@@ -82,7 +119,7 @@ struct SpokenRepliesTests {
     // Another reply is loading: the player takes none. Simulated by a source without speech for the first attempt.
     let replies = SpokenReplies(
       store: InMemorySpokenRepliesStore(true), speech: speech, client: client,
-      media: { SilentSource.shared.next() }, createdHere: { _ in true }, isRecording: { false })
+      media: { SilentSource.shared.next() }, createdHere: { _ in true }, takes: { TakeActivity() })
     await replies.memoDone(id: "m")
     #expect(speech.memoID == nil)
     await replies.memoDone(id: "m")
@@ -133,7 +170,7 @@ struct SpokenRepliesTests {
   func recordingTake() async {
     await seed()
     var recording = true
-    let replies = replies(isRecording: { recording })
+    let replies = replies(takes: { TakeActivity(isOpen: recording) })
     await replies.memoDone(id: "m")
     #expect(speech.memoID == nil && !speech.player.isLoaded)
     // Not queued: once the take is over the same memo still does not speak.
@@ -154,26 +191,72 @@ struct SpokenRepliesTests {
     speech.unbindRecording(owner: owner)
   }
 
-  @Test("a take that starts while the speech downloads cancels the start and skips the memo")
-  func takeStartsMidDownload() async {
+  /// A speech player that downloads through the stub, with `probe` changed by the stub once the request is on the wire.
+  private func downloading(_ probe: TakeProbe, whileRequestIsPending change: @escaping @Sendable (TakeProbe) -> Void)
+    throws -> (SpokenReplies, SpeechPlayer, cleanup: () -> Void)
+  {
+    let directory = FileManager.default.temporaryDirectory.appending(path: "iris-spoken-\(UUID().uuidString)")
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [SlowSpeechStub.self]
+    let downloader = MediaDownloader(session: URLSession(configuration: configuration), directory: directory)
+    let player = SpeechPlayer(player: MemoPlayer(downloader: downloader))
+    let fake = FakeMediaSource()
+    let memo = MemoFactory.memo("m", state: .notified, route: "hermes", replyText: "Alles notiert.")
+    SlowSpeechStub.clip = try Data(contentsOf: #require(fake.speech(for: memo)?.url))
+    SlowSpeechStub.onRequest = { change(probe) }
+    let replies = SpokenReplies(
+      store: InMemorySpokenRepliesStore(true), speech: player, client: client, media: { StubSpeechSource() },
+      createdHere: { _ in true }, takes: { probe.activity })
+    return (replies, player, { try? FileManager.default.removeItem(at: directory) })
+  }
+
+  @Test("a take that opens and closes while the speech downloads cancels the reply, now and for good")
+  func takeOpensAndClosesMidDownload() async throws {
     await seed()
-    // The first `isRecording` read is the early check, the second the re-check after the fetch; the third is `shouldPlay`.
-    var reads = 0
-    let replies = replies(isRecording: {
-      reads += 1
-      return reads >= 3
-    })
+    let probe = TakeProbe()
+    let (replies, player, cleanup) = try downloading(probe) { probe in
+      probe.update { $0.started += 1 }  // a take opened ...
+      probe.update { $0.isOpen = false }  // ... and was over before the speech arrived
+    }
+    defer { cleanup() }
     await replies.memoDone(id: "m")
-    #expect(!speech.isPlaying("m"))
-    reads = 0
+    #expect(!player.isPlaying("m"))
     await replies.memoDone(id: "m")
-    #expect(reads == 0, "marked as skipped, so the repeat returns before looking at anything")
+    #expect(!player.isPlaying("m"), "skipped for good: nothing plays on a later memo.done either")
+  }
+
+  @Test("a take that is still open when the speech has downloaded cancels the reply")
+  func takeOpenMidDownload() async throws {
+    await seed()
+    let probe = TakeProbe()
+    let (replies, player, cleanup) = try downloading(probe) { probe in
+      probe.update {
+        $0.started += 1
+        $0.isOpen = true
+      }
+    }
+    defer { cleanup() }
+    await replies.memoDone(id: "m")
+    #expect(!player.isPlaying("m"))
+    probe.update { $0.isOpen = false }
+    await replies.memoDone(id: "m")
+    #expect(!player.isPlaying("m"))
+  }
+
+  @Test("with no take around, the same download plays")
+  func downloadPlays() async throws {
+    await seed()
+    let (replies, player, cleanup) = try downloading(TakeProbe()) { _ in }
+    defer { cleanup() }
+    await replies.memoDone(id: "m")
+    #expect(player.isPlaying("m"))
+    player.stop()
   }
 
   @Test("idle: nothing plays and no take records, so the reply speaks as before")
   func idleSpeaks() async {
     await seed()
-    await replies(isRecording: { false }).memoDone(id: "m")
+    await replies().memoDone(id: "m")
     #expect(speech.isPlaying("m"))
     speech.stop()
   }

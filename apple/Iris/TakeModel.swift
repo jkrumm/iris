@@ -29,6 +29,9 @@ final class TakeModel {
   /// The mode picker of the record control (a long press) is up.
   var showsModePicker = false
   private(set) var isEnding = false
+  /// How many takes have opened since launch, a thread's hold-to-talk included: a spoken reply that waited on a download
+  /// sees that one opened and closed meanwhile.
+  private(set) var takesStarted = 0
   private var pausedAt: Date?
   private var pausedTotal: TimeInterval = 0
   private var currentMemo: MemoID?
@@ -49,8 +52,10 @@ final class TakeModel {
 
   /// Any take holds the microphone (starting, recording, paused or stopping), a thread's hold-to-talk included, unlike
   /// ``isActive``. A spoken reply waits for it.
-  var isCapturing: Bool {
-    switch state.phase {
+  var isCapturing: Bool { Self.isCapturing(state.phase) }
+
+  private static func isCapturing(_ phase: TakePhase) -> Bool {
+    switch phase {
     case .starting, .recording, .paused, .stopping: true
     case .idle, .failed: false
     }
@@ -137,6 +142,7 @@ final class TakeModel {
       pausedTotal += Date().timeIntervalSince(pausedAt)
       self.pausedAt = nil
     }
+    if !isCapturing, Self.isCapturing(take.phase) { takesStarted += 1 }
     state = take
     if take.phase == .idle {
       showsFull = false
