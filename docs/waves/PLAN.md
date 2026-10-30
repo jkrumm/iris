@@ -424,6 +424,7 @@ pushed to master, the poller deploys, then `make verify` + `make smoke` on the m
 builds, runs `make snapshots` and only the UI tests of the screens it touched (`-only-testing`), on one simulator, then `xcrun simctl
 shutdown all`; one `xcodebuild` on the mini at a time, fleet-wide. A worker never re-runs the full suite locally to bisect a CI failure:
 it reads the CI logs and runs the failing test alone.
+**Merge train under load (Wave 18 C1):** `rd merge`'s `lockf … make check` times out when the mini is busy, so a train runs the server checks + `make e2e` locally and lets `apple.yml` gate Apple.
 **Batch train (owner, 2026-10-30):** Apple PRs no longer wait for one `apple.yml` run each. Every PR is still reviewed and passes
 its own `make check` + local targeted tests; the lead then stacks all ready Apple PRs onto one integration branch (`w<N>-batch-<k>`,
 each PR merged in with its own merge commit so history stays per-PR), opens it as one PR, and `apple.yml` runs once. Green → merge
@@ -1121,7 +1122,7 @@ cannot double-act); its row names the take it belongs to.
       parsing; the rest of those lines.
 - [ ] **S1. Server debt (Wave 17 Follow-ups #47, #50):** sweep limit / ENOENT / stat concurrency, fake order, hold simplification; a
       `RoutableMode` type. Deploy, `make verify`, `make smoke`.
-- [ ] **C1. CI flake:** `CaptureUITests.testAMemoTypedOfflineIsQueuedThenSentWithRetryNow` (`history.toast` 10 s wait) made deterministic
+- [x] **C1. CI flake:** `CaptureUITests.testAMemoTypedOfflineIsQueuedThenSentWithRetryNow` (`history.toast` 10 s wait) made deterministic
       (assert on state, not on a transient toast); the rd merge train's local `make check` under load (server checks + `make e2e` locally,
       Apple gated by CI) written into the Fleet section if it is the rule now.
 - [ ] **Deploy + prove:** server deployed, `make verify` healthy, `make smoke` green; `apple.yml` green on master.
