@@ -6,8 +6,13 @@ and skim `docs/TDD.md`. Role contract: `~/.claude/skills/wave/roles/mother.md` (
 
 ## Status: RESUMED by the owner (2026-10-28), run through the night
 
-Wave 15 done 2026-10-29 08:56. Wave 16 done 2026-10-30 07:47 (`29391b6`). Wave 17 (iPhone: spikes S1–S2, device checks ∥ Wave 16 debt) active, lead `iris-w17`. Quota: iu and me at 100% weekly (iu resets 10-28 16:00, me 10-29 06:00),
-me2 has room. All walled → wait for the next reset (`claude-account usage`), never IU API tokens. Stop only for the four reasons.
+Wave 15 done 2026-10-29 08:56. Wave 16 done 2026-10-30 07:47 (`29391b6`). Wave 17 done 2026-10-30 20:38 (`4cfe59c`; batches 1–3
+merged, prod verify/smoke green). **Wave 18 active** (device re-test + D3 when enrolled ∥ R4 Mac ∥ Wave 17 debt), lead `iris-w18`.
+The device re-test waits for the owner (left 18:03, back "later"); worker `w17-d2r-device-retest` is kept open for it. Two owner
+questions got reversible mother defaults in Wave 18's header (take start pauses a playing reply; a late tail is its own transcribe
+memo) — tell him when he is back. Enrolment question pending in the human queue. Batch train + mini CPU diet are Fleet rules.
+Quota 20:40: iu 53% (resets 11-04 16:00), me 53% (11-05 06:00), me2 walled until 11-01 18:00. All walled → wait for the next
+reset (`claude-account usage`), never IU API tokens. Stop only for the four reasons.
 
 ## Mission
 

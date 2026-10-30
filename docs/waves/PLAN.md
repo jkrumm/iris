@@ -1081,6 +1081,53 @@ behind the recorder's `canImport`, the duplicated step-end rule in `WaterfallBui
 `ask-human` once reported done within a second (never treated as a pass); the mini ran at load ~88 and Spotlight indexed `apple/.dd`
 (now `apple/.dd.noindex`, C1).
 
+## Wave 18 — device re-test + D3 when enrolled ∥ R4 Mac menu-bar app ∥ Wave 17 debt            <!-- status: active -->
+The owner is back on the phone later (evenings); everything that needs no phone runs meanwhile. Tracks: **D** (the paired iPhone,
+`docs/spikes/**`, the kept worker `w17-d2r-device-retest`) ∥ **M** (`apple/IrisMac/**`, Mac-only code in the packages, TDD §5) ∥ **I**
+(`apple/**` iOS app and package code) ∥ **S** (`server/**`, `contracts/**`, `scripts/**`). One `xcodebuild` at a time fleet-wide (a device
+build counts; D first when the owner is on the phone). Apple PRs ride the batch train (`w18-batch-N`, one `apple.yml` run per batch);
+server and docs PRs don't wait. Review convergence rule holds. Capture, intents or Live Activity workers load `apple-capture-notes`;
+device workers `device` + `apple-dev`.
+**Owner-question defaults (mother, 2026-10-30, reversible; the owner may overrule):** (1) a take that starts while a spoken reply plays
+**pauses the player** (his I3 answer: "rather B, pause playing"; recording takes priority, the reply is never recorded into the take).
+(2) A late tail for a memo the server already closed becomes **its own `transcribe` memo, client only** (option a: no contract change,
+cannot double-act); its row names the take it belongs to.
+- [ ] **D1. Device re-test with the owner** (Wave 17 Left behind "Device re-test", verbatim list): rows 1, 4, 15, 20, 21, the History
+      scroll jump (screen recording), Stop from the History banner, I5's device proof (copy into Notes, the level meter); recover
+      `ddaad4d8`'s tail from the phone's `capture/quarantine/` as a transcribe memo. One step at a time via `ask-human.sh`, German iOS
+      paths (`feedback-device-1.md` §9). Start only once the owner answers a "ready for the re-test?" `ask-human` (a timeout = not yet,
+      ask again at most hourly). A fail becomes an I item here (small) or a Left behind line.
+- [ ] **D2. Only if the enrolment has cleared** (the pending `ask-human` from Wave 17; ask again once if it timed out): APNs `.p8`
+      (Key ID, Team ID) + App Store Connect API key in 1Password, `make secrets-seed` through `ask-human`, `DEVICE_SIGNING=paid`, S3 (APNs
+      Live Activity, [Play] from a suspended app) and TestFlight (`make testflight`). Not cleared → Left behind.
+- [ ] **M1. R4 Mac, first slice (backlog 8, TDD §5):** the `MenuBarExtra` (`.window` style, `LSUIElement`) with History rows that match
+      the iOS History (shared IrisUI components, no forked row), a memo opened in a detail panel, live SSE `/v1/events` updates and a local
+      notification per finished memo while it runs; connection settings (server URL + token, Keychain) like the iPhone. Snapshot or
+      screenshot proof on the mini (`IrisMac` builds and runs on the mini's macOS). No capture yet.
+- [ ] **M2. R4 Mac capture (after M1):** the global hotkey (`KeyboardShortcuts` if it holds on macOS 26 — `/research` first — else a
+      `CGEventTap`; configurable, default distinct from the owner's dictation key), the floating non-activating `NSPanel` (timer, level,
+      mic picker from Core Audio), the take through `IrisCapture` + the outbox. Stable Apple Development signing (ad-hoc resets TCC).
+      Mic-permission and real-take proof need the owner's MacBook: build and prove what the mini can, leave the hands-on rows for D.
+- [ ] **I1. Owner-question defaults:** (1) take start pauses a playing spoken reply; (2) a late tail on a closed memo is uploaded as its
+      own transcribe memo. Tests; TDD §4 amended; AGENTS.md if it describes the behaviour.
+- [ ] **I2. Kill-test loss (Wave 17 D2.8: a force-quit lost the in-progress segment, ~5–8 s):** recover the partial segment at the next
+      launch (the sweep adopts a playable truncated file) or shorten what a kill can lose; research what AVAudioFile/AAC leaves on disk
+      at a kill first. Fake-tested here, device-proven in D1 if the owner has time.
+- [ ] **I3. Capture debt (Wave 17 Follow-ups #49, #57, #60, D1b):** data-safety first: `failTake` skips `outbox.finishMemo` when stop
+      throws; a stalled `complete` when the server holds fewer segments than the phone sent; legacy outbox records without
+      `completeMayHaveLanded`; a hung stop deactivates the session; unmovable stray files visible in Settings; then the rest of those lines.
+- [ ] **I4. UI debt (Wave 17 Follow-ups #52, #58, #64, #65, #61):** a gateway 5xx keeps "Connected"; a server-URL switch must not end
+      the old server's activities; eviction vs `localURL`; the take sample race in `memoDone`; `PlainMarkdown` reuses `ReplyMarkdown`'s
+      parsing; the rest of those lines.
+- [ ] **S1. Server debt (Wave 17 Follow-ups #47, #50):** sweep limit / ENOENT / stat concurrency, fake order, hold simplification; a
+      `RoutableMode` type. Deploy, `make verify`, `make smoke`.
+- [ ] **C1. CI flake:** `CaptureUITests.testAMemoTypedOfflineIsQueuedThenSentWithRetryNow` (`history.toast` 10 s wait) made deterministic
+      (assert on state, not on a transient toast); the rd merge train's local `make check` under load (server checks + `make e2e` locally,
+      Apple gated by CI) written into the Fleet section if it is the rule now.
+- [ ] **Deploy + prove:** server deployed, `make verify` healthy, `make smoke` green; `apple.yml` green on master.
+Not this wave: the route-configuration build (waits for the owner's review of the Wave 17 I6 render), H1's B2 `private/` objects (owner,
+B2 console), device-token rotation and easier token entry (owner notes, Left behind of Wave 17), R5 polish.
+
 ## Fleet backlog (for the long-running fleet: mother → lead → workers)
 
 Not waves of this chain. The fleet's mother turns these into active waves, one at a time,
