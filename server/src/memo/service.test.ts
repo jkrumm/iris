@@ -626,6 +626,23 @@ describe("route", () => {
     expect(seen).toEqual([]);
   });
 
+  it("400s a route on a transcribe memo, answer or correction, and logs no decision", async () => {
+    const { store, service } = setup();
+    const id = crypto.randomUUID();
+    store.createTextMemo({
+      id,
+      mode: "transcribe",
+      device: "iphone",
+      startedAt: "2026-01-01T00:00:00.000Z",
+      text: "keep this",
+    });
+    store.transition({ id, from: "transcribed", to: "notified" });
+    expect(() => service.route({ id, destination: "hermes" })).toThrow(
+      expect.objectContaining({ code: "bad_request" }),
+    );
+    expect(store.listRouteDecisions(id)).toEqual([]);
+  });
+
   it("409s receiving, received, transcribed, routed and failed, 404s unknown", async () => {
     const { store, service } = setup();
     for (const state of ["receiving", "received", "transcribed", "routed"] as const) {

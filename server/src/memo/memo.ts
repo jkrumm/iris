@@ -396,7 +396,11 @@ export function isCorrectable(state: MemoState): boolean {
 
 /** The state a retry from `step` resets the memo to. */
 export function stateBefore(params: { step: Step; mode: MemoMode }): MemoState {
-  return transitionOf(params.step, params.mode).from;
+  const { step, mode } = params;
+  if (!stepsOf(mode).includes(step)) {
+    throw new IllegalTransitionError(`step ${step} does not run in mode ${mode}`);
+  }
+  return transitionOf(step, mode).from;
 }
 
 export function stepIndex(step: Step): number {

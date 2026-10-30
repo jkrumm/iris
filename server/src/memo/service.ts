@@ -362,6 +362,10 @@ export function createMemoService(deps: {
     route({ id, destination, tab }) {
       const memo = mustGet(id);
       assertLive(memo);
+      // Like a typed memo's retry from transcribe: the request names something this memo does not have.
+      if (memo.mode === "transcribe") {
+        throw new MemoError("bad_request", "a transcribe memo has no route to answer or correct");
+      }
       const isAnswer = memo.state === "needs_route";
       if (!isAnswer && !isCorrectable(memo.state)) {
         throw new MemoError(
