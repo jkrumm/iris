@@ -143,7 +143,8 @@ final class CompositionRoot: CaptureIntentHandler, PlaybackIntentHandler {
       simulatesOffline = false
       fakeLiveActivity = nil
       let coordinator = TakeLiveActivityCoordinator(
-        activity: ActivityKitTakeLiveActivity(client: client), stack: production.stack, created: created)
+        activity: ActivityKitTakeLiveActivity(client: client, serverKey: { credentials.load()?.serverKey }),
+        stack: production.stack, created: created)
       liveActivity = coordinator
       takeController = TakeController(
         stack: production.stack, liveActivity: coordinator, outbox: service, microphone: nil,
@@ -172,7 +173,11 @@ final class CompositionRoot: CaptureIntentHandler, PlaybackIntentHandler {
       createdHere: { await outbox.created.memo(id: $0) != nil },
       takes: { [take] in TakeActivity(isOpen: take.isCapturing, started: take.takesStarted) })
     spokenReplies = reader
-    history.onMemoDone = { id in Task { await reader.memoDone(id: id) } }
+    history.onMemoDone = { id in
+      // Sampled here, on the event, not after the task hop: a take that opens in between still blocks the reply.
+      let takes = reader.takeSample
+      Task { await reader.memoDone(id: id, takes: takes) }
+    }
     CaptureIntents.handler = self
     PlaybackIntents.handler = self
     if mode == .production, let store = self.credentials {
@@ -243,6 +248,8 @@ final class CompositionRoot: CaptureIntentHandler, PlaybackIntentHandler {
       }
     }
     if let fakeAPI { await SampleData.seed(fakeAPI, now: sampleNow) }
+    // Cached media that outlived its memo (deleted elsewhere, or while the app was gone) does not pile up.
+    MediaDownloader.shared.sweepStale()
     guard isConfigured else { return }
     // Loads the saved queue and sends what is due: items left over from the last session, or from before a connection change.
     await outbox.resume()
@@ -312,6 +319,8 @@ final class CompositionRoot: CaptureIntentHandler, PlaybackIntentHandler {
   func foregrounded() async {
     guard mode == .production, isConfigured else { return }
     await outbox.resume()
+    // A follower does not poll while the app is suspended: look at the handed-over activities again.
+    await liveActivity.endOrphans()
   }
 
   private func connectionChanged() {
