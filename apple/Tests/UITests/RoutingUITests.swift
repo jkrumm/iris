@@ -180,6 +180,29 @@ final class RoutingUITests: IrisUITestCase {
     XCTAssertTrue(app.buttons["detail.route.correct"].exists)
   }
 
+  /// The detail hosts the route sheet and tears its players down when it disappears: closing the sheet must leave the
+  /// recording loaded and playable.
+  @MainActor
+  func testTheRecordingStillPlaysAfterTheRouteSheetCloses() {
+    let app = launch()
+    openRow(containing: "Wochenplan abgestimmt", in: app)
+
+    let toggle = app.buttons["detail.player.toggle"]
+    XCTAssertTrue(toggle.waitForExistence(timeout: 10))
+    expectation(for: NSPredicate(format: "isEnabled == true"), evaluatedWith: toggle)
+    waitForExpectations(timeout: 15)
+
+    app.buttons["detail.route.correct"].tap()
+    XCTAssertTrue(element(app, "route.sheet").waitForExistence(timeout: 10))
+    app.buttons["route.cancel"].tap()
+    waitUntilGone(element(app, "route.sheet"))
+
+    expectation(for: NSPredicate(format: "isEnabled == true"), evaluatedWith: app.buttons["detail.player.toggle"])
+    waitForExpectations(timeout: 15)
+    app.buttons["detail.player.toggle"].tap()
+    waitForLabel(app.buttons["detail.player.toggle"], "Pause")
+  }
+
   // MARK: Play and the mode picker
 
   @MainActor

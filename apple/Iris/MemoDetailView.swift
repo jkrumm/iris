@@ -83,7 +83,8 @@ struct MemoDetailView: View {
     .task(id: refreshToken()) { await model.load() }
     .task(id: model.audioRequest) { await playback.recording.load(model.audioRequest) }
     .onAppear { playback.attach() }
-    .onDisappear { playback.teardown() }
+    // The sheet is hosted here: a screen covered by it is still on screen, so its players stay.
+    .onDisappear { if routing == nil { playback.teardown() } }
   }
 
   // MARK: Sections

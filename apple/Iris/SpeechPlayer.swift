@@ -59,7 +59,14 @@ final class SpeechPlayer {
     let mine = attempt
     memoID = memo.id
     await player.load(request)
-    guard attempt == mine, memoID == memo.id, player.isLoaded, shouldPlay() else { return false }
+    // Overtaken (a pause, a stop or another start): whoever did that owns `memoID` now. A download that failed or was
+    // cancelled leaves the player holding nothing, so it must not claim the memo either.
+    guard attempt == mine, memoID == memo.id else { return false }
+    guard player.isLoaded else {
+      memoID = nil
+      return false
+    }
+    guard shouldPlay() else { return false }
     pauseRecording?()
     player.seek(to: 0)
     player.play()

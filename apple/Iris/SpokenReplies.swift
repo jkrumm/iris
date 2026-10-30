@@ -53,7 +53,11 @@ final class SpokenReplies {
       guard isOn, isForeground, memo.state == .notified, memo.hasReply, !memo.isDeleted, !memo.archived else { return }
       // Marked only once it plays. A reply the player could not take (another one was loading) stays unmarked, but nothing
       // retries it: the server sends `memo.done` once, and the reply is still there for [Play].
-      if await speech.play(memo, source: media(), shouldPlay: { isOn && isForeground }) { spoken.insert(id) }
+      if await speech.play(memo, source: media(), shouldPlay: { isOn && isForeground }) {
+        spoken.insert(id)
+      } else {
+        logger.notice("spoken reply not started for \(id, privacy: .public): busy, no speech, or no longer wanted")
+      }
     } catch is CancellationError {
       return
     } catch {
