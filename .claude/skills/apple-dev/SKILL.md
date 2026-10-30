@@ -97,13 +97,17 @@ Pairing a phone with the mini is an owner step (trust prompt on the phone, Devel
 ## Signing, archive, TestFlight
 
 - `xcodebuild -scheme X -destination 'generic/platform=iOS' -archivePath out/X.xcarchive archive` succeeded for the
-  unsigned scratch app (`CODE_SIGNING_ALLOWED: NO`). A **signed** archive with `-allowProvisioningUpdates` is
-  **unverified until enrollment**: it needs a team id, and either an Apple ID in Xcode's Accounts or an App Store Connect API
-  key (`-authenticationKeyPath/-authenticationKeyID/-authenticationKeyIssuerID`, key kept in 1Password, read through `secrets-run`).
-  `security find-identity -v -p codesigning` shows 0 identities on the mini today.
-- Headless signing, **unverified until a signing identity is imported**: codesign hangs on a keychain prompt over SSH/launchd
-  unless the key's partition list allows it: `security unlock-keychain` then
-  `security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k <keychain-pass> <keychain>`.
+  unsigned scratch app (`CODE_SIGNING_ALLOWED: NO`). A signed archive is **unverified until the paid enrolment**.
+- Device signing (ran, Personal Team): `xcodebuild … -destination id=<device> -allowProvisioningUpdates DEVELOPMENT_TEAM=<id> build` signs with the one
+  Apple Development identity in the login keychain (`security find-identity -v -p codesigning`), headless, no keychain prompt appeared. The team id comes
+  from `defaults export com.apple.dt.Xcode - | plutil -extract IDEProvisioningTeamByIdentifier json -o - -` (`isFreeProvisioningTeam`), never tracked.
+  A Personal Team profile fails with "doesn't match the entitlements file's value for the com.apple.security.application-groups entitlement" and cannot
+  carry `aps-environment`: `scripts/device-build.sh` strips both via the `IRIS_*_ENTITLEMENTS` build settings (`DEVICE_SIGNING=paid` keeps them).
+  Remove a key from a plist with `PlistBuddy -c "Delete :com.apple.…"`: `plutil -remove` reads the dots as a key path.
+- Headless signing with an App Store Connect API key (`-authenticationKeyPath/-authenticationKeyID/-authenticationKeyIssuerID`, key in 1Password via
+  `secrets-run`) is **unverified until enrolment**.
+- If codesign ever hangs on a keychain prompt over SSH/launchd: `security unlock-keychain` then
+  `security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k <keychain-pass> <keychain>` (**unverified**, not needed so far).
 - Mac apps (MenuBarExtra, hotkey, mic) need a **stable signing identity**: TCC (microphone, accessibility) grants are keyed to
   the code signature, so ad-hoc builds lose the grant on every rebuild. Reset a stuck grant with `tccutil reset Microphone <bundle id>`.
   Unverified until the Mac target exists.

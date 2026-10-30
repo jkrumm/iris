@@ -132,6 +132,29 @@ States: `receiving → received → transcribed → routed | needs_route → act
 with `failed(step)` as a side state.
 
 
+## Device (the paired iPhone)
+
+`lockf -t 900 /tmp/iris-apple.lock make device` builds, signs, installs, launches Iris and screenshots the phone to `.artifacts/device-<time>.png`
+(`device-build`, `device-run`, `device-screenshot` run alone; `make device-run ARGS="-flag"` passes launch arguments). Scripts: `scripts/device-*.sh`;
+the phone (`devicectl list devices`, the connected physical iOS device) and the team (`defaults export com.apple.dt.Xcode`) resolve at runtime, nothing
+about either is tracked. Overrides: `IRIS_DEVICE_ID`, `TEAM=<id>`, `DEVICE_SIGNING=personal|paid`.
+- **Signing is one switch.** `DEVICE_SIGNING=personal` (default) uses the free Personal Team, `DEVICE_SIGNING=paid` the paid team and the entitlements
+  exactly as tracked. The three iOS targets' `CODE_SIGN_ENTITLEMENTS` are variables (`IRIS_APP_ENTITLEMENTS` etc. in `apple/project.yml`, default the tracked
+  files, so the simulator/CI build with `CODE_SIGNING_ALLOWED=NO` is unchanged); a personal build points them at copies without the gated keys, derived at
+  build time from the tracked files (`scripts/device-lib.sh`), so nothing drifts. The three `*.entitlements` files are hand-kept, no longer generated.
+- **Gated off for a Personal Team (device builds only):** `aps-environment` (Push/APNs: no remote Live Activity updates, no result notification,
+  device registration without an APNs token, spikes S3/D3 wait for the paid team) and `com.apple.security.application-groups` (no Swift code reads the
+  App Group yet; the Keychain group stays). Nothing else is gated; Live Activities, the Control widget and the audio background mode need no entitlement.
+- **Personal Team limits:** 7-day profiles (rebuild weekly), 10 App IDs per 7 days (`com.jkrumm.iris`, `.widgets`, `.notifications` are three; never rename them),
+  3 devices. Only the Iris iOS targets are built; `IrisMac` and the test bundles are not.
+- **First install:** the first `-allowProvisioningUpdates` build registers the device; the owner must trust the developer once on the phone (Settings >
+  General > VPN & Device Management) or `launch` fails with "invalid code signature ... profile has not been explicitly trusted".
+  A codesign keychain prompt on the mini's screen needs "Always Allow" (not seen so far: the build signed headless).
+- **Screenshot:** `xcrun devicectl device capture screenshot` (Xcode 27). `pymobiledevice3` does not work here: the phone is on a CoreDevice network tunnel,
+  `usbmux list` is empty and an RSD tunnel needs root.
+- **Connecting the app** has no launch-argument route (no production backdoor): the owner types the server URL and the `iphone` device token once in
+  Settings > Connection; the Keychain item survives reinstalls over the same bundle id.
+
 ## Validate
 
 | Target | Runs | Where |
@@ -141,6 +164,7 @@ with `failed(step)` as a side state.
 | `make check-apple` | Theme drift, `swift format lint --strict`, `swift test` per package (macOS host), `xcodebuild build` of `Iris` + extensions (simulator) and `IrisMac` | mini, CI (`apple.yml`) |
 | `make snapshots` | IrisUI snapshot tests on the pinned simulator (`RECORD=1` re-records) | mini, `apple.yml` |
 | `make uitest` | XCUITest smoke (`-IrisFakeCapture`) | mini, `apple.yml` |
+| `make device` | `device-build` + `device-run`: signed Debug build, install, launch and a phone screenshot on the paired iPhone (see Device) | mini, phone wired |
 | `make guard` | public-repo scan (IPs, tailnet/real hostnames, token shapes) | mini, CI, lefthook pre-commit |
 | `make verify` / `make smoke` | production health / a real recording through production | mini only, after deploy |
 

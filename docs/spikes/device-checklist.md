@@ -22,3 +22,11 @@ and a note or the finding. Commands for the device side: skill `device`; the ser
 | 14 | VoiceOver, Dynamic Type XXL, Reduce Transparency | History, Record and the detail stay usable | |
 
 Findings that change the design go to the matching spike file and into `docs/TDD.md` §4 / §13.
+
+## Wave 17 D1: bring-up (2026-10-30, iPhone 15 `iPhone15,4`, iOS 26.6.1, Personal Team)
+
+- `make device`: build, sign, install, launch, screenshot: pass. Screenshot via `xcrun devicectl device capture screenshot`; `pymobiledevice3` unusable (no usbmux, tunnel needs root).
+- First launch refused until the developer was trusted on the phone (owner step, once).
+- Production composition: server URL and token entered in Settings > Connection; a recorded memo sits in the outbox ("Retry in 2 minutes"): the phone did
+  not reach `iris.mini.<domain>` (Safari/Brave on the phone showed `NOT_FOUND`, not Caddy's answer), so a memo reaching `done` is **not yet proven**. See the PR.
+

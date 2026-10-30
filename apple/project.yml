@@ -40,12 +40,7 @@ targets:
     type: application
     platform: iOS
     sources: [Iris]
-    entitlements:
-      path: Iris/Iris.entitlements
-      properties:
-        aps-environment: development
-        com.apple.security.application-groups: [group.com.jkrumm.iris]
-        keychain-access-groups: ["$(AppIdentifierPrefix)group.com.jkrumm.iris"]
+    # The three iOS entitlements files are hand-kept (not generated): CODE_SIGN_ENTITLEMENTS is a variable, see settings.
     info:
       path: Iris/Info.plist
       properties:
@@ -62,6 +57,9 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.jkrumm.iris
         TARGETED_DEVICE_FAMILY: "1"
+        # `scripts/device-build.sh` points these at copies without `aps-environment` (app) and the App Group (all three) while the team is a Personal Team.
+        IRIS_APP_ENTITLEMENTS: Iris/Iris.entitlements
+        CODE_SIGN_ENTITLEMENTS: $(IRIS_APP_ENTITLEMENTS)
     dependencies:
       - package: IrisCore
       - package: IrisCapture
@@ -77,11 +75,6 @@ targets:
     platform: iOS
     # The Control names `StartMemoIntent`; the app performs it, so the intent file is compiled into both.
     sources: [IrisWidgets, Iris/Intents]
-    entitlements:
-      path: IrisWidgets/IrisWidgets.entitlements
-      properties:
-        com.apple.security.application-groups: [group.com.jkrumm.iris]
-        keychain-access-groups: ["$(AppIdentifierPrefix)group.com.jkrumm.iris"]
     info:
       path: IrisWidgets/Info.plist
       properties:
@@ -92,6 +85,8 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.jkrumm.iris.widgets
+        IRIS_WIDGETS_ENTITLEMENTS: IrisWidgets/IrisWidgets.entitlements
+        CODE_SIGN_ENTITLEMENTS: $(IRIS_WIDGETS_ENTITLEMENTS)
         TARGETED_DEVICE_FAMILY: "1"
         SKIP_INSTALL: YES
     dependencies:
@@ -102,11 +97,6 @@ targets:
     type: app-extension
     platform: iOS
     sources: [IrisNotifications]
-    entitlements:
-      path: IrisNotifications/IrisNotifications.entitlements
-      properties:
-        com.apple.security.application-groups: [group.com.jkrumm.iris]
-        keychain-access-groups: ["$(AppIdentifierPrefix)group.com.jkrumm.iris"]
     info:
       path: IrisNotifications/Info.plist
       properties:
@@ -121,6 +111,8 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.jkrumm.iris.notifications
+        IRIS_NOTIFICATIONS_ENTITLEMENTS: IrisNotifications/IrisNotifications.entitlements
+        CODE_SIGN_ENTITLEMENTS: $(IRIS_NOTIFICATIONS_ENTITLEMENTS)
         TARGETED_DEVICE_FAMILY: "1"
         SKIP_INSTALL: YES
     dependencies:

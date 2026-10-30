@@ -1068,5 +1068,6 @@ the `IrisCore` dependency when R1 wires them together.
 | Bun `node:http2` over-dispatch to APNs | Cap in-flight streams (D6); Bun 1.3.14's HTTP/2 `fetch` as a fallback |
 | `xcode-27` is a preview CI image | Fall back to `macos-26` (D14) |
 | Exact Swift build-setting spellings (default isolation) | Verified in the setup wave against Xcode 27.1 |
+| Personal Team cannot sign Push or App Groups; 7-day profiles, 10 App IDs per 7 days | Device builds sign with entitlements minus `aps-environment` and the App Group (`DEVICE_SIGNING=personal`); `DEVICE_SIGNING=paid` signs the tracked files. Verified Wave 17 D1 on an iPhone 15, iOS 26.6.1: build, install and launch work, headless codesign needed no keychain prompt; S3 and the APNs rows wait for the paid team |
 | `decide` confidence calibration | Logged decisions and corrections; threshold tuned after 100 memos |
 | Voxtral has no timestamps | Plain transcript in R1–R3; revisit if a synced transcript matters |
