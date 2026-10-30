@@ -8,7 +8,7 @@ final class HistorySwipeUITests: IrisUITestCase {
     let app = XCUIApplication()
     app.launchArguments = SampleClock.arguments + ["-IrisUndoSeconds", "60"]
     start(app)
-    XCTAssertTrue(app.descendants(matching: .any)["history.list"].waitForExistence(timeout: 10))
+    XCTAssertTrue(waitForPresence(app.descendants(matching: .any)["history.list"], timeout: 10))
     return app
   }
 
@@ -29,23 +29,23 @@ final class HistorySwipeUITests: IrisUITestCase {
   func testSwipeRightMarksTheRowDone() {
     let app = launch()
     let target = row(in: app)
-    XCTAssertTrue(target.waitForExistence(timeout: 10))
+    XCTAssertTrue(waitForPresence(target, timeout: 10))
     target.scrollIntoClearBand(of: app.descendants(matching: .any)["history.list"], app: app)
-    XCTAssertFalse(markedDone(in: app).exists)
+    XCTAssertTrue(waitForAbsence(markedDone(in: app), timeout: 1))
 
     // Dragging past the full-swipe threshold fires the first action; `swipeRight()` can stop short of it.
     let start = target.coordinate(withNormalizedOffset: CGVector(dx: 0.1, dy: 0.5))
     let end = target.coordinate(withNormalizedOffset: CGVector(dx: 0.98, dy: 0.5))
     start.press(forDuration: 0.1, thenDragTo: end)
 
-    XCTAssertTrue(markedDone(in: app).waitForExistence(timeout: 10))
+    XCTAssertTrue(waitForPresence(markedDone(in: app), timeout: 10))
   }
 
   @MainActor
   func testDeleteRemovesTheRowAndUndoBringsItBack() {
     let app = launch()
     let target = row(in: app)
-    XCTAssertTrue(target.waitForExistence(timeout: 10))
+    XCTAssertTrue(waitForPresence(target, timeout: 10))
     target.scrollIntoClearBand(of: app.descendants(matching: .any)["history.list"], app: app)
 
     // A short drag reveals the buttons; a full swipe would archive instead.
@@ -53,15 +53,15 @@ final class HistorySwipeUITests: IrisUITestCase {
     let end = target.coordinate(withNormalizedOffset: CGVector(dx: 0.55, dy: 0.5))
     start.press(forDuration: 0.1, thenDragTo: end)
     let delete = app.buttons["history.swipe.delete"]
-    XCTAssertTrue(delete.waitForExistence(timeout: 5))
+    XCTAssertTrue(waitForPresence(delete, timeout: 5))
     delete.tap()
 
-    XCTAssertTrue(app.descendants(matching: .any)["history.toast"].waitForExistence(timeout: 5))
-    XCTAssertFalse(row(in: app).waitForExistence(timeout: 1))
+    XCTAssertTrue(waitForPresence(app.descendants(matching: .any)["history.toast"], timeout: 5))
+    XCTAssertTrue(waitForAbsence(row(in: app), timeout: 1))
 
     let undo = app.buttons["Undo"]
-    XCTAssertTrue(undo.waitForExistence(timeout: 5))
+    XCTAssertTrue(waitForPresence(undo, timeout: 5))
     undo.tap()
-    XCTAssertTrue(row(in: app).waitForExistence(timeout: 10))
+    XCTAssertTrue(waitForPresence(row(in: app), timeout: 10))
   }
 }

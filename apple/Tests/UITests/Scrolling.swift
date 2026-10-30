@@ -7,8 +7,10 @@ extension XCUIElement {
   @MainActor
   func scrollIntoClearBand(of list: XCUIElement, app: XCUIApplication, maxDrags: Int = 12) {
     let height = app.frame.height
-    for _ in 0..<maxDrags where exists {
-      let middle = frame.midY
+    for _ in 0..<maxDrags {
+      // `nil`: the query timed out, ask again; `.some(nil)`: the element is gone.
+      guard let read = QueryRetry.attempt({ exists ? frame.midY : nil }) else { continue }
+      guard let middle = read else { return }
       if middle > height * 0.40 && middle < height * 0.66 { return }
       // Positive: the row has to move up. One drag moves it by at most a quarter of the screen.
       let delta = max(-height * 0.25, min(height * 0.25, middle - height * 0.53))
