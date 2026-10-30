@@ -1119,6 +1119,13 @@ cannot double-act); its row names the take it belongs to.
 - [ ] **I4. UI debt (Wave 17 Follow-ups #52, #58, #64, #65, #61):** a gateway 5xx keeps "Connected"; a server-URL switch must not end
       the old server's activities; eviction vs `localURL`; the take sample race in `memoDone`; `PlainMarkdown` reuses `ReplyMarkdown`'s
       parsing; the rest of those lines.
+- [ ] **I5. Visual fidelity pass (owner, 2026-10-30 21:25, binding):** "so much bad spacing", e.g. the top of History, "and many other
+      places"; the app has drifted from the design renders "at many, many places", they were much better. The reference is
+      `docs/design/mockups/*.html` (round 1/2, still tracked; `feedback-round-{1,2}.md` binding, round 2 wins) plus the kept Wave 15 I5 /
+      Wave 16 I4 renders. Per screen (History incl. its top, detail, thread, composer, take screen + banner, Stats, Settings, route sheet,
+      Live Activity views): render the mockup and screenshot the app at the same size, light and dark, list every spacing / alignment /
+      type / colour delta in a table, fix them, re-record snapshots. One shared spacing scale in IrisUI instead of per-view literals.
+      D1 adds device screenshots of every screen and the places the owner points at. Large: split per screen group across workers.
 - [ ] **S1. Server debt (Wave 17 Follow-ups #47, #50):** sweep limit / ENOENT / stat concurrency, fake order, hold simplification; a
       `RoutableMode` type. Deploy, `make verify`, `make smoke`.
 - [ ] **C1. CI flake:** `CaptureUITests.testAMemoTypedOfflineIsQueuedThenSentWithRetryNow` (`history.toast` 10 s wait) made deterministic
@@ -1126,7 +1133,7 @@ cannot double-act); its row names the take it belongs to.
       Apple gated by CI) written into the Fleet section if it is the rule now.
 - [ ] **Deploy + prove:** server deployed, `make verify` healthy, `make smoke` green; `apple.yml` green on master.
 Not this wave: the route-configuration build (waits for the owner's review of the Wave 17 I6 render), H1's B2 `private/` objects (owner,
-B2 console), device-token rotation and easier token entry (owner notes, Left behind of Wave 17), R5 polish.
+B2 console; keep them until I5 is done, they are the round-1/2 renders), device-token rotation and easier token entry (owner notes, Left behind of Wave 17), R5 polish.
 
 ## Fleet backlog (for the long-running fleet: mother → lead → workers)
 
