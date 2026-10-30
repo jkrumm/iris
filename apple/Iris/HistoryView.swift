@@ -26,6 +26,12 @@ struct HistoryView: View {
   var body: some View {
     NavigationStack {
       List {
+        // The chips are the list's first row, not a bar pinned with `safeAreaBar` around the list: the list stays the
+        // navigation stack's root scroll content, so the large title tracks it.
+        HistoryFilterBar(filters: $model.filters)
+          .listRowInsets(EdgeInsets())
+          .listRowSeparator(.hidden)
+          .listRowBackground(Color.clear)
         ForEach(HistoryDaySection.group(model.memos)) { section in
           Section {
             ForEach(section.memos) { memo in
@@ -53,9 +59,6 @@ struct HistoryView: View {
       .background(Theme.Surface.background)
       .animation(.snappy, value: model.memos.map(\.id))
       .overlay { emptyState }
-      .safeAreaBar(edge: .top, spacing: 0) {
-        HistoryFilterBar(filters: $model.filters)
-      }
       .takeBanner()
       .overlay(alignment: .bottom) { toastBanner }
       .navigationTitle(String(localized: "History", comment: "Navigation title of the memo list"))
