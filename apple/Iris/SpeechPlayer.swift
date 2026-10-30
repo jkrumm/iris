@@ -88,6 +88,13 @@ final class SpeechPlayer {
     player.pause()
   }
 
+  /// A take is starting: recording takes priority, so the reply (a download still under way included) and the open detail's
+  /// recording stop at once, and the microphone never hears either. Nothing resumes by itself afterwards.
+  func pauseForTake() {
+    pause()
+    pauseRecording?()
+  }
+
   /// Stops and releases the player, for the memo it speaks (`id`), or whichever when `id` is nil.
   func stop(memoID id: String? = nil) {
     guard id == nil || id == memoID else { return }

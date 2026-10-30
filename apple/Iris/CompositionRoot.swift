@@ -117,7 +117,7 @@ final class CompositionRoot: CaptureIntentHandler, PlaybackIntentHandler {
       liveActivity = coordinator
       takeController = TakeController(
         stack: stack, liveActivity: coordinator, outbox: service, microphone: mic, canRecord: true,
-        isConfigured: { true }, requestPermission: { true })
+        isConfigured: { true }, requestPermission: { true }, speech: speech)
       history = HistoryModel(client: fake, evictMedia: { MediaDownloader.shared.evict(memoID: $0) })
       stats = StatsModel(client: fake)
       settings = SettingsModel(client: fake, queue: service)
@@ -148,7 +148,7 @@ final class CompositionRoot: CaptureIntentHandler, PlaybackIntentHandler {
       takeController = TakeController(
         stack: production.stack, liveActivity: coordinator, outbox: service, microphone: nil,
         canRecord: production.canRecord, isConfigured: { credentials.load() != nil },
-        requestPermission: { await AVAudioApplication.requestRecordPermission() })
+        requestPermission: { await AVAudioApplication.requestRecordPermission() }, speech: speech)
       history = HistoryModel(
         client: client, hiddenStore: UserDefaultsHiddenMemoStore(),
         evictMedia: { MediaDownloader.shared.evict(memoID: $0) })
