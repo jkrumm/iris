@@ -1005,7 +1005,7 @@ treat silence as a pass); everything else is headless (`devicectl` install/launc
 - [ ] **I5. Memo detail per `feedback-device-1.md` §1, §4, §5:** copy transcript and reply as plain text (proven on the device: paste
       into Notes); the waterfall collapsed by default to one line (total time · total cost), expanding to the steps; no gaps or
       misdrawn bars between steps; cost shown with a precision that never reads $0.00 for a real cost (e.g. `$0.0002` / `<$0.001`).
-      Snapshots light and dark plus a device screenshot.
+      Snapshots light and dark plus a device screenshot. The take screen's level meter rises visibly for normal speech (§6, proven on the device).
 - [ ] **I6. Route configuration (render only, `feedback-device-1.md` §3):** where the owner sees and configures what Iris can route to
       (destinations, their targets, the per-route mic rules that exist). Render it in the Wave 15 I5 manner and list it in
       `docs/design/README.md` for async owner review; do not build it.

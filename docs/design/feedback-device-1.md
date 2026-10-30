@@ -14,3 +14,6 @@ Overall: "for the first draft it is actually really strong now".
 4. **Waterfall:** he does not like it much as is. Steps collapsible and collapsed by default (he does not want to see it all the time);
    rendering is not always clean, and there are gaps between steps.
 5. **Cost:** two decimals always shows $0.00. Show a meaningful precision (or a sensible unit) so a real cost is visible.
+6. **Level meter:** while speaking, the volume bars rise too little; the take screen otherwise "looks actually quite beautiful",
+   including the microphone selection. (From the take itself, which arrived after the D1b fix: "the increase in the volume bars is
+   not too high".)
