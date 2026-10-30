@@ -37,6 +37,5 @@ round 2 and in the screens.
 
 ## Housekeeping
 
-Renders (`docs/design/renders/`, gitignored), the MacBook gallery (`iumac:/tmp/iris-mockups.html`) and the 23 private
-image objects stay as the cross-reference until the R3 screens are built. Then delete all three (the image objects through
-`/img`, not just by letting the links expire). This is a backlog item.
+The renders, the MacBook gallery and the uploaded mockup images were the cross-reference until the R3 screens were built; they
+are no longer kept (Wave 17 H1). `make mockups` regenerates the renders from the HTML sources.

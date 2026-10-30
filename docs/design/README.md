@@ -28,9 +28,8 @@ iPhone surfaces render at 402 x 874 pt (iPhone 17), the Mac at 1440 x 900, all a
 ## Renders and links
 
 `make mockups` regenerates `tokens.css` and all PNGs into `renders/` (round 1: 23; round 2 adds `r2-*`, see below) (headless Chrome, device-sized
-viewport). The PNGs are gitignored. They were uploaded with `imgcli private` as presigned links (7 days
-maximum); the repo is public, so the links are not tracked. They live in the untracked
-`links.local.md` next to this file; re-issue with `imgcli private <png> --expires 7d`.
+viewport). The PNGs are gitignored. Share one with `imgcli private <png> --expires 7d` (presigned, 7 days maximum); the repo is public, so
+links are never tracked.
 
 ## Open design questions for the review
 
@@ -43,7 +42,7 @@ maximum); the repo is public, so the links are not tracked. They live in the unt
 
 Applies `feedback-round-1.md` (binding). Same approach as round 1: static HTML on the generated basalt tokens, glass only on
 floating controls, German and English content around the fixture memo, `?scheme=light|dark&v=<variant>`. Round-2 renders are
-named `r2-*`; the round-1 PNGs of surfaces that changed stay in `renders/` untouched (not regenerated) as the before picture.
+named `r2-*`; the round-1 PNGs of surfaces that changed were kept as the before picture until the screens shipped; they are no longer kept (Wave 17 H1), `make mockups` regenerates both rounds.
 The Lock Screen pages did not change and keep their round-1 names. `mock.css` gained `.soft` (glass with almost no drop shadow)
 and the markdown block `.mdx`; `mock.js` gained the icons and the shared four-tab dock (`<div class="dock" data-dock="...">`).
 
