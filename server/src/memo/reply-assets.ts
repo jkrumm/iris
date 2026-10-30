@@ -276,7 +276,8 @@ export function createReplyAssets(deps: {
   async function sweep(limit: number) {
     let examined = 0;
     let removed = 0;
-    let total = 0;
+    // Null until the listing is known: a failed listing leaves nothing to compare `examined` with.
+    let total: number | null = null;
     try {
       const memoIds = await assets.listMemos();
       total = memoIds.length;
@@ -292,8 +293,8 @@ export function createReplyAssets(deps: {
     } catch (err) {
       log("reply.sweep_failed", { error: String(err) });
     }
-    // `total - examined` directories were left for a later boot (or a stop): the limit is visible when it bites.
-    log("reply.sweep", { examined, removed, skipped: total - examined });
+    // `skipped` directories were left for a later boot (or a stop): the limit is visible when it bites; null when the listing failed.
+    log("reply.sweep", { examined, removed, skipped: total === null ? null : total - examined });
     return removed;
   }
 

@@ -269,12 +269,8 @@ export function fakeAssetStore(): AssetStore & { files: Map<string, Uint8Array> 
       }
     },
     async removeAll(memoId) {
-      for (const key of files.keys()) {
-        if (key.startsWith(`${memoId}/`)) {
-          files.delete(key);
-          touch(memoId);
-        }
-      }
+      for (const key of files.keys()) if (key.startsWith(`${memoId}/`)) files.delete(key);
+      changed.delete(memoId);
     },
   };
 }

@@ -595,6 +595,19 @@ describe("sweep", () => {
     });
   });
 
+  it("reports skipped as null when the listing itself failed", async () => {
+    const { store, renderer, assets } = setup();
+    const broken = { ...assets, listMemos: () => Promise.reject(new Error("EIO")) };
+    const replies = createReplyAssets({ store, assets: broken, renderer });
+
+    const { lines } = await captureLogs(() => replies.sweep());
+
+    expect(lines.find((l) => l["event"] === "reply.sweep")).toMatchObject({
+      examined: 0,
+      skipped: null,
+    });
+  });
+
   it("examines the most recently changed directory first, a rewrite counting as a change", async () => {
     const { replies, assets } = setup();
     const older = id0();

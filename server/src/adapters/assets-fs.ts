@@ -1,6 +1,7 @@
 import { readdir, readFile, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 import type { AssetStore } from "../ports/assets.js";
+import { log } from "../telemetry/log.js";
 import { writeAtomic } from "./fs-atomic.js";
 
 /** Directories stat-ed at once by `listMemos`: a data dir with thousands of memos must not open thousands of handles together. */
@@ -57,9 +58,10 @@ export function createFsAssetStore(dir: string): AssetStore {
             try {
               return { name, changed: (await stat(join(dir, name))).mtimeMs };
             } catch (err) {
-              // A directory that vanishes between the two calls is not a memo to sweep; any other failure is the caller's.
-              if (missing(err)) return null;
-              throw err;
+              // A directory that vanishes between the two calls is not a memo to sweep. Any other failure skips that one
+              // directory and is reported: a single unreadable directory must not hide the healthy ones from the sweep.
+              if (!missing(err)) log("reply.sweep_failed", { memo_id: name, error: String(err) });
+              return null;
             }
           }),
         );
