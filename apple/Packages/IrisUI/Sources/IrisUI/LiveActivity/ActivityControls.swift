@@ -34,7 +34,7 @@ public struct ActivityControlLabel: View {
         .background(Theme.Status.bad, in: .capsule)
     case .switchInput:
       // No single SF Symbol means "swap the microphone": a mic with the swap arrows beside it.
-      HStack(spacing: 3) {
+      HStack(spacing: Theme.Spacing.tick) {
         Image(systemName: "mic.fill")
         Image(systemName: "arrow.left.arrow.right")
           .font(.system(size: 11, weight: .bold))
@@ -84,7 +84,7 @@ public struct ActivityControlsRow<Stop: View, SwitchInput: View, Pause: View>: V
   }
 
   public var body: some View {
-    HStack(spacing: 8) {
+    HStack(spacing: Theme.Spacing.sm) {
       stop
       switchInput
       pause

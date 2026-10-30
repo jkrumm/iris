@@ -234,7 +234,7 @@ struct LockedMicIcon: View {
       .overlay(alignment: .bottomTrailing) {
         Image(systemName: "lock.fill")
           .font(.system(size: 11, weight: .bold))
-          .padding(3)
+          .padding(Theme.Spacing.tick)
           .background(.background, in: .circle)
           .offset(x: 9, y: 7)
       }

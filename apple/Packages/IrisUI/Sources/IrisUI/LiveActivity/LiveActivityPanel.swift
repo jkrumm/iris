@@ -27,7 +27,7 @@ public struct LiveActivityPanel<Controls: View, DoneAction: View>: View {
   private var secondary: Color { style == .island ? Color.white.opacity(0.7) : Theme.Ink.secondary }
 
   public var body: some View {
-    VStack(alignment: .leading, spacing: 12) {
+    VStack(alignment: .leading, spacing: Theme.Spacing.md) {
       if style == .lockScreen { header }
       content
       if presentation.phase == .recording || presentation.phase == .paused { controls }
@@ -64,7 +64,7 @@ public struct LiveActivityPanel<Controls: View, DoneAction: View>: View {
         if let inputName = presentation.inputName { inputChip(inputName) }
       }
     case .uploading, .processing:
-      VStack(alignment: .leading, spacing: 10) {
+      VStack(alignment: .leading, spacing: Theme.Spacing.cozy) {
         if let subtitle = presentation.subtitle {
           Text(verbatim: subtitle)
             .themeFont(.callout, weight: .semibold)
@@ -73,14 +73,14 @@ public struct LiveActivityPanel<Controls: View, DoneAction: View>: View {
         ActivityStageDashes(phase: presentation.phase, onDark: style == .island)
       }
     case .needsRoute:
-      VStack(alignment: .leading, spacing: 8) {
+      VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
         Text(verbatim: presentation.subtitle ?? presentation.phaseTitle)
           .themeFont(.callout, weight: .semibold)
           .foregroundStyle(primary)
         if let routeChip = presentation.routeChip { chip(routeChip) }
       }
     case .done:
-      VStack(alignment: .leading, spacing: 6) {
+      VStack(alignment: .leading, spacing: Theme.Spacing.snug) {
         // First-text-baseline alignment with the same font on the mark and the headline keeps the check on the first line,
         // however far the headline wraps (round 2: the mockup's mark sat too low).
         HStack(alignment: .firstTextBaseline, spacing: Theme.Spacing.sm) {
@@ -112,7 +112,7 @@ public struct LiveActivityPanel<Controls: View, DoneAction: View>: View {
   }
 
   private func inputChip(_ name: String) -> some View {
-    HStack(spacing: 6) {
+    HStack(spacing: Theme.Spacing.snug) {
       Image(systemName: "mic.fill").accessibilityHidden(true)
       Text(verbatim: name).lineLimit(1)
     }
@@ -125,7 +125,7 @@ public struct LiveActivityPanel<Controls: View, DoneAction: View>: View {
       .themeFont(.footnote, weight: .medium)
       .foregroundStyle(secondary)
       .padding(.horizontal, Theme.Spacing.sm)
-      .padding(.vertical, 3)
+      .padding(.vertical, Theme.Spacing.tick)
       .background(style == .island ? Color.white.opacity(0.14) : Theme.Surface.subtle, in: .capsule)
   }
 

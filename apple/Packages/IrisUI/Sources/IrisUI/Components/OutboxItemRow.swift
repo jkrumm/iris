@@ -24,7 +24,7 @@ public struct OutboxItemRow: View {
         .foregroundStyle(Theme.Ink.muted)
         .frame(width: 24)
         .accessibilityHidden(true)
-      VStack(alignment: .leading, spacing: 2) {
+      VStack(alignment: .leading, spacing: Theme.Spacing.hair) {
         Text(verbatim: title)
           .themeFont(.subheadline, weight: .medium)
           .foregroundStyle(Theme.Ink.primary)

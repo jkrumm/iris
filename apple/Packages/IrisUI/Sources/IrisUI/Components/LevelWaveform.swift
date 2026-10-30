@@ -14,7 +14,7 @@ public struct LevelWaveform: View {
 
   public var body: some View {
     GeometryReader { proxy in
-      HStack(alignment: .center, spacing: 3) {
+      HStack(alignment: .center, spacing: Theme.Spacing.tick) {
         ForEach(levels.indices, id: \.self) { index in
           Capsule()
             .fill(isActive ? Theme.Accent.tint : Theme.Ink.faint)

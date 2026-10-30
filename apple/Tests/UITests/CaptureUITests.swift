@@ -5,7 +5,8 @@ final class CaptureUITests: IrisUITestCase {
   @MainActor
   private func launch(offline: Bool = false) -> XCUIApplication {
     let app = XCUIApplication()
-    app.launchArguments = SampleClock.arguments + (offline ? ["-IrisFakeOffline"] : [])
+    // The offline note is a 5 s toast; a slow runner can poll past it, so the offline run keeps it for a minute.
+    app.launchArguments = SampleClock.arguments + (offline ? ["-IrisFakeOffline", "-IrisUndoSeconds", "60"] : [])
     start(app)
     XCTAssertTrue(waitForPresence(app.descendants(matching: .any)["history.list"], timeout: 10))
     return app
