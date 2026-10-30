@@ -101,7 +101,7 @@ public struct IslandMock<Leading: View, Trailing: View, Bottom: View>: View {
           Spacer(minLength: 120)
           trailing
         }
-        .padding(.horizontal, 14)
+        .padding(.horizontal, Theme.Spacing.inset)
         .frame(width: 232, height: 37)
         .background(.black, in: .capsule)
       case .minimal:
@@ -109,7 +109,7 @@ public struct IslandMock<Leading: View, Trailing: View, Bottom: View>: View {
           .frame(width: 37, height: 37)
           .background(.black, in: .circle)
       case .expanded:
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: Theme.Spacing.md) {
           HStack {
             leading
             Spacer(minLength: Theme.Spacing.md)
@@ -117,8 +117,8 @@ public struct IslandMock<Leading: View, Trailing: View, Bottom: View>: View {
           }
           bottom
         }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 16)
+        .padding(.horizontal, Theme.Spacing.gutter)
+        .padding(.vertical, Theme.Spacing.lg)
         .frame(width: 366)
         .background(.black, in: .rect(cornerRadius: 42))
       }
