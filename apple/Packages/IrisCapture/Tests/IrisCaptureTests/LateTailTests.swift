@@ -44,6 +44,42 @@ private actor LateTailUploader: SegmentUploader {
   func delete(memoID: MemoID) async throws { try await base.delete(memoID: memoID) }
 }
 
+/// A store whose first save that lists `memoID` waits until `open()`: the moment the outbox is suspended in the middle of a
+/// diversion.
+private actor GatedStore: OutboxStore {
+  private let base = InMemoryOutboxStore()
+  private let memoID: MemoID
+  private var isHeld = false
+  private var isDone = false
+  private var held: CheckedContinuation<Void, Never>?
+  private var arrivals: [CheckedContinuation<Void, Never>] = []
+
+  init(holding memoID: MemoID) { self.memoID = memoID }
+
+  func load() async throws -> OutboxRecord { try await base.load() }
+
+  func save(_ record: OutboxRecord) async throws {
+    if !isDone, record.items.contains(where: { $0.memoID == memoID }) {
+      isDone = true
+      isHeld = true
+      for waiter in arrivals { waiter.resume() }
+      arrivals = []
+      await withCheckedContinuation { held = $0 }
+    }
+    try await base.save(record)
+  }
+
+  func waitUntilHeld() async {
+    guard !isHeld else { return }
+    await withCheckedContinuation { arrivals.append($0) }
+  }
+
+  func open() {
+    held?.resume()
+    held = nil
+  }
+}
+
 /// Wave 18 I1: the tail of a take that reaches a memo the server already closed becomes a memo of its own.
 struct LateTailTests {
   private let original = memo(1)
@@ -138,6 +174,60 @@ struct LateTailTests {
     #expect(await base.created.map(\.memoID).filter { $0 == tail }.count == 1)
     #expect(await base.completed.filter { $0.memoID == tail }.count == 1)
     #expect(await base.completed.contains(.init(memoID: original, segmentCount: 2)))
+    #expect(await outbox.queue().isEmpty)
+    await outbox.shutdown()
+  }
+
+  @Test func aDiscardWhileTheDiversionIsSavingDropsTheDerivedMemoBeforeItCanUpload() async throws {
+    let directory = try temporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let segments = try files(directory, indices: [0, 1])
+    let tail = LateTail.memoID(of: original, index: 1)
+    let store = GatedStore(holding: tail)
+    let base = TestUploader()
+    let uploader = LateTailUploader(base: base, late: [SegmentKey(memoID: original, index: 1)])
+    let outbox = try await Outbox(
+      store: store, uploader: uploader, clock: ManualClock(), policy: OutboxPolicy(jitter: { 0 }))
+
+    // In a task of its own: once the diversion is saving, every save behind it waits for the gate.
+    let queueing = Task {
+      try await outbox.enqueueItem(voiceItem(original))
+      for segment in segments { await outbox.enqueue(segment) }
+      await outbox.finishMemo(original, segmentCount: 2)
+    }
+    await store.waitUntilHeld()  // the diversion has queued the tail and is saving it
+
+    let discarding = Task { await outbox.discard(original) }
+    for _ in 0..<500 where await !outbox.wasDiscarded(original) { try await Task.sleep(for: .milliseconds(10)) }
+    await store.open()
+    try await queueing.value
+    await discarding.value
+    await outbox.settled()
+
+    #expect(await base.created.map(\.memoID) == [original], "the derived memo never reached the server")
+    #expect(await base.uploaded.allSatisfy { $0.memoID != tail })
+    #expect(await outbox.queue().isEmpty)
+    #expect(!FileManager.default.fileExists(atPath: directory.appending(path: "\(tail.uuidString)-0.m4a").path))
+    await outbox.shutdown()
+  }
+
+  @Test func aLinkLeftByAKillBeforeTheItemWasSavedIsReused() async throws {
+    let directory = try temporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let segments = try files(directory, indices: [0, 1])
+    let tail = LateTail.memoID(of: original, index: 1)
+    // The earlier run made the link and died before it saved the item.
+    try Data("audio-1".utf8).write(to: directory.appending(path: "\(tail.uuidString)-0.m4a"))
+    let base = TestUploader()
+    let outbox = try await outbox(LateTailUploader(base: base, late: [SegmentKey(memoID: original, index: 1)]))
+
+    try await outbox.enqueueItem(voiceItem(original))
+    for segment in segments { await outbox.enqueue(segment) }
+    await outbox.finishMemo(original, segmentCount: 2)
+    await outbox.settled()
+
+    #expect(await base.created.map(\.memoID) == [original, tail])
+    #expect(await base.completed.contains(.init(memoID: tail, segmentCount: 1)))
     #expect(await outbox.queue().isEmpty)
     await outbox.shutdown()
   }

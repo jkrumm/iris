@@ -338,9 +338,13 @@ public actor Outbox: SegmentOutbox {
 
   /// A segment the server refused because it had closed the memo without it (`LateSegmentError`): the audio becomes a memo of
   /// its own, mode `transcribe`, queued like any take (create, segment 0, `complete`) and named after the take it belongs to.
-  /// The original entry counts as delivered only once that memo is queued and saved, and the audio is linked, not moved:
-  /// the take's own file clean-up cannot remove it, and only the new memo's `complete` retires it. A failure leaves the
-  /// original entry to be tried again.
+  /// The original entry counts as delivered only once that memo is queued, and the audio is linked, not moved: the take's own
+  /// file clean-up cannot remove it, and only the new memo's `complete` retires it.
+  ///
+  /// The new memo is queued withheld, in one step (item, segment, finish), and let go only after the save, when the original
+  /// entry is looked at again: a `discard` of the take that ran while the save was out drops the new memo with it, before it
+  /// can upload. A save that failed does not hold it back: the original entry is still on disk as it was, and a relaunch
+  /// replays it into the same derived memo id.
   private func divertLateTail(_ key: SegmentKey, _ late: LateSegmentError, now: Date) async {
     guard let entry = machine.entries[key] else { return }
     Log.outbox.notice("late tail of \(key.memoID.uuidString, privacy: .public): \(late.answer, privacy: .public)")
@@ -353,22 +357,32 @@ public actor Outbox: SegmentOutbox {
     }
     do {
       try LateTail.link(source, as: tailFile)
-      let original = machine.items[key.memoID]
-      let item = OutboxItem(
-        memoID: tailID, kind: .voice, mode: LateTail.mode, startedAt: original?.startedAt ?? now, queuedAt: now,
-        title: LateTail.title(label: late.label, original: original, memoID: key.memoID))
-      // `false`: already queued or done, a replay that finds the memo it made before.
-      if try await enqueueItem(item) {
-        await enqueue(
-          ClosedSegment(
-            memoID: tailID, index: 0, fileURL: tailFile, byteCount: entry.segment.byteCount,
-            duration: entry.segment.duration))
-        await finishMemo(tailID, segmentCount: 1)
-      }
     } catch {
-      Log.outbox.error("late tail not queued: \(String(describing: error), privacy: .public)")
+      Log.outbox.error("late tail not linked: \(String(describing: error), privacy: .public)")
       machine.uploadFailed(key, now: now, transient: true, reason: "the late recording could not be queued: \(error)")
       return
+    }
+    let original = machine.items[key.memoID]
+    let item = OutboxItem(
+      memoID: tailID, kind: .voice, mode: LateTail.mode, startedAt: original?.startedAt ?? now, queuedAt: now,
+      title: LateTail.title(label: late.label, original: original, memoID: key.memoID))
+    // `false`: already queued, done or discarded, a replay that finds the memo it made before.
+    if machine.enqueueItem(item, withheld: true) {
+      let tailKey = SegmentKey(memoID: tailID, index: 0)
+      machine.enqueue(
+        ClosedSegment(
+          memoID: tailID, index: 0, fileURL: tailFile, byteCount: entry.segment.byteCount,
+          duration: entry.segment.duration),
+        withheld: true)
+      unsavedSegments[tailKey] = requested + 1
+      machine.finishMemo(tailID, segmentCount: 1)
+      await persist()
+      // Looked at again after the suspension: the take may have been discarded meanwhile.
+      guard machine.entries[key] != nil else {
+        await discard(tailID)
+        return
+      }
+      machine.release(tailID)
     }
     machine.uploadSucceeded(key)
   }
