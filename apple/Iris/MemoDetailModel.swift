@@ -54,8 +54,9 @@ final class MemoDetailModel {
   /// Reply speech exists once the memo is done and has something to say.
   var canPlayReply: Bool { memo.state == .notified && speechRequest != nil }
 
-  /// Reply is I3's composer; the button is live for a finished memo so the hook has a place to land.
-  var canReply: Bool { memo.state == .notified }
+  /// Reply is I3's composer; the button is live for a finished memo so the hook has a place to land. A transcript-only
+  /// memo has no answer to reply to.
+  var canReply: Bool { memo.state == .notified && memo.mode != .transcribe }
 
   // MARK: Waterfall
 

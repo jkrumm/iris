@@ -145,6 +145,7 @@ extension MemoMode {
     case .hermes: String(localized: "Hermes", comment: "Memo mode")
     case .tab: String(localized: "Tab", comment: "Memo mode")
     case .chat: String(localized: "Chat", comment: "Memo mode")
+    case .transcribe: String(localized: "Transcribe", comment: "Memo mode")
     }
   }
 }

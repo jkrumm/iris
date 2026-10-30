@@ -118,6 +118,8 @@ struct MemoDetailModelTests {
     let silent = await model(MemoFactory.memo("c", state: .notified))
     #expect(!silent.canPlayReply)
     #expect(silent.canReply)
+    let transcribed = await model(MemoFactory.memo("d", state: .notified, mode: .transcribe))
+    #expect(!transcribed.canReply)
   }
 
   // MARK: Optional summarize
