@@ -52,13 +52,18 @@ struct OutboxRig {
   let clock: ManualClock
   let created: CreatedMemoLog
 
-  init(client: FakeAPIClient, store: any OutboxStore = InMemoryOutboxStore(), clock: ManualClock = ManualClock()) {
+  /// `recorder` wraps the fake recorder (a recorder whose stop hangs, say); by default the take records on the fake itself.
+  init(
+    client: FakeAPIClient, store: any OutboxStore = InMemoryOutboxStore(), clock: ManualClock = ManualClock(),
+    recorder: (FakeSegmentRecorder) -> any SegmentRecorder = { $0 }
+  ) {
     let capture = FakeCapture(
       directory: FileManager.default.temporaryDirectory.appending(path: "iris-unit-\(UUID().uuidString)"))
     let created = CreatedMemoLog()
     let stack = CaptureStack(
       .init(
-        session: capture.session, routes: capture.routes, recorder: capture.recorder, clock: clock, store: store,
+        session: capture.session, routes: capture.routes, recorder: recorder(capture.recorder), clock: clock,
+        store: store,
         uploader: APIOutboxUploader(client: client, created: created), policy: OutboxPolicy(jitter: { 0 })))
     self.capture = capture
     self.clock = clock

@@ -103,6 +103,7 @@ struct TakeBannerView: View {
 /// whole `TabView` would sit on top of the navigation bar's buttons).
 private struct TakeBannerInset: ViewModifier {
   @Environment(TakeModel.self) private var take: TakeModel?
+  @Environment(\.scenePhase) private var scenePhase
 
   func body(content: Content) -> some View {
     content
@@ -112,7 +113,10 @@ private struct TakeBannerInset: ViewModifier {
             .transition(.move(edge: .top).combined(with: .opacity))
         }
       }
-      .animation(.snappy, value: take.map { $0.isActive && !$0.showsFull })
+      // Not while the app is off screen: a take that ends in the background (the Live Activity's Stop, a locked phone) swaps the
+      // banner without an animation. The device's 10 s scene-update watchdog hit an animated navigation-bar layout of a
+      // backgrounded scene (Wave 17 D2 crash report); whether this is the trigger is still to be shown on the phone.
+      .animation(scenePhase == .active ? .snappy : nil, value: take.map { $0.isActive && !$0.showsFull })
   }
 }
 
