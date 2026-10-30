@@ -50,6 +50,7 @@ public actor Outbox: SegmentOutbox {
   /// fails, the record on disk still names them and a relaunch needs them.
   private var obsoleteFiles: [(url: URL, generation: Int)] = []
   private var isShutDown = false
+  private var sweptStrays: [URL] = []
   private var observers: [UUID: AsyncStream<Void>.Continuation] = [:]
 
   /// - Parameter deletesFilesWhenDone: Remove a memo's segment files once `complete` succeeded (tests that read them turn it off).
@@ -252,6 +253,19 @@ public actor Outbox: SegmentOutbox {
     guard machine.adopt(segment) else { return false }
     unsavedSegments[SegmentKey(memoID: segment.memoID, index: segment.index)] = requested + 1
     return true
+  }
+
+  /// What the last sweep could neither attach nor move (`SweepReport.stuck`).
+  func noteStrays(_ urls: [URL]) { sweptStrays = urls }
+
+  /// The files the last startup sweep left in the capture directory because it could not move them (a full disk, a read-only
+  /// volume), those still there, for Settings to list. They are tried again at the next launch.
+  public func strayFiles() -> [SetAsideFile] {
+    sweptStrays.compactMap { url in
+      guard let attributes = try? FileManager.default.attributesOfItem(atPath: url.path) else { return nil }
+      return SetAsideFile(
+        url: url, byteCount: (attributes[.size] as? Int) ?? 0, modifiedAt: attributes[.modificationDate] as? Date)
+    }
   }
 
   /// The queue files earlier resets set aside (they may name segment files the sweep must leave alone).

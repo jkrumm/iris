@@ -12,8 +12,11 @@ public struct SweepReport: Sendable, Equatable {
   public var quarantined: [URL] = []
   /// Files left where they are because a quarantined queue file names them.
   public var kept: [URL] = []
+  /// Files the sweep could neither attach nor move: still in the capture directory, tried again at the next launch. Settings
+  /// lists them so they are not invisible.
+  public var stuck: [URL] = []
 
-  public var isEmpty: Bool { adopted.isEmpty && quarantined.isEmpty && kept.isEmpty }
+  public var isEmpty: Bool { adopted.isEmpty && quarantined.isEmpty && kept.isEmpty && stuck.isEmpty }
 }
 
 /// Reads a segment file back: its size and length, or `nil` when it is not a complete audio file (a take the app died in the
@@ -116,7 +119,7 @@ extension Outbox {
       }
       return (left.0.uuidString, left.1) < (right.0.uuidString, right.1)
     }
-    guard !candidates.isEmpty else { return report }
+    guard !candidates.isEmpty else { return concluded(report) }
     var heldQueues: [Data] = []
     var unreadable: [String] = []
     for file in await setAsideQueueFiles() {
@@ -143,15 +146,22 @@ extension Outbox {
         report.adopted.append(url)
       } else if let moved = await files.setAside(url) {
         report.quarantined.append(moved)
+      } else {
+        report.stuck.append(url)
       }
     }
     // Saved before anything goes up, as for any new segment (the save releases the withheld ones).
     if !report.adopted.isEmpty { await flush() }
-    if !report.isEmpty {
-      Log.outbox.notice(
-        "capture sweep: \(report.adopted.count) adopted, \(report.quarantined.count) quarantined, \(report.kept.count) kept"
-      )
-    }
+    return concluded(report)
+  }
+
+  /// Logs the sweep and remembers the files it could not deal with, for Settings.
+  private func concluded(_ report: SweepReport) -> SweepReport {
+    noteStrays(report.stuck)
+    guard !report.isEmpty else { return report }
+    Log.outbox.notice(
+      "capture sweep: \(report.adopted.count) adopted, \(report.quarantined.count) quarantined, \(report.kept.count) kept, \(report.stuck.count) stuck"
+    )
     return report
   }
 
