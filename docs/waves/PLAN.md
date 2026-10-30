@@ -420,6 +420,10 @@ constraint: Max accounts only, wait for a reset when all are walled, never IU AP
 <runId>`) on every non-docs PR with findings resolved. Review stays off Max: no `/review --deep`,
 no in-session `/code-review` fallback; if `agw review` is degraded, re-run it later and note it in Left behind. Server changes are
 pushed to master, the poller deploys, then `make verify` + `make smoke` on the mini. Apple changes gate on `apple.yml`.
+**Mini CPU diet (owner, 2026-10-30):** the full `make uitest` suite runs only in CI (hosted `xcode-27`, off the mini). Locally a worker
+builds, runs `make snapshots` and only the UI tests of the screens it touched (`-only-testing`), on one simulator, then `xcrun simctl
+shutdown all`; one `xcodebuild` on the mini at a time, fleet-wide. A worker never re-runs the full suite locally to bisect a CI failure:
+it reads the CI logs and runs the failing test alone.
 API changes run `make contracts` and update fixtures, and the same brief carries the Swift `IrisCore` follow-up (models + client
 call) so `apple.yml` stays green. TDD and AGENTS.md change in the same commit as the code they describe.
 
@@ -1013,6 +1017,9 @@ treat silence as a pass); everything else is headless (`devicectl` install/launc
       `r2-detail-light`), `iumac:/tmp/iris-mockups.html` + `/tmp/iris-mockups/`, and the round-1/2 files under `docs/design/renders/`.
       Keep every render `docs/design/README.md` lists for Wave 15 I5 and Wave 16 I4 and anything a feedback file links; list what was
       deleted in the close-out.
+- [ ] **C1. CI diet:** `apple.yml` gets a `concurrency` group per ref with `cancel-in-progress` (a new push cancels the stale run on a
+      PR, never on master); the local `make` targets get a targeted UI-test entry (`make uitest ONLY=<TestClass>`) and AGENTS.md says the
+      full suite is CI's. No test is dropped from CI.
 - [ ] **Deploy + prove:** server deployed, `make verify` healthy, `make smoke` green; `apple.yml` green on master.
 
 ## Fleet backlog (for the long-running fleet: mother → lead → workers)
