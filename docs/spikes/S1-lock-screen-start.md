@@ -105,3 +105,8 @@ background launch has it before `perform()` runs. If the control still does noth
 see which process ran it.
 
 **Open (device):** a control tap (Lock Screen and Control Center) starts a take with a Live Activity. Unverified until the owner presses it on the phone.
+
+### Re-test after Wave 17 I7/I8/I9/I10 (2026-10-30 evening, build `459a517`, iPhone 15, iOS 26.6.1)
+
+Detail and evidence: `device-checklist.md`, section "Wave 18 D1". **Verdict: S1 is half answered.** Control Center starts a take through the `LiveActivityIntent` fix and opens the app (memo `a66fc402`), which is the PRD's accepted fallback. The Lock Screen control still does nothing, also after the owner unlocks; Apple's rule is that a Lock Screen button is inactive until the device is unlocked, so "start without unlocking" cannot be a pass criterion for a button, and the remaining no-op after unlock is unexplained (no log, see below). Island Resume still fails (`cd6f0e19`: "engine resume failed"), the stale "Processing" activity still outlives its take, and Stop from the History banner no longer hits the watchdog (`3fefefed`). The `ddaad4d8` tail is an unfinalised m4a with no sample table and cannot be recovered with stock tools.
+Next: instrument the app first (Wave 18 I6: `IrisTelemetry` is not imported by any app source, so HyperDX has no `iris-ios` data); the research notes in the checklist list the error codes and fields (`!rec` 561145187, `!int`, `!pla`; `IntentSystemContext.currentMode`) that would turn the Resume and Lock Screen failures into a cause.
