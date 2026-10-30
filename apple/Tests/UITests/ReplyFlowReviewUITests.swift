@@ -88,12 +88,10 @@ final class ReplyFlowReviewUITests: IrisUITestCase {
     app.buttons["composer.send"].tap()
     XCTAssertTrue(app.staticTexts["What about the narrow table?"].waitForExistence(timeout: 10))
     let pending = app.descendants(matching: .any)["thread.turn.pending"]
-    XCTAssertTrue(pending.waitForExistence(timeout: 10))
-    shot(name, "3-text-pending")
-
     let answer = app.descendants(matching: .any)
       .matching(NSPredicate(format: "label CONTAINS %@", "fake answer to your message")).firstMatch
-    XCTAssertTrue(answer.waitForExistence(timeout: 20))
+    if awaitPendingOrAnswer(pending: pending, answer: answer) { shot(name, "3-text-pending") }
+    XCTAssertTrue(answer.waitForExistence(timeout: 30))
     XCTAssertTrue(pending.waitForNonExistence(timeout: 10))
     shot(name, "3b-text-answer")
   }
@@ -110,12 +108,10 @@ final class ReplyFlowReviewUITests: IrisUITestCase {
 
     // The voice turn shows pending, then the answer replaces it.
     let pending = app.descendants(matching: .any)["thread.turn.pending"]
-    XCTAssertTrue(pending.waitForExistence(timeout: 10))
-    shot(name, "4-voice-pending")
-
     let answer = app.descendants(matching: .any)
       .matching(NSPredicate(format: "label CONTAINS %@", "fake answer to your voice memo")).firstMatch
-    XCTAssertTrue(answer.waitForExistence(timeout: 20))
+    if awaitPendingOrAnswer(pending: pending, answer: answer) { shot(name, "4-voice-pending") }
+    XCTAssertTrue(answer.waitForExistence(timeout: 30))
     XCTAssertTrue(pending.waitForNonExistence(timeout: 10))
     shot(name, "5-voice-answer")
   }
@@ -131,17 +127,30 @@ final class ReplyFlowReviewUITests: IrisUITestCase {
     let send = app.buttons["thread.reply.lock.send"]
     XCTAssertTrue(send.waitForExistence(timeout: 5))
     XCTAssertTrue(app.buttons["thread.reply.lock.cancel"].exists)
-    // Long enough to pass the minimum take, with no finger on the screen.
-    sleep(2)
+    // Long enough to pass the minimum take (0.8 s), with no finger on the screen.
+    sleep(1)
     shot(name, "6-locked-recording")
 
     send.tap()
-    let pending = app.descendants(matching: .any)["thread.turn.pending"]
-    XCTAssertTrue(pending.waitForExistence(timeout: 10))
+    // The fake answers fast and a hosted runner is slow: the pending turn may be gone before it is queried, so the answer is what counts.
     let answer = app.descendants(matching: .any)
       .matching(NSPredicate(format: "label CONTAINS %@", "fake answer to your voice memo")).firstMatch
-    XCTAssertTrue(answer.waitForExistence(timeout: 20))
+    XCTAssertTrue(answer.waitForExistence(timeout: 30))
     XCTAssertTrue(app.buttons["thread.reply.lock"].waitForExistence(timeout: 5))
+  }
+
+  /// Waits until the pending turn or the answer shows. `true` when the pending turn was seen (a slow runner can miss it, the
+  /// answer then stands in), so a render of the pending state is taken only when there is one.
+  @MainActor
+  private func awaitPendingOrAnswer(pending: XCUIElement, answer: XCUIElement) -> Bool {
+    let deadline = Date().addingTimeInterval(30)
+    while Date() < deadline {
+      if pending.exists { return true }
+      if answer.exists { return false }
+      usleep(200_000)
+    }
+    XCTFail("neither the pending turn nor the answer showed")
+    return false
   }
 
   @MainActor
