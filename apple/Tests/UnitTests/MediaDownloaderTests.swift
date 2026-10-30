@@ -152,11 +152,32 @@ struct MediaDownloaderTests {
     let names = ["m1.audio.m4a", "m1.speech.mp3", "m1.light.png", "m10.audio.m4a", "m2.audio.m4a"]
     for name in names { _ = try await downloader.localURL(for: request(reusable: true, name: name)) }
 
-    downloader.evict(memoID: "m1")
+    await downloader.evictAndWait(memoID: "m1")
     let left = try FileManager.default.contentsOfDirectory(atPath: directory.path).sorted()
     #expect(left == ["m10.audio.m4a", "m2.audio.m4a"])
 
-    downloader.evict(memoID: "never-cached")
+    await downloader.evictAndWait(memoID: "never-cached")
     #expect(try FileManager.default.contentsOfDirectory(atPath: directory.path).count == 2)
+  }
+
+  @Test("a download still on the wire when its memo is evicted never lands")
+  func evictionDuringDownload() async throws {
+    defer { try? FileManager.default.removeItem(at: directory) }
+    MediaStub.serve(host: host, .init(status: 200, body: Data("audio".utf8)), delay: 0.6)
+    let downloader = downloader()
+    let wanted = try request(reusable: true)
+    let download = Task { try await downloader.localURL(for: wanted) }
+    while MediaStub.requests(host: host).isEmpty { try await Task.sleep(for: .milliseconds(10)) }
+
+    await downloader.evictAndWait(memoID: "m1")
+    await #expect(throws: (any Error).self) { try await download.value }
+    try await Task.sleep(for: .milliseconds(800))
+    let left = (try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []
+    #expect(left.isEmpty)
+
+    // The memo can be downloaded again afterwards (an Undo).
+    MediaStub.serve(host: host, .init(status: 200, body: Data("again".utf8)))
+    let file = try await downloader.localURL(for: wanted)
+    #expect(try Data(contentsOf: file) == Data("again".utf8))
   }
 }

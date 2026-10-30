@@ -43,23 +43,34 @@ nonisolated struct MediaDownloader: Sendable {
     if request.isReusable, FileManager.default.fileExists(atPath: destination.path) { return destination }
     let session = session
     let directory = directory
-    return try await flights.join("\(request.url.absoluteString)|\(name)") {
-      try await Self.download(request, to: destination, in: directory, with: session)
+    let flights = flights
+    let key = "\(request.url.absoluteString)|\(name)"
+    return try await flights.join(key, name: name) { flight in
+      try await Self.download(
+        request, to: destination, in: directory, with: session,
+        land: { try await flights.land($0, as: destination, flight: flight, key: key) })
     }
   }
 
   /// Removes the cached files of a memo that was deleted or purged: its recording, its spoken reply and the images of
-  /// its reply (all named `<memo id>.…`). A memo with nothing cached is a no-op.
+  /// its reply (all named `<memo id>.…`), and cancels the downloads of those files still on the wire, so none lands
+  /// afterwards. The scan runs on the flights' actor, never on the caller's (History's, the main actor's); the call
+  /// returns at once. A memo with nothing cached is a no-op.
   func evict(memoID: String) {
+    let flights = flights
+    let directory = directory
     let prefix = Self.safeName(memoID) + "."
-    let names = (try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []
-    for name in names where name.hasPrefix(prefix) {
-      try? FileManager.default.removeItem(at: directory.appending(path: name))
-    }
+    Task { await flights.evict(prefix: prefix, in: directory) }
+  }
+
+  /// ``evict(memoID:)``, returning once the files are gone.
+  func evictAndWait(memoID: String) async {
+    await flights.evict(prefix: Self.safeName(memoID) + ".", in: directory)
   }
 
   private static func download(
-    _ request: MediaRequest, to destination: URL, in directory: URL, with session: URLSession
+    _ request: MediaRequest, to destination: URL, in directory: URL, with session: URLSession,
+    land: (URL) async throws -> Void
   ) async throws -> URL {
     var urlRequest = URLRequest(url: request.url)
     for (field, value) in request.headers { urlRequest.setValue(value, forHTTPHeaderField: field) }
@@ -69,8 +80,7 @@ nonisolated struct MediaDownloader: Sendable {
     guard (200..<300).contains(http.statusCode) else { throw MediaDownloadError.status(http.statusCode) }
 
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-    try? FileManager.default.removeItem(at: destination)
-    try FileManager.default.moveItem(at: temporary, to: destination)
+    try await land(temporary)
     return destination
   }
 
@@ -81,15 +91,41 @@ nonisolated struct MediaDownloader: Sendable {
 
   /// The downloads on the wire, by request. The download itself is an unstructured task of its own: a caller that is
   /// cancelled stops waiting for it at its next suspension, but the file still lands for the others that joined.
+  /// Only the actor moves a finished file into the cache, and eviction runs here too, so a download either lands before
+  /// an eviction (which then removes it) or finds itself evicted and discards its file.
   private actor Flights {
-    private var running: [String: Task<URL, any Error>] = [:]
+    private struct Flight {
+      let id: UUID
+      let name: String
+      let task: Task<URL, any Error>
+    }
+    private var running: [String: Flight] = [:]
 
-    func join(_ key: String, start: @escaping @Sendable () async throws -> URL) async throws -> URL {
-      if let task = running[key] { return try await task.value }
-      let task = Task { try await start() }
-      running[key] = task
-      defer { if running[key] == task { running[key] = nil } }
+    func join(_ key: String, name: String, start: @escaping @Sendable (UUID) async throws -> URL) async throws -> URL {
+      if let flight = running[key] { return try await flight.task.value }
+      let id = UUID()
+      let task = Task { try await start(id) }
+      running[key] = Flight(id: id, name: name, task: task)
+      defer { if running[key]?.id == id { running[key] = nil } }
       return try await task.value
+    }
+
+    /// Moves a finished download into the cache, unless its flight was evicted meanwhile.
+    func land(_ temporary: URL, as destination: URL, flight: UUID, key: String) throws {
+      guard running[key]?.id == flight else { throw CancellationError() }
+      try? FileManager.default.removeItem(at: destination)
+      try FileManager.default.moveItem(at: temporary, to: destination)
+    }
+
+    func evict(prefix: String, in directory: URL) {
+      for (key, flight) in running where flight.name.hasPrefix(prefix) {
+        flight.task.cancel()
+        running[key] = nil
+      }
+      let names = (try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []
+      for name in names where name.hasPrefix(prefix) {
+        try? FileManager.default.removeItem(at: directory.appending(path: name))
+      }
     }
   }
 }
