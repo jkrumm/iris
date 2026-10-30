@@ -195,6 +195,40 @@
         }
       }
     },
+    "Double-tap to send" : {
+      "comment" : "VoiceOver hint of the talk button while recording",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zum Senden doppeltippen"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Double-tap to send"
+          }
+        }
+      }
+    },
+    "Double-tap to start recording, double-tap again to send" : {
+      "comment" : "VoiceOver hint of the talk button while idle",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Doppeltippen, um die Aufnahme zu starten, erneut doppeltippen zum Senden"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Double-tap to start recording, double-tap again to send"
+          }
+        }
+      }
+    },
     "Failed" : {
       "comment" : "VoiceOver state of a step that failed",
       "localizations" : {
@@ -225,23 +259,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Favorite"
-          }
-        }
-      }
-    },
-    "Hold to talk, release to send" : {
-      "comment" : "VoiceOver hint of the hold-to-talk button",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Zum Sprechen halten, zum Senden loslassen"
-          }
-        },
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Hold to talk, release to send"
           }
         }
       }

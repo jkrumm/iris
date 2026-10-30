@@ -36,19 +36,32 @@ extension StructuredText.HighlighterTheme {
 
 /// Headings of a reply: one step above the body at the top, a hairline under the first two levels.
 struct IrisHeadingStyle: StructuredText.HeadingStyle {
+  /// Font scale per level (1...6): h1 to h3 step above the body, h4 to h6 are body size and told apart by weight and colour.
   private static let scales: [CGFloat] = [1.35, 1.2, 1.08, 1, 1, 1]
+  /// Levels up to this one get the hairline and the larger gap above.
+  private static let lastRuledLevel = 2
+  /// Levels up to this one are in primary ink; deeper ones in secondary.
+  private static let lastPrimaryLevel = 3
+  private static let lineSpacing: CGFloat = 0.15
+  private static let spaceAboveRuled: CGFloat = 1.4
+  private static let spaceAbove: CGFloat = 1.0
+  private static let spaceBelow: CGFloat = 0.5
+  private static let hairline: CGFloat = 1
 
   func makeBody(configuration: Configuration) -> some View {
-    let level = min(max(configuration.headingLevel, 1), 6)
+    let level = min(max(configuration.headingLevel, 1), Self.scales.count)
+    let isRuled = level <= Self.lastRuledLevel
     configuration.label
       .textual.fontScale(Self.scales[level - 1])
-      .textual.lineSpacing(.fontScaled(0.15))
-      .textual.blockSpacing(.fontScaled(top: level <= 2 ? 1.4 : 1.0, bottom: 0.5))
+      .textual.lineSpacing(.fontScaled(Self.lineSpacing))
+      .textual.blockSpacing(
+        .fontScaled(top: isRuled ? Self.spaceAboveRuled : Self.spaceAbove, bottom: Self.spaceBelow)
+      )
       .fontWeight(.semibold)
-      .foregroundStyle(level <= 3 ? Theme.Ink.primary : Theme.Ink.secondary)
-      .padding(.bottom, level <= 2 ? Theme.Spacing.xs : 0)
+      .foregroundStyle(level <= Self.lastPrimaryLevel ? Theme.Ink.primary : Theme.Ink.secondary)
+      .padding(.bottom, isRuled ? Theme.Spacing.xs : 0)
       .overlay(alignment: .bottom) {
-        if level <= 2 { Theme.divider.frame(height: 1) }
+        if isRuled { Theme.divider.frame(height: Self.hairline) }
       }
   }
 }
