@@ -955,11 +955,17 @@ pinned simulator in light and dark (`LiveActivitySnapshotTests`, the island thro
     configures an `AVAudioSession`, which macOS does not have) and the route sheet for a parked memo.
   - *Live updates:* the list and `HistoryModel.observeEvents()` start at launch, whether or not the popover was ever opened, and
     restart on a connection change. `memo.done` goes to `MemoNotifier`: one local notification per memo (route as title, headline
-    as body, deduplicated by memo id), permission asked once when the connection starts.
+    as body), tracked as in flight vs posted so a failed lookup or post is retried (in the call, then by the next event or
+    catch-up). The permission is read again for every memo, never cached, and the system prompt runs on the side: an unanswered
+    prompt holds neither History nor the stream, and finished memos wait on it. The stream has no replay, so `DoneCatchUp`
+    compares each list snapshot with the last and announces a memo that is done now but was not before (never on the initial
+    load or after a filter change), which covers memos that finished during an outage. A connection change replaces the
+    `HistoryModel`, clears the notifier, closes the detail window and restarts following; the open detail also reloads on every
+    reconnect (`LinkTracker`) and on each `memo.updated`, and a response overtaken by a newer load is dropped.
   - *Proof:* a menu-bar popover cannot be opened without a click and the mini has no Screen Recording grant, so
     `-IrisMacPanelWindow` shows the same panel as a regular window and `-IrisMacSnapshot <dir>` has the app write PNGs of its own
-    windows (history, detail, settings) and quit. Unit tests: `xcodebuild -scheme IrisMac -destination 'platform=macOS' test`
-    (`IrisMacTests`, hosted in the app; not part of `make check-apple`).
+    windows (history, detail, settings) and quit; snapshot mode only exists on the fake composition. Unit tests: `IrisMacTests`,
+    hosted in the app (launched with `-IrisFakeData`), run by `make check-apple`.
 - **Signing:** a stable Apple Development identity. Ad-hoc signing resets TCC
   on every build.
 

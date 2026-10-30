@@ -162,8 +162,7 @@ about either is tracked. Overrides: `IRIS_DEVICE_ID`, `TEAM=<id>`, `DEVICE_SIGNI
 |-|-|-|
 | `make check` | `check-server` (oxlint, `oxfmt --check`, `tsc --noEmit`, `bun test`), `check-contracts`, `guard`, and `check-apple` wherever `xcodebuild` exists | mini, CI (`check.yml`, no Apple on Linux) |
 | `make e2e` | the pipeline against a fake-booted server (needs ffmpeg) | mini, CI after `check` |
-| `make check-apple` | Theme drift, `swift format lint --strict`, `swift test` per package (macOS host), `xcodebuild build` of `Iris` + extensions (simulator) and `IrisMac` | mini, CI (`apple.yml`) |
-| Mac tests | `xcodebuild -scheme IrisMac -destination 'platform=macOS' test` (`IrisMacTests`: notifier, composition root, detail model; `-IrisFakeData`, no Keychain) | mini; not in `make check-apple` |
+| `make check-apple` | Theme drift, `swift format lint --strict`, `swift test` per package (macOS host), `xcodebuild build` of `Iris` + extensions (simulator) and `IrisMac`, then `IrisMacTests` (hosted in the Mac app, `-IrisFakeData`: notifier, composition root, detail model) | mini, CI (`apple.yml`) |
 | `make snapshots` | IrisUI snapshot tests on the pinned simulator (`RECORD=1` re-records) | mini, `apple.yml` |
 | `make uitest` | XCUITest flows (`-IrisFakeCapture`); `ONLY=<Class>[/<test>]` runs one class or method (`-only-testing:IrisUITests/…`) | full suite: `apple.yml`; mini: `ONLY=` only |
 | `make device` | `device-build` + `device-run`: signed Debug build, install, launch and a phone screenshot on the paired iPhone (see Device) | mini, phone wired |
