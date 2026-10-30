@@ -40,6 +40,9 @@ class IrisUITestCase: XCTestCase {
   @MainActor
   func start(_ app: XCUIApplication) {
     started.append(app)
+    // The tests read English labels. The app ships a de catalog, and a simulator whose language is German would otherwise
+    // run the app in German.
+    app.launchArguments += ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
     for _ in 0..<2 {
       Self.tolerateStalledTerminate { app.launch() }
       if app.state == .runningForeground { return }
