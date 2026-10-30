@@ -155,6 +155,25 @@ struct OutboxResetTests {
     #expect(forgotten.withLock { $0 } == [id.wireID])
   }
 
+  @Test("a reset claims the move without opening the queue first, and a refresh during it never reads the file")
+  func resetClaimsTheMoveBeforeAnyOpen() async throws {
+    let store = SlowQuarantineStore()
+    let (stack, service) = makeStack(store: store)
+    #expect(await stack.availability() == .unreadable, "Settings has seen it unreadable")
+    let loadsBefore = await store.loads
+
+    let reset = Task { await service.resetOutbox() }
+    await store.waitUntilMoving()
+    #expect(await store.loads == loadsBefore, "no open (and so no read of the file) between the tap and the claim")
+
+    #expect(await stack.availability() == .unreadable, "a refresh in the middle is refused ...")
+    #expect(await store.loads == loadsBefore, "... without reading the file that is being renamed")
+
+    await store.finishMoving()
+    #expect(await reset.value == .reset)
+    #expect(await stack.availability() == .available)
+  }
+
   @Test("a second Reset tap while the first runs joins it instead of reporting a failure")
   func secondResetJoinsTheFirst() async throws {
     let store = SlowQuarantineStore()
@@ -278,7 +297,10 @@ private actor SlowQuarantineStore: OutboxStore {
   private var release: CheckedContinuation<Void, Never>?
   private var released = false
 
+  private(set) var loads = 0
+
   func load() throws -> OutboxRecord {
+    loads += 1
     if isUnreadable { throw OutboxStoreError.undecodable }
     return OutboxRecord()
   }

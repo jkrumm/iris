@@ -95,19 +95,28 @@ actor CaptureStack {
     // A second tap while the first reset runs joins it and gets its answer: the file is moving, which is neither "nothing to
     // reset" nor a failure.
     if let reset { return try await reset.value }
-    guard await availability() == .unreadable else { throw CaptureStackError.queueUnavailable }
-    // `availability()` suspended: another caller may have started the reset meanwhile.
-    if let reset { return try await reset.value }
-    // Other callers of `open()` wait out the move: a build in the middle of it would read the file that is being renamed.
+    // Settings offers the reset only after it has seen the queue unreadable, so the stack usually knows already and the claim
+    // below happens in this same turn. Otherwise ask (which suspends), then look again for a reset that started meanwhile.
+    if !knownUnreadable {
+      guard await availability() == .unreadable else { throw CaptureStackError.queueUnavailable }
+      if let reset { return try await reset.value }
+    }
+    // Claimed before anything can suspend: an `open()` that comes in from here on is refused until the file has moved, and
+    // none can slip between this task being created and its first run (a build would read the file being renamed).
+    isMoving = true
     // Owned by `reset`; runs to its end (it moves a file) and clears itself.
     let task = Task { try await self.setAsideAndReopen() }
     reset = task
     return try await task.value
   }
 
+  /// The last attempt to open the queue found the file there but undecodable, and nothing has opened it since.
+  private var knownUnreadable: Bool {
+    built == nil && (lastFailure as? OutboxStoreError) == .undecodable
+  }
+
   private func setAsideAndReopen() async throws -> OutboxResetOutcome {
     defer { reset = nil }
-    isMoving = true
     let moved: URL?
     do {
       moved = try await parts.store.quarantine()
