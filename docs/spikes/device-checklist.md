@@ -27,6 +27,8 @@ Findings that change the design go to the matching spike file and into `docs/TDD
 
 - `make device`: build, sign, install, launch, screenshot: pass. Screenshot via `xcrun devicectl device capture screenshot`; `pymobiledevice3` unusable (no usbmux, tunnel needs root).
 - First launch refused until the developer was trusted on the phone (owner step, once).
-- Production composition: server URL and token entered in Settings > Connection; a recorded memo sits in the outbox ("Retry in 2 minutes"): the phone did
-  not reach `iris.mini.<domain>` (Safari/Brave on the phone showed `NOT_FOUND`, not Caddy's answer), so a memo reaching `done` is **not yet proven**. See the PR.
-
+- Production composition over the tailnet: pass. A typed memo ("Device test: hello from the iPhone") typed on the phone reached `done` (`notified`, route `hermes`,
+  `typed: true`, device `iphone`, steps route/act/summarize/notify done): memo `3418749a-6422-46da-84df-2d5b0bf19631`, confirmed with `GET /v1/memos/:id`.
+- What it took: the Tailscale VPN on the phone (it was off: Brave showed `NOT_FOUND`, the app "Could not load memos"), then re-entering the token
+  (the first entry did not authenticate). Findings for the app: Settings shows "Connected" with a saved but unreachable or rejected configuration (it means
+  "configured", not "reachable"); entering the token is error-prone because `op://mini/iris/device-tokens` holds all devices as `token=device` pairs.
