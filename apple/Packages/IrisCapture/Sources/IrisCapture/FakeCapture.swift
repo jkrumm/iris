@@ -9,13 +9,30 @@ public actor FakeAudioSessionController: AudioSessionController {
   private let continuation: AsyncStream<InterruptionEvent>.Continuation
   public private(set) var isConfigured = false
   public private(set) var isActive = false
+  public private(set) var configureCount = 0
+  public private(set) var activationCount = 0
+  private var failingActivations = 0
 
   public init() {
     (interruptions, continuation) = AsyncStream.makeStream(of: InterruptionEvent.self)
   }
 
-  public func configure() { isConfigured = true }
-  public func activate() { isActive = true }
+  public func configure() {
+    isConfigured = true
+    configureCount += 1
+  }
+
+  public func activate() throws {
+    if failingActivations > 0 {
+      failingActivations -= 1
+      throw CaptureError.sessionFailure("session could not be activated")
+    }
+    isActive = true
+    activationCount += 1
+  }
+
+  /// Script hook: the next `count` activations throw (the session is not ready right after an interruption).
+  public func failActivations(_ count: Int) { failingActivations = count }
   public func deactivate() { isActive = false }
 
   /// Script hook: deliver an interruption event to the consumer.
@@ -92,6 +109,7 @@ public actor FakeSegmentRecorder: SegmentRecorder {
   private var rotator: SegmentRotator
   private var memoID: MemoID?
   private var isPaused = false
+  private var resumeFailure: String?
 
   public init(directory: URL, policy: SegmentRotationPolicy = SegmentRotationPolicy()) {
     self.directory = directory
@@ -140,7 +158,17 @@ public actor FakeSegmentRecorder: SegmentRecorder {
     isPaused = true
   }
 
+  /// Script hook: the next `resume()` fails like an engine that will not restart.
+  public func failNextResume(reason: String) {
+    resumeFailure = reason
+  }
+
   public func resume() {
+    if let reason = resumeFailure {
+      resumeFailure = nil
+      eventContinuation.yield(.failed(reason: reason))
+      return
+    }
     isPaused = false
   }
 
@@ -205,7 +233,7 @@ public actor FakeCapture {
   @discardableResult
   public func startTake(memoID: MemoID = MemoID()) async throws -> MemoID {
     await session.configure()
-    await session.activate()
+    try await session.activate()
     try await recorder.start(memoID: memoID)
     return memoID
   }
@@ -239,6 +267,10 @@ public actor FakeCapture {
     isInterrupted = false
     await session.deliver(.ended(shouldResume: shouldResume))
     if shouldResume { await recorder.resume() }
+  }
+
+  public func mediaServicesReset() async {
+    await session.deliver(.mediaServicesReset)
   }
 
   public func engineConfigurationChanged() async {

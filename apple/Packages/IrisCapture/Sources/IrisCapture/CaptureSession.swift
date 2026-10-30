@@ -68,6 +68,9 @@ public actor CaptureSession {
   private let clock: any CaptureClock
   /// How long `stop()` and `cancel()` wait for the recorder's last event before they give up on it.
   private let stopTimeout: TimeInterval
+  /// How long to wait between attempts to reactivate the audio session after an interruption or a media-services reset.
+  private let reactivationDelay: TimeInterval
+  private static let reactivationAttempts = 4
 
   private var state = TakeState.idle
   private var observers: [UUID: AsyncStream<TakeState>.Continuation] = [:]
@@ -102,7 +105,7 @@ public actor CaptureSession {
 
   public init(
     session: any AudioSessionController, routes: any RouteManager, recorder: any SegmentRecorder, outbox: Outbox,
-    clock: any CaptureClock, stopTimeout: TimeInterval = 10
+    clock: any CaptureClock, stopTimeout: TimeInterval = 10, reactivationDelay: TimeInterval = 0.5
   ) {
     self.session = session
     self.routes = routes
@@ -110,6 +113,7 @@ public actor CaptureSession {
     self.outbox = outbox
     self.clock = clock
     self.stopTimeout = stopTimeout
+    self.reactivationDelay = reactivationDelay
   }
 
   public var current: TakeState { state }
@@ -370,8 +374,6 @@ public actor CaptureSession {
               await outbox.enqueue(segment)
             }
           case .stopped(let memoID, let count):
-            // A failed take waits for the user's stop (which sends what it has) or cancel (which drops it).
-            let isHeldBack = state.phase == .failed && state.memoID == memoID
             let kept = keptCount(memoID, reported: count)
             // A stop that gave up on this event and then finished the memo (cancel, or the grace period ran out) is over.
             if abandoned.remove(memoID) != nil { break }
@@ -379,7 +381,9 @@ public actor CaptureSession {
             let graceTimer = lateFinish.removeValue(forKey: memoID)
             graceTimer?.cancel()
             awaitingStop.remove(memoID)
-            if !cancelled.contains(memoID), !isHeldBack { await outbox.finishMemo(memoID, segmentCount: kept) }
+            // A failed take sends what it captured now, not when the user next looks at the phone: the screen may be locked,
+            // and the app may be killed before a stop that never comes. `stop()` after that finds the memo already finished.
+            if !cancelled.contains(memoID) { await outbox.finishMemo(memoID, segmentCount: kept) }
             didFinish(memoID, count: kept)
             if graceTimer != nil { forget(memoID) }  // `stop()` has returned; nobody else will clear the take
           case .failed(let reason): await recorderFailed(reason)
@@ -392,6 +396,7 @@ public actor CaptureSession {
           switch event {
           case .began: await self.interrupted()
           case .ended(let shouldResume): await self.interruptionEnded(shouldResume: shouldResume)
+          case .mediaServicesReset: await self.mediaServicesReset()
           }
         }
       },
@@ -550,10 +555,66 @@ public actor CaptureSession {
     await enter()
     defer { leave() }
     guard state.phase == .paused, shouldResume else { return }
+    await resumeRecorder()
+  }
+
+  /// The audio daemon restarted under a running take: close the open segment, rebuild the session and carry on in a new
+  /// one. A take that cannot be brought back fails (and keeps what it has) instead of staying silently dead.
+  private func mediaServicesReset() async {
+    await enter()
+    defer { leave() }
+    guard state.phase == .recording || state.phase == .paused else { return }
+    if state.phase == .recording { await recorder.pause() }
+    guard state.phase == .recording || state.phase == .paused else { return }
+    state.phase = .paused
+    publish()
+    do {
+      try await session.configure()
+    } catch {
+      await sessionLost(error)
+      return
+    }
+    await resumeRecorder()
+  }
+
+  /// Reactivates the session (a session an interruption deactivated makes `engine.start()` fail) and restarts the recorder.
+  /// Behind the gate. A session that stays inactive fails the take: its segments are closed, queued and finished.
+  private func resumeRecorder() async {
+    do {
+      try await reactivateSession()
+    } catch {
+      await sessionLost(error)
+      return
+    }
+    guard state.phase == .paused else { return }
     await recorder.resume()
     guard state.phase == .paused else { return }
     state.phase = .recording
     publish()
+  }
+
+  private func reactivateSession() async throws {
+    var attempt = 1
+    while true {
+      do {
+        try await session.activate()
+        return
+      } catch {
+        guard attempt < Self.reactivationAttempts, state.phase == .paused else { throw error }
+        Log.capture.error("session reactivation \(attempt) failed: \(String(describing: error), privacy: .public)")
+        attempt += 1
+        let deadline = await clock.now().addingTimeInterval(reactivationDelay)
+        try await clock.sleep(until: deadline)
+      }
+    }
+  }
+
+  private func sessionLost(_ error: any Error) async {
+    guard let memoID = state.memoID, state.phase == .paused else { return }
+    let reason = "audio session could not be restored"
+    Log.capture.error("\(reason, privacy: .public): \(String(describing: error), privacy: .public)")
+    if failures[memoID] == nil { failures[memoID] = reason }
+    await failTake(memoID, reason)
   }
 
   /// The route changed under a running take. A matching rule switches the input like the user's own switch does, behind the

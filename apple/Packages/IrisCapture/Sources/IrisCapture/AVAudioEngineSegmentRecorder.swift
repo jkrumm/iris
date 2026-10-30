@@ -15,7 +15,7 @@
     private let levelContinuation: AsyncStream<Float>.Continuation
     private let directory: URL
     private let policy: SegmentRotationPolicy
-    private let engine = AVAudioEngine()
+    private var engine = AVAudioEngine()
     private let targetFormat: AVAudioFormat
 
     private var rotator: SegmentRotator
@@ -94,9 +94,13 @@
     }
 
     public func resume() {
-      guard take.isRecording, isPaused else { return }
+      guard take.isRecording, isPaused, let sink = sampleSink else { return }
       do {
-        try engine.start()
+        let target = targetFormat
+        let resumed = try EngineStartup.resume(
+          InputTapEngine(engine: engine, target: target, sink: sink),
+          replacement: { InputTapEngine(engine: AVAudioEngine(), target: target, sink: sink) })
+        engine = resumed.engine
         isPaused = false
       } catch {
         Log.capture.error("engine resume failed: \(String(describing: error), privacy: .public)")

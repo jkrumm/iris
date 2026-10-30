@@ -128,3 +128,40 @@ struct EngineStartupTests {
     #expect(engine.calls.first == "removeTap")
   }
 }
+
+struct EngineResumeTests {
+  @Test func aPausedEngineThatRestartsIsKept() throws {
+    let engine = FakeTapEngine()
+    try EngineStartup.bringUp(engine)
+    var replacements = 0
+    let resumed = try EngineStartup.resume(engine) {
+      replacements += 1
+      return FakeTapEngine()
+    }
+    #expect(resumed === engine)
+    #expect(replacements == 0)
+  }
+
+  @Test func anEngineThatWillNotRestartIsReplacedByAFreshOneWithTheTap() throws {
+    let stale = FakeTapEngine()
+    try EngineStartup.bringUp(stale)
+    stale.failStart = true
+    let fresh = FakeTapEngine()
+    let resumed = try EngineStartup.resume(stale) { fresh }
+    #expect(resumed === fresh)
+    #expect(fresh.tapInstalled)
+    #expect(fresh.running)
+    #expect(stale.tapInstalled == false, "the dead engine gives up bus 0")
+    #expect(stale.running == false)
+  }
+
+  @Test func aFreshEngineThatFailsToo_throwsAndLeavesNothingRunning() {
+    let stale = FakeTapEngine()
+    stale.failStart = true
+    let fresh = FakeTapEngine()
+    fresh.failStart = true
+    #expect(throws: CaptureError.engineFailure("start")) { try EngineStartup.resume(stale) { fresh } }
+    #expect(fresh.tapInstalled == false)
+    #expect(fresh.running == false)
+  }
+}

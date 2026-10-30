@@ -75,3 +75,21 @@ enum EngineStartup {
     }
   }
 }
+
+extension EngineStartup {
+  /// Restarts a paused engine. When that fails (the configuration changed while it was paused, or the audio daemon was reset
+  /// and the engine is dead) the engine is torn down and a fresh one is brought up with the tap on it; a failure of that is
+  /// the caller's to report.
+  static func resume<Engine: TapEngine>(_ engine: Engine, replacement: () -> Engine) throws -> Engine {
+    do {
+      try engine.start()
+      return engine
+    } catch {
+      engine.removeTap()
+      engine.stop()
+      let fresh = replacement()
+      try bringUp(fresh)
+      return fresh
+    }
+  }
+}

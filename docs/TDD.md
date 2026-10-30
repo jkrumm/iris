@@ -686,6 +686,11 @@ the runner needs a workflow step and was left out of this change (owned files: `
     change to the AirPods, or a start with them connected), which aborts the app.
     The fixes are Wave 17 I7: build the tap format from the node's current format,
     never let `installTap` throw, put a failed recorder where the user sees it.**
+  - on a resume recommendation the session is reactivated first (a session an interruption deactivated makes `engine.start()`
+    fail; up to four tries), then the engine restarts, and an engine that will not restart is replaced by a fresh one with the tap;
+  - `mediaServicesWereResetNotification` (the audio daemon restarted) closes the open segment of a recording take, sets the
+    category again and continues in a new segment on a new engine; a take that was paused (by the user, or by an interruption
+    that did not recommend resuming) stays paused.
 - **`RouteManager`:**
   - lists `availableInputs`, applies `setPreferredInput` after activation, and
     reads back `currentRoute`;
@@ -768,8 +773,11 @@ the runner needs a workflow step and was left out of this change (owned files: `
   recommends; `switchInput` rolls the segment, and so does a route rule that applies mid-take (behind the same gate, only while
   recording or paused), so one file never holds two inputs. `updates()` is the state stream the UI and the Live Activity follow.
   A recorder failure (`.failed`: a segment write error, an engine that will not resume or restart) is a take failure: the session
-  stops the recorder, moves the take to phase `failed` (`TakeState.failure` says why) and holds it for the user's `stop()` or
-  `cancel()`. `stop()` then finishes the memo with the segments that really closed (`TakeResult.failure` set) or, with none, throws
+  stops the recorder (which closes the open segment), moves the take to phase `failed` (`TakeState.failure` says why) and
+  finishes the memo with the segments that closed, at once: a locked phone or a killed app must not hold captured audio
+  back for a stop that never comes. The user's `stop()` then acknowledges the failure and `cancel()` drops what the outbox
+  still holds (a memo the server already completed stays). An interruption that ends without a resume recommendation leaves
+  the take visibly `paused` with everything before it closed and queued. `stop()` on a failed take returns the memo with the segments that really closed (`TakeResult.failure` set) or, with none, throws
   `CaptureError.recordingFailed` instead of returning `nil` (which means nothing was said); the thread screen tells the user.
   Both actors are reentrant, so every write that follows an `await` re-checks what it assumed or is authoritative: `pause` and
   `resume` (and the interruption handlers) leave a take that failed meanwhile as `failed`, a failure that comes in while the

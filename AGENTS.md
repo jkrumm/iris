@@ -426,5 +426,6 @@ Push to master deploys. LaunchAgent `com.jkrumm.iris` (KeepAlive, `ExitTimeOut` 
 - **Snapshots** only compare on the pinned simulator; a diff on a clean tree means a different runtime. They do not render the glass layer.
 - **`scripts/mbm tap`** needs `--element-ref` from the latest `snapshot-ui` and `--post-delay 2`; `snapshot-ui` straight after a launch times out
   (`make ui-snapshot` waits first). Live Activity, widgets, the notification card and the Mac panel compile but have never been rendered; the
-  AVAudioEngine recorder and the interruption paths have never run on a device (`docs/spikes/device-checklist.md`).
+  AVAudioEngine recorder and the interruption paths (incl. the lock-time interruption fix of Wave 17 I7: reactivate the session,
+  rebuild the engine, auto-finish a failed take) are covered by fakes only until the device check passes (`docs/spikes/device-checklist.md`).
 - **TDD is the design, code is the truth for shipped behaviour:** §3 was amended in Wave 8 to match the server; planned-but-unbuilt items are marked there.
