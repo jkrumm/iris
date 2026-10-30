@@ -253,6 +253,52 @@ struct HungStopTests {
     await harness.outbox.shutdown()
   }
 
+  @Test func theAudioSessionStaysActiveUnderAHungStopAndGoesWhenItReturns() async throws {
+    let directory = try temporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let (session, fake, harness, releaseSignal) = try await rig(directory, reportsBeforeHanging: false)
+    try await session.start(request)
+    await fake.recorder.feed(frames: 12 * SegmentRotationPolicy().sampleRate)
+    #expect(await fake.session.isActive)
+
+    let stopping = Task { try await session.stop() }
+    try await letTheTimeoutPass(harness, on: session)
+    _ = try await stopping.value
+    #expect(await session.current == .idle)
+    #expect(
+      await fake.session.isActive, "the recorder may still hold the microphone: the session is not pulled from under it"
+    )
+
+    releaseSignal.finish()  // the stop returns at last
+    for _ in 0..<400 where await fake.session.isActive { try await Task.sleep(for: .milliseconds(5)) }
+    #expect(await !fake.session.isActive, "and goes with it")
+    await session.shutdown()
+    await harness.outbox.shutdown()
+  }
+
+  @Test func aTakeStartedAfterTheHungStopReturnedKeepsItsSession() async throws {
+    let directory = try temporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let (session, fake, harness, releaseSignal) = try await rig(directory, reportsBeforeHanging: false)
+    try await session.start(request)
+    await fake.recorder.feed(frames: 12 * SegmentRotationPolicy().sampleRate)
+    let stopping = Task { try await session.stop() }
+    try await letTheTimeoutPass(harness, on: session)
+    _ = try await stopping.value
+
+    releaseSignal.finish()
+    var started = false
+    for _ in 0..<400 where !started {
+      started = (try? await session.start(request)) != nil
+      if !started { try await Task.sleep(for: .milliseconds(5)) }
+    }
+    #expect(started)
+    try await Task.sleep(for: .milliseconds(50))  // a late deactivation, if one were wrongly left pending, lands here
+    #expect(await fake.session.isActive, "the new take's session is not deactivated by the old stop's return")
+    await session.shutdown()
+    await harness.outbox.shutdown()
+  }
+
   @Test func aStoppedEventWhileStopHangsFinishesTheMemoOnceAndIsNotReportedAsSilent() async throws {
     let directory = try temporaryDirectory()
     defer { try? FileManager.default.removeItem(at: directory) }
