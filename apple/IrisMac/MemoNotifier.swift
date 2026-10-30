@@ -43,10 +43,10 @@ final class MemoNotifier {
   private let retryDelays: [Duration]
   private var posted: Set<String> = []
   private var inFlight: Set<String> = []
+  /// Memos whose every try failed (a lookup or post that kept failing); not announced.
+  private var failed: Set<String> = []
   /// The prompt in flight. Single-flight: every memo that finishes while it is up waits on it, none starts a second one.
   private var requesting: Task<Bool, Never>?
-  /// Bumped by ``reset()``; a call that started for another server finds it changed and posts nothing.
-  private var generation = 0
 
   /// - Parameters:
   ///   - lookup: The memo behind a `memo.done` id: the list's copy, else a fetch; nil when it cannot be had now.
@@ -66,16 +66,23 @@ final class MemoNotifier {
     Task { _ = await isAllowed() }
   }
 
+  /// Which connection the notifier works for; bumped by ``reset()``. A caller reads it when the event arrives and hands it to
+  /// ``memoDone(id:generation:)``, so a task of the old server that only starts after the switch is dropped.
+  private(set) var generation = 0
+
   /// Forgets what was announced: the connection moved to another server, whose memos are not these.
   func reset() {
     generation += 1
     posted = []
     inFlight = []
+    failed = []
   }
 
-  func memoDone(id: String) async {
-    guard !posted.contains(id), inFlight.insert(id).inserted else { return }
-    let mine = generation
+  /// Announces `id` once. `expected` is the ``generation`` the event was seen under (the current one when nil); every await
+  /// re-checks it, so nothing of another server is looked up, posted or recorded on this one.
+  func memoDone(id: String, generation expected: Int? = nil) async {
+    let mine = expected ?? generation
+    guard mine == generation, !posted.contains(id), inFlight.insert(id).inserted else { return }
     defer { if mine == generation { inFlight.remove(id) } }
     for delay in [nil] + retryDelays.map({ Optional($0) }) {
       if let delay {
@@ -83,19 +90,34 @@ final class MemoNotifier {
       }
       // Asked again for every memo: a denial from before the user enabled notifications must not stick.
       guard await isAllowed(), mine == generation else { return }
-      guard let memo = await lookup(id), mine == generation else { continue }
+      let found = await lookup(id)
+      guard mine == generation else { return }
+      guard let memo = found else { continue }
       guard !memo.isDeleted else {
         posted.insert(id)
         return
       }
       do {
         try await poster.post(Self.notification(for: memo))
-        posted.insert(id)
-        return
       } catch {
+        guard mine == generation else { return }
         continue
       }
+      guard mine == generation else { return }
+      posted.insert(id)
+      failed.remove(id)
+      return
     }
+    // Every try failed: the memo is not announced, and ``retryFailed()`` offers it again when the connection comes back.
+    failed.insert(id)
+  }
+
+  /// Offers the memos whose every try failed again: the connection came back.
+  func retryFailed() {
+    let again = failed
+    failed = []
+    let current = generation
+    for id in again { Task { await memoDone(id: id, generation: current) } }
   }
 
   private func isAllowed() async -> Bool {
@@ -112,9 +134,27 @@ final class MemoNotifier {
     }
   }
 
-  /// The route says where the memo went, the headline what it was about.
+  /// What a banner says. Never the transcript or the reply (the alert contract, AGENTS.md): a finished memo shows its route
+  /// and the summary's headline, a parked one the generic question and the park reason, a failed one the step that failed.
+  /// `rowHeadline` is not used: without a summary it is the transcript.
   static func notification(for memo: Memo) -> MemoNotification {
-    MemoNotification(memoID: memo.id, title: memo.routeLabel, body: memo.rowHeadline)
+    switch memo.state {
+    case .needsRoute:
+      MemoNotification(
+        memoID: memo.id,
+        title: String(localized: "Where should this go?", comment: "Notification title: a parked memo"),
+        body: memo.routeReason
+          ?? String(localized: "Open Iris to choose a route.", comment: "Notification body: a parked memo"))
+    case .failed:
+      MemoNotification(
+        memoID: memo.id, title: String(localized: "Memo failed", comment: "Notification title: a failed memo"),
+        body: memo.failedStep.map { String(localized: "Failed at \($0.rawValue).", comment: "Notification body") }
+          ?? String(localized: "Open Iris to retry it.", comment: "Notification body: a failed memo"))
+    default:
+      MemoNotification(
+        memoID: memo.id, title: memo.routeLabel,
+        body: memo.summary?.headline ?? String(localized: "Done.", comment: "Notification body: no summary"))
+    }
   }
 }
 
