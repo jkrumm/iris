@@ -1,6 +1,7 @@
 import AppKit
 import Foundation
 import IrisCore
+import CryptoKit
 import Observation
 import Synchronization
 
@@ -58,6 +59,8 @@ final class MacCompositionRoot {
   let fakeAPI: FakeAPIClient?
   private let sampleNow: Date
   private var following: Task<Void, Never>?
+  /// The last queued action per memo; the next one waits for it.
+  private var queues: [String: (token: UUID, task: Task<Void, Never>)] = [:]
   private var clickHandler: NotificationClickHandler?
 
   init(
@@ -93,7 +96,8 @@ final class MacCompositionRoot {
     history = Self.makeHistory(client: tapped, mode: mode)
     let isFake = mode == .fake
     notifier = MemoNotifier(
-      poster: poster ?? (isFake ? RecordingNotificationPoster() : UserNotificationPoster()), lookup: { _ in nil })
+      poster: poster ?? (isFake ? RecordingNotificationPoster() : UserNotificationPoster()),
+      connectionID: Self.connectionID(for: isFake ? nil : self.credentials.load()), lookup: { _ in nil })
     // Always fetched: the list's copy can be stale, and a failed refresh must not announce a memo that is still running.
     notifier.lookup = { [weak self] id in try? await self?.api.memo(id: id).memo }
     wireNotifications()
@@ -116,12 +120,30 @@ final class MacCompositionRoot {
 
   /// Runs a row action of the list on the model it was made for, and drops it when the connection has changed since: it must
   /// never act on the new server.
-  func perform(on model: HistoryModel, _ action: @escaping @MainActor (HistoryModel) async -> Void) {
+  ///
+  /// Actions on one memo (`memoID`) run one after the other in the order they were made, so the last tap is the last request the
+  /// server sees; a later action looks the memo up again when it runs (see ``MacHistoryList``), it does not act on a copy from tap time.
+  func perform(
+    on model: HistoryModel, memoID: String? = nil, _ action: @escaping @MainActor (HistoryModel) async -> Void
+  ) {
     let revision = connectionRevision
-    Task { [weak self] in
+    let previous = memoID.flatMap { queues[$0]?.task }
+    let token = UUID()
+    let task = Task { [weak self] in
+      await previous?.value
       guard let self, revision == connectionRevision, model === history else { return }
       await action(model)
+      if let memoID, queues[memoID]?.token == token { queues[memoID] = nil }
     }
+    if let memoID { queues[memoID] = (token, task) }
+  }
+
+  /// The id banners carry for a saved connection: a digest of the server URL and the token, so it is the same after a restart,
+  /// and a new server or a new token gives a new one. Not reversible; nothing but the app reads it.
+  static func connectionID(for credentials: ConnectionCredentials?) -> String {
+    guard let credentials else { return "none" }
+    let digest = SHA256.hash(data: Data("\(credentials.serverURL.absoluteString)\n\(credentials.token)".utf8))
+    return digest.prefix(8).map { String(format: "%02x", $0) }.joined()
   }
 
   static let fakeDataArgument = "-IrisFakeData"
@@ -152,9 +174,12 @@ final class MacCompositionRoot {
     guard isConfigured else { return }
     notifier.requestPermissionIfNeeded()
     let history = history
-    async let events: Void = followEvents(of: history)
+    // The stream does not wait for the first list request: a slow or hung list must not keep the notifications away. The stream's
+    // `ready` event reloads the list on its own.
+    async let list: Void = history.load()
+    async let events: Void = history.observeEvents()
     async let returns: Void = countReturns(of: streamReady)
-    _ = await (events, returns)
+    _ = await (list, events, returns)
   }
 
   /// Every `ready` of the event stream after the first is the server coming back; an open detail reloads on it.
@@ -163,11 +188,6 @@ final class MacCompositionRoot {
       guard !Task.isCancelled else { return }
       reconnects += 1
     }
-  }
-
-  private func followEvents(of history: HistoryModel) async {
-    await history.load()
-    await history.observeEvents()
   }
 
   /// Installs the click handler that opens a memo from its notification banner. Production only: the fake never posts.
@@ -209,7 +229,8 @@ final class MacCompositionRoot {
     api = StreamTappingClient(base: base, ready: signal)
     history = Self.makeHistory(client: api, mode: mode)
     wireNotifications()
-    notifier.reset()
+    notifier.reset(connectionID: Self.connectionID(for: credentials.load()))
+    queues = [:]
     closeDetail()
     reconnects = 0
     connectionRevision += 1

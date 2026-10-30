@@ -135,6 +135,97 @@ struct MacCompositionRootTests {
     #expect(root.detailMemoID == Self.finished)
   }
 
+  private func savedConnection(_ url: String, _ token: String) throws -> InMemoryCredentialStore {
+    let store = InMemoryCredentialStore()
+    try store.save(try #require(ConnectionCredentials(urlText: url, token: token)))
+    return store
+  }
+
+  @Test(
+    "a banner from before a restart still opens its memo; the connection id changes only with the server URL or the token"
+  )
+  func connectionIDSurvivesRestart() throws {
+    let before = MacCompositionRoot(arguments: [], credentials: try savedConnection("https://iris.example.com", "t1"))
+    let banner = before.notifier.connectionID
+
+    let restarted = MacCompositionRoot(
+      arguments: [], credentials: try savedConnection("https://iris.example.com", "t1"))
+    #expect(restarted.notifier.connectionID == banner)
+    restarted.openFromNotification(Self.finished, connection: banner)
+    #expect(restarted.detailMemoID == Self.finished)
+
+    let otherToken = MacCompositionRoot(
+      arguments: [], credentials: try savedConnection("https://iris.example.com", "t2"))
+    let otherServer = MacCompositionRoot(
+      arguments: [], credentials: try savedConnection("https://other.example.com", "t1"))
+    #expect(otherToken.notifier.connectionID != banner && otherServer.notifier.connectionID != banner)
+    otherServer.openFromNotification(Self.finished, connection: banner)
+    #expect(otherServer.detailMemoID == nil)
+    #expect(!banner.contains("t1") && !banner.contains("iris"))
+  }
+
+  @Test("saving the same connection again keeps the banners valid; saving another one invalidates them")
+  func savingKeepsOrRotatesTheID() throws {
+    let root = fakeRoot()
+    root.connectionForm.urlText = "https://iris.example.com"
+    root.connectionForm.tokenText = "t1"
+    root.connectionForm.save()
+    let saved = root.notifier.connectionID
+    root.connectionForm.save()
+    #expect(root.notifier.connectionID == saved)
+    root.connectionForm.tokenText = "t2"
+    root.connectionForm.save()
+    #expect(root.notifier.connectionID != saved)
+  }
+
+  @Test("the event stream runs while the first list request is still unanswered")
+  func streamDoesNotWaitForTheList() async throws {
+    let poster = RecordingNotificationPoster()
+    let root = fakeRoot(poster: poster)
+    let fake = try #require(root.fakeAPI)
+    let gate = await fake.hold(.listMemos)
+    root.begin()
+    await gate.waitUntilHeld()
+    #expect(root.history.memos.isEmpty)
+
+    fake.emit(.ready)
+    fake.emit(.memoDone(MemoEvent(id: Self.finished, state: .notified, at: .now)))
+    #expect(await eventually { !root.history.memos.isEmpty })
+    #expect(await eventually { await poster.posted.map(\.memoID) == [Self.finished] })
+    gate.release()
+  }
+
+  @Test("two taps on one memo reach the server in order, each on the memo as it is then: the last tap wins")
+  func actionsOnOneMemoAreSerialized() async throws {
+    let root = fakeRoot()
+    let fake = try #require(root.fakeAPI)
+    root.begin()
+    #expect(await eventually { !root.history.memos.isEmpty })
+    let id = Self.finished
+    let initial = try #require(root.history.memos.first { $0.id == id }).favorite
+    let gate = await fake.hold(.setFlags)
+
+    func tap() {
+      root.perform(on: root.history, memoID: id) { model in
+        guard let current = model.memos.first(where: { $0.id == id }) else { return }
+        await model.toggleFavorite(current)
+      }
+    }
+    tap()
+    await gate.waitUntilHeld()
+    tap()
+    try? await Task.sleep(for: .milliseconds(150))
+    let during = await fake.calls.filter { if case .setFlags = $0 { true } else { false } }.count
+    #expect(during == 1, "the second tap went out while the first was still on the wire")
+
+    gate.release()
+    #expect(
+      await eventually {
+        await fake.calls.filter { if case .setFlags = $0 { true } else { false } }.count == 2
+      })
+    #expect(await eventually { await fake.memos[id]?.memo.favorite == initial })
+  }
+
   @Test("a connection change replaces the list, closes the detail and forgets what was announced")
   func switchingServers() async {
     let poster = RecordingNotificationPoster()

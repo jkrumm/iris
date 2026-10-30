@@ -53,10 +53,11 @@ final class MemoNotifier {
   ///   - lookup: The memo behind a `memo.done` id: the list's copy, else a fetch; nil when it cannot be had now.
   ///   - retryDelays: The waits between the tries of one call after a failed lookup or post: three tries in all by default.
   init(
-    poster: any NotificationPoster, lookup: @escaping (String) async -> Memo?,
+    poster: any NotificationPoster, connectionID: String, lookup: @escaping (String) async -> Memo?,
     retryDelays: [Duration] = [.seconds(1), .seconds(5)]
   ) {
     self.poster = poster
+    self.connectionID = connectionID
     self.lookup = lookup
     self.retryDelays = retryDelays
   }
@@ -67,17 +68,18 @@ final class MemoNotifier {
     Task { _ = await isAllowed() }
   }
 
-  /// Which connection the notifier works for; bumped by ``reset()``. A caller reads it when the event arrives and hands it to
+  /// Which connection the notifier works for; bumped by ``reset(connectionID:)``. A caller reads it when the event arrives and hands it to
   /// ``memoDone(id:generation:)``, so a task of the old server that only starts after the switch is dropped.
   private(set) var generation = 0
 
-  /// Names the connection the banners belong to; a click on one of another connection is ignored.
-  private(set) var connectionID = UUID().uuidString
+  /// Names the saved connection the banners belong to (see ``MacCompositionRoot/connectionID(for:)``): it survives a restart, so a
+  /// banner from before one still opens its memo, and changes only with the server URL or token.
+  private(set) var connectionID: String
 
   /// Forgets what was announced: the connection moved to another server, whose memos are not these.
-  func reset() {
+  func reset(connectionID: String) {
     generation += 1
-    connectionID = UUID().uuidString
+    self.connectionID = connectionID
     posted = []
     inFlight = []
   }

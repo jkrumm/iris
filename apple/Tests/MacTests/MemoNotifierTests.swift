@@ -23,7 +23,7 @@ struct MemoNotifierTests {
   private func notifier(
     _ poster: RecordingNotificationPoster, lookup: @escaping (String) async -> Memo? = { Self.memo($0) }
   ) -> MemoNotifier {
-    MemoNotifier(poster: poster, lookup: lookup, retryDelays: [.zero, .zero])
+    MemoNotifier(poster: poster, connectionID: "c1", lookup: lookup, retryDelays: [.zero, .zero])
   }
 
   @Test("a finished memo posts one notification: the route as title, the headline as body")
@@ -144,7 +144,7 @@ struct MemoNotifierTests {
     let poster = RecordingNotificationPoster()
     let notifier = notifier(poster)
     await notifier.memoDone(id: "a")
-    notifier.reset()
+    notifier.reset(connectionID: "c2")
     await notifier.memoDone(id: "a")
     #expect(await poster.posted.count == 2)
   }
@@ -200,7 +200,7 @@ struct MemoNotifierTests {
     let notifier = notifier(poster)
     let first = notifier.connectionID
     await notifier.memoDone(id: "a")
-    notifier.reset()
+    notifier.reset(connectionID: "c2")
     await notifier.memoDone(id: "b")
     let posted = await poster.posted
     #expect(posted.map(\.connectionID) == [first, notifier.connectionID] && first != notifier.connectionID)
@@ -211,7 +211,7 @@ struct MemoNotifierTests {
     let poster = RecordingNotificationPoster()
     let notifier = notifier(poster)
     let seen = notifier.generation
-    notifier.reset()
+    notifier.reset(connectionID: "c2")
     await notifier.memoDone(id: "a", generation: seen)
     #expect(await poster.posted.isEmpty)
     await notifier.memoDone(id: "a")
@@ -230,7 +230,7 @@ struct MemoNotifierTests {
     }
     let pending = Task { await notifier.memoDone(id: "a") }
     #expect(await eventually { started })
-    notifier.reset()
+    notifier.reset(connectionID: "c2")
     open.yield()
     open.finish()
     await pending.value

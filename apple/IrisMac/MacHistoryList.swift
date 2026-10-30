@@ -55,6 +55,15 @@ struct MacHistoryList: View {
     }
   }
 
+  /// Queues `action` for `memo`: it runs after the memo's earlier actions, on the memo as it is then (a second tap on a favorite
+  /// toggles the state the first one left), and not at all when the connection changed first.
+  private func act(on memo: Memo, _ action: @escaping @MainActor (HistoryModel, Memo) async -> Void) {
+    root.perform(on: model, memoID: memo.id) { model in
+      guard let current = model.memos.first(where: { $0.id == memo.id }) else { return }
+      await action(model, current)
+    }
+  }
+
   private func row(_ memo: Memo) -> some View {
     Button {
       root.openDetail(memo.id)
@@ -70,16 +79,16 @@ struct MacHistoryList: View {
     .listRowBackground(HistoryRowBackground(needsAttention: memo.isOpenNeedsRoute))
     .contextMenu {
       Button(memo.done ? "Not done" : "Done", systemImage: "checkmark") {
-        root.perform(on: model) { await $0.toggleDone(memo) }
+        act(on: memo) { await $0.toggleDone($1) }
       }
       Button(memo.favorite ? "Unfavorite" : "Favorite", systemImage: memo.favorite ? "star.slash" : "star") {
-        root.perform(on: model) { await $0.toggleFavorite(memo) }
+        act(on: memo) { await $0.toggleFavorite($1) }
       }
       Button(memo.archived ? "Unarchive" : "Archive", systemImage: memo.archived ? "tray.and.arrow.up" : "archivebox") {
-        root.perform(on: model) { await $0.toggleArchived(memo) }
+        act(on: memo) { await $0.toggleArchived($1) }
       }
       if memo.state.isDeletable {
-        Button("Delete", systemImage: "trash", role: .destructive) { root.perform(on: model) { await $0.delete(memo) } }
+        Button("Delete", systemImage: "trash", role: .destructive) { act(on: memo) { await $0.delete($1) } }
       }
     }
   }
