@@ -69,15 +69,17 @@ struct MacHistoryList: View {
     .accessibilityIdentifier("mac.history.row")
     .listRowBackground(HistoryRowBackground(needsAttention: memo.isOpenNeedsRoute))
     .contextMenu {
-      Button(memo.done ? "Not done" : "Done", systemImage: "checkmark") { Task { await model.toggleDone(memo) } }
+      Button(memo.done ? "Not done" : "Done", systemImage: "checkmark") {
+        root.perform(on: model) { await $0.toggleDone(memo) }
+      }
       Button(memo.favorite ? "Unfavorite" : "Favorite", systemImage: memo.favorite ? "star.slash" : "star") {
-        Task { await model.toggleFavorite(memo) }
+        root.perform(on: model) { await $0.toggleFavorite(memo) }
       }
       Button(memo.archived ? "Unarchive" : "Archive", systemImage: memo.archived ? "tray.and.arrow.up" : "archivebox") {
-        Task { await model.toggleArchived(memo) }
+        root.perform(on: model) { await $0.toggleArchived(memo) }
       }
       if memo.state.isDeletable {
-        Button("Delete", systemImage: "trash", role: .destructive) { Task { await model.delete(memo) } }
+        Button("Delete", systemImage: "trash", role: .destructive) { root.perform(on: model) { await $0.delete(memo) } }
       }
     }
   }
@@ -116,7 +118,7 @@ struct MacHistoryList: View {
       ToastBanner(
         message: toast.message,
         actionTitle: toast.kind.isUndo ? String(localized: "Undo", comment: "Undoes a delete") : nil,
-        action: { Task { await model.undoDelete() } }
+        action: { root.perform(on: model) { await $0.undoDelete() } }
       )
       .padding(Theme.Spacing.lg)
       .transition(.move(edge: .bottom).combined(with: .opacity))

@@ -145,6 +145,41 @@ struct MacCompositionRootTests {
     #expect(root.history.onMemoDone != nil)
     #expect(await eventually { !root.history.memos.isEmpty })
   }
+
+  private func switchServer(_ root: MacCompositionRoot) {
+    root.connectionForm.urlText = "https://other.example.com"
+    root.connectionForm.tokenText = "token"
+    root.connectionForm.save()
+  }
+
+  @Test("a row action runs on the model it was made for, and is dropped when the connection changed first")
+  func queuedActionsAreBoundToTheirConnection() async {
+    let root = fakeRoot()
+    root.begin()
+    #expect(await eventually { !root.history.memos.isEmpty })
+    var ran: [String] = []
+    root.perform(on: root.history) { _ in ran.append("current") }
+    #expect(await eventually { ran == ["current"] })
+
+    let old = root.history
+    root.perform(on: old) { _ in ran.append("old") }
+    switchServer(root)
+    root.perform(on: old) { _ in ran.append("old again") }
+    try? await Task.sleep(for: .milliseconds(200))
+    #expect(ran == ["current"])
+  }
+
+  @Test("a memo.done seen before a switch posts nothing once its task runs after it")
+  func staleEventsAreDropped() async {
+    let poster = RecordingNotificationPoster()
+    let root = fakeRoot(poster: poster)
+    root.begin()
+    #expect(await eventually { !root.history.memos.isEmpty })
+    root.history.onMemoDone?(Self.finished)
+    switchServer(root)
+    try? await Task.sleep(for: .milliseconds(300))
+    #expect(await poster.posted.isEmpty)
+  }
 }
 
 @Suite("Mac connection status")

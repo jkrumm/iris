@@ -48,9 +48,10 @@ final class MacCompositionRoot {
   private(set) var reconnects = 0
 
   let notifier: MemoNotifier
-  private let api: any APIClient
+  /// The client of the current connection. Each connection gets its own, so a task that started on the old server can never
+  /// reach the new one.
+  private var api: any APIClient
   private let credentials: any CredentialStore
-  private let reconfigurable: ReconfigurableAPIClient?
   /// The fake server behind ``Mode/fake``; tests push events through it.
   let fakeAPI: FakeAPIClient?
   private let sampleNow: Date
@@ -71,7 +72,6 @@ final class MacCompositionRoot {
       mode = .fake
       client = fake
       fakeAPI = fake
-      reconfigurable = nil
       self.credentials = credentials ?? InMemoryCredentialStore()
       page = arguments.contains(Self.settingsArgument) ? .settings : .history
     } else {
@@ -81,7 +81,6 @@ final class MacCompositionRoot {
       mode = .production
       client = reconfigurable
       fakeAPI = nil
-      self.reconfigurable = reconfigurable
       self.credentials = store
       page = saved == nil ? .settings : .history
     }
@@ -91,8 +90,9 @@ final class MacCompositionRoot {
     notifier = MemoNotifier(
       poster: poster ?? (isFake ? RecordingNotificationPoster() : UserNotificationPoster()), lookup: { _ in nil })
     notifier.lookup = { [weak self] id in
-      if let known = self?.history.memos.first(where: { $0.id == id }) { return known }
-      return try? await client.memo(id: id).memo
+      guard let self else { return nil }
+      if let known = history.memos.first(where: { $0.id == id }) { return known }
+      return try? await api.memo(id: id).memo
     }
     wireNotifications()
   }
@@ -103,7 +103,23 @@ final class MacCompositionRoot {
   }
 
   private func wireNotifications() {
-    history.onMemoDone = { [notifier] id in Task { await notifier.memoDone(id: id) } }
+    history.onMemoDone = { [weak self, notifier] id in self?.announce(id, with: notifier) }
+  }
+
+  /// The generation is read now, not when the task runs: an event of the old server that only gets to run after a switch is dropped.
+  private func announce(_ id: String, with notifier: MemoNotifier) {
+    let generation = notifier.generation
+    Task { await notifier.memoDone(id: id, generation: generation) }
+  }
+
+  /// Runs a row action of the list on the model it was made for, and drops it when the connection has changed since: it must
+  /// never act on the new server.
+  func perform(on model: HistoryModel, _ action: @escaping @MainActor (HistoryModel) async -> Void) {
+    let revision = connectionRevision
+    Task { [weak self] in
+      guard let self, revision == connectionRevision, model === history else { return }
+      await action(model)
+    }
   }
 
   static let fakeDataArgument = "-IrisFakeData"
@@ -148,15 +164,21 @@ final class MacCompositionRoot {
   /// lost to an outage; the notifier drops the ones the event already announced), and every return of the connection bumps
   /// ``reconnects``.
   private func watch(_ history: HistoryModel) async {
+    let revision = connectionRevision
     var catchUp = DoneCatchUp()
     var link = LinkTracker()
     let snapshots = Observations {
       Snapshot(memos: history.memos, hasLoaded: history.hasLoaded, filters: history.filters, link: history.link)
     }
     for await snapshot in snapshots {
-      if link.cameBack(snapshot.link) { reconnects += 1 }
+      // A snapshot of the old server that is still in flight when the connection changes must not touch the new one.
+      guard !Task.isCancelled, revision == connectionRevision else { return }
+      if link.cameBack(snapshot.link) {
+        reconnects += 1
+        notifier.retryFailed()
+      }
       let finished = catchUp.newlyDone(in: snapshot.memos, hasLoaded: snapshot.hasLoaded, filters: snapshot.filters)
-      for id in finished { Task { await notifier.memoDone(id: id) } }
+      for id in finished { announce(id, with: notifier) }
     }
   }
 
@@ -191,7 +213,7 @@ final class MacCompositionRoot {
   /// what was announced), the client points at the new one, and following starts over.
   private func connectionChanged() {
     following?.cancel()
-    reconfigurable?.reconfigure(credentials.load())
+    if mode == .production { api = ReconfigurableAPIClient(credentials: credentials.load()) }
     history = Self.makeHistory(client: api, mode: mode)
     wireNotifications()
     notifier.reset()
