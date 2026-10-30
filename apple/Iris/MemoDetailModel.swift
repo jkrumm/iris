@@ -12,6 +12,25 @@ final class MemoDetailModel {
   private(set) var detail: MemoDetail
   private(set) var baselines = StepBaselines()
   private(set) var isRetrying = false
+  /// The owner's own open or close of the waterfall; nil until the first tap.
+  private var waterfallChoice: Bool?
+
+  /// The step rows show under the waterfall's total line: collapsed until the owner opens them, except for a failed
+  /// memo, whose failed step (and its retry) is what the owner came for. A tap wins over that default.
+  var isWaterfallExpanded: Bool {
+    get { waterfallChoice ?? (memo.state == .failed) }
+    set { waterfallChoice = newValue }
+  }
+
+  /// What the Copy buttons copy.
+  enum CopyTarget: Equatable {
+    case transcript, reply
+  }
+
+  /// The text last copied, until ``clearCopied()``: the button shows "Copied" meanwhile.
+  private(set) var copied: CopyTarget?
+  /// Bumped on every copy, so a second copy restarts the view's confirmation timer.
+  private(set) var copyCount = 0
   /// A toast for the last failed action. The id tells two toasts with the same words apart.
   struct Failure: Equatable, Identifiable {
     let id: Int
@@ -23,6 +42,7 @@ final class MemoDetailModel {
   private(set) var failure: Failure?
 
   private let client: any APIClient
+  private let pasteboard: any Pasteboard
   let media: any MemoMediaSource
   /// The app's one spoken-reply player (Play, `PlayReplyIntent` and spoken replies share it).
   let speech: SpeechPlayer
@@ -36,13 +56,14 @@ final class MemoDetailModel {
   /// `memo` is what the list already knows; the steps arrive with the first ``load()``.
   init(
     memo: Memo, client: any APIClient, media: any MemoMediaSource, speech: SpeechPlayer,
-    toastDuration: Duration = .seconds(4),
+    pasteboard: any Pasteboard = SystemPasteboard(), toastDuration: Duration = .seconds(4),
     sleep: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
   ) {
     detail = MemoDetail(memo: memo, steps: [])
     self.client = client
     self.media = media
     self.speech = speech
+    self.pasteboard = pasteboard
     self.toastDuration = toastDuration
     self.sleep = sleep
   }
@@ -69,6 +90,23 @@ final class MemoDetailModel {
     guard let totals = WaterfallBuilder.totals(for: detail, now: now) else { return nil }
     return StepText.metric(milliseconds: totals.milliseconds, costUsd: totals.costUsd)
   }
+
+  // MARK: Copy
+
+  /// Puts the transcript or the reply on the pasteboard as plain text (a string, no markup, no style).
+  func copy(_ target: CopyTarget) {
+    let text =
+      switch target {
+      case .transcript: memo.plainTranscript
+      case .reply: memo.plainReply
+      }
+    guard let text else { return }
+    pasteboard.copy(text)
+    copied = target
+    copyCount += 1
+  }
+
+  func clearCopied() { copied = nil }
 
   // MARK: Loading
 

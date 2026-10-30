@@ -2,8 +2,8 @@ import IrisCore
 import IrisUI
 import SwiftUI
 
-/// The memo detail: headline, the recording's player, the step waterfall, transcript and reply, and the icon-only
-/// actions at the bottom. It reloads when `refreshToken` changes (History bumps it on a `memo.updated` event).
+/// The memo detail: headline, the recording's player, the step waterfall (collapsed to its total), transcript and reply
+/// with a Copy button each, and the icon-only actions at the bottom. It reloads when `refreshToken` changes (History bumps it on a `memo.updated` event).
 struct MemoDetailView: View {
   @State private var model: MemoDetailModel
   @State private var playback: MemoPlayback
@@ -76,6 +76,11 @@ struct MemoDetailView: View {
     )
     .task(id: refreshToken()) { await model.load() }
     .task(id: model.audioRequest) { await playback.recording.load(model.audioRequest) }
+    .task(id: model.copyCount) {
+      guard model.copied != nil else { return }
+      try? await Task.sleep(for: .seconds(1.5))
+      if !Task.isCancelled { model.clearCopied() }
+    }
     .onAppear { playback.attach() }
     // The sheet is hosted here: a screen covered by it is still on screen, so its players stay.
     .onDisappear { if routing == nil { playback.teardown() } }
@@ -194,13 +199,14 @@ struct MemoDetailView: View {
         ? String(localized: "Total", comment: "Footer of the step waterfall")
         : String(localized: "Total so far", comment: "Footer of the step waterfall while the memo runs"),
       totalValue: model.totalValue(now: now),
+      isExpanded: $model.isWaterfallExpanded,
       onRetry: retry)
   }
 
   @ViewBuilder private var transcript: some View {
     if let text = model.memo.transcript {
       VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
-        DetailSectionLabel(String(localized: "Transcript", comment: "Section label of the transcript"))
+        sectionHeader(String(localized: "Transcript", comment: "Section label of the transcript"), copying: .transcript)
         Text(verbatim: text)
           .themeFont(.callout)
           .foregroundStyle(Theme.Ink.primary)
@@ -214,7 +220,7 @@ struct MemoDetailView: View {
   @ViewBuilder private var reply: some View {
     if let text = model.memo.replyText {
       VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
-        DetailSectionLabel(String(localized: "Reply", comment: "Section label of the reply"))
+        sectionHeader(String(localized: "Reply", comment: "Section label of the reply"), copying: .reply)
         Text(ReplyMarkdown.attributed(text))
           .themeFont(.subheadline)
           .foregroundStyle(Theme.Ink.secondary)
@@ -223,6 +229,29 @@ struct MemoDetailView: View {
           .modifier(TextCard())
           .accessibilityIdentifier("detail.reply")
       }
+    }
+  }
+
+  /// The section label with the button that copies the section as plain text.
+  private func sectionHeader(_ title: String, copying target: MemoDetailModel.CopyTarget) -> some View {
+    let copied = model.copied == target
+    let name = target == .transcript ? "transcript" : "reply"
+    return HStack(spacing: Theme.Spacing.sm) {
+      DetailSectionLabel(title)
+      Button {
+        model.copy(target)
+      } label: {
+        Label(
+          copied
+            ? String(localized: "Copied", comment: "Detail: confirmation after Copy")
+            : String(localized: "Copy", comment: "Detail: copies the section as plain text"),
+          systemImage: copied ? "checkmark" : "doc.on.doc")
+      }
+      .buttonStyle(.borderless)
+      .themeFont(.caption, weight: .semibold)
+      .foregroundStyle(copied ? Theme.Status.good : Theme.Accent.tint)
+      .sensoryFeedback(.success, trigger: copied) { _, now in now }
+      .accessibilityIdentifier("detail.\(name).copy")
     }
   }
 

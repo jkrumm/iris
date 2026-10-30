@@ -3,7 +3,8 @@ import IrisCore
 import IrisUI
 
 /// Turns a memo's step timeline into the waterfall rows: the time axis is the whole run, each bar starts where the
-/// step started and is as wide as it ran. Steps still to come follow as "waiting" rows.
+/// step started and runs until the next one starts (the wait between two steps belongs to the earlier bar, so the bars
+/// touch and leave no gap); the last bar ends where its step ended. Steps still to come follow as "waiting" rows.
 enum WaterfallBuilder {
   /// The total of a run: its wall-clock span and the summed cost (nil when no step has one).
   struct Totals: Equatable {
@@ -13,12 +14,13 @@ enum WaterfallBuilder {
 
   static func rows(for detail: MemoDetail, baselines: StepBaselines, now: Date) -> [StepWaterfallRow] {
     let memo = detail.memo
-    let entries = detail.steps.filter { $0.step != .ingest }
+    let entries = detail.steps.filter { $0.step != .ingest }.sorted { $0.startedAt < $1.startedAt }
     let span = span(of: entries, now: now)
     let route = memo.route ?? "unrouted"
 
-    var rows = entries.map { entry -> StepWaterfallRow in
+    var rows = entries.enumerated().map { index, entry -> StepWaterfallRow in
       let ms = durationMs(entry, now: now)
+      let barEnd = barEnd(of: entry, next: entries.indices.contains(index + 1) ? entries[index + 1] : nil, now: now)
       let title = title(of: entry.step, memo: memo)
       let optional = entry.status == .failed && memo.isSkippedOptionalStep(entry.step)
       return StepWaterfallRow(
@@ -38,7 +40,7 @@ enum WaterfallBuilder {
         retryTitle: (memo.state == .failed && memo.failedStep == entry.step) || optional
           ? String(localized: "Retry from \(entry.step.title)", comment: "Button on the step a memo failed at") : nil,
         start: span.fraction(of: entry.startedAt),
-        length: span.length == 0 ? 0 : Double(ms) / 1_000 / span.length)
+        length: span.length == 0 ? 0 : barEnd.timeIntervalSince(entry.startedAt) / span.length)
     }
     rows += pending(after: entries, memo: memo).map {
       StepWaterfallRow(
@@ -106,6 +108,13 @@ enum WaterfallBuilder {
     guard let start = entries.map(\.startedAt).min() else { return Span(start: now, length: 0) }
     let end = entries.map { $0.finishedAt ?? ($0.status == .running ? now : $0.startedAt) }.max() ?? start
     return Span(start: start, length: max(end.timeIntervalSince(start), 0))
+  }
+
+  /// Where a step's bar stops: at the next step's start, never before the step's own end.
+  private static func barEnd(of entry: StepEntry, next: StepEntry?, now: Date) -> Date {
+    let own = entry.finishedAt ?? (entry.status == .running ? now : entry.startedAt)
+    guard let next else { return own }
+    return max(own, next.startedAt)
   }
 
   private static func durationMs(_ entry: StepEntry, now: Date) -> Int {

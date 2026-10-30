@@ -27,8 +27,37 @@
         StepWaterfallRow(id: "notify", title: "Notify", phase: .done, metric: "1.9 s", start: 0.933, length: 0.067),
       ]
       SnapshotSupport.assertLightAndDark(
-        frame(StepWaterfall(rows: rows, totalTitle: "Total", totalValue: "27.5 s · $0.0471")),
+        frame(
+          StepWaterfall(rows: rows, totalTitle: "Total", totalValue: "27.5 s · $0.0471", isExpanded: .constant(true))),
         width: 390, height: 420)
+    }
+
+    private var threeSteps: [StepWaterfallRow] {
+      [
+        StepWaterfallRow(
+          id: "transcribe", title: "Transcribe", phase: .done, metric: "8.5 s · $0.0002", start: 0, length: 0.31),
+        StepWaterfallRow(
+          id: "act", title: "Act · Hermes", phase: .done, metric: "11.4 s · $0.0412", start: 0.31, length: 0.42),
+        StepWaterfallRow(id: "notify", title: "Notify", phase: .done, metric: "1.9 s", start: 0.73, length: 0.27),
+      ]
+    }
+
+    @Test("collapsed, the default: one line with the total time and cost", .tags(.snapshot))
+    func collapsed() {
+      SnapshotSupport.assertLightAndDark(
+        frame(
+          StepWaterfall(
+            rows: threeSteps, totalTitle: "Total", totalValue: "27.5 s · $0.0414", isExpanded: .constant(false))),
+        width: 390, height: 110)
+    }
+
+    @Test("expanded: the summary line on top, the steps under it, bars touching", .tags(.snapshot))
+    func expanded() {
+      SnapshotSupport.assertLightAndDark(
+        frame(
+          StepWaterfall(
+            rows: threeSteps, totalTitle: "Total", totalValue: "27.5 s · $0.0414", isExpanded: .constant(true))),
+        width: 390, height: 330)
     }
 
     @Test("a failed run: the attempts, the error, retry from the step, and a waiting step", .tags(.snapshot))
@@ -45,7 +74,8 @@
         StepWaterfallRow(id: "notify", title: "Notify", phase: .waiting, metric: "waiting"),
       ]
       SnapshotSupport.assertLightAndDark(
-        frame(StepWaterfall(rows: rows, totalTitle: "Total", totalValue: "12.3 s · $0.0012")),
+        frame(
+          StepWaterfall(rows: rows, totalTitle: "Total", totalValue: "12.3 s · $0.0012", isExpanded: .constant(true))),
         width: 390, height: 520)
     }
 
@@ -53,10 +83,10 @@
     func skippedSummarize() {
       let rows = [
         StepWaterfallRow(
-          id: "transcribe", title: "Transcribe", phase: .done, metric: "8.5 s · $0.00", start: 0, length: 0.309),
+          id: "transcribe", title: "Transcribe", phase: .done, metric: "8.5 s · $0.0004", start: 0, length: 0.309),
         StepWaterfallRow(id: "route", title: "Route", phase: .done, metric: "12 ms", start: 0.309, length: 0.001),
         StepWaterfallRow(
-          id: "act", title: "Act · Hermes", phase: .done, metric: "11.4 s · $0.04", start: 0.31, length: 0.415),
+          id: "act", title: "Act · Hermes", phase: .done, metric: "11.4 s · $0.0412", start: 0.31, length: 0.415),
         StepWaterfallRow(
           id: "summarize", title: "Summarize", phase: .failed, metric: "3.0 s", attempts: "3 attempts",
           error: "agw triage failed: 402",
@@ -65,7 +95,8 @@
         StepWaterfallRow(id: "notify", title: "Notify", phase: .done, metric: "0.8 s", start: 0.934, length: 0.066),
       ]
       SnapshotSupport.assertLightAndDark(
-        frame(StepWaterfall(rows: rows, totalTitle: "Total", totalValue: "27.5 s · $0.05")),
+        frame(
+          StepWaterfall(rows: rows, totalTitle: "Total", totalValue: "27.5 s · $0.0416", isExpanded: .constant(true))),
         width: 390, height: 560)
     }
 
@@ -80,7 +111,9 @@
         StepWaterfallRow(id: "notify", title: "Notify", phase: .waiting, metric: "waiting"),
       ]
       SnapshotSupport.assertLightAndDark(
-        frame(StepWaterfall(rows: rows, totalTitle: "Total so far", totalValue: "52.0 s · $0.0313")),
+        frame(
+          StepWaterfall(
+            rows: rows, totalTitle: "Total so far", totalValue: "52.0 s · $0.0313", isExpanded: .constant(true))),
         width: 390, height: 380)
     }
   }
