@@ -20,6 +20,8 @@ func eventually(seconds: Double = 10, _ condition: () async -> Bool) async -> Bo
 struct MacCompositionRootTests {
   /// The sample Hermes memo that finished with a summary.
   private static let finished = "0b6d1f4e-3a52-4c1d-9f0e-7a2c5d8e1b34"
+  /// The sample memo that is still being processed.
+  private static let running = "e41a8c73-2b9d-4f06-8d35-6a7b0c1e9f22"
 
   private func fakeRoot(
     credentials: InMemoryCredentialStore = InMemoryCredentialStore(), poster: RecordingNotificationPoster? = nil,
@@ -81,7 +83,7 @@ struct MacCompositionRootTests {
   @Test("saving the connection stores it, bumps the revision and moves the panel to History")
   func saving() {
     let store = InMemoryCredentialStore()
-    let root = MacCompositionRoot(arguments: [], credentials: store)
+    let root = fakeRoot(credentials: store, extra: [MacCompositionRoot.settingsArgument])
     root.connectionForm.urlText = "https://iris.example.com"
     root.connectionForm.tokenText = "token"
     root.connectionForm.save()
@@ -90,6 +92,58 @@ struct MacCompositionRootTests {
     root.connectionForm.urlText = "http://iris.example.com"
     root.connectionForm.save()
     #expect(root.connectionForm.failure == .insecure && root.connectionRevision == 1)
+  }
+
+  @Test("an unanswered notification prompt holds neither History nor the event stream back; memos wait for the answer")
+  func promptDoesNotBlockHistory() async {
+    let poster = RecordingNotificationPoster(permission: .undetermined, holdsPrompt: true)
+    let root = fakeRoot(poster: poster)
+    root.begin()
+    #expect(await eventually { !root.history.memos.isEmpty && root.history.link == .live })
+    #expect(await eventually { await poster.requests == 1 })
+    root.fakeAPI?.emit(.memoUpdated(MemoEvent(id: Self.finished, state: .notified, at: .now)))
+    root.fakeAPI?.emit(.memoDone(MemoEvent(id: Self.finished, state: .notified, at: .now)))
+    #expect(await eventually { root.history.revision(of: Self.finished) > 0 })
+    #expect(await poster.posted.isEmpty)
+    await poster.answerPrompt(true)
+    #expect(await eventually { await poster.posted.map(\.memoID) == [Self.finished] })
+  }
+
+  @Test("a memo that finished while the stream was down is announced after the reload")
+  func announcesWhatFinishedDuringAnOutage() async throws {
+    let poster = RecordingNotificationPoster()
+    let root = fakeRoot(poster: poster)
+    let fake = try #require(root.fakeAPI)
+    root.begin()
+    #expect(await eventually { root.history.memos.contains { $0.id == Self.running } && root.history.link == .live })
+    let posted = await poster.posted
+    #expect(posted.isEmpty && root.reconnects >= 1)
+
+    var detail = try await fake.memo(id: Self.running)
+    detail.memo.state = .notified
+    detail.memo.updatedAt = .now.addingTimeInterval(60)
+    await fake.seed(detail)
+    await root.history.load()
+    #expect(await eventually { await poster.posted.map(\.memoID) == [Self.running] })
+  }
+
+  @Test("a connection change replaces the list, closes the detail and forgets what was announced")
+  func switchingServers() async {
+    let poster = RecordingNotificationPoster()
+    let root = fakeRoot(poster: poster)
+    root.begin()
+    #expect(await eventually { !root.history.memos.isEmpty })
+    let before = root.history
+    root.openDetail(Self.finished)
+    let dismissals = root.detailDismissals
+
+    root.connectionForm.urlText = "https://other.example.com"
+    root.connectionForm.tokenText = "token"
+    root.connectionForm.save()
+    #expect(root.history !== before)
+    #expect(root.detailMemoID == nil && root.detailDismissals == dismissals + 1)
+    #expect(root.history.onMemoDone != nil)
+    #expect(await eventually { !root.history.memos.isEmpty })
   }
 }
 

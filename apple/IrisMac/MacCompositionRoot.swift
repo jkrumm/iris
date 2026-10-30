@@ -29,7 +29,8 @@ final class MacCompositionRoot {
   }
 
   let mode: Mode
-  let history: HistoryModel
+  /// The memo list of the current connection; a connection change replaces it, so nothing of the old server stays.
+  private(set) var history: HistoryModel
   /// The editable connection (server URL + token).
   @ObservationIgnored private(set) lazy var connectionForm = ConnectionModel(store: credentials) {
     [unowned self] in connectionChanged()
@@ -41,6 +42,10 @@ final class MacCompositionRoot {
   private(set) var detailMemoID: String?
   /// Bumped by every ``openDetail(_:)``; the always-present menu-bar label opens the detail window when it changes.
   private(set) var detailRequest = 0
+  /// Bumped when the detail window must close (the connection moved to another server).
+  private(set) var detailDismissals = 0
+  /// Times the server came back after the stream had been down; an open detail reloads on each.
+  private(set) var reconnects = 0
 
   let notifier: MemoNotifier
   private let api: any APIClient
@@ -58,7 +63,6 @@ final class MacCompositionRoot {
     poster: (any NotificationPoster)? = nil
   ) {
     sampleNow = SampleData.now(arguments: arguments)
-    let history: HistoryModel
     let client: any APIClient
     if arguments.contains(Self.fakeDataArgument) {
       let launched = Date()
@@ -69,7 +73,6 @@ final class MacCompositionRoot {
       fakeAPI = fake
       reconfigurable = nil
       self.credentials = credentials ?? InMemoryCredentialStore()
-      history = HistoryModel(client: fake)
       page = arguments.contains(Self.settingsArgument) ? .settings : .history
     } else {
       let store = credentials ?? KeychainCredentialStore()
@@ -80,18 +83,26 @@ final class MacCompositionRoot {
       fakeAPI = nil
       self.reconfigurable = reconfigurable
       self.credentials = store
-      history = HistoryModel(client: reconfigurable, hiddenStore: UserDefaultsHiddenMemoStore())
       page = saved == nil ? .settings : .history
     }
     api = client
-    self.history = history
+    history = Self.makeHistory(client: client, mode: mode)
     let isFake = mode == .fake
     notifier = MemoNotifier(
-      poster: poster ?? (isFake ? RecordingNotificationPoster() : UserNotificationPoster()),
-      lookup: { id in
-        if let known = history.memos.first(where: { $0.id == id }) { return known }
-        return try? await client.memo(id: id).memo
-      })
+      poster: poster ?? (isFake ? RecordingNotificationPoster() : UserNotificationPoster()), lookup: { _ in nil })
+    notifier.lookup = { [weak self] id in
+      if let known = self?.history.memos.first(where: { $0.id == id }) { return known }
+      return try? await client.memo(id: id).memo
+    }
+    wireNotifications()
+  }
+
+  private static func makeHistory(client: any APIClient, mode: Mode) -> HistoryModel {
+    mode == .fake
+      ? HistoryModel(client: client) : HistoryModel(client: client, hiddenStore: UserDefaultsHiddenMemoStore())
+  }
+
+  private func wireNotifications() {
     history.onMemoDone = { [notifier] id in Task { await notifier.memoDone(id: id) } }
   }
 
@@ -109,20 +120,51 @@ final class MacCompositionRoot {
     return mode == .fake || credentials.load() != nil
   }
 
-  /// Starts following the server: the list, then its event stream. Called once at launch and again on each connection change.
+  /// Starts following the server: the list, its event stream and the watch for memos that finished unseen. Called once at launch
+  /// and again on each connection change.
   func begin() {
     following?.cancel()
     following = Task { [weak self] in await self?.follow() }
   }
 
-  /// Fakes: seeds the sample memos. Then, when there is a connection: asks for notification permission, loads the list and
-  /// follows `/v1/events` until cancelled.
+  /// Fakes: seeds the sample memos. Then, when there is a connection: loads the list and follows `/v1/events` until cancelled.
+  /// The notification prompt is shown on the side: an unanswered prompt never holds History or the stream back.
   private func follow() async {
     if let fakeAPI { await SampleData.seed(fakeAPI, now: sampleNow) }
     guard isConfigured else { return }
-    await notifier.prepare()
+    notifier.requestPermissionIfNeeded()
+    let history = history
+    async let events: Void = followEvents(of: history)
+    async let completions: Void = watch(history)
+    _ = await (events, completions)
+  }
+
+  private func followEvents(of history: HistoryModel) async {
     await history.load()
     await history.observeEvents()
+  }
+
+  /// Follows what History shows. A memo that is done in a snapshot but was not in the one before is announced (a `memo.done`
+  /// lost to an outage; the notifier drops the ones the event already announced), and every return of the connection bumps
+  /// ``reconnects``.
+  private func watch(_ history: HistoryModel) async {
+    var catchUp = DoneCatchUp()
+    var link = LinkTracker()
+    let snapshots = Observations {
+      Snapshot(memos: history.memos, hasLoaded: history.hasLoaded, filters: history.filters, link: history.link)
+    }
+    for await snapshot in snapshots {
+      if link.cameBack(snapshot.link) { reconnects += 1 }
+      let finished = catchUp.newlyDone(in: snapshot.memos, hasLoaded: snapshot.hasLoaded, filters: snapshot.filters)
+      for id in finished { Task { await notifier.memoDone(id: id) } }
+    }
+  }
+
+  private struct Snapshot: Sendable {
+    let memos: [Memo]
+    let hasLoaded: Bool
+    let filters: HistoryFilters
+    let link: ServerLink
   }
 
   /// Installs the click handler that opens a memo from its notification banner. Production only: the fake never posts.
@@ -145,11 +187,24 @@ final class MacCompositionRoot {
       memoID: id, memo: history.memos.first { $0.id == id }, client: api, pasteboard: MacPasteboard())
   }
 
+  /// The saved connection changed: everything that belongs to the old server goes (its list, the open detail and the window,
+  /// what was announced), the client points at the new one, and following starts over.
   private func connectionChanged() {
+    following?.cancel()
     reconfigurable?.reconfigure(credentials.load())
+    history = Self.makeHistory(client: api, mode: mode)
+    wireNotifications()
+    notifier.reset()
+    closeDetail()
+    reconnects = 0
     connectionRevision += 1
     page = isConfigured ? .history : .settings
     begin()
+  }
+
+  private func closeDetail() {
+    detailMemoID = nil
+    detailDismissals += 1
   }
 }
 

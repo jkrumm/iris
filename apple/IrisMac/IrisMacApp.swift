@@ -11,7 +11,7 @@ struct IrisMacApp: App {
     root.installNotificationClicks()
     // The list and the event stream run from launch, popover open or not: a notification per finished memo needs them.
     root.begin()
-    if let snapshot = MacSnapshotRun(arguments: ProcessInfo.processInfo.arguments, root: root) {
+    if root.mode == .fake, let snapshot = MacSnapshotRun(arguments: ProcessInfo.processInfo.arguments, root: root) {
       Task { await snapshot.run() }
     }
   }
@@ -48,6 +48,7 @@ private struct MenuBarLabel: View {
   static let detailWindowID = "memo"
   let root: MacCompositionRoot
   @Environment(\.openWindow) private var openWindow
+  @Environment(\.dismissWindow) private var dismissWindow
 
   var body: some View {
     Image(systemName: "waveform")
@@ -56,5 +57,6 @@ private struct MenuBarLabel: View {
         openWindow(id: Self.detailWindowID)
         NSApp.activate()
       }
+      .onChange(of: root.detailDismissals) { dismissWindow(id: Self.detailWindowID) }
   }
 }

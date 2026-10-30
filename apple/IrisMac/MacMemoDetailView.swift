@@ -10,8 +10,10 @@ struct MacMemoDetailPanel: View {
     Group {
       if let id = root.detailMemoID {
         // A new id is a new memo: the view and its model start over.
-        MacMemoDetailView(model: root.detailModel(for: id), refreshToken: { root.history.revision(of: id) })
-          .id(id)
+        MacMemoDetailView(
+          model: root.detailModel(for: id), refreshToken: { root.history.revision(of: id) + root.reconnects }
+        )
+        .id(id)
       } else {
         ContentUnavailableView(
           String(localized: "No memo selected", comment: "Detail panel without a memo"), systemImage: "waveform")
