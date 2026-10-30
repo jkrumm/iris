@@ -204,6 +204,7 @@ public struct ThreadReplyBar: View {
       .onChanged { value in
         if !began {
           began = true
+          isLocked = false
           onHoldBegan()
         }
         isCancelling = value.translation.height < -Self.cancelDistance
