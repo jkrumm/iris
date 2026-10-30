@@ -10,7 +10,7 @@ struct HistoryFilterSheet: View {
   private static let states: [MemoState] = [.needsRoute, .failed, .notified]
 
   var body: some View {
-    VStack(alignment: .leading, spacing: Theme.Spacing.lg) {
+    VStack(alignment: .leading, spacing: Theme.Spacing.md) {
       HStack(alignment: .firstTextBaseline) {
         Text("Filter", comment: "Title of the filter sheet")
           .themeFont(.title3, weight: .semibold)
@@ -24,14 +24,14 @@ struct HistoryFilterSheet: View {
       }
       group(String(localized: "Route", comment: "Filter sheet group")) {
         ForEach(RouteDestination.allCases, id: \.self) { destination in
-          FilterChip(title: destination.title, isOn: filters.route == destination) {
+          FilterChip(title: destination.title, isOn: filters.route == destination, size: .regular) {
             withAnimation(.snappy) { filters.toggleRoute(destination) }
           }
         }
       }
       group(String(localized: "State", comment: "Filter sheet group")) {
         ForEach(Self.states, id: \.self) { state in
-          FilterChip(title: state.label, isOn: filters.effectiveState == state) {
+          FilterChip(title: state.label, isOn: filters.effectiveState == state, size: .regular) {
             withAnimation(.snappy) { filters.toggleState(state) }
           }
         }
@@ -44,9 +44,11 @@ struct HistoryFilterSheet: View {
       }
       .buttonStyle(.glassProminent)
       .controlSize(.large)
+      .padding(.top, Theme.Spacing.sheetInset - Theme.Spacing.md)
       .accessibilityIdentifier("history.filter.show")
     }
-    .padding(Theme.Spacing.xl)
+    .padding(.horizontal, Theme.Spacing.sheetInset)
+    .padding(.top, Theme.Spacing.cozy)
     .frame(maxHeight: .infinity, alignment: .top)
     .accessibilityIdentifier("history.filter.sheet")
   }

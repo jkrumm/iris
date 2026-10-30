@@ -20,6 +20,12 @@ struct HistoryView: View {
   /// `RouteAnswerSheet` in this view's modifier chain made the list's top scroll edge mis-size on some launches (a blur over
   /// the bar and the first rows that ate their touches, TDD §4), where an empty sheet or none did not.
   let onRoute: (Memo) -> Void
+  /// The mockup's row: 12 pt above and below, 20 pt screen margin on both sides (`history.html` `.row`).
+  private static let rowInsets = EdgeInsets(
+    top: Theme.Spacing.rowVertical, leading: Theme.Spacing.screenMargin, bottom: Theme.Spacing.rowVertical,
+    trailing: Theme.Spacing.screenMargin)
+  private static let headerInsets = EdgeInsets(
+    top: 0, leading: Theme.Spacing.screenMargin, bottom: 0, trailing: Theme.Spacing.screenMargin)
   @State private var showingFilters = false
   @State private var composer: ComposerRequest?
 
@@ -41,6 +47,7 @@ struct HistoryView: View {
                   timeText: memo.timeText, isDone: memo.done, isFavorite: memo.favorite)
               }
               .accessibilityIdentifier("history.row")
+              .listRowInsets(Self.rowInsets)
               .listRowBackground(HistoryRowBackground(needsAttention: memo.isOpenNeedsRoute))
               .modifier(MemoSwipeActions(memo: memo, model: model, onRoute: onRoute))
               .task { await model.loadMoreIfNeeded(current: memo) }
@@ -50,10 +57,16 @@ struct HistoryView: View {
               .themeFont(.caption, weight: .semibold)
               .textCase(.uppercase)
               .foregroundStyle(Theme.Ink.muted)
+              .padding(.top, Theme.Spacing.sectionTop)
+              .padding(.bottom, Theme.Spacing.sectionBottom)
+              .listRowInsets(Self.headerInsets)
           }
         }
       }
       .listStyle(.plain)
+      .environment(\.defaultMinListHeaderHeight, 0)
+      .environment(\.defaultMinListRowHeight, 0)
+      .listSectionSpacing(.custom(0))
       .accessibilityIdentifier("history.list")
       .scrollContentBackground(.hidden)
       .background(Theme.Surface.background)
@@ -181,8 +194,8 @@ struct HistoryView: View {
         actionTitle: toast.kind.isUndo ? String(localized: "Undo", comment: "Undoes a delete") : nil,
         action: { Task { await model.undoDelete() } }
       )
-      .padding(.horizontal, Theme.Spacing.lg)
-      .padding(.bottom, Theme.Spacing.lg)
+      .padding(.horizontal, Theme.Spacing.barInset)
+      .padding(.bottom, Theme.Spacing.barInset)
       .transition(.move(edge: .bottom).combined(with: .opacity))
       .accessibilityIdentifier("history.toast")
     }

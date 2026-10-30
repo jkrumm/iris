@@ -38,10 +38,10 @@ public struct HistoryRow: View {
   }
 
   public var body: some View {
-    VStack(alignment: .leading, spacing: Theme.Spacing.xs) {
-      HStack(alignment: .firstTextBaseline, spacing: Theme.Spacing.sm) {
+    VStack(alignment: .leading, spacing: Theme.Spacing.rowLineGap) {
+      HStack(alignment: .firstTextBaseline, spacing: Theme.Spacing.rowColumnGap) {
         statusLine
-        Spacer(minLength: Theme.Spacing.sm)
+        Spacer(minLength: Theme.Spacing.rowColumnGap)
         if isFavorite {
           Image(systemName: "star.fill")
             .foregroundStyle(Theme.Status.warn)
@@ -69,7 +69,6 @@ public struct HistoryRow: View {
       }
     }
     .opacity(isDone ? 0.55 : 1)
-    .padding(.vertical, Theme.Spacing.sm)
     .accessibilityElement(children: .combine)
     .accessibilityValue(accessibilityValue)
   }
@@ -77,7 +76,7 @@ public struct HistoryRow: View {
   @ViewBuilder private var statusLine: some View {
     switch status {
     case .settled(let route, let dot, let duration):
-      HStack(spacing: Theme.Spacing.sm) {
+      HStack(spacing: Theme.Spacing.snug) {
         Dot(color: dot)
         Text(verbatim: route)
           .fontWeight(.semibold)
@@ -89,7 +88,7 @@ public struct HistoryRow: View {
       }
       .foregroundStyle(Theme.Ink.muted)
     case .inFlight(let route, let dot, let label, let progress):
-      HStack(spacing: Theme.Spacing.sm) {
+      HStack(spacing: Theme.Spacing.snug) {
         Dot(color: dot)
         Text(verbatim: route)
           .fontWeight(.semibold)
@@ -102,7 +101,7 @@ public struct HistoryRow: View {
         if let progress { StepProgressDashes(progress: progress) }
       }
     case .alert(let label, let color):
-      HStack(spacing: Theme.Spacing.sm) {
+      HStack(spacing: Theme.Spacing.snug) {
         Dot(color: color)
         Text(verbatim: label)
           .fontWeight(.semibold)
@@ -154,6 +153,6 @@ public struct HistoryRowBackground: View {
 
   public var body: some View {
     Theme.Surface.background
-      .overlay { if needsAttention { Theme.Status.warn.opacity(0.1) } }
+      .overlay { if needsAttention { Theme.Status.warn.opacity(0.07) } }
   }
 }

@@ -30,6 +30,13 @@ extension Theme.Spacing {
   /// Chips: gap between them in a row, padding inside one.
   public static let chipGap = snug
   public static let chipInsetHorizontal = md
+  /// Chip height: the quick-filter row, and the larger chips of the filter sheet (`.fc` in `history.html`).
+  public static let chipHeight: CGFloat = 30
+  public static let chipHeightLarge: CGFloat = 36
+  /// Space between the filter row and the section label under it is the section's own top; the row adds this above.
+  public static let chipRowTop = sm
+  /// A bottom sheet's side and bottom inset (`.fsheet`).
+  public static let sheetInset: CGFloat = 18
   /// Floating bars (search, tab dock, record): side inset and gap between neighbours.
   public static let barInset = inset
   public static let barGap = cozy

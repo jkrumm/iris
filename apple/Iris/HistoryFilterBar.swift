@@ -7,7 +7,7 @@ struct HistoryFilterBar: View {
 
   var body: some View {
     ScrollView(.horizontal) {
-      HStack(spacing: Theme.Spacing.sm) {
+      HStack(spacing: Theme.Spacing.chipGap) {
         ForEach(QuickFilter.allCases, id: \.self) { filter in
           FilterChip(title: filter.title, systemImage: filter.systemImage, isOn: filters.quick == filter) {
             withAnimation(.snappy) { filters.toggle(filter) }
@@ -15,10 +15,10 @@ struct HistoryFilterBar: View {
           .accessibilityIdentifier("history.chip.\(filter.identifier)")
         }
       }
-      .padding(.horizontal, Theme.Spacing.lg)
-      .padding(.vertical, Theme.Spacing.sm)
     }
+    .contentMargins(.horizontal, Theme.Spacing.screenMargin, for: .scrollContent)
     .scrollIndicators(.hidden)
+    .padding(.top, Theme.Spacing.chipRowTop)
   }
 }
 
