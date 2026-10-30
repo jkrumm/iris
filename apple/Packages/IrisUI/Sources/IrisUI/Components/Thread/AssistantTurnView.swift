@@ -19,7 +19,7 @@ public struct AssistantTurnView: View {
   }
 
   public var body: some View {
-    VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
+    VStack(alignment: .leading, spacing: Theme.Spacing.snug) {
       TurnHeader(speaker: .assistant, time: time)
       MessageContentView(markdown: markdown, mermaid: mermaid, onOpenImage: onOpenImage)
     }

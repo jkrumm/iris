@@ -13,7 +13,7 @@ struct TurnHeader: View {
   var body: some View {
     HStack(spacing: Theme.Spacing.sm) {
       Image(systemName: speaker == .user ? "person.fill" : "sparkles")
-        .font(.system(size: 11, weight: .semibold))
+        .font(.system(size: 12, weight: .semibold))
         .foregroundStyle(speaker == .user ? Theme.Ink.secondary : Theme.Accent.onFill)
         .frame(width: 22, height: 22)
         .background(speaker == .user ? Theme.Surface.border : Theme.Accent.fill, in: .circle)

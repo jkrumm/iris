@@ -11,15 +11,15 @@ public struct UserTurnView: View {
   }
 
   public var body: some View {
-    VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
+    VStack(alignment: .leading, spacing: Theme.Spacing.snug) {
       TurnHeader(speaker: .user, time: time)
       Text(verbatim: text)
         .themeFont(.subheadline)
-        .foregroundStyle(Theme.Ink.primary)
+        .foregroundStyle(Theme.Ink.secondary)
         .textSelection(.enabled)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, Theme.Spacing.md)
-        .padding(.vertical, Theme.Spacing.md)
+        .padding(.horizontal, Theme.Spacing.cardInsetHorizontal)
+        .padding(.vertical, Theme.Spacing.cardInsetVertical)
         .background(Theme.Accent.tint.opacity(0.1), in: .rect(cornerRadius: Theme.Radius.card))
         .overlay {
           RoundedRectangle(cornerRadius: Theme.Radius.card)

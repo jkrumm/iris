@@ -12,7 +12,7 @@ public struct PendingTurnView: View {
   }
 
   public var body: some View {
-    VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
+    VStack(alignment: .leading, spacing: Theme.Spacing.snug) {
       TurnHeader(speaker: .assistant, time: "")
       HStack(spacing: Theme.Spacing.md) {
         StepProgressDashes(progress: progress)
@@ -20,7 +20,8 @@ public struct PendingTurnView: View {
           .themeFont(.footnote)
           .foregroundStyle(Theme.Ink.muted)
       }
-      .padding(Theme.Spacing.md)
+      .padding(.horizontal, Theme.Spacing.cardInsetHorizontal)
+      .padding(.vertical, Theme.Spacing.cardInsetVertical)
       .frame(maxWidth: .infinity, alignment: .leading)
       .detailCard()
     }
