@@ -209,6 +209,13 @@ export function createMemoService(deps: {
     }
   };
 
+  /** A thread continues in Hermes, which a transcribe-only memo never reaches. */
+  const assertNoThreadInTranscribe = (params: { mode: MemoMode; threadId: string | undefined }) => {
+    if (params.mode === "transcribe" && params.threadId !== undefined) {
+      throw new MemoError("bad_request", "mode transcribe cannot continue a thread");
+    }
+  };
+
   const publishFlagChange = (memo: Memo) =>
     events.publish(memoEvent({ memo, step: null, clock, flagChange: true }));
 
@@ -232,6 +239,7 @@ export function createMemoService(deps: {
       if (Number.isNaN(Date.parse(startedAt))) {
         throw new MemoError("bad_request", "startedAt must be an ISO timestamp");
       }
+      assertNoThreadInTranscribe({ mode, threadId });
       assertCanContinue({ id, threadId });
       const result = store.createMemo({ id, mode, device, startedAt, threadId });
       if (!result.created) {
@@ -256,6 +264,7 @@ export function createMemoService(deps: {
       if ([...trimmed].length > MAX_TEXT_CHARS) {
         throw new MemoError("bad_request", `text exceeds ${MAX_TEXT_CHARS} characters`);
       }
+      assertNoThreadInTranscribe({ mode, threadId });
       assertCanContinue({ id, threadId });
       const result = store.createTextMemo({ id, mode, device, startedAt, text: trimmed, threadId });
       if (!result.created) {

@@ -15,7 +15,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
 
-const MODES = ["auto", "journal", "hermes", "tab", "chat"] as const;
+const MODES = ["auto", "journal", "hermes", "tab", "chat", "transcribe"] as const;
 type Mode = (typeof MODES)[number];
 
 const DEFAULT_URL = "http://127.0.0.1:7730";
@@ -52,7 +52,7 @@ class ApiError extends Error {
 }
 
 export const USAGE = `usage: IRIS_TOKEN=<token> bun scripts/send-memo.ts <audio-file> | --text "<text>"
-  [--url <base>] [--token <token>] [--mode auto|journal|hermes|tab|chat] [--wait <seconds>] [--thread <id>]
+  [--url <base>] [--token <token>] [--mode auto|journal|hermes|tab|chat|transcribe] [--wait <seconds>] [--thread <id>]
   env: IRIS_URL (default ${DEFAULT_URL}), IRIS_TOKEN (required)`;
 
 function parseSource(params: { text: string | undefined; positionals: string[] }): Source {

@@ -31,9 +31,11 @@ public enum MemoMode: String, Codable, Hashable, Sendable, CaseIterable {
   case hermes
   case tab
   case chat
+  /// Transcript only: the pipeline stops after `transcribe` (no route, act or summarize) and the memo ends `notified`.
+  case transcribe
   case unknown
 
-  public static var allCases: [MemoMode] { [.auto, .journal, .hermes, .tab, .chat] }
+  public static var allCases: [MemoMode] { [.auto, .journal, .hermes, .tab, .chat, .transcribe] }
 
   public init(from decoder: any Decoder) throws {
     let raw = try decoder.singleValueContainer().decode(String.self)

@@ -101,6 +101,39 @@ struct MemoPresentationTests {
     #expect(PipelineSteps.applicable(to: MemoFactory.memo("a")) == [.transcribe, .route, .act, .summarize, .notify])
     #expect(PipelineSteps.applicable(to: MemoFactory.memo("t", typed: true)) == [.route, .act, .summarize, .notify])
   }
+
+  @Test("a transcribe memo reads as its transcript: mode as the route, two steps, no reply or summary line")
+  func transcribeMemo() {
+    let memo = MemoFactory.memo(
+      "a", mode: .transcribe, audioSeconds: 17.3, transcript: "Ideen für das Wochenende: früh los zum See")
+    #expect(memo.routeLabel == "Transcribe")
+    #expect(memo.rowHeadline == "Ideen für das Wochenende: früh los zum See")
+    #expect(memo.rowSecondary == nil)
+    #expect(memo.rowStatus == .settled(route: "Transcribe", dot: memo.routeDotColor, duration: "17 s"))
+    #expect(memo.routeChipIcon == "text.alignleft")
+    #expect(MemoFactory.memo("a", mode: .hermes).routeChipIcon == "arrow.triangle.branch")
+  }
+
+  @Test("a transcribe memo goes through transcribe and notify only, and its dashes count two")
+  func transcribeSteps() {
+    let spoken = MemoFactory.memo("a", mode: .transcribe)
+    #expect(PipelineSteps.applicable(to: spoken) == [.transcribe, .notify])
+    #expect(PipelineSteps.applicable(to: MemoFactory.memo("t", mode: .transcribe, typed: true)) == [.notify])
+    #expect(
+      MemoFactory.memo("a", state: .received, mode: .transcribe).stepProgress == StepProgress(completed: 0, total: 2))
+    #expect(
+      MemoFactory.memo("a", state: .transcribed, mode: .transcribe).stepProgress == StepProgress(completed: 1, total: 2)
+    )
+    #expect(spoken.stepProgress == StepProgress(completed: 2, total: 2))
+  }
+
+  @Test("the record control offers Transcribe with its own icon and wording")
+  func transcribeInModePicker() {
+    #expect(MemoMode.voiceModes.contains(.transcribe))
+    #expect(MemoMode.transcribe.composerTitle == "Transcribe")
+    #expect(MemoMode.transcribe.composerIcon == "text.alignleft")
+    #expect(!MemoMode.transcribe.summary.isEmpty)
+  }
 }
 
 extension HistoryRowStatus {

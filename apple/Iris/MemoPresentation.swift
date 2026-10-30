@@ -38,6 +38,11 @@ extension Memo {
     }
   }
 
+  /// The icon on the detail's chip: a transcript-only memo has no route to show a branch for.
+  var routeChipIcon: String {
+    mode == .transcribe ? "text.alignleft" : "arrow.triangle.branch"
+  }
+
   /// The route's dot on a History row.
   var routeDotColor: Color {
     switch route {
@@ -83,6 +88,7 @@ extension Memo {
   /// How many of the pipeline's steps the memo's state says are done: the list wire carries no step timeline, and
   /// the state is enough for the dashes on an in-flight row.
   var stepProgress: StepProgress {
+    let total = PipelineSteps.shown(for: mode).count
     let completed =
       switch state {
       case .receiving, .received, .failed: 0
@@ -90,9 +96,9 @@ extension Memo {
       case .routed: 2
       case .acted: 3
       case .summarized: 4
-      case .notified: PipelineSteps.shown.count
+      case .notified: total
       }
-    return StepProgress(completed: completed, total: PipelineSteps.shown.count)
+    return StepProgress(completed: completed, total: total)
   }
 
   /// The grey line under the headline: what to do about a failure or a parked memo, else the summary's first line.
@@ -114,9 +120,15 @@ extension Memo {
 nonisolated enum PipelineSteps {
   static let shown: [MemoStep] = [.transcribe, .route, .act, .summarize, .notify]
 
+  /// The steps a memo of `mode` goes through: a transcript-only memo skips route, act and summarize.
+  static func shown(for mode: MemoMode) -> [MemoStep] {
+    mode == .transcribe ? [.transcribe, .notify] : shown
+  }
+
   /// The steps `memo` goes through: a typed memo has no recording, so it skips transcribe.
   static func applicable(to memo: Memo) -> [MemoStep] {
-    memo.isTyped ? shown.filter { $0 != .transcribe } : shown
+    let steps = shown(for: memo.mode)
+    return memo.isTyped ? steps.filter { $0 != .transcribe } : steps
   }
 }
 

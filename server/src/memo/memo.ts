@@ -1,4 +1,4 @@
-export const MEMO_MODES = ["auto", "journal", "hermes", "tab", "chat"] as const;
+export const MEMO_MODES = ["auto", "journal", "hermes", "tab", "chat", "transcribe"] as const;
 export type MemoMode = (typeof MEMO_MODES)[number];
 
 export const MEMO_STATES = [
@@ -329,6 +329,23 @@ const TRANSITIONS: Record<Step, Transition> = {
 };
 
 /**
+ * Mode `transcribe` stops after the transcript: no route, act or summarize step exists for it (no row on the timeline,
+ * no route, no reply, no summary), and `notify` runs straight from `transcribed`.
+ */
+const TRANSCRIBE_ONLY_STEPS: readonly Step[] = ["ingest", "transcribe", "notify"];
+
+/** The steps a memo of `mode` goes through, in pipeline order. */
+export function stepsOf(mode: MemoMode): readonly Step[] {
+  return mode === "transcribe" ? TRANSCRIBE_ONLY_STEPS : STEPS;
+}
+
+function transitionOf(step: Step, mode: MemoMode): Transition {
+  return step === "notify" && mode === "transcribe"
+    ? { from: "transcribed", to: "notified" }
+    : TRANSITIONS[step];
+}
+
+/**
  * Steps whose permanent failure does not fail the memo: the step row stays `failed` (error and attempts kept) and the memo
  * moves on to the next step. The result they produce is an extra, not the point of the memo.
  */
@@ -353,8 +370,13 @@ export class IllegalTransitionError extends Error {
 }
 
 /** The handler step to run from `state`, or null when the runner has nothing to do there. */
-export function nextStep(state: MemoState): HandlerStep | null {
-  return HANDLER_STEPS.find((step) => TRANSITIONS[step].from === state) ?? null;
+export function nextStep(params: { state: MemoState; mode: MemoMode }): HandlerStep | null {
+  const { state, mode } = params;
+  return (
+    HANDLER_STEPS.find(
+      (step) => stepsOf(mode).includes(step) && transitionOf(step, mode).from === state,
+    ) ?? null
+  );
 }
 
 /** The runner stops for good here. */
@@ -373,8 +395,8 @@ export function isCorrectable(state: MemoState): boolean {
 }
 
 /** The state a retry from `step` resets the memo to. */
-export function stateBefore(step: Step): MemoState {
-  return TRANSITIONS[step].from;
+export function stateBefore(params: { step: Step; mode: MemoMode }): MemoState {
+  return transitionOf(params.step, params.mode).from;
 }
 
 export function stepIndex(step: Step): number {
@@ -390,10 +412,14 @@ export function stepsFrom(step: Step): Step[] {
 export function advance(params: {
   state: MemoState;
   step: Step;
+  mode: MemoMode;
   outcome?: StepOutcome | undefined;
 }): MemoState {
-  const { state, step, outcome } = params;
-  const t = TRANSITIONS[step];
+  const { state, step, mode, outcome } = params;
+  if (!stepsOf(mode).includes(step)) {
+    throw new IllegalTransitionError(`step ${step} does not run in mode ${mode}`);
+  }
+  const t = transitionOf(step, mode);
   if (state !== t.from) {
     throw new IllegalTransitionError(`step ${step} cannot run from state ${state}`);
   }

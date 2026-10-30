@@ -138,9 +138,22 @@ receiving ──complete──> received ──> transcribed ──> routed ─�
                            routed ──act: tab gone──┘
 any step ──error──> failed(step)   ──retry(from)──> <step>
 acted ──summarize fails for good──> summarized (step row failed, memo not failed) ──> notified
+mode transcribe:  received ──> transcribed ──notify──> notified   (no route, act or summarize; never needs_route)
 notified (summarize step failed) ──retry(from: summarize)──> acted
 ```
 
+- **Mode `transcribe` (Wave 17 S2):** the owner picks "just the transcript" up front. The pipeline of such a memo is `ingest`, `transcribe`,
+  `notify`: `memo/memo.ts` keeps one transition table and `stepsOf(mode)` / `nextStep({state, mode})` / `advance({..., mode})` /
+  `stateBefore({step, mode})` read it per mode, with `notify` running from `transcribed` instead of `summarized`. The steps it does not
+  have are absent, not skipped: no `route`/`act`/`summarize` rows on the timeline (`GET /memos/:id` `steps` holds `transcribe` and `notify`;
+  the waterfall only draws rows that exist, and Stats keys the two steps under `unrouted`, as it does for any memo without a route), no
+  `route_decisions` row, `route`, `reply_text` and `summary` stay NULL, the state is never `needs_route`, and the registered destinations
+  are irrelevant (a server with none still finishes the memo; `route()` throws for this mode, which the pipeline never asks). The memo ends in
+  the ordinary terminal `notified`, so `isResultReady`, `/result` and `memo.done` need no special case. `notify` announces the transcript clipped
+  to a 60-character headline (§12), the alert title is the generic "Iris" (no route chip). A typed memo (`POST /memos/text`, created
+  `transcribed` with the text as transcript) in this mode runs only `notify` and ends at once. A `threadId` with this mode is 400
+  `bad_request` (a thread continues in Hermes, which this mode never reaches). `POST /retry {from}` is accepted for `transcribe` and `notify`
+  only (400 for a step the mode lacks); a failed `notify` resets to `transcribed`.
 - **Parking:** only `route` and `act` may park a memo in `needs_route` (a handler result `outcome: "needs_route"`; any other step
   that asks to fails). `act` parks when the herdr tab it was routed to has vanished. The answer is the same `POST /route`, which routes it back
   to `act`.
@@ -207,7 +220,7 @@ Shipped (Waves 5, 10 and 12). Step results are columns on `memos`, not a separat
 
 | Table | Columns (key ones) |
 |-|-|
-| `memos` | `seq` (autoincrement), `id` (uuid, client-minted), `mode` (auto/journal/hermes/tab/chat), `device` (authenticated device name), `state`, `failed_step`, `error`, `started_at`, `segment_count`, `audio_seconds`, `transcript`, `route`, `destination_ref`, `reply_text`, `summary_json`, `thread_id` (the Hermes session the memo belongs to: set by `act`, or at creation for a memo that continues a thread; NULL before then), `done` (0/1), `favorite` (0/1), `archived_at` (nullable ISO), `deleted_at` (nullable ISO; the soft delete), `created_at`, `updated_at` |
+| `memos` | `seq` (autoincrement), `id` (uuid, client-minted), `mode` (auto/journal/hermes/tab/chat/transcribe), `device` (authenticated device name), `state`, `failed_step`, `error`, `started_at`, `segment_count`, `audio_seconds`, `transcript`, `route`, `destination_ref`, `reply_text`, `summary_json`, `thread_id` (the Hermes session the memo belongs to: set by `act`, or at creation for a memo that continues a thread; NULL before then), `done` (0/1), `favorite` (0/1), `archived_at` (nullable ISO), `deleted_at` (nullable ISO; the soft delete), `created_at`, `updated_at` |
 | `segments` | `memo_id`, `idx`, `bytes`, `sha256`, `received_at`: PK (`memo_id`, `idx`) |
 | `memo_steps` | `memo_id`, `step`, `status`, `started_at`, `finished_at`, `error`, `usage_json`, `cost_usd`, `attempts` (INTEGER NOT NULL DEFAULT 1: tries used, see Retries; on the wire as `attempts` ≥ 1): PK (`memo_id`, `step`); `POST /retry` deletes the rows from the step on, so the re-run counts from 1 |
 | `devices` | `device` (PK, the token-map name), `name` (display label), `platform` (ios/macos), `apns_token`, `apns_env` (sandbox/production), `push_to_start_token`, `last_seen_at`, `updated_at` |
@@ -311,7 +324,7 @@ machine, Retries); retention (audio deleted 30 days after `notified`) is not bui
      titles).
    - Header: `Authorization: Bearer <AUDIO_DOOR_TOKEN>`; the answer carries `agw-run-id`, logged and set on the span as `agw.run_id`. A 401 is final.
    - The door handles chunking up to about 2 h. A 413 is terminal.
-3. **route:** only destinations with a registered act adapter are choices (`Destinations`).
+3. **route:** only destinations with a registered act adapter are choices (`Destinations`). Mode `transcribe` never reaches this step (§Memo state machine).
    - If the memo's mode is not auto, it wins (`journal` → journal, `hermes` → hermes, `tab` → herdr, `chat` → hermes). Source `mode`; a chat memo is never routed elsewhere by prefix or `decide`. Mode `tab` carries no name:
      it routes to the only live tab, and parks with "which tab?" when there are several or none.
    - Otherwise the prefix parser matches "journal|tagebuch", "an hermes|hermes", "tab <name>", case- and diacritic-insensitive, with the
@@ -618,7 +631,7 @@ follows the memos: `evict(memoID:)` removes `<memo>.*` (recording, speech, diagr
 ### Routing on iOS (Wave 16 I3, R2)
 
 - **One mode picker.** `ModePicker` (chips over `ChoiceChips`) is the composer's picker and the record control's: a tap on the record accessory still records in Auto, a
-  long press opens a context menu with the voice modes and "Choose mode…", which opens `RecordModeSheet` (the same chips, one line on what the mode does, Start). A voice take offers Auto, Journal, Hermes and Chat (`MemoMode.voiceModes`); Tab is
+  long press opens a context menu with the voice modes and "Choose mode…", which opens `RecordModeSheet` (the same chips, one line on what the mode does, Start). A voice take offers Auto, Journal, Hermes, Chat and Transcribe (`MemoMode.voiceModes`; Transcribe has the `text.alignleft` icon and ends the memo with its transcript: History shows the transcript as the headline with "Transcribe" as the route label, the detail has a Transcript section and no Reply, no route card and no "Wrong route?"; its dashes and waterfall hold transcribe and notify only); Tab is
   left out because the tab is named while speaking, the composer keeps it. The accessory stays a `Button` with a context menu: a tap/long-press gesture on a plain label made taps elsewhere on History miss intermittently (the smoke test failed 2 of 6 against 0 of 6 on the baseline).
 - **Answering a park.** `RouteAnswerModel` / `RouteAnswerSheet` (the panel itself is IrisUI's `RouteAnswerPanel`, snapshot tested) call `POST /v1/memos/:id/route`. A pinned
   needs-route History row has a trailing swipe action "Route…" (a button inside the row fought the row's `NavigationLink` for the tap and an extra row made the top bars blur the pinned memo), the memo detail a card with the park reason and a "Route to <suggestion>…" button. The sheet shows `routeReason`, preselects
@@ -1056,7 +1069,8 @@ the `IrisCore` dependency when R1 wires them together.
 - **Content:** transcripts and audio never leave the mini except to
   the audio door (STT/TTS) and the agw models. APNs payloads carry headlines
   only, never full transcripts; when `summarize` failed, the headline is the
-  first 60 characters of the transcript (owner-confirmed, Wave 16).
+  first 60 characters of the transcript (owner-confirmed, Wave 16); the same rule gives a `transcribe`-mode memo its headline, which is
+  always the transcript's start.
 
 ## 13. Risks and unverified
 

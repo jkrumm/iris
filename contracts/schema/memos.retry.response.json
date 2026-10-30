@@ -76,7 +76,8 @@
         "journal",
         "hermes",
         "tab",
-        "chat"
+        "chat",
+        "transcribe"
       ],
       "type": "string"
     },

@@ -573,6 +573,34 @@ describe("pipeline end to end", () => {
     expect(notifier.calls).toHaveLength(1);
   });
 
+  it("ends a transcribe-mode memo after transcribe, announcing the transcript", async () => {
+    const { store, runner, destination, notifier } = setup();
+    const id = crypto.randomUUID();
+    store.createMemo({
+      id,
+      mode: "transcribe",
+      device: "iphone",
+      startedAt: "2026-01-01T00:00:00.000Z",
+    });
+    store.recordSegment({ id, index: 0, bytes: 1, sha256: "sha-0" });
+    store.markReceived({ id, segmentCount: 1 });
+    await runner.drive(id);
+
+    expect(store.getMemo(id)).toMatchObject({
+      state: "notified",
+      transcript: "hello iris",
+      route: null,
+      replyText: null,
+      summary: null,
+    });
+    expect(store.listStepRecords(id).map((s) => [s.step, s.status])).toEqual([
+      ["transcribe", "done"],
+      ["notify", "done"],
+    ]);
+    expect(destination.calls).toEqual([]);
+    expect(notifier.calls.map((c) => c.summary.headline)).toEqual(["hello iris"]);
+  });
+
   it("retries a summarize failure without re-running transcribe", async () => {
     const inner = fakeSummarizer();
     let broken = true;
