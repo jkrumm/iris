@@ -153,7 +153,8 @@ about either is tracked. Overrides: `IRIS_DEVICE_ID`, `TEAM=<id>`, `DEVICE_SIGNI
 - **Screenshot:** `xcrun devicectl device capture screenshot` (Xcode 27). `pymobiledevice3` does not work here: the phone is on a CoreDevice network tunnel,
   `usbmux list` is empty and an RSD tunnel needs root.
 - **Connecting the app** has no launch-argument route (no production backdoor): the owner types the server URL and the `iphone` device token once in
-  Settings > Connection; the Keychain item survives reinstalls over the same bundle id.
+  Settings > Connection (Keychain item survives reinstalls over the same bundle id). The tailnet VPN must be on. The phone must be unlocked for `launch`.
+  Verified 2026-10-30: a typed memo from the phone reached `done`. Known app gap: Settings says "Connected" for any saved configuration, reachable or not.
 
 ## Validate
 
