@@ -164,36 +164,21 @@ extension Outbox {
   public func sweepOrphans(using files: any SegmentFileStore) async -> SweepReport {
     var report = SweepReport()
     let owned = segmentFileNames()
-    await recoverShadows(using: files, owned: owned, into: &report)
-    // By take and index, so a take that grows is adopted in order.
-    let candidates = await files.segmentFiles().filter { !owned.contains($0.lastPathComponent) }.sorted {
-      guard let left = Self.parse($0.lastPathComponent), let right = Self.parse($1.lastPathComponent) else {
-        return $0.lastPathComponent < $1.lastPathComponent
-      }
-      return (left.0.uuidString, left.1) < (right.0.uuidString, right.1)
+    let shadows = await files.shadowFiles().sorted { $0.lastPathComponent < $1.lastPathComponent }
+    var candidates = await orphans(in: files, excluding: owned)
+    guard !shadows.isEmpty || !candidates.isEmpty else { return concluded(report) }
+    // Who owns what is settled before anything is replaced or moved: a set-aside queue may name any of these files.
+    let held = await HeldQueues.load(from: await setAsideQueueFiles())
+    if !shadows.isEmpty {
+      await recoverShadows(shadows, using: files, owned: owned, held: held, into: &report)
+      candidates = await orphans(in: files, excluding: owned)  // recovered m4a files are orphans like any other
     }
-    guard !candidates.isEmpty else { return concluded(report) }
-    var heldQueues: [Data] = []
-    var unreadable: [String] = []
-    for file in await setAsideQueueFiles() {
-      do {
-        heldQueues.append(try Data(contentsOf: file))
-      } catch {
-        unreadable.append(file.lastPathComponent)
-        Log.outbox.error(
-          "set-aside queue \(file.lastPathComponent, privacy: .public) cannot be read: \(String(describing: error), privacy: .public)"
-        )
-      }
-    }
-
     for url in candidates {
       let name = url.lastPathComponent
       var isFile = ObjCBool(false)
       guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isFile), !isFile.boolValue else { continue }
-      if !unreadable.isEmpty {
-        // A queue that was set aside may name this file and cannot be checked: every candidate stays where it is.
-        report.kept.append(url)
-      } else if heldQueues.contains(where: { $0.range(of: Data(name.utf8)) != nil }) {
+      if held.mayName(name) {
+        // A queue that was set aside may name this file (or cannot be checked): it stays where it is.
         report.kept.append(url)
       } else if adopt(url, name: name, files: files) {
         report.adopted.append(url)
@@ -206,6 +191,17 @@ extension Outbox {
     // Saved before anything goes up, as for any new segment (the save releases the withheld ones).
     if !report.adopted.isEmpty { await flush() }
     return concluded(report)
+  }
+
+  /// The segment files in the capture directory that the queue does not know, by take and index so a take that grows is
+  /// adopted in order.
+  private func orphans(in files: any SegmentFileStore, excluding owned: Set<String>) async -> [URL] {
+    await files.segmentFiles().filter { !owned.contains($0.lastPathComponent) }.sorted {
+      guard let left = Self.parse($0.lastPathComponent), let right = Self.parse($1.lastPathComponent) else {
+        return $0.lastPathComponent < $1.lastPathComponent
+      }
+      return (left.0.uuidString, left.1) < (right.0.uuidString, right.1)
+    }
   }
 
   /// Logs the sweep and remembers the files it could not deal with, for Settings.
@@ -222,20 +218,26 @@ extension Outbox {
   /// complete (the queue holds it, or it plays) is redundant and goes; otherwise it is transcoded to the m4a, which from then
   /// on is an orphan like any other (adopted by its take, or quarantined). The shadow goes as soon as that m4a plays: a kill
   /// right after leaves a playable orphan, never a loss.
-  private func recoverShadows(using files: any SegmentFileStore, owned: Set<String>, into report: inout SweepReport)
-    async
-  {
-    for shadow in await files.shadowFiles().sorted(by: { $0.lastPathComponent < $1.lastPathComponent }) {
+  private func recoverShadows(
+    _ shadows: [URL], using files: any SegmentFileStore, owned: Set<String>, held: HeldQueues,
+    into report: inout SweepReport
+  ) async {
+    for shadow in shadows {
       let segment = SegmentShadow.segment(of: shadow)
       if let audio = files.inspect(segment) {
         // Redundant only when the m4a is shown to hold the shadow's audio: the same length, not just a file that plays.
-        if let held = files.shadowDuration(of: shadow), abs(held - audio.duration) <= SegmentShadow.durationTolerance {
+        if let length = files.shadowDuration(of: shadow),
+          abs(length - audio.duration) <= SegmentShadow.durationTolerance
+        {
           await files.discard(shadow: shadow)
         } else {
           report.stuck.append(shadow)
         }
       } else if owned.contains(segment.lastPathComponent) {
         report.stuck.append(shadow)  // the queue's own file does not play: the shadow is the other copy
+      } else if held.mayName(segment.lastPathComponent) {
+        // Recovering would replace a file a set-aside queue still points at: neither file is touched.
+        report.kept.append(shadow)
       } else {
         switch await files.recover(shadow: shadow) {
         case .recovered(let url):
@@ -286,5 +288,31 @@ extension Outbox {
     #else
       return nil
     #endif
+  }
+}
+
+/// The queue files earlier resets set aside, read once per sweep: what they name is not the sweep's to replace or move.
+struct HeldQueues {
+  private var contents: [Data] = []
+  private var unreadable: [String] = []
+
+  static func load(from files: [URL]) async -> HeldQueues {
+    var held = HeldQueues()
+    for file in files {
+      do {
+        held.contents.append(try Data(contentsOf: file))
+      } catch {
+        held.unreadable.append(file.lastPathComponent)
+        Log.outbox.error(
+          "set-aside queue \(file.lastPathComponent, privacy: .public) cannot be read: \(String(describing: error), privacy: .public)"
+        )
+      }
+    }
+    return held
+  }
+
+  /// A queue that cannot be read may name anything.
+  func mayName(_ fileName: String) -> Bool {
+    !unreadable.isEmpty || contents.contains { $0.range(of: Data(fileName.utf8)) != nil }
   }
 }

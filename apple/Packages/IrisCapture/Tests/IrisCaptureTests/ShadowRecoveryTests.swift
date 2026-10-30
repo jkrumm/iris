@@ -218,6 +218,49 @@
       await harness.outbox.shutdown()
     }
 
+    @Test func aShadowIsNotRecoveredOverASegmentAQuarantinedQueueNames() async throws {
+      let live = try temporaryDirectory()
+      let directory = try temporaryDirectory()
+      defer { for url in [live, directory] { try? FileManager.default.removeItem(at: url) } }
+      let id = memo(1)
+      let open = try writeSegment(id, 0, seconds: 3, in: live)
+      try killed(open, into: directory)
+      open.close()
+      // The set-aside queue names the unreadable m4a: replacing it would destroy what that queue can still be read against.
+      let m4a = directory.appending(path: "\(id.uuidString)-0.m4a")
+      let before = try Data(contentsOf: m4a)
+      let queueFile = directory.appending(path: "outbox.quarantined-1.json")
+      try Data("{ \"entries\": [{\"fileURL\": \"\(m4a.path)\"}".utf8).write(to: queueFile)
+      let outbox = try await Outbox(
+        store: HeldQueueStore(files: [queueFile]), uploader: TestUploader(), clock: ManualClock())
+
+      let report = await outbox.sweepOrphans(using: DirectorySegmentFiles(directory: directory))
+
+      #expect(try Data(contentsOf: m4a) == before, "the named file is untouched")
+      #expect(FileManager.default.fileExists(atPath: directory.appending(path: "\(id.uuidString)-0.caf").path))
+      #expect(report.recovered.isEmpty && report.adopted.isEmpty && report.quarantined.isEmpty)
+      #expect(Set(report.kept.map(\.lastPathComponent)).isSuperset(of: ["\(id.uuidString)-0.caf"]))
+      await outbox.shutdown()
+    }
+
+    @Test func aSetAsideQueueThatCannotBeReadKeepsEveryShadowUntouched() async throws {
+      let live = try temporaryDirectory()
+      let directory = try temporaryDirectory()
+      defer { for url in [live, directory] { try? FileManager.default.removeItem(at: url) } }
+      let open = try writeSegment(memo(1), 0, seconds: 3, in: live)
+      try killed(open, into: directory)
+      open.close()
+      let missing = directory.appending(path: "outbox.quarantined-gone.json")  // may name anything
+      let outbox = try await Outbox(
+        store: HeldQueueStore(files: [missing]), uploader: TestUploader(), clock: ManualClock())
+
+      let report = await outbox.sweepOrphans(using: DirectorySegmentFiles(directory: directory))
+
+      #expect(report.recovered.isEmpty)
+      #expect(names(directory).filter { $0.hasSuffix(".caf") }.count == 1, "the shadow is still there")
+      await outbox.shutdown()
+    }
+
     @Test func aShadowBesideAPlayableM4aOfTheSameLengthIsRedundantAndGoes() async throws {
       let directory = try temporaryDirectory()
       defer { try? FileManager.default.removeItem(at: directory) }

@@ -275,7 +275,7 @@ struct OutboxSweepTests {
 }
 
 /// A store with an empty queue and some queue files set aside.
-private struct HeldQueueStore: OutboxStore {
+struct HeldQueueStore: OutboxStore {
   let files: [URL]
 
   func load() async throws -> OutboxRecord { OutboxRecord() }
