@@ -131,6 +131,7 @@ struct SettingsView: View {
       Circle().fill(Self.color(for: status.tone)).frame(width: 8, height: 8).accessibilityHidden(true)
       Text(verbatim: status.title).foregroundStyle(Theme.Ink.secondary)
     }
+    .accessibilityElement(children: .combine)
     .accessibilityIdentifier("settings.server.status")
   }
 
