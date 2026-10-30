@@ -986,7 +986,7 @@ treat silence as a pass); everything else is headless (`devicectl` install/launc
       the iOS 26 paths of the Wave 15/16 code (interruption API, Liquid Glass fallbacks). Findings appended to each spike file and TDD
       §4/§13 amended in the same commit; a check that needs APNs is marked "after enrolment", not failed. A failure that the I track
       can fix becomes an I item in this wave if small, else a Left behind line.
-- [ ] **D3. Only if the enrolment has cleared by the time D2 lands** (check with the owner via `ask-human.sh`, one question): S3 (APNs Live
+- (carried to Wave 18 D2, enrolment pending) **D3. Only if the enrolment has cleared by the time D2 lands** (check with the owner via `ask-human.sh`, one question): S3 (APNs Live
       Activity + [Play] from a suspended app) and TestFlight (backlog 3, `make testflight`). Needs the APNs `.p8` (Key ID, Team ID) and an
       App Store Connect API key in 1Password first, seeded with `make secrets-seed` through `ask-human.sh`; the owner creates the keys.
       Not cleared → Left behind, Wave 18.
@@ -1011,7 +1011,7 @@ treat silence as a pass); everything else is headless (`devicectl` install/launc
 - [x] **S2 + I4. Transcribe-only mode** (owner, `feedback-device-1.md` §2): a mode `transcribe` the owner picks up front; the memo
       ends `done` after `transcribe` with the transcript, no decide, act or summarize. Contract + fixtures + `IrisCore`; the mode picker
       gets the entry; History and the detail show it as a transcript. TDD amended.
-- [ ] **I5. Memo detail per `feedback-device-1.md` §1, §4, §5:** copy transcript and reply as plain text (proven on the device: paste
+- [x] **I5. Memo detail per `feedback-device-1.md` §1, §4, §5:** copy transcript and reply as plain text (proven on the device: paste
       into Notes); the waterfall collapsed by default to one line (total time · total cost), expanding to the steps; no gaps or
       misdrawn bars between steps; cost shown with a precision that never reads $0.00 for a real cost (e.g. `$0.0002` / `<$0.001`).
       Snapshots light and dark plus a device screenshot. The take screen's level meter rises visibly for normal speech (§6, proven on the device).
@@ -1028,7 +1028,7 @@ treat silence as a pass); everything else is headless (`devicectl` install/launc
       segment of a take whose `complete` was never handed out is adopted by the sweep.
 - [x] **I10. History scroll jump (owner, `feedback-device-1.md` §8):** the filter chips are the list's first row, so the large title
       tracks the scroll.
-- [ ] **H1. Housekeeping (backlog 10, R3's screens have shipped):** delete the round-1/2 mockup image objects via `/img` (incl. the stray
+- (done except the B2 `private/` objects: owner, see Left behind) **H1. Housekeeping (backlog 10, R3's screens have shipped):** delete the round-1/2 mockup image objects via `/img` (incl. the stray
       `r2-detail-light`), `iumac:/tmp/iris-mockups.html` + `/tmp/iris-mockups/`, and the round-1/2 files under `docs/design/renders/`.
       Keep every render `docs/design/README.md` lists for Wave 15 I5 and Wave 16 I4 and anything a feedback file links; list what was
       deleted in the close-out.
