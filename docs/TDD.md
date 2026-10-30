@@ -546,13 +546,13 @@ Reply by text is the composer sheet bound to `threadId` (mode `chat` for a chat,
 a hold under 0.8 s is a cancel with a hint). Production and `-IrisFakeCapture` both use `OutboxVoiceReplyCapture`: the take runs through `CaptureSession`, the
 outbox creates the memo (bound to `threadId`), uploads and completes it, and `end` answers `sent(memo)` (the thread shows the pending turn at once), `queued` (a toast: it
 joins the thread once it is sent) or `discarded`. `UnavailableVoiceReplyCapture` (the pill is disabled) remains for a build whose recorder could not be created.
-A typed reply goes through the same outbox (`ComposerModel` → `OutboxService.submitText`). VoiceOver gets a tap to start and a tap to send instead of a hold.
+A typed reply goes through the same outbox (`ComposerModel` → `OutboxService.submitText`). VoiceOver gets a tap to start and a tap to send instead of a hold; the hint says so.
 
 **Reply bar, one row of icons** (Wave 16 I4, the owner's verdict `docs/design/feedback-reply-flow.md`): keyboard (reply by text) · hold to talk (the mic, no text while idle) · locked recording
 (`mic.fill` with a `lock.fill` badge, composed because no single SF Symbol says "recording, locked"; every name checked against the 27.1 SDK). The locked recording is a tap-to-start
 take through the same `VoiceReplyCapture` port and the same `beginVoice` / `endVoice`: nothing new in the capture path. While it runs the bar shows a cross (discard, `end(cancelled: true)`), the
 timer, and the send button (`end(cancelled: false)`); a take under 0.8 s is discarded with a "too short" hint. During a hold the side buttons give way to the timer and the release hint. Accessibility
-labels: Reply by text, Reply by voice (hint: hold to talk, release to send), Record continuously (hint: tap to start, tap send when done), Discard recording, Stop and send.
+labels: Reply by text, Reply by voice (hint while idle: double-tap to start recording, double-tap again to send; while recording: double-tap to send; the VoiceOver action toggles, so the hint never promises a hold), Record continuously (hint: tap to start, tap send when done), Discard recording, Stop and send. A lock request (`VoiceTakeLock`) only becomes a locked take once the app reports the take running, and any other way of beginning one drops it, so a locked take that fails to start never locks the next one. The too-short toast is the app target's one localized string so far (`Iris/Resources/Localizable.xcstrings`, en and de); the rest of the app target's strings are still source-language (R5 `.xcstrings` catalogs).
 
 **Reply layout and code themes** (Wave 16 I4). A thread is exchanges: a question turn and its answer, an `ExchangeDivider` hairline before every question after the first. The question is a
 card in the accent tint, the answer an open document under the Iris header; inside it headings step down (title 1.35x, 1.2x with a hairline under levels 1 and 2), a quote has an accent rule on a
@@ -623,8 +623,7 @@ follows the memos: `evict(memoID:)` removes `<memo>.*` (recording, speech, diagr
   a `HiddenMemoStore` (`UserDefaults`, `iris.history.hiddenMemoIDs`; in memory on fakes, so a UI test starts clean) and are cleared by `CreatedMemoLog.settle`, which the uploader calls when
   the delete is over (200, 404 or 409) and `discardQueued` calls when the user stops trying a stalled one. After a 409 (the memo left `receiving` before the delete landed) the memo is a real
   one and shows again with the next refresh. `CreatedMemoLog` hands hide and unhide to History through one ordered stream, and at launch `reconcileHidden` forgets every hidden id that has no delete queued in the outbox (a discarded take
-  whose create never landed has none to settle). Known follow-ups: eviction happens when the delete returns, so an Undo re-downloads the memo's media; a download in flight while its memo is evicted
-  can still land its file.
+  whose create never landed has none to settle). `HistoryModel.insert` ignores a memo this session hid and unhid (the create hand-off runs on a task of its own, so it can arrive after the discard's delete settled; the server's list decides). Eviction (`MediaDownloader.evict(memoID:)`) returns at once and scans the cache on the downloader's actor, off the main actor, and cancels the memo's downloads still on the wire: a download lands only through that actor, so one that finishes after an eviction finds its flight gone and discards its file. Known follow-up: eviction happens when the delete returns, so an Undo re-downloads the memo's media.
 - **Detail toasts** follow the thread view's rule: a toast has an id, its timer is a task owned by the model, and a newer toast (or a dismiss) cancels the older timer, so a stale timer
   never hides a newer toast with the same words.
 - **The fake API answers a typed memo**: `FakePipelineUploader.create` starts the fake pipeline for a text item (routed, then `notified` with a canned answer), so the text reply
@@ -639,7 +638,7 @@ follows the memos: `evict(memoID:)` removes `<memo>.*` (recording, speech, diagr
   needs-route History row has a trailing swipe action "Route…" (a button inside the row fought the row's `NavigationLink` for the tap and an extra row made the top bars blur the pinned memo), the memo detail a card with the park reason and a "Route to <suggestion>…" button. The sheet shows `routeReason`, preselects
   `routeSuggestion` (`tab` reads as `herdr`; Hermes without one), and for herdr reads `GET /v1/herd` and requires a tab (one tab is preselected; an unreadable or empty herd says so and blocks Send).
   `400 <dest> not available` keeps the sheet open naming the destination, `409` says the memo was already routed and refreshes History, `404`/transport are plain sentences.
-- **Presentation hosts.** The route sheet from a History row is presented by `RootView` (next to the mode sheet), not by `HistoryView`. With `.sheet(item:)` over `RouteAnswerSheet` in History's modifier chain, the list's top scroll edge mis-sized on some launches in suite order (a blur over the title, chips and first rows, taps and swipes there dead; `SmokeUITests` failed 2-5 of 15 launches, `origin/master` and the branch without the sheet 0 of 45). A trivial sheet body, one merged `sheet(item:)` enum, an animation-free list and a fixed-height chip bar did not change it; hosting the sheet at the root did (Smoke 15/15, the full suite 28/28). The detail's own sheet is unaffected.
+- **Presentation hosts.** The route sheet from a History row is presented by `RootView` (next to the mode sheet), not by `HistoryView`. With `.sheet(item:)` over `RouteAnswerSheet` in History's modifier chain, the list's top scroll edge mis-sized on some launches in suite order (a blur over the title, chips and first rows, taps and swipes there dead; `SmokeUITests` failed 2-5 of 15 launches, `origin/master` and the branch without the sheet 0 of 45). A trivial sheet body, one merged `sheet(item:)` enum, an animation-free list and a fixed-height chip bar did not change it; hosting the sheet at the root did (Smoke 15/15, the full suite 28/28). The detail's own sheet is unaffected. Both hosts present the one `routeAnswerSheet(item:make:onRouted:)` modifier (detents and drag indicator in one place); only the host differs.
 - **Correcting after act.** A memo in `acted`/`summarized`/`notified` with a route shows "Wrong route?" in the detail header; the same sheet, titled "Correct the route", sends the same
   request. The server answers 200 and only logs it, so the sheet says nothing is sent again and the memo stays as it was.
 - **Play.** `SpeechPlayer` is the app's one spoken-reply player (one `MemoPlayer`, remembering whose reply it holds): the detail's Play, `PlayReplyIntent` and spoken replies go through it,
@@ -667,6 +666,8 @@ an inference). Instead of guessing at the app, every UI test class now derives f
 (`XCTExpectFailure`, non-strict, matched on the message); the third launch attempt is strict, so an app that really cannot start still fails the test. Sampling the app at teardown on
 the runner needs a workflow step and was left out of this change (owned files: `apple/**`).
 
+"Failed to get matching snapshots: Timed out while evaluating UI query" (`ReplyFlowReviewUITests`, then `CaptureUITests` at a bare `row.exists` in run 41017094962) has one cause: reading any attribute of an element (`exists`, `frame`, a `label CONTAINS` predicate over `.any`) snapshots the whole accessibility tree, and a loaded VM does not get an animating History list or a thread with a rendered answer through that in time. A bare query in a polling loop gets many chances to hit it. `IrisUITestCase` now owns the waits: `waitForPresence`, `waitForAbsence`, `staysAbsent` (an element that does not show up during a whole window, for "the deleted row did not come back"), `presence(of:within:)` (true, confirmed absent, or inconclusive: `revealRow` swipes only on a confirmed absence) and `revealRow(containing:in:)` ask again until their deadline when a query times out (`QueryRetry`: `XCTExpectFailure`, non-strict, matched on the message, like the terminate retry) and fail only for an element that is really not there; `scrollIntoClearBand` goes through the same retry, and the pending-turn and answer waits of the reply-flow tests wait on that explicit element state instead of polling two queries every 200 ms. A new test uses these, not a bare `exists` in a loop.
+
 ### Capture engine (`IrisCapture`)
 
 - **`AudioSessionController`:**
@@ -686,6 +687,11 @@ the runner needs a workflow step and was left out of this change (owned files: `
     change to the AirPods, or a start with them connected), which aborts the app.
     The fixes are Wave 17 I7: build the tap format from the node's current format,
     never let `installTap` throw, put a failed recorder where the user sees it.**
+  - on a resume recommendation the session is reactivated first (a session an interruption deactivated makes `engine.start()`
+    fail; up to four tries), then the engine restarts, and an engine that will not restart is replaced by a fresh one with the tap;
+  - `mediaServicesWereResetNotification` (the audio daemon restarted) closes the open segment of a recording take, sets the
+    category again and continues in a new segment on a new engine; a take that was paused (by the user, or by an interruption
+    that did not recommend resuming) stays paused.
 - **`RouteManager`:**
   - lists `availableInputs`, applies `setPreferredInput` after activation, and
     reads back `currentRoute`;
@@ -699,8 +705,16 @@ the runner needs a workflow step and was left out of this change (owned files: `
     interruption;
   - each closed file goes to the `Outbox`; a segment still open when the app dies or the recorder fails stays an unfinalised m4a (no `moov` atom, ffprobe cannot read it), which the startup sweep quarantines (Wave 17 D2: three such files, a few seconds of audio each; a crash-safe container is the fix);
   - a level meter is fed from tap RMS;
-  - an engine configuration change restarts the engine and starts a new
-    segment.
+  - an engine configuration change (a mic switch, AirPods connecting) closes the segment and replaces the engine with a fresh
+    one carrying the tap. The tap's format is the node's current `outputFormat`, installed only when it is non-empty and its
+    sample rate equals the hardware's (`inputFormat`); otherwise the bring-up is retried for about 1.5 s, then the take fails
+    with its segments kept. The audio engine calls (`installTap`, `start`, `stop`, `removeTap`) run through `IrisObjCGuard`, a
+    small Objective-C target that turns the exceptions AVAudioEngine raises into errors. Wave 17 D2.6: switching to AirPods
+    mid-take aborted the app (`SIGABRT`, uncaught `NSException` from `installTapOnBus` in the config-change re-install, which
+    used the old format after the HFP route change). The converter follows each buffer's format.
+    The first engine of a take is brought up the same way (up to four tries), since a start with AirPods connected hit the same
+    exception. While a restart is in flight `pause()` and `resume()` only record the wanted state (`EngineRun`), which the
+    restart applies to the new engine; a take that ends or begins meanwhile makes the restart's engine stale and it is torn down.
 - **`Outbox`** (Wave 15 I3): a persistent queue of **whole items**, in one JSON file (`Application Support/Iris/outbox.json`,
   written atomically, each segment named by **file name only**: the app's data container gets a new path when a build is installed over it (found on the first device, Wave 17 D1b), so an absolute path saved by an earlier run pointed at nothing, the upload failed as "the recording file is gone" and stalled while the audio sat unharmed in the new container. `JSONFileOutboxStore(segmentDirectory:)` puts every segment in the current capture directory on load, which also heals a record written with absolute paths, and a segment that had stalled on such a stale path with its file present is retried once; a file that is really gone stays stalled. A file that cannot be read or decoded (including a newer build's enum case) is an **error, never an empty queue**: it is left on disk untouched and the outbox reports itself closed (below), until Settings **"Reset outbox"** (Wave 16 I1) renames it aside: `outbox.quarantined-<UTC timestamp>.json`, kept next to it, never deleted, its segment files untouched, and a fresh empty outbox opens. Diagnostics lists the set-aside files with a `ShareLink`. A second tap while the reset runs joins it (`CaptureStack` keeps the one reset task) and gets its outcome; it is not reported as a failure. The reset claims the move in the same actor turn it starts (the stack already knows the file is unreadable from the refresh that offered the button), so no `open()` can read the file between the tap and the rename. An item whose write fails (a full disk) is taken back out and refused, so nothing is ever "queued" that a kill would lose. Three kinds of work, all
   idempotent on the server, so a retry after a lost answer is harmless:
@@ -751,7 +765,7 @@ the runner needs a workflow step and was left out of this change (owned files: `
   out a backoff due at once, keeping its attempt count; a stalled one waits for the user. A take the app died in the middle of is finished with the segments it had (contiguous from 0), or dropped when it had none.
   **Startup sweep** (`Outbox.sweepOrphans(using:)` over the `SegmentFileStore` port, production `DirectorySegmentFiles`; run by `CaptureStack` right after the queue loads and before anything is sent or recorded; the sweep reaches the queue only through `segmentFileNames()` / `adoptSwept(_:)`, the machine and its bookkeeping stay private to `Outbox`): a segment file is written before the
   queue file that names it is saved, so a crash or a failed save leaves files no record owns. Each `<memo id>-<index>.m4a` in the capture directory that the queue does not
-  know is **adopted** when it belongs to a take the queue holds, fills one of its indices (below its count, or the next one after a take recovered from a crash, which then grows) and
+  know is **adopted** when it belongs to a take the queue holds, fills one of its indices (below its count, or the next one after a take recovered from a crash, or after a finished take whose `complete` was never handed out, which then grows: a stop that gave up on the recorder finished the memo without its tail, and the app died before the tail's file was saved; `OutboxMemo.completeMayHaveLanded` is set and saved with the dispatch of `complete`, and from then on the server may hold the memo closed at the old count, so a tail is set aside instead: a segment `PUT` would be 409 `bad_state` and `complete` with a larger count 409 `conflict`) and
   opens as audio with frames in it (a truncated AAC file does not); otherwise it is **moved** into `capture/quarantine/`. A file that a set-aside queue file names stays where it is, and when a set-aside queue file cannot be read, every candidate stays where it is (the read failure is logged).
   **Nothing is deleted** (the files of a memo the server completed, left by a crash between the save and the removal, are quarantined too).
   **Set-aside files are surfaced, not bounded by deletion.** `capture/quarantine/` and the `outbox.quarantined-*.json` files grow only when something went wrong, and the app never removes them on its own: Settings
@@ -768,8 +782,11 @@ the runner needs a workflow step and was left out of this change (owned files: `
   recommends; `switchInput` rolls the segment, and so does a route rule that applies mid-take (behind the same gate, only while
   recording or paused), so one file never holds two inputs. `updates()` is the state stream the UI and the Live Activity follow.
   A recorder failure (`.failed`: a segment write error, an engine that will not resume or restart) is a take failure: the session
-  stops the recorder, moves the take to phase `failed` (`TakeState.failure` says why) and holds it for the user's `stop()` or
-  `cancel()`. `stop()` then finishes the memo with the segments that really closed (`TakeResult.failure` set) or, with none, throws
+  stops the recorder (which closes the open segment), moves the take to phase `failed` (`TakeState.failure` says why) and
+  finishes the memo with the segments that closed, at once: a locked phone or a killed app must not hold captured audio
+  back for a stop that never comes. The user's `stop()` then acknowledges the failure and `cancel()` drops what the outbox
+  still holds (a memo the server already completed stays). An interruption that ends without a resume recommendation leaves
+  the take visibly `paused` with everything before it closed and queued. `stop()` on a failed take returns the memo with the segments that really closed (`TakeResult.failure` set) or, with none, throws
   `CaptureError.recordingFailed` instead of returning `nil` (which means nothing was said); the thread screen tells the user.
   Both actors are reentrant, so every write that follows an `await` re-checks what it assumed or is authoritative: `pause` and
   `resume` (and the interruption handlers) leave a take that failed meanwhile as `failed`, a failure that comes in while the
@@ -796,8 +813,14 @@ the runner needs a workflow step and was left out of this change (owned files: `
 
 ### Start paths
 
-- **The intent:** `StartMemoIntent: AudioRecordingIntent` starts the engine and
+- **The intent:** `StartMemoIntent: AudioRecordingIntent, LiveActivityIntent` starts the engine and
   `Activity<MemoAttributes>.request(...)` in `perform()`. Apple requires the Live Activity, or the recording stops.
+  **`LiveActivityIntent` is what makes the Control work** (S1 FAIL on the device, Wave 17): a `ControlWidgetButton`'s intent is
+  performed in the widget extension by default; only `LiveActivityIntent` (also `AudioPlaybackIntent`, `openAppWhenRun`) moves it to the app's
+  process, which the system launches in the background, and a Live Activity may only be started from the background through a
+  `LiveActivityIntent`. `AudioRecordingIntent` alone does neither: `perform()` ran in `IrisWidgets`, found no handler (it is
+  registered by the app) and threw `appNotReady`, which a control swallows (no crash, no Iris process, only IrisWidgets).
+  `openAppWhenRun` is deprecated in iOS 26 and errors inside an extension; `supportedModes` is only a suggestion a control overrides.
   Built (Wave 15 I3): the intent file lives in `Iris/Intents/` and is compiled into the app and the widget extension (the
   `ControlWidget` names the type, the app performs it); `perform()` calls the `CaptureIntentHandler` the composition root
   registered at launch (`startMemo()`: server saved, microphone permission, `CaptureSession.start` in `auto` mode, then the
@@ -805,8 +828,8 @@ the runner needs a workflow step and was left out of this change (owned files: `
   (`StartMemoIntentTests`: the fake stack, a recording `TakeLiveActivity`); **pressing the Control and a real
   `Activity.request` from the background are device-only.** Device result (Wave 17 D2, iPhone 15, iOS 26.6.1, `docs/spikes/S1-lock-screen-start.md`): the Record control, from the Lock
   Screen and from Control Center, starts nothing (no take, the app is not launched, only the widget extension runs); Siri has no phrase (no `AppShortcutsProvider`); a take started in the app
-  requests its Live Activity and runs fine. So S1 has not yet shown that an `AudioRecordingIntent` start works from a control: the likely cause is the intent running in the extension
-  process without the app's handler, and Wave 17 I8 decides between a fix and the `openAppWhenRun` fallback below.
+  requests its Live Activity and runs fine. The cause (Wave 17 I8) is the intent running in the extension process without the app's handler; it is now a `LiveActivityIntent` (above), so
+  S1's central question stays open until the owner presses the Control on the phone; the `openAppWhenRun` fallback below is not needed for it and is deprecated in iOS 26.
 - **Callers:** the `ControlWidget` button calls the intent. So do Siri ("Record
   with Iris") and Control Center.
 - **Fallback, accepted by the PRD:** if the system refuses to start a Live
@@ -834,6 +857,17 @@ the runner needs a workflow step and was left out of this change (owned files: `
     (shown 15 minutes) and a discard ends it at once (`Activity.end`); a sent memo is handed over to the server, not ended. The activity's push token is registered
     (`PUT /memos/:id/activity-token`) once the server has the memo, since it answers 404 before that, and retried on the next update; at
     launch every activity still in a client phase is ended, because nothing moves it on after its process is gone (`endOrphans()` also runs when the connection changes, and spares the takes this process is driving, so changing the server URL mid-take does not end that take's activity).
+    **Stale activities** (`StaleActivityRule`, `StaleActivitySweeper`; Wave 17): without a push token (`pushToken == nil`: a Personal Team build has no
+    `aps-environment`) the server's `end` never arrives and a `processing` activity would sit on the Lock Screen and in the island for
+    up to 8 h, hiding a running take's controls. So (1) at the hand-over an activity without a token is followed: the sweeper polls
+    `GET /memos/:id` (3 s, doubling to 30 s) until the memo `isResultReady` and then ends it on that result (`done` / `failed` /
+    `needsRoute`, shown 15 minutes like the server's `end`); (2) at launch (`endOrphans()`) every handed-over activity is checked
+    the same way and ended at once when its memo is finished (no token), gone (404) or older than one hour (token or not: the
+    server's `end` is 15 minutes after done); one without a token whose memo is still in the pipeline gets a follower as in (1);
+    an activity with a token and a young memo is the server's; (3) a starting take
+    (`ActivityKitTakeLiveActivity.start`) first ends the finished (`done`, `failed`) activities and those nothing will update
+    (`processing`/`needsRoute` without a token), so the take's activity owns the island; a `processing` activity the server still
+    drives stays. A server that cannot be asked keeps a young activity. Unit-tested on a fake catalog and `FakeAPIClient`; the ActivityKit adapter is device-only.
     The widget renders all seven (timer for recording and processing); on the device (Wave 17 D2) recording, paused and processing were seen, on the Lock Screen and in the island (compact and expanded), the other four not yet. **Without APNs (a Personal Team) nothing moves a processing activity on: every finished take left a "Processing" card counting up, and the system showed one of those in the island instead of the running take, so its Stop / Pause / mic swap were unreachable (Wave 17 I8).** A new take's `headline` carries one line about earlier memos still sending ("1 earlier memo is still sending", client phases only), which the card shows as a note;
   - `inputName`;
   - `routeChip`;
@@ -872,13 +906,13 @@ pinned simulator in light and dark (`LiveActivitySnapshotTests`, the island thro
 
 | Screen | Content |
 |-|-|
-| History | Tabs History · Stats · Settings (no Threads tab). Memo rows (route chip · state · headline · relative time, step-progress dashes while in flight), pinned needs-route rows (a "Route…" swipe action opens the route sheet), day sections, search, quick-filter chips (Favorites, Chats, Needs route, Archived), bottom-sheet filter, native swipe actions (done/favorite, archive/delete with a 5 s undo), pull to refresh, SSE live updates, [+] opens the composer |
+| History | Tabs History · Stats · Settings (no Threads tab). Memo rows (route chip · state · headline · relative time, step-progress dashes while in flight), pinned needs-route rows (a "Route…" swipe action opens the route sheet), day sections, search, quick-filter chips (Favorites, Chats, Needs route, Archived; the list's first row, not a bar pinned with `safeAreaBar`, so the list is the stack's root scroll content and the large title tracks it), bottom-sheet filter, native swipe actions (done/favorite, archive/delete with a 5 s undo), pull to refresh, SSE live updates, [+] opens the composer |
 | Memo detail | A park card (reason, "Route to …") on a needs-route memo, "Wrong route?" on a finished one (route sheet), transcript, player (play/pause, scrubber, 10 s back, no speed), full-width step waterfall with one `duration · cost` chip per step (money in the user's locale, two decimals), faster/slower vs the stats baseline only above a sample threshold, attempts, a failed optional summarize as a warning row, [Retry from step], icon-only actions (play reply, reply → composer, retry), the reply as markdown; SSE refresh |
 | Composer | Typed memo: mode picker (Auto, Journal, Hermes, Tab, Chat), text, send via `POST /v1/memos/text`; from a detail's reply it continues the memo's thread |
 | Stats | Volume per route per day / week (Swift Charts), tiles, per-route trends, from `GET /v1/stats` |
 | Thread | One conversation as a rendered document (`GET /v1/threads/:id`), opened by a History row of a chat or a continued thread (Wave 15 I2, "Thread view" below): question and answer turns, a pending answer with the step dashes, hold-to-talk and a keyboard button at the bottom |
-| Record | Wave 15 I4. **Start from any screen:** the record control is the tab bar's bottom accessory (tap: Auto; long press: a menu with Auto, Journal, Hermes, Chat and "Choose mode…", the mode sheet); memo detail and thread hide the tab bar, so they have none (their banner still shows). A take opens the full `TakeScreen` (mode, timer, level waveform, mic list, pause, Stop, discard with a confirmation); minimizing (chevron) leaves a compact **`TakeBanner`** (dot, running time, mode · mic, "N sending", Stop) pinned under the navigation bar of every screen (`.takeBanner()`), and tapping it returns to the full take. `TakeModel` follows `CaptureSession.updates()` and the outbox; a pause moves the timer's start forward so it counts recorded time. Leaving the app needs no hand-over: the take's Live Activity is requested at the start, so the Lock Screen card and the Dynamic Island carry it from there |
-| Settings | Diagnostics (copy a memo id, animated "Copied"), Connection (server URL + device token in the Keychain, status; "Not configured" until saved), Playback (spoken replies toggle), Microphone (the active route's rule), outbox section (the queue of whole items from `OutboxService`: kind, age, state, a retry time or the reason it stalled, retry now and discard; live through the outbox's change stream). Later: default mode |
+| Record | Wave 15 I4. **Start from any screen:** the record control is the tab bar's bottom accessory (tap: Auto; long press: a menu with Auto, Journal, Hermes, Chat and "Choose mode…", the mode sheet); memo detail and thread hide the tab bar, so they have none (their banner still shows). A take opens the full `TakeScreen` (mode, timer, level waveform, mic list, pause, Stop, discard with a confirmation); minimizing (chevron) leaves a compact **`TakeBanner`** (dot, running time, mode · mic, "N sending", Stop) pinned under the navigation bar of every screen (`.takeBanner()`), and tapping it returns to the full take (it comes and goes with an animation only while the scene is active: the device's 10 s scene-update watchdog hit an animated navigation-bar layout of a backgrounded scene when a take ended from the banner, Wave 17 D2; Stop only ever suspends the main actor, `StopOffMainTests` holds a hung recorder). `TakeModel` follows `CaptureSession.updates()` and the outbox; a pause moves the timer's start forward so it counts recorded time. Leaving the app needs no hand-over: the take's Live Activity is requested at the start, so the Lock Screen card and the Dynamic Island carry it from there |
+| Settings | Diagnostics (copy a memo id, animated "Copied"), Connection (server URL + device token in the Keychain; the status row is the health probe from when Settings appeared **and** `HistoryModel.link`, what History's authenticated event stream and list loads last saw: "Connected" is never shown for a server that stream cannot reach; a dropped stream reads "Unreachable" with "Server not reachable — is Tailscale on?", a 401 "Token rejected", a failed probe that traffic has since overruled "Connected"; `ConnectionStatusLine`; "Not configured" until saved), Playback (spoken replies toggle), Microphone (the active route's rule), outbox section (the queue of whole items from `OutboxService`: kind, age, state, a retry time or the reason it stalled, retry now and discard; live through the outbox's change stream). Later: default mode |
 
 ## 5. macOS app (`IrisMac`)
 

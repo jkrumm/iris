@@ -67,19 +67,13 @@ struct MemoDetailView: View {
         }
       }
     }
-    .sheet(item: $routing) { memo in
-      if let makeRouteAnswer {
-        RouteAnswerSheet(
-          model: makeRouteAnswer(memo),
-          onRouted: { routed in
-            onRouted(routed)
-            Task { await model.didRoute(routed) }
-          }
-        )
-        .presentationDetents([.medium, .large])
-        .presentationDragIndicator(.visible)
+    .routeAnswerSheet(
+      item: $routing, make: makeRouteAnswer,
+      onRouted: { routed in
+        onRouted(routed)
+        Task { await model.didRoute(routed) }
       }
-    }
+    )
     .task(id: refreshToken()) { await model.load() }
     .task(id: model.audioRequest) { await playback.recording.load(model.audioRequest) }
     .onAppear { playback.attach() }

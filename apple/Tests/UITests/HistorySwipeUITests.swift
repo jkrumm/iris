@@ -57,7 +57,8 @@ final class HistorySwipeUITests: IrisUITestCase {
     delete.tap()
 
     XCTAssertTrue(waitForPresence(app.descendants(matching: .any)["history.toast"], timeout: 5))
-    XCTAssertTrue(waitForAbsence(row(in: app), timeout: 1))
+    XCTAssertTrue(waitForAbsence(row(in: app), timeout: 5))
+    XCTAssertTrue(staysAbsent(row(in: app), for: 1), "the deleted row came back before Undo")
 
     let undo = app.buttons["Undo"]
     XCTAssertTrue(waitForPresence(undo, timeout: 5))

@@ -112,11 +112,70 @@ struct OutboxSweepTests {
     let report = await harness.outbox.sweepOrphans(using: files(directory))
 
     #expect(report.adopted == [missing])
-    // A finished take never grows: a file past its count is not part of it.
-    let beyond = try file(directory, id, 2)
-    let second = await harness.outbox.sweepOrphans(using: files(directory))
-    #expect(second.adopted.isEmpty)
-    #expect(second.quarantined.count == 1 && !FileManager.default.fileExists(atPath: beyond.path))
+    await harness.outbox.shutdown()
+  }
+
+  /// A take finished by a stop that gave up on the recorder (`complete` queued with the segments it had), then the app was
+  /// killed before the tail segment's file reached the saved queue: segments 0 and 1 are saved and uploaded, 2 is on disk.
+  private func finishedTakeWithATail(
+    _ id: MemoID, in directory: URL, completeMayHaveLanded: Bool?
+  ) throws -> OutboxRecord {
+    var record = try crashedTake(id, in: directory)
+    record.memos = [
+      OutboxMemo(
+        memoID: id, segmentCount: 2, completion: .pending, attempts: 0, completeMayHaveLanded: completeMayHaveLanded)
+    ]
+    return record
+  }
+
+  @Test(arguments: [nil, false] as [Bool?])
+  func aTailOfAFinishedTakeWhoseCompleteWasNeverSentIsAdoptedAndCompleteCountsIt(never: Bool?) async throws {
+    let directory = try temporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let id = memo(1)
+    let record = try finishedTakeWithATail(id, in: directory, completeMayHaveLanded: never)
+    let tail = try file(directory, id, 2)
+    let harness = try await OutboxHarness(record: record)
+
+    let report = await harness.outbox.sweepOrphans(using: files(directory))
+
+    #expect(report.adopted == [tail] && report.quarantined.isEmpty)
+    #expect(await harness.outbox.memos().first?.segmentCount == 3)
+    await harness.outbox.settled()
+    #expect(await harness.uploader.uploaded.map(\.index) == [2])
+    #expect(await harness.uploader.completed == [.init(memoID: id, segmentCount: 3)], "the tail is part of the memo")
+    await harness.outbox.shutdown()
+  }
+
+  @Test func aTailOfAFinishedTakeWhoseCompleteMayHaveReachedTheServerIsSetAside() async throws {
+    let directory = try temporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let id = memo(1)
+    let record = try finishedTakeWithATail(id, in: directory, completeMayHaveLanded: true)
+    let tail = try file(directory, id, 2)
+    let harness = try await OutboxHarness(record: record)
+
+    let report = await harness.outbox.sweepOrphans(using: files(directory))
+
+    // The server may hold the memo closed with two segments: a third would be refused, and `complete(3)` answers 409.
+    #expect(report.adopted.isEmpty && report.quarantined.count == 1)
+    #expect(!FileManager.default.fileExists(atPath: tail.path), "kept in the quarantine folder, never deleted")
+    #expect(await harness.outbox.memos().first?.segmentCount == 2)
+    await harness.outbox.shutdown()
+  }
+
+  @Test func aTailBeyondTheNextIndexOfAFinishedTakeIsNotAdopted() async throws {
+    let directory = try temporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let id = memo(1)
+    let record = try finishedTakeWithATail(id, in: directory, completeMayHaveLanded: nil)
+    _ = try file(directory, id, 3)
+    let harness = try await OutboxHarness(record: record)
+
+    let report = await harness.outbox.sweepOrphans(using: files(directory))
+
+    #expect(report.adopted.isEmpty && report.quarantined.count == 1, "a gap is not a tail")
+    #expect(await harness.outbox.memos().first?.segmentCount == 2)
     await harness.outbox.shutdown()
   }
 

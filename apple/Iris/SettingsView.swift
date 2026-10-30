@@ -38,7 +38,6 @@ struct SettingsView: View {
           LabeledContent(String(localized: "Server", comment: "Settings row")) {
             connectionLabel
           }
-          .accessibilityIdentifier("settings.server")
           if let connectionForm { ConnectionForm(model: connectionForm) }
         } header: {
           Text("Connection", comment: "Settings section")
@@ -46,6 +45,9 @@ struct SettingsView: View {
           if model.connection == .notConfigured {
             Text("Enter the server URL and this device's token to connect.", comment: "Settings connection hint")
               .accessibilityIdentifier("settings.connection.hint")
+          } else if let hint = connectionStatus.hint {
+            Text(verbatim: hint)
+              .accessibilityIdentifier("settings.server.hint")
           }
         }
         .listRowBackground(Theme.Surface.panel)
@@ -118,25 +120,26 @@ struct SettingsView: View {
     .listRowBackground(Theme.Surface.panel)
   }
 
+  private var connectionStatus: ConnectionStatusLine {
+    ConnectionStatusLine(connection: model.connection, link: history.link)
+  }
+
   private var connectionLabel: some View {
-    let (text, color): (String, Color) =
-      switch model.connection {
-      case .notConfigured:
-        (String(localized: "Not configured", comment: "Server connection"), Theme.Status.warn)
-      case .checking: (String(localized: "Checking…", comment: "Server connection"), Theme.Ink.muted)
-      case .connected: (String(localized: "Connected", comment: "Server connection"), Theme.Status.good)
-      case .degraded(let names):
-        (
-          names.isEmpty
-            ? String(localized: "Degraded", comment: "Server connection")
-            : String(localized: "Degraded · \(names.joined(separator: ", "))", comment: "Server connection"),
-          Theme.Status.warn
-        )
-      case .unreachable: (String(localized: "Unreachable", comment: "Server connection"), Theme.Status.bad)
-      }
+    let status = connectionStatus
     return HStack(spacing: Theme.Spacing.sm) {
-      Circle().fill(color).frame(width: 8, height: 8).accessibilityHidden(true)
-      Text(verbatim: text).foregroundStyle(Theme.Ink.secondary)
+      Circle().fill(Self.color(for: status.tone)).frame(width: 8, height: 8).accessibilityHidden(true)
+      Text(verbatim: status.title).foregroundStyle(Theme.Ink.secondary)
+        .accessibilityIdentifier("settings.server.status")
+    }
+
+  }
+
+  private static func color(for tone: ConnectionStatusLine.Tone) -> Color {
+    switch tone {
+    case .good: Theme.Status.good
+    case .warn: Theme.Status.warn
+    case .bad: Theme.Status.bad
+    case .muted: Theme.Ink.muted
     }
   }
 

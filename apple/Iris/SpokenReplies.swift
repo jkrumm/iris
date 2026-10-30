@@ -50,7 +50,7 @@ final class SpokenReplies {
       let memo = try await client.memo(id: id).memo
       // Re-checked after the fetch and again after the download (`shouldPlay`): the setting or the app state may have changed
       // while either was on the wire.
-      guard isOn, isForeground, memo.state == .notified, memo.hasReply, !memo.isDeleted, !memo.archived else { return }
+      guard isOn, isForeground, memo.isSpeakable, !memo.archived else { return }
       // Marked only once it plays. A reply the player could not take (another one was loading) stays unmarked, but nothing
       // retries it: the server sends `memo.done` once, and the reply is still there for [Play].
       if await speech.play(memo, source: media(), shouldPlay: { isOn && isForeground }) {

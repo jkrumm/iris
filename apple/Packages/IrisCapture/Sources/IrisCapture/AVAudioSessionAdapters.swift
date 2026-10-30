@@ -9,6 +9,7 @@
     public nonisolated let interruptions: AsyncStream<InterruptionEvent>
     private let continuation: AsyncStream<InterruptionEvent>.Continuation
     private var observerTask: Task<Void, Never>?
+    private var resetTask: Task<Void, Never>?
     // Keeps the iOS 27 message observers registered; they are removed when the tokens deinit.
     private var observationTokens: [Any] = []
 
@@ -48,10 +49,21 @@
 
     private func observeInterruptions() {
       guard observerTask == nil, observationTokens.isEmpty else { return }
+      observeMediaServicesResets()
       if #available(iOS 27, *) {
         observeInterruptionMessages()
       } else {
         observeLegacyInterruptionNotification()
+      }
+    }
+
+    /// The audio daemon restarted: the category, activation and every engine are gone.
+    private func observeMediaServicesResets() {
+      let sink = continuation
+      // Owned by this controller; ends with the process (the controller lives for the app's lifetime).
+      resetTask = Task {
+        let resets = NotificationCenter.default.notifications(named: AVAudioSession.mediaServicesWereResetNotification)
+        for await _ in resets { sink.yield(.mediaServicesReset) }
       }
     }
 

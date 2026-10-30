@@ -14,6 +14,8 @@ final class HistoryModel {
   private(set) var hasLoaded = false
   private(set) var isLoading = false
   private(set) var toast: HistoryToast?
+  /// What the last request or the event stream says about the server; Settings' connection row reads it.
+  private(set) var link = ServerLink.unknown
   var filters = HistoryFilters()
   /// Told the id of a memo when the server says it is result-ready (`memo.done`); the app speaks the reply from here.
   var onMemoDone: ((String) -> Void)?
@@ -38,6 +40,9 @@ final class HistoryModel {
   /// The ids ``hiddenStore`` held at launch; ``reconcileHidden(pendingDeletions:)`` is the only reader.
   private var restoredHidden: Set<String>
   private let hiddenStore: any HiddenMemoStore
+  /// Ids hidden and then unhidden in this session. The create hand-off reaches ``insert(_:)`` on a task of its own, so it can
+  /// land after the discard's delete has settled; without this the deleted memo would come back as a row.
+  private var unhiddenThisSession: Set<String> = []
   /// Drops the cached media (recording, spoken reply, diagrams) of a memo that is deleted or gone.
   private let evictMedia: (String) -> Void
   /// Bumped by every first-page load; a response that finds it changed belongs to filters that are gone.
@@ -76,10 +81,12 @@ final class HistoryModel {
       loadedFilters = requested
       loadFailed = false
       hasLoaded = true
+      link = .live
     } catch is CancellationError {
       return
     } catch {
       guard current == generation else { return }
+      note(failure: error)
       logger.error("history load failed: \(String(describing: error), privacy: .public)")
       loadFailed = true
       // Rows from before the failure stay on a plain refresh; the error state takes over when there are none.
@@ -128,12 +135,32 @@ final class HistoryModel {
     while !Task.isCancelled {
       do {
         for try await event in client.events() {
+          link = .live
           await handle(event)
         }
+        // The server closed the stream: unknown until the next one says `ready`. A cancelled follow is the screen going away,
+        // which says nothing about the server.
+        if !Task.isCancelled { link = .unknown }
       } catch {
+        if !Task.isCancelled { note(failure: error) }
         logger.error("history events dropped: \(String(describing: error), privacy: .public)")
       }
       guard (try? await Task.sleep(for: .seconds(3))) != nil else { return }
+    }
+  }
+
+  /// A request failed: a 401 means the token is wrong, a transport failure (no answer at all) means the server cannot be
+  /// reached; any other failure (a 5xx, a body that does not decode) is an answer, so the server is there and the link stays.
+  private func note(failure error: any Error) {
+    if error is CancellationError { return }
+    if error is URLError {
+      link = .unreachable
+      return
+    }
+    switch error as? APIError {
+    case .unauthorized?: link = .rejected
+    case .transport?: link = .unreachable
+    default: break
     }
   }
 
@@ -224,6 +251,8 @@ final class HistoryModel {
     do {
       let restored = try await client.restoreMemo(id: id)
       guard lifecycle[id] == started else { return }
+      // The owner asked for it back: whatever hid and unhid it earlier in this session no longer applies.
+      unhiddenThisSession.remove(id)
       place(restored, force: true)
     } catch is CancellationError {
       return
@@ -233,8 +262,10 @@ final class HistoryModel {
     }
   }
 
-  /// Shows a memo this device just created (a typed memo) without waiting for the next refresh.
+  /// Shows a memo this device just created (a typed memo) without waiting for the next refresh. A memo this session hid and
+  /// unhid is left to the server's list: the hand-off that carries it is not ordered against the hidden-change channel.
   func insert(_ memo: Memo) {
+    guard !unhiddenThisSession.contains(memo.id) else { return }
     place(memo, force: true)
   }
 
@@ -263,6 +294,7 @@ final class HistoryModel {
   /// server kept (it left `receiving` before the delete landed) shows up with the next refresh.
   func unhide(_ id: String) {
     guard hidden.remove(id) != nil else { return }
+    unhiddenThisSession.insert(id)
     hiddenStore.save(hidden)
   }
 
@@ -341,4 +373,18 @@ final class HistoryModel {
     let index = list.firstIndex { isNewer(memo, than: $0) } ?? list.endIndex
     list.insert(memo, at: index)
   }
+}
+
+/// What the app's own traffic says about the server right now, as opposed to the health probe Settings runs when it appears
+/// (``SettingsModel/Connection``): History's event stream and list loads are authenticated and continuous, so a dropped
+/// network, a Tailscale that is off or a rejected token shows here within seconds.
+enum ServerLink: Equatable {
+  /// Nothing has been tried yet.
+  case unknown
+  /// The last request or the event stream got an answer.
+  case live
+  /// The last request or the event stream never reached the server.
+  case unreachable
+  /// The server answered 401: the saved device token is wrong.
+  case rejected
 }

@@ -33,6 +33,8 @@ public struct OutboxStateMachine: Sendable {
   private var recoveredTakes: Set<MemoID> = []
   /// `createMayHaveLanded` as it was before `dispatch` handed the create out, for `revertDispatch`. Not persisted.
   private var flagBeforeDispatch: [MemoID: Bool] = [:]
+  /// The same for a memo's `completeMayHaveLanded`.
+  private var completeFlagBeforeDispatch: [MemoID: Bool?] = [:]
   /// Memos discarded in this run, so a follower can tell a discard from a memo the server has completed.
   private var discarded: Set<MemoID> = []
   /// Oldest first; bounded so the persisted record does not grow without limit. Holds the memos that completed and the
@@ -321,14 +323,18 @@ public struct OutboxStateMachine: Sendable {
     return true
   }
 
-  /// Takes in a segment file the saved queue never named (the startup sweep): it fills an index below the take's count, or,
-  /// for a take recovered after a crash, the next index after it (the take grows). `false` when the segment does not belong
-  /// to a take this queue holds or would not fit; the caller quarantines the file. Held back like any new segment.
+  /// Takes in a segment file the saved queue never named (the startup sweep): it fills an index below the take's count, or the
+  /// next index after it (the take grows) when the take was recovered after a crash or its `complete` was never handed out:
+  /// a stop that gave up on the recorder finished the memo without its tail, and the tail closed just after (a watchdog kill
+  /// in between). Once `complete` may have reached the server it holds the memo closed at the old count, and the file stays
+  /// out. `false` when the segment does not belong to a take this queue holds or would not fit; the caller quarantines the
+  /// file. Held back like any new segment.
   public mutating func adopt(_ segment: ClosedSegment) -> Bool {
     guard items[segment.memoID]?.kind == .voice, let memo = memos[segment.memoID],
       entries[SegmentKey(memoID: segment.memoID, index: segment.index)] == nil
     else { return false }
-    let grows = segment.index == memo.segmentCount && recoveredTakes.contains(memo.memoID)
+    let completeNotSent = memo.completeMayHaveLanded != true
+    let grows = segment.index == memo.segmentCount && (recoveredTakes.contains(memo.memoID) || completeNotSent)
     guard segment.index < memo.segmentCount || grows else { return false }
     guard enqueue(segment, withheld: true) else { return false }
     if grows { memos[memo.memoID]?.segmentCount += 1 }
@@ -376,6 +382,8 @@ public struct OutboxStateMachine: Sendable {
       guard capacity > 0 else { break }
       guard isCreated(memo.memoID), isDue(memo.completion, now: now), allUploaded(memo) else { continue }
       memos[memo.memoID]?.completion = .uploading
+      completeFlagBeforeDispatch[memo.memoID] = memo.completeMayHaveLanded
+      memos[memo.memoID]?.completeMayHaveLanded = true
       work.append(.complete(memo.memoID, segmentCount: memo.segmentCount))
       capacity -= 1
     }
@@ -405,7 +413,9 @@ public struct OutboxStateMachine: Sendable {
         let key = SegmentKey(memoID: segment.memoID, index: segment.index)
         if entries[key]?.state == .uploading { entries[key]?.state = .pending }
       case .complete(let memoID, _):
-        if memos[memoID]?.completion == .uploading { memos[memoID]?.completion = .pending }
+        guard memos[memoID]?.completion == .uploading else { continue }
+        memos[memoID]?.completion = .pending
+        memos[memoID]?.completeMayHaveLanded = completeFlagBeforeDispatch.removeValue(forKey: memoID) ?? nil
       case .delete(let memoID):
         if deletions[memoID]?.state == .uploading { deletions[memoID]?.state = .pending }
       }

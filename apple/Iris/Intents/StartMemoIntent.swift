@@ -35,9 +35,13 @@ enum StartMemoError: Error, CustomLocalizedStringResourceConvertible {
   }
 }
 
-/// Starts a voice memo from the Control, Siri or the Shortcuts app. An `AudioRecordingIntent` runs in the app process, so
-/// the engine can start there; the Live Activity request is part of `startMemo()`.
-struct StartMemoIntent: AudioRecordingIntent {
+/// Starts a voice memo from the Control, Siri or the Shortcuts app. A control's intent runs in the widget extension unless
+/// it conforms to `LiveActivityIntent` (or `AudioPlaybackIntent`, `openAppWhenRun`, ...): then the system launches the app
+/// process in the background and performs it there, where the handler exists and a Live Activity may be requested without
+/// the app being in the foreground. `AudioRecordingIntent` alone does neither (it only shows the recording indicator and
+/// obliges the Live Activity), so the Record control did nothing: `perform()` ran in `IrisWidgets`, found no handler and threw.
+/// The Live Activity request is part of `startMemo()`.
+struct StartMemoIntent: AudioRecordingIntent, LiveActivityIntent {
   static let title: LocalizedStringResource = "Record with Iris"
   static let description = IntentDescription("Start a voice memo.")
 

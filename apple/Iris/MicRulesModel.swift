@@ -19,6 +19,9 @@ final class MicRulesModel {
   /// Bumped by every `pick()` only: a pick that finds it changed before it writes was overtaken by a newer choice and is
   /// dropped. A `load()` does not count, it must never discard the user's choice.
   private var pickSequence = 0
+  /// Bumped when a pick has saved its rule. A `load()` that read the rules before that read an older set and reads again,
+  /// so a `load()` overlapping a pick never leaves the screen on the choice that was just replaced.
+  private var savedRules = 0
   private let logger = Logger(subsystem: "com.jkrumm.iris", category: "mic-rules")
 
   init(routes: any RouteManager) {
@@ -49,7 +52,12 @@ final class MicRulesModel {
     generation += 1
     let mine = generation
     let current = await routes.currentRoute()
-    let stored = await routes.rules()
+    var seen = savedRules
+    var stored = await routes.rules()
+    while seen != savedRules {
+      seen = savedRules
+      stored = await routes.rules()
+    }
     guard mine == generation else { return }
     route = current
     rules = stored
@@ -78,9 +86,12 @@ final class MicRulesModel {
     // A newer pick started while the route was being read: its choice wins, this one is dropped unsaved.
     guard myPick == pickSequence else { return }
     await routes.setRule(fingerprint: shown, preferredPortUID: uid)
+    savedRules += 1
     let stored = await routes.rules()
-    guard mine == generation else { return }
-    route = current
+    // The rule is saved whatever happened meanwhile: a `load()` that started after this pick must not hide it. Only a newer
+    // pick may show its own set, and the route is written only while nothing newer has read one.
+    guard myPick == pickSequence else { return }
     rules = stored
+    if mine == generation { route = current }
   }
 }

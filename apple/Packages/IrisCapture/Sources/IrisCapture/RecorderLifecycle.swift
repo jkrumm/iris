@@ -75,3 +75,114 @@ enum EngineStartup {
     }
   }
 }
+
+extension EngineStartup {
+  /// Restarts a paused engine. When that fails (the configuration changed while it was paused, or the audio daemon was reset
+  /// and the engine is dead) the engine is torn down and a fresh one is brought up with the tap on it; a failure of that is
+  /// the caller's to report.
+  static func resume<Engine: TapEngine>(_ engine: Engine, replacement: () -> Engine) throws -> Engine {
+    do {
+      try engine.start()
+      return engine
+    } catch {
+      engine.removeTap()
+      engine.stop()
+      let fresh = replacement()
+      try bringUp(fresh)
+      return fresh
+    }
+  }
+}
+
+extension EngineStartup {
+  /// Replaces an engine whose configuration changed. The old one is torn down first (its tap would collide with the new one
+  /// and its input node may still describe the old hardware), then fresh engines are brought up until one holds, waiting with
+  /// `pause` between attempts: the input is often not ready for a moment after a route change. `pause` answers `false` when the
+  /// take has ended meanwhile, which abandons the restart (`nil`). The last error is thrown once the attempts run out.
+  static func recover<Engine: TapEngine>(
+    _ old: Engine, replacement: () -> Engine, attempts: Int, pause: () async -> Bool
+  ) async throws -> Engine? {
+    old.removeTap()
+    old.stop()
+    var lastError: any Error = CaptureError.engineFailure("no restart attempt was made")
+    for attempt in 1...max(1, attempts) {
+      let fresh = replacement()
+      do {
+        try bringUp(fresh)
+        return fresh
+      } catch {
+        lastError = error
+        guard attempt < attempts else { break }
+        guard await pause() else { return nil }
+      }
+    }
+    throw lastError
+  }
+}
+
+/// Whether the engine is running, paused or being replaced, kept free of AVFoundation so the ordering rules are testable.
+///
+/// A configuration change tears the engine down and brings a fresh one up with `await`s in between. While that restart is in
+/// flight `pause()` and `resume()` only record what the take should be doing; the engine they would act on is gone, and
+/// starting it would leave a running engine without a tap that nothing owns. The restart applies the recorded state when it
+/// finishes. A take that ends (or a new one that starts) meanwhile makes the restart's result stale.
+struct EngineRun: Sendable, Equatable {
+  /// What the caller does to the engine right now.
+  enum Action: Sendable, Equatable {
+    /// Nothing: a restart in flight will bring the engine up in the recorded state.
+    case none
+    case pauseEngine
+    case startEngine
+  }
+
+  enum Verdict: Sendable, Equatable {
+    /// The take ended or another began: tear the new engine down.
+    case discard
+    case keepRunning
+    /// The take was paused while the engine came up: pause the new engine.
+    case keepPaused
+  }
+
+  private(set) var isPaused = false
+  private(set) var isRestarting = false
+  private var generation = 0
+
+  /// A take starts: running, nothing in flight, and any restart of an earlier take is stale.
+  mutating func begin() {
+    generation += 1
+    isPaused = false
+    isRestarting = false
+  }
+
+  /// The take ends: a restart in flight is stale.
+  mutating func end() {
+    generation += 1
+    isRestarting = false
+  }
+
+  mutating func pause() -> Action {
+    isPaused = true
+    return isRestarting ? .none : .pauseEngine
+  }
+
+  /// `.startEngine` leaves `isPaused` for `resumed()` (a start that fails keeps the take paused).
+  mutating func resume() -> Action {
+    guard isRestarting else { return .startEngine }
+    isPaused = false
+    return .none
+  }
+
+  mutating func resumed() { isPaused = false }
+
+  /// The generation to hand back to `endRestart`.
+  mutating func beginRestart() -> Int {
+    isRestarting = true
+    return generation
+  }
+
+  mutating func endRestart(_ token: Int) -> Verdict {
+    guard token == generation else { return .discard }
+    isRestarting = false
+    return isPaused ? .keepPaused : .keepRunning
+  }
+}
