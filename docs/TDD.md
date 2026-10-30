@@ -796,8 +796,14 @@ the runner needs a workflow step and was left out of this change (owned files: `
 
 ### Start paths
 
-- **The intent:** `StartMemoIntent: AudioRecordingIntent` starts the engine and
+- **The intent:** `StartMemoIntent: AudioRecordingIntent, LiveActivityIntent` starts the engine and
   `Activity<MemoAttributes>.request(...)` in `perform()`. Apple requires the Live Activity, or the recording stops.
+  **`LiveActivityIntent` is what makes the Control work** (S1 FAIL on the device, Wave 17): a `ControlWidgetButton`'s intent is
+  performed in the widget extension by default; only `LiveActivityIntent` (also `AudioPlaybackIntent`, `openAppWhenRun`) moves it to the app's
+  process, which the system launches in the background, and a Live Activity may only be started from the background through a
+  `LiveActivityIntent`. `AudioRecordingIntent` alone does neither: `perform()` ran in `IrisWidgets`, found no handler (it is
+  registered by the app) and threw `appNotReady`, which a control swallows (no crash, no Iris process, only IrisWidgets).
+  `openAppWhenRun` is deprecated in iOS 26 and errors inside an extension; `supportedModes` is only a suggestion a control overrides.
   Built (Wave 15 I3): the intent file lives in `Iris/Intents/` and is compiled into the app and the widget extension (the
   `ControlWidget` names the type, the app performs it); `perform()` calls the `CaptureIntentHandler` the composition root
   registered at launch (`startMemo()`: server saved, microphone permission, `CaptureSession.start` in `auto` mode, then the
@@ -805,8 +811,8 @@ the runner needs a workflow step and was left out of this change (owned files: `
   (`StartMemoIntentTests`: the fake stack, a recording `TakeLiveActivity`); **pressing the Control and a real
   `Activity.request` from the background are device-only.** Device result (Wave 17 D2, iPhone 15, iOS 26.6.1, `docs/spikes/S1-lock-screen-start.md`): the Record control, from the Lock
   Screen and from Control Center, starts nothing (no take, the app is not launched, only the widget extension runs); Siri has no phrase (no `AppShortcutsProvider`); a take started in the app
-  requests its Live Activity and runs fine. So S1 has not yet shown that an `AudioRecordingIntent` start works from a control: the likely cause is the intent running in the extension
-  process without the app's handler, and Wave 17 I8 decides between a fix and the `openAppWhenRun` fallback below.
+  requests its Live Activity and runs fine. The cause (Wave 17 I8) is the intent running in the extension process without the app's handler; it is now a `LiveActivityIntent` (above), so
+  S1's central question stays open until the owner presses the Control on the phone; the `openAppWhenRun` fallback below is not needed for it and is deprecated in iOS 26.
 - **Callers:** the `ControlWidget` button calls the intent. So do Siri ("Record
   with Iris") and Control Center.
 - **Fallback, accepted by the PRD:** if the system refuses to start a Live
@@ -834,6 +840,17 @@ the runner needs a workflow step and was left out of this change (owned files: `
     (shown 15 minutes) and a discard ends it at once (`Activity.end`); a sent memo is handed over to the server, not ended. The activity's push token is registered
     (`PUT /memos/:id/activity-token`) once the server has the memo, since it answers 404 before that, and retried on the next update; at
     launch every activity still in a client phase is ended, because nothing moves it on after its process is gone (`endOrphans()` also runs when the connection changes, and spares the takes this process is driving, so changing the server URL mid-take does not end that take's activity).
+    **Stale activities** (`StaleActivityRule`, `StaleActivitySweeper`; Wave 17): without a push token (`pushToken == nil`: a Personal Team build has no
+    `aps-environment`) the server's `end` never arrives and a `processing` activity would sit on the Lock Screen and in the island for
+    up to 8 h, hiding a running take's controls. So (1) at the hand-over an activity without a token is followed: the sweeper polls
+    `GET /memos/:id` (3 s, doubling to 30 s) until the memo `isResultReady` and then ends it on that result (`done` / `failed` /
+    `needsRoute`, shown 15 minutes like the server's `end`); (2) at launch (`endOrphans()`) every handed-over activity is checked
+    the same way and ended at once when its memo is finished (no token), gone (404) or older than one hour (token or not: the
+    server's `end` is 15 minutes after done); one without a token whose memo is still in the pipeline gets a follower as in (1);
+    an activity with a token and a young memo is the server's; (3) a starting take
+    (`ActivityKitTakeLiveActivity.start`) first ends the finished (`done`, `failed`) activities and those nothing will update
+    (`processing`/`needsRoute` without a token), so the take's activity owns the island; a `processing` activity the server still
+    drives stays. A server that cannot be asked keeps a young activity. Unit-tested on a fake catalog and `FakeAPIClient`; the ActivityKit adapter is device-only.
     The widget renders all seven (timer for recording and processing); on the device (Wave 17 D2) recording, paused and processing were seen, on the Lock Screen and in the island (compact and expanded), the other four not yet. **Without APNs (a Personal Team) nothing moves a processing activity on: every finished take left a "Processing" card counting up, and the system showed one of those in the island instead of the running take, so its Stop / Pause / mic swap were unreachable (Wave 17 I8).** A new take's `headline` carries one line about earlier memos still sending ("1 earlier memo is still sending", client phases only), which the card shows as a note;
   - `inputName`;
   - `routeChip`;

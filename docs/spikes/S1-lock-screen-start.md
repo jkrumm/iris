@@ -88,3 +88,20 @@ Failures found on the way:
 5. **A crash on engine reconfiguration (I7).** Two aborts, one stack (`Iris-2026-10-30-142452.ips`, `Iris-2026-10-30-143927.ips`): `NSException` from `-[AVAudioNode installTapOnBus:bufferSize:format:block:]` in `AVAudioEngineSegmentRecorder.installTap(on:format:converter:target:sink:)` <- `InputTapEngine.installTap()` <- `EngineStartup.bringUp` <- `installTapAndStartEngine(sink:)` <- `handleConfigurationChange()` <- `observeConfigurationChanges()`. See S2.
 
 Logs: no headless route. `log collect --device*` needs root, `devicectl device sysdiagnose` fails (`DiagnoseError`), `devicectl --console` shows stdout only. What worked, read-only: screenshots (the Lock Screen and island too, but only with the display on: a sleeping phone gives a black frame), `devicectl device info lockState|processes|apps|files`, `device copy from` of `outbox.json`, the quarantine files and the crash reports (`--domain-type systemCrashLogs`), the server memo.
+
+### Control fix (Wave 17 I8)
+
+**Cause (Wave 17 I8, from Apple's docs, fix device-unverified).** `StartMemoIntent` conformed to `AudioRecordingIntent` only. A control's
+`AppIntent` is performed in the widget extension unless it conforms to `LiveActivityIntent` (or `AudioPlaybackIntent`,
+`ForegroundContinuableIntent`, `openAppWhenRun`): then the system launches the app process (in the background, without opening it) and performs
+it there. In the extension the handler (registered by the app's composition root) is `nil`, `perform()` threw `appNotReady` and the control
+swallowed it. A Live Activity may also only be started from the background through a `LiveActivityIntent` (otherwise "Target is not foreground").
+Not the cause: the intent being compiled into both targets (the supported pattern), the Personal Team (no documented effect on intents,
+controls or a local `Activity.request`; it only removes remote Live Activity pushes).
+
+**Fix.** `StartMemoIntent: AudioRecordingIntent, LiveActivityIntent`. No `openAppWhenRun` (deprecated, errors in extensions), no
+`supportedModes` (a control overrides it). Handler registration already happens in `CompositionRoot.init`, which `IrisApp` builds at launch, so a
+background launch has it before `perform()` runs. If the control still does nothing after this, log `systemContext.currentMode` in `perform()` to
+see which process ran it.
+
+**Open (device):** a control tap (Lock Screen and Control Center) starts a take with a Live Activity. Unverified until the owner presses it on the phone.
