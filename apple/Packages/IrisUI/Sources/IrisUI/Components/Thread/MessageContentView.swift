@@ -43,6 +43,7 @@ public struct MessageContentView: View {
   private func markdown(_ text: String) -> some View {
     StructuredText(markdown: text)
       .textual.inlineStyle(.iris)
+      .irisMarkdown()
       .textual.textSelection(.enabled)
       .themeFont(.subheadline)
       .foregroundStyle(Theme.Ink.primary)

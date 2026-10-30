@@ -193,7 +193,7 @@ final class ThreadModel {
       let outcome = try await voice.end(cancelled: cancelled || tooShort)
       if tooShort && !cancelled {
         showFailure(
-          String(localized: "Hold the button while you speak", comment: "Toast after a too-short voice reply"))
+          String(localized: "That was too short to send", comment: "Toast after a too-short voice reply"))
       }
       switch outcome {
       case .sent(let memo):

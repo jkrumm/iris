@@ -371,6 +371,8 @@ Push to master deploys. LaunchAgent `com.jkrumm.iris` (KeepAlive, `ExitTimeOut` 
   cuts markdown into Textual text, a table (grid or cards via `ViewThatFits`) and Mermaid fences numbered like the server's `ReplyBlock.index`; diagrams are the PNG of the current appearance
   through `ReplyImageStore` and the authenticated `MemoMediaSource.asset`. Textual is pinned `exact: 0.5.0` in `IrisUI` only. Voice replies go through the `VoiceReplyCapture` port (`OutboxVoiceReplyCapture`: the real
   capture session and outbox, on fake audio under `-IrisFakeCapture`). The fake sample data holds a chat thread with every block type (`SampleData.chatThreadID`) and a Hermes thread with a turn in flight.
+  `ThreadReplyBar` is one row of icons (keyboard, hold to talk, locked recording = tap to start, send or cross to end; both voice takes use the same `beginVoice`/`endVoice`). Code is highlighted with the JetBrains
+  Light/Dark colors of `IrisUI/Theme/CodeColors.swift` (hand-written, not generated: basalt-ui has no syntax tokens; table in TDD §4 "Reply layout and code themes"); Textual tokenizes after the first frame, so snapshots show no token colors.
 - **Capture and outbox failures:** the outbox stalls a transfer on a refusal (`PermanentTransferError`) or after 10 non-transient failures; no network, a
   5xx, a 408 and a 429 are `TransientTransferError` and never count. `OutboxService.resume()` skips the backoff (launch, new connection settings, app
   foreground); it does not touch a stalled item. A recorder `.failed` event puts the take in phase `failed`; `CaptureSession.stop()` throws
