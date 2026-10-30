@@ -2,7 +2,7 @@ import Foundation
 
 /// The Settings "Server" row: what the saved connection amounts to right now. The health probe (once, when Settings appears)
 /// and the app's live traffic (``ServerLink``) are combined, so "Connected" is never shown for a server the app cannot reach.
-/// Whichever of the two was observed last decides when they disagree.
+/// A failed probe overrules older good traffic; a failure the traffic saw stays until the traffic itself recovers.
 struct ConnectionStatusLine: Equatable {
   enum Tone: Equatable {
     case good, warn, bad, muted
@@ -16,11 +16,11 @@ struct ConnectionStatusLine: Equatable {
   init(
     connection: SettingsModel.Connection, link observed: ServerLink, probedAt: Date? = nil, linkObservedAt: Date? = nil
   ) {
-    // A probe answered after the last traffic observation is the fresher word: the traffic is then not weighed against it.
-    // Except a refused token: the health probe is public, so its answer says nothing about the token, and only
-    // authenticated traffic that gets an answer clears the rejection.
+    // A probe that failed after the last traffic got an answer is the fresher word. A probe that succeeded is not: it is
+    // public, so it says nothing about the token or about the gateway the authenticated traffic goes through, and only
+    // authenticated traffic that gets an answer clears a failure it saw.
     let probeIsNewer = (probedAt ?? .distantPast) > (linkObservedAt ?? .distantPast)
-    let link = probeIsNewer && observed != .rejected ? ServerLink.unknown : observed
+    let link = probeIsNewer && observed == .live ? ServerLink.unknown : observed
     switch (connection, link) {
     case (.notConfigured, _):
       self.init(

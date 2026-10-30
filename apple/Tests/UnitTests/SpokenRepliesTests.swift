@@ -184,7 +184,7 @@ struct SpokenRepliesTests {
     await seed()
     var activity = TakeActivity()
     let replies = replies(takes: { activity })
-    let sampled = replies.takeSample
+    let sampled = replies.consumeSample(id: "m")
     // The take opens and closes while `memoDone` waits for its task: only the counter shows it.
     activity = TakeActivity(isOpen: false, started: 1)
     await replies.memoDone(id: "m", takes: sampled)
@@ -208,7 +208,7 @@ struct SpokenRepliesTests {
     replies.memoUpdated(id: "m")
     activity = TakeActivity(isOpen: false, started: 1)
     // The done event's own sample is taken after the take is over: only the update's sample shows it.
-    await replies.memoDone(id: "m", takes: replies.takeSample)
+    await replies.memoDone(id: "m", takes: replies.consumeSample(id: "m"))
     #expect(speech.memoID == nil)
   }
 

@@ -44,8 +44,9 @@ nonisolated struct MediaDownloader: Sendable {
     let destination = directory.appending(path: name)
     // The cache check runs on the flights' actor, the same one eviction runs on, so a file is either seen before an
     // eviction that was asked for earlier removes it, or not at all.
-    // A memo whose eviction was asked for (and has not run yet) has no cache hit: the ask is answered by the download.
-    if request.isReusable, !evictions.isPending(name), await flights.useFile(at: destination) { return destination }
+    // An eviction asked for earlier finishes first: no cache hit on a file about to go, no flight it would cancel.
+    await evictions.settled(for: name)
+    if request.isReusable, await flights.useFile(at: destination) { return destination }
     let session = session
     let directory = directory
     let flights = flights
@@ -65,11 +66,8 @@ nonisolated struct MediaDownloader: Sendable {
     let flights = flights
     let directory = directory
     let prefix = Self.safeName(memoID) + "."
-    let evictions = evictions
-    evictions.begin(prefix)
-    Task {
+    evictions.schedule(prefix) { [flights, directory] in
       await flights.evict(prefix: prefix, in: directory)
-      evictions.end(prefix)
     }
   }
 
@@ -90,9 +88,9 @@ nonisolated struct MediaDownloader: Sendable {
   /// ``evict(memoID:)``, returning once the files are gone.
   func evictAndWait(memoID: String) async {
     let prefix = Self.safeName(memoID) + "."
-    evictions.begin(prefix)
-    await flights.evict(prefix: prefix, in: directory)
-    evictions.end(prefix)
+    await evictions.schedule(prefix) { [flights, directory] in
+      await flights.evict(prefix: prefix, in: directory)
+    }.value
   }
 
   private static func download(
@@ -116,22 +114,37 @@ nonisolated struct MediaDownloader: Sendable {
     name.replacingOccurrences(of: "/", with: "_")
   }
 
-  /// The evictions asked for and not yet run. ``evict(memoID:)`` returns before its scan, so this is what makes an ask that
-  /// comes after it miss the cache instead of being handed a file that is about to go.
+  /// The evictions asked for and not finished. ``evict(memoID:)`` returns before its scan, so an ask that comes after it
+  /// waits here for the scan instead of being handed a file that is about to go, or starting a download the scan cancels.
   private final class Evictions: Sendable {
-    private let pending = Mutex<[String: Int]>([:])
+    private struct State {
+      var next = 0
+      var running: [Int: (prefix: String, task: Task<Void, Never>)] = [:]
+    }
+    private let state = Mutex(State())
 
-    func begin(_ prefix: String) { pending.withLock { $0[prefix, default: 0] += 1 } }
-
-    func end(_ prefix: String) {
-      pending.withLock {
-        let left = ($0[prefix] ?? 1) - 1
-        $0[prefix] = left > 0 ? left : nil
+    @discardableResult
+    func schedule(_ prefix: String, _ work: @escaping @Sendable () async -> Void) -> Task<Void, Never> {
+      state.withLock { state in
+        let id = state.next
+        state.next += 1
+        // Owned by `state` until it finishes; `finish` waits for this lock, so it always runs after the entry exists.
+        let task = Task {
+          await work()
+          self.finish(id)
+        }
+        state.running[id] = (prefix, task)
+        return task
       }
     }
 
-    func isPending(_ name: String) -> Bool {
-      pending.withLock { $0.keys.contains { name.hasPrefix($0) } }
+    private func finish(_ id: Int) {
+      state.withLock { _ = $0.running.removeValue(forKey: id) }
+    }
+
+    func settled(for name: String) async {
+      let tasks = state.withLock { $0.running.values.filter { name.hasPrefix($0.prefix) }.map(\.task) }
+      for task in tasks { await task.value }
     }
   }
 

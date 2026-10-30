@@ -128,32 +128,29 @@ struct StaleActivitySweeper {
   /// Launch: asks the server about every handed-over activity and ends the ones the rule names. Returns the memos of the
   /// activities it kept that have no push token: nothing will ever move those on, so the caller follows them (``follow(memoID:)``).
   func sweep() async -> [String] {
-    let activities = catalog.handedOverActivities()
-    // One lookup per activity, all at once: a launch with several handed-over activities waits for the slowest, not the sum.
-    let looked = await withTaskGroup(of: (Int, Memo?, Bool).self) { group in
-      for (index, activity) in activities.enumerated() {
-        group.addTask {
-          let (memo, gone) = await lookup(activity)
-          return (index, memo, gone)
-        }
+    // Each activity is looked up and settled on its own, so a slow lookup holds up that activity only.
+    let followed = await withTaskGroup(of: (Int, String?).self) { group in
+      for (index, activity) in catalog.handedOverActivities().enumerated() {
+        group.addTask { (index, await settle(activity)) }
       }
-      var answers: [Int: (Memo?, Bool)] = [:]
-      for await (index, memo, gone) in group { answers[index] = (memo, gone) }
-      return answers
+      var found: [(Int, String)] = []
+      for await (index, memoID) in group { if let memoID { found.append((index, memoID)) } }
+      return found.sorted { $0.0 < $1.0 }.map(\.1)
     }
-    var toFollow: [String] = []
-    for (index, activity) in activities.enumerated() {
-      let (memo, gone) = looked[index] ?? (nil, false)
-      guard case .end(let final) = StaleActivityRule.verdict(for: activity, memo: memo, gone: gone, now: now()) else {
-        if !activity.remoteUpdates { toFollow.append(activity.memoID) }
-        continue
-      }
-      logger.info(
-        "ending activity \(activity.memoID, privacy: .public) at launch: \(Self.reason(final: final, gone: gone), privacy: .public)"
-      )
-      await catalog.end(memoID: activity.memoID, finalState: final, dismissal: .immediate)
+    return followed
+  }
+
+  /// Asks about one activity and ends it if the rule says so; the memo to follow when it stays and nothing else will end it.
+  private func settle(_ activity: HandedOverActivity) async -> String? {
+    let (memo, gone) = await lookup(activity)
+    guard case .end(let final) = StaleActivityRule.verdict(for: activity, memo: memo, gone: gone, now: now()) else {
+      return activity.remoteUpdates ? nil : activity.memoID
     }
-    return toFollow
+    logger.info(
+      "ending activity \(activity.memoID, privacy: .public) at launch: \(Self.reason(final: final, gone: gone), privacy: .public)"
+    )
+    await catalog.end(memoID: activity.memoID, finalState: final, dismissal: .immediate)
+    return nil
   }
 
   /// Polls the memo of an activity until the server is done with it (or the activity is too old), then ends it on the result
@@ -452,8 +449,13 @@ final class TakeLiveActivityCoordinator {
 
     func endStaleActivities() async {
       if let running = sweeping { return await running.value }
-      let task = Task { [sweeper] in
-        for memoID in await sweeper.sweep() { follow(memoID) }
+      let task = Task { [sweeper, serverKey] in
+        // A connection change during the sweep discards the answers of the old server: sweep again against the new one.
+        var key: String?
+        repeat {
+          key = serverKey()
+          for memoID in await sweeper.sweep() { follow(memoID) }
+        } while serverKey() != key
       }
       sweeping = task
       await task.value

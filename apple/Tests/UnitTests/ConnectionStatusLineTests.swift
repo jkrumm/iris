@@ -34,10 +34,10 @@ struct ConnectionStatusLineTests {
     let earlier = Date(timeIntervalSince1970: 1_000)
     let later = Date(timeIntervalSince1970: 2_000)
 
-    // The probe answered after the stream last said unreachable.
+    // The public probe answered after the stream last said unreachable: the failure stands until the traffic recovers.
     let recovered = ConnectionStatusLine(
       connection: .connected, link: .unreachable, probedAt: later, linkObservedAt: earlier)
-    #expect(recovered.title == "Connected")
+    #expect(recovered.title == "Unreachable")
     // The stream dropped after the probe answered.
     let dropped = ConnectionStatusLine(
       connection: .connected, link: .unreachable, probedAt: earlier, linkObservedAt: later)

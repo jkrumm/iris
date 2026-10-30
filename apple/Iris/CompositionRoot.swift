@@ -176,7 +176,7 @@ final class CompositionRoot: CaptureIntentHandler, PlaybackIntentHandler {
     history.onMemoUpdated = { id in reader.memoUpdated(id: id) }
     history.onMemoDone = { id in
       // Sampled here, on the event, not after the task hop: a take that opens in between still blocks the reply.
-      let takes = reader.takeSample
+      let takes = reader.consumeSample(id: id)
       Task { await reader.memoDone(id: id, takes: takes) }
     }
     CaptureIntents.handler = self
@@ -256,8 +256,10 @@ final class CompositionRoot: CaptureIntentHandler, PlaybackIntentHandler {
     await outbox.resume()
     // An outbox that cannot be opened says nothing about its deletes: the persisted hidden ids are left as they are.
     if let pending = await outbox.pendingDeletionIDs() { history.reconcileHidden(pendingDeletions: pending) }
-    // A take's Live Activity does not outlive its process: end the ones the last run left in a client phase.
-    await liveActivity.endOrphans()
+    // A take's Live Activity does not outlive its process: end the ones the last run left in a client phase. Off to the side:
+    // its server lookups never hold up the list.
+    let orphans = Task { await liveActivity.endOrphans() }
+    defer { orphans.cancel() }
     if connectionRevision > 0 {
       await settings.load()
       await stats.load()
