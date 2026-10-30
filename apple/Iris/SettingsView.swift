@@ -130,6 +130,7 @@ struct SettingsView: View {
     return HStack(spacing: Theme.Spacing.sm) {
       Circle().fill(Self.color(for: status.tone)).frame(width: 8, height: 8).accessibilityHidden(true)
       Text(verbatim: status.title).foregroundStyle(Theme.Ink.secondary)
+        .accessibilityIdentifier("settings.server.status")
     }
 
   }

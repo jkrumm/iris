@@ -25,11 +25,9 @@ final class StatsSettingsUITests: IrisUITestCase {
   func testTheServerRowReadsConnectedWhenTheFakeServerAnswers() {
     let app = launch()
     app.tabBars.buttons["Settings"].tap()
-    // A Form row exposes its title as the label and its content as the value.
-    let row = app.descendants(matching: .any)["settings.server"]
-    XCTAssertTrue(waitForPresence(row))
-    expectation(
-      for: NSPredicate(format: "label CONTAINS 'Connected' OR value CONTAINS 'Connected'"), evaluatedWith: row)
+    let status = app.staticTexts["settings.server.status"]
+    XCTAssertTrue(waitForPresence(status))
+    expectation(for: NSPredicate(format: "label == 'Connected'"), evaluatedWith: status)
     waitForExpectations(timeout: 15)
     XCTAssertTrue(waitForAbsence(app.descendants(matching: .any)["settings.server.hint"], timeout: 2))
   }
