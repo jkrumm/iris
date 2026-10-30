@@ -954,13 +954,17 @@ pinned simulator in light and dark (`LiveActivitySnapshotTests`, the island thro
     reply with Copy as plain text, retry from the waterfall. Not yet: the recording and spoken-reply players (the iOS `MemoPlayer`
     configures an `AVAudioSession`, which macOS does not have) and the route sheet for a parked memo.
   - *Live updates:* the list and `HistoryModel.observeEvents()` start at launch, whether or not the popover was ever opened, and
-    restart on a connection change. `memo.done` goes to `MemoNotifier`: one local notification per memo (route as title, headline
-    as body), tracked as in flight vs posted so a failed lookup or post is retried (in the call, then by the next event or
+    restart on a connection change. `memo.done` goes to `MemoNotifier`: one local notification per memo, never with the transcript or
+    reply (the alert contract: a finished memo shows its route and the summary's headline, "Done." without one; a parked memo the
+    generic question and the park reason; a failed one the step that failed), tracked as in flight vs posted so a failed lookup or post is retried (in the call, then by the next event or
     catch-up). The permission is read again for every memo, never cached, and the system prompt runs on the side: an unanswered
     prompt holds neither History nor the stream, and finished memos wait on it. The stream has no replay, so `DoneCatchUp`
     compares each list snapshot with the last and announces a memo that is done now but was not before (never on the initial
-    load or after a filter change), which covers memos that finished during an outage. A connection change replaces the
-    `HistoryModel`, clears the notifier, closes the detail window and restarts following; the open detail also reloads on every
+    load or after a filter change), which covers memos that finished during an outage. A connection change gives the
+    connection its own client and a new `HistoryModel`, clears the notifier (every event and lookup carries the notifier's
+    generation from when it started and re-checks it after each await, so a task of the old server posts and records nothing), drops
+    queued row actions of the old list (`MacCompositionRoot.perform`), closes the detail window and restarts following; a memo
+    whose every post try failed is offered again when the connection returns; the open detail also reloads on every
     reconnect (`LinkTracker`) and on each `memo.updated`, and a response overtaken by a newer load is dropped.
   - *Proof:* a menu-bar popover cannot be opened without a click and the mini has no Screen Recording grant, so
     `-IrisMacPanelWindow` shows the same panel as a regular window and `-IrisMacSnapshot <dir>` has the app write PNGs of its own
