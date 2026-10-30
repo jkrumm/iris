@@ -9,14 +9,16 @@ struct StatsView: View {
   var body: some View {
     NavigationStack {
       ScrollView {
-        content
-          .padding(.horizontal, Theme.Spacing.lg)
-          .padding(.vertical, Theme.Spacing.md)
+        VStack(alignment: .leading, spacing: Theme.Spacing.cozy) {
+          ScreenTitle(String(localized: "Stats", comment: "Title of the Stats tab"))
+          content
+        }
+        .padding(.horizontal, Theme.Spacing.screenMargin)
       }
       .accessibilityIdentifier("stats.view")
       .takeBanner()
       .background(Theme.Surface.background)
-      .navigationTitle(String(localized: "Stats", comment: "Navigation title of the Stats tab"))
+      .toolbarVisibility(.hidden, for: .navigationBar)
       .refreshable { await model.load() }
       .task { await model.load() }
     }
@@ -48,7 +50,7 @@ struct StatsView: View {
   }
 
   private func loaded(_ report: StatsReport) -> some View {
-    VStack(alignment: .leading, spacing: Theme.Spacing.lg) {
+    VStack(alignment: .leading, spacing: Theme.Spacing.cozy) {
       Picker(String(localized: "Period", comment: "Stats granularity picker"), selection: $model.granularity) {
         Text("Days", comment: "Stats granularity").tag(StatsReport.Granularity.days)
         Text("Weeks", comment: "Stats granularity").tag(StatsReport.Granularity.weeks)
@@ -62,26 +64,59 @@ struct StatsView: View {
 
       HStack(spacing: Theme.Spacing.sm) {
         ForEach(report.tiles, id: \.title) { tile in
-          StatTile(title: tile.title, value: tile.value, caption: tile.caption)
+          StatTile(
+            title: tile.title, value: tile.value, caption: tile.caption,
+            captionColor: tile.isRise ? Theme.Status.good : Theme.Ink.muted)
         }
       }
 
       VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
-        DetailSectionLabel(String(localized: "Memos per route", comment: "Stats chart title"))
+        VStack(alignment: .leading, spacing: Theme.Spacing.hair) {
+          Text("Memos per route", comment: "Stats chart title")
+            .themeFont(.subheadline, weight: .semibold)
+            .foregroundStyle(Theme.Ink.primary)
+            .accessibilityAddTraits(.isHeader)
+          Text(verbatim: chartSubtitle)
+            .themeFont(.caption)
+            .foregroundStyle(Theme.Ink.muted)
+        }
         VolumeChart(bars: report.bars, names: Self.seriesNames, summary: summary(report))
       }
-      .padding(Theme.Spacing.lg)
+      .padding(.horizontal, Theme.Spacing.cardInsetHorizontal)
+      .padding(.top, Theme.Spacing.inset)
+      .padding(.bottom, Theme.Spacing.cozy)
       .detailCard()
 
-      VStack(alignment: .leading, spacing: 0) {
-        ForEach(Array(report.trends.enumerated()), id: \.element.id) { index, trend in
-          if index > 0 { Divider().overlay(Theme.divider) }
-          TrendRow(
-            series: trend.series, name: Self.seriesNames[trend.series] ?? "", points: trend.points,
-            total: trend.total, changeText: trend.change, direction: trend.direction)
+      VStack(alignment: .leading, spacing: Theme.Spacing.xs) {
+        VStack(alignment: .leading, spacing: 0) {
+          ForEach(Array(report.trends.enumerated()), id: \.element.id) { index, trend in
+            if index > 0 { Divider().overlay(Theme.divider) }
+            TrendRow(
+              series: trend.series, name: Self.seriesNames[trend.series] ?? "", points: trend.points,
+              total: trend.total, changeText: trend.change, direction: trend.direction)
+          }
         }
+        .detailCard()
+        Text(verbatim: trendsFootnote)
+          .themeFont(.caption)
+          .foregroundStyle(Theme.Ink.faint)
+          .padding(.horizontal, Theme.Spacing.xs)
       }
-      .detailCard()
+    }
+  }
+
+  private var chartSubtitle: String {
+    switch model.granularity {
+    case .days: String(localized: "Stacked by route, per day. Today is partial.", comment: "Stats chart subtitle")
+    case .weeks:
+      String(localized: "Stacked by route, per week. The current week is partial.", comment: "Stats chart subtitle")
+    }
+  }
+
+  private var trendsFootnote: String {
+    switch model.granularity {
+    case .days: String(localized: "Change against the 7 days before.", comment: "Stats trends footnote")
+    case .weeks: String(localized: "Average per week over 8 weeks.", comment: "Stats trends footnote")
     }
   }
 
