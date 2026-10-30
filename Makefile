@@ -243,4 +243,6 @@ device-screenshot: ## Full-resolution PNG of the iPhone -> .artifacts/device-<ti
 	scripts/device-screenshot.sh $(NAME)
 
 .PHONY: device
-device: device-build device-run ## Build, sign, install, launch and screenshot Iris on the paired iPhone
+device: ## Build, sign, install, launch and screenshot Iris on the paired iPhone (in sequence, also under make -j)
+	$(MAKE) device-build
+	$(MAKE) device-run
