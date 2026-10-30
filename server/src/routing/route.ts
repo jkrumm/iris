@@ -1,4 +1,4 @@
-import type { MemoMode, RouteDecisionInput } from "../memo/memo.js";
+import type { RoutableMode, RouteDecisionInput } from "../memo/memo.js";
 import type { Decider } from "../ports/decider.js";
 import { hasChoice, type DestinationName } from "../ports/destination.js";
 import type { Herd, HerdTab } from "../ports/herd.js";
@@ -20,7 +20,7 @@ const DESCRIPTIONS: Record<DestinationName, string> = {
   herdr: "An instruction for a coding agent running in one of the open terminal tabs.",
 };
 
-const MODE_DESTINATION: Record<Exclude<MemoMode, "auto" | "transcribe">, DestinationName> = {
+const MODE_DESTINATION: Record<Exclude<RoutableMode, "auto">, DestinationName> = {
   journal: "journal",
   hermes: "hermes",
   tab: "herdr",
@@ -33,7 +33,7 @@ export interface RouteDecision extends RouteDecisionInput {
 
 export interface RouteInput {
   memoId: string;
-  mode: MemoMode;
+  mode: RoutableMode;
   transcript: string;
   /** The destinations with a registered act adapter; only these are choices. */
   destinations: readonly DestinationName[];
@@ -206,8 +206,6 @@ async function decide(input: RouteInput & { decider: Decider }): Promise<RouteDe
  */
 export async function route(input: RouteInput): Promise<RouteDecision> {
   const { mode, transcript, destinations } = input;
-  // The pipeline of a transcribe-only memo has no route step; reaching here is a bug, not a decision to park.
-  if (mode === "transcribe") throw new Error("route: mode transcribe has no route step");
   if (mode !== "auto") {
     return named({
       source: "mode",

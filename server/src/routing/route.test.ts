@@ -62,10 +62,6 @@ describe("route: mode", () => {
     expect(decider.calls).toEqual([]);
   });
 
-  it("has no route for a transcribe-only memo: the pipeline never asks", async () => {
-    await expect(route(input({ mode: "transcribe" }))).rejects.toThrow("no route step");
-  });
-
   it("wins over a spoken prefix", async () => {
     const decision = await route(input({ mode: "hermes", transcript: "Tagebuch heute war gut" }));
     expect(decision).toMatchObject({ source: "mode", destination: "hermes" });

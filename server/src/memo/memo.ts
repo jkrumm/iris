@@ -1,6 +1,11 @@
 export const MEMO_MODES = ["auto", "journal", "hermes", "tab", "chat", "transcribe"] as const;
 export type MemoMode = (typeof MEMO_MODES)[number];
 
+/** A mode whose memo goes through route, act and summarize; `transcribe` stops after the transcript and never routes. */
+export type RoutableMode = Exclude<MemoMode, "transcribe">;
+
+export const isRoutableMode = (mode: MemoMode): mode is RoutableMode => mode !== "transcribe";
+
 export const MEMO_STATES = [
   "receiving",
   "received",
@@ -336,11 +341,11 @@ const TRANSCRIBE_ONLY_STEPS: readonly Step[] = ["ingest", "transcribe", "notify"
 
 /** The steps a memo of `mode` goes through, in pipeline order. */
 export function stepsOf(mode: MemoMode): readonly Step[] {
-  return mode === "transcribe" ? TRANSCRIBE_ONLY_STEPS : STEPS;
+  return isRoutableMode(mode) ? STEPS : TRANSCRIBE_ONLY_STEPS;
 }
 
 function transitionOf(step: Step, mode: MemoMode): Transition {
-  return step === "notify" && mode === "transcribe"
+  return step === "notify" && !isRoutableMode(mode)
     ? { from: "transcribed", to: "notified" }
     : TRANSITIONS[step];
 }

@@ -324,7 +324,7 @@ machine, Retries); retention (audio deleted 30 days after `notified`) is not bui
      titles).
    - Header: `Authorization: Bearer <AUDIO_DOOR_TOKEN>`; the answer carries `agw-run-id`, logged and set on the span as `agw.run_id`. A 401 is final.
    - The door handles chunking up to about 2 h. A 413 is terminal.
-3. **route:** only destinations with a registered act adapter are choices (`Destinations`). Mode `transcribe` never reaches this step (§Memo state machine).
+3. **route:** only destinations with a registered act adapter are choices (`Destinations`). Mode `transcribe` never reaches this step (§Memo state machine): `RoutableMode` (`memo.ts`, every mode but `transcribe`, narrowed by `isRoutableMode`) is the type `route()` takes, so the step handler checks the mode once and `stepsOf`, the transitions and the service's `transcribe` refusals read the same predicate.
    - If the memo's mode is not auto, it wins (`journal` → journal, `hermes` → hermes, `tab` → herdr, `chat` → hermes). Source `mode`; a chat memo is never routed elsewhere by prefix or `decide`. Mode `tab` carries no name:
      it routes to the only live tab, and parks with "which tab?" when there are several or none.
    - Otherwise the prefix parser matches "journal|tagebuch", "an hermes|hermes", "tab <name>", case- and diacritic-insensitive, with the

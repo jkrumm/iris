@@ -225,6 +225,12 @@ describe("route", () => {
       "no transcript",
     );
   });
+
+  it("has no route for a transcribe-only memo: the pipeline never asks", async () => {
+    const { store, handlers } = setup();
+    const memo = { ...transcribed(store), mode: "transcribe" as const };
+    await expect(handlers.route?.({ memo })).rejects.toThrow("no route step");
+  });
 });
 
 describe("act", () => {
