@@ -164,10 +164,12 @@ about either is tracked. Overrides: `IRIS_DEVICE_ID`, `TEAM=<id>`, `DEVICE_SIGNI
 | `make e2e` | the pipeline against a fake-booted server (needs ffmpeg) | mini, CI after `check` |
 | `make check-apple` | Theme drift, `swift format lint --strict`, `swift test` per package (macOS host), `xcodebuild build` of `Iris` + extensions (simulator) and `IrisMac` | mini, CI (`apple.yml`) |
 | `make snapshots` | IrisUI snapshot tests on the pinned simulator (`RECORD=1` re-records) | mini, `apple.yml` |
-| `make uitest` | XCUITest smoke (`-IrisFakeCapture`) | mini, `apple.yml` |
+| `make uitest` | XCUITest flows (`-IrisFakeCapture`); `ONLY=<Class>[/<test>]` runs one class or method (`-only-testing:IrisUITests/…`) | full suite: `apple.yml`; mini: `ONLY=` only |
 | `make device` | `device-build` + `device-run`: signed Debug build, install, launch and a phone screenshot on the paired iPhone (see Device) | mini, phone wired |
 | `make guard` | public-repo scan (IPs, tailnet/real hostnames, token shapes) | mini, CI, lefthook pre-commit |
 | `make verify` / `make smoke` | production health / a real recording through production | mini only, after deploy |
+
+The full UI suite is CI's (`apple.yml`; a new push cancels a PR's stale run, never a master run). Locally run `make snapshots` plus `make uitest ONLY=…` for the screens you touched, on one simulator, then `xcrun simctl shutdown all`. Never re-run the full suite locally to bisect: read the CI log and run the failing test alone.
 
 `make format` applies oxfmt. `make generate` builds `apple/Iris.xcodeproj`; `make theme` regenerates `IrisUI/Theme`. Toolchain recipes: `apple-dev`.
 Fix errors in changed files only. A change to the API runs `make contracts` first (skill `iris-server`).
@@ -383,7 +385,7 @@ Push to master deploys. LaunchAgent `com.jkrumm.iris` (KeepAlive, `ExitTimeOut` 
 - **Long polls and SSE** call `server.timeout(request, 0)` to escape Bun's idle timeout.
 - **Secrets on the mini:** `secrets-run`, never `op`.
 - `server/package.json` is imported by `telemetry/otel.ts` for `service.version`; keep it there.
-- **Apple build artifacts:** `xcodebuild` leaves `apple/.dd` and per-package `.dd` / `.build`, and `make screenshot` writes `.artifacts/`; all gitignored.
+- **Apple build artifacts:** `xcodebuild` leaves `apple/.dd.noindex` and per-package `.dd.noindex` / `.build`, and `make screenshot` writes `.artifacts/`; all gitignored.
   `Iris.xcodeproj` is generated: edit `apple/project.yml`, never the project.
 - **Capture and outbox** (Wave 15 I3, TDD §4): `IrisCapture` holds `CaptureSession` (one take: session, route, recorder, outbox) and the persistent `Outbox`, a queue of whole items
   (typed memo, chat message, voice take, thread reply) with `create` → segments → `complete`, idempotent by memo id, jittered bounded backoff, stall after 10 failures or a 4xx a retry cannot fix, "retry now" and "discard". The app reaches it through
