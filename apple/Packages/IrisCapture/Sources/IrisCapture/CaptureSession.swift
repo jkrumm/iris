@@ -422,14 +422,23 @@ public actor CaptureSession {
     state.phase = .failed
     state.failure = reason
     publish()
+    let answered: Bool
     do {
       // Flushes what it has and emits `.stopped`; bounded, because this runs on the event pump.
-      guard try await stopRecorder() else { throw CaptureError.engineFailure("the recorder did not stop") }
+      answered = try await stopRecorder()
     } catch {
-      // No last event is coming: the segments that closed are what the take has.
       Log.capture.error("recorder stop after failure failed: \(String(describing: error), privacy: .public)")
-      didFinish(memoID, count: closedCounts[memoID, default: 0])
+      answered = false
     }
+    // Answered: `.stopped` follows and the pump finishes the memo.
+    guard !answered else { return }
+    // No last event is coming: the segments that closed are what the take has, and they go up now like a take that stopped
+    // cleanly, not when the user next looks at the phone (the app may be killed before a stop that never comes). A segment the
+    // recorder still closes after this is late and stays on disk for the next launch's sweep.
+    let count = closedCounts[memoID, default: 0]
+    abandoned.insert(memoID)
+    didFinish(memoID, count: count)
+    if count > 0, !cancelled.contains(memoID) { await outbox.finishMemo(memoID, segmentCount: count) }
   }
 
   /// The segments a take really has. After a recorder failure its own count can include a segment it never managed to
