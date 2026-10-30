@@ -47,6 +47,8 @@ actor TestUploader: SegmentUploader {
   private var createsArePermanent = false
   private var inFlight = 0
   private var isHolding = false
+  private var holdsCreates = false
+  private var createWaiters: [(count: Int, continuation: CheckedContinuation<Void, Never>)] = []
   private var held: [CheckedContinuation<Void, Never>] = []
   private var startWaiters: [(count: Int, continuation: CheckedContinuation<Void, Never>)] = []
   private var attemptWaiters: [(key: SegmentKey, count: Int, continuation: CheckedContinuation<Void, Never>)] = []
@@ -66,9 +68,17 @@ actor TestUploader: SegmentUploader {
     deletesArePermanent = permanent
   }
   func hold() { isHolding = true }
+  /// Creates wait (after counting as attempted) until `releaseAll()`: a request on the wire whose answer has not come.
+  func holdCreates() { holdsCreates = true }
+
+  func waitUntilCreateAttempts(_ count: Int) async {
+    guard createAttempts < count else { return }
+    await withCheckedContinuation { createWaiters.append((count, $0)) }
+  }
 
   func releaseAll() {
     isHolding = false
+    holdsCreates = false
     let continuations = held
     held = []
     for continuation in continuations { continuation.resume() }
@@ -86,6 +96,10 @@ actor TestUploader: SegmentUploader {
 
   func create(_ item: OutboxItem) async throws {
     createAttempts += 1
+    let ready = createWaiters.filter { $0.count <= createAttempts }
+    createWaiters.removeAll { $0.count <= createAttempts }
+    for waiter in ready { waiter.continuation.resume() }
+    if holdsCreates { await withCheckedContinuation { held.append($0) } }
     if createFailuresLeft > 0 {
       createFailuresLeft -= 1
       if createsArePermanent { throw PermanentTransferError("refused") }

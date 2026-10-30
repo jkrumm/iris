@@ -12,6 +12,8 @@ final class ActivityTokenRegistrar {
     var handedOver = false
     /// A `PUT` is out: the next one waits for its answer, so answers arrive in the order the tokens were sent.
     var isSending = false
+    /// Which `begin` made this entry: a `PUT` that outlives `finish` + `begin` of the same memo must not touch the new one.
+    let generation = UUID()
     var retry: Task<Void, Never>?
     var retryDelay = Duration.seconds(2)
   }
@@ -62,18 +64,24 @@ final class ActivityTokenRegistrar {
   /// a slow answer for an older token cannot land after (and replace) a newer one, here or on the server. The call that
   /// finds a `PUT` out returns at once; the call that sent it carries on with the newest token.
   func attempt(_ memoID: String) async {
-    guard entries[memoID]?.isSending == false else { return }
+    guard let started = entries[memoID], !started.isSending else { return }
+    let generation = started.generation
     entries[memoID]?.isSending = true
-    defer { entries[memoID]?.isSending = false }
-    while let entry = entries[memoID], entry.memoExists, let token = entry.token, token != entry.registeredToken {
+    // Only the entry this call started: a memo that was finished and begun again while the `PUT` was out has a new entry
+    // with its own `isSending`, which this call must not clear (a second sender would race the first).
+    defer { if entries[memoID]?.generation == generation { entries[memoID]?.isSending = false } }
+    while let entry = entries[memoID], entry.generation == generation, entry.memoExists, let token = entry.token,
+      token != entry.registeredToken
+    {
       do {
         try await client.setActivityToken(memoID: memoID, request: ActivityTokenRequest(token: token))
       } catch {
         logger.error("activity token not registered: \(String(describing: error), privacy: .public)")
-        retryLater(memoID)
+        if entries[memoID]?.generation == generation { retryLater(memoID) }
         return
       }
-      guard entries[memoID] != nil else { return }  // the activity ended while the request was out
+      // The activity ended (or ended and began again) while the request was out: its token is not the new entry's.
+      guard entries[memoID]?.generation == generation else { return }
       entries[memoID]?.registeredToken = token
       entries[memoID]?.retry?.cancel()
       entries[memoID]?.retry = nil

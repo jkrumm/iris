@@ -165,4 +165,38 @@ struct CaptureFollowUpTests {
 
     #expect(!registrar.isTracking(id))
   }
+
+  @Test("a PUT that outlives finish and begin of the same memo does not clear the new entry's send flag")
+  func beginAgainDuringSend() async throws {
+    let id = MemoID().wireID
+    await client.seed(MemoFactory.detail(MemoFactory.memo(id)))
+    let registrar = ActivityTokenRegistrar(client: client, sleep: { _ in await Task.yield() })
+    registrar.begin(id)
+    await registrar.memoCreated(id)
+    let first = await client.hold(.setActivityToken)
+    let second = await client.hold(.setActivityToken)
+    let old = Task { await registrar.setToken(id, "aa") }
+    #expect(await waitUntilHeld(first), "the old activity's PUT is out and slow")
+
+    registrar.finish(id)
+    registrar.begin(id)  // the same memo again, a new activity
+    await registrar.memoCreated(id)
+    let newer = Task { await registrar.setToken(id, "bb") }
+    #expect(await waitUntilHeld(second), "the new activity's PUT is out")
+
+    first.release()
+    await old.value
+    await registrar.setToken(id, "cc")  // rotates while the new entry's PUT is still out
+    func sent() async -> [String] {
+      await client.calls.compactMap { call -> String? in
+        if case .setActivityToken(id, let request) = call { request.token } else { nil }
+      }
+    }
+    #expect(await sent() == ["aa", "bb"], "no PUT beside the new entry's: the old one did not clear its flag")
+
+    second.release()
+    await newer.value
+    #expect(await sent() == ["aa", "bb", "cc"])
+    #expect(await client.activityTokens[id] == "cc")
+  }
 }

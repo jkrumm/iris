@@ -21,9 +21,8 @@ public actor Outbox: SegmentOutbox {
     }
   }
 
-  /// Module-internal for the startup sweep (`OutboxSweep.swift`); every other caller goes through the actor's methods.
-  var machine: OutboxStateMachine
-  let store: any OutboxStore
+  private var machine: OutboxStateMachine
+  private let store: any OutboxStore
   private let uploader: any SegmentUploader
   private let clock: any CaptureClock
   private let deletesFilesWhenDone: Bool
@@ -39,17 +38,17 @@ public actor Outbox: SegmentOutbox {
   private var flushWaiters: [(generation: Int, continuation: CheckedContinuation<Bool, Never>)] = []
   /// Every `persist()` call takes the next number; a save carries the highest number requested when its snapshot was taken,
   /// so a call knows its own change is on disk when `savedThrough` has reached its number.
-  var requested = 0
+  private var requested = 0
   private var savedThrough = 0
   private var isDirty = false
   /// Segments held back from upload, with the number of the `persist()` call that will carry them.
-  var unsavedSegments: [SegmentKey: Int] = [:]
+  private var unsavedSegments: [SegmentKey: Int] = [:]
   private var lastSaveError: String?
   private var saveRetry: Task<Void, Never>?
   private let policy: OutboxPolicy
   /// Segment files no queue entry needs any more. Deleted once a save that no longer lists them has landed: if the write
   /// fails, the record on disk still names them and a relaunch needs them.
-  var obsoleteFiles: [(url: URL, generation: Int)] = []
+  private var obsoleteFiles: [(url: URL, generation: Int)] = []
   private var isShutDown = false
   private var observers: [UUID: AsyncStream<Void>.Continuation] = [:]
 
@@ -239,6 +238,24 @@ public actor Outbox: SegmentOutbox {
   public func entries() -> [OutboxEntry] { machine.record.entries }
   public func memos() -> [OutboxMemo] { machine.record.memos }
   public func items() -> [OutboxItem] { machine.record.items }
+
+  // MARK: Startup sweep (`OutboxSweep.swift`)
+
+  /// The segment files the queue still needs: those of its entries, and those waiting for the save that retires them.
+  func segmentFileNames() -> Set<String> {
+    Set(machine.entries.values.map(\.segment.fileURL.lastPathComponent)).union(
+      obsoleteFiles.map(\.url.lastPathComponent))
+  }
+
+  /// Takes in a segment file the saved queue never named (see `OutboxStateMachine.adopt`), held back until the next save.
+  func adoptSwept(_ segment: ClosedSegment) -> Bool {
+    guard machine.adopt(segment) else { return false }
+    unsavedSegments[SegmentKey(memoID: segment.memoID, index: segment.index)] = requested + 1
+    return true
+  }
+
+  /// The queue files earlier resets set aside (they may name segment files the sweep must leave alone).
+  func setAsideQueueFiles() async -> [URL] { await store.quarantined() }
 
   // MARK: Internals
 

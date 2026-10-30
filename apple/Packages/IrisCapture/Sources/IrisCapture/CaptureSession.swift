@@ -79,10 +79,19 @@ public actor CaptureSession {
   private var closedCounts: [MemoID: Int] = [:]
   /// Why the recorder failed, per take.
   private var failures: [MemoID: String] = [:]
-  /// Takes whose `stop()` gave up waiting for the recorder and finished the memo without its last event. Anything the
-  /// recorder still reports for them is ignored (a segment closing now would join a memo that is already finished), and the
-  /// entry goes with the `stopped` event that ends them.
+  /// Takes whose recorder did not report its last event in time. They are not finished yet: the tail segment the recorder was
+  /// flushing can still close and is queued like any other; the `stopped` event (or the grace timer, `lateFinish`) finishes
+  /// the memo. Set synchronously by the timeout itself, so there is no moment where a take is neither waiting nor finished.
+  private var awaitingStop: Set<MemoID> = []
+  /// The grace timer of each take in `awaitingStop` that `stop()` has returned for: when it fires the memo is finished with
+  /// the segments that closed, and the take is abandoned.
+  private var lateFinish: [MemoID: Task<Void, Never>] = [:]
+  /// Takes whose memo was finished (or dropped) without the recorder's last event. Anything the recorder still reports for
+  /// them is ignored (a segment closing now would join a memo that is already finished; its file stays for the next
+  /// launch's sweep), and the entry goes with the `stopped` event that ends them.
   private var abandoned: Set<MemoID> = []
+  /// Recorder stops in flight that `stopRecorder()` is waiting on, settled by the stop itself or by its timer.
+  private var stopRaces: [UUID: CheckedContinuation<Bool, any Error>] = [:]
   private var finishWaiter: (id: MemoID, continuation: CheckedContinuation<Int?, Never>)?
   /// The gate: true while a start, stop or cancel is running; the others wait in `queue`, first come first served.
   private var isBusy = false
@@ -173,9 +182,10 @@ public actor CaptureSession {
     let recorderStopped = state.phase == .failed
     state.phase = .stopping
     publish()
+    var recorderAnswered = true
     if !recorderStopped {
       do {
-        try await recorder.stop()
+        recorderAnswered = try await stopRecorder()
       } catch {
         await outbox.discard(memoID)
         forget(memoID)
@@ -184,16 +194,34 @@ public actor CaptureSession {
         throw error
       }
     }
-    let reported = await finishedCount(memoID)
-    let count = reported ?? closedCounts[memoID, default: 0]
-    if reported == nil {
-      // The recorder never said it stopped: the segments that closed are what the take has, and the failure says why.
-      abandoned.insert(memoID)
-      if failures[memoID] == nil { failures[memoID] = Self.recorderSilent }
+    // `stop()` that never returned counts as a recorder that never said it stopped.
+    let reported = recorderAnswered ? await finishedCount(memoID) : markSilent(memoID)
+    var count = reported ?? closedCounts[memoID, default: 0]
+    var holdsOpen = false
+    if reported != nil {
+      // A failed take's last event was held back for this stop, which sends what it has.
+      if recorderStopped, count > 0 { await outbox.finishMemo(memoID, segmentCount: count) }
+    } else {
+      if awaitingStop.contains(memoID) {
+        // The recorder never said it stopped: the segments that closed are what the take has so far, and the failure says why.
+        if failures[memoID] == nil { failures[memoID] = Self.recorderSilent }
+        if recorderStopped || count == 0 {
+          awaitingStop.remove(memoID)
+          abandoned.insert(memoID)
+          if count > 0 { await outbox.finishMemo(memoID, segmentCount: count) }
+        } else {
+          // The tail segment it was flushing may still close, so the memo is finished when `stopped` arrives (or after a
+          // grace period of the same length), not now.
+          holdsOpen = true
+          await startGrace(for: memoID)
+        }
+      } else {
+        // `stopped` came in between the timeout and here, and the event pump finished the memo with the whole take.
+        count = finished[memoID] ?? count
+      }
     }
     let failure = failures[memoID]
-    if recorderStopped || reported == nil, count > 0 { await outbox.finishMemo(memoID, segmentCount: count) }
-    forget(memoID)
+    if !holdsOpen { forget(memoID) }
     try? await session.deactivate()
     setState(.idle)
     guard count > 0 else {
@@ -221,8 +249,12 @@ public actor CaptureSession {
     // A failed take's recorder is already stopped (it has nothing to flush, and no last event to wait for).
     if state.failure == nil {
       do {
-        try await recorder.stop()
-        if await finishedCount(memoID) == nil { abandoned.insert(memoID) }
+        let answered = try await stopRecorder()
+        let reported = answered ? await finishedCount(memoID) : nil
+        if reported == nil {
+          awaitingStop.remove(memoID)
+          abandoned.insert(memoID)
+        }
       } catch {
         Log.capture.error("recorder stop after cancel failed: \(String(describing: error), privacy: .public)")
       }
@@ -269,6 +301,8 @@ public actor CaptureSession {
   public func shutdown() {
     for pump in pumps { pump.cancel() }
     pumps = []
+    for timer in lateFinish.values { timer.cancel() }
+    lateFinish = [:]
     // A stop still waiting for the recorder's last event would wait for ever once the pumps are gone.
     if let waiter = finishWaiter {
       finishWaiter = nil
@@ -323,10 +357,15 @@ public actor CaptureSession {
             // A failed take waits for the user's stop (which sends what it has) or cancel (which drops it).
             let isHeldBack = state.phase == .failed && state.memoID == memoID
             let kept = keptCount(memoID, reported: count)
-            // A stop that gave up on this event has finished the memo with what it had.
+            // A stop that gave up on this event and then finished the memo (cancel, or the grace period ran out) is over.
             if abandoned.remove(memoID) != nil { break }
+            // A stop that gave up on this event left the memo open for it: the take is whole, tail included.
+            let graceTimer = lateFinish.removeValue(forKey: memoID)
+            graceTimer?.cancel()
+            awaitingStop.remove(memoID)
             if !cancelled.contains(memoID), !isHeldBack { await outbox.finishMemo(memoID, segmentCount: kept) }
             didFinish(memoID, count: kept)
+            if graceTimer != nil { forget(memoID) }  // `stop()` has returned; nobody else will clear the take
           case .failed(let reason): await recorderFailed(reason)
           case .started: continue
           }
@@ -363,7 +402,8 @@ public actor CaptureSession {
     state.failure = reason
     publish()
     do {
-      try await recorder.stop()  // flushes what it has and emits `.stopped`
+      // Flushes what it has and emits `.stopped`; bounded, because this runs on the event pump.
+      guard try await stopRecorder() else { throw CaptureError.engineFailure("the recorder did not stop") }
     } catch {
       // No last event is coming: the segments that closed are what the take has.
       Log.capture.error("recorder stop after failure failed: \(String(describing: error), privacy: .public)")
@@ -409,9 +449,71 @@ public actor CaptureSession {
 
   private func finishTimedOut(_ memoID: MemoID) {
     guard let waiter = finishWaiter, waiter.id == memoID else { return }
-    Log.capture.error("recorder did not stop within \(self.stopTimeout, privacy: .public) s")
+    Log.capture.error("recorder did not report within \(self.stopTimeout, privacy: .public) s")
+    // Registered before the waiter is resumed: a `stopped` that the pump handles before `stop()` runs again finds the take
+    // waiting, not unknown.
+    awaitingStop.insert(memoID)
     finishWaiter = nil
     waiter.continuation.resume(returning: nil)
+  }
+
+  /// A recorder whose `stop()` never returned is treated like one that never reported.
+  private func markSilent(_ memoID: MemoID) -> Int? {
+    Log.capture.error("recorder stop did not return within \(self.stopTimeout, privacy: .public) s")
+    awaitingStop.insert(memoID)
+    return nil
+  }
+
+  /// Stops the recorder, giving up after `stopTimeout` (`false`): a recorder whose `stop()` never returns must not hold the
+  /// gate or the event pump for ever, and the next take must be able to start. Its late answer finds no waiter and is ignored.
+  private func stopRecorder() async throws -> Bool {
+    let id = UUID()
+    let deadline = await clock.now().addingTimeInterval(stopTimeout)
+    // Owned by this call. The stop ends when the recorder answers (a hung one keeps it, harmlessly); the timer ends with the
+    // race.
+    Task { [recorder] in
+      let result: Result<Bool, any Error>
+      do {
+        try await recorder.stop()
+        result = .success(true)
+      } catch {
+        result = .failure(error)
+      }
+      self.settleStop(id, result)
+    }
+    let timer = Task { [clock] in
+      do { try await clock.sleep(until: deadline) } catch { return }
+      self.settleStop(id, .success(false))
+    }
+    defer { timer.cancel() }
+    return try await withCheckedThrowingContinuation { stopRaces[id] = $0 }
+  }
+
+  private func settleStop(_ id: UUID, _ result: Result<Bool, any Error>) {
+    stopRaces.removeValue(forKey: id)?.resume(with: result)
+  }
+
+  /// Arms the timer that finishes a take whose `stopped` never comes: the segments that closed by then are the take.
+  private func startGrace(for memoID: MemoID) async {
+    let deadline = await clock.now().addingTimeInterval(stopTimeout)
+    // The `stopped` event may have come while the clock answered; then it has finished the memo already.
+    guard awaitingStop.contains(memoID) else { return }
+    // Owned by `lateFinish`; ends with the `stopped` event or its own firing, and is cancelled by `shutdown()`.
+    lateFinish[memoID] = Task { [clock] in
+      do { try await clock.sleep(until: deadline) } catch { return }
+      await self.graceExpired(memoID)
+    }
+  }
+
+  private func graceExpired(_ memoID: MemoID) async {
+    guard lateFinish.removeValue(forKey: memoID) != nil, awaitingStop.remove(memoID) != nil else { return }
+    let count = closedCounts[memoID, default: 0]
+    Log.capture.error(
+      "recorder never reported the end of \(memoID.uuidString, privacy: .public), finished with \(count) segments")
+    // From here a segment that closes is late: its file stays for the next launch's sweep.
+    abandoned.insert(memoID)
+    forget(memoID)
+    if count > 0 { await outbox.finishMemo(memoID, segmentCount: count) }
   }
 
   private static let recorderSilent = "the recorder did not stop"

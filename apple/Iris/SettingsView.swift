@@ -51,6 +51,7 @@ struct SettingsView: View {
         .listRowBackground(Theme.Surface.panel)
 
         outbox
+        setAside
 
         playback
         microphone
@@ -224,6 +225,53 @@ struct SettingsView: View {
     }
     .listRowBackground(Theme.Surface.panel)
     .animation(.snappy, value: model.queue)
+  }
+
+  /// Files the app set aside instead of deleting: shown with their count and size, shared on request, never removed here.
+  @ViewBuilder
+  private var setAside: some View {
+    let summary = model.setAside
+    if !summary.isEmpty {
+      Section {
+        LabeledContent(String(localized: "Kept on this device", comment: "Settings set-aside row")) {
+          Text(
+            "\(summary.count) files · \(SetAsideSummary.size(summary.byteCount))",
+            comment: "Settings set-aside count and size"
+          )
+          .foregroundStyle(Theme.Ink.secondary)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("settings.setaside")
+        if summary.exceedsBound {
+          Label {
+            Text(
+              "That is a lot. Iris never deletes them on its own; share the list to have them looked at.",
+              comment: "Settings set-aside bound exceeded")
+          } icon: {
+            Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(Theme.Status.warn)
+          }
+          .themeFont(.footnote)
+          .foregroundStyle(Theme.Ink.secondary)
+          .accessibilityIdentifier("settings.setaside.large")
+        }
+        ShareLink(
+          item: summary.report,
+          preview: SharePreview(String(localized: "Set-aside files", comment: "Share sheet title"))
+        ) {
+          Label(
+            String(localized: "Share or copy the list", comment: "Settings set-aside action"), systemImage: "doc.on.doc"
+          )
+        }
+        .accessibilityIdentifier("settings.setaside.share")
+      } header: {
+        Text("Set-aside files", comment: "Settings section")
+      } footer: {
+        Text(
+          "Outbox files that could not be read and recordings no queue entry owned. They are kept, never deleted on their own.",
+          comment: "Settings set-aside footer")
+      }
+      .listRowBackground(Theme.Surface.panel)
+    }
   }
 
   private func row(for item: QueuedItem) -> some View {

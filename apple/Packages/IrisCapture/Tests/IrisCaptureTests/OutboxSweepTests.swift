@@ -18,6 +18,10 @@ struct OutboxSweepTests {
     return (data.count, 10)
   }
 
+  private func files(_ directory: URL, quarantine: URL? = nil) -> DirectorySegmentFiles {
+    DirectorySegmentFiles(directory: directory, quarantineDirectory: quarantine, inspect: inspect)
+  }
+
   private func contents(_ directory: URL) -> [String] {
     ((try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []).sorted()
   }
@@ -45,8 +49,7 @@ struct OutboxSweepTests {
     _ = try file(directory, id, 3)
     let harness = try await OutboxHarness(record: record)
 
-    let report = await harness.outbox.sweepOrphans(
-      in: directory, quarantineTo: directory.appending(path: "quarantine"), inspect: inspect)
+    let report = await harness.outbox.sweepOrphans(using: files(directory))
 
     #expect(report.adopted.map(\.lastPathComponent) == ["\(id.uuidString)-2.m4a", "\(id.uuidString)-3.m4a"])
     #expect(report.quarantined.isEmpty)
@@ -74,7 +77,7 @@ struct OutboxSweepTests {
     let harness = try await OutboxHarness(record: record)
     let quarantine = directory.appending(path: "quarantine")
 
-    let report = await harness.outbox.sweepOrphans(in: directory, quarantineTo: quarantine, inspect: inspect)
+    let report = await harness.outbox.sweepOrphans(using: files(directory, quarantine: quarantine))
 
     #expect(report.adopted.isEmpty)
     #expect(report.quarantined.count == 4)
@@ -106,14 +109,12 @@ struct OutboxSweepTests {
       nextSequence: 1)
     let harness = try await OutboxHarness(record: record)
 
-    let report = await harness.outbox.sweepOrphans(
-      in: directory, quarantineTo: directory.appending(path: "quarantine"), inspect: inspect)
+    let report = await harness.outbox.sweepOrphans(using: files(directory))
 
     #expect(report.adopted == [missing])
     // A finished take never grows: a file past its count is not part of it.
     let beyond = try file(directory, id, 2)
-    let second = await harness.outbox.sweepOrphans(
-      in: directory, quarantineTo: directory.appending(path: "quarantine"), inspect: inspect)
+    let second = await harness.outbox.sweepOrphans(using: files(directory))
     #expect(second.adopted.isEmpty)
     #expect(second.quarantined.count == 1 && !FileManager.default.fileExists(atPath: beyond.path))
     await harness.outbox.shutdown()
@@ -126,8 +127,7 @@ struct OutboxSweepTests {
     let record = try crashedTake(id, in: directory)
     let harness = try await OutboxHarness(record: record)
 
-    let report = await harness.outbox.sweepOrphans(
-      in: directory, quarantineTo: directory.appending(path: "quarantine"), inspect: inspect)
+    let report = await harness.outbox.sweepOrphans(using: files(directory))
 
     #expect(report.isEmpty)
     #expect(contents(directory).count == 2)
@@ -145,8 +145,7 @@ struct OutboxSweepTests {
     let store = HeldQueueStore(files: [queueFile])
     let outbox = try await Outbox(store: store, uploader: TestUploader(), clock: ManualClock())
 
-    let report = await outbox.sweepOrphans(
-      in: directory, quarantineTo: directory.appending(path: "quarantine"), inspect: inspect)
+    let report = await outbox.sweepOrphans(using: files(directory))
 
     #expect(report.kept == [named])
     #expect(report.quarantined.map(\.lastPathComponent) == [other.lastPathComponent])
@@ -164,8 +163,7 @@ struct OutboxSweepTests {
     let outbox = try await Outbox(
       store: HeldQueueStore(files: [missing]), uploader: TestUploader(), clock: ManualClock())
 
-    let report = await outbox.sweepOrphans(
-      in: directory, quarantineTo: directory.appending(path: "quarantine"), inspect: inspect)
+    let report = await outbox.sweepOrphans(using: files(directory))
 
     #expect(Set(report.kept) == [first, second])
     #expect(report.quarantined.isEmpty && report.adopted.isEmpty)
@@ -184,7 +182,7 @@ struct OutboxSweepTests {
     _ = try file(directory, id, 0)
     let harness = try await OutboxHarness()
 
-    let report = await harness.outbox.sweepOrphans(in: directory, quarantineTo: quarantine, inspect: inspect)
+    let report = await harness.outbox.sweepOrphans(using: files(directory, quarantine: quarantine))
 
     #expect(report.quarantined.count == 1)
     #expect(contents(quarantine).count == 2, "nothing is overwritten")
@@ -198,6 +196,23 @@ struct OutboxSweepTests {
     #expect(Outbox.parse("notes.m4a") == nil)
     #expect(Outbox.parse("\(id.uuidString).m4a") == nil)
     #expect(Outbox.parse("\(id.uuidString)-x.m4a") == nil)
+  }
+
+  @Test func theFilesASweepSetAsideAreListedWithTheirSize() async throws {
+    let directory = try temporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let stray = directory.appending(path: "notes.m4a")
+    try Data("not audio".utf8).write(to: stray)
+    let harness = try await OutboxHarness()
+    let store = files(directory)
+    #expect(await store.setAsideFiles().isEmpty)
+
+    await harness.outbox.sweepOrphans(using: store)
+
+    let listed = await store.setAsideFiles()
+    #expect(listed.map(\.url.lastPathComponent) == ["notes.m4a"])
+    #expect(listed.first?.byteCount == 9 && listed.first?.modifiedAt != nil)
+    await harness.outbox.shutdown()
   }
 }
 
