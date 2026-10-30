@@ -457,6 +457,25 @@ public struct OutboxStateMachine: Sendable {
     items[memoID]?.lastError = reason
   }
 
+  /// The server refused `complete` for lack of segments the phone sent: the listed ones that are still held go back to pending
+  /// and `complete` waits for them and for a backoff, counted like any failure so that it ends in a stall (a server that keeps
+  /// losing them) and not in a loop. Nothing to send again (the index is not one of ours) is the permanent refusal it was.
+  public mutating func completeMissingSegments(_ memoID: MemoID, missing: [Int], now: Date, reason: String) {
+    guard var memo = memos[memoID] else { return }
+    var requeued = false
+    for index in missing {
+      let key = SegmentKey(memoID: memoID, index: index)
+      guard index < memo.segmentCount, entries[key] != nil else { continue }
+      entries[key]?.state = .pending
+      entries[key]?.attempts = 0
+      requeued = true
+    }
+    memo.attempts += 1
+    memo.completion = failedState(attempts: memo.attempts, now: now, permanent: !requeued, transient: false)
+    memos[memoID] = memo
+    items[memoID]?.lastError = reason
+  }
+
   public mutating func completeCancelled(_ memoID: MemoID) {
     memos[memoID]?.completion = .pending
   }

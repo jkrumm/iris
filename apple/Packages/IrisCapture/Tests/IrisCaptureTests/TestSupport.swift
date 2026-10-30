@@ -41,6 +41,7 @@ actor TestUploader: SegmentUploader {
 
   private var failuresLeft: [SegmentKey: Int] = [:]
   private var completeFailuresLeft = 0
+  private var missingScripts: [[Int]] = []
   private var createFailuresLeft = 0
   private var deleteFailuresLeft = 0
   private var deletesArePermanent = false
@@ -55,6 +56,9 @@ actor TestUploader: SegmentUploader {
 
   func failNext(_ times: Int, for key: SegmentKey) { failuresLeft[key] = times }
   func failNextCompletes(_ times: Int) { completeFailuresLeft = times }
+
+  /// The next `complete` answers that the server lacks these segments (422 `missing_segments`), one script per call.
+  func failNextComplete(missing scripts: [[Int]]) { missingScripts = scripts }
 
   /// The next `times` creates throw: `PermanentTransferError` when `permanent`, else a plain error that is retried.
   func failNextCreates(_ times: Int, permanent: Bool = false) {
@@ -127,6 +131,9 @@ actor TestUploader: SegmentUploader {
   }
 
   func complete(memoID: MemoID, segmentCount: Int) async throws {
+    if !missingScripts.isEmpty {
+      throw MissingSegmentsError(indices: missingScripts.removeFirst(), message: "segments missing")
+    }
     if completeFailuresLeft > 0 {
       completeFailuresLeft -= 1
       throw UploadFailure()

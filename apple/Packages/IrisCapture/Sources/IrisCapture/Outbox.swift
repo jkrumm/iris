@@ -315,6 +315,9 @@ public actor Outbox: SegmentOutbox {
       }
       machine.completeSucceeded(memoID)
     case (.completion(let memoID), .failure) where cancelled: machine.completeCancelled(memoID)
+    case (.completion(let memoID), .failure(let error as MissingSegmentsError)):
+      Log.outbox.error("complete refused, the server lacks \(error.indices.count) segments: sending them again")
+      machine.completeMissingSegments(memoID, missing: error.indices, now: now, reason: error.message)
     case (.completion(let memoID), .failure(let error)):
       Log.outbox.error("complete failed: \(String(describing: error), privacy: .public)")
       machine.completeFailed(
