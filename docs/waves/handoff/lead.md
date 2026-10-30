@@ -38,6 +38,19 @@ server checks + CI for Apple; `rd merge` with `--check 'true' --no-ci` for a che
   Merged `73efd51` (apple 46 min green); no server change, no deploy. Members auto-closed as merged.
 - Running (fanned ~17:40): D2r device re-test (`w17-d2r-device-retest`, rows 1/4/15/20/21, §8 scroll, banner stop, ddaad4d8 tail as its
   own transcribe memo), I5 (`w17-i5-memo-detail`, device proof only after the lead clears the phone), I3 (`w17-i3-spoken-reply-defer`).
+- 18:03 owner left; D2r paused (keep open, re-test later incl. I5's German device steps). H1 remainder = B2 `private/` objects: no key can
+  delete there (by design), owner via the B2 console -> Left behind.
+- Batch 3 = #64 (I3, round 2 clean, needs-human: should a take start stop a playing reply? -> owner question, Left behind) + #65 (I5,
+  blocking link-URL duplication in plain-text copy -> I5 fixing). Build `w17-batch-3` after I5's round 2, apple.yml, merge, deploy if
+  server touched (it is not), verify, smoke.
+- Batch 3 = PR #66 merged `e83b19f` (#64 I3, #65 I5 incl. a lead-read round-2 fix: code-block indentation, empty table cells);
+  apple green on the head and on master; `make verify` healthy, `make smoke` green; no server change.
+- Master apple.yml on `73efd51` (batch 2) failed once on `CaptureUITests.testAMemoTypedOfflineIsQueuedThenSentWithRetryNow:64`
+  (history.toast 10 s wait), identical tree green on the batch head, 3/3 green alone locally -> CI timing flake, Left behind.
+- Remaining: D2r re-test with the owner (paused; also I5's German device steps from #65's body: paste into Notes, level meter), then
+  D3's one ask-human question (enrolment), then close-out. Left behind also: #64 improvements (take-sample race, skipWhileBusy split,
+  recording-binding state), #65 improvements (PlainMarkdown vs ReplyMarkdown parsers, Copied timer duplicates toast timer, InputLevel
+  placement, WaterfallBuilder end rule).
 - Owner question for Left behind: late tail of a closed memo (I9's (b): follow-up memo vs append route).
 - After batch 2: fresh device build for the owner re-test of checklist rows 1, 4, 15, 20, 21 + I10 scroll jump + ddaad4d8 tail; then
   `rd fan iris /tmp/iris-w17/brief-i5.md` and `rd fan iris /tmp/iris-w17/brief-i3.md` (disjoint files).
