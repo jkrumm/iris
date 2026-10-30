@@ -163,6 +163,7 @@ about either is tracked. Overrides: `IRIS_DEVICE_ID`, `TEAM=<id>`, `DEVICE_SIGNI
 | `make check` | `check-server` (oxlint, `oxfmt --check`, `tsc --noEmit`, `bun test`), `check-contracts`, `guard`, and `check-apple` wherever `xcodebuild` exists | mini, CI (`check.yml`, no Apple on Linux) |
 | `make e2e` | the pipeline against a fake-booted server (needs ffmpeg) | mini, CI after `check` |
 | `make check-apple` | Theme drift, `swift format lint --strict`, `swift test` per package (macOS host), `xcodebuild build` of `Iris` + extensions (simulator) and `IrisMac` | mini, CI (`apple.yml`) |
+| Mac tests | `xcodebuild -scheme IrisMac -destination 'platform=macOS' test` (`IrisMacTests`: notifier, composition root, detail model; `-IrisFakeData`, no Keychain) | mini; not in `make check-apple` |
 | `make snapshots` | IrisUI snapshot tests on the pinned simulator (`RECORD=1` re-records) | mini, `apple.yml` |
 | `make uitest` | XCUITest flows (`-IrisFakeCapture`); `ONLY=<Class>[/<test>]` runs one class or method (`-only-testing:IrisUITests/…`) | full suite: `apple.yml`; mini: `ONLY=` only |
 | `make device` | `device-build` + `device-run`: signed Debug build, install, launch and a phone screenshot on the paired iPhone (see Device) | mini, phone wired |
@@ -427,7 +428,8 @@ Push to master deploys. LaunchAgent `com.jkrumm.iris` (KeepAlive, `ExitTimeOut` 
   `needs_route` memo from yesterday and yesterday's own memos are two sections of one day and must not share an id (SwiftUI dropped the rows).
 - **Snapshots** only compare on the pinned simulator; a diff on a clean tree means a different runtime. They do not render the glass layer.
 - **`scripts/mbm tap`** needs `--element-ref` from the latest `snapshot-ui` and `--post-delay 2`; `snapshot-ui` straight after a launch times out
-  (`make ui-snapshot` waits first). Live Activity, widgets, the notification card and the Mac panel compile but have never been rendered; the
+  (`make ui-snapshot` waits first). Live Activity, widgets and the notification card compile but have never been rendered; the Mac panel renders on the mini
+  (`IrisMac -IrisFakeData -IrisMacPanelWindow -IrisMacSnapshot <dir>` writes PNGs of its own windows; `screencapture` has no Screen Recording grant there); the
   AVAudioEngine recorder and the interruption paths (incl. the lock-time interruption fix of Wave 17 I7: reactivate the session,
   rebuild the engine, auto-finish a failed take) and the engine restart on a route change (fresh engine, validated tap format, `IrisObjCGuard` shim) are covered by fakes only until the device check passes (`docs/spikes/device-checklist.md`).
 - **TDD is the design, code is the truth for shipped behaviour:** §3 was amended in Wave 8 to match the server; planned-but-unbuilt items are marked there.
