@@ -19,13 +19,151 @@ protocol TakeLiveActivity {
   /// The server has the memo: the activity's push token can be registered for it (the server answers 404 before that).
   func memoCreated(memoID: String) async
   /// The memo is on the server: nothing more is sent from the device, and its pushes (`processing`, `done`, ...) carry the
-  /// activity. It is not ended.
+  /// activity. It is not ended. Without a push token (a Personal Team build, remote updates off) nothing will ever move it
+  /// on, so the activity follows the memo itself and ends once the server is done with it.
   func handOverToServer(memoID: String) async
   /// Ends the activity for good, showing `finalState` until it is dismissed.
   func end(memoID: String, finalState: LiveActivityContentState?, dismissal: ActivityDismissal) async
   /// Ends every activity still in a client phase (`recording`, `paused`, `uploading`) except those of `memoIDs`, the takes this
   /// process is driving: after a relaunch nothing moves the others on, but a take that runs now must keep its activity.
   func endClientPhaseActivities(except memoIDs: Set<String>) async
+  /// Ends the handed-over activities of earlier runs that have outlived their use (``StaleActivityRule``).
+  func endStaleActivities() async
+}
+
+/// A Live Activity the app handed to the server (any phase after `uploading`), as the stale rules see it.
+nonisolated struct HandedOverActivity: Equatable, Sendable {
+  let memoID: String
+  let phase: LiveActivityPhase
+  let startedAt: Date
+  /// A push token exists: the server's pushes move it on and end it. Without one only the device can.
+  let remoteUpdates: Bool
+}
+
+/// When a handed-over Live Activity must go. Without APNs (a Personal Team build) the server's `end` push never arrives,
+/// so a `processing` activity stays on the Lock Screen and in the Dynamic Island for ever (up to 8 hours) and hides the
+/// controls of the take that is running.
+nonisolated enum StaleActivityRule {
+  /// An activity this old is stale whatever the memo says (the server's `end` push is 15 minutes after done).
+  static let maxAge: TimeInterval = 60 * 60
+
+  enum Verdict: Equatable {
+    case keep
+    /// End it now; `final` is what it shows until dismissed (`nil`: nothing, it just goes).
+    case end(final: LiveActivityContentState?)
+  }
+
+  /// What to do with an activity found on launch (or while following one) given what the server says about its memo.
+  /// `memo` is `nil` while the server could not be asked; `gone` is a 404 (deleted, or never created).
+  static func verdict(
+    for activity: HandedOverActivity, memo: Memo?, gone: Bool = false, now: Date
+  ) -> Verdict {
+    if gone || now.timeIntervalSince(activity.startedAt) > maxAge { return .end(final: nil) }
+    // With pushes the server owns the activity (its `end` carries the result and the dismissal).
+    guard !activity.remoteUpdates, let memo, memo.state.isResultReady else { return .keep }
+    return .end(final: finalState(of: memo))
+  }
+
+  /// The result an activity without pushes ends on.
+  static func finalState(of memo: Memo) -> LiveActivityContentState {
+    switch memo.state {
+    case .failed: LiveActivityContentState(phase: .failed, hasReply: false)
+    case .needsRoute: LiveActivityContentState(phase: .needsRoute, hasReply: false)
+    default: LiveActivityContentState(phase: .done, hasReply: memo.hasReply && !memo.isDeleted)
+    }
+  }
+
+  /// A starting take takes the island: finished activities go, and so do the ones nothing will ever update. An activity the
+  /// server still drives (a push token, not finished) stays: it ends itself in a moment.
+  static func yieldsToNewTake(_ activity: HandedOverActivity) -> Bool {
+    switch activity.phase {
+    case .done, .failed: true
+    case .processing, .needsRoute: !activity.remoteUpdates
+    case .recording, .paused, .uploading: false
+    }
+  }
+}
+
+/// The activities of the platform as ``StaleActivitySweeper`` sees them. ActivityKit is the production adapter.
+protocol ActivityCatalog {
+  /// Every live activity that is not in a client phase.
+  func handedOverActivities() -> [HandedOverActivity]
+  func end(memoID: String, finalState: LiveActivityContentState?, dismissal: ActivityDismissal) async
+}
+
+/// Ends the Live Activities nothing else will end: when a take starts, at launch, and when the memo of one finishes while
+/// the app runs.
+struct StaleActivitySweeper {
+  let catalog: any ActivityCatalog
+  let client: any APIClient
+  let now: @Sendable () -> Date
+  let sleep: @Sendable (Duration) async throws -> Void
+  private let logger = Logger(subsystem: "com.jkrumm.iris", category: "liveactivity")
+
+  init(
+    catalog: any ActivityCatalog, client: any APIClient, now: @escaping @Sendable () -> Date = { Date() },
+    sleep: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
+  ) {
+    self.catalog = catalog
+    self.client = client
+    self.now = now
+    self.sleep = sleep
+  }
+
+  /// A take is about to request its activity: it must own the island.
+  func makeRoomForTake() async {
+    for activity in catalog.handedOverActivities() where StaleActivityRule.yieldsToNewTake(activity) {
+      await catalog.end(memoID: activity.memoID, finalState: nil, dismissal: .immediate)
+    }
+  }
+
+  /// Launch: asks the server about every handed-over activity and ends the ones the rule names. Returns the memos of the
+  /// activities it kept that have no push token: nothing will ever move those on, so the caller follows them (``follow(memoID:)``).
+  func sweep() async -> [String] {
+    var toFollow: [String] = []
+    for activity in catalog.handedOverActivities() {
+      let (memo, gone) = await lookup(activity.memoID)
+      guard case .end(let final) = StaleActivityRule.verdict(for: activity, memo: memo, gone: gone, now: now()) else {
+        if !activity.remoteUpdates { toFollow.append(activity.memoID) }
+        continue
+      }
+      await catalog.end(memoID: activity.memoID, finalState: final, dismissal: .immediate)
+    }
+    return toFollow
+  }
+
+  /// Polls the memo of an activity until the server is done with it (or the activity is too old), then ends it on the result
+  /// for a while, as the server's `end` push would. A push token that shows up later hands the activity back to the server.
+  /// Returns when the activity is gone or ended, and ends nothing once cancelled (the activity was ended by someone else).
+  func follow(memoID: String) async {
+    var delay = Duration.seconds(3)
+    while !Task.isCancelled {
+      guard let activity = catalog.handedOverActivities().first(where: { $0.memoID == memoID }) else { return }
+      let (memo, gone) = await lookup(activity.memoID)
+      guard !Task.isCancelled else { return }
+      if case .end(let final) = StaleActivityRule.verdict(for: activity, memo: memo, gone: gone, now: now()) {
+        await catalog.end(memoID: activity.memoID, finalState: final, dismissal: final == nil ? .immediate : .later)
+        return
+      }
+      guard (try? await sleep(delay)) != nil else { return }
+      delay = min(delay * 2, .seconds(30))
+    }
+  }
+
+  private func lookup(_ memoID: String) async -> (memo: Memo?, gone: Bool) {
+    do {
+      return (try await client.memo(id: memoID).memo, false)
+    } catch let error as APIError {
+      if case .server(404, _) = error { return (nil, true) }
+      logger.error("activity memo lookup failed: \(String(describing: error), privacy: .public)")
+      return (nil, false)
+    } catch is CancellationError {
+      return (nil, false)
+    } catch {
+      logger.error("activity memo lookup failed: \(String(describing: error), privacy: .public)")
+      return (nil, false)
+    }
+  }
 }
 
 /// Drives the Live Activity of a take the app started on its own (the start intent): recording while the take runs,
@@ -153,6 +291,7 @@ final class TakeLiveActivityCoordinator {
   /// recording or sending keep theirs.
   func endOrphans() async {
     await activity.endClientPhaseActivities(except: Set(live.map(\.wireID)))
+    await activity.endStaleActivities()
   }
 
   /// The state of a client phase. `note` rides in `headline` (a short line about another memo still being sent, well under
@@ -181,19 +320,27 @@ final class TakeLiveActivityCoordinator {
   /// ActivityKit behind the port. The activity's push token goes to the server once it knows the memo, so its pushes reach
   /// the activity after the app is suspended. Not verified on a device (rendered nowhere yet: `docs/spikes/device-checklist.md`).
   /// Main-actor bound (the default isolation of the app), because `Activity` is not `Sendable`.
-  final class ActivityKitTakeLiveActivity: TakeLiveActivity {
+  final class ActivityKitTakeLiveActivity: TakeLiveActivity, ActivityCatalog {
     private let logger = Logger(subsystem: "com.jkrumm.iris", category: "liveactivity")
     private let tokens: ActivityTokenRegistrar
     /// The activity of each take still in a client phase, by memo id: a take that starts while the last one is still being
     /// sent has its own entry. Dropped at the hand-over; the token stream and the registrar outlive it.
     private var activities: [String: Activity<MemoAttributes>] = [:]
+    private let client: any APIClient
+    /// Built per use: the catalog is this object.
+    private var sweeper: StaleActivitySweeper { StaleActivitySweeper(catalog: self, client: client) }
+    /// The poll that ends a handed-over activity without a push token once its memo is finished, by memo id.
+    private var followers: [String: (id: UUID, task: Task<Void, Never>)] = [:]
 
     init(client: any APIClient) {
+      self.client = client
       tokens = ActivityTokenRegistrar(client: client)
     }
 
     func start(memoID: String, mode: MemoMode, startedAt: Date, state content: LiveActivityContentState) async {
       guard ActivityAuthorizationInfo().areActivitiesEnabled else { return }
+      // The island shows one activity: the running take's wins over finished ones and over ones nothing will update.
+      await sweeper.makeRoomForTake()
       let attributes = MemoAttributes(memoId: memoID, mode: mode, startedAt: startedAt)
       let activityContent = ActivityContent(state: content, staleDate: nil)
       do {
@@ -223,12 +370,27 @@ final class TakeLiveActivityCoordinator {
     }
 
     func handOverToServer(memoID: String) async {
-      activities[memoID] = nil
+      let hasToken = activities.removeValue(forKey: memoID)?.pushToken != nil
       await tokens.handOver(memoID)
+      guard !hasToken else { return }
+      follow(memoID)
+    }
+
+    /// No push token: the server's `end` never arrives, so this process ends the activity when the memo is finished.
+    private func follow(_ memoID: String) {
+      guard followers[memoID] == nil else { return }
+      let id = UUID()
+      // Owned by `followers`; `end` cancels it. It removes its own entry, never a newer follower's.
+      let task = Task { [sweeper] in
+        await sweeper.follow(memoID: memoID)
+        if followers[memoID]?.id == id { followers[memoID] = nil }
+      }
+      followers[memoID] = (id, task)
     }
 
     func end(memoID: String, finalState: LiveActivityContentState?, dismissal: ActivityDismissal) async {
-      guard let activity = activities.removeValue(forKey: memoID) else { return }
+      guard let activity = activities.removeValue(forKey: memoID) ?? platformActivity(of: memoID) else { return }
+      followers.removeValue(forKey: memoID)?.task.cancel()
       tokens.finish(memoID)
       let content = finalState.map { ActivityContent(state: $0, staleDate: nil) }
       let policy: ActivityUIDismissalPolicy =
@@ -237,6 +399,25 @@ final class TakeLiveActivityCoordinator {
         case .later: .after(Date().addingTimeInterval(15 * 60))
         }
       await activity.end(content, dismissalPolicy: policy)
+    }
+
+    func endStaleActivities() async {
+      for memoID in await sweeper.sweep() { follow(memoID) }
+    }
+
+    func handedOverActivities() -> [HandedOverActivity] {
+      Activity<MemoAttributes>.activities.compactMap { activity in
+        let live = activity.activityState == .active || activity.activityState == .stale
+        guard live, !activity.content.state.phase.isClientPhase else { return nil }
+        return HandedOverActivity(
+          memoID: activity.attributes.memoId, phase: activity.content.state.phase,
+          startedAt: activity.attributes.startedAt, remoteUpdates: activity.pushToken != nil)
+      }
+    }
+
+    /// An activity of an earlier run (or one already handed over) is only known to the system.
+    private func platformActivity(of memoID: String) -> Activity<MemoAttributes>? {
+      Activity<MemoAttributes>.activities.first { $0.attributes.memoId == memoID }
     }
 
     func endClientPhaseActivities(except memoIDs: Set<String>) async {
@@ -285,6 +466,7 @@ final class RecordingLiveActivity: TakeLiveActivity {
   private(set) var ends: [End] = []
   private(set) var endedIDs: [String] = []
   private(set) var orphanSweeps = 0
+  private(set) var staleSweeps = 0
   /// The memos each orphan sweep spared.
   private(set) var sparedBySweeps: [Set<String>] = []
 
@@ -308,6 +490,8 @@ final class RecordingLiveActivity: TakeLiveActivity {
     orphanSweeps += 1
     sparedBySweeps.append(memoIDs)
   }
+
+  func endStaleActivities() { staleSweeps += 1 }
 
   private func record(_ memoID: String, _ state: LiveActivityContentState) {
     states.append(state)
