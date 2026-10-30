@@ -246,6 +246,15 @@ export function fakeAssetStore(): AssetStore & { files: Map<string, Uint8Array> 
     async remove({ memoId, assetIds }) {
       for (const assetId of assetIds) files.delete(`${memoId}/${assetId}`);
     },
+    async listMemos() {
+      // Map order is insertion order: newest put last, so reverse it.
+      return [...new Set([...files.keys()].map((key) => key.split("/")[0] as string))].reverse();
+    },
+    async list(memoId) {
+      return [...files.keys()]
+        .filter((key) => key.startsWith(`${memoId}/`))
+        .map((key) => key.slice(memoId.length + 1));
+    },
     async prune({ memoId, keep }) {
       for (const key of files.keys()) {
         if (key.startsWith(`${memoId}/`) && !keep.has(key.slice(memoId.length + 1)))

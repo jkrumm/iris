@@ -52,6 +52,9 @@ export function extractMermaidBlocks(markdown: string): string[] {
 /** Rows examined per boot sweep: a bound on the render work one start-up can cause. */
 export const BACKFILL_LIMIT = 50;
 
+/** Memo directories examined per boot sweep: a bound on the file-system work one start-up can cause. */
+export const SWEEP_LIMIT = 200;
+
 export interface ReplyAssets {
   /**
    * Renders every Mermaid block of `replyText` and stores the files, then stages them with the store: no row, so nothing on
@@ -69,7 +72,15 @@ export interface ReplyAssets {
    * failed to render (marked until its reply changes), is not a candidate. Never throws. Resolves with how many memos got assets.
    */
   backfill(params?: { limit?: number }): Promise<number>;
-  /** Ends a running or future `backfill` after the memo it is on; `sync` is unaffected. Call before `idle()` at shutdown. */
+  /**
+   * Removes the files under the asset directory that no `reply_assets` row names and no in-flight attempt has staged: what a
+   * crash between a commit and its prune left behind, and files of a memo that no longer exists. At most `limit` memo
+   * directories, most recently changed first, each inside the memo's queue (never between a render's write and its staging).
+   * A file a row references is never touched. Logs what it removed (`reply.orphans_removed`). Never throws. Resolves with the
+   * number of files removed.
+   */
+  sweep(params?: { limit?: number }): Promise<number>;
+  /** Ends a running or future `backfill` or `sweep` after the memo it is on; `sync` is unaffected. Call before `idle()` at shutdown. */
   stop(): void;
   /** Resolves when the passes and discards that are running or queued have finished (shutdown drain). */
   idle(): Promise<void>;
@@ -84,6 +95,8 @@ export function createReplyAssets(deps: {
   // Passes for one memo run one after another: a later pass's prune must not delete the files an earlier one just stored.
   const perMemo = createKeyedQueue();
   const running = new Set<Promise<unknown>>();
+  // Files an attempt has staged and the store has not settled yet: no row names them, they are not orphans.
+  const holds = new Map<string, ReadonlySet<string>>();
   let stopped = false;
   const track = <T>(task: Promise<T>) => {
     running.add(task);
@@ -157,9 +170,16 @@ export function createReplyAssets(deps: {
   }
 
   /** What follows the store settling a staged reply, inside the memo's queue. */
-  function settled(params: { memoId: string; stored: readonly ReplyAsset[]; failed: boolean }) {
-    const { memoId, stored, failed } = params;
+  function settled(params: {
+    memoId: string;
+    stored: readonly ReplyAsset[];
+    failed: boolean;
+    held: ReadonlySet<string>;
+  }) {
+    const { memoId, stored, failed, held } = params;
     return (outcome: "committed" | "discarded") => {
+      // A newer staging of the memo has replaced this hold already.
+      if (holds.get(memoId) === held) holds.delete(memoId);
       if (outcome === "discarded") log("reply.assets_discarded", { memo_id: memoId });
       if (outcome === "committed" && failed) log("reply.assets_marked_failed", { memo_id: memoId });
       // Committed: the earlier reply's files are unreferenced now. Discarded: only this attempt's files go.
@@ -177,22 +197,28 @@ export function createReplyAssets(deps: {
     let stored: ReplyAsset[] = [];
     // Once the store holds them it settles them (committed or discarded): from then on they are not ours to delete.
     let staged = false;
+    let held: ReadonlySet<string> | undefined;
     try {
       const rendered = await renderReply(memoId, replyText);
       stored = rendered.stored;
       // Marked only when the renderer refused every block: a failed store (a full disk) is worth another try at boot.
       const failed = rendered.blocks > 0 && rendered.rejected === rendered.blocks;
       // A memo purged while it rendered has no row left to own the files.
+      // Held for as long as the store tracks the files: the boot sweep must not take them for orphans.
+      const own = new Set(stored.map((a) => a.id));
+      held = own;
+      holds.set(memoId, own);
       staged = store.stageReplyAssets(memoId, {
         replyText,
         assets: stored,
         failed,
-        onSettled: settled({ memoId, stored, failed }),
+        onSettled: settled({ memoId, stored, failed, held: own }),
       });
     } catch (err) {
       log("reply.assets_failed", { memo_id: memoId, error: String(err) });
     }
     if (!staged) {
+      if (held && holds.get(memoId) === held) holds.delete(memoId);
       await assets.remove({ memoId, assetIds: stored.map((a) => a.id) }).catch(() => undefined);
     }
   }
@@ -229,6 +255,40 @@ export function createReplyAssets(deps: {
     }
   }
 
+  /** One memo directory of the sweep, inside its queue: rows and holds are read after the queue reached it. */
+  async function sweepOne(memoId: string) {
+    const rows = store.getMemo(memoId)?.replyBlocks ?? [];
+    const keep = new Set([
+      ...rows.flatMap((b) => [b.svg.light, b.svg.dark, b.png.light, b.png.dark]),
+      ...(holds.get(memoId) ?? []),
+    ]);
+    const orphans = (await assets.list(memoId)).filter((name) => !keep.has(name));
+    if (orphans.length === 0) return 0;
+    await assets.prune({ memoId, keep });
+    log("reply.orphans_removed", { memo_id: memoId, count: orphans.length, files: orphans });
+    return orphans.length;
+  }
+
+  async function sweep(limit: number) {
+    let examined = 0;
+    let removed = 0;
+    try {
+      for (const memoId of await assets.listMemos()) {
+        if (examined >= limit || stopped) break;
+        examined++;
+        try {
+          removed += await perMemo(memoId, () => sweepOne(memoId));
+        } catch (err) {
+          log("reply.sweep_failed", { memo_id: memoId, error: String(err) });
+        }
+      }
+    } catch (err) {
+      log("reply.sweep_failed", { error: String(err) });
+    }
+    log("reply.sweep", { examined, removed });
+    return removed;
+  }
+
   async function backfill(limit: number) {
     let done = 0;
     let examined = 0;
@@ -262,6 +322,7 @@ export function createReplyAssets(deps: {
       stopped = true;
     },
     backfill: ({ limit = BACKFILL_LIMIT } = {}) => track(backfill(limit)),
+    sweep: ({ limit = SWEEP_LIMIT } = {}) => track(sweep(limit)),
     idle: async () => {
       while (running.size > 0) await Promise.allSettled(running);
     },

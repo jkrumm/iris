@@ -123,6 +123,8 @@ runner.driveAll().catch((err: unknown) => log("runner.drive_all_failed", { error
 // Replies from before the Mermaid renders (or whose render was lost) get their assets: at most BACKFILL_LIMIT memos per
 // start, in this process so it shares the per-memo queue with live renders and the shutdown drain below.
 void replyAssets.backfill();
+// Files a crash between a commit and its prune left under assets/: at most SWEEP_LIMIT memo directories per start, same queue.
+void replyAssets.sweep();
 
 let shuttingDown = false;
 
