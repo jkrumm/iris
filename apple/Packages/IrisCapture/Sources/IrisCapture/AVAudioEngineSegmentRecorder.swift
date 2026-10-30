@@ -1,6 +1,7 @@
 #if canImport(AVFAudio)
   import AVFAudio
   import Foundation
+  import IrisObjCGuard
 
   /// Production recorder: `AVAudioEngine` input tap -> `AVAudioConverter` (16 kHz mono) -> one
   /// `AVAudioFile` (AAC, ~32 kbps) per segment. Never `AVAudioRecorder` (D5): continuous buffers keep the
@@ -120,81 +121,133 @@
       let target: AVAudioFormat
       let sink: AsyncStream<[Float]>.Continuation
 
-      func removeTap() { engine.inputNode.removeTap(onBus: 0) }
+      func removeTap() { try? IrisObjCGuard.perform { engine.inputNode.removeTap(onBus: 0) } }
 
       func installTap() throws {
         let input = engine.inputNode
-        let inputFormat = input.outputFormat(forBus: 0)
-        guard let converter = AVAudioConverter(from: inputFormat, to: target) else {
-          throw CaptureError.engineFailure("no converter from the input format")
+        // The tap's format is the node's current one, and it must agree with the hardware: a mismatch (the route is mid-switch,
+        // AirPods report no format while the Bluetooth link comes up) raises an Objective-C exception that aborts the process.
+        // Refuse it here so the caller retries, and keep the shim as the net under the checks.
+        let format = input.outputFormat(forBus: 0)
+        let hardware = input.inputFormat(forBus: 0)
+        guard format.sampleRate > 0, format.channelCount > 0, format.sampleRate == hardware.sampleRate else {
+          throw CaptureError.engineFailure("the input format is not ready")
         }
-        AVAudioEngineSegmentRecorder.installTap(
-          on: input, format: inputFormat, converter: converter, target: target, sink: sink)
+        let converter = TapConverter(target: target)
+        let sink = sink
+        do {
+          try IrisObjCGuard.perform {
+            AVAudioEngineSegmentRecorder.installTap(on: input, format: format, converter: converter, sink: sink)
+          }
+        } catch {
+          throw CaptureError.engineFailure("installing the tap failed: \(error.localizedDescription)")
+        }
       }
 
       func start() throws {
-        engine.prepare()
-        try engine.start()
+        var startError: (any Error)?
+        do {
+          try IrisObjCGuard.perform {
+            engine.prepare()
+            do { try engine.start() } catch { startError = error }
+          }
+        } catch {
+          throw CaptureError.engineFailure("starting the engine failed: \(error.localizedDescription)")
+        }
+        if let startError { throw startError }
       }
 
-      func stop() { engine.stop() }
+      func stop() { try? IrisObjCGuard.perform { engine.stop() } }
     }
 
     /// Nonisolated on purpose: the tap block runs on the audio thread and must not inherit the actor.
     private nonisolated static func installTap(
-      on input: AVAudioInputNode,
-      format: AVAudioFormat,
-      converter: AVAudioConverter,
-      target: AVAudioFormat,
+      on input: AVAudioInputNode, format: AVAudioFormat, converter: TapConverter,
       sink: AsyncStream<[Float]>.Continuation
     ) {
       input.installTap(onBus: 0, bufferSize: 4096, format: format) { buffer, _ in
-        guard let samples = convert(buffer, with: converter, to: target) else { return }
+        guard let samples = converter.convert(buffer) else { return }
         sink.yield(samples)
       }
     }
 
-    private nonisolated static func convert(
-      _ buffer: AVAudioPCMBuffer, with converter: AVAudioConverter, to format: AVAudioFormat
-    ) -> [Float]? {
-      let ratio = format.sampleRate / buffer.format.sampleRate
-      let capacity = AVAudioFrameCount((Double(buffer.frameLength) * ratio).rounded(.up)) + 32
-      guard let output = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: capacity) else { return nil }
-      nonisolated(unsafe) var supplied = false  // read and written only by this call's synchronous convert
-      var error: NSError?
-      let status = converter.convert(to: output, error: &error) { _, inputStatus in
-        if supplied {
-          inputStatus.pointee = .noDataNow
-          return nil
+    /// Converts tap buffers to the 16 kHz mono target. The converter follows the buffers' format, so an input that changes
+    /// under a running tap (AirPods connecting) is converted from its new format instead of mis-read from the old one.
+    private final class TapConverter: @unchecked Sendable {
+      // Touched only from the tap block, which AVAudioEngine calls one buffer at a time on a single thread per tap.
+      private let target: AVAudioFormat
+      private var converter: AVAudioConverter?
+      private var source: AVAudioFormat?
+
+      init(target: AVAudioFormat) { self.target = target }
+
+      func convert(_ buffer: AVAudioPCMBuffer) -> [Float]? {
+        guard buffer.format.sampleRate > 0, buffer.frameLength > 0 else { return nil }
+        if source != buffer.format {
+          guard let fresh = AVAudioConverter(from: buffer.format, to: target) else { return nil }
+          converter = fresh
+          source = buffer.format
         }
-        supplied = true
-        inputStatus.pointee = .haveData
-        return buffer
+        guard let converter else { return nil }
+        let ratio = target.sampleRate / buffer.format.sampleRate
+        let capacity = AVAudioFrameCount((Double(buffer.frameLength) * ratio).rounded(.up)) + 32
+        guard let output = AVAudioPCMBuffer(pcmFormat: target, frameCapacity: capacity) else { return nil }
+        nonisolated(unsafe) var supplied = false  // read and written only by this call's synchronous convert
+        var error: NSError?
+        let status = converter.convert(to: output, error: &error) { _, inputStatus in
+          if supplied {
+            inputStatus.pointee = .noDataNow
+            return nil
+          }
+          supplied = true
+          inputStatus.pointee = .haveData
+          return buffer
+        }
+        guard status != .error, error == nil, let channel = output.floatChannelData else { return nil }
+        return Array(UnsafeBufferPointer(start: channel[0], count: Int(output.frameLength)))
       }
-      guard status != .error, error == nil, let channel = output.floatChannelData else { return nil }
-      return Array(UnsafeBufferPointer(start: channel[0], count: Int(output.frameLength)))
     }
 
-    /// An engine configuration change (route or format) stops the engine: roll the segment over, re-tap, restart.
+    /// An engine configuration change (route or format) stops the engine: roll the segment over and bring up a fresh engine on
+    /// the new input. The old engine's input node can still describe the old hardware, and a tap installed against that aborts
+    /// the process; a fresh engine reads the hardware as it is now. The input is often not ready for a moment after a switch
+    /// (AirPods report no format while the Bluetooth link comes up), so the bring-up is retried before the take fails.
     private func observeConfigurationChanges() {
       // Owned by the recorder; cancelled in `stop()`.
       configurationTask = Task {
         for await _ in NotificationCenter.default.notifications(named: .AVAudioEngineConfigurationChange) {
-          self.handleConfigurationChange()
+          await self.handleConfigurationChange()
         }
       }
     }
 
-    private func handleConfigurationChange() {
+    private func handleConfigurationChange() async {
       guard take.isRecording, !isPaused, let sink = sampleSink else { return }
       apply(rotator.rotate(for: .configurationChange), samples: [])
+      let target = targetFormat
       do {
-        try installTapAndStartEngine(sink: sink)
+        let fresh = try await EngineStartup.recover(
+          InputTapEngine(engine: engine, target: target, sink: sink),
+          replacement: { InputTapEngine(engine: AVAudioEngine(), target: target, sink: sink) },
+          attempts: Self.restartAttempts,
+          pause: { [weak self] in
+            try? await Task.sleep(for: .milliseconds(Self.restartDelayMilliseconds))
+            guard let self else { return false }
+            return await self.isStillRecording
+          })
+        // `nil`: the take ended while the input was not ready, nothing is running.
+        guard let fresh else { return }
+        engine = fresh.engine
+        if isPaused { engine.pause() }  // paused while the engine was coming up
       } catch {
         Log.capture.error("engine restart failed: \(String(describing: error), privacy: .public)")
         eventContinuation.yield(.failed(reason: "engine restart failed"))
       }
     }
+
+    private static let restartAttempts = 6
+    private static let restartDelayMilliseconds = 250
+    private var isStillRecording: Bool { take.isRecording }
 
     // MARK: Segments
 

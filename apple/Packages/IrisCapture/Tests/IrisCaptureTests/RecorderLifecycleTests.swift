@@ -165,3 +165,72 @@ struct EngineResumeTests {
     #expect(fresh.running == false)
   }
 }
+
+struct EngineRecoveryTests {
+  @Test func aConfigurationChangeIsAnsweredByAFreshEngineWithTheTapAndTheOldOneGivesUpBusZero() async throws {
+    let old = FakeTapEngine()
+    try EngineStartup.bringUp(old)
+    let fresh = FakeTapEngine()
+    let recovered = try await EngineStartup.recover(old, replacement: { fresh }, attempts: 3, pause: { true })
+    #expect(recovered === fresh)
+    #expect(fresh.tapInstalled && fresh.running)
+    #expect(old.tapInstalled == false && old.running == false)
+  }
+
+  @Test func anInputThatIsNotReadyYetIsRetriedUntilItIs() async throws {
+    // AirPods report no format while the Bluetooth link comes up: the first installs fail, the third holds.
+    let engines = [FakeTapEngine(), FakeTapEngine(), FakeTapEngine()]
+    engines[0].failInstall = true
+    engines[1].failInstall = true
+    var made = 0
+    var pauses = 0
+    let recovered = try await EngineStartup.recover(
+      FakeTapEngine(),
+      replacement: {
+        defer { made += 1 }
+        return engines[made]
+      }, attempts: 6,
+      pause: {
+        pauses += 1
+        return true
+      })
+    #expect(recovered === engines[2])
+    #expect(pauses == 2)
+    #expect(engines[0].tapInstalled == false && engines[1].tapInstalled == false)
+  }
+
+  @Test func anInputThatNeverComesBackThrowsAfterTheLastAttempt() async {
+    var made = 0
+    var pauses = 0
+    await #expect(throws: CaptureError.engineFailure("install")) {
+      try await EngineStartup.recover(
+        FakeTapEngine(),
+        replacement: {
+          made += 1
+          let engine = FakeTapEngine()
+          engine.failInstall = true
+          return engine
+        }, attempts: 4,
+        pause: {
+          pauses += 1
+          return true
+        })
+    }
+    #expect(made == 4)
+    #expect(pauses == 3, "no wait after the last attempt")
+  }
+
+  @Test func aTakeThatEndedWhileWaitingAbandonsTheRestartWithoutAnEngine() async throws {
+    var made = 0
+    let recovered = try await EngineStartup.recover(
+      FakeTapEngine(),
+      replacement: {
+        made += 1
+        let engine = FakeTapEngine()
+        engine.failInstall = true
+        return engine
+      }, attempts: 6, pause: { false })
+    #expect(recovered == nil)
+    #expect(made == 1)
+  }
+}

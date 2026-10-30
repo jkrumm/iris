@@ -179,4 +179,42 @@ struct RecorderLockLossTests {
     #expect(await rig.session.current == .idle)
     await finish(rig)
   }
+
+  // MARK: Route changes and mic switches
+
+  @Test func aMicSwitchToTheHeadsetAndBackKeepsRecordingInASegmentPerInput() async throws {
+    let rig = try await makeRig()
+    try await rig.session.start(request)
+    await rig.fake.record(seconds: 3)
+    try await rig.session.switchInput(to: FakeRouteManager.headsetMic.uid)
+    await rig.fake.engineConfigurationChanged()  // the engine stops itself when the input changes
+    await rig.fake.record(seconds: 3)
+    try await rig.session.switchInput(to: FakeRouteManager.builtInMic.uid)
+    await rig.fake.engineConfigurationChanged()
+    await rig.fake.record(seconds: 3)
+    let result = try #require(try await rig.session.stop())
+    await rig.harness.outbox.settled()
+
+    #expect(result.segmentCount == 3)
+    #expect(result.failure == nil)
+    #expect(await rig.session.current == .idle)
+    #expect(await rig.harness.uploader.completed.map(\.segmentCount) == [3])
+    await finish(rig)
+  }
+
+  @Test func anEngineThatCannotRestartOnTheNewInputClosesAndSendsEverythingCaptured() async throws {
+    let rig = try await makeRig()
+    let id = try await rig.session.start(request)
+    await rig.fake.record(seconds: 4)
+    try await rig.session.switchInput(to: FakeRouteManager.headsetMic.uid)
+    await rig.fake.record(seconds: 5)  // open when the restart fails
+    await rig.fake.engineConfigurationChanged()
+    await rig.fake.recorder.fail(reason: "engine restart failed")
+    try await wait(.failed, in: rig.session)
+
+    let call = try #require(try await waitForCompletion(of: id, in: rig))
+    #expect(call.segmentCount == 2, "4 s on the built-in mic, 5 s on the headset")
+    #expect(await rig.session.current.failure == "engine restart failed")
+    await finish(rig)
+  }
 }

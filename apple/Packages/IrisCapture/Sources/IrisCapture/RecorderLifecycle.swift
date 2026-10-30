@@ -93,3 +93,29 @@ extension EngineStartup {
     }
   }
 }
+
+extension EngineStartup {
+  /// Replaces an engine whose configuration changed. The old one is torn down first (its tap would collide with the new one
+  /// and its input node may still describe the old hardware), then fresh engines are brought up until one holds, waiting with
+  /// `pause` between attempts: the input is often not ready for a moment after a route change. `pause` answers `false` when the
+  /// take has ended meanwhile, which abandons the restart (`nil`). The last error is thrown once the attempts run out.
+  static func recover<Engine: TapEngine>(
+    _ old: Engine, replacement: () -> Engine, attempts: Int, pause: () async -> Bool
+  ) async throws -> Engine? {
+    old.removeTap()
+    old.stop()
+    var lastError: any Error = CaptureError.engineFailure("no restart attempt was made")
+    for attempt in 1...max(1, attempts) {
+      let fresh = replacement()
+      do {
+        try bringUp(fresh)
+        return fresh
+      } catch {
+        lastError = error
+        guard attempt < attempts else { break }
+        guard await pause() else { return nil }
+      }
+    }
+    throw lastError
+  }
+}
