@@ -183,7 +183,7 @@ targets:
       - target: Iris
 
   # Hosted in the Mac app: `@testable import IrisMac` reaches the composition root, the notifier and the detail model.
-  # Run with `xcodebuild -scheme IrisMac -destination 'platform=macOS' test` (not part of `make check-apple`).
+  # Run by `make check-apple` (`xcodebuild -scheme IrisMac -destination 'platform=macOS' test`).
   IrisMacTests:
     type: bundle.unit-test
     platform: macOS
@@ -234,3 +234,6 @@ schemes:
     test:
       config: Debug
       targets: [IrisMacTests]
+      # The hosted app runs on the fake API and an in-memory credential store: no Keychain, no network, no permission prompt.
+      commandLineArguments:
+        "-IrisFakeData": true
