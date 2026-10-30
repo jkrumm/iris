@@ -22,6 +22,17 @@ public struct LateSegmentError: Error, Sendable, Equatable {
   }
 }
 
+/// The server deleted the memo this segment belongs to (another device, or the undo window of a discarded take): the audio
+/// was thrown away on purpose, so the outbox drops the whole take, its queued tails included, instead of uploading on or
+/// turning it into a memo. Thrown by a ``SegmentUploader`` from `upload(_:)`.
+public struct MemoDeletedError: Error, Sendable, Equatable {
+  public let answer: String
+
+  public init(answer: String) {
+    self.answer = answer
+  }
+}
+
 enum LateTail {
   /// The `MemoMode` raw value of the memo a late tail becomes: transcript only, nothing is routed or acted on.
   static let mode = "transcribe"

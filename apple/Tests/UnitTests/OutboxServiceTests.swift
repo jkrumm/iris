@@ -288,17 +288,16 @@ struct APIOutboxUploaderTests {
     await #expect(throws: LateSegmentError.self) { try await memo.uploader.upload(memo.segment) }
   }
 
-  @Test("a deleted memo also answers 409: its segment is dropped, never turned into a late-tail memo")
+  @Test("a deleted memo also answers 409: the whole take is dropped, no upload, no late-tail memo, nothing stalls")
   func segmentOfADeletedMemo() async throws {
     let memo = try await ClosedMemo(held: 0)
     defer { memo.remove() }
     _ = try await memo.client.deleteMemo(id: memo.id.wireID)
+    await #expect(throws: MemoDeletedError.self) { try await memo.uploader.upload(memo.segment) }
 
-    try await memo.uploader.upload(memo.segment)  // returns: the entry clears, nothing is queued
-
-    let created = CreatedMemoLog()
+    // The take was finished on the phone: without the drop, its `complete` would be refused and the take would stall.
     let outbox = try await Outbox(
-      store: InMemoryOutboxStore(), uploader: APIOutboxUploader(client: memo.client, created: created),
+      store: InMemoryOutboxStore(), uploader: APIOutboxUploader(client: memo.client, created: CreatedMemoLog()),
       clock: ManualClock(), policy: OutboxPolicy(jitter: { 0 }))
     await memo.client.enqueueFailure(
       .server(status: 409, body: ErrorBody(error: .badState, message: "memo is deleted")), for: .uploadSegment)
@@ -306,12 +305,16 @@ struct APIOutboxUploaderTests {
       OutboxItem(
         memoID: memo.id, kind: .voice, mode: "auto", startedAt: MemoFactory.now, queuedAt: MemoFactory.now,
         title: "Voice memo"))
-    await outbox.enqueue(memo.segment)
+    await outbox.enqueue(
+      ClosedSegment(memoID: memo.id, index: 0, fileURL: memo.file, byteCount: 5, duration: 1))
+    await outbox.finishMemo(memo.id, segmentCount: 1)
     await outbox.settled()
-    let makes = await memo.client.calls.filter {
-      if case .createMemo(let request) = $0 { request.mode == .transcribe } else { false }
-    }
-    #expect(makes.isEmpty)
+
+    let calls = await memo.client.calls
+    #expect(await outbox.queue().isEmpty, "the take left the queue, nothing is stalled")
+    #expect(await outbox.wasDiscarded(memo.id))
+    #expect(!calls.contains { if case .completeMemo = $0 { true } else { false } }, "no complete for a deleted memo")
+    #expect(!calls.contains { if case .createMemo(let request) = $0 { request.mode == .transcribe } else { false } })
     await outbox.shutdown()
   }
 

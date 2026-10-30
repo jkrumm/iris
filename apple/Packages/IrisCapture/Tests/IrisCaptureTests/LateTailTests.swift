@@ -9,14 +9,16 @@ private actor LateTailUploader: SegmentUploader {
   let base: TestUploader
   private let late: Set<SegmentKey>
   private let held: Int
+  private let deleted: Bool
   private var holding: Set<MemoID> = []
   private var waiting: [CheckedContinuation<Void, Never>] = []
 
   /// `held`: the segment count the server completed the take's memo with.
-  init(base: TestUploader, late: Set<SegmentKey>, held: Int = 1) {
+  init(base: TestUploader, late: Set<SegmentKey>, held: Int = 1, deleted: Bool = false) {
     self.base = base
     self.late = late
     self.held = held
+    self.deleted = deleted
   }
 
   func holdCreates(of ids: Set<MemoID>) { holding = ids }
@@ -34,6 +36,7 @@ private actor LateTailUploader: SegmentUploader {
   }
 
   func upload(_ segment: ClosedSegment) async throws {
+    if deleted { throw MemoDeletedError(answer: "memo is deleted") }
     if late.contains(SegmentKey(memoID: segment.memoID, index: segment.index)) {
       throw LateSegmentError(label: "Late recording", answer: "no longer receiving", serverSegmentCount: held)
     }
@@ -250,6 +253,26 @@ struct LateTailTests {
     #expect(after.items.isEmpty && after.entries.isEmpty, "the saved queue holds neither the take nor its tail")
     await outbox.settled()
     #expect(await base.deleted.contains(tail), "the tail's memo is removed on the server, not left behind")
+    await outbox.shutdown()
+  }
+
+  @Test func aTakeTheServerDeletedLeavesTheQueueWithoutUploadingOrStalling() async throws {
+    let directory = try temporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let segments = try files(directory, indices: [0, 1])
+    let base = TestUploader()
+    let outbox = try await outbox(LateTailUploader(base: base, late: [], deleted: true))
+
+    try await outbox.enqueueItem(voiceItem(original))
+    for segment in segments { await outbox.enqueue(segment) }
+    await outbox.finishMemo(original, segmentCount: 2)
+    await outbox.settled()
+
+    #expect(await outbox.queue().isEmpty)
+    #expect(await outbox.wasDiscarded(original))
+    #expect(await base.uploaded.isEmpty, "nothing is uploaded")
+    #expect(await base.completed.isEmpty, "nothing is completed")
+    #expect(await base.deleted.isEmpty, "the server already deleted it: no DELETE of the take")
     await outbox.shutdown()
   }
 

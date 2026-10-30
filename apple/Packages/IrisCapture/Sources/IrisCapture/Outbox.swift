@@ -308,6 +308,8 @@ public actor Outbox: SegmentOutbox {
         reason: Self.reason(error))
     case (.segment(let key), .success): machine.uploadSucceeded(key)
     case (.segment(let key), .failure) where cancelled: machine.uploadCancelled(key)
+    case (.segment(let key), .failure(let error as MemoDeletedError)):
+      dropDeletedTake(key.memoID, error)
     case (.segment(let key), .failure(let error as LateSegmentError)):
       await divertLateTail(key, error, now: now)
     case (.segment(let key), .failure(let error)):
@@ -339,6 +341,21 @@ public actor Outbox: SegmentOutbox {
     await resume()
     finishing -= 1
     resolveIdleWaiters()
+  }
+
+  /// The server deleted the memo (`MemoDeletedError`): the take leaves the queue with everything queued for it, its files kept
+  /// for the usual clean-up once the save lands. No upload, no `complete` (the server would refuse both), no row left stalled.
+  /// Tails already split off from it are removed from the server like a discard would.
+  private func dropDeletedTake(_ memoID: MemoID, _ deleted: MemoDeletedError) {
+    Log.outbox.notice(
+      "take \(memoID.uuidString, privacy: .public) was deleted on the server: \(deleted.answer, privacy: .public)")
+    for id in [memoID] + machine.lateTails(of: memoID) {
+      let deleteOnServer = id != memoID && machine.needsServerDelete(id)
+      for (transfer, task) in inFlight where transfer.memoID == id { task.cancel() }
+      retire(machine.discard(id, deleteOnServer: deleteOnServer))
+      unsavedSegments = unsavedSegments.filter { $0.key.memoID != id }
+      if deleteOnServer { machine.releaseDeletion(id) }
+    }
   }
 
   /// A segment the server refused because it had closed the memo without it (`LateSegmentError`): the audio becomes a memo of
