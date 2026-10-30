@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// What the user said (spoken or typed) as a turn of the thread: a quiet card under the speaker line.
+/// What the user said (spoken or typed) as a turn of the thread: a card in the accent tint under the speaker line.
 public struct UserTurnView: View {
   private let text: String
   private let time: String
@@ -15,15 +15,15 @@ public struct UserTurnView: View {
       TurnHeader(speaker: .user, time: time)
       Text(verbatim: text)
         .themeFont(.subheadline)
-        .foregroundStyle(Theme.Ink.secondary)
+        .foregroundStyle(Theme.Ink.primary)
         .textSelection(.enabled)
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, Theme.Spacing.md)
         .padding(.vertical, Theme.Spacing.md)
-        .background(Theme.Surface.subtle, in: .rect(cornerRadius: Theme.Radius.card))
+        .background(Theme.Accent.tint.opacity(0.1), in: .rect(cornerRadius: Theme.Radius.card))
         .overlay {
           RoundedRectangle(cornerRadius: Theme.Radius.card)
-            .strokeBorder(Theme.Surface.border, lineWidth: 0.5)
+            .strokeBorder(Theme.Accent.tint.opacity(0.25), lineWidth: 0.5)
         }
     }
     .accessibilityElement(children: .contain)

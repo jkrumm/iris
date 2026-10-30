@@ -105,15 +105,18 @@ Stats colours: Hermes blue, Journal green, Chat violet, Tabs orange, checked wit
 - **Typed-memo entry point:** the keyboard button beside the mic picker on Record. Alternatives: a long-press on the record button in History, or a button in the History search bar.
 - **Stats as a dock tab:** four tabs plus Record fit at 402 pt. Alternative: a button in the History header and keep three tabs. Stats also shows cost; the Lock Screen toggle does not touch it.
 - **Chat in the Threads list:** assumed Chat memos create threads like Hermes ones (violet route chip), and a Chat reply by hold-to-talk stays in that thread. Confirm.
-- **Reply flow as built (Wave 15 I5):** does the reply flow read right? Pending bubble, the reveal, the voice reply affordance. Simulator renders of the shipped
-  thread view on the fake stack (iPhone 17, iOS 27.0), light and dark, from `scripts/reply-flow-shots.sh` (`ReplyFlowReviewUITests`). The images are private objects
-  in the image store, not committed; links are on request (`imgcli private-url <key> --expires 7d`). Keys are `private/<key>`, light then dark:
-  1. Thread view: question, rendered answer, follow-up, the reply bar with the keyboard button and Hold to talk. `gew7ap64kpq5sty1.png` / `k4ueh8b4pg8k73sb.png` (under `2026/10/`)
-  2. Reply by text: the composer bound to the thread ("Continues this conversation.", no mode chips). `n6vgrzz45gvoish5.png` / `souyficsiwty2k2f.png`
-  3. Text reply sent: the typed turn joined the thread, the pending bubble shows step dashes and "Asking Hermes...". `kbg2fwkljkwk814d.png` / `t03644gb8foy1i7j.png`
-  4. Reply by voice, sent: the transcript turn and the pending bubble. `6lyuhlxpixuben7f.png` / `qwqqeatr8ggqnixb.png`
-  5. Answer revealed: the pending bubble replaced by the reply. `a6ib11coivztggmz.png` / `v0mhr280o6495zxk.png`
+- **Reply flow as built (Wave 15 I5): answered** by `feedback-reply-flow.md` (2026-10-29: good trajectory, Liquid Glass stays; reply bar as one row of icons, a more structured
+  thread, JetBrains-style code colors, the composer holding with the keyboard up). The ten Wave 15 renders are superseded by the follow-up below.
+- **Reply flow, follow-up look (Wave 16 I4), for the owner's async review:** does the built verdict read right? Simulator renders on the fake stack (iPhone 17, iOS 27.0), light then
+  dark, from `scripts/reply-flow-shots.sh` (`ReplyFlowReviewUITests`). Private objects in the image store, not committed; links on request (`imgcli private-url <key> --expires 7d`).
+  Keys are `private/<key>`, under `2026/10/`, light then dark:
+  1. Thread: exchanges split by a hairline, question card in the accent tint, the answer with a heading, table cards, a JetBrains-colored code block and a quote; the reply bar in one row (keyboard · hold to talk · locked recording, mic with a lock). `ig2t53snsf5wkdcx.png` / `65f5xa8h6ajxnplh.png`
+  2. Reply by text: the composer bound to the thread, Cancel and Send at the top. `6okerwb59o7ok00f.png` / `x2yqx4zvqvq04iyw.png`
+  3. Text reply sent, pending bubble with step dashes: `gqshdpm58j8w6ngw.png` / `bjxhr18b2k5nsfgw.png`; the answer revealed: `sqmkz54io27i60r2.png` / `umgr4nevltvs2t5d.png`
+  4. Voice reply (hold) sent, pending: `10otvl2w6bjpi966.png` / `tmah5ljkf61xecic.png`; answer revealed: `9fnti6ao2c3dbsi1.png` / `vqkirvmkdd2oz28e.png`
+  5. Locked recording running (cross · timer · send): `o8mw1ptjsaq7w1q8.png` / `69bmmq1b4ny04t90.png`
 
-  Not shown: the fake stack never answers a typed memo, so step 3 ends at pending and the reveal comes from the voice reply. The recording state of Hold to talk
-  was not captured; the Live Activity and notification Reply need a device. Uploaded 2026-10-29 with a 7-day presign, so ask for fresh links after 2026-11-05.
+  Not shown: the hold state (a finger cannot be held through a screenshot; the bar shows the timer and the release hint), and the composer with the software keyboard up (the headless
+  simulator reports a hardware keyboard, so no keyboard is drawn; the field and Send stay reachable and the flow is asserted by the UI test). The code colors and their token table are in
+  TDD §4 "Reply layout and code themes". Uploaded 2026-10-30 with a 7-day presign, so ask for fresh links after 2026-11-06.
 - **Not designed:** the later routing refinement for herdr-bound memos (orchestration queue, factory), and Settings beyond Diagnostics.

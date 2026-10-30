@@ -97,6 +97,54 @@
       Self.assert(view, width: 390, height: 960)
     }
 
+    /// Textual tokenizes code blocks off the main path (Prism in JavaScriptCore), which a snapshot never waits for, so the
+    /// theme is pinned as a legend of its token colors on the block surface; the live highlighting is in the UI-test renders.
+    private static let legend: [(String, String, Color)] = [
+      ("keyword", "func @MainActor let", CodeColors.keyword), ("string", "\"retry\"", CodeColors.string),
+      ("number", "42 0.5", CodeColors.number), ("comment", "// backoff", CodeColors.comment),
+      ("doc comment", "/// Retries a step", CodeColors.docComment), ("function", "run(step)", CodeColors.function),
+      ("type", "StepError", CodeColors.type), ("constant / property", ".exhausted", CodeColors.constant),
+      ("tag", "<step>", CodeColors.tag), ("attribute", "@available", CodeColors.attribute),
+      ("link", "https://example.com", CodeColors.link), ("plain", "attempt + 1", CodeColors.plain),
+    ]
+
+    @Test("the code theme: block surface and token colors, light and dark", .tags(.snapshot))
+    func codeThemes() {
+      let view = VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
+        ForEach(Array(Self.legend.enumerated()), id: \.offset) { _, row in
+          HStack {
+            Text(verbatim: row.0).foregroundStyle(CodeColors.label)
+            Spacer()
+            Text(verbatim: row.1).foregroundStyle(row.2)
+          }
+          .font(.system(size: 13, design: .monospaced))
+        }
+      }
+      .padding(Theme.Spacing.md)
+      .background(CodeColors.background, in: .rect(cornerRadius: Theme.Radius.card))
+      .padding(Theme.Spacing.lg)
+      Self.assert(view, width: 390, height: 380)
+    }
+
+    @Test("a fenced block: language header on the editor surface", .tags(.snapshot))
+    func codeBlock() {
+      let view = MessageContentView(markdown: "```swift\nlet retries = 2\n```").padding(Theme.Spacing.lg)
+      Self.assert(view, width: 390, height: 140)
+    }
+
+    @Test("a second exchange opens with a divider", .tags(.snapshot))
+    func exchanges() {
+      let view = VStack(alignment: .leading, spacing: Theme.Spacing.lg) {
+        UserTurnView(text: "Explain how the step runner retries a failed step.", time: "9:41 AM")
+        AssistantTurnView(markdown: "It retries a **transient** failure twice, then fails the step.", time: "9:41 AM")
+        ExchangeDivider()
+        UserTurnView(text: "And a hang guard, is that retried too?", time: "9:44 AM")
+        PendingTurnView(progress: StepProgress(completed: 2, total: 5), caption: "Asking Hermes…")
+      }
+      .padding(Theme.Spacing.lg)
+      Self.assert(view, width: 390, height: 520)
+    }
+
     @Test("an answer that has not arrived shows the step dashes", .tags(.snapshot))
     func pending() {
       let view = VStack(alignment: .leading, spacing: Theme.Spacing.xl) {

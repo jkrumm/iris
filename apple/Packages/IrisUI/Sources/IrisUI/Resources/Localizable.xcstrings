@@ -161,6 +161,23 @@
         }
       }
     },
+    "Discard recording" : {
+      "comment" : "VoiceOver label of the cross of a locked recording",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aufnahme verwerfen"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Discard recording"
+          }
+        }
+      }
+    },
     "Done" : {
       "comment" : "VoiceOver state of a step that finished",
       "localizations" : {
@@ -212,19 +229,19 @@
         }
       }
     },
-    "Hold to talk" : {
-      "comment" : "The hold-to-talk button of a thread",
+    "Hold to talk, release to send" : {
+      "comment" : "VoiceOver hint of the hold-to-talk button",
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Zum Sprechen halten"
+            "value" : "Zum Sprechen halten, zum Senden loslassen"
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Hold to talk"
+            "value" : "Hold to talk, release to send"
           }
         }
       }
@@ -344,6 +361,40 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Position"
+          }
+        }
+      }
+    },
+    "Record continuously" : {
+      "comment" : "VoiceOver label of the locked-recording button",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Durchgehend aufnehmen"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Record continuously"
+          }
+        }
+      }
+    },
+    "Recording" : {
+      "comment" : "VoiceOver label of a locked recording",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aufnahme läuft"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Recording"
           }
         }
       }
@@ -497,6 +548,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Stop reply"
+          }
+        }
+      }
+    },
+    "Tap to start, tap send when done" : {
+      "comment" : "VoiceOver hint of the locked-recording button",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tippen zum Starten, am Ende auf Senden tippen"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tap to start, tap send when done"
           }
         }
       }

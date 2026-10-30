@@ -32,6 +32,16 @@ final class ReplyFlowReviewUITests: IrisUITestCase {
     voiceReply(appearance: .dark, name: "dark")
   }
 
+  @MainActor
+  func testLockedRecordingLight() {
+    lockedRecording(appearance: .light, name: "light")
+  }
+
+  @MainActor
+  func testLockedRecordingDark() {
+    lockedRecording(appearance: .dark, name: "dark")
+  }
+
   /// Launches in `appearance` and opens the seeded chat thread: question, rendered answer, follow-up, the reply bar.
   @MainActor
   private func openThread(appearance: XCUIDevice.Appearance, name: String) -> XCUIApplication {
@@ -108,6 +118,30 @@ final class ReplyFlowReviewUITests: IrisUITestCase {
     XCTAssertTrue(answer.waitForExistence(timeout: 20))
     XCTAssertTrue(pending.waitForNonExistence(timeout: 10))
     shot(name, "5-voice-answer")
+  }
+
+  /// The locked recording: a tap starts a take bound to the thread, it keeps recording without a finger, the send button ends it.
+  @MainActor
+  private func lockedRecording(appearance: XCUIDevice.Appearance, name: String) {
+    let app = openThread(appearance: appearance, name: name)
+
+    let lock = app.buttons["thread.reply.lock"]
+    XCTAssertTrue(lock.waitForExistence(timeout: 10))
+    lock.tap()
+    let send = app.buttons["thread.reply.lock.send"]
+    XCTAssertTrue(send.waitForExistence(timeout: 5))
+    XCTAssertTrue(app.buttons["thread.reply.lock.cancel"].exists)
+    // Long enough to pass the minimum take, with no finger on the screen.
+    sleep(2)
+    shot(name, "6-locked-recording")
+
+    send.tap()
+    let pending = app.descendants(matching: .any)["thread.turn.pending"]
+    XCTAssertTrue(pending.waitForExistence(timeout: 10))
+    let answer = app.descendants(matching: .any)
+      .matching(NSPredicate(format: "label CONTAINS %@", "fake answer to your voice memo")).firstMatch
+    XCTAssertTrue(answer.waitForExistence(timeout: 20))
+    XCTAssertTrue(app.buttons["thread.reply.lock"].waitForExistence(timeout: 5))
   }
 
   @MainActor

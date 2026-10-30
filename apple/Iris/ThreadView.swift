@@ -39,12 +39,16 @@ struct ThreadView: View {
   var body: some View {
     ScrollViewReader { proxy in
       ScrollView {
-        LazyVStack(alignment: .leading, spacing: Theme.Spacing.xl) {
-          header
-          ForEach(model.turns) { turn in
-            view(for: turn)
-              .id(turn.id)
-              .transition(.opacity)
+        LazyVStack(alignment: .leading, spacing: Theme.Spacing.lg) {
+          header.padding(.bottom, Theme.Spacing.sm)
+          ForEach(Array(model.turns.enumerated()), id: \.element.id) { index, turn in
+            VStack(alignment: .leading, spacing: Theme.Spacing.lg) {
+              // A question after an answer opens a new exchange.
+              if index > 0, case .user = turn.content { ExchangeDivider() }
+              view(for: turn)
+            }
+            .id(turn.id)
+            .transition(.opacity)
           }
           Color.clear.frame(height: 1).id(Self.bottom)
         }
