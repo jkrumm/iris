@@ -98,6 +98,8 @@ public actor CaptureSession {
   /// Recorder stops that were given up on and have not returned: the recorder may still be live (its microphone open), so no
   /// new take starts on it until they do.
   private var hungStops: Set<UUID> = []
+  /// A take ended while a hung stop was still running, so the audio session was left active; the stop's return deactivates it.
+  private var deactivationPending = false
   private var finishWaiter: (id: MemoID, continuation: CheckedContinuation<Int?, Never>)?
   /// The gate: true while a start, stop or cancel is running; the others wait in `queue`, first come first served.
   private var isBusy = false
@@ -145,6 +147,7 @@ public actor CaptureSession {
     // A recorder that never answered its stop may still hold the microphone: a new take waits until it has.
     guard hungStops.isEmpty else { throw CaptureError.engineFailure("the recorder is still stopping") }
     let memoID = MemoID()
+    deactivationPending = false  // this take activates the session itself
     // Claimed with no suspension between the guard and here (the gate is ours): nothing else sees an idle session.
     state = TakeState(phase: .starting, memoID: memoID, startedAt: nil, inputName: nil, request: request)
     publish()
@@ -163,7 +166,7 @@ public actor CaptureSession {
     } catch {
       await outbox.discard(memoID)
       forget(memoID)
-      try? await session.deactivate()
+      await deactivateSession()
       setState(.idle)
       throw error
     }
@@ -198,7 +201,7 @@ public actor CaptureSession {
       } catch {
         await outbox.discard(memoID)
         forget(memoID)
-        try? await session.deactivate()
+        await deactivateSession()
         setState(.idle)
         throw error
       }
@@ -242,7 +245,7 @@ public actor CaptureSession {
     }
     let failure = failures[memoID]
     if !holdsOpen { forget(memoID) }
-    try? await session.deactivate()
+    await deactivateSession()
     setState(.idle)
     guard count > 0 else {
       await outbox.discard(memoID)
@@ -280,7 +283,7 @@ public actor CaptureSession {
       }
     }
     forget(memoID)
-    try? await session.deactivate()
+    await deactivateSession()
     setState(.idle)
     return memoID
   }
@@ -519,9 +522,29 @@ public actor CaptureSession {
     return try await withCheckedThrowingContinuation { stopRaces[id] = $0 }
   }
 
+  /// Deactivates the audio session, unless a recorder stop that was given up on is still running: that recorder may still hold
+  /// the microphone and its engine, and pulling the session from under it is the one thing worse than leaving it active a
+  /// while. The deactivation is then done when the stop returns (`settleStop`).
+  private func deactivateSession() async {
+    guard hungStops.isEmpty else {
+      deactivationPending = true
+      return
+    }
+    deactivationPending = false
+    try? await session.deactivate()
+  }
+
+  /// The stop that was given up on has returned: the session can go now, if no take has claimed it again.
+  private func hungStopReturned() async {
+    guard deactivationPending, hungStops.isEmpty, state.phase == .idle else { return }
+    await deactivateSession()
+  }
+
   private func settleStop(_ id: UUID, _ result: Result<Bool, any Error>) {
     guard let waiter = stopRaces.removeValue(forKey: id) else {
       hungStops.remove(id)  // the stop that was given up on has returned at last
+      // Fire and forget, one short deactivation; ends on its own.
+      Task { await self.hungStopReturned() }
       return
     }
     if case .success(false) = result { hungStops.insert(id) }
