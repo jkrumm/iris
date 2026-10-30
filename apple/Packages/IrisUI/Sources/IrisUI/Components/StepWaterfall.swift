@@ -1,52 +1,86 @@
 import SwiftUI
 
-/// The full-width step waterfall: one row per step with its `duration · cost` chip, the faster/slower tag and the
-/// attempt count where they apply, and a bar along the row's bottom edge that spans the card like a border. Steps
-/// advancing animate subtly (none under Reduce Motion).
+/// The step waterfall: collapsed it is one line, "Total · duration · cost", and a tap on it opens the steps. Expanded,
+/// one row per step with its `duration · cost` chip, the faster/slower tag and the attempt count where they apply, and
+/// a bar along the row's bottom edge that spans the card like a border. Steps advancing animate subtly (none under
+/// Reduce Motion). Without a total there is nothing to collapse to, so the rows show.
 public struct StepWaterfall: View {
   private let rows: [StepWaterfallRow]
   private let totalTitle: String?
   private let totalValue: String?
+  private let isExpanded: Binding<Bool>
   private let onRetry: (String) -> Void
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
   /// - Parameters:
-  ///   - totalTitle: The footer's label ("Total"); the footer is drawn when both footer strings are set.
+  ///   - totalTitle: The summary line's label ("Total"); the line is drawn when both strings are set.
+  ///   - isExpanded: Whether the steps show under the summary line.
   ///   - onRetry: Called with the id of the row whose retry button was tapped.
   public init(
-    rows: [StepWaterfallRow], totalTitle: String? = nil, totalValue: String? = nil,
+    rows: [StepWaterfallRow], totalTitle: String? = nil, totalValue: String? = nil, isExpanded: Binding<Bool>,
     onRetry: @escaping (String) -> Void = { _ in }
   ) {
     self.rows = rows
     self.totalTitle = totalTitle
     self.totalValue = totalValue
+    self.isExpanded = isExpanded
     self.onRetry = onRetry
   }
 
   public var body: some View {
     VStack(spacing: 0) {
-      ForEach(rows) { row in
-        WaterfallRowView(row: row, onRetry: onRetry)
-          .transition(.opacity)
-      }
       if let totalTitle, let totalValue {
-        HStack {
-          Text(verbatim: totalTitle)
-            .foregroundStyle(Theme.Ink.muted)
-          Spacer()
-          Text(verbatim: totalValue)
-            .fontWeight(.semibold)
-            .foregroundStyle(Theme.Ink.primary)
+        summary(title: totalTitle, value: totalValue)
+      }
+      if showsRows {
+        ForEach(rows) { row in
+          WaterfallRowView(row: row, onRetry: onRetry)
+            .transition(.opacity)
         }
-        .themeFont(.subheadline)
-        .monospacedDigit()
-        .padding(.horizontal, Theme.Spacing.lg)
-        .padding(.vertical, Theme.Spacing.md)
-        .accessibilityElement(children: .combine)
       }
     }
     .animation(reduceMotion ? nil : .smooth(duration: 0.4), value: rows)
+    .animation(reduceMotion ? nil : .smooth(duration: 0.25), value: showsRows)
     .detailCard()
+  }
+
+  private var hasSummary: Bool { totalTitle != nil && totalValue != nil }
+  private var showsRows: Bool { !hasSummary || isExpanded.wrappedValue }
+
+  private func summary(title: String, value: String) -> some View {
+    Button {
+      isExpanded.wrappedValue.toggle()
+    } label: {
+      HStack(spacing: Theme.Spacing.sm) {
+        Image(systemName: "chevron.right")
+          .font(.system(size: 13, weight: .semibold))
+          .foregroundStyle(Theme.Ink.muted)
+          .rotationEffect(.degrees(isExpanded.wrappedValue ? 90 : 0))
+          .frame(width: 22)
+        Text(verbatim: title)
+          .foregroundStyle(Theme.Ink.muted)
+        Spacer(minLength: Theme.Spacing.sm)
+        Text(verbatim: value)
+          .fontWeight(.semibold)
+          .foregroundStyle(Theme.Ink.primary)
+      }
+      .themeFont(.subheadline)
+      .monospacedDigit()
+      .padding(.horizontal, Theme.Spacing.lg)
+      .padding(.vertical, Theme.Spacing.md)
+      .frame(maxWidth: .infinity)
+      .contentShape(.rect)
+    }
+    .buttonStyle(.plain)
+    .accessibilityValue(
+      isExpanded.wrappedValue
+        ? Text("Expanded", bundle: #bundle, comment: "VoiceOver state of the step summary when the steps show")
+        : Text("Collapsed", bundle: #bundle, comment: "VoiceOver state of the step summary when the steps are hidden")
+    )
+    .accessibilityHint(
+      Text("Shows or hides the steps", bundle: #bundle, comment: "VoiceOver hint of the step summary line")
+    )
+    .accessibilityIdentifier("detail.steps.toggle")
   }
 }
 
@@ -56,6 +90,7 @@ private struct WaterfallRowView: View {
 
   private static let iconWidth: CGFloat = 22
   private static let trackHeight: CGFloat = 3
+  private static let minimumBar: CGFloat = 2
 
   var body: some View {
     VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
@@ -155,16 +190,18 @@ private struct WaterfallRowView: View {
     }
   }
 
-  /// The bar along the row's bottom edge: the track is the whole run, the bar sits where the step ran.
+  /// The bar along the row's bottom edge: the track is the whole run, the bar sits where the step ran. A bar never
+  /// reaches past the track, and a very short step keeps a two-point sliver.
   private var track: some View {
     GeometryReader { proxy in
+      let width = max(proxy.size.width * row.length, Self.minimumBar)
       ZStack(alignment: .leading) {
         Rectangle().fill(Theme.divider)
         if row.phase != .waiting {
           Rectangle()
             .fill(barColor)
-            .frame(width: max(proxy.size.width * row.length, 2))
-            .offset(x: proxy.size.width * row.start)
+            .frame(width: width)
+            .offset(x: min(proxy.size.width * row.start, proxy.size.width - width))
         }
       }
     }

@@ -127,6 +127,23 @@
         }
       }
     },
+    "Collapsed" : {
+      "comment" : "VoiceOver state of the step summary when the steps are hidden",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zugeklappt"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Collapsed"
+          }
+        }
+      }
+    },
     "Diagram" : {
       "comment" : "VoiceOver label of a rendered Mermaid diagram",
       "localizations" : {
@@ -225,6 +242,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Double-tap to start recording, double-tap again to send"
+          }
+        }
+      }
+    },
+    "Expanded" : {
+      "comment" : "VoiceOver state of the step summary when the steps show",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aufgeklappt"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Expanded"
           }
         }
       }
@@ -531,6 +565,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Running"
+          }
+        }
+      }
+    },
+    "Shows or hides the steps" : {
+      "comment" : "VoiceOver hint of the step summary line",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Blendet die Schritte ein oder aus"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Shows or hides the steps"
           }
         }
       }

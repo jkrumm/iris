@@ -22,15 +22,34 @@ struct WaterfallBuilderTests {
       ])
   }
 
-  @Test("each bar starts where its step started and is as wide as it ran, as fractions of the whole run")
+  @Test("each bar starts where its step started and runs to the next start, as fractions of the whole run")
   func scaling() {
     let rows = WaterfallBuilder.rows(for: finished(), baselines: StepBaselines(), now: now)
     #expect(rows.prefix(4).map(\.id) == ["transcribe", "route", "act", "summarize"])
     #expect(rows[0].start == 0)
     #expect(abs(rows[0].length - 0.4) < 1e-6)
     #expect(abs(rows[2].start - 0.405) < 1e-6)
-    #expect(abs(rows[2].length - 0.5) < 1e-6)
+    #expect(abs(rows[2].length - 0.505) < 1e-6)
     #expect(abs(rows[3].start + rows[3].length - 1) < 1e-6)
+  }
+
+  @Test("no gap between bars: each ends where the next begins, and the last ends with the run")
+  func contiguousBars() {
+    let rows = Array(WaterfallBuilder.rows(for: finished(), baselines: StepBaselines(), now: now).prefix(4))
+    for (earlier, later) in zip(rows, rows.dropFirst()) {
+      #expect(abs(earlier.start + earlier.length - later.start) < 1e-6, "\(earlier.id) → \(later.id)")
+    }
+    #expect(abs(rows[3].start + rows[3].length - 1) < 1e-6)
+  }
+
+  @Test("steps are drawn in the order they started, whatever order the server listed them")
+  func ordersByStart() {
+    let memo = MemoFactory.memo("o", state: .summarized, route: "hermes")
+    let detail = MemoFactory.detail(
+      memo, steps: [MemoFactory.step(.act, at: 4, for: 4), MemoFactory.step(.transcribe, at: 0, for: 4)])
+    let rows = WaterfallBuilder.rows(for: detail, baselines: StepBaselines(), now: now)
+    #expect(rows.prefix(2).map(\.id) == ["transcribe", "act"])
+    #expect(abs(rows[0].length - 0.5) < 1e-6)
   }
 
   @Test("the metric chip joins duration and cost; a free step shows the duration alone")

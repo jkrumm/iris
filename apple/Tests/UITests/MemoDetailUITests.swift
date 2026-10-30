@@ -18,11 +18,50 @@ final class MemoDetailUITests: IrisUITestCase {
     XCTAssertTrue(waitForPresence(app.descendants(matching: .any)["memo.detail"], timeout: 10))
   }
 
+  /// The waterfall starts collapsed to its total line; a tap on the line opens the steps.
+  @MainActor
+  private func expandSteps(in app: XCUIApplication) {
+    let toggle = app.buttons["detail.steps.toggle"]
+    XCTAssertTrue(waitForPresence(toggle, timeout: 10))
+    toggle.tap()
+  }
+
+  @MainActor
+  func testTheWaterfallIsCollapsedToItsTotalAndOpensOnTap() {
+    let app = launch()
+    openRow(containing: "Wochenplan abgestimmt", in: app)
+
+    let toggle = app.buttons["detail.steps.toggle"]
+    XCTAssertTrue(waitForPresence(toggle, timeout: 10))
+    XCTAssertTrue(toggle.label.contains("Total"), "the line reads the total time and cost: \(toggle.label)")
+    XCTAssertTrue(waitForAbsence(app.staticTexts["Act · Hermes"], timeout: 2), "collapsed by default")
+
+    toggle.tap()
+    XCTAssertTrue(waitForPresence(app.staticTexts["Act · Hermes"], timeout: 5))
+    app.buttons["detail.steps.toggle"].tap()
+    XCTAssertTrue(waitForAbsence(app.staticTexts["Act · Hermes"], timeout: 5))
+  }
+
+  @MainActor
+  func testTranscriptAndReplyHaveACopyButtonThatConfirms() {
+    let app = launch()
+    openRow(containing: "Wochenplan abgestimmt", in: app)
+
+    let copy = app.buttons["detail.transcript.copy"]
+    XCTAssertTrue(waitForPresence(copy, timeout: 10))
+    copy.tap()
+    let confirmed = app.buttons.matching(identifier: "detail.transcript.copy").matching(
+      NSPredicate(format: "label == %@", "Copied")
+    ).firstMatch
+    XCTAssertTrue(waitForPresence(confirmed, timeout: 5), "the button says Copied: \(copy.label)")
+  }
+
   @MainActor
   func testDetailShowsTheStepWaterfallTranscriptAndPlayer() {
     let app = launch()
     openRow(containing: "Wochenplan abgestimmt", in: app)
 
+    expandSteps(in: app)
     XCTAssertTrue(waitForPresence(app.staticTexts["Act · Hermes"], timeout: 10))
     XCTAssertTrue(waitForPresence(app.staticTexts["Transcribe"], timeout: 2))
     XCTAssertTrue(waitForPresence(app.staticTexts["Notify"], timeout: 2))
@@ -44,6 +83,7 @@ final class MemoDetailUITests: IrisUITestCase {
     let app = launch()
     openRow(containing: "xcodegen", in: app)
 
+    // A failed memo opens its waterfall on its own: the failed step and its retry are on screen.
     let stepRetry = app.buttons["detail.step.retry"]
     XCTAssertTrue(waitForPresence(stepRetry, timeout: 10))
     XCTAssertTrue(waitForPresence(app.staticTexts["agw job failed: upstream 503"], timeout: 2))
@@ -62,6 +102,7 @@ final class MemoDetailUITests: IrisUITestCase {
     let app = launch()
     openRow(containing: "Erinnere mich bitte daran, am Montag", in: app)
 
+    expandSteps(in: app)
     XCTAssertTrue(waitForPresence(app.descendants(matching: .any)["detail.step.optional"], timeout: 10))
     XCTAssertTrue(waitForPresence(app.staticTexts["agw triage failed: 402 payment required"], timeout: 2))
     XCTAssertTrue(waitForPresence(app.staticTexts["Notify"], timeout: 2), "the steps after the skipped one still ran")

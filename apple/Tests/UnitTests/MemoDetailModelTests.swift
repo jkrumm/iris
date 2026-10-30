@@ -11,12 +11,15 @@ struct MemoDetailModelTests {
 
   private func model(
     _ memo: Memo, steps: [StepEntry] = [],
+    pasteboard: FakePasteboard = FakePasteboard(),
     sleep: @escaping @Sendable (Duration) async throws -> Void = {
       try await Task.sleep(for: $0)
     }
   ) async -> MemoDetailModel {
     await client.seed(MemoFactory.detail(memo, steps: steps))
-    return MemoDetailModel(memo: memo, client: client, media: FakeMediaSource(), speech: SpeechPlayer(), sleep: sleep)
+    return MemoDetailModel(
+      memo: memo, client: client, media: FakeMediaSource(), speech: SpeechPlayer(), pasteboard: pasteboard,
+      sleep: sleep)
   }
 
   /// A finished memo whose summarize step failed for good: the server skipped it and ended the memo without a summary.
@@ -197,5 +200,90 @@ struct MemoDetailModelTests {
 
     timers.fire(1)
     #expect(await timers.until { detail.failure == nil })
+  }
+
+  // MARK: Waterfall total and copy
+
+  @Test("the waterfall is collapsed until the owner opens it, and its line is the total time and cost")
+  func collapsedWithATotal() async {
+    let memo = MemoFactory.memo("m", route: "hermes")
+    let detail = await model(
+      memo,
+      steps: [
+        MemoFactory.step(.transcribe, at: 0, for: 8, cost: 0.0002),
+        MemoFactory.step(.act, at: 8, for: 4, cost: 0.0001),
+      ])
+    #expect(detail.isWaterfallExpanded == false)
+    #expect(detail.totalValue(now: MemoFactory.now) == nil, "no steps loaded yet, so no total")
+
+    await detail.load()
+    let expected = "\(StepText.duration(milliseconds: 12_000)) · \(StepText.dollars(0.0003))"
+    #expect(detail.totalValue(now: MemoFactory.now) == expected)
+    #expect(detail.rows(now: MemoFactory.now).count >= 2, "the rows are there for when it opens")
+  }
+
+  @Test("a failed memo opens its waterfall on its own, and the owner's tap wins either way")
+  func failedMemoOpensTheWaterfall() async {
+    let detail = await model(failed())
+    #expect(detail.isWaterfallExpanded)
+    detail.isWaterfallExpanded = false
+    #expect(!detail.isWaterfallExpanded)
+
+    let finished = await model(MemoFactory.memo("n", state: .notified, route: "hermes"))
+    #expect(!finished.isWaterfallExpanded)
+    finished.isWaterfallExpanded = true
+    #expect(finished.isWaterfallExpanded)
+  }
+
+  @Test("copy puts the transcript, trimmed, on the pasteboard as one plain string")
+  func copiesTheTranscript() async {
+    let pasteboard = FakePasteboard()
+    let memo = MemoFactory.memo("m", transcript: "  Plane den Wochenplan.\n")
+    let detail = await model(memo, pasteboard: pasteboard)
+
+    detail.copy(.transcript)
+    #expect(pasteboard.copied == ["Plane den Wochenplan."])
+    #expect(detail.copied == .transcript)
+    #expect(detail.copyCount == 1)
+
+    detail.clearCopied()
+    #expect(detail.copied == nil)
+  }
+
+  @Test("the Copied confirmation ends with the injected timer, and a second copy restarts it")
+  func copiedConfirmationTimer() async {
+    let timers = ToastTimers()
+    let memo = MemoFactory.memo("m", transcript: "hi", replyText: "ok")
+    let detail = await model(memo, sleep: { try await timers.sleep($0) })
+
+    detail.copy(.transcript)
+    await timers.waitForSleeps(1)
+    detail.copy(.reply)
+    await timers.waitForSleeps(2)
+    timers.fire(0)
+    await timers.settle()
+    #expect(detail.copied == .reply, "the first copy's timer was cancelled with the first copy")
+
+    timers.fire(1)
+    #expect(await timers.until { detail.copied == nil })
+  }
+
+  @Test("copy puts the reply on the pasteboard without its markdown")
+  func copiesTheReplyAsPlainText() async {
+    let pasteboard = FakePasteboard()
+    let memo = MemoFactory.memo("m", replyText: "## Plan\n\nA **partial index** on `(repo)`.\n\n- one\n- two")
+    let detail = await model(memo, pasteboard: pasteboard)
+
+    detail.copy(.reply)
+    #expect(pasteboard.copied == ["Plan\n\nA partial index on (repo).\n\n- one\n- two"])
+  }
+
+  @Test("there is nothing to copy for a memo with no reply, so nothing reaches the pasteboard")
+  func copiesNothingWithoutText() async {
+    let pasteboard = FakePasteboard()
+    let detail = await model(MemoFactory.memo("m"), pasteboard: pasteboard)
+    detail.copy(.reply)
+    #expect(pasteboard.copied.isEmpty)
+    #expect(detail.copied == nil)
   }
 }
