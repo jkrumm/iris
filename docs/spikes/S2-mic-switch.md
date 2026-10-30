@@ -49,4 +49,6 @@ the screenshots are the evidence and the missing dump is a finding (the `Logger`
    If the OS refuses the preferred input (the app still reports the car), the limitation is the finding and TDD §13's "undocumented" line becomes "refused on iOS 26.6.1".
 
 ## Findings
-_Not run._
+_Not run_ (2026-10-30, iPhone 15, iOS 26.6.1). D2-6 (AirPods) and D2-10 (car) waited for the owner, who was in calls and did not answer the start question within ten minutes; a ten-minute timeout is "not run", not a fail.
+What the day showed that matters here: the island's mic swap could not be reached (stale Processing activities held the island, then Resume failed, see S1 findings failures 2 and 3), and the in-app mic chip showed `iPhone-Mikrofon` as the only input with no AirPods connected.
+S2 stays open; rerun D2-6 and D2-10 after I7 and I8, with the phase-by-phase numbered sentences above.
