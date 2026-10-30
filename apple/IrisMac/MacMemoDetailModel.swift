@@ -35,6 +35,9 @@ final class MacMemoDetailModel {
   /// The owner's own open or close of the waterfall; nil until the first tap.
   private var waterfallChoice: Bool?
   private var baselinesLoaded = false
+  /// Bumped by every load and by a retry's answer. A response that finds it changed belongs to a request that was
+  /// superseded (an event-triggered load that a retry's load overtook, or the other way round) and is dropped.
+  private var generation = 0
   private var copyCount = 0
   private var copiedTimer: Task<Void, Never>?
   private let client: any APIClient
@@ -78,14 +81,17 @@ final class MacMemoDetailModel {
 
   /// Fetches the memo with its steps, and the stats baselines the first time. A failure keeps what is on screen.
   func load() async {
+    generation += 1
+    let current = generation
     do {
       let fresh = try await client.memo(id: memoID)
-      guard !Task.isCancelled else { return }
+      guard !Task.isCancelled, current == generation else { return }
       detail = fresh
       loadFailed = false
     } catch is CancellationError {
       return
     } catch {
+      guard current == generation else { return }
       logger.error("detail load failed: \(String(describing: error), privacy: .public)")
       loadFailed = true
     }
@@ -148,7 +154,10 @@ final class MacMemoDetailModel {
     failure = nil
     defer { isRetrying = false }
     do {
-      detail?.memo = try await client.retryMemo(id: memoID, request: RetryMemoRequest(from: step))
+      let retried = try await client.retryMemo(id: memoID, request: RetryMemoRequest(from: step))
+      // The retried memo is newer than any load that is still on the wire.
+      generation += 1
+      detail?.memo = retried
       await load()
     } catch is CancellationError {
       return

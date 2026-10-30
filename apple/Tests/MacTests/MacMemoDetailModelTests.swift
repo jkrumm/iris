@@ -78,4 +78,25 @@ struct MacMemoDetailModelTests {
     #expect(model.memo?.state != .failed)
     #expect(model.retrySteps.isEmpty)
   }
+
+  @Test("a load that a retry's load overtook cannot put the older memo back")
+  func supersededLoadIsDropped() async throws {
+    let failedID = "9e2c4b70-1a58-4d36-8f07-5b3a6d1c8e24"
+    let api = FakeAPIClient()
+    await SampleData.seed(api)
+    let model = MacMemoDetailModel(memoID: failedID, client: api, pasteboard: RecordingPasteboard())
+    await model.load()
+    #expect(model.memo?.state == .failed)
+
+    // An event-triggered load starts first and is slow: it reads the failed memo, then waits.
+    let gate = await api.hold(.memo)
+    let slow = Task { await model.load() }
+    await gate.waitUntilHeld()
+    // The retry restarts the memo; its own load answers at once.
+    await model.retry(from: .summarize)
+    #expect(model.memo?.state != .failed)
+    gate.release()
+    await slow.value
+    #expect(model.memo?.state != .failed, "the overtaken load put the failed memo back")
+  }
 }
