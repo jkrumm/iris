@@ -81,7 +81,7 @@ final class ReplyFlowReviewUITests: IrisUITestCase {
     let pending = app.descendants(matching: .any)["thread.turn.pending"]
     let answer = app.descendants(matching: .any)
       .matching(NSPredicate(format: "label CONTAINS %@", "fake answer to your message")).firstMatch
-    if awaitPending(pending) { shot(name, "3-text-pending") }
+    if awaitPending(pending, orAnswer: answer) { shot(name, "3-text-pending") }
     XCTAssertTrue(waitForPresence(answer, timeout: 30))
     XCTAssertTrue(waitForAbsence(pending, timeout: 10))
     shot(name, "3b-text-answer")
@@ -101,7 +101,7 @@ final class ReplyFlowReviewUITests: IrisUITestCase {
     let pending = app.descendants(matching: .any)["thread.turn.pending"]
     let answer = app.descendants(matching: .any)
       .matching(NSPredicate(format: "label CONTAINS %@", "fake answer to your voice memo")).firstMatch
-    if awaitPending(pending) { shot(name, "4-voice-pending") }
+    if awaitPending(pending, orAnswer: answer) { shot(name, "4-voice-pending") }
     XCTAssertTrue(waitForPresence(answer, timeout: 30))
     XCTAssertTrue(waitForAbsence(pending, timeout: 10))
     shot(name, "5-voice-answer")
@@ -130,11 +130,17 @@ final class ReplyFlowReviewUITests: IrisUITestCase {
     XCTAssertTrue(waitForPresence(app.buttons["thread.reply.lock"], timeout: 5))
   }
 
-  /// Waits for the pending turn, which the slowed fake keeps up for several seconds. `true` when it was seen; a runner that was
-  /// too slow to catch it is not a failure (the answer stands in), so a render of the pending state is taken only when there is one.
+  /// Waits for the pending turn, which the slowed fake keeps up for several seconds, or for the answer when it replaced it
+  /// already. `true` when the pending turn was seen (a runner that was too slow to catch it is not a failure: the answer stands
+  /// in), so a render of the pending state is taken only when there is one.
   @MainActor
-  private func awaitPending(_ pending: XCUIElement) -> Bool {
-    waitForPresence(pending, timeout: 15)
+  private func awaitPending(_ pending: XCUIElement, orAnswer answer: XCUIElement) -> Bool {
+    let deadline = Date().addingTimeInterval(15)
+    while Date() < deadline {
+      if presence(of: pending, within: 1) == true { return true }
+      if presence(of: answer, within: 1) == true { return false }
+    }
+    return false
   }
 
   @MainActor

@@ -23,8 +23,7 @@ final class TypedMemoUITests: IrisUITestCase {
 
     // The sheet closes and the new memo is the top row of History.
     XCTAssertTrue(waitForPresence(app.descendants(matching: .any)["history.list"], timeout: 10))
-    let row = app.descendants(matching: .any)
-      .matching(NSPredicate(format: "identifier == 'history.row' AND label CONTAINS %@", "Order a router")).firstMatch
+    let row = historyRow(containing: "Order a router", in: app)
     XCTAssertTrue(waitForPresence(row, timeout: 10))
     XCTAssertTrue(waitForAbsence(app.buttons["composer.send"], timeout: 1))
   }

@@ -73,9 +73,7 @@ final class RoutingUITests: IrisUITestCase {
   /// The pinned needs-route row of the sample data.
   @MainActor
   private func pinnedRow(in app: XCUIApplication) -> XCUIElement {
-    app.descendants(matching: .any)
-      .matching(NSPredicate(format: "identifier == 'history.row' AND label CONTAINS %@", "Schreib das bitte"))
-      .firstMatch
+    historyRow(containing: "Schreib das bitte", in: app)
   }
 
   /// Opens the route sheet from the pinned row's swipe action: a short drag reveals the buttons (a full swipe would fire the

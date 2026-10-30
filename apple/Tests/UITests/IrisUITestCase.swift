@@ -50,16 +50,35 @@ class IrisUITestCase: XCTestCase {
 
   // MARK: Queries on a busy hierarchy
 
+  /// Looks for `element` for up to `timeout`: `true` when it is there, `false` when a full wait ended without it (a confirmed
+  /// absence), `nil` when every query timed out and nothing is known. A query that times out is asked again until the deadline.
+  @MainActor
+  func presence(of element: XCUIElement, within timeout: TimeInterval) -> Bool? {
+    let deadline = Date().addingTimeInterval(timeout)
+    var confirmedAbsent = false
+    repeat {
+      let slice = min(5, max(deadline.timeIntervalSinceNow, 0.5))
+      switch QueryRetry.attempt({ element.waitForExistence(timeout: slice) }) {
+      case .some(true): return true
+      case .some(false): confirmedAbsent = true
+      case nil: break
+      }
+    } while Date() < deadline
+    return confirmedAbsent ? false : nil
+  }
+
   /// Waits for `element` to exist. A query that times out on a loaded runner is asked again until `timeout` is over, so the
   /// only way to fail is an element that is really not there.
   @MainActor
   func waitForPresence(_ element: XCUIElement, timeout: TimeInterval = 10) -> Bool {
-    let deadline = Date().addingTimeInterval(timeout)
-    repeat {
-      let slice = min(5, max(deadline.timeIntervalSinceNow, 0.5))
-      if QueryRetry.attempt({ element.waitForExistence(timeout: slice) }) == true { return true }
-    } while Date() < deadline
-    return false
+    presence(of: element, within: timeout) == true
+  }
+
+  /// `true` when `element` does not show up during the whole of `duration`: a row that vanishes and comes back fails, which
+  /// `waitForAbsence` (it returns the moment the element is gone) does not catch.
+  @MainActor
+  func staysAbsent(_ element: XCUIElement, for duration: TimeInterval = 1) -> Bool {
+    presence(of: element, within: duration) == false
   }
 
   /// Waits for `element` to be gone, asking again when a query times out.
@@ -87,9 +106,15 @@ class IrisUITestCase: XCTestCase {
     let row = historyRow(containing: text, in: app)
     let list = app.descendants(matching: .any)["history.list"]
     var scrolls = 0
-    while !waitForPresence(row, timeout: 2), scrolls < 8 {
-      list.swipeUp()
-      scrolls += 1
+    let deadline = Date().addingTimeInterval(60)
+    // Swipe only on a confirmed absence: an inconclusive probe (the queries timed out) asks again without moving the list.
+    while scrolls < 8, Date() < deadline {
+      let found = presence(of: row, within: 2)
+      if found == true { break }
+      if found == false {
+        list.swipeUp()
+        scrolls += 1
+      }
     }
     XCTAssertTrue(waitForPresence(row, timeout: 10), "no History row containing \(text)")
     row.scrollIntoClearBand(of: list, app: app)
