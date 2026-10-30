@@ -169,6 +169,11 @@ export function createReplyAssets(deps: {
     await assets.prune({ memoId, keep });
   }
 
+  /** Drops a hold, unless a newer staging of the memo has replaced it already. */
+  const release = (memoId: string, held: ReadonlySet<string>) => {
+    if (holds.get(memoId) === held) holds.delete(memoId);
+  };
+
   /** What follows the store settling a staged reply, inside the memo's queue. */
   function settled(params: {
     memoId: string;
@@ -178,8 +183,7 @@ export function createReplyAssets(deps: {
   }) {
     const { memoId, stored, failed, held } = params;
     return (outcome: "committed" | "discarded") => {
-      // A newer staging of the memo has replaced this hold already.
-      if (holds.get(memoId) === held) holds.delete(memoId);
+      release(memoId, held);
       if (outcome === "discarded") log("reply.assets_discarded", { memo_id: memoId });
       if (outcome === "committed" && failed) log("reply.assets_marked_failed", { memo_id: memoId });
       // Committed: the earlier reply's files are unreferenced now. Discarded: only this attempt's files go.
@@ -203,11 +207,11 @@ export function createReplyAssets(deps: {
       stored = rendered.stored;
       // Marked only when the renderer refused every block: a failed store (a full disk) is worth another try at boot.
       const failed = rendered.blocks > 0 && rendered.rejected === rendered.blocks;
-      // A memo purged while it rendered has no row left to own the files.
       // Held for as long as the store tracks the files: the boot sweep must not take them for orphans.
       const own = new Set(stored.map((a) => a.id));
       held = own;
       holds.set(memoId, own);
+      // False for a memo purged while it rendered: no row is left to own the files.
       staged = store.stageReplyAssets(memoId, {
         replyText,
         assets: stored,
@@ -218,7 +222,7 @@ export function createReplyAssets(deps: {
       log("reply.assets_failed", { memo_id: memoId, error: String(err) });
     }
     if (!staged) {
-      if (held && holds.get(memoId) === held) holds.delete(memoId);
+      if (held) release(memoId, held);
       await assets.remove({ memoId, assetIds: stored.map((a) => a.id) }).catch(() => undefined);
     }
   }
@@ -272,8 +276,11 @@ export function createReplyAssets(deps: {
   async function sweep(limit: number) {
     let examined = 0;
     let removed = 0;
+    let total = 0;
     try {
-      for (const memoId of await assets.listMemos()) {
+      const memoIds = await assets.listMemos();
+      total = memoIds.length;
+      for (const memoId of memoIds) {
         if (examined >= limit || stopped) break;
         examined++;
         try {
@@ -285,7 +292,8 @@ export function createReplyAssets(deps: {
     } catch (err) {
       log("reply.sweep_failed", { error: String(err) });
     }
-    log("reply.sweep", { examined, removed });
+    // `total - examined` directories were left for a later boot (or a stop): the limit is visible when it bites.
+    log("reply.sweep", { examined, removed, skipped: total - examined });
     return removed;
   }
 

@@ -581,6 +581,38 @@ describe("sweep", () => {
     expect(assets.files.size).toBe(0);
   });
 
+  it("logs how many directories the limit left for a later boot", async () => {
+    const { replies, assets } = setup();
+    for (const memoId of [id0(), "22222222-2222-4222-8222-222222222222"]) {
+      await assets.put({ memoId, assetId: orphan, bytes: new Uint8Array([1]) });
+    }
+
+    const { lines } = await captureLogs(() => replies.sweep({ limit: 1 }));
+
+    expect(lines.find((l) => l["event"] === "reply.sweep")).toMatchObject({
+      examined: 1,
+      skipped: 1,
+    });
+  });
+
+  it("examines the most recently changed directory first, a rewrite counting as a change", async () => {
+    const { replies, assets } = setup();
+    const older = id0();
+    const newer = "22222222-2222-4222-8222-222222222222";
+    await assets.put({ memoId: older, assetId: orphan, bytes: new Uint8Array([1]) });
+    await assets.put({ memoId: newer, assetId: orphan, bytes: new Uint8Array([1]) });
+    // A second file lands in the older directory: it is the most recently changed now.
+    await assets.put({
+      memoId: older,
+      assetId: "33333333-3333-4333-8333-333333333333",
+      bytes: new Uint8Array([2]),
+    });
+
+    expect(await assets.listMemos()).toEqual([older, newer]);
+    expect(await replies.sweep({ limit: 1 })).toBe(2);
+    expect([...assets.files.keys()]).toEqual([`${newer}/${orphan}`]);
+  });
+
   it("keeps going when one directory cannot be swept, and never throws", async () => {
     const { store, renderer, assets } = setup();
     const a = "11111111-1111-4111-8111-111111111111";
