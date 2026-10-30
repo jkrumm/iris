@@ -85,8 +85,8 @@ final class HistoryModel {
     } catch is CancellationError {
       return
     } catch {
-      note(failure: error)
       guard current == generation else { return }
+      note(failure: error)
       logger.error("history load failed: \(String(describing: error), privacy: .public)")
       loadFailed = true
       // Rows from before the failure stay on a plain refresh; the error state takes over when there are none.
@@ -138,23 +138,28 @@ final class HistoryModel {
           link = .live
           await handle(event)
         }
-        // The server closed the stream: not connected until the next one says `ready`.
-        link = .unreachable
+        // The server closed the stream: unknown until the next one says `ready`. A cancelled follow is the screen going away,
+        // which says nothing about the server.
+        if !Task.isCancelled { link = .unknown }
       } catch {
-        note(failure: error)
+        if !Task.isCancelled { note(failure: error) }
         logger.error("history events dropped: \(String(describing: error), privacy: .public)")
       }
       guard (try? await Task.sleep(for: .seconds(3))) != nil else { return }
     }
   }
 
-  /// A request failed: a 401 means the token is wrong, a request that got no answer means the server cannot be reached; any
-  /// other failure is an answer (the server is there) and leaves the link as it was.
+  /// A request failed: a 401 means the token is wrong, a transport failure (no answer at all) means the server cannot be
+  /// reached; any other failure (a 5xx, a body that does not decode) is an answer, so the server is there and the link stays.
   private func note(failure error: any Error) {
-    guard !(error is CancellationError) else { return }
+    if error is CancellationError { return }
+    if error is URLError {
+      link = .unreachable
+      return
+    }
     switch error as? APIError {
     case .unauthorized?: link = .rejected
-    case .transport?, nil: link = .unreachable
+    case .transport?: link = .unreachable
     default: break
     }
   }

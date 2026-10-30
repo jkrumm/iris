@@ -549,4 +549,43 @@ struct HistoryModelTests {
     follow.cancel()
     #expect(model.link == .unreachable)
   }
+
+  @Test("a load that was superseded and then fails does not mark the server unreachable")
+  func supersededLoadFailure() async {
+    await client.enqueueFailure(.transport(.notConnectedToInternet), for: .listMemos)
+    let gate = await client.hold(.listMemos)
+    let older = Task { await model.load() }
+    await gate.waitUntilHeld()
+    await model.load()
+    #expect(model.link == .live)
+
+    gate.release()
+    await older.value
+    #expect(model.link == .live)
+  }
+
+  @Test("only a missing answer marks the server unreachable: a body that does not decode leaves the link")
+  func decodingFailureIsAnAnswer() async {
+    await model.load()
+    await client.enqueueFailure(.decoding("bad body"), for: .listMemos)
+    await model.load()
+    #expect(model.link == .live)
+  }
+
+  @Test("cancelling the follow, or a clean close of the stream, does not mark the server down")
+  func cancelledFollowKeepsTheLink() async throws {
+    let follow = Task { await model.observeEvents() }
+    client.emit(.ready)
+    for _ in 0..<200 where model.link != .live { try await Task.sleep(for: .milliseconds(10)) }
+    follow.cancel()
+    await follow.value
+    #expect(model.link == .live)
+
+    let second = HistoryModel(client: client)
+    let closed = Task { await second.observeEvents() }
+    client.finishEvents()
+    for _ in 0..<50 { try await Task.sleep(for: .milliseconds(10)) }
+    closed.cancel()
+    #expect(second.link != .unreachable)
+  }
 }
