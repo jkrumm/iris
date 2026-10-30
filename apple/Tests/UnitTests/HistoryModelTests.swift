@@ -421,6 +421,25 @@ struct HistoryModelTests {
     #expect(ids == ["other", "a"])
   }
 
+  @Test("a deleted memo comes back after Undo, also one this session hid and unhid before")
+  func undoBringsTheRowBack() async {
+    await seed(MemoFactory.memo("a", age: 100), MemoFactory.memo("b", age: 50))
+    await model.load()
+    await model.delete(model.memos[0])
+    #expect(ids == ["a"])
+    await model.undoDelete()
+    #expect(ids == ["b", "a"])
+
+    model.hide("b")
+    model.unhide("b")
+    model.insert(MemoFactory.memo("b", age: 50))  // the late create hand-off is ignored
+    #expect(ids == ["a"])
+    await model.load()
+    await model.delete(model.memos[0])
+    await model.undoDelete()
+    #expect(ids == ["b", "a"])
+  }
+
   @Test("settling a delete that was never hidden changes nothing")
   func unhideUnknown() {
     let store = InMemoryHiddenMemoStore(["x"])

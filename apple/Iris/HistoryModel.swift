@@ -251,6 +251,8 @@ final class HistoryModel {
     do {
       let restored = try await client.restoreMemo(id: id)
       guard lifecycle[id] == started else { return }
+      // The owner asked for it back: whatever hid and unhid it earlier in this session no longer applies.
+      unhiddenThisSession.remove(id)
       place(restored, force: true)
     } catch is CancellationError {
       return
