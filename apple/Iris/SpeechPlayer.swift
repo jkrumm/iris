@@ -10,11 +10,12 @@ final class SpeechPlayer {
   let player: MemoPlayer
   /// The memo whose reply the player holds (or is loading).
   private(set) var memoID: String?
-  /// Pauses the recording of the detail screen that is open, if any: set by its ``MemoPlayback``, called right before a reply
-  /// starts so a spoken reply never plays over a recording (a `memo.done` speaks without going through the screen).
-  var pauseRecording: (() -> Void)?
-  /// Bumped by every start and every pause; a download that finds it changed belongs to a start that was overtaken (the
-  /// user paused, or started the recording, while the speech was downloading).
+  /// Pauses the recording of the detail screen that is open, if any: bound by its ``MemoPlayback``, called right before a
+  /// reply starts so a spoken reply never plays over a recording (a `memo.done` speaks without going through the screen).
+  private var pauseRecording: (() -> Void)?
+  private weak var recordingOwner: AnyObject?
+  /// Bumped by every start, pause and stop; a download that finds it changed belongs to a start that was overtaken (the
+  /// user paused, stopped, or started the recording, while the speech was downloading).
   private var attempt = 0
 
   init(player: MemoPlayer = MemoPlayer()) {
@@ -22,6 +23,19 @@ final class SpeechPlayer {
   }
 
   func isPlaying(_ id: String) -> Bool { memoID == id && player.isPlaying }
+
+  /// `owner` is the screen whose recording `pause` stops before a reply starts; the last screen to bind wins.
+  func bindRecording(owner: AnyObject, pause: @escaping () -> Void) {
+    recordingOwner = owner
+    pauseRecording = pause
+  }
+
+  /// Clears the hook only if `owner` still holds it, so a screen that goes away does not disconnect the one that replaced it.
+  func unbindRecording(owner: AnyObject) {
+    guard recordingOwner === owner else { return }
+    recordingOwner = nil
+    pauseRecording = nil
+  }
 
   /// Plays the reply of `memo`, or pauses it when it is the one playing (and resumes it when paused). A tap while a reply is
   /// still loading is ignored.
@@ -61,6 +75,7 @@ final class SpeechPlayer {
   /// Stops and releases the player, for the memo it speaks (`id`), or whichever when `id` is nil.
   func stop(memoID id: String? = nil) {
     guard id == nil || id == memoID else { return }
+    attempt += 1
     player.teardown()
     memoID = nil
   }

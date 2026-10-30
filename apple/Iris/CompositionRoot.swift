@@ -289,8 +289,9 @@ final class CompositionRoot: CaptureIntentHandler, PlaybackIntentHandler {
   /// away is there.
   func playReply(memoID: String) async throws {
     let memo = try await api.memo(id: memoID).memo
-    guard memo.hasReply, !memo.isDeleted else { throw PlayReplyError.noReply }
-    guard await speech.play(memo, source: mediaSource()) else { throw PlayReplyError.busy }
+    let source = mediaSource()
+    guard memo.hasReply, !memo.isDeleted, source.speech(for: memo) != nil else { throw PlayReplyError.noReply }
+    guard await speech.play(memo, source: source) else { throw PlayReplyError.busy }
   }
 
   /// The media routes for the connection saved right now, so a detail opened after a change uses the new token.

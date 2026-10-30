@@ -14,11 +14,14 @@ struct HistoryView: View {
   let makeComposer: (ComposerRequest) -> ComposerModel
   /// Builds the model of a conversation screen.
   let makeThread: (ThreadRoute) -> ThreadModel
-  /// Builds the model of the route sheet (answer a parked memo, correct a finished one).
+  /// Builds the model of the route sheet (the memo detail presents it itself).
   let makeRouteAnswer: (Memo) -> RouteAnswerModel
+  /// Asks the app to open the route sheet for a pinned needs-route memo. `RootView` presents it: a `.sheet(item:)` over
+  /// `RouteAnswerSheet` in this view's modifier chain made the list's top scroll edge mis-size on some launches (a blur over
+  /// the bar and the first rows that ate their touches, TDD §4), where an empty sheet or none did not.
+  let onRoute: (Memo) -> Void
   @State private var showingFilters = false
   @State private var composer: ComposerRequest?
-  @State private var routing: Memo?
 
   var body: some View {
     NavigationStack {
@@ -33,7 +36,7 @@ struct HistoryView: View {
               }
               .accessibilityIdentifier("history.row")
               .listRowBackground(HistoryRowBackground(needsAttention: memo.isOpenNeedsRoute))
-              .modifier(MemoSwipeActions(memo: memo, model: model, onRoute: { routing = $0 }))
+              .modifier(MemoSwipeActions(memo: memo, model: model, onRoute: onRoute))
               .task { await model.loadMoreIfNeeded(current: memo) }
             }
           } header: {
@@ -99,11 +102,6 @@ struct HistoryView: View {
       .sheet(item: $composer) { request in
         ComposerView(
           model: makeComposer(request), onSent: { model.insert($0) }, onQueued: { model.didQueue() })
-      }
-      .sheet(item: $routing) { memo in
-        RouteAnswerSheet(model: makeRouteAnswer(memo), onRouted: { model.insert($0) })
-          .presentationDetents([.medium, .large])
-          .presentationDragIndicator(.visible)
       }
       .refreshable { await model.load() }
       .task(id: model.filters) {

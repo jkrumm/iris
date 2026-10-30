@@ -16,7 +16,7 @@ struct MemoDetailModelTests {
     }
   ) async -> MemoDetailModel {
     await client.seed(MemoFactory.detail(memo, steps: steps))
-    return MemoDetailModel(memo: memo, client: client, media: FakeMediaSource(), sleep: sleep)
+    return MemoDetailModel(memo: memo, client: client, media: FakeMediaSource(), speech: SpeechPlayer(), sleep: sleep)
   }
 
   /// A finished memo whose summarize step failed for good: the server skipped it and ended the memo without a summary.

@@ -10,11 +10,17 @@ final class MemoPlayback {
   let speech: SpeechPlayer
   private let memoID: String
 
-  init(memoID: String, recordingDuration: Double = 0, speech: SpeechPlayer = SpeechPlayer()) {
+  /// No side effects: SwiftUI builds the `@State` initial value on every `init` of the screen and keeps only the first. The
+  /// screen calls ``attach()`` once it is on screen.
+  init(memoID: String, recordingDuration: Double = 0, speech: SpeechPlayer) {
     recording = MemoPlayer(duration: recordingDuration)
     self.speech = speech
     self.memoID = memoID
-    speech.pauseRecording = { [weak recording] in recording?.pause() }
+  }
+
+  /// Lets a reply that starts on its own (a spoken reply) pause this screen's recording.
+  func attach() {
+    speech.bindRecording(owner: self) { [weak recording] in recording?.pause() }
   }
 
   /// The reply of this screen's memo is speaking.
@@ -40,7 +46,7 @@ final class MemoPlayback {
   /// of another memo (a spoken reply that started meanwhile) keeps speaking.
   func teardown() {
     recording.teardown()
-    speech.pauseRecording = nil
+    speech.unbindRecording(owner: self)
     speech.stop(memoID: memoID)
   }
 }
