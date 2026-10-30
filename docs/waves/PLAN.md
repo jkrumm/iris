@@ -1005,9 +1005,9 @@ treat silence as a pass); everything else is headless (`devicectl` install/launc
       shares the speakable rule (incl. `state == .notified`); one route-sheet wiring; a locked take that fails to start clears
       `isLocked`; VoiceOver hint matches the toggle, no empty hint while recording; the "too short" toast's `de` entry; heading-style
       constants; the `ReplyFlowReviewUITests` "Timed out while evaluating UI query" flake made deterministic.
-- [ ] **I3. Spoken reply vs. playing reply or recording — waits for the owner** (asked 2026-10-30): as built, a finished memo's spoken
-      reply interrupts a playing reply and pauses the open detail's recording; alternatives: queue it, or defer while busy. Built only on
-      the owner's answer (recorded here by the mother); unanswered at close-out → Left behind.
+- [ ] **I3. Spoken reply vs. playing reply or recording — owner answered 2026-10-30: B (defer).** While a reply is playing or a take
+      is recording, a finished memo's spoken reply does not auto-play: it never interrupts the player and never pauses a recording; it
+      waits as the memo's notification / [Play]. (Mother's reading of "rather B, pause playing, not allowing auto-playing".) TDD amended.
 - [ ] **S2 + I4. Transcribe-only mode** (owner, `feedback-device-1.md` §2): a mode `transcribe` the owner picks up front; the memo
       ends `done` after `transcribe` with the transcript, no decide, act or summarize. Contract + fixtures + `IrisCore`; the mode picker
       gets the entry; History and the detail show it as a transcript. TDD amended.
