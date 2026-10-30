@@ -1,4 +1,5 @@
 import Foundation
+import IrisCapture
 
 /// One whole memo or chat message that is waiting to be sent (round 2: the outbox is a queue of items, not of
 /// segments). `OutboxService` fills it in from the capture outbox; ``QueuedItemSource`` is the seam.
@@ -60,6 +61,8 @@ nonisolated protocol QueuedItemSource: Sendable {
   func resetOutbox() async -> OutboxResetOutcome
   /// The queue files earlier resets set aside.
   func quarantinedFiles() async -> [URL]
+  /// Everything the app has set aside and kept: queue files and recordings no queue entry owned.
+  func setAside() async -> SetAsideSummary
 }
 
 extension QueuedItemSource {
@@ -71,6 +74,37 @@ extension QueuedItemSource {
     return true
   }
   func quarantinedFiles() async -> [URL] { [] }
+  func setAside() async -> SetAsideSummary { SetAsideSummary() }
+}
+
+/// What the app set aside instead of deleting: outbox files a reset renamed, and recordings the startup sweep could not attach
+/// to a take. Nothing leaves the device until the owner decides, so Settings shows how much there is and lets it be shared.
+nonisolated struct SetAsideSummary: Equatable, Sendable {
+  /// Past this many files or bytes Settings says so (the bound is a prompt to look, not a deletion).
+  static let countBound = 50
+  static let byteBound = 200_000_000
+
+  var queueFiles: [SetAsideFile] = []
+  var recordings: [SetAsideFile] = []
+
+  var count: Int { queueFiles.count + recordings.count }
+  var byteCount: Int { (queueFiles + recordings).reduce(0) { $0 + $1.byteCount } }
+  var isEmpty: Bool { count == 0 }
+  var exceedsBound: Bool { count > Self.countBound || byteCount > Self.byteBound }
+
+  /// One line per file (name, size, date): what a share or a copy of the diagnostics carries. No audio, no memo content.
+  var report: String {
+    let header = "Set-aside files: \(count), \(Self.size(byteCount))"
+    let lines = (queueFiles + recordings).map { file in
+      let date = file.modifiedAt.map { $0.formatted(.iso8601) } ?? "-"
+      return "\(file.url.lastPathComponent)  \(Self.size(file.byteCount))  \(date)"
+    }
+    return ([header] + lines).joined(separator: "\n")
+  }
+
+  static func size(_ bytes: Int) -> String {
+    ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file)
+  }
 }
 
 nonisolated struct EmptyQueue: QueuedItemSource {

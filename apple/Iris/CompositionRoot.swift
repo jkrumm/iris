@@ -325,12 +325,14 @@ final class CompositionRoot: CaptureIntentHandler, PlaybackIntentHandler {
     let root = URL.applicationSupportDirectory.appending(path: "Iris", directoryHint: .isDirectory)
     let captureDirectory = root.appending(path: "capture", directoryHint: .isDirectory)
     let recorder = try? AVAudioEngineSegmentRecorder(directory: captureDirectory)
+    let segmentFiles = DirectorySegmentFiles(directory: captureDirectory)
     let stack = CaptureStack(
       .init(
         session: AVAudioSessionController(), routes: AVAudioSessionRouteManager(),
         recorder: recorder ?? UnavailableSegmentRecorder(), clock: SystemCaptureClock(),
-        store: JSONFileOutboxStore(fileURL: root.appending(path: "outbox.json")),
-        uploader: APIOutboxUploader(client: client, created: created), captureDirectory: captureDirectory))
+        store: JSONFileOutboxStore(fileURL: root.appending(path: "outbox.json"), segmentDirectory: captureDirectory),
+        uploader: APIOutboxUploader(client: client, created: created, keeping: segmentFiles),
+        segmentFiles: segmentFiles))
     return (stack, recorder != nil)
   }
 }

@@ -1,4 +1,5 @@
 import Foundation
+import IrisCapture
 import IrisCore
 import Observation
 import os
@@ -29,6 +30,8 @@ final class SettingsModel {
   private(set) var discardFailed = false
   /// Queue files earlier resets set aside, for Diagnostics to share.
   private(set) var quarantinedFiles: [URL] = []
+  /// Everything the app set aside instead of deleting; shown with its size, never removed without the owner's word.
+  private(set) var setAside = SetAsideSummary()
   /// Why the queue could not be saved to disk; it is retried on its own. `nil` while it can be.
   private(set) var queueSaveFailure: String?
 
@@ -67,6 +70,7 @@ final class SettingsModel {
     queueUnreadable = available ? false : await source.isUnreadable()
     queueSaveFailure = available ? await source.saveFailure() : nil
     quarantinedFiles = await source.quarantinedFiles()
+    setAside = await source.setAside()
     if available { resetLeftUnopened = false }
   }
 
@@ -107,6 +111,7 @@ final class SettingsModel {
     let saveFailure = available ? await source.saveFailure() : nil
     let unreadable = available ? false : await source.isUnreadable()
     let quarantined = await source.quarantinedFiles()
+    let setAside = await source.setAside()
     do {
       let health = try await client.health()
       guard current == generation else { return }
@@ -114,6 +119,7 @@ final class SettingsModel {
       queueUnavailable = !available
       queueUnreadable = unreadable
       quarantinedFiles = quarantined
+      self.setAside = setAside
       queueSaveFailure = saveFailure
       connection = health.status == .ok ? .connected : .degraded(health.degraded)
     } catch is CancellationError {
@@ -125,6 +131,7 @@ final class SettingsModel {
       queueUnavailable = !available
       queueUnreadable = unreadable
       quarantinedFiles = quarantined
+      self.setAside = setAside
       queueSaveFailure = saveFailure
       connection = .unreachable
     }

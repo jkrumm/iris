@@ -5,7 +5,7 @@ cd "$(dirname "$0")/.."
 . scripts/device-lib.sh
 
 dev="$(device_id)"
-app="$APPLE_DIR/.dd/Build/Products/Debug-iphoneos/Iris.app"
+app="$APPLE_DIR/.dd.noindex/Build/Products/Debug-iphoneos/Iris.app"
 [ -d "$app" ] || { echo "  $app missing: run scripts/device-build.sh (make device-build)" >&2; exit 1; }
 xcrun devicectl device install app --device "$dev" "$app"
 xcrun devicectl device process launch --device "$dev" --terminate-existing "$APP_BUNDLE_ID" "$@"

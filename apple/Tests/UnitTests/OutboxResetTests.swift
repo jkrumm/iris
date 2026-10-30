@@ -1,6 +1,7 @@
 import Foundation
 import IrisCapture
 import IrisCore
+import Synchronization
 import Testing
 
 @testable import Iris
@@ -20,7 +21,8 @@ private func makeStack(store: any OutboxStore, captureDirectory: URL? = nil) -> 
   let stack = CaptureStack(
     .init(
       session: capture.session, routes: capture.routes, recorder: capture.recorder, clock: ManualClock(), store: store,
-      uploader: APIOutboxUploader(client: FakeAPIClient(), created: created), captureDirectory: captureDirectory))
+      uploader: APIOutboxUploader(client: FakeAPIClient(), created: created),
+      segmentFiles: captureDirectory.map { DirectorySegmentFiles(directory: $0) }))
   return (stack, OutboxService(stack: stack, created: created))
 }
 
@@ -128,6 +130,68 @@ struct OutboxResetTests {
     #expect(model.discardFailed)
   }
 
+  @Test("a discard that cannot reach the outbox does not hide the memo")
+  func discardWithoutAnOutboxKeepsTheMemoVisible() async {
+    let (_, service) = makeStack(store: UnreadableOutboxStore())
+    let forgotten = Mutex<[String]>([])
+    await service.created.setForgottenHandler { id in forgotten.withLock { $0.append(id) } }
+    let id = MemoID()
+
+    #expect(await !service.discard(id))
+    #expect(await !service.discardQueued(id: id.wireID))
+
+    #expect(forgotten.withLock { $0 }.isEmpty, "nothing queued a DELETE, so History keeps showing the memo")
+  }
+
+  @Test("a discard that reaches the outbox hides the memo")
+  func discardHidesTheMemo() async {
+    let (_, service) = makeStack(store: InMemoryOutboxStore())
+    let forgotten = Mutex<[String]>([])
+    await service.created.setForgottenHandler { id in forgotten.withLock { $0.append(id) } }
+    let id = MemoID()
+
+    #expect(await service.discard(id))
+
+    #expect(forgotten.withLock { $0 } == [id.wireID])
+  }
+
+  @Test("a reset claims the move without opening the queue first, and a refresh during it never reads the file")
+  func resetClaimsTheMoveBeforeAnyOpen() async throws {
+    let store = SlowQuarantineStore()
+    let (stack, service) = makeStack(store: store)
+    #expect(await stack.availability() == .unreadable, "Settings has seen it unreadable")
+    let loadsBefore = await store.loads
+
+    let reset = Task { await service.resetOutbox() }
+    await store.waitUntilMoving()
+    #expect(await store.loads == loadsBefore, "no open (and so no read of the file) between the tap and the claim")
+
+    #expect(await stack.availability() == .unreadable, "a refresh in the middle is refused ...")
+    #expect(await store.loads == loadsBefore, "... without reading the file that is being renamed")
+
+    await store.finishMoving()
+    #expect(await reset.value == .reset)
+    #expect(await stack.availability() == .available)
+  }
+
+  @Test("a second Reset tap while the first runs joins it instead of reporting a failure")
+  func secondResetJoinsTheFirst() async throws {
+    let store = SlowQuarantineStore()
+    let (stack, service) = makeStack(store: store)
+    #expect(await stack.availability() == .unreadable)
+
+    let first = Task { await service.resetOutbox() }
+    await store.waitUntilMoving()
+    let second = Task { await service.resetOutbox() }
+    try await Task.sleep(for: .milliseconds(50))  // the second tap is waiting on the first
+    await store.finishMoving()
+
+    #expect(await first.value == .reset)
+    #expect(await second.value == .reset, "joined, not `notReset`")
+    #expect(await store.moves == 1, "the file moved once")
+    #expect(await stack.availability() == .available)
+  }
+
   @Test("opening the outbox sweeps the capture directory: strays are moved aside, never deleted")
   func sweepAtOpen() async throws {
     let directory = FileManager.default.temporaryDirectory.appending(path: "iris-sweep-\(UUID().uuidString)")
@@ -142,6 +206,35 @@ struct OutboxResetTests {
     #expect(!FileManager.default.fileExists(atPath: stray.path))
     let moved = directory.appending(path: "quarantine").appending(path: stray.lastPathComponent)
     #expect(try Data(contentsOf: moved) == Data("half a take".utf8))
+  }
+
+  @Test("what the sweep and a reset set aside is counted with its size, listed for sharing and never deleted")
+  func setAsideSummary() async throws {
+    let directory = FileManager.default.temporaryDirectory.appending(path: "iris-setaside-\(UUID().uuidString)")
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let stray = directory.appending(path: "\(UUID().uuidString)-0.m4a")
+    try Data("half a take".utf8).write(to: stray)
+    let (stack, service) = makeStack(store: InMemoryOutboxStore(), captureDirectory: directory)
+    _ = try await stack.outbox()  // the sweep moves the stray into quarantine/
+
+    let model = SettingsModel(client: FakeAPIClient(), queue: service)
+    await model.load()
+
+    #expect(model.setAside.recordings.count == 1 && model.setAside.byteCount == 11)
+    #expect(model.setAside.report.contains(stray.lastPathComponent), "the share carries the file name")
+    #expect(!model.setAside.exceedsBound)
+    let moved = directory.appending(path: "quarantine").appending(path: stray.lastPathComponent)
+    #expect(FileManager.default.fileExists(atPath: moved.path), "kept, not deleted")
+  }
+
+  @Test("a pile of set-aside files is flagged, by count or by size, but still only reported")
+  func setAsideBound() {
+    let file = SetAsideFile(url: URL(fileURLWithPath: "/in-memory/a.m4a"), byteCount: 1, modifiedAt: nil)
+    #expect(!SetAsideSummary(recordings: Array(repeating: file, count: SetAsideSummary.countBound)).exceedsBound)
+    #expect(SetAsideSummary(recordings: Array(repeating: file, count: SetAsideSummary.countBound + 1)).exceedsBound)
+    let big = SetAsideFile(url: file.url, byteCount: SetAsideSummary.byteBound + 1, modifiedAt: nil)
+    #expect(SetAsideSummary(queueFiles: [big]).exceedsBound)
   }
 
   @Test("a queued server delete shows as a row, and stopping it drops only the attempt")
@@ -193,4 +286,50 @@ private struct UnmovableStore: OutboxStore {
   func load() async throws -> OutboxRecord { throw OutboxStoreError.undecodable }
   func save(_ record: OutboxRecord) async throws {}
   func quarantine() async throws -> URL? { throw CocoaError(.fileWriteNoPermission) }
+}
+
+/// An unreadable file whose move waits until the test lets it finish, so a second reset can arrive in the middle of it.
+private actor SlowQuarantineStore: OutboxStore {
+  private var isUnreadable = true
+  private(set) var moves = 0
+  private var movingSignal: CheckedContinuation<Void, Never>?
+  private var isMoving = false
+  private var release: CheckedContinuation<Void, Never>?
+  private var released = false
+
+  private(set) var loads = 0
+
+  func load() throws -> OutboxRecord {
+    loads += 1
+    if isUnreadable { throw OutboxStoreError.undecodable }
+    return OutboxRecord()
+  }
+
+  func save(_ record: OutboxRecord) throws {
+    if isUnreadable { throw OutboxStoreError.undecodable }
+  }
+
+  func quarantine() async throws -> URL? {
+    guard isUnreadable else { return nil }
+    moves += 1
+    isMoving = true
+    movingSignal?.resume()
+    movingSignal = nil
+    if !released { await withCheckedContinuation { release = $0 } }
+    isUnreadable = false
+    return URL(fileURLWithPath: "/in-memory/outbox.quarantined-1.json")
+  }
+
+  func quarantined() -> [URL] { isUnreadable ? [] : [URL(fileURLWithPath: "/in-memory/outbox.quarantined-1.json")] }
+
+  func waitUntilMoving() async {
+    if isMoving { return }
+    await withCheckedContinuation { movingSignal = $0 }
+  }
+
+  func finishMoving() {
+    released = true
+    release?.resume()
+    release = nil
+  }
 }

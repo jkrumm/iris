@@ -515,3 +515,98 @@ describe("backfill", () => {
     expect(assets.files.size).toBe(4);
   });
 });
+
+describe("sweep", () => {
+  const orphan = "99999999-9999-4999-8999-999999999999";
+
+  it("removes files no row names and logs them, leaving every referenced file", async () => {
+    const { replies, assets, id, commit, blocks } = setup();
+    await replies.sync({ memoId: id, replyText: fence("A-->B") });
+    commit(fence("A-->B"));
+    await replies.idle();
+    const referenced = [...assets.files.keys()];
+    // A crash between the commit and the prune left an earlier reply's file behind.
+    await assets.put({ memoId: id, assetId: orphan, bytes: new Uint8Array([1]) });
+
+    const { result, lines } = await captureLogs(() => replies.sweep());
+
+    expect(result).toBe(1);
+    expect([...assets.files.keys()]).toEqual(referenced);
+    expect(blocks()).toHaveLength(1);
+    expect(lines.find((l) => l["event"] === "reply.orphans_removed")).toMatchObject({
+      memo_id: id,
+      count: 1,
+      files: [orphan],
+    });
+    expect(lines.find((l) => l["event"] === "reply.sweep")).toMatchObject({ removed: 1 });
+  });
+
+  it("removes the files of a memo that no longer exists", async () => {
+    const { replies, assets } = setup();
+    const gone = "0f8fad5b-d9cb-469f-a165-70867728950e";
+    await assets.put({ memoId: gone, assetId: orphan, bytes: new Uint8Array([1]) });
+
+    expect(await replies.sweep()).toBe(1);
+    expect(assets.files.size).toBe(0);
+  });
+
+  it("leaves the files an in-flight attempt has staged, until the store settles them", async () => {
+    const { replies, assets, id, commit, store } = setup();
+    await replies.sync({ memoId: id, replyText: fence("A-->B") });
+    expect(assets.files.size).toBe(4);
+    expect(store.getMemo(id)?.replyBlocks).toEqual([]);
+
+    expect(await replies.sweep()).toBe(0);
+    expect(assets.files.size).toBe(4);
+
+    commit(fence("A-->B"));
+    await replies.idle();
+    expect(await replies.sweep()).toBe(0);
+    expect(assets.files.size).toBe(4);
+  });
+
+  it("examines at most `limit` memo directories", async () => {
+    const { replies, assets } = setup();
+    for (const memoId of [
+      "11111111-1111-4111-8111-111111111111",
+      "22222222-2222-4222-8222-222222222222",
+      "33333333-3333-4333-8333-333333333333",
+    ]) {
+      await assets.put({ memoId, assetId: orphan, bytes: new Uint8Array([1]) });
+    }
+
+    expect(await replies.sweep({ limit: 2 })).toBe(2);
+    expect(assets.files.size).toBe(1);
+    expect(await replies.sweep({ limit: 2 })).toBe(1);
+    expect(assets.files.size).toBe(0);
+  });
+
+  it("keeps going when one directory cannot be swept, and never throws", async () => {
+    const { store, renderer, assets } = setup();
+    const a = "11111111-1111-4111-8111-111111111111";
+    const b = "22222222-2222-4222-8222-222222222222";
+    await assets.put({ memoId: a, assetId: orphan, bytes: new Uint8Array([1]) });
+    await assets.put({ memoId: b, assetId: orphan, bytes: new Uint8Array([1]) });
+    const flaky = {
+      ...assets,
+      prune: (params: Parameters<typeof assets.prune>[0]) =>
+        params.memoId === b ? Promise.reject(new Error("EIO")) : assets.prune(params),
+    };
+    const replies = createReplyAssets({ store, assets: flaky, renderer });
+
+    const { result, lines } = await captureLogs(() => replies.sweep());
+
+    expect(result).toBe(1);
+    expect(lines.find((l) => l["event"] === "reply.sweep_failed")).toMatchObject({ memo_id: b });
+  });
+
+  it("stops after the memo it is on once stopped", async () => {
+    const { replies, assets } = setup();
+    await assets.put({ memoId: id0(), assetId: orphan, bytes: new Uint8Array([1]) });
+    replies.stop();
+    expect(await replies.sweep()).toBe(0);
+    expect(assets.files.size).toBe(1);
+  });
+});
+
+const id0 = () => "11111111-1111-4111-8111-111111111111";

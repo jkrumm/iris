@@ -5,6 +5,10 @@ export interface AssetStore {
   read(params: { memoId: string; assetId: string }): Promise<Uint8Array | null>;
   /** Deletes the named files. Unknown ids are a no-op. */
   remove(params: { memoId: string; assetIds: readonly string[] }): Promise<void>;
+  /** Memo ids that have a directory of files, most recently changed first (the boot sweep's order). */
+  listMemos(): Promise<string[]>;
+  /** File names under the memo's directory; none for an unknown memo. */
+  list(memoId: string): Promise<string[]>;
   /** Deletes the memo's files that are not in `keep`. Unknown memos are a no-op. */
   prune(params: { memoId: string; keep: ReadonlySet<string> }): Promise<void>;
   /** Deletes all of the memo's files. Unknown memos are a no-op. */
