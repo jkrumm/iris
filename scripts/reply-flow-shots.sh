@@ -10,7 +10,7 @@ mkdir -p "$out"
 
 make generate >/dev/null
 make sim >/dev/null
-xcodebuild -project apple/Iris.xcodeproj -scheme Iris -derivedDataPath apple/.dd CODE_SIGNING_ALLOWED=NO \
+xcodebuild -project apple/Iris.xcodeproj -scheme Iris -derivedDataPath apple/.dd.noindex CODE_SIGNING_ALLOWED=NO \
   -destination "platform=iOS Simulator,name=${SIM_NAME:-iPhone 17},OS=${SIM_OS:-27.0}" \
   -resultBundlePath "$bundle" -only-testing:IrisUITests/ReplyFlowReviewUITests test
 

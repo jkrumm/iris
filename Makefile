@@ -154,7 +154,7 @@ APPLE_DIR  := apple
 PACKAGES   := IrisCore IrisCapture IrisUI IrisTelemetry
 SWIFT_DIRS := $(APPLE_DIR)/Iris $(APPLE_DIR)/IrisWidgets $(APPLE_DIR)/IrisNotifications $(APPLE_DIR)/IrisMac $(APPLE_DIR)/Tests \
               $(foreach p,$(PACKAGES),$(APPLE_DIR)/Packages/$(p)/Sources $(APPLE_DIR)/Packages/$(p)/Tests)
-XCB        := xcodebuild -project $(APPLE_DIR)/Iris.xcodeproj -derivedDataPath $(APPLE_DIR)/.dd CODE_SIGNING_ALLOWED=NO
+XCB        := xcodebuild -project $(APPLE_DIR)/Iris.xcodeproj -derivedDataPath $(APPLE_DIR)/.dd.noindex CODE_SIGNING_ALLOWED=NO
 
 .PHONY: generate
 generate: ## xcodegen: apple/project.yml -> apple/Iris.xcodeproj (gitignored)
@@ -186,11 +186,11 @@ check-apple: ## Theme drift, swift format lint, swift test per package, build of
 
 .PHONY: snapshots
 snapshots: ## IrisUI snapshot tests on the pinned simulator (RECORD=1 make snapshots re-records the references)
-	cd $(APPLE_DIR)/Packages/IrisUI && TEST_RUNNER_RECORD=$(RECORD) xcodebuild test -scheme IrisUI -destination '$(SIM_DEST)' -derivedDataPath .dd
+	cd $(APPLE_DIR)/Packages/IrisUI && TEST_RUNNER_RECORD=$(RECORD) xcodebuild test -scheme IrisUI -destination '$(SIM_DEST)' -derivedDataPath .dd.noindex
 
 .PHONY: uitest
-uitest: generate ## XCUITest smoke flows on the pinned simulator (launches with -IrisFakeCapture)
-	$(XCB) -scheme Iris -destination '$(SIM_DEST)' test
+uitest: generate ## XCUITest flows on the pinned simulator (-IrisFakeCapture); ONLY=<Class>[/<test>] runs one
+	$(XCB) -scheme Iris -destination '$(SIM_DEST)' $(if $(ONLY),-only-testing:IrisUITests/$(ONLY)) test
 
 # --- Agent verification (TDD §9/§10, D17): boot the pinned simulator, run the app, look at it. Output lands in .artifacts/ (gitignored). ---
 # The pinned device's UDID, resolved lazily from SIM_NAME/SIM_OS; empty when that device does not exist.
@@ -211,7 +211,7 @@ sim: ## Boot the pinned simulator and block until it is ready (bootstatus -b)
 .PHONY: run-sim
 run-sim: generate sim ## Build Iris for the pinned simulator, install, launch (-IrisFakeCapture), print the pid
 	$(XCB) -scheme Iris -destination 'platform=iOS Simulator,id=$(SIM_UDID)' build
-	xcrun simctl install $(SIM_UDID) "$(APPLE_DIR)/.dd/Build/Products/Debug-iphonesimulator/Iris.app"
+	xcrun simctl install $(SIM_UDID) "$(APPLE_DIR)/.dd.noindex/Build/Products/Debug-iphonesimulator/Iris.app"
 	xcrun simctl terminate $(SIM_UDID) $(APP_BUNDLE) 2>/dev/null || true
 	xcrun simctl launch $(SIM_UDID) $(APP_BUNDLE) -IrisFakeCapture
 

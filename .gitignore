@@ -11,7 +11,7 @@ data/
 xcuserdata/
 .build/
 .swiftpm/
-.dd/
+.dd.noindex/
 DerivedData/
 .artifacts/
 *.xcresult

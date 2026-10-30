@@ -31,8 +31,8 @@ and CI (`SIM_NAME`/`SIM_OS` in the root Makefile, verified on the hosted `xcode-
 ```bash
 xcodegen generate                                     # apple/project.yml -> .xcodeproj (gitignored)
 U=<simulator udid>
-xcodebuild -project X.xcodeproj -scheme X -destination "platform=iOS Simulator,id=$U" -derivedDataPath .dd build
-xcodebuild -project X.xcodeproj -scheme X -destination "platform=iOS Simulator,id=$U" -derivedDataPath .dd \
+xcodebuild -project X.xcodeproj -scheme X -destination "platform=iOS Simulator,id=$U" -derivedDataPath .dd.noindex build
+xcodebuild -project X.xcodeproj -scheme X -destination "platform=iOS Simulator,id=$U" -derivedDataPath .dd.noindex \
   -resultBundlePath out/test.xcresult test            # Swift Testing + XCTest in one run
 xcodebuild ... -only-testing:<TestTarget>/<Suite> test  # one suite (ran)
 ```
@@ -50,7 +50,7 @@ destination (`id=` of the pinned device on the pinned runtime, or `name=iPhone 1
 ```bash
 xcrun simctl boot $U                      # returns immediately
 xcrun simctl bootstatus $U -b             # BLOCKS until ready; took 40 s cold. Always run it before install/screenshot
-xcrun simctl install $U .dd/Build/Products/Debug-iphonesimulator/X.app
+xcrun simctl install $U .dd.noindex/Build/Products/Debug-iphonesimulator/X.app
 xcrun simctl launch $U com.example.scratch            # prints the pid
 xcrun simctl io $U screenshot out/shot.png            # works headless, no Simulator.app; Read the PNG to look at it
 xcrun simctl openurl $U https://example.com
@@ -68,7 +68,7 @@ notification permission; request it in the app first (or use a UI test). Live Ac
 export MOBILEBUILDMCP_SENTRY_DISABLED=true
 m() { npx -y mobilebuildmcp@2.7.1 --style minimal "$@"; }
 m tools                                                # 72 canonical tools, grouped by workflow
-m simulator build-and-run --project-path $PWD/X.xcodeproj --scheme X --simulator-id $U --derived-data-path $PWD/.dd
+m simulator build-and-run --project-path $PWD/X.xcodeproj --scheme X --simulator-id $U --derived-data-path $PWD/.dd.noindex
 m ui-automation snapshot-ui --simulator-id $U          # semantic element tree with refs (e1, e2 ...)
 m ui-automation wait-for-ui --help                     # poll for text/settled state
 m ui-automation tap|type-text|swipe|batch --help       # act on refs from the LATEST snapshot only

@@ -49,7 +49,7 @@ signing_team() {
 entitlement_settings() {
   local dir name var key dst pair
   [ "$DEVICE_SIGNING" = "paid" ] && return 0
-  dir="$(cd "$APPLE_DIR" && pwd)/.dd/personal-entitlements"
+  dir="$(cd "$APPLE_DIR" && pwd)/.dd.noindex/personal-entitlements"
   mkdir -p "$dir"
   for pair in "Iris:IRIS_APP_ENTITLEMENTS" "IrisWidgets:IRIS_WIDGETS_ENTITLEMENTS" "IrisNotifications:IRIS_NOTIFICATIONS_ENTITLEMENTS"; do
     name="${pair%%:*}"; var="${pair##*:}"
