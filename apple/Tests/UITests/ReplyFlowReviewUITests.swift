@@ -52,22 +52,13 @@ final class ReplyFlowReviewUITests: IrisUITestCase {
     app.launchArguments = SampleClock.arguments + ["-IrisFakeStepMs", "3000"]
     start(app)
     let list = app.descendants(matching: .any)["history.list"]
-    XCTAssertTrue(list.waitForExistence(timeout: 10))
+    XCTAssertTrue(waitForPresence(list, timeout: 10))
 
-    let row = app.descendants(matching: .any)
-      .matching(NSPredicate(format: "identifier == 'history.row' AND label CONTAINS %@", "How the step runner retries"))
-      .firstMatch
-    var scrolls = 0
-    while !row.exists, scrolls < 8 {
-      list.swipeUp()
-      scrolls += 1
-    }
-    XCTAssertTrue(row.waitForExistence(timeout: 10))
-    row.scrollIntoClearBand(of: list, app: app)
+    let row = revealRow(containing: "How the step runner retries", in: app)
     row.tap()
 
-    XCTAssertTrue(app.descendants(matching: .any)["thread.view"].waitForExistence(timeout: 10))
-    XCTAssertTrue(app.staticTexts["And a hang guard, is that retried too?"].waitForExistence(timeout: 10))
+    XCTAssertTrue(waitForPresence(app.descendants(matching: .any)["thread.view"], timeout: 10))
+    XCTAssertTrue(waitForPresence(app.staticTexts["And a hang guard, is that retried too?"], timeout: 10))
     shot(name, "1-thread")
     return app
   }
@@ -79,20 +70,20 @@ final class ReplyFlowReviewUITests: IrisUITestCase {
     // The composer is bound to the thread (no mode chips).
     app.buttons["thread.reply.text"].tap()
     let field = app.textViews["composer.field"]
-    XCTAssertTrue(field.waitForExistence(timeout: 5))
+    XCTAssertTrue(waitForPresence(field, timeout: 5))
     field.tap()
     field.typeText("What about the narrow table?")
     shot(name, "2-text-composer")
 
     // Sent: the typed turn joins the thread with a pending answer, then the answer replaces it.
     app.buttons["composer.send"].tap()
-    XCTAssertTrue(app.staticTexts["What about the narrow table?"].waitForExistence(timeout: 10))
+    XCTAssertTrue(waitForPresence(app.staticTexts["What about the narrow table?"], timeout: 10))
     let pending = app.descendants(matching: .any)["thread.turn.pending"]
     let answer = app.descendants(matching: .any)
       .matching(NSPredicate(format: "label CONTAINS %@", "fake answer to your message")).firstMatch
-    if awaitPendingOrAnswer(pending: pending, answer: answer) { shot(name, "3-text-pending") }
-    XCTAssertTrue(answer.waitForExistence(timeout: 30))
-    XCTAssertTrue(pending.waitForNonExistence(timeout: 10))
+    if awaitPending(pending) { shot(name, "3-text-pending") }
+    XCTAssertTrue(waitForPresence(answer, timeout: 30))
+    XCTAssertTrue(waitForAbsence(pending, timeout: 10))
     shot(name, "3b-text-answer")
   }
 
@@ -102,7 +93,7 @@ final class ReplyFlowReviewUITests: IrisUITestCase {
 
     // Hold to talk: the fake microphone feeds the real recorder pipeline, the outbox uploads and completes the memo.
     let pill = app.descendants(matching: .any)["thread.reply.voice"]
-    XCTAssertTrue(pill.waitForExistence(timeout: 10))
+    XCTAssertTrue(waitForPresence(pill, timeout: 10))
     XCTAssertTrue(pill.isEnabled)
     pill.press(forDuration: 1.5)
 
@@ -110,9 +101,9 @@ final class ReplyFlowReviewUITests: IrisUITestCase {
     let pending = app.descendants(matching: .any)["thread.turn.pending"]
     let answer = app.descendants(matching: .any)
       .matching(NSPredicate(format: "label CONTAINS %@", "fake answer to your voice memo")).firstMatch
-    if awaitPendingOrAnswer(pending: pending, answer: answer) { shot(name, "4-voice-pending") }
-    XCTAssertTrue(answer.waitForExistence(timeout: 30))
-    XCTAssertTrue(pending.waitForNonExistence(timeout: 10))
+    if awaitPending(pending) { shot(name, "4-voice-pending") }
+    XCTAssertTrue(waitForPresence(answer, timeout: 30))
+    XCTAssertTrue(waitForAbsence(pending, timeout: 10))
     shot(name, "5-voice-answer")
   }
 
@@ -122,11 +113,11 @@ final class ReplyFlowReviewUITests: IrisUITestCase {
     let app = openThread(appearance: appearance, name: name)
 
     let lock = app.buttons["thread.reply.lock"]
-    XCTAssertTrue(lock.waitForExistence(timeout: 10))
+    XCTAssertTrue(waitForPresence(lock, timeout: 10))
     lock.tap()
     let send = app.buttons["thread.reply.lock.send"]
-    XCTAssertTrue(send.waitForExistence(timeout: 5))
-    XCTAssertTrue(app.buttons["thread.reply.lock.cancel"].exists)
+    XCTAssertTrue(waitForPresence(send, timeout: 5))
+    XCTAssertTrue(waitForPresence(app.buttons["thread.reply.lock.cancel"], timeout: 2))
     // Long enough to pass the minimum take (0.8 s), with no finger on the screen.
     sleep(1)
     shot(name, "6-locked-recording")
@@ -135,22 +126,15 @@ final class ReplyFlowReviewUITests: IrisUITestCase {
     // The fake answers fast and a hosted runner is slow: the pending turn may be gone before it is queried, so the answer is what counts.
     let answer = app.descendants(matching: .any)
       .matching(NSPredicate(format: "label CONTAINS %@", "fake answer to your voice memo")).firstMatch
-    XCTAssertTrue(answer.waitForExistence(timeout: 30))
-    XCTAssertTrue(app.buttons["thread.reply.lock"].waitForExistence(timeout: 5))
+    XCTAssertTrue(waitForPresence(answer, timeout: 30))
+    XCTAssertTrue(waitForPresence(app.buttons["thread.reply.lock"], timeout: 5))
   }
 
-  /// Waits until the pending turn or the answer shows. `true` when the pending turn was seen (a slow runner can miss it, the
-  /// answer then stands in), so a render of the pending state is taken only when there is one.
+  /// Waits for the pending turn, which the slowed fake keeps up for several seconds. `true` when it was seen; a runner that was
+  /// too slow to catch it is not a failure (the answer stands in), so a render of the pending state is taken only when there is one.
   @MainActor
-  private func awaitPendingOrAnswer(pending: XCUIElement, answer: XCUIElement) -> Bool {
-    let deadline = Date().addingTimeInterval(30)
-    while Date() < deadline {
-      if pending.exists { return true }
-      if answer.exists { return false }
-      usleep(200_000)
-    }
-    XCTFail("neither the pending turn nor the answer showed")
-    return false
+  private func awaitPending(_ pending: XCUIElement) -> Bool {
+    waitForPresence(pending, timeout: 15)
   }
 
   @MainActor

@@ -6,7 +6,7 @@ final class StatsSettingsUITests: IrisUITestCase {
     let app = XCUIApplication()
     app.launchArguments = SampleClock.arguments
     start(app)
-    XCTAssertTrue(app.descendants(matching: .any)["history.list"].waitForExistence(timeout: 10))
+    XCTAssertTrue(waitForPresence(app.descendants(matching: .any)["history.list"], timeout: 10))
     return app
   }
 
@@ -14,21 +14,21 @@ final class StatsSettingsUITests: IrisUITestCase {
   func testStatsTabDrawsTheChartAndSwitchesToWeeks() {
     let app = launch()
     app.tabBars.buttons["Stats"].tap()
-    XCTAssertTrue(app.descendants(matching: .any)["stats.chart"].waitForExistence(timeout: 10))
+    XCTAssertTrue(waitForPresence(app.descendants(matching: .any)["stats.chart"], timeout: 10))
 
     app.segmentedControls["stats.picker"].buttons["Weeks"].tap()
-    XCTAssertTrue(app.descendants(matching: .any)["stats.chart"].waitForExistence(timeout: 5))
+    XCTAssertTrue(waitForPresence(app.descendants(matching: .any)["stats.chart"], timeout: 5))
   }
 
   @MainActor
   func testDiagnosticsCopiesTheMemoIDAndConfirms() {
     let app = launch()
     app.tabBars.buttons["Settings"].tap()
-    XCTAssertTrue(app.descendants(matching: .any)["settings.outbox.empty"].waitForExistence(timeout: 10))
+    XCTAssertTrue(waitForPresence(app.descendants(matching: .any)["settings.outbox.empty"], timeout: 10))
 
     app.buttons["settings.diagnostics"].tap()
     let copy = app.buttons["diagnostics.copy"]
-    XCTAssertTrue(copy.waitForExistence(timeout: 10))
+    XCTAssertTrue(waitForPresence(copy, timeout: 10))
     XCTAssertEqual(copy.label, "Copy memo id")
     copy.tap()
     XCTAssertEqual(app.buttons["diagnostics.copy"].label, "Copied")
@@ -42,20 +42,20 @@ final class OutboxResetUITests: IrisUITestCase {
     let app = XCUIApplication()
     app.launchArguments = SampleClock.arguments + ["-IrisFakeUnreadableOutbox"]
     start(app)
-    XCTAssertTrue(app.descendants(matching: .any)["history.list"].waitForExistence(timeout: 10))
+    XCTAssertTrue(waitForPresence(app.descendants(matching: .any)["history.list"], timeout: 10))
     app.tabBars.buttons["Settings"].tap()
 
     let reset = app.buttons["settings.outbox.reset"]
-    XCTAssertTrue(reset.waitForExistence(timeout: 10))
-    XCTAssertTrue(app.descendants(matching: .any)["settings.outbox.unavailable"].exists)
+    XCTAssertTrue(waitForPresence(reset, timeout: 10))
+    XCTAssertTrue(waitForPresence(app.descendants(matching: .any)["settings.outbox.unavailable"], timeout: 2))
     reset.tap()
 
-    XCTAssertTrue(app.descendants(matching: .any)["settings.outbox.empty"].waitForExistence(timeout: 10))
-    XCTAssertFalse(app.buttons["settings.outbox.reset"].exists)
-    XCTAssertFalse(app.descendants(matching: .any)["settings.outbox.unavailable"].exists)
+    XCTAssertTrue(waitForPresence(app.descendants(matching: .any)["settings.outbox.empty"], timeout: 10))
+    XCTAssertTrue(waitForAbsence(app.buttons["settings.outbox.reset"], timeout: 1))
+    XCTAssertTrue(waitForAbsence(app.descendants(matching: .any)["settings.outbox.unavailable"], timeout: 1))
 
     app.buttons["settings.diagnostics"].tap()
-    XCTAssertTrue(app.descendants(matching: .any)["diagnostics.quarantined"].waitForExistence(timeout: 10))
+    XCTAssertTrue(waitForPresence(app.descendants(matching: .any)["diagnostics.quarantined"], timeout: 10))
   }
 }
 
@@ -65,16 +65,16 @@ final class ProductionLaunchUITests: IrisUITestCase {
     let app = XCUIApplication()
     app.launchArguments = []
     start(app)
-    XCTAssertTrue(app.descendants(matching: .any)["settings.connection.url"].waitForExistence(timeout: 10))
-    XCTAssertTrue(app.descendants(matching: .any)["settings.connection.token"].exists)
-    XCTAssertTrue(app.descendants(matching: .any)["settings.connection.hint"].exists)
-    XCTAssertFalse(app.descendants(matching: .any)["history.list"].exists)
+    XCTAssertTrue(waitForPresence(app.descendants(matching: .any)["settings.connection.url"], timeout: 10))
+    XCTAssertTrue(waitForPresence(app.descendants(matching: .any)["settings.connection.token"], timeout: 2))
+    XCTAssertTrue(waitForPresence(app.descendants(matching: .any)["settings.connection.hint"], timeout: 2))
+    XCTAssertTrue(waitForAbsence(app.descendants(matching: .any)["history.list"], timeout: 1))
 
     // History has nothing to load without a connection: it says so and leads back to the form.
     app.tabBars.buttons["History"].tap()
     let connect = app.buttons["history.connect"]
-    XCTAssertTrue(connect.waitForExistence(timeout: 10))
+    XCTAssertTrue(waitForPresence(connect, timeout: 10))
     connect.tap()
-    XCTAssertTrue(app.descendants(matching: .any)["settings.connection.url"].waitForExistence(timeout: 10))
+    XCTAssertTrue(waitForPresence(app.descendants(matching: .any)["settings.connection.url"], timeout: 10))
   }
 }

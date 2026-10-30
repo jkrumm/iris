@@ -8,7 +8,7 @@ final class RoutingUITests: IrisUITestCase {
     let app = XCUIApplication()
     app.launchArguments = SampleClock.arguments
     start(app)
-    XCTAssertTrue(element(app, "history.list").waitForExistence(timeout: 10))
+    XCTAssertTrue(waitForPresence(element(app, "history.list"), timeout: 10))
     return app
   }
 
@@ -35,25 +35,16 @@ final class RoutingUITests: IrisUITestCase {
   private func tap(_ target: XCUIElement, until result: XCUIElement) {
     for _ in 0..<3 {
       target.tap()
-      if result.waitForExistence(timeout: 5) { return }
+      if waitForPresence(result, timeout: 5) { return }
     }
     XCTAssertTrue(
-      result.waitForExistence(timeout: 10), "tapping \(target.identifier) did not open \(result.identifier)")
+      waitForPresence(result, timeout: 10), "tapping \(target.identifier) did not open \(result.identifier)")
   }
 
   /// Opens the History row whose label contains `text` (the list is lazy: scrolled to until the row is in the tree).
   @MainActor
   private func openRow(containing text: String, in app: XCUIApplication) {
-    let row = app.descendants(matching: .any)
-      .matching(NSPredicate(format: "identifier == 'history.row' AND label CONTAINS %@", text)).firstMatch
-    let list = element(app, "history.list")
-    var scrolls = 0
-    while !row.exists, scrolls < 8 {
-      list.swipeUp()
-      scrolls += 1
-    }
-    XCTAssertTrue(row.waitForExistence(timeout: 10))
-    row.scrollIntoClearBand(of: list, app: app)
+    let row = revealRow(containing: text, in: app)
     tap(row, until: element(app, "memo.detail"))
   }
 
@@ -65,7 +56,7 @@ final class RoutingUITests: IrisUITestCase {
       element(app, "settings.view").swipeUp()
       swipes += 1
     }
-    XCTAssertTrue(target.waitForExistence(timeout: 5))
+    XCTAssertTrue(waitForPresence(target, timeout: 5))
   }
 
   /// Ends the take that is running by discarding it. A test that leaves a take recording when the app is terminated leaves the
@@ -74,7 +65,7 @@ final class RoutingUITests: IrisUITestCase {
   private func discardTake(in app: XCUIApplication) {
     element(app, "take.discard").tap()
     let confirm = app.buttons["take.discard.confirm"].firstMatch
-    XCTAssertTrue(confirm.waitForExistence(timeout: 10))
+    XCTAssertTrue(waitForPresence(confirm, timeout: 10))
     confirm.tap()
     waitUntilGone(element(app, "take.screen"))
   }
@@ -92,16 +83,16 @@ final class RoutingUITests: IrisUITestCase {
   @MainActor
   private func openRouteSheetFromThePinnedRow(in app: XCUIApplication) {
     let row = pinnedRow(in: app)
-    XCTAssertTrue(row.waitForExistence(timeout: 10), "the pinned row is listed")
+    XCTAssertTrue(waitForPresence(row, timeout: 10), "the pinned row is listed")
     row.scrollIntoClearBand(of: element(app, "history.list"), app: app)
     let route = app.buttons["history.swipe.route"]
-    for _ in 0..<3 where !route.exists {
+    for _ in 0..<3 where !waitForPresence(route, timeout: 1) {
       let start = row.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5))
       let end = row.coordinate(withNormalizedOffset: CGVector(dx: 0.55, dy: 0.5))
       start.press(forDuration: 0.1, thenDragTo: end)
-      _ = route.waitForExistence(timeout: 3)
+      _ = waitForPresence(route, timeout: 3)
     }
-    XCTAssertTrue(route.exists, "a pinned needs-route row swipes to a Route action")
+    XCTAssertTrue(waitForPresence(route, timeout: 1), "a pinned needs-route row swipes to a Route action")
     tap(route, until: element(app, "route.sheet"))
   }
 
@@ -112,9 +103,9 @@ final class RoutingUITests: IrisUITestCase {
     let app = launch()
     openRouteSheetFromThePinnedRow(in: app)
 
-    XCTAssertTrue(element(app, "route.sheet").waitForExistence(timeout: 10))
-    XCTAssertTrue(element(app, "route.reason").exists, "the park reason is shown")
-    XCTAssertTrue(element(app, "route.suggestion").exists, "the decision model's guess is shown")
+    XCTAssertTrue(waitForPresence(element(app, "route.sheet"), timeout: 10))
+    XCTAssertTrue(waitForPresence(element(app, "route.reason"), timeout: 2), "the park reason is shown")
+    XCTAssertTrue(waitForPresence(element(app, "route.suggestion"), timeout: 2), "the decision model's guess is shown")
     let send = app.buttons["route.submit"]
     XCTAssertTrue(send.isEnabled, "the suggestion is preselected")
     send.tap()
@@ -133,7 +124,7 @@ final class RoutingUITests: IrisUITestCase {
 
     app.buttons["Tabs"].tap()
     let tabs = app.buttons.matching(identifier: "route.tab")
-    XCTAssertTrue(tabs.firstMatch.waitForExistence(timeout: 10))
+    XCTAssertTrue(waitForPresence(tabs.firstMatch, timeout: 10))
     XCTAssertEqual(tabs.count, 2)
     XCTAssertFalse(app.buttons["route.submit"].isEnabled, "herdr needs a tab")
 
@@ -149,9 +140,9 @@ final class RoutingUITests: IrisUITestCase {
     let app = launch()
     openRow(containing: "Schreib das bitte", in: app)
 
-    XCTAssertTrue(element(app, "detail.route.reason").waitForExistence(timeout: 10))
+    XCTAssertTrue(waitForPresence(element(app, "detail.route.reason"), timeout: 10))
     app.buttons["detail.route.answer"].tap()
-    XCTAssertTrue(element(app, "route.sheet").waitForExistence(timeout: 10))
+    XCTAssertTrue(waitForPresence(element(app, "route.sheet"), timeout: 10))
     app.buttons["route.submit"].tap()
 
     waitUntilGone(element(app, "route.sheet"))
@@ -164,11 +155,11 @@ final class RoutingUITests: IrisUITestCase {
     openRow(containing: "Wochenplan abgestimmt", in: app)
 
     let wrong = app.buttons["detail.route.correct"]
-    XCTAssertTrue(wrong.waitForExistence(timeout: 10))
+    XCTAssertTrue(waitForPresence(wrong, timeout: 10))
     wrong.tap()
-    XCTAssertTrue(element(app, "route.sheet").waitForExistence(timeout: 10))
-    XCTAssertTrue(element(app, "route.note").exists, "a correction says it is only logged")
-    XCTAssertFalse(element(app, "route.reason").exists)
+    XCTAssertTrue(waitForPresence(element(app, "route.sheet"), timeout: 10))
+    XCTAssertTrue(waitForPresence(element(app, "route.note"), timeout: 2), "a correction says it is only logged")
+    XCTAssertTrue(waitForAbsence(element(app, "route.reason"), timeout: 1))
 
     app.buttons["Journal"].tap()
     let log = app.buttons["route.submit"]
@@ -176,8 +167,8 @@ final class RoutingUITests: IrisUITestCase {
     log.tap()
 
     waitUntilGone(element(app, "route.sheet"))
-    XCTAssertTrue(element(app, "memo.detail").exists, "the memo stays as it was")
-    XCTAssertTrue(app.buttons["detail.route.correct"].exists)
+    XCTAssertTrue(waitForPresence(element(app, "memo.detail"), timeout: 2), "the memo stays as it was")
+    XCTAssertTrue(waitForPresence(app.buttons["detail.route.correct"], timeout: 2))
   }
 
   /// The detail hosts the route sheet and tears its players down when it disappears: closing the sheet must leave the
@@ -188,12 +179,12 @@ final class RoutingUITests: IrisUITestCase {
     openRow(containing: "Wochenplan abgestimmt", in: app)
 
     let toggle = app.buttons["detail.player.toggle"]
-    XCTAssertTrue(toggle.waitForExistence(timeout: 10))
+    XCTAssertTrue(waitForPresence(toggle, timeout: 10))
     expectation(for: NSPredicate(format: "isEnabled == true"), evaluatedWith: toggle)
     waitForExpectations(timeout: 15)
 
     app.buttons["detail.route.correct"].tap()
-    XCTAssertTrue(element(app, "route.sheet").waitForExistence(timeout: 10))
+    XCTAssertTrue(waitForPresence(element(app, "route.sheet"), timeout: 10))
     app.buttons["route.cancel"].tap()
     waitUntilGone(element(app, "route.sheet"))
 
@@ -211,7 +202,7 @@ final class RoutingUITests: IrisUITestCase {
     openRow(containing: "Wochenplan abgestimmt", in: app)
 
     let play = app.buttons["detail.action.play"]
-    XCTAssertTrue(play.waitForExistence(timeout: 10))
+    XCTAssertTrue(waitForPresence(play, timeout: 10))
     XCTAssertEqual(play.label, "Play reply")
     play.tap()
     waitForLabel(app.buttons["detail.action.play"], "Stop reply")
@@ -223,21 +214,21 @@ final class RoutingUITests: IrisUITestCase {
   func testLongPressOnRecordPicksTheModeIncludingChat() {
     let app = launch()
     let record = element(app, "record.start")
-    XCTAssertTrue(record.waitForExistence(timeout: 10))
+    XCTAssertTrue(waitForPresence(record, timeout: 10))
     record.press(forDuration: 1.2)
     let choose = app.buttons["record.chooseMode"]
-    XCTAssertTrue(choose.waitForExistence(timeout: 10), "the long press offers the modes and Choose mode…")
+    XCTAssertTrue(waitForPresence(choose, timeout: 10), "the long press offers the modes and Choose mode…")
     choose.tap()
 
-    XCTAssertTrue(element(app, "record.modeSheet").waitForExistence(timeout: 10))
-    XCTAssertTrue(app.buttons["Chat"].exists, "Chat is a mode of a voice take")
-    XCTAssertFalse(app.buttons["Tab"].exists, "a spoken take names its tab while speaking")
+    XCTAssertTrue(waitForPresence(element(app, "record.modeSheet"), timeout: 10))
+    XCTAssertTrue(waitForPresence(app.buttons["Chat"], timeout: 2), "Chat is a mode of a voice take")
+    XCTAssertTrue(waitForAbsence(app.buttons["Tab"], timeout: 1), "a spoken take names its tab while speaking")
     app.buttons["Chat"].tap()
     XCTAssertTrue(element(app, "record.mode.summary").label.contains("conversation"))
     app.buttons["record.mode.start"].tap()
 
-    XCTAssertTrue(element(app, "take.screen").waitForExistence(timeout: 10))
-    XCTAssertTrue(app.staticTexts["Chat"].exists, "the take records in the chosen mode")
+    XCTAssertTrue(waitForPresence(element(app, "take.screen"), timeout: 10))
+    XCTAssertTrue(waitForPresence(app.staticTexts["Chat"], timeout: 2), "the take records in the chosen mode")
     discardTake(in: app)
   }
 
@@ -250,14 +241,14 @@ final class RoutingUITests: IrisUITestCase {
     let headset = app.buttons.matching(identifier: "settings.mic.choice").matching(
       NSPredicate(format: "label CONTAINS %@", "Fake Headset")
     ).firstMatch
-    XCTAssertTrue(headset.waitForExistence(timeout: 10))
+    XCTAssertTrue(waitForPresence(headset, timeout: 10))
     scrollSettings(to: headset, in: app)
     headset.tap()
     XCTAssertTrue(headset.isSelected, "the chosen input is checked")
 
     app.tabBars.buttons["History"].tap()
     element(app, "record.start").tap()
-    XCTAssertTrue(element(app, "take.screen").waitForExistence(timeout: 10))
+    XCTAssertTrue(waitForPresence(element(app, "take.screen"), timeout: 10))
     XCTAssertEqual(element(app, "take.microphone").value as? String, "Fake Headset", "the rule picked the input")
     discardTake(in: app)
   }
@@ -267,7 +258,7 @@ final class RoutingUITests: IrisUITestCase {
     let app = launch()
     app.tabBars.buttons["Settings"].tap()
     let toggle = app.switches["settings.spokenReplies"]
-    XCTAssertTrue(toggle.waitForExistence(timeout: 10))
+    XCTAssertTrue(waitForPresence(toggle, timeout: 10))
     scrollSettings(to: toggle, in: app)
     XCTAssertEqual(toggle.value as? String, "0")
     // The switch sits at the row's trailing edge; a tap in the middle of the row would hit its label.
