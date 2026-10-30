@@ -13,12 +13,12 @@ State as of 2026-10-29 evening. PLAN.md is the plan; this file is the lead's wor
 | S4 decide + triage on the host | #40 | 1 blocking fixed; deployed, smoke green with a real summary, decide 0.999 hermes, the one summary-less memo retried |
 | I2 iOS follow-ups | #41 | 1 blocking fixed; CI snapshot failure was a host line-wrap difference, fixture made one-line |
 | S5 host caller attribution | #42 | clean; deployed; `agw.runs` shows purpose/caller/project `iris` for decide + triage |
+| I4 reply flow | #45 | review clean; CI fix (UI-test race, job timeout 75 min) read by the lead |
 | I3 R2 routing on iOS | #44 (supersedes #43) | regression: History's route sheet moved to `RootView` (bisection in the PR); 3 review rounds, round 3 under the convergence rule |
 
-## In flight
+## Status
 
-- **I4** (reply flow per `docs/design/feedback-reply-flow.md`): worker `iris-w16-i4-reply-flow`, branch `w16-i4-reply-flow`, brief
-  `/tmp/iris-w16/i4.md` (agw-review-only rule in it). Then close out: tick PLAN.md Wave 16, **Left behind:** paragraph, stop.
+Wave 16 closed 2026-10-30: I4 merged as #45 (`cdb1e5f`), PLAN.md ticked, **Left behind:** written there. Nothing in flight.
 
 ## Train notes
 

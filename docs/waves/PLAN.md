@@ -810,24 +810,24 @@ relaunch; a double-start race; `cancel()` returns silently after a session-open 
 the fake API never answers a typed memo, so the text reply flow cannot be shown to its end on fakes. CI: the hosted runner's
 "Failed to terminate com.jkrumm.iris" UI-test failures (worth sampling the app at teardown on the runner).
 
-## Wave 16 — summarize optional + Wave 15 debt ∥ R2 routing on iOS            <!-- status: active -->
+## Wave 16 — summarize optional + Wave 15 debt ∥ R2 routing on iOS            <!-- status: done -->
 The owner-confirmed summarize item, the outbox reset, Wave 15's follow-ups that touch data or correctness, and backlog 5's simulator part.
 Tracks as in Wave 15: **S** (`server/**`, `contracts/**`, `scripts/**` + `IrisCore` follow-ups) ∥ **I** (`apple/**`, one `xcodebuild`
 worker at a time, I1 → I2 → I3 → I4). S PRs land one at a time with `make e2e` before the train. Review convergence rule from Wave 15 round 5
 holds: findings that cannot lose or duplicate data become follow-ups after the second round.
 **Decision (mother, 2026-10-29): the outbox reset quarantines, never deletes.** The owner was asked (A quarantine / B delete) and had
 not answered by the time of writing; A loses nothing, so it ships. A delete variant waits for the owner.
-- [ ] **S1. Summarize is optional** (owner-confirmed 2026-10-28). A failed `summarize` (agw `triage` error, e.g. the Requesty 402, after
+- [x] **S1. Summarize is optional** (owner-confirmed 2026-10-28). A failed `summarize` (agw `triage` error, e.g. the Requesty 402, after
       its retries) no longer fails the memo: a Hermes memo whose `act` succeeded ends `done` without a summary. The step stays visible
       with its error and attempts (the waterfall shows it as failed-but-optional, [Retry from step] still works and fills the summary in
       later); the History headline falls back to the transcript; the speech variant past the length threshold falls back to the clipped
       cleaned reply instead of the `spoken` summary. Existing `failed(summarize)` memos with a reply move to `done` (one migration or
       repair, idempotent; back the DB up first). Contract + fixtures + `IrisCore` if the step or memo wire changes; TDD and AGENTS.md
       amended. Proof: `make smoke` green with triage still on Requesty.
-- [ ] **S2. Server follow-ups (Wave 15):** reply asset rows are not visible before the reply commits, and a lost compare-and-set keeps
+- [x] **S2. Server follow-ups (Wave 15):** reply asset rows are not visible before the reply commits, and a lost compare-and-set keeps
       the earlier reply's assets (no wait for the boot backfill); a memo whose every block fails is marked and not re-rendered each boot;
       a segment write in flight when its memo is deleted removes its file with the delete, not at the 10-minute purge.
-- [ ] **S3. Audio door switch (gateway sunset, contract from the agent-workflows lead 2026-10-29; parity only, no tuning):** STT and TTS
+- [x] **S3. Audio door switch (gateway sunset, contract from the agent-workflows lead 2026-10-29; parity only, no tuning):** STT and TTS
       move from audio-gateway to the agent-workflows audio door: base `http://127.0.0.1:7792/v1`, `POST /audio/transcriptions` (multipart)
       and `POST /audio/speech`, audio-gateway's OpenAI-compatible request/response contract unchanged (same models, voices, formats).
       Auth `Authorization: Bearer <token>`: iris's caller token is the `iris=<token>` line of `~/.agent-workflows/data/door-tokens` (0600,
@@ -839,7 +839,7 @@ not answered by the time of writing; A loses nothing, so it ships. A delete vari
       latter its own commit there); fakes and conformance tests move to the new adapters. TDD (§3 downstream facts, §Cost) and AGENTS.md
       amended. Docs: `~/SourceRoot/agent-workflows/packages/audio/README.md` ("The door on the process", "Caller auth"). Proof: a
       production voice memo transcribes through the door and `/speech` returns audio, both with an `agw-run-id`.
-- [ ] **S4. decide + triage switch (gateway sunset; contract from the agent-workflows lead 2026-10-29, release `3f29cb5`; lands after
+- [x] **S4. decide + triage switch (gateway sunset; contract from the agent-workflows lead 2026-10-29, release `3f29cb5`; lands after
       S3, both touch env/compose/launch):** the agw adapters move from agent-gateway's job API to the agent-workflows host.
       Host `http://127.0.0.1:7791` (`AGW_URL` keeps its name, new value). Auth `Authorization: Bearer <AGW_API_SECRET>` from
       `op://mini/agent-workflows/API_SECRET` through the env template and `secrets-run` (already in the mini's cache; check
@@ -860,36 +860,92 @@ not answered by the time of writing; A loses nothing, so it ships. A delete vari
       idempotency); questions to `rd say agent-workflows-w1`. Proof: **`make smoke` green with a real summary**; a production memo
       decided by `decide` and summarized by `triage`, both with an `agw-run-id` and purpose `iris`; then retry the memos left without a
       summary since Wave 14 (`POST /v1/memos/:id/retry {from: "summarize"}`, bounded batch) so they get one.
-- [ ] **S5. Host caller attribution** (agent-workflows lead, 2026-10-29, agent-workflows #60): every call to the agw host sends
+- [x] **S5. Host caller attribution** (agent-workflows lead, 2026-10-29, agent-workflows #60): every call to the agw host sends
       `x-agw-caller: iris` and `x-agw-project: iris` next to `x-agw-purpose: iris` (`server/src/adapters/agw-client.ts`), so runs stop
       booking as caller/project `agw`. Patterns: caller `[a-z][a-z0-9-]{0,31}`, project `[A-Za-z0-9][A-Za-z0-9._-]{0,63}`; a malformed
       value is a 400 (constants, a test that pins the headers). The audio door is unchanged (attributed by its token; door tokens never
       authenticate the host). TDD §Cost amended. Proof: a production decide + triage run shows caller `iris`, project `iris`.
-- [ ] **I1. Outbox reset + capture follow-ups (I3 of Wave 15):** Settings "Reset outbox" when `outbox.json` cannot be decoded: the file
+- [x] **I1. Outbox reset + capture follow-ups (I3 of Wave 15):** Settings "Reset outbox" when `outbox.json` cannot be decoded: the file
       is renamed aside (timestamped, kept), its segment files stay, a fresh outbox opens, Diagnostics can share the quarantined file. A
       startup sweep **adopts or quarantines** segment files whose record never saved (never deletes). `endOrphans()` no longer ends a live
       take's Live Activity on a connection change; `stop()` cannot hold the gate if the recorder never emits `stopped` (bounded wait);
       `ActivityTokenRegistrar` ignores out-of-order token responses. From I4: a discard's server `DELETE` is durable (queued in the
       outbox, retried, never dropped silently), including a take whose create reached the server but whose answer was lost (it must not
       stay `receiving`); the double-start race; `cancel()` after a session-open failure reports it. Tests for each.
-- [ ] **I2. iOS follow-ups (I1/I2 of Wave 15):** money in the step chip and the Stats per-memo caption uses the I1 formatter (no fixed `$`,
+- [x] **I2. iOS follow-ups (I1/I2 of Wave 15):** money in the step chip and the Stats per-memo caption uses the I1 formatter (no fixed `$`,
       two decimals); History without a connection shows a prompt to connect, not a blank list; `MemoDetailView` gets the thread view's toast
       fix; reply-image loading is bounded and `MediaDownloader` single-flight; one shared `URLSession` for players; the media cache drops
       files of deleted memos. History's hidden set (pending deletes) survives a relaunch; the fake API answers a
       typed memo so the text reply flow runs to its end on fakes. The `StatsSettingsUITests` "Failed to terminate" flake: find the cause or
       make the teardown robust.
-- [ ] **I3. R2 routing on iOS (backlog 5, simulator part):** the mode picker incl. Chat for voice takes (and the composer's, one
+- [x] **I3. R2 routing on iOS (backlog 5, simulator part):** the mode picker incl. Chat for voice takes (and the composer's, one
       component); needs-route actions on pinned History rows and in detail (answer with a route, correct a decision) through the
       existing answer/correction endpoints; [Play] via `PlayReplyIntent` speaking the server's speech variant; per-route mic rules;
       the spoken-replies setting. `-IrisFakeCapture` UI tests and snapshots light + dark. Device exit checks wait for pairing.
-- [ ] **I4. Reply flow per the owner's verdict** (`docs/design/feedback-reply-flow.md`, binding; after I3): the reply bar as one row of
+- [x] **I4. Reply flow per the owner's verdict** (`docs/design/feedback-reply-flow.md`, binding; after I3): the reply bar as one row of
       icons (keyboard · hold to talk · locked continuous recording, composed SF Symbols if needed); a more structured thread layout
       (turn separation and hierarchy); syntax highlighting in JetBrains Darcula/Dracula-style light and dark themes derived from the
       owner's Zed config (`ssh iumac`, read-only) and basalt-ui's code colours (record the choice in TDD); composer layout with the
       keyboard up. Snapshot tests updated; re-run `scripts/reply-flow-shots.sh` and list the new keys in `docs/design/README.md`
       (marking the I5 question answered) for another async look.
-- [ ] Deploy and prove: `make verify` + **`make smoke` green**; the `failed(summarize)` memos since Wave 14 read `done` in production;
+- [x] Deploy and prove: `make verify` + **`make smoke` green**; the `failed(summarize)` memos since Wave 14 read `done` in production;
       `apple.yml` green; TDD and AGENTS.md amended.
+**Left behind:** (lead, closed 2026-10-30) merged by the train, every PR reviewed with `agw review --pr` (the agent-workflows CLI; no
+agent-gateway, no `--deep`), blocking findings fixed before merge: #36 S2 (`4328bc4`, clean + 2 improvements taken: staging settled when the
+commit throws, failed marked only on renderer refusals), #37 S1 (`ca680e2`, blocking: the boot repair could crash-loop the server, now
+try/catch with `repair.failed_summaries_error`), #38 I1 (`a3e5a08`, two rounds, five blocking: the dispatch saved before the send and
+reverted on a failed save, abandoned late segments kept out of finished memos, a joined start recovers the running take, legacy decode
+defaults `createMayHaveLanded` to true), #39 S3 (`4ca67dc`, blocking: a non-JSON door body threw `null`; improvements taken: one
+`audio-door-client.ts`, https-or-loopback `AUDIO_DOOR_URL`, whitespace-stripped token, no redirects), #40 S4 (`1b36891`, blocking: a 5xx
+whose body stalls is a hang guard, not a transient retry), #41 I2 (`5030f1c`, blocking: `pendingDeletionIDs()` returns nil when the
+outbox cannot be read, so the persisted hidden set is not erased), #42 S5 (`12995b8`, clean), #44 I3 (`abcfbea`, supersedes #43), #45 I4 (`cdb1e5f`, clean; CI fix read by the lead).
+Server PRs ran `make check-server check-contracts guard && make e2e`, Apple PRs the full `make check`; `rd merge`'s 1200 s CI wait is
+shorter than the Apple job, so the lead watched the head's `apple` run and merged the unchanged, checked head with `--check 'true'`.
+**S1:** a failed `summarize` is skipped (`store.skipStep`), the memo ends `notified` with `summary` null and can retry from summarize;
+the boot repair (`repairFailedSummaries`, `VACUUM INTO iris.db.bak-<ts>` first) moved memo `d7cd679f-…` to `notified`, which S4's
+retry then gave a summary. **S3:** STT and TTS through the agent-workflows audio door (`AUDIO_DOOR_TOKEN` from the `iris=` line of
+`door-tokens`, read by `launch.sh`); proof: smoke memo `092ae90c-…` transcribed with run `01a18776-3cb2…`, `/speech` 200 audio/mpeg
+39 788 B with run `01a18776-7148…`; `op://mini/iris/audio-gateway-url` removed from `dotfiles-private/headless.refs` (`6eb27ee`).
+**S4:** synchronous `/triage` and `/decide` on the host (`AGW_URL` `127.0.0.1:7791`, `AGW_API_SECRET` via `secrets-run`). decide on its
+new model, live probes: journal 0.9996 / 0.9998, hermes 0.994 / 0.9997, herdr 0.985 (right tab), a vague prompt 0.30 (parks); routing
+matches the old behaviour, so the threshold stays 0.8 (TDD). Production typed auto memo: decide hermes 0.999 (run `01a187e8-b983…`),
+triage run `01a187e8-c237…`. **S5:** `x-agw-caller: iris` + `x-agw-project: iris`; `agw.runs` rows `01a18844-65ea…` (cap.decide) and
+`01a18844-88c2…` (cap.triage) show purpose, caller and project `iris`. **I1:** "Reset outbox" quarantines an undecodable outbox (owner
+decision pending on a delete variant), the startup sweep adopts or quarantines, a discard's `DELETE` is durable. **I2:** optional
+summarize as a warning row, money via `StepText.dollars`, a connect prompt, single-flight `MediaDownloader` with eviction, a persisted
+hidden set, the fake answers typed memos, `IrisUITestCase` tolerates a stalled terminate; CI snapshot `skippedSummarize` failed once on a
+host line-wrap difference (fixture error made one line). **I3:** #43 (feature complete) had `make uitest` red in suite order: History's
+top region came up blurred and dead to taps. A fresh worker bisected it to the route sheet's `.sheet(item:)` in `HistoryView`'s chain (2–5
+of 15 Smoke runs failing with it, 45 of 45 green without it; why an unpresented sheet does this is not established); the route sheet is now
+hosted by `RootView` (TDD §4 "Presentation hosts"). Three review rounds (blocking: `MemoPlayback` rebuilt per init and a teardown that
+cleared the shared recording hook; test helpers shadowed; detail players torn down under its own sheet; mic rule saved for a route the user
+did not see; overlapping picks); round 3 under the convergence rule. **I4:** one-row icon reply bar (keyboard · hold to talk · locked
+recording, `mic.fill` + `lock.fill` composed), structured thread (exchange dividers, question cards, heading hierarchy, code cards),
+JetBrains Light / Dark code colours (from the owner's Zed: `theme.dark` JetBrains Dark via the "JetBrains Themes" extension; basalt-ui has
+no syntax tokens, its web code uses Shiki github-light/dark), table in TDD §4; ten new renders listed in `docs/design/README.md`, the
+Wave 15 I5 question marked answered. **Deploy and prove:** server `08465f6` deployed; `make verify` healthy (iris, audio door, host);
+`make smoke` green with a real summary (memo `ad8bbb14-…`, transcribe 2.2 s, act 3.4 s, summarize 4.0 s, $0.0004); production has 18
+memos, all `notified`, 0 `failed(summarize)`, 0 summary-less Hermes memos; `apple.yml` green on master after #45 (the run after #44, `abcfbea`, failed once on the known `ReplyFlowReviewUITests` "Timed out while evaluating UI query" flake; #45 raised the job timeout to 75 min, the UI suite outgrew 45).
+**Owner decision open:** a finished memo's spoken reply interrupts a reply that is playing and pauses the open detail's recording (as
+built); alternatives: queue it, or defer while the player is busy or recording.
+**Follow-ups:** I1: a discard hides the memo (`created.forget`) before the outbox is known to open; the `ActivityTokenRegistrar` defer
+clears `isSending` on a re-registered entry; a second Reset tap mid-reset reports failure; a `finishTimedOut` vs `abandoned` window; the
+tail segment after a stop timeout is quarantined, not uploaded; the sweep widened Outbox internals (move it behind a store port); a crash
+between the create send and its save is not covered; quarantined files accumulate; a recorder that never emits `stopped` still blocks the
+next take. S2: no boot sweep of asset files orphaned by a crash between commit and prune; staging lives in the sqlite adapter. S1:
+summary-less alerts use a 60-char transcript headline (TDD §12); the repair is one-way. S3: five contract fixtures still carry the sample
+text "audio-gateway transcribe failed: 502". S4: a 5xx retry can bill a second host run (no `Idempotency-Key`, per the host contract);
+`agw run status` does not show the purpose. I2: History's insert is unordered relative to the hidden-change channel; eviction scans run on
+the main actor; Undo re-downloads media; a download in flight can land after eviction; sampling the runner's terminate stall needs a
+workflow step. I3: a second `memo.done` while a reply downloads is not spoken automatically; a `load()` overlapping a mic-rule pick leaves
+Settings showing the old choice (the rule is saved); `playReply` duplicates the speakable rule (without `state == .notified`); the route
+sheet wiring is duplicated (root and detail). I4: a locked take that fails to start can leave `isLocked` stale; the VoiceOver hint says
+hold-and-release while the action toggles; an empty hint string while recording; the toast "That was too short to send" has no `de`
+entry; heading-style magic numbers; the keyboard-up composer is not proven by a screenshot (the headless simulator draws no software
+keyboard: device or GUI simulator); the Liquid Glass bar renders blank in off-screen snapshots and Textual colours tokens after the first
+frame, so snapshots show neither; `scripts/reply-flow-shots.sh` only exports (upload with `imgcli private`). CI: hosted-runner flake
+`ReplyFlowReviewUITests` "Timed out while evaluating UI query" (on #40 and on master after #44); `diagram-pele.test.ts` times out locally under xcodebuild
+load (retry).
 
 ## Fleet backlog (for the long-running fleet: mother → lead → workers)
 
