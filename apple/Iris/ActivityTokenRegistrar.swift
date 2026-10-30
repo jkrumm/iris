@@ -10,8 +10,8 @@ final class ActivityTokenRegistrar {
     var memoExists = false
     var registeredToken: String?
     var handedOver = false
-    /// A `PUT` is out: the next one waits for its answer, so answers arrive in the order the tokens were sent.
-    var isSending = false
+    /// Which `begin` made this entry: a `PUT` that outlives `finish` + `begin` of the same memo must not touch the new one.
+    let generation = UUID()
     var retry: Task<Void, Never>?
     var retryDelay = Duration.seconds(2)
   }
@@ -20,6 +20,9 @@ final class ActivityTokenRegistrar {
   private let sleep: (Duration) async throws -> Void
   private let logger = Logger(subsystem: "com.jkrumm.iris", category: "liveactivity")
   private var entries: [String: Entry] = [:]
+  /// Memos with a `PUT` out. Keyed by memo id, not kept on the entry: a `finish` + `begin` of the same memo gives a fresh
+  /// entry, and its sender must still wait for the old request, or two `PUT`s would race and the stale token could win.
+  private var sending: Set<String> = []
 
   init(client: any APIClient, sleep: @escaping (Duration) async throws -> Void = { try await Task.sleep(for: $0) }) {
     self.client = client
@@ -62,18 +65,26 @@ final class ActivityTokenRegistrar {
   /// a slow answer for an older token cannot land after (and replace) a newer one, here or on the server. The call that
   /// finds a `PUT` out returns at once; the call that sent it carries on with the newest token.
   func attempt(_ memoID: String) async {
-    guard entries[memoID]?.isSending == false else { return }
-    entries[memoID]?.isSending = true
-    defer { entries[memoID]?.isSending = false }
+    guard !sending.contains(memoID) else { return }
+    sending.insert(memoID)
+    defer { sending.remove(memoID) }
+    // Each round reads the entry as it is now: after a `finish` + `begin` of the same memo the loop carries on with the new
+    // entry's token once the old request has answered.
     while let entry = entries[memoID], entry.memoExists, let token = entry.token, token != entry.registeredToken {
+      let generation = entry.generation
       do {
         try await client.setActivityToken(memoID: memoID, request: ActivityTokenRequest(token: token))
       } catch {
         logger.error("activity token not registered: \(String(describing: error), privacy: .public)")
-        retryLater(memoID)
-        return
+        guard let current = entries[memoID] else { return }
+        if current.generation == generation {
+          retryLater(memoID)
+          return
+        }
+        continue  // the entry changed under the request: the new one gets its turn
       }
-      guard entries[memoID] != nil else { return }  // the activity ended while the request was out
+      // The activity ended (or ended and began again) while the request was out: its token is not the new entry's.
+      guard entries[memoID]?.generation == generation else { continue }
       entries[memoID]?.registeredToken = token
       entries[memoID]?.retry?.cancel()
       entries[memoID]?.retry = nil

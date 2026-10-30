@@ -36,8 +36,8 @@ nonisolated enum OutboxAvailability: Equatable, Sendable {
 /// real store again, so `resume()` (and a pull to refresh) is the retry. There is no in-memory stand-in. A file that cannot
 /// be decoded stays unreadable until ``resetOutbox()``, which renames it aside (kept, never deleted) and opens a fresh queue.
 ///
-/// Every time the queue opens, the capture directory is swept: segment files no saved record names are adopted by their take
-/// or moved into `quarantine/` there. Nothing is deleted.
+/// Every time the queue opens, the capture directory is swept (behind the `SegmentFileStore` port): segment files no saved
+/// record names are adopted by their take or moved into `quarantine/` there. Nothing is deleted.
 actor CaptureStack {
   struct Parts: Sendable {
     let session: any AudioSessionController
@@ -49,8 +49,8 @@ actor CaptureStack {
     var policy = OutboxPolicy()
     /// Fakes keep a take's files until the process ends; production deletes them once the server has the memo.
     var deletesFilesWhenDone = true
-    /// Where the recorder writes segment files; `nil` skips the startup sweep (fakes).
-    var captureDirectory: URL?
+    /// The capture directory the recorder writes segment files to, for the startup sweep; `nil` skips it (fakes).
+    var segmentFiles: (any SegmentFileStore)?
   }
 
   private typealias Built = (outbox: Outbox, session: CaptureSession)
@@ -60,7 +60,10 @@ actor CaptureStack {
   private var building: Task<Result<Built, any Error>, Never>?
   /// Why the last attempt to open the queue failed; `nil` once it is open.
   private var lastFailure: (any Error)?
-  private var isResetting = false
+  /// The reset in progress, if any: a second request joins it.
+  private var reset: Task<OutboxResetOutcome, any Error>?
+  /// The queue file is being renamed: `open()` refuses until it has moved.
+  private var isMoving = false
   private let logger = Logger(subsystem: "com.jkrumm.iris", category: "capture")
 
   init(_ parts: Parts) {
@@ -89,19 +92,41 @@ actor CaptureStack {
   /// opens a fresh queue. Throws `queueUnavailable` when nothing was changed: the queue is not unreadable, or the file could
   /// not be moved. `setAsideNotOpen` says the file did move but the fresh queue would not open.
   func resetOutbox() async throws -> OutboxResetOutcome {
-    guard await availability() == .unreadable, !isResetting else { throw CaptureStackError.queueUnavailable }
-    // Other callers wait out the move: a build in the middle of it would read the file that is being renamed.
-    isResetting = true
+    // A second tap while the first reset runs joins it and gets its answer: the file is moving, which is neither "nothing to
+    // reset" nor a failure.
+    if let reset { return try await reset.value }
+    // Settings offers the reset only after it has seen the queue unreadable, so the stack usually knows already and the claim
+    // below happens in this same turn. Otherwise ask (which suspends), then look again for a reset that started meanwhile.
+    if !knownUnreadable {
+      guard await availability() == .unreadable else { throw CaptureStackError.queueUnavailable }
+      if let reset { return try await reset.value }
+    }
+    // Claimed before anything can suspend: an `open()` that comes in from here on is refused until the file has moved, and
+    // none can slip between this task being created and its first run (a build would read the file being renamed).
+    isMoving = true
+    // Owned by `reset`; runs to its end (it moves a file) and clears itself.
+    let task = Task { try await self.setAsideAndReopen() }
+    reset = task
+    return try await task.value
+  }
+
+  /// The last attempt to open the queue found the file there but undecodable, and nothing has opened it since.
+  private var knownUnreadable: Bool {
+    built == nil && (lastFailure as? OutboxStoreError) == .undecodable
+  }
+
+  private func setAsideAndReopen() async throws -> OutboxResetOutcome {
+    defer { reset = nil }
     let moved: URL?
     do {
       moved = try await parts.store.quarantine()
     } catch {
-      isResetting = false
+      isMoving = false
       logger.error("outbox file not set aside: \(String(describing: error), privacy: .public)")
       throw CaptureStackError.queueUnavailable
     }
-    isResetting = false
     logger.notice("outbox reset, the old queue is kept as \(moved?.lastPathComponent ?? "-", privacy: .public)")
+    isMoving = false
     do {
       _ = try await open()
       return .reset
@@ -116,9 +141,18 @@ actor CaptureStack {
     await parts.store.quarantined()
   }
 
+  /// What the app has set aside and kept (set-aside queue files, recordings the sweep could not attach), for Settings.
+  func setAsideSummary() async -> SetAsideSummary {
+    let queues = await parts.store.quarantined().map { url in
+      let values = try? url.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey])
+      return SetAsideFile(url: url, byteCount: values?.fileSize ?? 0, modifiedAt: values?.contentModificationDate)
+    }
+    return SetAsideSummary(queueFiles: queues, recordings: await parts.segmentFiles?.setAsideFiles() ?? [])
+  }
+
   private func open() async throws -> Built {
     if let built { return built }
-    guard !isResetting else { throw CaptureStackError.queueUnavailable }
+    guard !isMoving else { throw CaptureStackError.queueUnavailable }
     let task = building ?? Task { [parts, logger] in await Self.build(parts, logger: logger) }
     building = task
     let result = await task.value
@@ -148,9 +182,9 @@ actor CaptureStack {
       logger.error("outbox store cannot be opened, nothing is queued: \(String(describing: error), privacy: .public)")
       return .failure(error)
     }
-    if let directory = parts.captureDirectory {
+    if let files = parts.segmentFiles {
       // Before anything is sent or recorded: a file written but never saved belongs to a take of an earlier run.
-      await outbox.sweepOrphans(in: directory, quarantineTo: directory.appending(path: "quarantine"))
+      await outbox.sweepOrphans(using: files)
     }
     await outbox.resume()
     let session = CaptureSession(

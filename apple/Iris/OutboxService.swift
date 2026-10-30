@@ -180,11 +180,13 @@ nonisolated final class OutboxService: QueuedItemSource {
   /// `false` (logged) when the outbox cannot be opened: nothing was dropped there, and the caller must not look done.
   @discardableResult
   func discard(_ memoID: MemoID) async -> Bool {
-    await created.forget(memoID.wireID)
+    // The memo is hidden only once the queue is known to open: a discard that cannot reach the outbox queues no `DELETE`,
+    // and hiding the memo then would make a live one vanish from History with nothing to bring it back.
     guard let outbox = try? await stack.outbox() else {
       logger.error("discard of \(memoID.wireID, privacy: .public) not applied, the outbox cannot be opened")
       return false
     }
+    await created.forget(memoID.wireID)
     await outbox.discard(memoID)
     return true
   }
@@ -214,6 +216,10 @@ nonisolated final class OutboxService: QueuedItemSource {
 
   func quarantinedFiles() async -> [URL] {
     await stack.quarantinedFiles()
+  }
+
+  func setAside() async -> SetAsideSummary {
+    await stack.setAsideSummary()
   }
 
   func saveFailure() async -> String? {
