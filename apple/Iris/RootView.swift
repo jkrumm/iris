@@ -76,11 +76,7 @@ struct RootView: View {
     .fullScreenCover(isPresented: $take.showsFull) {
       TakeView(model: take)
     }
-    .sheet(item: $routing) { memo in
-      RouteAnswerSheet(model: makeRouteAnswer(memo), onRouted: { history.insert($0) })
-        .presentationDetents([.medium, .large])
-        .presentationDragIndicator(.visible)
-    }
+    .routeAnswerSheet(item: $routing, make: makeRouteAnswer, onRouted: { history.insert($0) })
     .sheet(isPresented: $take.showsModePicker) {
       RecordModeSheet(model: take)
         .presentationDetents([.height(320)])

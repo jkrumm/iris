@@ -2,6 +2,23 @@ import IrisCore
 import IrisUI
 import SwiftUI
 
+extension View {
+  /// The one wiring of the route sheet: History's rows present it from `RootView` (a `.sheet(item:)` in History's own chain
+  /// broke the list's scroll edge, TDD §4 "Presentation hosts"), the memo detail from itself (its players stay up behind it).
+  /// With no `make` there is no sheet.
+  func routeAnswerSheet(
+    item: Binding<Memo?>, make: ((Memo) -> RouteAnswerModel)?, onRouted: @escaping (Memo) -> Void
+  ) -> some View {
+    sheet(item: item) { memo in
+      if let make {
+        RouteAnswerSheet(model: make(memo), onRouted: onRouted)
+          .presentationDetents([.medium, .large])
+          .presentationDragIndicator(.visible)
+      }
+    }
+  }
+}
+
 /// The sheet behind "Route…" on a pinned History row and in the memo detail: answers a parked memo, or corrects the route of
 /// a finished one. It closes itself when the server accepts the answer.
 struct RouteAnswerSheet: View {
