@@ -13,14 +13,12 @@ State as of 2026-10-29 evening. PLAN.md is the plan; this file is the lead's wor
 | S4 decide + triage on the host | #40 | 1 blocking fixed; deployed, smoke green with a real summary, decide 0.999 hermes, the one summary-less memo retried |
 | I2 iOS follow-ups | #41 | 1 blocking fixed; CI snapshot failure was a host line-wrap difference, fixture made one-line |
 | S5 host caller attribution | #42 | clean; deployed; `agw.runs` shows purpose/caller/project `iris` for decide + triage |
+| I3 R2 routing on iOS | #44 (supersedes #43) | regression: History's route sheet moved to `RootView` (bisection in the PR); 3 review rounds, round 3 under the convergence rule |
 
 ## In flight
 
-- **I3** (R2 routing on iOS): #43 by the first worker (feature complete, `make uitest` red in suite order, context exhausted). A fresh
-  worker `iris-w16-i3b-routing-ios` (branch `w16-i3b-routing-ios`) took #43's code to bisect the regression (History top region
-  blurred and dead to taps after earlier tests; baseline master is 20/20) and fold in #43's review (blocking: `MemoPlayback` rebuilt per
-  `MemoDetailView` init + teardown clearing a shared hook; helper renames). Its PR supersedes #43; close #43 when it merges.
-- **I4** (reply flow per owner verdict, `docs/design/feedback-reply-flow.md`): not started; brief after I3 lands (one xcodebuild worker).
+- **I4** (reply flow per `docs/design/feedback-reply-flow.md`): worker `iris-w16-i4-reply-flow`, branch `w16-i4-reply-flow`, brief
+  `/tmp/iris-w16/i4.md` (agw-review-only rule in it). Then close out: tick PLAN.md Wave 16, **Left behind:** paragraph, stop.
 
 ## Train notes
 
@@ -36,4 +34,6 @@ opens, token registrar re-register race, double Reset tap, stop-timeout tail seg
 S2 (no boot sweep of crash-orphaned asset files, staging in the sqlite adapter); S1 (summary-less alerts use a transcript headline; rollback
 is one-way); S4 (5xx retries can bill a second run, no Idempotency-Key per contract); I2 (unordered History insert channel, eviction on the
 main actor, Undo re-downloads, in-flight download lands after eviction, runner stall sampling needs a workflow step); I3 (second
-`memo.done` while downloading is not auto-spoken; mic rule stale route).
+`memo.done` while downloading is not auto-spoken; a `load()` overlapping a mic-rule pick leaves Settings showing the old choice;
+`playReply` duplicates the speakable rule; route sheet wiring duplicated; owner decision: a finished memo's spoken reply interrupts a
+playing reply and pauses the detail's recording: keep, queue or defer).
