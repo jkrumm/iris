@@ -44,17 +44,22 @@ nonisolated struct MediaDownloader: Sendable {
     let destination = directory.appending(path: name)
     // The cache check runs on the flights' actor, the same one eviction runs on, so a file is either seen before an
     // eviction that was asked for earlier removes it, or not at all.
+    let mark = evictions.mark()
     // An eviction asked for earlier finishes first: no cache hit on a file about to go, no flight it would cancel.
     await evictions.settled(for: name)
     if request.isReusable, await flights.useFile(at: destination) { return destination }
     let session = session
     let directory = directory
     let flights = flights
+    let evictions = evictions
     let key = "\(request.url.absoluteString)|\(name)"
     return try await flights.join(key, name: name) { flight in
       try await Self.download(
         request, to: destination, in: directory, with: session,
-        land: { try await flights.land($0, as: destination, flight: flight, key: key) })
+        land: {
+          try await flights.land(
+            $0, as: destination, flight: flight, key: key, evicted: { evictions.evicted(name, since: mark) })
+        })
     }
   }
 
@@ -120,6 +125,8 @@ nonisolated struct MediaDownloader: Sendable {
     private struct State {
       var next = 0
       var running: [Int: (prefix: String, task: Task<Void, Never>)] = [:]
+      /// The `next` value at the time each prefix was last evicted.
+      var evictedAt: [String: Int] = [:]
     }
     private let state = Mutex(State())
 
@@ -128,6 +135,7 @@ nonisolated struct MediaDownloader: Sendable {
       state.withLock { state in
         let id = state.next
         state.next += 1
+        state.evictedAt[prefix] = state.next
         // Owned by `state` until it finishes; `finish` waits for this lock, so it always runs after the entry exists.
         let task = Task {
           await work()
@@ -136,6 +144,14 @@ nonisolated struct MediaDownloader: Sendable {
         state.running[id] = (prefix, task)
         return task
       }
+    }
+
+    /// A point in time for ``evicted(_:since:)``.
+    func mark() -> Int { state.withLock { $0.next } }
+
+    /// Whether an eviction covering `name` was asked for after `mark`.
+    func evicted(_ name: String, since mark: Int) -> Bool {
+      state.withLock { state in state.evictedAt.contains { name.hasPrefix($0.key) && $0.value > mark } }
     }
 
     private func finish(_ id: Int) {
@@ -190,8 +206,10 @@ nonisolated struct MediaDownloader: Sendable {
     }
 
     /// Moves a finished download into the cache, unless its flight was evicted meanwhile.
-    func land(_ temporary: URL, as destination: URL, flight: UUID, key: String) throws {
-      guard running[key]?.id == flight else { throw CancellationError() }
+    func land(_ temporary: URL, as destination: URL, flight: UUID, key: String, evicted: () -> Bool) throws {
+      // `evicted` is read here, on the actor eviction also runs on: an eviction asked for after the download began either
+      // has not run yet (its scan removes the file just moved) or has (this sees it).
+      guard running[key]?.id == flight, !evicted() else { throw CancellationError() }
       try? FileManager.default.removeItem(at: destination)
       try FileManager.default.moveItem(at: temporary, to: destination)
     }

@@ -204,6 +204,20 @@ struct MediaDownloaderTests {
     _ = again
   }
 
+  @Test("a download that began before an eviction was asked for never lands")
+  func evictionAfterTheDownloadBegan() async throws {
+    defer { try? FileManager.default.removeItem(at: directory) }
+    MediaStub.serve(host: host, .init(status: 200, body: Data("x".utf8)), delay: 0.4)
+    let downloader = downloader()
+    let wanted = try request(reusable: true)
+    async let file = downloader.localURL(for: wanted)
+    try await Task.sleep(for: .milliseconds(100))
+    downloader.evict(memoID: "m1")
+    _ = try? await file
+    await downloader.evictAndWait(memoID: "never")
+    #expect(!FileManager.default.fileExists(atPath: directory.appending(path: "m1.audio.m4a").path))
+  }
+
   @Test("a download still on the wire when its memo is evicted never lands")
   func evictionDuringDownload() async throws {
     defer { try? FileManager.default.removeItem(at: directory) }

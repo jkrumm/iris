@@ -102,7 +102,7 @@ final class SpokenReplies {
         })
       if started {
         spoken.insert(id)
-      } else if wasBusy {
+      } else if wasBusy || isBusy(takesStartedAfter: takesBefore) {
         skip(id)
       } else if !spoken.contains(id) {
         logger.notice("spoken reply not started for \(id, privacy: .public): no speech, or no longer wanted")
