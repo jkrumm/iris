@@ -57,3 +57,7 @@ Run 2026-10-30, iPhone 15, iOS 26.6.1, build `5ecd5c9`. **Verdict: S2 fails on t
 - **Car (S2 step 3, row 5): not run** (no car session). The "built-in mic while connected to the car's Bluetooth" question stays open in TDD §13.
 - `.bluetoothHighQualityRecording` in the EU: not exercised (the phone is German-language, region not checked and probably the EU; no route got far enough to show which Bluetooth profile was used).
 Rerun D2-6 and D2-10 after I7, with the numbered phrases above.
+
+### Re-test after Wave 17 I7 (2026-10-30 evening, build `459a517`, iPhone 15, iOS 26.6.1)
+
+**The crash is gone.** Switching iPhone to AirPods in the app and swapping in the island during one take (memo `d1f19d64`: 88.8 s, 13 segments, transcript continuous across both switches) raised no new crash report. The island swap lagged (the first press looked like nothing, then it switched). Phases 3 to 5 of D2-6 (forced built-in while connected, disconnect) were not run with numbered phrases, and the car (row 5) is still not run, so the questions "built-in mic while connected to the car" and "which Bluetooth profile was used" stay open. Wave 18 I6 logging should record the input format (sample rate, channel count) before and after each route change, which also answers the HFP sample-rate question.
