@@ -15,7 +15,11 @@ final class HistoryModel {
   private(set) var isLoading = false
   private(set) var toast: HistoryToast?
   /// What the last request or the event stream says about the server; Settings' connection row reads it.
-  private(set) var link = ServerLink.unknown
+  private(set) var link = ServerLink.unknown {
+    didSet { linkObservedAt = Date() }
+  }
+  /// When ``link`` was last set; Settings compares it with the time of its own probe, and the newer of the two wins.
+  private(set) var linkObservedAt: Date?
   var filters = HistoryFilters()
   /// Told the id of a memo when the server says it is result-ready (`memo.done`); the app speaks the reply from here.
   var onMemoDone: ((String) -> Void)?
@@ -150,7 +154,8 @@ final class HistoryModel {
   }
 
   /// A request failed: a 401 means the token is wrong, a transport failure (no answer at all) means the server cannot be
-  /// reached; any other failure (a 5xx, a body that does not decode) is an answer, so the server is there and the link stays.
+  /// reached, and so does a gateway 5xx (a proxy page, no contract body); any other failure (the server's own error, a body that
+  /// does not decode) is an answer, so the server is there and the link stays.
   private func note(failure error: any Error) {
     if error is CancellationError { return }
     if error is URLError {
@@ -160,8 +165,15 @@ final class HistoryModel {
     switch error as? APIError {
     case .unauthorized?: link = .rejected
     case .transport?: link = .unreachable
+    case .unexpectedStatus(let status)? where Self.isGatewayFailure(status): link = .unreachable
     default: break
     }
+  }
+
+  /// A 502, 503 or 504 whose body is not the contract's error body comes from a proxy or tunnel in front of the server, which
+  /// is then not answering. (The server's own 5xx carries a JSON body and is an answer.)
+  private static func isGatewayFailure(_ status: Int) -> Bool {
+    [502, 503, 504].contains(status)
   }
 
   func revision(of id: String) -> Int {

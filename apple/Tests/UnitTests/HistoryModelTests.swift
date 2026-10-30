@@ -547,11 +547,27 @@ struct HistoryModelTests {
     await model.load()
     #expect(model.link == .rejected)
 
-    await client.enqueueFailure(.unexpectedStatus(502), for: .listMemos)
+    await client.enqueueFailure(
+      .server(status: 500, body: ErrorBody(error: .unavailable, message: "down")), for: .listMemos)
     await model.load()
-    // A server that answers with an error is there: the link is not reset to unreachable.
+    // A server that answers with its own error is there: the link is not reset to unreachable.
     #expect(model.link == .rejected)
 
+    await model.load()
+    #expect(model.link == .live)
+  }
+
+  @Test("a gateway 5xx without a contract body reads as unreachable, not as a live link")
+  func gatewayFailure() async {
+    await model.load()
+    for status in [502, 503, 504] {
+      await client.enqueueFailure(.unexpectedStatus(status), for: .listMemos)
+      await model.load()
+      #expect(model.link == .unreachable)
+      await model.load()
+      #expect(model.link == .live)
+    }
+    await client.enqueueFailure(.unexpectedStatus(418), for: .listMemos)
     await model.load()
     #expect(model.link == .live)
   }

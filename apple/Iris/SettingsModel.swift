@@ -17,6 +17,8 @@ final class SettingsModel {
   }
 
   private(set) var connection = Connection.checking
+  /// When the health probe behind ``connection`` last got its answer (or failed); nil before the first.
+  private(set) var probedAt: Date?
   private(set) var queue: [QueuedItem] = []
   /// The persistent queue cannot be opened, so new memos are refused until it can (asking again retries).
   private(set) var queueUnavailable = false
@@ -122,6 +124,7 @@ final class SettingsModel {
       self.setAside = setAside
       queueSaveFailure = saveFailure
       connection = health.status == .ok ? .connected : .degraded(health.degraded)
+      probedAt = Date()
     } catch is CancellationError {
       return
     } catch {
@@ -134,6 +137,7 @@ final class SettingsModel {
       self.setAside = setAside
       queueSaveFailure = saveFailure
       connection = .unreachable
+      probedAt = Date()
     }
   }
 }

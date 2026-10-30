@@ -2,6 +2,7 @@ import Foundation
 
 /// The Settings "Server" row: what the saved connection amounts to right now. The health probe (once, when Settings appears)
 /// and the app's live traffic (``ServerLink``) are combined, so "Connected" is never shown for a server the app cannot reach.
+/// Whichever of the two was observed last decides when they disagree.
 struct ConnectionStatusLine: Equatable {
   enum Tone: Equatable {
     case good, warn, bad, muted
@@ -12,7 +13,11 @@ struct ConnectionStatusLine: Equatable {
   let hint: String?
   let tone: Tone
 
-  init(connection: SettingsModel.Connection, link: ServerLink) {
+  init(
+    connection: SettingsModel.Connection, link observed: ServerLink, probedAt: Date? = nil, linkObservedAt: Date? = nil
+  ) {
+    // A probe answered after the last traffic observation is the fresher word: the traffic is then not weighed against it.
+    let link = (probedAt ?? .distantPast) > (linkObservedAt ?? .distantPast) ? ServerLink.unknown : observed
     switch (connection, link) {
     case (.notConfigured, _):
       self.init(

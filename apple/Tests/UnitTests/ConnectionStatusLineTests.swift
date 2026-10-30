@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 
 @testable import Iris
@@ -26,6 +27,29 @@ struct ConnectionStatusLineTests {
   func staleProbe() {
     #expect(ConnectionStatusLine(connection: .unreachable, link: .live).title == "Connected")
     #expect(ConnectionStatusLine(connection: .unreachable, link: .unknown).hint != nil)
+  }
+
+  @Test("whichever of the probe and the traffic was observed last decides")
+  func recency() {
+    let earlier = Date(timeIntervalSince1970: 1_000)
+    let later = Date(timeIntervalSince1970: 2_000)
+
+    // The probe answered after the stream last said unreachable.
+    let recovered = ConnectionStatusLine(
+      connection: .connected, link: .unreachable, probedAt: later, linkObservedAt: earlier)
+    #expect(recovered.title == "Connected")
+    // The stream dropped after the probe answered.
+    let dropped = ConnectionStatusLine(
+      connection: .connected, link: .unreachable, probedAt: earlier, linkObservedAt: later)
+    #expect(dropped.title == "Unreachable")
+    // The probe failed after traffic last got an answer.
+    let failed = ConnectionStatusLine(
+      connection: .unreachable, link: .live, probedAt: later, linkObservedAt: earlier)
+    #expect(failed.title == "Unreachable")
+    // Traffic got an answer after the probe failed.
+    let healed = ConnectionStatusLine(
+      connection: .unreachable, link: .live, probedAt: earlier, linkObservedAt: later)
+    #expect(healed.title == "Connected")
   }
 
   @Test("nothing saved is not a reachability question")
