@@ -47,6 +47,15 @@ final class TakeModel {
 
   var isPaused: Bool { state.phase == .paused }
 
+  /// Any take holds the microphone (starting, recording, paused or stopping), a thread's hold-to-talk included, unlike
+  /// ``isActive``. A spoken reply waits for it.
+  var isCapturing: Bool {
+    switch state.phase {
+    case .starting, .recording, .paused, .stopping: true
+    case .idle, .failed: false
+    }
+  }
+
   /// Whether a new take can start (a server is saved, a recorder exists, none runs).
   var canStart: Bool { controller.canStart && state.phase == .idle }
 

@@ -23,11 +23,12 @@ struct SpokenRepliesTests {
 
   private func replies(
     on: Bool = true, store: InMemorySpokenRepliesStore? = nil,
-    createdHere: @escaping (String) async -> Bool = { _ in true }
+    createdHere: @escaping (String) async -> Bool = { _ in true },
+    isRecording: @escaping () -> Bool = { false }
   ) -> SpokenReplies {
     SpokenReplies(
       store: store ?? InMemorySpokenRepliesStore(on), speech: speech, client: client, media: { FakeMediaSource() },
-      createdHere: createdHere)
+      createdHere: createdHere, isRecording: isRecording)
   }
 
   private func seed(_ id: String = "m", state: MemoState = .notified, replyText: String? = "Alles notiert.") async {
@@ -81,7 +82,7 @@ struct SpokenRepliesTests {
     // Another reply is loading: the player takes none. Simulated by a source without speech for the first attempt.
     let replies = SpokenReplies(
       store: InMemorySpokenRepliesStore(true), speech: speech, client: client,
-      media: { SilentSource.shared.next() }, createdHere: { _ in true })
+      media: { SilentSource.shared.next() }, createdHere: { _ in true }, isRecording: { false })
     await replies.memoDone(id: "m")
     #expect(speech.memoID == nil)
     await replies.memoDone(id: "m")
@@ -107,5 +108,73 @@ struct SpokenRepliesTests {
     replies.isOn = true
     #expect(store.load())
     #expect(self.replies(store: store).isOn)
+  }
+
+  // MARK: Busy: a spoken reply waits, never interrupts
+
+  @Test("a reply that is playing is not interrupted, and the newcomer is never spoken later")
+  func playingReplyIsNotInterrupted() async {
+    await seed("playing")
+    await seed("newcomer")
+    let replies = replies()
+    await replies.memoDone(id: "playing")
+    #expect(speech.isPlaying("playing"))
+    await replies.memoDone(id: "newcomer")
+    #expect(speech.isPlaying("playing"))
+    #expect(speech.memoID == "playing")
+    // Skipped for good: neither a repeated `memo.done` nor the player going quiet speaks it.
+    speech.pause()
+    await replies.memoDone(id: "newcomer")
+    #expect(speech.memoID == "playing" && !speech.isPlaying("newcomer"))
+    speech.stop()
+  }
+
+  @Test("a take that records blocks the spoken reply and is left alone")
+  func recordingTake() async {
+    await seed()
+    var recording = true
+    let replies = replies(isRecording: { recording })
+    await replies.memoDone(id: "m")
+    #expect(speech.memoID == nil && !speech.player.isLoaded)
+    // Not queued: once the take is over the same memo still does not speak.
+    recording = false
+    await replies.memoDone(id: "m")
+    #expect(speech.memoID == nil)
+  }
+
+  @Test("the open detail's recording keeps playing and the reply is skipped")
+  func recordingPlayback() async {
+    await seed()
+    var paused = 0
+    let owner = NSObject()
+    speech.bindRecording(owner: owner, isPlaying: { true }, pause: { paused += 1 })
+    await replies().memoDone(id: "m")
+    #expect(paused == 0)
+    #expect(speech.memoID == nil)
+    speech.unbindRecording(owner: owner)
+  }
+
+  @Test("a take that starts while the speech downloads cancels the start and skips the memo")
+  func takeStartsMidDownload() async {
+    await seed()
+    // The first `isRecording` read is the early check, the second the re-check after the fetch; the third is `shouldPlay`.
+    var reads = 0
+    let replies = replies(isRecording: {
+      reads += 1
+      return reads >= 3
+    })
+    await replies.memoDone(id: "m")
+    #expect(!speech.isPlaying("m"))
+    reads = 0
+    await replies.memoDone(id: "m")
+    #expect(reads == 0, "marked as skipped, so the repeat returns before looking at anything")
+  }
+
+  @Test("idle: nothing plays and no take records, so the reply speaks as before")
+  func idleSpeaks() async {
+    await seed()
+    await replies(isRecording: { false }).memoDone(id: "m")
+    #expect(speech.isPlaying("m"))
+    speech.stop()
   }
 }
