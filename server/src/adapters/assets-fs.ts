@@ -1,4 +1,4 @@
-import { readdir, readFile, rm } from "node:fs/promises";
+import { readdir, readFile, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 import type { AssetStore } from "../ports/assets.js";
 import { writeAtomic } from "./fs-atomic.js";
@@ -35,6 +35,39 @@ export function createFsAssetStore(dir: string): AssetStore {
     },
     async remove({ memoId, assetIds }) {
       await Promise.all(assetIds.map((assetId) => rm(fileOf(memoId, assetId), { force: true })));
+    },
+    async listMemos() {
+      let entries;
+      try {
+        entries = await readdir(dir, { withFileTypes: true });
+      } catch (err) {
+        if (missing(err)) return [];
+        throw err;
+      }
+      const memos = await Promise.all(
+        entries
+          .filter((entry) => entry.isDirectory() && SAFE_ID.test(entry.name))
+          .map(async ({ name }) => {
+            // A directory that vanishes between the two calls is not a memo to sweep.
+            const changed = await stat(join(dir, name)).then(
+              (info) => info.mtimeMs,
+              () => null,
+            );
+            return changed === null ? null : { name, changed };
+          }),
+      );
+      return memos
+        .filter((memo) => memo !== null)
+        .sort((a, b) => b.changed - a.changed)
+        .map((memo) => memo.name);
+    },
+    async list(memoId) {
+      try {
+        return await readdir(memoDir(memoId));
+      } catch (err) {
+        if (missing(err)) return [];
+        throw err;
+      }
     },
     async prune({ memoId, keep }) {
       let names: string[];

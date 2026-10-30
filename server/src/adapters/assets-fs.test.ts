@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createFsAssetStore } from "./assets-fs.js";
@@ -61,5 +61,26 @@ describe("fs AssetStore", () => {
     await writeFile(join(dir, memoId), "not a directory");
     await expect(store.read({ memoId, assetId: a })).rejects.toThrow();
     await expect(store.prune({ memoId, keep: new Set() })).rejects.toThrow();
+  });
+});
+
+describe("fs AssetStore listing", () => {
+  it("lists memo directories, newest change first, and ignores strays", async () => {
+    const store = createFsAssetStore(dir);
+    const other = "7c9e6679-7425-40de-944b-e07fc1f90ae7";
+    await store.put({ memoId, assetId: a, bytes: new Uint8Array([1]) });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    await store.put({ memoId: other, assetId: b, bytes: new Uint8Array([2]) });
+    await writeFile(join(dir, "stray.txt"), "x");
+    await mkdir(join(dir, "not an id"));
+
+    expect(await store.listMemos()).toEqual([other, memoId]);
+    expect(await store.list(memoId)).toEqual([a]);
+  });
+
+  it("lists nothing for a missing directory or an unknown memo", async () => {
+    const store = createFsAssetStore(join(dir, "never-created"));
+    expect(await store.listMemos()).toEqual([]);
+    expect(await store.list(memoId)).toEqual([]);
   });
 });
