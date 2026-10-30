@@ -953,7 +953,8 @@ pinned simulator in light and dark (`LiveActivitySnapshotTests`, the island thro
     `DetailSectionLabel`, `detailCard`, `RouteChip`) over `MacMemoDetailModel`: steps with the stats baselines, transcript and
     reply with Copy as plain text, retry from the waterfall. Not yet: the recording and spoken-reply players (the iOS `MemoPlayer`
     configures an `AVAudioSession`, which macOS does not have) and the route sheet for a parked memo.
-  - *Live updates:* the list and `HistoryModel.observeEvents()` start at launch, whether or not the popover was ever opened, and
+  - *Live updates:* the list and `HistoryModel.observeEvents()` start at launch, independently of each other (a hung first list
+    request does not hold the stream back; its `ready` event reloads the list), whether or not the popover was ever opened, and
     restart on a connection change. The list reloads on every stream reconnect.
   - *Notifications:* only a live `memo.done` from the open stream is announced. **Known limit:** a memo that finished while the
     stream was down (the stream has no replay) is not announced; it shows in the list after the reload. `MemoNotifier` fetches the
@@ -965,8 +966,10 @@ pinned simulator in light and dark (`LiveActivitySnapshotTests`, the island thro
     side: an unanswered prompt holds neither History nor the stream, and finished memos wait on it.
   - *Connection change:* the connection gets its own client and a new `HistoryModel`; the notifier is cleared (every event and
     fetch carries the notifier's generation from when it started and re-checks it after each await, so a task of the old server
-    posts and records nothing); a banner carries its connection id and a click after a switch is ignored; queued row actions of
-    the old list are dropped (`MacCompositionRoot.perform`); the detail window closes and following restarts.
+    posts and records nothing); a banner carries its connection id (a digest of the server URL and token, so it survives an app restart
+    and changes only with the saved connection) and a click on a banner of another connection is ignored; queued row actions of
+    the old list are dropped, and the actions on one memo run in tap order, each on the memo as it is then, so the last tap wins on the server
+    (`MacCompositionRoot.perform`); the detail window closes and following restarts.
   - *Open detail:* reloads on each `memo.updated` and on every stream `ready` (`StreamTappingClient`; a list request that
     succeeds during an outage does not count), and a response overtaken by a newer load is dropped.
   - *Proof:* a menu-bar popover cannot be opened without a click and the mini has no Screen Recording grant, so
