@@ -36,7 +36,7 @@ struct RouteConfigReviewView: View {
           RouteConfigAudioView(micRules: micRules)
         } label: {
           Label {
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: Theme.Spacing.hair) {
               Text(verbatim: micRules.routeTitle)
               Text(verbatim: micSummary)
                 .themeFont(.footnote)
@@ -82,7 +82,7 @@ private struct RouteConfigDestinationRow: View {
         .foregroundStyle(Theme.Accent.tint)
         .frame(width: 24)
         .accessibilityHidden(true)
-      VStack(alignment: .leading, spacing: 2) {
+      VStack(alignment: .leading, spacing: Theme.Spacing.hair) {
         Text(verbatim: destination.title)
         Text(verbatim: destination.summary)
           .themeFont(.footnote)

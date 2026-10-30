@@ -35,7 +35,7 @@ public struct MicRuleList: View {
     VStack(alignment: .leading, spacing: 0) {
       VStack(alignment: .leading, spacing: Theme.Spacing.hair) {
         Text(verbatim: routeTitle)
-          .themeFont(.callout, weight: .semibold)
+          .themeFont(.subheadline, weight: .semibold)
           .foregroundStyle(Theme.Ink.primary)
         Text(verbatim: routeCaption)
           .themeFont(.footnote)
@@ -56,7 +56,7 @@ public struct MicRuleList: View {
                 .accessibilityHidden(true)
             }
           }
-          .themeFont(.callout)
+          .themeFont(.subheadline)
           .padding(.vertical, Theme.Spacing.sm)
           .contentShape(.rect)
         }

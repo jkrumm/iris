@@ -62,7 +62,7 @@ struct RouteConfigDestinationView: View {
           Image(systemName: "rectangle.on.rectangle")
             .foregroundStyle(Theme.Ink.muted)
             .accessibilityHidden(true)
-          VStack(alignment: .leading, spacing: 2) {
+          VStack(alignment: .leading, spacing: Theme.Spacing.hair) {
             Text(verbatim: tab.label)
             Text(verbatim: tab.repo)
               .themeFont(.footnote)
