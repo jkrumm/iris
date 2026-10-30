@@ -29,6 +29,9 @@ xcrun devicectl device capture screenshot --device $D --destination out.png   # 
 - Screenshots (ran): `make device-screenshot NAME=x` shows the app, the home screen, the Lock Screen with its Live Activity cards and the Dynamic Island, but only while the display is on: a sleeping phone gives a black frame
   (`process launch` fails with `Locked` then). Anything on screen is captured, a call included: look at each frame and delete one with personal content. The owner ends a take before clicking `ask-human` Run, so
   screenshot in a loop while the dialog is open (a new memo in `GET /v1/memos` ~10 s after the start says a take is running) instead of once after the click.
+- Crash reports (ran): `devicectl device info files --device $D --domain-type systemCrashLogs | grep '^Iris-'`, then `devicectl device copy from ... --domain-type systemCrashLogs --source Iris-<time>.ips --destination .artifacts/`;
+  the `.ips` is a JSON header line plus a JSON body (`jq`: `.lastExceptionBacktrace`, `.threads[.faultingThread].frames`, `.termination`). Also readable: `capture/quarantine/` and `outbox.json` of the app container.
+- Owner steps are German (his phone is German; iOS settings by their German path, `docs/design/feedback-device-1.md` §9). Keep a step short, one action group per dialog. `sips -c` crops from the centre: add `--cropOffset 0 0` for the status bar.
 - Read-only phone state (ran): `devicectl device info processes|apps|files|displays`, `device copy from --domain-type appDataContainer --domain-identifier com.jkrumm.iris --source 'Library/Application Support/Iris/outbox.json'`.
   `info lockState` gives only `passcodeRequired` / `unlockedSinceBoot`.
 - `GET /v1/memos` lists memos parked at `needs_route` under `pinned`, not `items`: read both.

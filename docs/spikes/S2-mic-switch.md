@@ -49,6 +49,11 @@ the screenshots are the evidence and the missing dump is a finding (the `Logger`
    If the OS refuses the preferred input (the app still reports the car), the limitation is the finding and TDD §13's "undocumented" line becomes "refused on iOS 26.6.1".
 
 ## Findings
-_Not run_ (2026-10-30, iPhone 15, iOS 26.6.1). D2-6 (AirPods) and D2-10 (car) waited for the owner, who was in calls and did not answer the start question within ten minutes; a ten-minute timeout is "not run", not a fail.
-What the day showed that matters here: the island's mic swap could not be reached (stale Processing activities held the island, then Resume failed, see S1 findings failures 2 and 3), and the in-app mic chip showed `iPhone-Mikrofon` as the only input with no AirPods connected.
-S2 stays open; rerun D2-6 and D2-10 after I7 and I8, with the phase-by-phase numbered sentences above.
+
+Run 2026-10-30, iPhone 15, iOS 26.6.1, build `5ecd5c9`. **Verdict: S2 fails on the phone side and the car is not run.**
+- **AirPods in mid-take do not switch the input.** The owner put the AirPods in during a take: the chip stayed on `iPhone-Mikrofon`; the sheet listed both inputs (`iPhone-Mikrofon`, <AirPods name>, `d2-6-mic-05.png`), so `availableInputs` updates live. A take started with the AirPods already connected picked them (chip <AirPods name>, `d2-8b-prekill.png`).
+- **Switching to the AirPods mid-take crashes the app** (memo `0cbda45f`: 34.1 s up to the pick, nothing after; the Live Activity stayed and the app was gone on reopen). Crash report `.artifacts/Iris-2026-10-30-142452.ips`: SIGABRT from an uncaught `NSException` thrown by `-[AVAudioNode installTapOnBus:bufferSize:format:block:]`, reached through `AVAudioEngineSegmentRecorder.handleConfigurationChange()` -> `installTapAndStartEngine(sink:)` -> `EngineStartup.bringUp` -> `installTap(on:format:converter:target:sink:)`. A second abort with the same stack came on tapping Record with the AirPods connected (14:39, `Iris-2026-10-30-143927.ips`, no memo: the take died before its first segment closed). The usual cause of that exception is a tap format whose sample rate no longer matches the node's (the AirPods' HFP route); proposed fix (I7): read the node's current format after the configuration change, refuse a zero sample rate or channel count, never let `installTap` throw an Objective-C exception (validate first), and on failure move the take to `failed` where the user sees it.
+- Phases 3 to 5 (forced built-in while connected, back, disconnect) were therefore not reachable; island mic swap likewise.
+- **Car (S2 step 3, row 5): not run** (no car session). The "built-in mic while connected to the car's Bluetooth" question stays open in TDD §13.
+- `.bluetoothHighQualityRecording` in the EU: not exercised (the phone is German-language, region not checked and probably the EU; no route got far enough to show which Bluetooth profile was used).
+Rerun D2-6 and D2-10 after I7, with the numbered phrases above.

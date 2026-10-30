@@ -677,10 +677,15 @@ the runner needs a workflow step and was left out of this change (owned files: `
   - interruptions: iOS 27 `didBecomeInactive` / `resumptionRecommendation`, iOS 26
     `AVAudioSession.interruptionNotification` (what the iOS 26.6.1 test phone runs;
     `AVAudioSessionAdapters.swift`). The take pauses (a segment boundary) and
-    resumes. **Device (Wave 17 D2): a resume with the app in the background, or
-    after a lock, failed ("engine resume failed"), the take screen kept counting and
-    the audio after it was lost (memos with 41 s and 18 s on the server); the fix is
-    Wave 17 I7.**
+    resumes. **Device (Wave 17 D2, iPhone 15, iOS 26.6.1): a Siri interruption mid-take
+    paused and resumed cleanly (the `interruptionNotification` branch works), but
+    three other paths lost audio and, in the first, left the UI saying RECORDING:
+    a resume with the app in the background and one lock case ("engine resume
+    failed"), a stop that hit a 10 s scene-update watchdog, and an uncaught
+    `NSException` from `installTap` inside `handleConfigurationChange()` (a route
+    change to the AirPods, or a start with them connected), which aborts the app.
+    The fixes are Wave 17 I7: build the tap format from the node's current format,
+    never let `installTap` throw, put a failed recorder where the user sees it.**
 - **`RouteManager`:**
   - lists `availableInputs`, applies `setPreferredInput` after activation, and
     reads back `currentRoute`;
@@ -692,7 +697,7 @@ the runner needs a workflow step and was left out of this change (owned files: `
     16 kHz mono, about 32 kbps);
   - rotates files every 10 s of frames, on a mic switch, and on an
     interruption;
-  - each closed file goes to the `Outbox`;
+  - each closed file goes to the `Outbox`; a segment still open when the app dies or the recorder fails stays an unfinalised m4a (no `moov` atom, ffprobe cannot read it), which the startup sweep quarantines (Wave 17 D2: three such files, a few seconds of audio each; a crash-safe container is the fix);
   - a level meter is fed from tap RMS;
   - an engine configuration change restarts the engine and starts a new
     segment.
@@ -1095,8 +1100,9 @@ the `IrisCore` dependency when R1 wires them together.
 | Risk | Plan |
 |-|-|
 | A Live Activity start from a control intent may need the foreground (one forum report) | S1 (Wave 17 D2, iOS 26.6.1): the control starts nothing at all, with no visible error; not yet the "needs the foreground" refusal, more likely the missing handler in the extension process. I8 fixes it or takes the fallback `openAppWhenRun` + auto-start, accepted by the PRD |
-| Built-in mic while connected to the car's Bluetooth is undocumented | S2 on hardware; not run in Wave 17 D2 (no car, no AirPods run), still open |
-| An audio engine cannot restart in the background | Device (Wave 17 D2): resume from the island and after a lock failed with "engine resume failed" and the UI kept counting; the take lost its audio (I7) |
+| Built-in mic while connected to the car's Bluetooth is undocumented | S2 on hardware; Wave 17 D2: the AirPods switch crashes the app before the car question can be asked, the car was not run, still open |
+| An audio engine cannot restart in the background | Device (Wave 17 D2): resume from the island and one lock case failed with "engine resume failed" and the UI kept counting; a route change to the AirPods (or a start with them connected) aborts the app with an uncaught `NSException` in `installTap`; the take loses its open segment (I7) |
+| A segment open at a crash is unreadable | Device (Wave 17 D2): three quarantined segments have no `moov` atom; the "at most 10 s lost" holds but the seconds are gone; a crash-safe segment container |
 | Live Activities are server-owned after the hand-over | Without APNs (Personal Team) they stay on "Processing" and hijack the island; I8, and the paid team's pushes must be re-checked in D3 |
 | TTS playback from a Live Activity intent while the app is suspended | S3; fall back to opening the app |
 | Bun `node:http2` over-dispatch to APNs | Cap in-flight streams (D6); Bun 1.3.14's HTTP/2 `fetch` as a fallback |
