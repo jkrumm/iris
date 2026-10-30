@@ -8,9 +8,9 @@ on:
     paths: ["apple/**", "contracts/**", ".swift-format", "Makefile", ".github/workflows/apple.yml"]
   workflow_dispatch:
 
-# A new push to a PR cancels its stale run; master runs (push) and manual dispatches always finish.
+# A new push to a PR cancels its stale run. Other events get a group per commit, so master runs and dispatches never cancel or displace each other.
 concurrency:
-  group: apple-${{ github.ref }}
+  group: apple-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -44,4 +44,4 @@ jobs:
           path: |
             apple/.dd.noindex/Logs/Test
             apple/Packages/IrisUI/.dd.noindex/Logs/Test
-          if-no-files-found: ignore
+          if-no-files-found: warn
