@@ -24,7 +24,14 @@ xcrun devicectl device capture screenshot --device $D --destination out.png   # 
   Do not rename bundle ids (10 App IDs per 7 days). Install over the same bundle id keeps the app's data (Keychain, outbox).
 - First install: iOS refuses to launch until the developer is trusted on the phone (Settings > General > VPN & Device Management); that is an owner step.
 - `pymobiledevice3` **does not work** here: `usbmux list` is empty (the phone is on a network tunnel) and an RSD tunnel needs root. Use `devicectl`.
-- Logs: `os.Logger` subsystem `com.jkrumm.iris`; no headless route found yet (`pymobiledevice3 syslog live` needs the tunnel; **unverified**).
+- Logs: `os.Logger` subsystem `com.jkrumm.iris`; **no headless route** (ran 2026-10-30): `/usr/bin/log collect --device*` says "Must be root to collect logs from attached device" (`log` is a zsh builtin: use the full
+  path), `devicectl device sysdiagnose` fails with `DiagnoseError`, `--console` shows stdout only, `pymobiledevice3` has no tunnel. Evidence is screenshots, the take's own transcript and the server memo.
+- Screenshots (ran): `make device-screenshot NAME=x` shows the app, the home screen, the Lock Screen with its Live Activity cards and the Dynamic Island, but only while the display is on: a sleeping phone gives a black frame
+  (`process launch` fails with `Locked` then). Anything on screen is captured, a call included: look at each frame and delete one with personal content. The owner ends a take before clicking `ask-human` Run, so
+  screenshot in a loop while the dialog is open (a new memo in `GET /v1/memos` ~10 s after the start says a take is running) instead of once after the click.
+- Read-only phone state (ran): `devicectl device info processes|apps|files|displays`, `device copy from --domain-type appDataContainer --domain-identifier com.jkrumm.iris --source 'Library/Application Support/Iris/outbox.json'`.
+  `info lockState` gives only `passcodeRequired` / `unlockedSinceBoot`.
+- `GET /v1/memos` lists memos parked at `needs_route` under `pinned`, not `items`: read both.
 - Connecting the app: no launch-argument route (no backdoor); the owner types the server URL and the `iphone` device token in Settings > Connection once
   (ran 2026-10-30; a typed memo reached `done`, see the checklist). The tailnet VPN must be on, or Safari shows `NOT_FOUND` and the app "Could not load memos".
   `op://mini/iris/device-tokens` holds every device as `token=device,...`: the owner needs only the part before `=iphone`, which is easy to get wrong and
@@ -32,6 +39,6 @@ xcrun devicectl device capture screenshot --device $D --destination out.png   # 
   Never print the token, never put it in an `ask-human.sh` message. The Settings "Connected" label only means configured; check reachability with History/Stats loading.
   A memo from the phone shows up in `GET /v1/memos` (skill `memo-debug`); an unreachable server leaves it in the outbox ("Retry in N minutes", Settings).
 - The phone must be unlocked for `launch` (`Locked` error otherwise); install works locked.
-- `ask-human.sh ask '…' --cmd true` answers `done` in the same second as the push (seen three times on 2026-10-30): a Run/Deny reply is not proof the
+- `ask-human.sh ask '…' --cmd true --wait N`: exit 0 Run, 1 Deny, 75 unanswered (a timeout is "not run"). It answers `done` in the same second as the push (seen three times on 2026-10-30): a Run/Deny reply is not proof the
   owner did the step. Verify the effect yourself (a launch that works, a screenshot) before relying on it.
 - Report each checklist row as pass/fail with the date, device model and iOS version, and append it to the checklist file.
