@@ -52,7 +52,7 @@ Never start dev servers for a human to look at; simulators are fine, shut them d
 - `server/src/app.ts` — `createApp({deviceTokens, memos, stats?, degraded?, sseKeepaliveMs?})`: mounts routes, no env/fs.
 - `server/src/index.ts` — entry point: SQLite, audio-fs, runner, service, then `compose()` for the downstream ports,
   listen, background `driveAll`, signals, DB close, OTel flush.
-- `server/src/memo/` — domain: `memo.ts` (states, steps, transitions), `store.ts` (port), `runner.ts`
+- `server/src/memo/` — domain: `memo.ts` (states, steps, transitions, `RoutableMode` / `isRoutableMode`: the modes with a route step, i.e. all but `transcribe`), `store.ts` (port), `runner.ts`
   (idempotent step runner, concurrency-bounded `driveAll`, `idle()`), `service.ts` (`MemoService`, what HTTP calls), `media.ts`
   (`MemoMedia`: the combined recording and the spoken result, both disk-cached and single-flight), `speech-text.ts` (`speechVariant`: the markdown-free, length-capped text `/speech` synthesizes, TDD §3), `events.ts` (in-process
   pub/sub), `purge.ts` (the purger: removes soft-deleted memos' files and rows after the 10-minute undo window), `errors.ts` (`MemoError` codes, `configured()` for optional subsystems), `test-support.ts` (fake audio, seeded and parked memos).

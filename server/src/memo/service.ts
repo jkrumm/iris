@@ -10,6 +10,7 @@ import {
   isCorrectable,
   isDeletable,
   isResultReady,
+  isRoutableMode,
   isTyped,
   MEMO_MODES,
   type Memo,
@@ -211,7 +212,7 @@ export function createMemoService(deps: {
 
   /** A thread continues in Hermes, which a transcribe-only memo never reaches. */
   const assertNoThreadInTranscribe = (params: { mode: MemoMode; threadId: string | undefined }) => {
-    if (params.mode === "transcribe" && params.threadId !== undefined) {
+    if (!isRoutableMode(params.mode) && params.threadId !== undefined) {
       throw new MemoError("bad_request", "mode transcribe cannot continue a thread");
     }
   };
@@ -363,7 +364,7 @@ export function createMemoService(deps: {
       const memo = mustGet(id);
       assertLive(memo);
       // Like a typed memo's retry from transcribe: the request names something this memo does not have.
-      if (memo.mode === "transcribe") {
+      if (!isRoutableMode(memo.mode)) {
         throw new MemoError("bad_request", "a transcribe memo has no route to answer or correct");
       }
       const isAnswer = memo.state === "needs_route";

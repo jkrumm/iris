@@ -3,6 +3,8 @@ import {
   advance,
   IllegalTransitionError,
   isResultReady,
+  isRoutableMode,
+  MEMO_MODES,
   isTerminal,
   MEMO_STATES,
   nextStep,
@@ -72,6 +74,15 @@ describe("helpers", () => {
 
   it("stepsFrom lists the step and everything after it", () => {
     expect(stepsFrom("act")).toEqual(["act", "summarize", "notify"]);
+  });
+});
+
+describe("RoutableMode", () => {
+  it("is every mode but transcribe, and decides which modes have the route, act and summarize steps", () => {
+    expect(MEMO_MODES.filter(isRoutableMode)).toEqual(["auto", "journal", "hermes", "tab", "chat"]);
+    for (const mode of MEMO_MODES) {
+      expect(stepsOf(mode).includes("route")).toBe(isRoutableMode(mode));
+    }
   });
 });
 

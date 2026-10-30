@@ -2,6 +2,7 @@ import { createKeyedQueue } from "../memo/keyed-queue.js";
 import {
   continuedThread,
   type HandlerStep,
+  isRoutableMode,
   type Memo,
   type RouteDecisionInput,
   type Summary,
@@ -152,6 +153,8 @@ export function createStepHandlers(deps: {
   if (registered.length > 0) {
     handlers.route = async ({ memo }) => {
       const transcript = required(memo.transcript, "transcript", "route");
+      // The pipeline of a transcribe-only memo has no route step; reaching here is a bug, not a decision to park.
+      if (!isRoutableMode(memo.mode)) throw new Error(`route: mode ${memo.mode} has no route step`);
       // A reply into a thread goes to the Hermes session that holds it, whatever the mode or the words say.
       const decision: RouteDecision = continuedThread(memo)
         ? continuationRoute(registered)
