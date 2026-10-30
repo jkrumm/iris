@@ -8,6 +8,7 @@ import { createMemoEvents } from "../memo/events.js";
 import { createRunner } from "../memo/runner.js";
 import { createMemoService } from "../memo/service.js";
 import { fakeAudio, seedMemo } from "../memo/test-support.js";
+import type { StepHandler } from "../memo/runner.js";
 import { manualClock } from "../ports/clock.js";
 import { parseDeviceTokens } from "./auth.js";
 import { call, fakeHandlers, PHONE, TOKENS, testApp } from "./test-support.js";
@@ -84,6 +85,156 @@ describe("memo lifecycle over HTTP", () => {
     );
     expect(page2.items.map((m) => m.id)).toEqual([id]);
     expect(page2.nextCursor).toBeNull();
+  });
+});
+
+describe("mode transcribe over HTTP", () => {
+  const START = "2026-01-01T00:00:00.000Z";
+
+  it("ends notified after transcribe and notify alone, with the transcript and no route", async () => {
+    const ran: string[] = [];
+    const record =
+      (step: string, patch?: { transcript: string }): StepHandler =>
+      async () => {
+        ran.push(step);
+        return patch ? { patch } : {};
+      };
+    const { app } = testApp({
+      handlers: {
+        transcribe: record("transcribe", { transcript: "buy milk and call the dentist" }),
+        route: record("route"),
+        act: record("act"),
+        summarize: record("summarize"),
+        notify: record("notify"),
+      },
+    });
+    const id = crypto.randomUUID();
+    expect(
+      (
+        await call(app, {
+          method: "POST",
+          path: "/v1/memos",
+          json: { id, mode: "transcribe", startedAt: START },
+        })
+      ).status,
+    ).toBe(201);
+    await call(app, {
+      method: "PUT",
+      path: `/v1/memos/${id}/segments/0`,
+      headers: { ...PHONE, "content-type": "audio/mp4" },
+      body: bytes(),
+    });
+    await call(app, {
+      method: "POST",
+      path: `/v1/memos/${id}/complete`,
+      json: { segmentCount: 1 },
+    });
+
+    const result = await call(app, { path: `/v1/memos/${id}/result?wait=5` });
+    expect(result.status).toBe(200);
+    expect(await json(result)).toMatchObject({
+      id,
+      mode: "transcribe",
+      state: "notified",
+      transcript: "buy milk and call the dentist",
+      route: null,
+      replyText: null,
+      summary: null,
+    });
+    expect(ran).toEqual(["transcribe", "notify"]);
+    const detail = await json(await call(app, { path: `/v1/memos/${id}` }));
+    expect(detail.steps.map((s) => [s.step, s.status])).toEqual([
+      ["transcribe", "done"],
+      ["notify", "done"],
+    ]);
+  });
+
+  it("ends a typed memo at once: the text is the transcript, only notify runs", async () => {
+    const ran: string[] = [];
+    const { app } = testApp({
+      handlers: {
+        ...fakeHandlers,
+        route: async () => {
+          ran.push("route");
+          return {};
+        },
+        notify: async () => {
+          ran.push("notify");
+          return {};
+        },
+      },
+    });
+    const id = crypto.randomUUID();
+    const created = await call(app, {
+      method: "POST",
+      path: "/v1/memos/text",
+      json: { id, mode: "transcribe", startedAt: START, text: "  just keep this  " },
+    });
+    expect(created.status).toBe(202);
+    const result = await call(app, { path: `/v1/memos/${id}/result?wait=5` });
+    expect(await json(result)).toMatchObject({
+      state: "notified",
+      transcript: "just keep this",
+      typed: true,
+      route: null,
+    });
+    expect(ran).toEqual(["notify"]);
+  });
+
+  it("refuses to continue a thread and a retry from a step it does not have", async () => {
+    const { app } = testApp({ handlers: fakeHandlers });
+    const threaded = await call(app, {
+      method: "POST",
+      path: "/v1/memos/text",
+      json: {
+        id: crypto.randomUUID(),
+        mode: "transcribe",
+        startedAt: START,
+        text: "x",
+        threadId: "t",
+      },
+    });
+    expect(threaded.status).toBe(400);
+    expect(await json(threaded)).toMatchObject({ error: "bad_request" });
+  });
+
+  it("retries a failed notify back to transcribed, not to a summarized state it never had", async () => {
+    let fail = true;
+    const { app } = testApp({
+      handlers: {
+        ...fakeHandlers,
+        notify: async () => {
+          if (fail) throw new Error("apns down");
+          return {};
+        },
+      },
+    });
+    const id = crypto.randomUUID();
+    await call(app, {
+      method: "POST",
+      path: "/v1/memos/text",
+      json: { id, mode: "transcribe", startedAt: START, text: "keep" },
+    });
+    expect(await json(await call(app, { path: `/v1/memos/${id}/result?wait=5` }))).toMatchObject({
+      state: "failed",
+      failedStep: "notify",
+    });
+    fail = false;
+    const retried = await call(app, {
+      method: "POST",
+      path: `/v1/memos/${id}/retry`,
+      json: { from: "notify" },
+    });
+    expect(retried.status).toBe(202);
+    expect(await json(await call(app, { path: `/v1/memos/${id}/result?wait=5` }))).toMatchObject({
+      state: "notified",
+    });
+    const bad = await call(app, {
+      method: "POST",
+      path: `/v1/memos/${id}/retry`,
+      json: { from: "act" },
+    });
+    expect(bad.status).toBe(400);
   });
 });
 

@@ -218,6 +218,27 @@ struct FixtureConformanceTests {
     #expect(!encoded.contains("\"typed\""))
   }
 
+  @Test("a transcribe memo ends notified with a transcript, no route, reply or summary, and two steps")
+  func transcribeFixture() throws {
+    let decoder = IrisJSON.makeDecoder()
+    let detail = try decoder.decode(MemoDetail.self, from: Contracts.fixtureData("memos.detail.response.transcribe"))
+    #expect(detail.memo.mode == .transcribe)
+    #expect(detail.memo.state == .notified)
+    #expect(detail.memo.transcript != nil)
+    #expect(detail.memo.route == nil)
+    #expect(detail.memo.replyText == nil)
+    #expect(detail.memo.summary == nil)
+    #expect(detail.steps.map(\.step) == [.transcribe, .notify])
+
+    let create = try decoder.decode(
+      CreateMemoRequest.self, from: Contracts.fixtureData("memos.create.request.transcribe"))
+    #expect(create.mode == .transcribe)
+    let text = try decoder.decode(
+      CreateTextMemoRequest.self, from: Contracts.fixtureData("memos.text.request.transcribe"))
+    #expect(text.mode == .transcribe)
+    #expect(MemoMode.allCases.contains(.transcribe))
+  }
+
   @Test("a memo that finished without a summary: `summary` is null, the summarize step is failed, the memo is notified")
   func summarizeFailedFixture() throws {
     let detail = try IrisJSON.makeDecoder().decode(

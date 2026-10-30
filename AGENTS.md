@@ -102,7 +102,7 @@ All under `/v1`, `Authorization: Bearer <token>`. Errors: `{error: <code>, messa
 
 | Route | Result |
 |-|-|
-| `POST /memos` `{id, mode: auto\|journal\|hermes\|tab\|chat, startedAt, threadId?}` | 201 memo; 200 if it exists for this device; 409 other device or another `threadId` on the replay; `threadId` continues that thread (delivered into its Hermes session, route forced to hermes), 404 when unknown |
+| `POST /memos` `{id, mode: auto\|journal\|hermes\|tab\|chat\|transcribe, startedAt, threadId?}` | 201 memo; 200 if it exists for this device; 409 other device or another `threadId` on the replay; `threadId` continues that thread (delivered into its Hermes session, route forced to hermes), 404 when unknown |
 | `POST /memos/text` `{id, mode, startedAt, text, threadId?}` | 202 memo created in `transcribed` (`transcript` = trimmed text, driven from `route`; a replay too); memo carries `typed: true`; any mode incl. `chat`; 400 empty, over 20 000 code points, or no/unknown `mode`; 409 another body (incl. `threadId`), device or a recorded memo with that id; 404 unknown `threadId` |
 | `PUT /memos/:id/segments/:n` raw `audio/mp4` bytes | 200, idempotent by sha256 (same sha no-op, different sha 409); 413 over `IRIS_MAX_SEGMENT_BYTES`; 409 after `complete` |
 | `POST /memos/:id/complete` `{segmentCount}` | 202 memo (repeat too); 422 `missing_segments` + `missing: [...]` |
@@ -197,7 +197,7 @@ in-memory SQLite and fake ports, no `mock.module` / `spyOn`, HTTP via `app.handl
 **Harness:** `bun scripts/send-memo.ts <audio-file>` is the end-to-end driver. It splits the file into
 10 s m4a segments with ffmpeg, then creates, uploads, completes and long-polls a memo like the phone
 does, and prints transcript, reply, summary, step timings and cost. Env: `IRIS_URL` (default
-`http://127.0.0.1:7730`), `IRIS_TOKEN` (required); flags `--url --token --mode auto|journal|hermes|tab|chat
+`http://127.0.0.1:7730`), `IRIS_TOKEN` (required); flags `--url --token --mode auto|journal|hermes|tab|chat|transcribe
 --wait <s>`. Exit 0 `notified`, 1 `failed`, 2 timeout, `needs_route` or usage error. Its tests
 (`bun test scripts`, fake in-process server) run via the repo root; lint and format cover `scripts/`.
 
@@ -285,6 +285,10 @@ Push to master deploys. LaunchAgent `com.jkrumm.iris` (KeepAlive, `ExitTimeOut` 
   Continuing a thread: `threadId` on either create route (404 unknown thread, 409 `destination_unavailable` while hermes is not registered, 409 on a replay naming another; `continuedThread` in `memo.ts` tells a continuation from a memo's own
   session, whose id is the memo id), the route step forces `hermes`, `deliver({threadId})` talks into the existing session and `chat` comes from the thread's kind. Turns into one thread run one at a time (`memo/keyed-queue.ts` in the `act` handler; the second waits, at most 30 min: then `act` fails "thread <id> is busy" naming the memo ahead and its task never runs, the line stays ordered; a waiter parked there releases its `driveAll` slot through the handler's `whileWaiting` and takes one again when its turn comes; herdr's per-pane queue holds at most 8 deliveries (`maxPaneQueue`), the ninth fails "herdr pane <id> queue is full", not transient). `/threads/:id`
   builds its conversation from the thread's memos (transcript = user, `reply_text` = assistant), never from Hermes. Swift: `MemoMode` decodes an unknown value to `.unknown`.
+- **Mode `transcribe`** (TDD §3 state machine): the pipeline is `transcribe` → `notify` (`memo.ts` `stepsOf(mode)`; `nextStep`, `advance` and `stateBefore` take the mode), the memo ends
+  `notified` with the transcript and NULL `route`, `reply_text` and `summary`, with no route, act or summarize row on the timeline and no `route_decisions`; the alert headline is the
+  transcript's start. A typed memo in this mode runs `notify` only; `threadId` with it is 400; `POST /retry` from a step the mode lacks is 400. Swift: `MemoMode.transcribe`, offered by
+  `MemoMode.voiceModes` (and, as a typed memo, the composer); `PipelineSteps.applicable(to:)` gives such a memo two steps.
 - **Routing** (`routing/`, TDD §3 step 3), in order: a mode other than `auto` wins (source `mode`); a spoken prefix within the first 6 words
   (`journal|tagebuch`, `an hermes|hermes`, `tab <name>`; case and diacritics folded; the name may be several words, the longest live tab or repo label wins) routes (`prefix`); `memo.transcript` stays the raw speech-to-text and `act` / `summarize` cut the prefix again via `deliveredTranscript` by the `prefix_words` count the decision row recorded;
   with fewer than two registered destinations the only one wins (`default`, confidence 1, no spend); two or more (production since Wave 11: journal, herdr, hermes; `IRIS_FAKES` registers all three) turn the decider on; otherwise `Decider` (agw `decide`, the host client's hang guard): confidence ≥ 0.8 routes, else `needs_route`. A mode or prefix
@@ -409,7 +413,7 @@ Push to master deploys. LaunchAgent `com.jkrumm.iris` (KeepAlive, `ExitTimeOut` 
   every screen pins it under its navigation bar with `.takeBanner()` (a banner over the whole `TabView` would cover the bar's buttons). The record control is the tab bar's bottom accessory (`RecordAccessory`: tap = Auto, long press = pick a mode; `isEnabled:` hides it during a take on iOS 26.1+, disabled on 26.0);
   memo detail and thread hide the tab bar, so they have no record control (the banner still shows). A take bound to a thread (the thread's hold-to-talk) is not shown by the banner. The Live Activity views are IrisUI's (`LiveActivityPanel`, `Island*`, `ActivityStageDashes`; plain `ActivityPresentation` values, no IrisCore) and the widget maps `ContentState` onto them;
   Stop / mic swap / pause are `LiveActivityIntent`s (`StopMemoIntent`, `SwitchInputIntent`, `PauseMemoIntent`) that call the same `TakeController`. The step progress of a processing memo is the four stages record, upload, process, done from the phase alone (`ContentState` has no step field; per-step progress needs the server to push one). A new take's activity says "N earlier memos are still sending" in `headline` (client phases only).
-- **Routing on iOS** (Wave 16 I3, TDD §4 "Routing on iOS"): `ModePicker` is the one mode chip row (composer, and the record control's long-press menu → "Choose mode…" → `RecordModeSheet`; voice takes offer Auto, Journal, Hermes, Chat). `RouteAnswerModel` / `RouteAnswerSheet`
+- **Routing on iOS** (Wave 16 I3, TDD §4 "Routing on iOS"): `ModePicker` is the one mode chip row (composer, and the record control's long-press menu → "Choose mode…" → `RecordModeSheet`; voice takes offer Auto, Journal, Hermes, Chat, Transcribe). `RouteAnswerModel` / `RouteAnswerSheet`
   answer a parked memo and correct a finished one through `POST /v1/memos/:id/route` (pinned History row swipe action, detail card, "Wrong route?"; herdr needs a tab from `GET /v1/herd`; 400 `<dest> not available` and 409 are sentences on the sheet). `SpeechPlayer` is the one spoken-reply player: the detail's Play,
   `PlayReplyIntent` (an `AudioPlaybackIntent` in `Iris/Intents`, compiled into the widget; the done Live Activity has a Play button, compile-checked only) and spoken replies (Settings toggle, `SpokenReplies`: foreground only, memos this device created, once each). Settings → Microphone edits the active route's mic rule (`MicRulesModel` over `RouteManager`;
   `RouteSnapshot.outputNames` is display only). The fake API's needs-route sample has a reason + suggestion and `SampleData.herd` has two tabs.

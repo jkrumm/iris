@@ -100,6 +100,12 @@ describe("parseCliArgs", () => {
     });
   });
 
+  it("accepts --mode transcribe", () => {
+    expect(parseCliArgs(["a.m4a", "--mode", "transcribe"], { IRIS_TOKEN: "t" })).toMatchObject({
+      mode: "transcribe",
+    });
+  });
+
   it("rejects bad usage", () => {
     expect(() => parseCliArgs(["a.m4a"], {})).toThrow(UsageError);
     expect(() => parseCliArgs([], { IRIS_TOKEN: "t" })).toThrow(UsageError);

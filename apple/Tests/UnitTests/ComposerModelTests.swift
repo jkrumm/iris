@@ -125,7 +125,7 @@ struct ComposerModelTests {
 
   @Test("the composer offers every mode the server accepts")
   func modes() {
-    #expect(ComposerModel.modes == [.auto, .journal, .hermes, .tab, .chat])
+    #expect(ComposerModel.modes == [.auto, .journal, .hermes, .tab, .chat, .transcribe])
   }
 
   @Test("Cancel is off while a send is on the wire and back once it answers")

@@ -1,0 +1,45 @@
+{
+  "id": "6a1f3d85-2c47-4e90-b8d2-7f0e5a9c3b14",
+  "mode": "transcribe",
+  "device": "iphone",
+  "startedAt": "2026-03-14T11:20:00.000Z",
+  "state": "notified",
+  "failedStep": null,
+  "error": null,
+  "segmentCount": 2,
+  "audioSeconds": 17.3,
+  "transcript": "Ideen für das Wochenende: früh los zum See, danach Brunch bei den Nachbarn, abends Kino.",
+  "route": null,
+  "destinationRef": null,
+  "replyText": null,
+  "summary": null,
+  "done": false,
+  "favorite": false,
+  "archived": false,
+  "createdAt": "2026-03-14T11:20:00.318Z",
+  "updatedAt": "2026-03-14T11:20:12.904Z",
+  "steps": [
+    {
+      "step": "transcribe",
+      "status": "done",
+      "startedAt": "2026-03-14T11:20:03.100Z",
+      "finishedAt": "2026-03-14T11:20:11.620Z",
+      "error": null,
+      "usage": {
+        "audioSeconds": 17.3
+      },
+      "costUsd": 0.0017,
+      "attempts": 1
+    },
+    {
+      "step": "notify",
+      "status": "done",
+      "startedAt": "2026-03-14T11:20:11.700Z",
+      "finishedAt": "2026-03-14T11:20:12.890Z",
+      "error": null,
+      "usage": null,
+      "costUsd": null,
+      "attempts": 1
+    }
+  ]
+}

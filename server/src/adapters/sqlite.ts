@@ -299,6 +299,8 @@ export function createSqliteMemoStore(params: { db: Database; clock: Clock }): M
   });
 
   const resetForRetry = db.transaction((id: string, from: Step) => {
+    const mode = memoById(id)?.mode as MemoMode | undefined;
+    if (mode === undefined) return false;
     // A failed memo, or a finished one whose optional step failed on the way (`from` is that step).
     const reset = db
       .query(
@@ -306,7 +308,7 @@ export function createSqliteMemoStore(params: { db: Database; clock: Clock }): M
            AND (state = 'failed' OR (state = 'notified' AND EXISTS (
              SELECT 1 FROM memo_steps WHERE memo_id = memos.id AND step = ? AND status = 'failed')))`,
       )
-      .run(stateBefore(from), stamp(), id, from);
+      .run(stateBefore({ step: from, mode }), stamp(), id, from);
     if (reset.changes === 0) return false;
     const cleared = stepsFrom(from);
     const columns = cleared

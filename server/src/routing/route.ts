@@ -20,7 +20,7 @@ const DESCRIPTIONS: Record<DestinationName, string> = {
   herdr: "An instruction for a coding agent running in one of the open terminal tabs.",
 };
 
-const MODE_DESTINATION: Record<Exclude<MemoMode, "auto">, DestinationName> = {
+const MODE_DESTINATION: Record<Exclude<MemoMode, "auto" | "transcribe">, DestinationName> = {
   journal: "journal",
   hermes: "hermes",
   tab: "herdr",
@@ -206,6 +206,8 @@ async function decide(input: RouteInput & { decider: Decider }): Promise<RouteDe
  */
 export async function route(input: RouteInput): Promise<RouteDecision> {
   const { mode, transcript, destinations } = input;
+  // The pipeline of a transcribe-only memo has no route step; reaching here is a bug, not a decision to park.
+  if (mode === "transcribe") throw new Error("route: mode transcribe has no route step");
   if (mode !== "auto") {
     return named({
       source: "mode",

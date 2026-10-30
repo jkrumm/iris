@@ -9,6 +9,7 @@ import {
   isOptionalStep,
   nextStep,
   stepIndex,
+  stepsOf,
   STEPS,
   type HandlerStep,
   type Memo,
@@ -128,7 +129,7 @@ export function createRunner(deps: {
     if (stopping) return null;
     const memo = store.getMemo(id);
     if (!memo) return null;
-    const step = nextStep(memo.state);
+    const step = nextStep({ state: memo.state, mode: memo.mode });
     if (!step) return null;
     const handler = handlers[step];
     if (!handler) {
@@ -214,7 +215,7 @@ export function createRunner(deps: {
     if (result === null) return false;
     let to: MemoState;
     try {
-      to = advance({ state: memo.state, step, outcome: result.outcome });
+      to = advance({ state: memo.state, step, mode: memo.mode, outcome: result.outcome });
     } catch (err) {
       // A handler that asks for something its step cannot do is a real failure, optional step or not.
       store.markStepFailed({ id: memo.id, step, error: errorMessage(err) });
@@ -336,6 +337,12 @@ export function createRunner(deps: {
       if (!memo) throw new MemoError("not_found", `memo ${id} not found`);
       if (from === "ingest" || !STEPS.includes(from)) {
         throw new MemoError("bad_request", `cannot retry from ${from}`);
+      }
+      if (!stepsOf(memo.mode).includes(from)) {
+        throw new MemoError(
+          "bad_request",
+          `cannot retry from ${from}: mode ${memo.mode} has no such step`,
+        );
       }
       // A finished memo retries only an optional step that failed on the way.
       const skippedOptional =

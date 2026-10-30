@@ -268,6 +268,50 @@ async function probeDecide(base: string) {
   out("e2e: decided memo ok");
 }
 
+/** Mode transcribe: a recording ends notified after transcribe and notify alone, with the transcript and no route, reply or summary. */
+async function probeTranscribe(base: string) {
+  const send = Bun.spawn(
+    [
+      "bun",
+      "scripts/send-memo.ts",
+      "fixtures/audio/de-90s.m4a",
+      "--url",
+      base,
+      "--token",
+      TOKEN,
+      "--mode",
+      "transcribe",
+    ],
+    { cwd: ROOT, stdout: "inherit", stderr: "inherit" },
+  );
+  assert((await send.exited) === 0, "send-memo --mode transcribe reached notified (exit 0)");
+
+  const call = (path: string) =>
+    fetch(`${base}/v1${path}`, { headers: { authorization: `Bearer ${TOKEN}` } });
+  const list = (await (await call("/memos?limit=1")).json()) as { items: { id: string }[] };
+  const id = list.items[0]?.id;
+  assert(id, "GET /memos?limit=1 returns the transcribe memo");
+  const memo = (await (await call(`/memos/${id}`)).json()) as TypedMemo & {
+    transcript: string | null;
+    replyText: string | null;
+  };
+  assert(memo.mode === "transcribe", `memo keeps mode transcribe (got ${memo.mode})`);
+  assert(memo.state === "notified", `transcribe memo is notified (got ${memo.state})`);
+  assert(Boolean(memo.transcript), "transcribe memo carries the transcript");
+  assert(memo.route === null, `transcribe memo has no route (got ${memo.route})`);
+  assert(memo.replyText === null, "transcribe memo has no reply");
+  assert(memo.summary === null, "transcribe memo has no summary");
+  const steps = memo.steps.map((step) => step.step).join(",");
+  assert(steps === "transcribe,notify", `only transcribe and notify ran (got ${steps})`);
+
+  const typed = await sendTyped(base, "So wie getippt.", "transcribe");
+  assert(typed.state === "notified", `typed transcribe memo is notified (got ${typed.state})`);
+  assert(typed.route === null, "typed transcribe memo has no route");
+  const typedSteps = typed.steps.map((step) => step.step).join(",");
+  assert(typedSteps === "notify", `a typed transcribe memo only notifies (got ${typedSteps})`);
+  out("e2e: transcribe memo ok");
+}
+
 /** A chat memo is a Hermes thread: it reaches notified and carries the thread id. */
 async function probeChat(base: string) {
   const memo = await sendTyped(
@@ -390,6 +434,7 @@ async function main() {
   await probeTab(base);
   await probeDecide(base);
   await probeChat(base);
+  await probeTranscribe(base);
 }
 
 async function cleanup() {

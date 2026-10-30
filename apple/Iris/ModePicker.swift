@@ -16,8 +16,8 @@ struct ModePicker: View {
 }
 
 extension MemoMode {
-  /// The modes a voice take offers: Chat included, Tab left out (the tab is named while speaking).
-  static let voiceModes: [MemoMode] = [.auto, .journal, .hermes, .chat]
+  /// The modes a voice take offers: Chat and Transcribe included, Tab left out (the tab is named while speaking).
+  static let voiceModes: [MemoMode] = [.auto, .journal, .hermes, .chat, .transcribe]
 
   var composerTitle: String {
     switch self {
@@ -26,6 +26,7 @@ extension MemoMode {
     case .hermes: String(localized: "Hermes", comment: "Memo mode")
     case .tab: String(localized: "Tab", comment: "Memo mode")
     case .chat: String(localized: "Chat", comment: "Memo mode")
+    case .transcribe: String(localized: "Transcribe", comment: "Memo mode")
     }
   }
 
@@ -33,6 +34,7 @@ extension MemoMode {
     switch self {
     case .auto, .unknown: "sparkles"
     case .tab: "terminal"
+    case .transcribe: "text.alignleft"
     default: nil
     }
   }
@@ -47,6 +49,8 @@ extension MemoMode {
     case .tab: String(localized: "Typed into a running agent tab.", comment: "Memo mode summary")
     case .chat:
       String(localized: "A plain conversation: an answer, no todo, no journal.", comment: "Memo mode summary")
+    case .transcribe:
+      String(localized: "Only the transcript: nothing is routed, answered or summarized.", comment: "Memo mode summary")
     }
   }
 }

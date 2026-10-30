@@ -216,6 +216,58 @@ describe("flows: every response conforms", () => {
     expect(items.find((m) => m.id === id)?.threadId).toBe(id);
   });
 
+  it("a transcribe memo ends notified with the transcript, no route, reply or summary, and two steps", async () => {
+    const { app } = testApp({
+      handlers: handlers({
+        route: async () => ({}),
+        act: async () => ({}),
+        summarize: async () => ({}),
+      }),
+    });
+    const id = crypto.randomUUID();
+    const created = await create(app, id, "transcribe");
+    expect(created.status).toBe(201);
+    await conformingBody({
+      route: "POST /v1/memos",
+      res: created,
+      fixtures: ["memos.create.response"],
+    });
+    for (let n = 0; n < 2; n++) await upload(app, id, n);
+    expect((await complete(app, id, 2)).status).toBe(202);
+    await call(app, { path: `/v1/memos/${id}/result?wait=5` });
+
+    const detail = await conformingBody({
+      route: "GET /v1/memos/:id",
+      res: await call(app, { path: `/v1/memos/${id}` }),
+      fixtures: ["memos.detail.response.transcribe"],
+    });
+    expect(detail).toMatchObject({
+      mode: "transcribe",
+      state: "notified",
+      transcript: "Hallo Welt",
+      route: null,
+      replyText: null,
+      summary: null,
+    });
+    expect((detail["steps"] as { step: string }[]).map((s) => s.step)).toEqual([
+      "transcribe",
+      "notify",
+    ]);
+
+    const text = await call(app, {
+      method: "POST",
+      path: "/v1/memos/text",
+      json: {
+        id: crypto.randomUUID(),
+        mode: "transcribe",
+        startedAt: "2026-03-14T09:20:41.000Z",
+        text: "So wie getippt.",
+      },
+    });
+    expect(text.status).toBe(202);
+    await conformingBody({ route: "POST /v1/memos/text", res: text });
+  });
+
   it("create, upload, complete, result, detail, list, activity token and media on a notified memo", async () => {
     const { app } = testApp({ handlers: handlers(), maxSegmentBytes: 1024 });
     const id = crypto.randomUUID();

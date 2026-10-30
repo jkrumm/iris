@@ -93,7 +93,7 @@ struct MemoDetailView: View {
     let memo = model.memo
     return VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
       HStack(spacing: Theme.Spacing.sm) {
-        RouteChip(label: memo.routeLabel, systemImage: "arrow.triangle.branch")
+        RouteChip(label: memo.routeLabel, systemImage: memo.routeChipIcon)
         Text(verbatim: metaLine(memo))
           .themeFont(.footnote)
           .foregroundStyle(Theme.Ink.muted)
