@@ -3,6 +3,43 @@ import Testing
 
 @testable import Iris
 
+/// Holds the next `currentRoute()` call until released, so a test can make one pick resume after a newer one.
+private actor RouteGate {
+  private var held: CheckedContinuation<Void, Never>?
+  private var armed = false
+
+  var isHeld: Bool { held != nil }
+
+  func arm() { armed = true }
+
+  func pass() async {
+    guard armed else { return }
+    armed = false
+    await withCheckedContinuation { held = $0 }
+  }
+
+  func release() {
+    held?.resume()
+    held = nil
+  }
+}
+
+private struct GatedRoutes: RouteManager {
+  let inner: FakeRouteManager
+  let gate: RouteGate
+
+  var routeChanges: AsyncStream<RouteChange> { inner.routeChanges }
+  func currentRoute() async -> RouteSnapshot {
+    await gate.pass()
+    return await inner.currentRoute()
+  }
+  func setPreferredInput(uid: String?) async throws { try await inner.setPreferredInput(uid: uid) }
+  func rules() async -> [String: String] { await inner.rules() }
+  func setRule(fingerprint: String, preferredPortUID: String?) async {
+    await inner.setRule(fingerprint: fingerprint, preferredPortUID: preferredPortUID)
+  }
+}
+
 @MainActor
 @Suite("MicRulesModel")
 struct MicRulesModelTests {
@@ -49,6 +86,24 @@ struct MicRulesModelTests {
 
     await model.pick(FakeRouteManager.builtInMic.uid)
     #expect(await routes.rules() == ["speaker": FakeRouteManager.builtInMic.uid])
+  }
+
+  @Test("two overlapping picks: the older one resumes last and does not overwrite the newer rule")
+  func overlappingPicks() async {
+    let inner = FakeRouteManager(outputUIDs: ["car"], outputNames: ["Car"])
+    let gate = RouteGate()
+    let model = MicRulesModel(routes: GatedRoutes(inner: inner, gate: gate))
+    await model.load()
+
+    await gate.arm()
+    let older = Task { await model.pick(FakeRouteManager.builtInMic.uid) }
+    while !(await gate.isHeld) { await Task.yield() }
+    await model.pick(FakeRouteManager.headsetMic.uid)
+    await gate.release()
+    await older.value
+
+    #expect(await inner.rules() == ["car": FakeRouteManager.headsetMic.uid])
+    #expect(model.selection == FakeRouteManager.headsetMic.uid)
   }
 
   @Test("a pick before any route was read saves nothing")

@@ -16,6 +16,9 @@ final class MicRulesModel {
   /// Bumped by every `load()` and `pick()`; a read that finds it changed belongs to a call that was overtaken, so a late
   /// `load()` never writes an older route or rule set over a newer one.
   private var generation = 0
+  /// Bumped by every `pick()` only: a pick that finds it changed before it writes was overtaken by a newer choice and is
+  /// dropped. A `load()` does not count, it must never discard the user's choice.
+  private var pickSequence = 0
   private let logger = Logger(subsystem: "com.jkrumm.iris", category: "mic-rules")
 
   init(routes: any RouteManager) {
@@ -61,6 +64,8 @@ final class MicRulesModel {
     }
     generation += 1
     let mine = generation
+    pickSequence += 1
+    let myPick = pickSequence
     let current = await routes.currentRoute()
     guard current.fingerprint == shown else {
       logger.notice("mic rule not saved: the route changed since the choices were shown")
@@ -70,6 +75,8 @@ final class MicRulesModel {
       rules = stored
       return
     }
+    // A newer pick started while the route was being read: its choice wins, this one is dropped unsaved.
+    guard myPick == pickSequence else { return }
     await routes.setRule(fingerprint: shown, preferredPortUID: uid)
     let stored = await routes.rules()
     guard mine == generation else { return }
