@@ -92,6 +92,9 @@ public actor CaptureSession {
   private var abandoned: Set<MemoID> = []
   /// Recorder stops in flight that `stopRecorder()` is waiting on, settled by the stop itself or by its timer.
   private var stopRaces: [UUID: CheckedContinuation<Bool, any Error>] = [:]
+  /// Recorder stops that were given up on and have not returned: the recorder may still be live (its microphone open), so no
+  /// new take starts on it until they do.
+  private var hungStops: Set<UUID> = []
   private var finishWaiter: (id: MemoID, continuation: CheckedContinuation<Int?, Never>)?
   /// The gate: true while a start, stop or cancel is running; the others wait in `queue`, first come first served.
   private var isBusy = false
@@ -135,6 +138,8 @@ public actor CaptureSession {
     await enter()
     defer { leave() }
     guard state.phase == .idle else { throw CaptureError.alreadyRecording }
+    // A recorder that never answered its stop may still hold the microphone: a new take waits until it has.
+    guard hungStops.isEmpty else { throw CaptureError.engineFailure("the recorder is still stopping") }
     let memoID = MemoID()
     // Claimed with no suspension between the guard and here (the gate is ours): nothing else sees an idle session.
     state = TakeState(phase: .starting, memoID: memoID, startedAt: nil, inputName: nil, request: request)
@@ -194,14 +199,25 @@ public actor CaptureSession {
         throw error
       }
     }
-    // `stop()` that never returned counts as a recorder that never said it stopped.
-    let reported = recorderAnswered ? await finishedCount(memoID) : markSilent(memoID)
+    let reported: Int?
+    if recorderAnswered {
+      reported = await finishedCount(memoID)
+    } else if let done = finished.removeValue(forKey: memoID) {
+      // `stop()` hung but the recorder did emit `stopped`: the pump has finished the memo with the whole take already.
+      reported = done
+    } else {
+      // A `stop()` that never returned counts as a recorder that never said it stopped.
+      reported = markSilent(memoID)
+    }
     var count = reported ?? closedCounts[memoID, default: 0]
     var holdsOpen = false
     if reported != nil {
       // A failed take's last event was held back for this stop, which sends what it has.
       if recorderStopped, count > 0 { await outbox.finishMemo(memoID, segmentCount: count) }
     } else {
+      // Read before the check below: nothing suspends between the check and arming the grace timer, so a `stopped` cannot
+      // slip in between and leave the take half cleaned up.
+      let graceDeadline = await clock.now().addingTimeInterval(stopTimeout)
       if awaitingStop.contains(memoID) {
         // The recorder never said it stopped: the segments that closed are what the take has so far, and the failure says why.
         if failures[memoID] == nil { failures[memoID] = Self.recorderSilent }
@@ -213,7 +229,7 @@ public actor CaptureSession {
           // The tail segment it was flushing may still close, so the memo is finished when `stopped` arrives (or after a
           // grace period of the same length), not now.
           holdsOpen = true
-          await startGrace(for: memoID)
+          startGrace(for: memoID, until: graceDeadline)
         }
       } else {
         // `stopped` came in between the timeout and here, and the event pump finished the memo with the whole take.
@@ -490,14 +506,16 @@ public actor CaptureSession {
   }
 
   private func settleStop(_ id: UUID, _ result: Result<Bool, any Error>) {
-    stopRaces.removeValue(forKey: id)?.resume(with: result)
+    guard let waiter = stopRaces.removeValue(forKey: id) else {
+      hungStops.remove(id)  // the stop that was given up on has returned at last
+      return
+    }
+    if case .success(false) = result { hungStops.insert(id) }
+    waiter.resume(with: result)
   }
 
   /// Arms the timer that finishes a take whose `stopped` never comes: the segments that closed by then are the take.
-  private func startGrace(for memoID: MemoID) async {
-    let deadline = await clock.now().addingTimeInterval(stopTimeout)
-    // The `stopped` event may have come while the clock answered; then it has finished the memo already.
-    guard awaitingStop.contains(memoID) else { return }
+  private func startGrace(for memoID: MemoID, until deadline: Date) {
     // Owned by `lateFinish`; ends with the `stopped` event or its own firing, and is cancelled by `shutdown()`.
     lateFinish[memoID] = Task { [clock] in
       do { try await clock.sleep(until: deadline) } catch { return }

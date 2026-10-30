@@ -758,7 +758,7 @@ the runner needs a workflow step and was left out of this change (owned files: `
   and returns the segments that closed (`TakeResult.failure` = "the recorder did not stop") or, with none, throws `CaptureError.recordingFailed`. **The memo is not finished at the timeout**: the tail segment the
   recorder was flushing can still close and is queued like any other, and the `.stopped` event finishes the memo with the whole take; if it never comes the memo is finished after a grace period of the same length with
   the segments that closed, and only a segment that closes after *that* is ignored (its file stays for the next launch's sweep). The timeout marks the take as waiting in the same actor turn that resumes `stop()`,
-  so a `.stopped` that lands between the two finishes the memo once and is not mistaken for a late one. `cancel()` has the same bounds, and drops the tail. `TakeController.start` is single-flight: a second start while one is in flight (the Control and the record button together, a double tap)
+  so a `.stopped` that lands between the two finishes the memo once and is not mistaken for a late one. `cancel()` has the same bounds, and drops the tail. A `stopped` that did arrive while `stop()` hung counts as reported (the memo is finished once, no failure). While a given-up `recorder.stop()` has not returned the recorder may still hold the microphone, so `start` refuses (`engineFailure("the recorder is still stopping")`) until it does. `TakeController.start` is single-flight: a second start while one is in flight (the Control and the record button together, a double tap)
   joins it and returns the same memo, as does a start that finds a take already running; `TakeController.cancel()` throws when the capture session cannot be opened and `TakeModel` shows the failure instead of looking done.
 - **`CaptureStack` never queues into memory.** If the persistent queue cannot be loaded (the file unreadable before the first unlock after
   a reboot), the stack stays unbuilt: the composer keeps the text and shows why, a voice take and the start intent refuse to start,
@@ -799,7 +799,7 @@ the runner needs a workflow step and was left out of this change (owned files: `
     server's pushes (`processing`, `needsRoute`, `done`, `failed`; the wire enum and fixtures are unchanged) carry it from there.
     The activity's push token is kept by `ActivityTokenRegistrar` per memo until the activity ends, not until the hand-over: a PUT
     that failed is retried with a growing delay, and a token that rotates later is sent too. One `PUT` per memo is out at a time, so a rotation that arrives while one is in flight is sent after its answer and an older token's slow answer
-    can never replace a newer one; the in-flight flag belongs to the entry that set it (`finish` + `begin` of the same memo during a `PUT` gives a fresh entry the old call cannot touch).
+    can never replace a newer one; the in-flight gate is keyed by memo id, not held on the entry, so a `finish` + `begin` of the same memo during a `PUT` makes the new entry's sender wait and then carry on with the newest token (never two `PUT`s at once).
     The coordinator follows each memo on its own and the activity handle is kept per memo, so a take that starts while the last one is
     still uploading neither cancels nor overwrites it, and a stopped follower writes nothing more.
     A retryable failure (no network, a 5xx) keeps the activity on `uploading`; a stall or a recorder failure ends it as `failed`

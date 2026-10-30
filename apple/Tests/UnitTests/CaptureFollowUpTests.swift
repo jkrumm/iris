@@ -166,7 +166,7 @@ struct CaptureFollowUpTests {
     #expect(!registrar.isTracking(id))
   }
 
-  @Test("a PUT that outlives finish and begin of the same memo does not clear the new entry's send flag")
+  @Test("a PUT that outlives finish and begin of the same memo still serialises with the new entry's PUTs")
   func beginAgainDuringSend() async throws {
     let id = MemoID().wireID
     await client.seed(MemoFactory.detail(MemoFactory.memo(id)))
@@ -177,26 +177,26 @@ struct CaptureFollowUpTests {
     let second = await client.hold(.setActivityToken)
     let old = Task { await registrar.setToken(id, "aa") }
     #expect(await waitUntilHeld(first), "the old activity's PUT is out and slow")
-
-    registrar.finish(id)
-    registrar.begin(id)  // the same memo again, a new activity
-    await registrar.memoCreated(id)
-    let newer = Task { await registrar.setToken(id, "bb") }
-    #expect(await waitUntilHeld(second), "the new activity's PUT is out")
-
-    first.release()
-    await old.value
-    await registrar.setToken(id, "cc")  // rotates while the new entry's PUT is still out
     func sent() async -> [String] {
       await client.calls.compactMap { call -> String? in
         if case .setActivityToken(id, let request) = call { request.token } else { nil }
       }
     }
-    #expect(await sent() == ["aa", "bb"], "no PUT beside the new entry's: the old one did not clear its flag")
+
+    registrar.finish(id)
+    registrar.begin(id)  // the same memo again, a new activity
+    await registrar.memoCreated(id)
+    await registrar.setToken(id, "bb")  // returns at once: a PUT for this memo is still out
+    #expect(await sent() == ["aa"], "no second PUT beside the old one")
+
+    first.release()
+    #expect(await waitUntilHeld(second), "the new activity's token goes out after the old PUT's answer")
+    await registrar.setToken(id, "cc")  // rotates while that PUT is out
+    #expect(await sent() == ["aa", "bb"], "still one at a time")
 
     second.release()
-    await newer.value
-    #expect(await sent() == ["aa", "bb", "cc"])
+    await old.value
+    #expect(await sent() == ["aa", "bb", "cc"], "in order, the newest last")
     #expect(await client.activityTokens[id] == "cc")
   }
 }

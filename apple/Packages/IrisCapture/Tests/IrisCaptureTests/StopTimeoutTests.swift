@@ -177,53 +177,103 @@ struct StopTimeoutTests {
   }
 }
 
-/// A recorder whose `stop()` never returns until the test lets it: the engine hung while tearing down.
+/// A recorder whose `stop()` hangs until the test lets it, optionally after it has already flushed and reported `stopped`.
 private struct HungStopRecorder: SegmentRecorder {
   let base: FakeSegmentRecorder
   let release: AsyncStream<Void>
+  /// Emit `stopped` (and flush the tail) first, then hang: the engine reported the end of the take but never returned.
+  var reportsBeforeHanging = false
 
   var events: AsyncStream<CaptureEvent> { base.events }
   var levels: AsyncStream<Float> { base.levels }
 
   func start(memoID: MemoID) async throws { try await base.start(memoID: memoID) }
-  func stop() async throws { for await _ in release {} }
+  func stop() async throws {
+    if reportsBeforeHanging { try await base.stop() }
+    for await _ in release {}
+    if !reportsBeforeHanging { try await base.stop() }
+  }
   func rotate(for reason: RotationReason) async { await base.rotate(for: reason) }
   func pause() async { await base.pause() }
   func resume() async { await base.resume() }
 }
 
-/// A recorder that does not even return from `stop()` must not keep the next take from starting.
+/// A recorder that does not even return from `stop()` must not hold the gate, and must not get a second take while its
+/// microphone may still be open.
 struct HungStopTests {
   private let request = TakeRequest(mode: "auto", title: "Voice memo")
 
-  @Test func aRecorderWhoseStopNeverReturnsDoesNotBlockTheNextTake() async throws {
-    let directory = try temporaryDirectory()
-    defer { try? FileManager.default.removeItem(at: directory) }
+  private func rig(
+    _ directory: URL, reportsBeforeHanging: Bool
+  ) async throws -> (CaptureSession, FakeCapture, OutboxHarness, AsyncStream<Void>.Continuation) {
     let harness = try await OutboxHarness()
     let fake = FakeCapture(directory: directory, clock: harness.clock)
     let (release, releaseSignal) = AsyncStream.makeStream(of: Void.self)
-    let recorder = HungStopRecorder(base: fake.recorder, release: release)
+    let recorder = HungStopRecorder(base: fake.recorder, release: release, reportsBeforeHanging: reportsBeforeHanging)
     let session = CaptureSession(
       session: fake.session, routes: fake.routes, recorder: recorder, outbox: harness.outbox, clock: harness.clock,
       stopTimeout: 10)
-    try await session.start(request)
-    await fake.recorder.feed(frames: 12 * SegmentRotationPolicy().sampleRate)
+    return (session, fake, harness, releaseSignal)
+  }
 
-    let stopping = Task { try await session.stop() }
+  private func letTheTimeoutPass(_ harness: OutboxHarness, on session: CaptureSession) async throws {
     for _ in 0..<400 where await session.current.phase != .stopping { try await Task.sleep(for: .milliseconds(5)) }
     for _ in 0..<400 where await session.current.phase == .stopping {
       await harness.clock.advance(by: 11)
       try await Task.sleep(for: .milliseconds(5))
     }
+  }
+
+  @Test func aRecorderWhoseStopNeverReturnsDoesNotBlockTheGateButRefusesTheNextTakeUntilItDoes() async throws {
+    let directory = try temporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let (session, fake, harness, releaseSignal) = try await rig(directory, reportsBeforeHanging: false)
+    try await session.start(request)
+    await fake.recorder.feed(frames: 12 * SegmentRotationPolicy().sampleRate)
+
+    let stopping = Task { try await session.stop() }
+    try await letTheTimeoutPass(harness, on: session)
     let result = try await stopping.value
     #expect(result?.failure == "the recorder did not stop", "the stop is reported, not swallowed")
     #expect(await session.current == .idle, "the gate is free")
 
-    // The gate is free: the next start answers (this fake still holds the hung take open and may refuse it; the real recorder
-    // would be replaced), it does not wait behind the stop that never returned.
-    _ = try? await session.start(request)
-    _ = await session.cancel()  // not stuck behind the gate either
-    #expect(await session.current.phase == .idle)
+    await #expect(throws: CaptureError.engineFailure("the recorder is still stopping")) {
+      try await session.start(request)
+    }
+    #expect(await session.cancel() == nil, "and nothing waits behind the hung stop")
+
+    releaseSignal.finish()  // the engine finally lets go
+    var started = false
+    for _ in 0..<400 where !started {
+      started = (try? await session.start(request)) != nil
+      if !started { try await Task.sleep(for: .milliseconds(5)) }
+    }
+    #expect(started, "the next take starts once the stop has returned")
+    await session.shutdown()
+    await harness.outbox.shutdown()
+  }
+
+  @Test func aStoppedEventWhileStopHangsFinishesTheMemoOnceAndIsNotReportedAsSilent() async throws {
+    let directory = try temporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let (session, fake, harness, releaseSignal) = try await rig(directory, reportsBeforeHanging: true)
+    let id = try await session.start(request)
+    await fake.recorder.feed(frames: 12 * SegmentRotationPolicy().sampleRate)  // segment 0 closed, 2 s open
+
+    let stopping = Task { try await session.stop() }
+    for _ in 0..<400 where await harness.uploader.completed.isEmpty {
+      await harness.outbox.settled()
+      try await Task.sleep(for: .milliseconds(5))
+    }
+    #expect(await harness.uploader.completed.count == 1, "the pump finished the memo from the recorder's `stopped`")
+    try await letTheTimeoutPass(harness, on: session)
+    let result = try await stopping.value
+
+    #expect(result?.segmentCount == 2 && result?.failure == nil, "the recorder did say it stopped")
+    for _ in 0..<5 { await harness.clock.advance(by: 11) }  // a grace timer, if one were wrongly armed, fires here
+    await harness.outbox.settled()
+    #expect(
+      await harness.uploader.completed == [.init(memoID: id, segmentCount: 2)], "finished once, with the whole take")
     releaseSignal.finish()
     await session.shutdown()
     await harness.outbox.shutdown()
