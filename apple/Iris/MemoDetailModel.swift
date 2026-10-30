@@ -12,6 +12,25 @@ final class MemoDetailModel {
   private(set) var detail: MemoDetail
   private(set) var baselines = StepBaselines()
   private(set) var isRetrying = false
+  /// The owner's own open or close of the waterfall; nil until the first tap.
+  private var waterfallChoice: Bool?
+
+  /// The step rows show under the waterfall's total line: collapsed until the owner opens them, except for a failed
+  /// memo, whose failed step (and its retry) is what the owner came for. A tap wins over that default.
+  var isWaterfallExpanded: Bool {
+    get { waterfallChoice ?? (memo.state == .failed) }
+    set { waterfallChoice = newValue }
+  }
+
+  /// What the Copy buttons copy.
+  enum CopyTarget: Equatable {
+    case transcript, reply
+  }
+
+  /// The text last copied, until the confirmation timer (``copiedDuration``) or ``clearCopied()`` ends it: the button shows "Copied" meanwhile.
+  private(set) var copied: CopyTarget?
+  /// Bumped on every copy; the confirmation timer of an older copy sees the newer count and leaves "Copied" alone.
+  private(set) var copyCount = 0
   /// A toast for the last failed action. The id tells two toasts with the same words apart.
   struct Failure: Equatable, Identifiable {
     let id: Int
@@ -23,6 +42,7 @@ final class MemoDetailModel {
   private(set) var failure: Failure?
 
   private let client: any APIClient
+  private let pasteboard: any Pasteboard
   let media: any MemoMediaSource
   /// The app's one spoken-reply player (Play, `PlayReplyIntent` and spoken replies share it).
   let speech: SpeechPlayer
@@ -30,20 +50,25 @@ final class MemoDetailModel {
   private var baselinesLoaded = false
   private var toastCount = 0
   private var toastTimer: Task<Void, Never>?
+  private var copiedTimer: Task<Void, Never>?
+  private let copiedDuration: Duration
   private let toastDuration: Duration
   private let sleep: @Sendable (Duration) async throws -> Void
 
   /// `memo` is what the list already knows; the steps arrive with the first ``load()``.
   init(
     memo: Memo, client: any APIClient, media: any MemoMediaSource, speech: SpeechPlayer,
-    toastDuration: Duration = .seconds(4),
+    pasteboard: any Pasteboard = SystemPasteboard(), toastDuration: Duration = .seconds(4),
+    copiedDuration: Duration = .seconds(1.5),
     sleep: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
   ) {
     detail = MemoDetail(memo: memo, steps: [])
     self.client = client
     self.media = media
     self.speech = speech
+    self.pasteboard = pasteboard
     self.toastDuration = toastDuration
+    self.copiedDuration = copiedDuration
     self.sleep = sleep
   }
 
@@ -68,6 +93,36 @@ final class MemoDetailModel {
   func totalValue(now: Date) -> String? {
     guard let totals = WaterfallBuilder.totals(for: detail, now: now) else { return nil }
     return StepText.metric(milliseconds: totals.milliseconds, costUsd: totals.costUsd)
+  }
+
+  // MARK: Copy
+
+  /// Puts the transcript or the reply on the pasteboard as plain text (a string, no markup, no style).
+  func copy(_ target: CopyTarget) {
+    let text =
+      switch target {
+      case .transcript: memo.plainTranscript
+      case .reply: memo.plainReply
+      }
+    guard let text else { return }
+    pasteboard.copy(text)
+    copiedTimer?.cancel()
+    copied = target
+    copyCount += 1
+    let count = copyCount
+    let duration = copiedDuration
+    let sleep = sleep
+    copiedTimer = Task { [weak self] in
+      guard (try? await sleep(duration)) != nil, !Task.isCancelled, self?.copyCount == count else { return }
+      self?.clearCopied()
+    }
+  }
+
+  /// Ends the "Copied" confirmation: its timer, or a newer state, calls this.
+  func clearCopied() {
+    copiedTimer?.cancel()
+    copiedTimer = nil
+    copied = nil
   }
 
   // MARK: Loading

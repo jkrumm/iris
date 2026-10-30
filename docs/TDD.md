@@ -614,9 +614,17 @@ follows the memos: `evict(memoID:)` removes `<memo>.*` (recording, speech, diagr
   and **[Retry from Summarize]** (and the retry icon in the action bar), which sends `POST /retry {from: "summarize"}`; the server re-runs summarize and notify, the SSE refresh
   brings the summary back. Only `summarize` is optional; a failed step of a `failed` memo is still the memo's failure. Fixture: `memos.detail.response.summarize-failed.json`
   (decode test in `IrisCore`); the fake API takes that retry on a `notified` memo (back to `acted`), and `SampleData` has one such memo.
-- **Money** is `StepText.dollars`: US dollars as the user's locale writes them, two decimals, no fixed `$` ("$0.04", "0,04 $"). The step chip, the waterfall total and the Stats
-  tiles and their per-memo caption all use it. A step that costs under half a cent therefore reads "$0.00"; the old four-decimal chip is gone on purpose (the cents are what the owner
-  asked for, the exact cost is in the server's step row).
+- **Money** is `StepText.dollars`: US dollars as the user's locale writes them, no fixed `$`. From a cent up two decimals ("$0.04", "0,04 $"); below a cent four ("$0.0002"), so a real
+  cost never reads "$0.00" (Wave 17 I5, `feedback-device-1.md` §5); below a hundredth of a cent "<$0.0001"; zero is "$0". The step chip, the waterfall total and the Stats tiles and
+  their per-memo caption all use it.
+- **Waterfall** (Wave 17 I5, §4): collapsed by default to one line, "Total · duration · cost" (`StepWaterfall`, the summary row is a button with an expanded/collapsed VoiceOver value);
+  a tap opens the step rows under it. A memo in `failed` opens it on its own (the retry sits on the failed row; an explicit tap still wins). Bars are drawn contiguous:
+  `WaterfallBuilder` runs each bar from its step's start to the next step's start (the wait between two steps belongs to the earlier bar), the last bar ends with its step, steps are
+  ordered by start, and a bar never reaches past its track (a very short step keeps a two-point sliver). The chip keeps the step's true duration.
+- **Copy as plain text** (Wave 17 I5, §1): the transcript and the reply each have a Copy button next to the section label; it puts one plain string on the pasteboard (`MemoDetailModel.copy`,
+  the `Pasteboard` port), confirms "Copied" for 1.5 s. The transcript is trimmed; the reply (Hermes's markdown) goes through `PlainMarkdown`: emphasis, code marks, heading marks and fences are
+  dropped, list items keep their bullet or number, a link keeps its address in brackets (`text (https://…)`), table cells are tab-separated, blocks are separated by a blank line.
+  The selectable styled text stays for partial selections; the button is the plain-text path.
 - **History without a connection** shows "Not connected" with an Open Settings button (Settings → Connection) instead of a blank list; it follows the form's saves
   (`CompositionRoot.isConfigured` reads `connectionRevision`).
 - **The hidden set survives a relaunch.** A memo this device discarded (a cancelled take, a discarded queue row) is hidden from History until the server `DELETE` settles. The ids live in
@@ -642,13 +650,17 @@ follows the memos: `evict(memoID:)` removes `<memo>.*` (recording, speech, diagr
 - **Correcting after act.** A memo in `acted`/`summarized`/`notified` with a route shows "Wrong route?" in the detail header; the same sheet, titled "Correct the route", sends the same
   request. The server answers 200 and only logs it, so the sheet says nothing is sent again and the memo stays as it was.
 - **Play.** `SpeechPlayer` is the app's one spoken-reply player (one `MemoPlayer`, remembering whose reply it holds): the detail's Play, `PlayReplyIntent` and spoken replies go through it,
-  so replies never overlap; the recording of a detail and the speech pause each other (`MemoPlayback`; `SpeechPlayer.pauseRecording` also covers a spoken reply that starts on its own, and a pause cancels a reply still downloading). It plays `GET /v1/memos/:id/speech` (the server's speech variant) downloaded with the
+  so replies never overlap; the recording of a detail and the speech pause each other (`MemoPlayback`; `SpeechPlayer.pauseRecording` covers a reply the user starts elsewhere, `PlayReplyIntent`, and a pause cancels a reply still downloading). It plays `GET /v1/memos/:id/speech` (the server's speech variant) downloaded with the
   device token by `MediaDownloader`. `PlayReplyIntent` is an `AudioPlaybackIntent` (runs in the app process; `PlaybackIntents.handler` is the composition root, which fetches the memo and plays);
   it is compiled into the widget too. The done Live Activity card and the expanded island have a Play button (`LiveActivityPanel`'s `doneAction` slot, `Button(intent:)`). Notifications have no action slot
   in the code yet (no category is registered; `MEMO_DONE` actions stay as designed above), so none was added. Compile-checked only: whether a suspended app may start playback from the Live Activity is spike S3, fallback is opening the app.
 - **Spoken replies.** Settings → Playback toggle, persisted in `UserDefaults` (`SpokenRepliesStore`, off by default). When on and the scene is active, `memo.done` (`HistoryModel.onMemoDone`) makes
   `SpokenReplies` fetch the memo and speak it if it is `notified`, has a reply, is not deleted or archived, and **this device created it** (`CreatedMemoLog`): the Mac's memos do not talk on the phone.
   Once per memo per launch. A reply that finishes in the background is a notification; Play speaks it on demand.
+  **A spoken reply defers (owner decision B, 2026-10-30).** It never interrupts and never pauses anything: while a reply plays or loads (the detail's Play, `PlayReplyIntent`, another spoken reply), the open detail's
+  recording plays (`SpeechPlayer.isBusy`), or a take is open (`TakeModel.isCapturing`: starting, recording, paused or stopping, a thread's hold-to-talk included), the memo is not spoken. It is marked as spoken-or-skipped,
+  so there is no queue and no auto-play later when the player goes quiet or the take ends; the reply stays available as the memo's notification and [Play]. Checked at `memo.done`, after the memo is fetched, and again
+  when the speech has downloaded: a take that opened meanwhile cancels the start even if it is over again by then (`TakeModel.takesStarted`, compared against its value when `memo.done` arrived), and the memo is skipped. One rule (`SpokenReplies.skipWhileBusy`) serves all three checks; a failed download is not a skip. When nothing plays or records nothing changes.
 - **Per-route mic rules (R-CAP-4).** The capture engine already keeps `[routeFingerprint: preferredPortUID]` and applies the rule when a take starts (`CaptureSession`); Wave 16 adds the UI:
   Settings → Microphone shows the active route (`RouteSnapshot.outputNames`, new, for display only; the fingerprint is still the sorted output UIDs) and its inputs, Automatic removes the rule.
   Only the active route is editable: other routes get their rule when they are the active one (the rules store holds fingerprints, not names). Device-verified: nothing (no phone paired); simulator: the fake route manager.
@@ -704,7 +716,8 @@ the runner needs a workflow step and was left out of this change (owned files: `
   - rotates files every 10 s of frames, on a mic switch, and on an
     interruption;
   - each closed file goes to the `Outbox`; a segment still open when the app dies or the recorder fails stays an unfinalised m4a (no `moov` atom, ffprobe cannot read it), which the startup sweep quarantines (Wave 17 D2: three such files, a few seconds of audio each; a crash-safe container is the fix);
-  - a level meter is fed from tap RMS;
+  - a level meter is fed from the tap's RMS on a perceptual scale (`InputLevel`, Wave 17 I5): linear in dB between −50 dBFS (0) and −10 dBFS (1), a clipped sample reads 1; normal speech
+    (about −30 dBFS) sits at the middle, where the linear amplitude left it near the floor;
   - an engine configuration change (a mic switch, AirPods connecting) closes the segment and replaces the engine with a fresh
     one carrying the tap. The tap's format is the node's current `outputFormat`, installed only when it is non-empty and its
     sample rate equals the hardware's (`inputFormat`); otherwise the bring-up is retried for about 1.5 s, then the take fails
@@ -907,7 +920,7 @@ pinned simulator in light and dark (`LiveActivitySnapshotTests`, the island thro
 | Screen | Content |
 |-|-|
 | History | Tabs History · Stats · Settings (no Threads tab). Memo rows (route chip · state · headline · relative time, step-progress dashes while in flight), pinned needs-route rows (a "Route…" swipe action opens the route sheet), day sections, search, quick-filter chips (Favorites, Chats, Needs route, Archived; the list's first row, not a bar pinned with `safeAreaBar`, so the list is the stack's root scroll content and the large title tracks it), bottom-sheet filter, native swipe actions (done/favorite, archive/delete with a 5 s undo), pull to refresh, SSE live updates, [+] opens the composer |
-| Memo detail | A park card (reason, "Route to …") on a needs-route memo, "Wrong route?" on a finished one (route sheet), transcript, player (play/pause, scrubber, 10 s back, no speed), full-width step waterfall with one `duration · cost` chip per step (money in the user's locale, two decimals), faster/slower vs the stats baseline only above a sample threshold, attempts, a failed optional summarize as a warning row, [Retry from step], icon-only actions (play reply, reply → composer, retry), the reply as markdown; SSE refresh |
+| Memo detail | A park card (reason, "Route to …") on a needs-route memo, "Wrong route?" on a finished one (route sheet), transcript, player (play/pause, scrubber, 10 s back, no speed), step waterfall collapsed to a total line (time · cost) that opens to one `duration · cost` chip per step (money in the user's locale: two decimals from a cent, four below), Copy as plain text on the transcript and the reply, faster/slower vs the stats baseline only above a sample threshold, attempts, a failed optional summarize as a warning row, [Retry from step], icon-only actions (play reply, reply → composer, retry), the reply as markdown; SSE refresh |
 | Composer | Typed memo: mode picker (Auto, Journal, Hermes, Tab, Chat), text, send via `POST /v1/memos/text`; from a detail's reply it continues the memo's thread |
 | Stats | Volume per route per day / week (Swift Charts), tiles, per-route trends, from `GET /v1/stats` |
 | Thread | One conversation as a rendered document (`GET /v1/threads/:id`), opened by a History row of a chat or a continued thread (Wave 15 I2, "Thread view" below): question and answer turns, a pending answer with the step dashes, hold-to-talk and a keyboard button at the bottom |

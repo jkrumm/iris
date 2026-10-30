@@ -18,9 +18,12 @@ final class MemoPlayback {
     self.memoID = memoID
   }
 
-  /// Lets a reply that starts on its own (a spoken reply) pause this screen's recording.
+  /// Lets the shared player see this screen's recording (a spoken reply waits while it plays) and pause it for a reply the
+  /// user starts elsewhere (`PlayReplyIntent`).
   func attach() {
-    speech.bindRecording(owner: self) { [weak recording] in recording?.pause() }
+    speech.bindRecording(
+      owner: self, isPlaying: { [weak recording] in recording?.isPlaying == true },
+      pause: { [weak recording] in recording?.pause() })
   }
 
   /// The reply of this screen's memo is speaking.

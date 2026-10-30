@@ -184,3 +184,123 @@ enum DurationText {
     return rest == 0 ? "\(minutes / 60) h" : "\(minutes / 60) h \(rest) min"
   }
 }
+
+// MARK: Plain text
+
+/// What Copy puts on the pasteboard: text with no markup and no style, the same words the screen shows.
+extension Memo {
+  /// The transcript as spoken, trimmed; nil when there is none.
+  var plainTranscript: String? {
+    transcript.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.flatMap { $0.isEmpty ? nil : $0 }
+  }
+
+  /// The reply (Hermes's markdown) as plain text: emphasis, code marks, heading marks and fences are gone, list items
+  /// keep their bullet or number, a link keeps its address in brackets, table cells are tab-separated.
+  var plainReply: String? {
+    replyText.map(PlainMarkdown.text(from:)).flatMap { $0.isEmpty ? nil : $0 }
+  }
+}
+
+/// Markdown to plain text through Foundation's block-aware parse: blocks are separated by a blank line (list items and
+/// table rows by a single line break), everything else is the characters the reader sees.
+nonisolated enum PlainMarkdown {
+  static func text(from markdown: String) -> String {
+    let options = AttributedString.MarkdownParsingOptions(
+      interpretedSyntax: .full, failurePolicy: .returnPartiallyParsedIfPossible)
+    guard let parsed = try? AttributedString(markdown: markdown, options: options) else {
+      return trimmed(markdown)
+    }
+    var output = ""
+    var previous: Block?
+    var link: (url: String, label: String)?
+    // A link's address follows the whole linked text, once, however many styled runs the label has.
+    func closeLink() {
+      if let link, link.url != link.label { output += " (\(link.url))" }
+      link = nil
+    }
+    for run in parsed.runs {
+      let block = Block(run.presentationIntent?.components ?? [])
+      if block != previous {
+        closeLink()
+        while output.hasSuffix("\n") { output.removeLast() }  // a code block carries its own last line break
+        output += block.separator(after: previous)
+        output += block.marker
+        previous = block
+      }
+      let piece = String(parsed[run.range].characters)
+      if run.link?.absoluteString != link?.url {
+        closeLink()
+        if let url = run.link?.absoluteString { link = (url, "") }
+      }
+      link?.label += piece
+      output += piece
+    }
+    closeLink()
+    return trimmed(output)
+  }
+
+  /// Without the blank lines before the text and the whitespace after it; the first line keeps its indentation (a reply
+  /// that opens with an indented code block).
+  private static func trimmed(_ text: String) -> String {
+    var lines = text.split(separator: "\n", omittingEmptySubsequences: false)
+    while let first = lines.first, first.allSatisfy(\.isWhitespace) { lines.removeFirst() }
+    var result = lines.joined(separator: "\n")
+    while let last = result.last, last.isWhitespace { result.removeLast() }
+    return result
+  }
+
+  /// The block a run sits in: the identities of its enclosing blocks tell two blocks apart; the rest is what the
+  /// separator and the list marker need.
+  private struct Block: Equatable {
+    let identities: [Int]
+    let rowIdentity: Int?
+    /// The cell's column: empty cells emit no run, so the gap between two columns is what says how many tabs to write.
+    let column: Int?
+    let listOrdinal: Int?
+    let isOrdered: Bool
+
+    init(_ components: [PresentationIntent.IntentType]) {
+      identities = components.map(\.identity)
+      var row: Int?
+      var cell: Int?
+      var ordinal: Int?
+      var ordered: Bool?
+      // Innermost first: the nearest list item and list decide the marker of a nested item.
+      for component in components {
+        switch component.kind {
+        case .tableRow, .tableHeaderRow: row = component.identity
+        case .tableCell(let columnIndex): cell = columnIndex
+        case .listItem(let value): ordinal = ordinal ?? value
+        case .orderedList: ordered = ordered ?? true
+        case .unorderedList: ordered = ordered ?? false
+        default: break
+        }
+      }
+      rowIdentity = row
+      column = cell
+      listOrdinal = ordinal
+      isOrdered = ordered ?? false
+    }
+
+    var isCell: Bool { column != nil }
+
+    /// One tab per column between the cells of a row (an empty cell has no run, so two tabs mark it), a line break
+    /// between rows and between list items, a blank line otherwise (so a list or a table starts after a blank line).
+    /// Leading empty cells of a row show as leading tabs.
+    func separator(after previous: Block?) -> String {
+      let leading = String(repeating: "\t", count: column ?? 0)
+      guard let previous else { return leading }
+      if let column, let before = previous.column, let rowIdentity, rowIdentity == previous.rowIdentity {
+        return String(repeating: "\t", count: max(column - before, 1))
+      }
+      if isCell && previous.isCell { return "\n" + leading }
+      if listOrdinal != nil && previous.listOrdinal != nil { return "\n" }
+      return "\n\n" + leading
+    }
+
+    var marker: String {
+      guard let listOrdinal else { return "" }
+      return isOrdered ? "\(listOrdinal). " : "- "
+    }
+  }
+}

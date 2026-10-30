@@ -11,8 +11,11 @@ final class SpeechPlayer {
   /// The memo whose reply the player holds (or is loading).
   private(set) var memoID: String?
   /// Pauses the recording of the detail screen that is open, if any: bound by its ``MemoPlayback``, called right before a
-  /// reply starts so a spoken reply never plays over a recording (a `memo.done` speaks without going through the screen).
+  /// reply starts so a reply the user starts (Play, `PlayReplyIntent`) never plays over a recording. A spoken reply never
+  /// gets here while the recording plays: ``SpokenReplies`` waits on ``isBusy``.
   private var pauseRecording: (() -> Void)?
+  /// Whether that screen's recording is playing, for ``isBusy``.
+  private var recordingIsPlaying: (() -> Bool)?
   private weak var recordingOwner: AnyObject?
   /// Bumped by every start, pause and stop; a download that finds it changed belongs to a start that was overtaken (the
   /// user paused, stopped, or started the recording, while the speech was downloading).
@@ -24,9 +27,14 @@ final class SpeechPlayer {
 
   func isPlaying(_ id: String) -> Bool { memoID == id && player.isPlaying }
 
+  /// Something is audible or about to be: a reply loading or playing, or the open detail's recording playing. A reply that
+  /// starts on its own (``SpokenReplies``) waits instead of interrupting it; a start the user asks for does not look at it.
+  var isBusy: Bool { player.isLoading || player.isPlaying || recordingIsPlaying?() == true }
+
   /// `owner` is the screen whose recording `pause` stops before a reply starts; the last screen to bind wins.
-  func bindRecording(owner: AnyObject, pause: @escaping () -> Void) {
+  func bindRecording(owner: AnyObject, isPlaying: @escaping () -> Bool, pause: @escaping () -> Void) {
     recordingOwner = owner
+    recordingIsPlaying = isPlaying
     pauseRecording = pause
   }
 
@@ -34,6 +42,7 @@ final class SpeechPlayer {
   func unbindRecording(owner: AnyObject) {
     guard recordingOwner === owner else { return }
     recordingOwner = nil
+    recordingIsPlaying = nil
     pauseRecording = nil
   }
 

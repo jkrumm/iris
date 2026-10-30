@@ -169,7 +169,8 @@ final class CompositionRoot: CaptureIntentHandler, PlaybackIntentHandler {
     let reader = SpokenReplies(
       store: fake ? InMemorySpokenRepliesStore() : UserDefaultsSpokenRepliesStore(), speech: speech, client: api,
       media: { fake ? FakeMediaSource() : Self.mediaSource(for: saved?.load()) },
-      createdHere: { await outbox.created.memo(id: $0) != nil })
+      createdHere: { await outbox.created.memo(id: $0) != nil },
+      takes: { [take] in TakeActivity(isOpen: take.isCapturing, started: take.takesStarted) })
     spokenReplies = reader
     history.onMemoDone = { id in Task { await reader.memoDone(id: id) } }
     CaptureIntents.handler = self
