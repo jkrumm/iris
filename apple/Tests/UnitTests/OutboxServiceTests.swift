@@ -138,6 +138,51 @@ struct OutboxServiceTests {
     #expect(item(.text("x"), mode: "chat", thread: "t").kind == .textReply)
   }
 
+  @Test("segments the server already has for a completed memo are delivered on its 409, and the queue clears")
+  func completedMemoClearsTheQueue() async throws {
+    let id = MemoID()
+    let wire = id.wireID
+    // The server has the whole take and has completed it (the audio was sent by hand, or the answers were lost).
+    _ = try await client.createMemo(CreateMemoRequest(id: wire, mode: .auto, startedAt: MemoFactory.now))
+    for index in 0..<3 { try await client.uploadSegment(memoID: wire, index: index, data: Data("audio".utf8)) }
+    _ = try await client.completeMemo(id: wire, request: CompleteMemoRequest(segmentCount: 3))
+    let uploadsBefore = await client.calls.count
+    for _ in 0..<3 {
+      await client.enqueueFailure(
+        .server(status: 409, body: ErrorBody(error: .badState, message: "memo is received, no longer receiving")),
+        for: .uploadSegment)
+    }
+
+    // The phone's queue: the take is created, its three segments and its `complete` are still waiting.
+    let directory = FileManager.default.temporaryDirectory.appending(path: "iris-unit-\(UUID().uuidString)")
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    var item = OutboxItem(
+      memoID: id, kind: .voice, mode: "auto", startedAt: MemoFactory.now, queuedAt: MemoFactory.now, title: "Voice memo"
+    )
+    item.create = .uploaded
+    var machine = OutboxStateMachine()
+    machine.enqueueItem(item)
+    for index in 0..<3 {
+      let url = directory.appending(path: "\(index).m4a")
+      try Data("audio".utf8).write(to: url)
+      machine.enqueue(ClosedSegment(memoID: id, index: index, fileURL: url, byteCount: 5, duration: 1))
+    }
+    machine.finishMemo(id, segmentCount: 3)
+    let rig = OutboxRig(client: client, store: InMemoryOutboxStore(record: machine.record))
+
+    #expect(await rig.drain())
+    let outbox = try await rig.stack.outbox()
+    #expect(await outbox.entries().isEmpty)
+    #expect(await outbox.items().isEmpty)
+    #expect(await outbox.memos().isEmpty)
+    #expect(await rig.service.queuedItems().isEmpty, "no failed row, no error")
+    let calls = await client.calls.dropFirst(uploadsBefore)
+    #expect(
+      calls.filter { if case .uploadSegment = $0 { true } else { false } }.count == 3, "each segment once, no loop")
+    #expect(calls.last == .completeMemo(id: wire, request: CompleteMemoRequest(segmentCount: 3)))
+  }
+
   @Test("the change stream tells Settings when the queue moves")
   func changes() async throws {
     let rig = OutboxRig(client: client)
@@ -194,6 +239,94 @@ struct APIOutboxUploaderTests {
         .createMemo(CreateMemoRequest(id: id.wireID, mode: .hermes, startedAt: MemoFactory.now, threadId: "t"))
       ])
     #expect(await created.memo(id: id.wireID)?.threadId == "t")
+  }
+
+  /// A server that completed the memo with `held` segments (none: the memo still receives), and one segment file on disk.
+  private struct ClosedMemo {
+    let client = FakeAPIClient(now: { MemoFactory.now })
+    let directory = FileManager.default.temporaryDirectory.appending(path: "iris-unit-\(UUID().uuidString)")
+    let id = MemoID()
+    let file: URL
+
+    init(held: Int) async throws {
+      try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+      file = directory.appending(path: "\(id.uuidString)-2.m4a")
+      try Data("audio".utf8).write(to: file)
+      _ = try await client.createMemo(CreateMemoRequest(id: id.wireID, mode: .auto, startedAt: MemoFactory.now))
+      for index in 0..<held { try await client.uploadSegment(memoID: id.wireID, index: index, data: Data("x".utf8)) }
+      if held > 0 { _ = try await client.completeMemo(id: id.wireID, request: CompleteMemoRequest(segmentCount: held)) }
+      await client.enqueueFailure(
+        .server(status: 409, body: ErrorBody(error: .badState, message: "no longer receiving")), for: .uploadSegment)
+    }
+
+    var keeping: DirectorySegmentFiles { DirectorySegmentFiles(directory: directory) }
+    var segment: ClosedSegment { ClosedSegment(memoID: id, index: 2, fileURL: file, byteCount: 5, duration: 1) }
+    func uploader(keeping: (any SegmentFileStore)?) -> APIOutboxUploader {
+      APIOutboxUploader(client: client, created: CreatedMemoLog(), keeping: keeping)
+    }
+    func remove() { try? FileManager.default.removeItem(at: directory) }
+  }
+
+  @Test("a segment the server has for a completed memo is delivered and its file is left to the queue")
+  func segmentTheServerHolds() async throws {
+    let memo = try await ClosedMemo(held: 3)
+    defer { memo.remove() }
+    try await memo.uploader(keeping: memo.keeping).upload(memo.segment)
+    #expect(FileManager.default.fileExists(atPath: memo.file.path))
+    #expect(await memo.keeping.setAsideFiles().isEmpty)
+  }
+
+  @Test("a segment the server's completed memo lacks is the only copy: set aside, kept, and the entry clears")
+  func segmentTheServerLacks() async throws {
+    let memo = try await ClosedMemo(held: 1)
+    defer { memo.remove() }
+    try await memo.uploader(keeping: memo.keeping).upload(memo.segment)
+    #expect(!FileManager.default.fileExists(atPath: memo.file.path))
+    let kept = await memo.keeping.setAsideFiles()
+    #expect(kept.count == 1 && kept.first?.byteCount == 5)
+    #expect(try kept.first.map { try Data(contentsOf: $0.url) } == Data("audio".utf8))
+  }
+
+  @Test("a memo that never received a segment is the same: the file is kept")
+  func segmentOfAMemoWithNone() async throws {
+    let memo = try await ClosedMemo(held: 0)
+    defer { memo.remove() }
+    try await memo.uploader(keeping: memo.keeping).upload(memo.segment)
+    #expect(await memo.keeping.setAsideFiles().count == 1)
+  }
+
+  @Test("without a place to keep it the file stays where it is and the entry stalls")
+  func segmentNothingToKeepWith() async throws {
+    let memo = try await ClosedMemo(held: 1)
+    defer { memo.remove() }
+    await #expect(throws: PermanentTransferError.self) { try await memo.uploader(keeping: nil).upload(memo.segment) }
+    #expect(FileManager.default.fileExists(atPath: memo.file.path))
+  }
+
+  @Test("when the server cannot be asked what it holds, nothing is decided: retried later, file untouched")
+  func segmentLookupFails() async throws {
+    let memo = try await ClosedMemo(held: 1)
+    defer { memo.remove() }
+    await memo.client.enqueueFailure(.transport(.notConnectedToInternet), for: .memo)
+    await #expect(throws: TransientTransferError.self) {
+      try await memo.uploader(keeping: memo.keeping).upload(memo.segment)
+    }
+    #expect(FileManager.default.fileExists(atPath: memo.file.path))
+    #expect(await memo.keeping.setAsideFiles().isEmpty)
+  }
+
+  @Test("a segment whose bytes differ from the server's stays a refusal")
+  func segmentConflict() async throws {
+    let client = FakeAPIClient()
+    await client.enqueueFailure(
+      .server(status: 409, body: ErrorBody(error: .conflict, message: "other bytes")), for: .uploadSegment)
+    let file = FileManager.default.temporaryDirectory.appending(path: "iris-unit-\(UUID().uuidString).m4a")
+    try Data("audio".utf8).write(to: file)
+    defer { try? FileManager.default.removeItem(at: file) }
+    await #expect(throws: PermanentTransferError.self) {
+      try await APIOutboxUploader(client: client, created: CreatedMemoLog()).upload(
+        ClosedSegment(memoID: MemoID(), index: 0, fileURL: file, byteCount: 5, duration: 1))
+    }
   }
 
   @Test("a segment whose file is gone is a permanent failure")

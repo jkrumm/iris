@@ -17,6 +17,8 @@ extension UUID {
 nonisolated struct APIOutboxUploader: SegmentUploader {
   let client: any APIClient
   let created: CreatedMemoLog
+  /// Where a segment goes when the server closed its memo without it (see `upload`); the capture directory's set-aside folder.
+  var keeping: (any SegmentFileStore)?
 
   func create(_ item: OutboxItem) async throws {
     let id = item.memoID.wireID
@@ -49,8 +51,26 @@ nonisolated struct APIOutboxUploader: SegmentUploader {
     }
     do {
       try await client.uploadSegment(memoID: segment.memoID.wireID, index: segment.index, data: data)
+    } catch let APIError.server(status, body) where status == 409 && body.error == .badState {
+      // The memo has left `receiving`. When the server completed it with this segment, the segment is delivered and `complete`
+      // then answers with the memo it has. When it completed it with fewer, this file is the only copy of that audio: it is
+      // set aside where Settings shows it, never deleted with the rest of the take.
+      try await settleClosedMemo(segment, answer: body.message)
     } catch {
       throw Self.classified(error)
+    }
+  }
+
+  private func settleClosedMemo(_ segment: ClosedSegment, answer: String) async throws {
+    let held: Int
+    do {
+      held = try await client.memo(id: segment.memoID.wireID).memo.segmentCount ?? 0
+    } catch {
+      throw Self.classified(error)  // not knowing what the server holds is not an answer: try again later
+    }
+    guard held <= segment.index else { return }
+    guard let keeping, await keeping.setAside(segment.fileURL) != nil else {
+      throw PermanentTransferError("the server closed this memo without this recording, which is kept: \(answer)")
     }
   }
 

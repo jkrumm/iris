@@ -32,3 +32,15 @@ Findings that change the design go to the matching spike file and into `docs/TDD
 - What it took: the Tailscale VPN on the phone (it was off: Brave showed `NOT_FOUND`, the app "Could not load memos"), then re-entering the token
   (the first entry did not authenticate). Findings for the app: Settings shows "Connected" with a saved but unreachable or rejected configuration (it means
   "configured", not "reachable"); entering the token is error-prone because `op://mini/iris/device-tokens` holds all devices as `token=device` pairs.
+
+## Wave 17 D1b: the first device take (2026-10-30, iPhone 15, iOS 26.6.1)
+
+- A take recorded while the phone was offline created its memo when the
+  tailnet came up but never sent a segment. The saved queue named the three segment files by absolute container path, an install over the app
+  had moved the container, and every upload failed as "the recording file is gone" (permanent, so stalled) with the audio intact in the new
+  container. Fixed by saving file names and resolving them against the current capture directory; row 7 and 8 (airplane mode, kill) must
+  also pass **across an install of a new build** over the same bundle id. The take was delivered by hand from a copy of the container.
+- Verified on the phone with the fixed build installed over the old one (same bundle id and team, container kept): the three stalled segments of the
+  first take were sent from the current capture directory, the server answered 409 `bad_state` (the memo had been completed by hand) and
+  `segmentCount` 3 covered them, `complete` cleared the take, and `outbox.json` ended with no entries, items or memos and the memo in
+  `completedMemos`. Pass.

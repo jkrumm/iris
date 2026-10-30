@@ -49,12 +49,19 @@ public actor UnreadableOutboxStore: OutboxStore {
 }
 
 /// Production store: one JSON file, replaced atomically on every save.
+///
+/// With a `segmentDirectory` the file names its segments by file name only and `load()` puts them in that directory: the
+/// app's data container gets a new path when a build is installed over it, so an absolute path saved by an earlier run points
+/// at nothing while the audio sits unharmed in the new container. A record written with absolute paths (an earlier build) is
+/// healed the same way, and a segment it had stalled on its missing file is tried once more.
 public struct JSONFileOutboxStore: OutboxStore {
   private let fileURL: URL
+  private let segmentDirectory: URL?
   private let now: @Sendable () -> Date
 
-  public init(fileURL: URL, now: @escaping @Sendable () -> Date = { Date() }) {
+  public init(fileURL: URL, segmentDirectory: URL? = nil, now: @escaping @Sendable () -> Date = { Date() }) {
     self.fileURL = fileURL
+    self.segmentDirectory = segmentDirectory
     self.now = now
   }
 
@@ -65,7 +72,7 @@ public struct JSONFileOutboxStore: OutboxStore {
     guard FileManager.default.fileExists(atPath: fileURL.path) else { return OutboxRecord() }
     let data = try Data(contentsOf: fileURL)
     do {
-      return try JSONDecoder().decode(OutboxRecord.self, from: data)
+      return healed(try JSONDecoder().decode(OutboxRecord.self, from: data))
     } catch {
       Log.outbox.error("outbox file cannot be decoded, left untouched: \(String(describing: error), privacy: .public)")
       throw OutboxStoreError.undecodable
@@ -75,7 +82,45 @@ public struct JSONFileOutboxStore: OutboxStore {
   public func save(_ record: OutboxRecord) async throws {
     try FileManager.default.createDirectory(
       at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-    try JSONEncoder().encode(record).write(to: fileURL, options: .atomic)
+    try JSONEncoder().encode(named(record)).write(to: fileURL, options: .atomic)
+  }
+
+  /// The record as it goes to disk: each segment by its file name.
+  private func named(_ record: OutboxRecord) -> OutboxRecord {
+    guard segmentDirectory != nil else { return record }
+    var record = record
+    for index in record.entries.indices {
+      let segment = record.entries[index].segment
+      guard let name = URL(string: segment.fileURL.lastPathComponent) else { continue }
+      record.entries[index].segment = ClosedSegment(
+        memoID: segment.memoID, index: segment.index, fileURL: name, byteCount: segment.byteCount,
+        duration: segment.duration)
+    }
+    return record
+  }
+
+  /// Every segment in the current directory. An entry that named an absolute path somewhere else and had stalled (its file
+  /// was "gone") is pending again, once, when the file is there: the next save writes the name, so this cannot repeat.
+  private func healed(_ record: OutboxRecord) -> OutboxRecord {
+    guard let directory = segmentDirectory else { return record }
+    var record = record
+    for index in record.entries.indices {
+      let entry = record.entries[index]
+      let stored = entry.segment.fileURL
+      let current = directory.appending(path: stored.lastPathComponent)
+      let movedContainer =
+        stored.path.hasPrefix("/")
+        && stored.deletingLastPathComponent().resolvingSymlinksInPath().path
+          != directory.resolvingSymlinksInPath().path
+      record.entries[index].segment = ClosedSegment(
+        memoID: entry.segment.memoID, index: entry.segment.index, fileURL: current, byteCount: entry.segment.byteCount,
+        duration: entry.segment.duration)
+      if movedContainer, entry.state == .stalled, FileManager.default.fileExists(atPath: current.path) {
+        record.entries[index].state = .pending
+        record.entries[index].attempts = 0
+      }
+    }
+    return record
   }
 }
 
