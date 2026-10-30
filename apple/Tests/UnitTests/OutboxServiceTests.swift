@@ -324,6 +324,12 @@ struct APIOutboxUploaderTests {
     #expect(FileManager.default.fileExists(atPath: memo.file.path))
   }
 
+  private func directoryFile(_ memo: ClosedMemo, _ name: String) -> URL {
+    let url = memo.directory.appending(path: "\(memo.id.uuidString)-\(name).m4a")
+    try? Data("x".utf8).write(to: url)
+    return url
+  }
+
   @Test(
     "through the outbox a late tail is created on the server as its own transcribe memo, and the take is left alone")
   func lateTailThroughTheOutbox() async throws {
