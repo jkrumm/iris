@@ -66,13 +66,16 @@ public protocol SegmentFileStore: Sendable {
   func shadowFiles() async -> [URL]
   /// Rebuilds the segment a shadow stands for as a playable `.m4a` beside it (replacing the truncated one a kill left).
   func recover(shadow: URL) async -> ShadowRecovery
-  /// Removes a shadow whose audio is safe elsewhere (its m4a plays, or it holds none).
+  /// The length of a shadow in seconds, `nil` when it cannot be read.
+  func shadowDuration(of shadow: URL) -> TimeInterval?
+  /// Removes a shadow whose audio is safe elsewhere (a playable m4a of the same length, or provably none).
   func discard(shadow: URL) async
 }
 
 extension SegmentFileStore {
   public func shadowFiles() async -> [URL] { [] }
   public func recover(shadow: URL) async -> ShadowRecovery { .failed }
+  public func shadowDuration(of shadow: URL) -> TimeInterval? { nil }
   public func discard(shadow: URL) async {}
 }
 
@@ -109,6 +112,14 @@ public struct DirectorySegmentFiles: SegmentFileStore {
   }
 
   public func recover(shadow: URL) async -> ShadowRecovery { transcoder(shadow) }
+
+  public func shadowDuration(of shadow: URL) -> TimeInterval? {
+    #if canImport(AVFAudio)
+      SegmentWriter.duration(of: shadow)
+    #else
+      nil
+    #endif
+  }
 
   public func discard(shadow: URL) async { try? FileManager.default.removeItem(at: shadow) }
 
@@ -216,8 +227,13 @@ extension Outbox {
   {
     for shadow in await files.shadowFiles().sorted(by: { $0.lastPathComponent < $1.lastPathComponent }) {
       let segment = SegmentShadow.segment(of: shadow)
-      if files.inspect(segment) != nil {
-        await files.discard(shadow: shadow)
+      if let audio = files.inspect(segment) {
+        // Redundant only when the m4a is shown to hold the shadow's audio: the same length, not just a file that plays.
+        if let held = files.shadowDuration(of: shadow), abs(held - audio.duration) <= SegmentShadow.durationTolerance {
+          await files.discard(shadow: shadow)
+        } else {
+          report.stuck.append(shadow)
+        }
       } else if owned.contains(segment.lastPathComponent) {
         report.stuck.append(shadow)  // the queue's own file does not play: the shadow is the other copy
       } else {

@@ -82,16 +82,48 @@
       #expect(FileManager.default.fileExists(atPath: shadow.path), "recover never touches the shadow")
     }
 
-    @Test func aHeaderOnlyShadowIsEmptyAndGarbageIsAFailure() throws {
+    /// A CAF header as AVAudioFile writes it before any audio: `caff`, version, flags, a `desc` chunk, optionally `data`.
+    private func cafHeader(data: Bool = false, audioBytes: Int = 0, truncatedAt: Int? = nil) -> Data {
+      func be(_ value: Int64) -> Data { withUnsafeBytes(of: value.bigEndian) { Data($0) } }
+      var bytes = Data("caff".utf8) + Data([0, 1, 0, 0])
+      bytes += Data("desc".utf8) + be(32) + Data(count: 32)
+      if data { bytes += Data("data".utf8) + be(-1) + Data(count: 4 + audioBytes) }
+      return truncatedAt.map { Data(bytes.prefix($0)) } ?? bytes
+    }
+
+    private func shadowFile(_ contents: Data, in directory: URL, index: Int = 0) throws -> URL {
+      let url = directory.appending(path: "\(memo(1).uuidString)-\(index).caf")
+      try contents.write(to: url)
+      return url
+    }
+
+    @Test func aShadowIsEmptyOnlyWhenAValidCafProvesItHoldsNoAudio() throws {
       let directory = try temporaryDirectory()
       defer { try? FileManager.default.removeItem(at: directory) }
-      let header = directory.appending(path: "\(memo(1).uuidString)-0.caf")
-      try Data(count: 100).write(to: header)
-      let garbage = directory.appending(path: "\(memo(1).uuidString)-1.caf")
-      try Data(repeating: 7, count: 9_000).write(to: garbage)
 
-      #expect(SegmentWriter.recover(shadow: header, sampleRate: 16_000) == .empty)
-      #expect(SegmentWriter.recover(shadow: garbage, sampleRate: 16_000) == .failed)
+      let headerOnly = try shadowFile(cafHeader(), in: directory, index: 0)
+      let emptyData = try shadowFile(cafHeader(data: true), in: directory, index: 1)
+      let cutInsideTheHeader = try shadowFile(cafHeader(truncatedAt: 20), in: directory, index: 2)
+      #expect(
+        SegmentWriter.recover(shadow: headerOnly, sampleRate: 16_000) == .empty, "a CAF that ends before its data")
+      #expect(SegmentWriter.recover(shadow: emptyData, sampleRate: 16_000) == .empty, "a data chunk with no audio")
+      #expect(
+        SegmentWriter.recover(shadow: cutInsideTheHeader, sampleRate: 16_000) == .empty, "cut inside a header chunk")
+    }
+
+    @Test func aShadowThatIsNotProvenEmptyIsFailedAndKept() throws {
+      let directory = try temporaryDirectory()
+      defer { try? FileManager.default.removeItem(at: directory) }
+      let zeroes = try shadowFile(Data(count: 100), in: directory, index: 0)  // short, but not a CAF at all
+      let garbage = try shadowFile(Data(repeating: 7, count: 9_000), in: directory, index: 1)
+      let withAudioBytes = try shadowFile(cafHeader(data: true, audioBytes: 64), in: directory, index: 2)
+      let unreadable = try shadowFile(cafHeader(), in: directory, index: 3)
+      try FileManager.default.setAttributes([.posixPermissions: 0], ofItemAtPath: unreadable.path)
+      defer { try? FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: unreadable.path) }
+
+      for shadow in [zeroes, garbage, withAudioBytes, unreadable] {
+        #expect(SegmentWriter.recover(shadow: shadow, sampleRate: 16_000) == .failed, "\(shadow.lastPathComponent)")
+      }
     }
 
     // MARK: Sweep
@@ -186,7 +218,7 @@
       await harness.outbox.shutdown()
     }
 
-    @Test func aShadowBesideAPlayableM4aIsRedundantAndGoes() async throws {
+    @Test func aShadowBesideAPlayableM4aOfTheSameLengthIsRedundantAndGoes() async throws {
       let directory = try temporaryDirectory()
       defer { try? FileManager.default.removeItem(at: directory) }
       let id = memo(1)
@@ -201,11 +233,36 @@
 
       let report = await harness.outbox.sweepOrphans(using: DirectorySegmentFiles(directory: directory))
 
-      #expect(report.recovered.isEmpty)
+      #expect(report.recovered.isEmpty && report.stuck.isEmpty)
       #expect(!names(directory).contains { $0.hasSuffix(".caf") })
       let kept = directory.appending(path: "quarantine/\(writer.url.lastPathComponent)")
       #expect(
         Outbox.inspectAudioFile(kept) != nil, "the m4a itself is untouched (no take holds it, so it is kept aside)")
+      await harness.outbox.shutdown()
+    }
+
+    @Test func aShadowBesideAPlayableM4aOfAnotherLengthIsNotProvenADuplicateAndStays() async throws {
+      let live = try temporaryDirectory()
+      let directory = try temporaryDirectory()
+      defer { for url in [live, directory] { try? FileManager.default.removeItem(at: url) } }
+      let id = memo(1)
+      let longer = try writeSegment(id, 0, seconds: 6, in: live)
+      try killed(longer, into: directory)  // a 6 s shadow ...
+      longer.close()
+      // ... beside a playable 2 s m4a of the same name
+      let shorter = try writeSegment(id, 1, seconds: 2, in: directory)
+      shorter.close()
+      let m4a = directory.appending(path: "\(id.uuidString)-0.m4a")
+      try FileManager.default.removeItem(at: m4a)
+      try FileManager.default.moveItem(at: directory.appending(path: "\(id.uuidString)-1.m4a"), to: m4a)
+      let harness = try await OutboxHarness()
+
+      let report = await harness.outbox.sweepOrphans(using: DirectorySegmentFiles(directory: directory))
+
+      let shadow = directory.appending(path: "\(id.uuidString)-0.caf")
+      #expect(
+        FileManager.default.fileExists(atPath: shadow.path), "6 s of audio that no playable file is known to hold")
+      #expect(report.stuck == [shadow])
       await harness.outbox.shutdown()
     }
 

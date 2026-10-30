@@ -13,6 +13,42 @@ enum SegmentShadow {
   static func segment(of shadow: URL) -> URL { shadow.deletingPathExtension().appendingPathExtension("m4a") }
 
   static func isShadow(_ name: String) -> Bool { name.hasSuffix(".\(fileExtension)") && Outbox.parse(name) != nil }
+
+  /// How far a shadow's length may differ from its m4a's before the m4a is not taken for a copy of it.
+  static let durationTolerance: TimeInterval = 0.25
+
+  /// Whether the file is a CAF that provably holds no audio: it has the `caff` magic and ends before its `data` chunk has a
+  /// single audio byte (a take killed right after the file was opened). Anything else, a file that cannot be read, a header
+  /// that does not parse or one that is only partly read, is not proof: `false`.
+  static func provesNoAudio(fileAt url: URL) -> Bool {
+    let window = 16_384
+    guard let handle = try? FileHandle(forReadingFrom: url), let head = try? handle.read(upToCount: window) else {
+      return false
+    }
+    defer { try? handle.close() }
+    // A full window may be a prefix of a longer file: the header is not known to end where the buffer does.
+    return provesNoAudio(head, isWholeFile: head.count < window)
+  }
+
+  static func provesNoAudio(_ data: Data, isWholeFile: Bool) -> Bool {
+    let bytes = [UInt8](data)
+    guard bytes.count >= 8, Array(bytes[0..<4]) == Array("caff".utf8) else { return false }
+    var offset = 8
+    while true {
+      guard offset + 12 <= bytes.count else { return isWholeFile }  // ended inside the headers: no audio came after
+      let type = Array(bytes[offset..<offset + 4])
+      let size = bytes[offset + 4..<offset + 12].reduce(Int64(0)) { $0 << 8 | Int64($1) }
+      let payload = offset + 12
+      if type == Array("data".utf8) {
+        let audioStart = payload + 4  // the edit count
+        return isWholeFile && bytes.count <= audioStart
+      }
+      // A chunk larger than what is here ends outside the buffer: a cut header if this is the whole file, no proof otherwise.
+      guard size >= 0, size <= Int64(bytes.count) else { return isWholeFile && size >= 0 }
+      offset = payload + Int(size)
+      if offset > bytes.count { return isWholeFile }  // a header chunk cut short
+    }
+  }
 }
 
 #if canImport(AVFAudio)
@@ -90,12 +126,16 @@ enum SegmentShadow {
       }
     }
 
+    /// The length of an audio file in seconds, `nil` when it does not open.
+    static func duration(of url: URL) -> TimeInterval? {
+      guard let file = try? AVAudioFile(forReading: url) else { return nil }
+      return Double(file.length) / file.processingFormat.sampleRate
+    }
+
     // MARK: Recovery
 
-    /// A shadow shorter than this holds only the file header (a kill right after it was opened).
-    private static let headerBytes = 4096
-
     /// Transcodes a shadow to `<memo>-<index>.m4a` beside it, replacing the truncated m4a a kill left. The shadow is not touched.
+    /// `.empty` only when a valid CAF proves it holds no audio; a file that cannot be read or parsed is `.failed` and is kept.
     static func recover(shadow: URL, sampleRate: Int) -> ShadowRecovery {
       let target = SegmentShadow.segment(of: shadow)
       let scratch = FileManager.default.temporaryDirectory.appending(path: "recover-\(UUID().uuidString).m4a")
@@ -104,8 +144,7 @@ enum SegmentShadow {
       do {
         input = try AVAudioFile(forReading: shadow)
       } catch {
-        let size = (try? shadow.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
-        if size <= headerBytes { return .empty }
+        if SegmentShadow.provesNoAudio(fileAt: shadow) { return .empty }
         Log.outbox.error(
           "shadow \(shadow.lastPathComponent, privacy: .public) unreadable: \(String(describing: error), privacy: .public)"
         )
