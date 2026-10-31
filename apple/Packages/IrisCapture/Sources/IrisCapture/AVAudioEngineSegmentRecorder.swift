@@ -4,7 +4,7 @@
   import IrisObjCGuard
 
   /// Production recorder: `AVAudioEngine` input tap -> `AVAudioConverter` (16 kHz mono) -> one
-  /// `AVAudioFile` (AAC, ~32 kbps) per segment. Never `AVAudioRecorder` (D5): continuous buffers keep the
+  /// fragmented m4a (`SegmentWriter`: AAC, ~32 kbps) per segment. Never `AVAudioRecorder` (D5): continuous buffers keep the
   /// concatenated decode gapless. Rotation decisions come from `SegmentRotator`.
   ///
   /// Thin on purpose; device-verified in spike S1/S2, only compile-checked in the package tests.
@@ -21,8 +21,10 @@
 
     private var rotator: SegmentRotator
     private var take = TakeLifecycle()
-    private var openFile: AVAudioFile?
-    private var openFileURL: URL?
+    private var openWriter: SegmentWriter?
+    /// The closing of the segments handed off so far, in order: a file is queued only once its writer has finished, and
+    /// `stop()` waits for the last one before `.stopped`. Owned by the recorder, awaited in `stop()`.
+    private var closing: Task<Void, Never>?
     private var sampleSink: AsyncStream<TapChunk>.Continuation?
     private var consumeTask: Task<Void, Never>?
     private var configurationTask: Task<Void, Never>?
@@ -95,6 +97,7 @@
       await consumeTask?.value
       consumeTask = nil
       apply(rotator.finish(), samples: [])
+      await closing?.value
       eventContinuation.yield(.stopped(memoID, segmentCount: rotator.closedCount))
       take.finishStop()
     }
@@ -441,48 +444,43 @@
 
     private func write(_ samples: [Float], segment: Int, memoID: MemoID) {
       do {
-        let file = try openFile ?? makeFile(segment: segment, memoID: memoID)
-        guard
-          let buffer = AVAudioPCMBuffer(pcmFormat: targetFormat, frameCapacity: AVAudioFrameCount(samples.count)),
-          let channel = buffer.floatChannelData
-        else { return }
-        samples.withUnsafeBufferPointer { source in
-          guard let base = source.baseAddress else { return }
-          channel[0].update(from: base, count: source.count)
-        }
-        buffer.frameLength = AVAudioFrameCount(samples.count)
-        try file.write(from: buffer)
+        let writer = try openWriter ?? makeWriter(segment: segment, memoID: memoID)
+        try writer.append(samples)
       } catch {
         Log.capture.error("segment write failed: \(String(describing: error), privacy: .public)")
         eventContinuation.yield(.failed(reason: "segment write failed"))
       }
     }
 
-    private func makeFile(segment: Int, memoID: MemoID) throws -> AVAudioFile {
+    private func makeWriter(segment: Int, memoID: MemoID) throws -> SegmentWriter {
       let url = directory.appending(path: "\(memoID.uuidString)-\(segment).m4a")
-      let settings: [String: Any] = [
-        AVFormatIDKey: kAudioFormatMPEG4AAC,
-        AVSampleRateKey: Double(policy.sampleRate),
-        AVNumberOfChannelsKey: 1,
-        AVEncoderBitRateKey: 32_000,
-      ]
-      let file = try AVAudioFile(
-        forWriting: url, settings: settings, commonFormat: .pcmFormatFloat32, interleaved: false)
-      openFile = file
-      openFileURL = url
-      return file
+      let writer = try SegmentWriter(url: url, sampleRate: policy.sampleRate)
+      openWriter = writer
+      return writer
     }
 
+    /// Hands the open writer to the closing chain and returns at once, so the next segment starts without a gap. The file
+    /// is queued after its writer has finished and the file reads back; one that does not read back is never queued, stays
+    /// on disk for the next launch's sweep (which sets it aside, never deletes) and fails the take.
     private func close(segment: Int, frames: Int, reason: RotationReason, memoID: MemoID) {
-      // Releasing the AVAudioFile finalizes the m4a.
-      let url = openFileURL
-      openFile = nil
-      openFileURL = nil
-      guard let url else { return }
-      let size = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int) ?? 0
-      let closed = ClosedSegment(
-        memoID: memoID, index: segment, fileURL: url, byteCount: size, duration: policy.duration(frames: frames))
-      eventContinuation.yield(.segmentClosed(closed, reason: reason))
+      guard let writer = openWriter else { return }
+      openWriter = nil
+      let duration = policy.duration(frames: frames)
+      let previous = closing
+      closing = Task {
+        await previous?.value
+        let outcome = await writer.finish()
+        if let error = outcome.error {
+          Log.capture.error("segment \(segment) finish: \(error, privacy: .public)")
+        }
+        guard outcome.readableFrames > 0 else {
+          eventContinuation.yield(.failed(reason: "segment finish failed"))
+          return
+        }
+        let closed = ClosedSegment(
+          memoID: memoID, index: segment, fileURL: writer.url, byteCount: outcome.byteCount, duration: duration)
+        eventContinuation.yield(.segmentClosed(closed, reason: reason))
+      }
     }
   }
 #endif
