@@ -86,7 +86,7 @@ nonisolated struct SetAsideSummary: Equatable, Sendable {
 
   var queueFiles: [SetAsideFile] = []
   var recordings: [SetAsideFile] = []
-  /// Recordings the sweep could not move out of the capture directory (and shadows it could not read): kept where they are and
+  /// Recordings the sweep could not move out of the capture directory: kept where they are and
   /// tried again at the next launch, listed here so they are not invisible.
   var unmoved: [SetAsideFile] = []
 
