@@ -51,6 +51,7 @@ public actor Outbox: SegmentOutbox {
   private var obsoleteFiles: [(url: URL, generation: Int)] = []
   private var isShutDown = false
   private var sweptStrays: [URL] = []
+  private var strayStore: (any SegmentFileStore)?
   private var observers: [UUID: AsyncStream<Void>.Continuation] = [:]
 
   /// - Parameter deletesFilesWhenDone: Remove a memo's segment files once `complete` succeeded (tests that read them turn it off).
@@ -255,27 +256,18 @@ public actor Outbox: SegmentOutbox {
     return true
   }
 
-  /// What the last sweep could neither attach nor move (`SweepReport.stuck`).
-  func noteStrays(_ urls: [URL]) { sweptStrays = urls }
+  /// What the last sweep could neither attach nor move (`SweepReport.stuck`), and the store that can describe it.
+  func noteStrays(_ urls: [URL], in files: any SegmentFileStore) {
+    sweptStrays = urls
+    strayStore = files
+  }
 
   /// The files the last startup sweep left in the capture directory because it could not move them (a full disk, a read-only
   /// volume), those still there, for Settings to list. They are tried again at the next launch.
-  public func strayFiles() -> [SetAsideFile] {
-    sweptStrays.compactMap { url in
-      guard let attributes = try? FileManager.default.attributesOfItem(atPath: url.path) else { return nil }
-      return SetAsideFile(
-        url: url, byteCount: (attributes[.size] as? Int) ?? 0, modifiedAt: attributes[.modificationDate] as? Date)
-    }
+  public func strayFiles() async -> [SetAsideFile] {
+    guard let strayStore, !sweptStrays.isEmpty else { return [] }
+    return await strayStore.describe(sweptStrays)
   }
-
-  /// The sweep is over: a take that had no segment and has no file that could still hold its audio is dropped from the saved
-  /// queue; one whose audio could not be ruled out stays in it (`keeping`) for the next launch.
-  func settleEmptyTakes(keeping: Set<MemoID>) async {
-    if machine.settleEmptyTakes(keeping: keeping) { await persist() }
-  }
-
-  /// Without a capture directory to sweep (fakes) nothing can bring an empty take back: they are dropped.
-  public func settleUnrecoveredTakes() async { await settleEmptyTakes(keeping: []) }
 
   /// The sweep is over: a take that had no segment and has no file that could still hold its audio is dropped from the saved
   /// queue; one whose audio could not be ruled out stays in it (`keeping`) for the next launch.

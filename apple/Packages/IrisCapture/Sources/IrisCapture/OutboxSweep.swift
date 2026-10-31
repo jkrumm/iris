@@ -68,6 +68,8 @@ public protocol SegmentFileStore: Sendable {
   func recover(shadow: URL) async -> ShadowRecovery
   /// The length of a shadow in seconds, `nil` when it cannot be read.
   func shadowDuration(of shadow: URL) -> TimeInterval?
+  /// Name, size and date of files in the capture directory, for Settings; those that are no longer there are left out.
+  func describe(_ urls: [URL]) async -> [SetAsideFile]
   /// Removes a shadow whose audio is safe elsewhere (a playable m4a of the same length, or provably none).
   func discard(shadow: URL) async
 }
@@ -76,6 +78,9 @@ extension SegmentFileStore {
   public func shadowFiles() async -> [URL] { [] }
   public func recover(shadow: URL) async -> ShadowRecovery { .failed }
   public func shadowDuration(of shadow: URL) -> TimeInterval? { nil }
+  public func describe(_ urls: [URL]) async -> [SetAsideFile] {
+    urls.map { SetAsideFile(url: $0, byteCount: 0, modifiedAt: nil) }
+  }
   public func discard(shadow: URL) async {}
 }
 
@@ -112,6 +117,14 @@ public struct DirectorySegmentFiles: SegmentFileStore {
   }
 
   public func recover(shadow: URL) async -> ShadowRecovery { transcoder(shadow) }
+
+  public func describe(_ urls: [URL]) async -> [SetAsideFile] {
+    urls.compactMap { url in
+      guard let attributes = try? FileManager.default.attributesOfItem(atPath: url.path) else { return nil }
+      return SetAsideFile(
+        url: url, byteCount: (attributes[.size] as? Int) ?? 0, modifiedAt: attributes[.modificationDate] as? Date)
+    }
+  }
 
   public func shadowDuration(of shadow: URL) -> TimeInterval? {
     #if canImport(AVFAudio)
@@ -166,7 +179,7 @@ extension Outbox {
     let owned = segmentFileNames()
     let shadows = await files.shadowFiles().sorted { $0.lastPathComponent < $1.lastPathComponent }
     var candidates = await orphans(in: files, excluding: owned)
-    guard !shadows.isEmpty || !candidates.isEmpty else { return await concluded(report) }
+    guard !shadows.isEmpty || !candidates.isEmpty else { return await concluded(report, files: files) }
     // Who owns what is settled before anything is replaced or moved: a set-aside queue may name any of these files.
     let held = await HeldQueues.load(from: await setAsideQueueFiles())
     if !shadows.isEmpty {
@@ -190,7 +203,7 @@ extension Outbox {
     }
     // Saved before anything goes up, as for any new segment (the save releases the withheld ones).
     if !report.adopted.isEmpty { await flush() }
-    return await concluded(report)
+    return await concluded(report, files: files)
   }
 
   /// The segment files in the capture directory that the queue does not know, by take and index so a take that grows is
@@ -205,8 +218,8 @@ extension Outbox {
   }
 
   /// Logs the sweep and remembers the files it could not deal with, for Settings.
-  private func concluded(_ report: SweepReport) async -> SweepReport {
-    noteStrays(report.stuck)
+  private func concluded(_ report: SweepReport, files: any SegmentFileStore) async -> SweepReport {
+    noteStrays(report.stuck, in: files)
     // A take with no segment is dropped unless a file the sweep could not deal with may still hold its audio.
     let unresolved = Set((report.stuck + report.kept).compactMap { Self.parse($0.lastPathComponent)?.0 })
     await settleEmptyTakes(keeping: unresolved)

@@ -14,8 +14,10 @@ struct MissingSegmentsTests {
     return retryAt == nil
   }
 
-  private func finishedTake(segments: Int) async throws -> OutboxHarness {
+  private func finishedTake(segments: Int, missing: [[Int]]) async throws -> OutboxHarness {
     let harness = try await OutboxHarness()
+    // Before the take can finish: `finishMemo` starts the transfers, and a script installed after it is a race.
+    await harness.uploader.failNextComplete(missing: missing)
     var item = voiceItem(id)
     item.create = .pending
     #expect(try await harness.outbox.enqueueItem(item))
@@ -25,8 +27,7 @@ struct MissingSegmentsTests {
   }
 
   @Test func theSegmentsTheServerLacksAreSentAgainAndCompleteFollows() async throws {
-    let harness = try await finishedTake(segments: 3)
-    await harness.uploader.failNextComplete(missing: [[1]])
+    let harness = try await finishedTake(segments: 3, missing: [[1]])
     await harness.outbox.settled()
     // The refused segment goes up again at once; `complete` waits out its backoff.
     #expect(await harness.uploader.uploaded.filter { $0.index == 1 }.count == 2, "index 1 went up again")
@@ -44,8 +45,7 @@ struct MissingSegmentsTests {
   }
 
   @Test func aServerThatKeepsLosingThemStallsInsteadOfLooping() async throws {
-    let harness = try await finishedTake(segments: 1)
-    await harness.uploader.failNextComplete(missing: Array(repeating: [0], count: 50))
+    let harness = try await finishedTake(segments: 1, missing: Array(repeating: [0], count: 50))
     for _ in 0..<40 {
       await harness.outbox.settled()
       await harness.clock.advance(by: 400)
@@ -58,8 +58,7 @@ struct MissingSegmentsTests {
   }
 
   @Test func anIndexThatIsNotOursIsTheRefusalItWas() async throws {
-    let harness = try await finishedTake(segments: 2)
-    await harness.uploader.failNextComplete(missing: [[7]])
+    let harness = try await finishedTake(segments: 2, missing: [[7]])
     await harness.outbox.settled()
 
     #expect(try await isStalled(harness), "nothing to send again: stalled at once")

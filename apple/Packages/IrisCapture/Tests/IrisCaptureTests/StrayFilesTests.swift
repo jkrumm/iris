@@ -16,6 +16,10 @@ struct StrayFilesTests {
     func inspect(_ url: URL) -> (byteCount: Int, duration: TimeInterval)? { nil }
     func setAside(_ url: URL) async -> URL? { nil }
     func setAsideFiles() async -> [SetAsideFile] { [] }
+    /// The strays are described by the store that holds them, not looked up by the outbox.
+    func describe(_ urls: [URL]) async -> [SetAsideFile] {
+      urls.map { SetAsideFile(url: $0, byteCount: 4_242, modifiedAt: nil) }
+    }
   }
 
   @Test func aFileThatCannotBeMovedIsReportedAndListedForSettings() async throws {
@@ -30,10 +34,26 @@ struct StrayFilesTests {
 
     #expect(report.stuck == [stray] && report.quarantined.isEmpty)
     let listed = await harness.outbox.strayFiles()
-    #expect(listed.map(\.url) == [stray] && listed.first?.byteCount == 11)
+    #expect(listed.map(\.url) == [stray] && listed.first?.byteCount == 4_242, "sized by the store")
     #expect(FileManager.default.fileExists(atPath: stray.path), "and it is still there")
 
-    try FileManager.default.removeItem(at: stray)  // gone by itself: no longer listed
+    await harness.outbox.shutdown()
+  }
+
+  @Test func aStrayThatIsGoneByItselfIsNoLongerListed() async throws {
+    let directory = try temporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let stray = directory.appending(path: "\(memo(9).uuidString)-0.m4a")
+    try Data("half a take".utf8).write(to: stray)
+    let harness = try await OutboxHarness()
+    // The real store, with a quarantine folder that cannot be made (a file is in its place).
+    try Data().write(to: directory.appending(path: "quarantine"))
+    let store = DirectorySegmentFiles(directory: directory, inspect: { _ in nil })
+    await harness.outbox.sweepOrphans(using: store)
+    #expect(await harness.outbox.strayFiles().map(\.url) == [stray])
+    #expect(await harness.outbox.strayFiles().first?.byteCount == 11)
+
+    try FileManager.default.removeItem(at: stray)
     #expect(await harness.outbox.strayFiles().isEmpty)
     await harness.outbox.shutdown()
   }
