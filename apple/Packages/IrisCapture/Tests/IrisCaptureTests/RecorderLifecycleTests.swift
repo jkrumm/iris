@@ -59,6 +59,8 @@ private final class FakeTapEngine: TapEngine {
   var failStart = false
   private(set) var calls: [String] = []
 
+  var isRunning: Bool { running }
+
   func removeTap() {
     calls.append("removeTap")
     tapInstalled = false
@@ -130,39 +132,80 @@ struct EngineStartupTests {
 }
 
 struct EngineResumeTests {
-  @Test func aPausedEngineThatRestartsIsKept() throws {
+  @Test func anEngineThatKeptRunningThroughThePauseIsKeptAndNeverStartedAgain() async throws {
     let engine = FakeTapEngine()
     try EngineStartup.bringUp(engine)
     var replacements = 0
-    let resumed = try EngineStartup.resume(engine) {
-      replacements += 1
-      return FakeTapEngine()
-    }
+    let resumed = try await EngineStartup.resume(
+      engine,
+      replacement: {
+        replacements += 1; return FakeTapEngine()
+      }, attempts: 3, pause: { true })
     #expect(resumed === engine)
     #expect(replacements == 0)
+    #expect(engine.calls == ["removeTap", "installTap", "start"], "a resume from the background starts nothing")
   }
 
-  @Test func anEngineThatWillNotRestartIsReplacedByAFreshOneWithTheTap() throws {
+  @Test func anEngineTheSystemStoppedIsReplacedByAFreshOneWithTheTap() async throws {
     let stale = FakeTapEngine()
     try EngineStartup.bringUp(stale)
-    stale.failStart = true
+    stale.running = false  // an interruption or a configuration change stopped it
     let fresh = FakeTapEngine()
-    let resumed = try EngineStartup.resume(stale) { fresh }
+    let resumed = try await EngineStartup.resume(stale, replacement: { fresh }, attempts: 3, pause: { true })
     #expect(resumed === fresh)
     #expect(fresh.tapInstalled)
     #expect(fresh.running)
     #expect(stale.tapInstalled == false, "the dead engine gives up bus 0")
-    #expect(stale.running == false)
+    #expect(Array(stale.calls.dropFirst(3)) == ["removeTap", "stop"], "the old engine is not restarted on its old tap")
   }
 
-  @Test func aFreshEngineThatFailsToo_throwsAndLeavesNothingRunning() {
+  @Test func aFreshEngineThatIsNotReadyYetIsRetriedUntilItHolds() async throws {
     let stale = FakeTapEngine()
-    stale.failStart = true
-    let fresh = FakeTapEngine()
-    fresh.failStart = true
-    #expect(throws: CaptureError.engineFailure("start")) { try EngineStartup.resume(stale) { fresh } }
-    #expect(fresh.tapInstalled == false)
-    #expect(fresh.running == false)
+    stale.running = false
+    var made: [FakeTapEngine] = []
+    let resumed = try await EngineStartup.resume(
+      stale,
+      replacement: {
+        let engine = FakeTapEngine()
+        engine.failStart = made.count < 2  // `!rec` twice, then the input is ready
+        made.append(engine)
+        return engine
+      }, attempts: 4, pause: { true })
+    #expect(resumed === made[2])
+    #expect(made[0].tapInstalled == false && made[1].tapInstalled == false)
+  }
+
+  @Test func aTakeThatEndsWhileTheInputIsNotReadyAbandonsTheResume() async throws {
+    let stale = FakeTapEngine()
+    stale.running = false
+    let resumed = try await EngineStartup.resume(
+      stale,
+      replacement: {
+        let engine = FakeTapEngine(); engine.failStart = true; return engine
+      }, attempts: 4,
+      pause: { false })
+    #expect(resumed == nil)
+  }
+
+  @Test func whenEveryAttemptFailsTheErrorIsThrownAndNothingIsLeftRunning() async {
+    let stale = FakeTapEngine()
+    stale.running = false
+    var made: [FakeTapEngine] = []
+    do {
+      _ = try await EngineStartup.resume(
+        stale,
+        replacement: {
+          let engine = FakeTapEngine()
+          engine.failStart = true
+          made.append(engine)
+          return engine
+        }, attempts: 2, pause: { true })
+      Issue.record("the resume should have thrown")
+    } catch {
+      #expect(error as? CaptureError == .engineFailure("start"))
+    }
+    #expect(made.count == 2)
+    #expect(made.allSatisfy { !$0.running && !$0.tapInstalled })
   }
 }
 
@@ -286,5 +329,50 @@ struct EngineRunTests {
     #expect(run.endRestart(stale) == .discard)
     #expect(run.isRestarting, "the stale restart did not end the new take's")
     #expect(run.endRestart(current) == .keepRunning)
+  }
+}
+
+struct PauseGateTests {
+  @Test func aRunningTakeStampsEveryBufferWithTheCurrentEpoch() {
+    let gate = PauseGate()
+    gate.begin()
+    let epoch = gate.stamp()
+    #expect(epoch != nil)
+    #expect(gate.stamp() == epoch)
+    #expect(gate.accepts(epoch!))
+  }
+
+  @Test func aPausedGateDropsBuffersAtCapture() {
+    let gate = PauseGate()
+    gate.begin()
+    gate.pause()
+    #expect(gate.stamp() == nil)
+  }
+
+  @Test func aChunkCapturedBeforeThePauseIsStaleEvenAfterTheResume() throws {
+    let gate = PauseGate()
+    gate.begin()
+    let before = try #require(gate.stamp())  // captured, still in the consumer's queue
+    gate.pause()
+    #expect(!gate.accepts(before), "dropped while paused")
+    gate.resume()
+    #expect(!gate.accepts(before), "and still dropped once the take runs again: it is paused-era audio")
+  }
+
+  @Test func aChunkCapturedAfterTheResumeIsIngested() throws {
+    let gate = PauseGate()
+    gate.begin()
+    gate.pause()
+    gate.resume()
+    let after = try #require(gate.stamp())
+    #expect(gate.accepts(after))
+  }
+
+  @Test func aChunkOfAnEarlierTakeIsStale() throws {
+    let gate = PauseGate()
+    gate.begin()
+    let old = try #require(gate.stamp())
+    gate.begin()
+    #expect(!gate.accepts(old))
   }
 }

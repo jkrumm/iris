@@ -151,7 +151,9 @@ final class CompositionRoot: CaptureIntentHandler, PlaybackIntentHandler {
       simulatesOffline = false
       fakeLiveActivity = nil
       let coordinator = TakeLiveActivityCoordinator(
-        activity: ActivityKitTakeLiveActivity(client: client, serverKey: { credentials.load()?.serverKey }),
+        activity: ActivityKitTakeLiveActivity(
+          client: client, serverKey: { credentials.load()?.serverKey },
+          isForeground: { UIApplication.shared.applicationState == .active }),
         stack: production.stack, created: created)
       liveActivity = coordinator
       takeController = TakeController(
@@ -345,9 +347,15 @@ final class CompositionRoot: CaptureIntentHandler, PlaybackIntentHandler {
 
   // MARK: CaptureIntentHandler
 
-  /// Starts a take in `auto` mode with its Live Activity: what the Control, Siri and the Shortcuts app run.
+  /// Starts a take in `auto` mode with its Live Activity: what the Control (`OpenRecorderIntent`, in the foreground), Siri and the
+  /// Shortcuts app (`StartMemoIntent`) run. A failure is shown in the app too: the control's press must never end in silence.
   func startMemo() async throws {
-    try await takeController.start(mode: .auto, source: "intent")
+    do {
+      try await takeController.start(mode: .auto, source: "intent")
+    } catch {
+      take.reportStartFailure(error)
+      throw error
+    }
   }
 
   /// Ends the take and sends it: the Live Activity's Stop.
@@ -401,6 +409,21 @@ final class CompositionRoot: CaptureIntentHandler, PlaybackIntentHandler {
     await reportOutboxRecovery()
     // A follower does not poll while the app is suspended: look at the handed-over activities again.
     await liveActivity.endOrphans()
+  }
+
+  /// The app left the screen and is about to be suspended: a handed-over Live Activity nobody can move on is ended for the
+  /// system to remove (a suspended app polls nothing, and a build without push never gets the server's `end`).
+  func backgrounded() async {
+    liveActivity.snapshot(reason: "background")
+    guard mode == .production else { return }
+    // Without a grace period the suspension would cut the `end` off; it needs a moment, not a service.
+    let application = UIApplication.shared
+    var task = UIBackgroundTaskIdentifier.invalid
+    task = application.beginBackgroundTask(withName: "liveactivity.end") {
+      application.endBackgroundTask(task)
+    }
+    await liveActivity.endUnreachable()
+    if task != .invalid { application.endBackgroundTask(task) }
   }
 
   private func connectionChanged() {

@@ -1,6 +1,7 @@
 import CryptoKit
 import Foundation
 import Security
+import Synchronization
 
 /// Where the app talks to: the server's base URL and this device's bearer token.
 nonisolated struct ConnectionCredentials: Equatable, Sendable {
@@ -14,19 +15,23 @@ nonisolated struct ConnectionCredentials: Equatable, Sendable {
     case insecure
   }
 
+  /// The address with the case-insensitive parts (scheme, host) lower-cased and a trailing slash dropped. The path is not
+  /// normalized: it is case-sensitive, and `/Iris` and `/iris` are different servers behind one proxy.
+  static func normalizedAddress(of url: URL) -> String {
+    var normalized = url.absoluteString
+    if var parts = URLComponents(url: url, resolvingAgainstBaseURL: false) {
+      parts.scheme = parts.scheme?.lowercased()
+      parts.host = parts.host?.lowercased()
+      normalized = parts.string ?? normalized
+    }
+    while normalized.hasSuffix("/") { normalized.removeLast() }
+    return normalized
+  }
+
   /// A short digest of the server URL: tells servers apart (a Live Activity remembers which one its memo lives on) without
   /// keeping the address.
   var serverKey: String {
-    // Scheme and host are case-insensitive, the path is not (`/Iris` and `/iris` are different servers behind one proxy).
-    var normalized = serverURL.absoluteString
-    if var parts = URLComponents(url: serverURL, resolvingAgainstBaseURL: false) {
-      let scheme = parts.scheme?.lowercased()
-      let host = parts.host?.lowercased()
-      parts.scheme = scheme
-      parts.host = host
-      normalized = parts.string ?? normalized
-    }
-    let digest = SHA256.hash(data: Data(normalized.utf8))
+    let digest = SHA256.hash(data: Data(Self.normalizedAddress(of: serverURL).utf8))
     return digest.prefix(6).map { String(format: "%02x", $0) }.joined()
   }
 
@@ -71,31 +76,75 @@ nonisolated struct KeychainError: Error, Equatable {
   let status: OSStatus
 }
 
+/// The two halves of a saved connection, stored apart: the token is a secret (Keychain), the URL is not (`UserDefaults`).
+nonisolated protocol ConnectionStorage: Sendable {
+  func readToken() -> String?
+  func readURL() -> String?
+  func write(token: String, url: String) throws
+  func clear()
+}
+
 /// The token as a generic password item and the URL in `UserDefaults`. The item carries no explicit access group, so
 /// it lands in the first `keychain-access-groups` entry, the App Group's, which the widgets and the notification
 /// extension can read once they need it.
+///
+/// The two halves are written one after the other, so a reader in between would see the new token with the old URL, and
+/// the telemetry relay would send the new server's token to the old server. Every read and write of the pair therefore
+/// goes through one process-wide gate: a load sees the old pair or the new one, never a mix.
 nonisolated struct KeychainCredentialStore: CredentialStore {
-  let service: String
-  private let urlKey: String
+  private let storage: any ConnectionStorage
+
+  private static let gate = Mutex(())
 
   init(service: String = "com.jkrumm.iris.device-token") {
-    self.service = service
-    urlKey = "\(service).server-url"
+    self.init(storage: KeychainDefaultsStorage(service: service))
+  }
+
+  init(storage: any ConnectionStorage) {
+    self.storage = storage
   }
 
   func load() -> ConnectionCredentials? {
-    var query = tokenQuery
-    query[kSecReturnData as String] = true
-    query[kSecMatchLimit as String] = kSecMatchLimitOne
-    var item: CFTypeRef?
-    guard SecItemCopyMatching(query as CFDictionary, &item) == errSecSuccess, let data = item as? Data,
-      let token = String(data: data, encoding: .utf8), let url = UserDefaults.standard.string(forKey: urlKey)
-    else { return nil }
+    let (token, url) = Self.gate.withLock { _ in (storage.readToken(), storage.readURL()) }
+    guard let token, let url else { return nil }
     return ConnectionCredentials(urlText: url, token: token)
   }
 
   func save(_ credentials: ConnectionCredentials) throws {
-    let data = Data(credentials.token.utf8)
+    try Self.gate.withLock { _ in
+      try storage.write(token: credentials.token, url: credentials.serverURL.absoluteString)
+    }
+  }
+
+  func clear() {
+    Self.gate.withLock { _ in storage.clear() }
+  }
+}
+
+nonisolated struct KeychainDefaultsStorage: ConnectionStorage {
+  let service: String
+  private let urlKey: String
+
+  init(service: String) {
+    self.service = service
+    urlKey = "\(service).server-url"
+  }
+
+  func readToken() -> String? {
+    var query = tokenQuery
+    query[kSecReturnData as String] = true
+    query[kSecMatchLimit as String] = kSecMatchLimitOne
+    var item: CFTypeRef?
+    guard SecItemCopyMatching(query as CFDictionary, &item) == errSecSuccess, let data = item as? Data else {
+      return nil
+    }
+    return String(data: data, encoding: .utf8)
+  }
+
+  func readURL() -> String? { UserDefaults.standard.string(forKey: urlKey) }
+
+  func write(token: String, url: String) throws {
+    let data = Data(token.utf8)
     let update = SecItemUpdate(
       tokenQuery as CFDictionary, [kSecValueData as String: data] as CFDictionary)
     if update == errSecItemNotFound {
@@ -107,7 +156,7 @@ nonisolated struct KeychainCredentialStore: CredentialStore {
     } else if update != errSecSuccess {
       throw KeychainError(status: update)
     }
-    UserDefaults.standard.set(credentials.serverURL.absoluteString, forKey: urlKey)
+    UserDefaults.standard.set(url, forKey: urlKey)
   }
 
   func clear() {

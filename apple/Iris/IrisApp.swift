@@ -28,6 +28,7 @@ struct IrisApp: App {
       .onChange(of: scenePhase) { _, phase in
         DeviceLog.shared.sceneChanged(to: phase.telemetryName)
         root.spokenReplies.isForeground = phase == .active
+        if phase == .background { Task { await root.backgrounded() } }
         guard phase == .active else { return }
         Task { await root.foregrounded() }
       }

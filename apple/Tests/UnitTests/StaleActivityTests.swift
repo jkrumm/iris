@@ -122,6 +122,49 @@ struct StaleActivitySweeperTests {
     #expect(Set(catalog.activities.map(\.memoID)) == ["busy", "pushed"])
   }
 
+  @Test(
+    "the app is suspended: an activity no push will move on ends now, for the system to remove; a pushed one stays")
+  func endUnreachableEndsTheOnesNobodyCanFollow() async {
+    let catalog = FakeCatalog([
+      activity("sent", phase: .processing), activity("parked", phase: .needsRoute), activity("pushed", remote: true),
+    ])
+
+    await sweeper(catalog).endUnreachable()
+
+    #expect(Set(catalog.ended.map(\.id)) == ["sent", "parked"])
+    #expect(catalog.ended.allSatisfy { $0.dismissal == .soon })
+    #expect(
+      Set(catalog.ended.compactMap { $0.final?.phase }) == [.processing, .needsRoute], "it keeps showing what it showed"
+    )
+    #expect(Set(catalog.activities.map(\.memoID)) == ["pushed"])
+  }
+
+  @Test("a memo handed over after the app was suspended ends only its own activity")
+  func endUnreachableOfOneMemo() async {
+    let catalog = FakeCatalog([activity("a"), activity("b")])
+    await sweeper(catalog).endUnreachable(only: "b")
+    #expect(catalog.ended.map(\.id) == ["b"])
+  }
+
+  @Test("a finished take's card cannot outlive the hard age limit, with or without a token")
+  func hardAgeLimit() {
+    #expect(StaleActivityRule.maxAge <= 30 * 60)
+    for remote in [true, false] {
+      let memo = MemoFactory.memo("m1", state: .routed)
+      #expect(
+        StaleActivityRule.verdict(
+          for: activity(age: StaleActivityRule.maxAge + 1, remote: remote), memo: memo, now: now)
+          == .end(final: nil))
+    }
+  }
+
+  @Test("the dismissal delays: none, a minute, fifteen minutes")
+  func dismissalDelays() {
+    #expect(ActivityDismissal.immediate.delay == nil)
+    #expect(ActivityDismissal.soon.delay == 60.0)
+    #expect(ActivityDismissal.later.delay == 900.0)
+  }
+
   @Test("an activity of another server is not asked about: that server's 404 does not end it")
   func foreignServerActivityStays() async {
     let catalog = FakeCatalog([
