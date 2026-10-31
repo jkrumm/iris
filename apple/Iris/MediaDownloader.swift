@@ -1,4 +1,5 @@
 import Foundation
+import Synchronization
 
 nonisolated enum MediaDownloadError: Error, Equatable {
   case status(Int)
@@ -18,14 +19,19 @@ nonisolated struct MediaDownloader: Sendable {
 
   let session: URLSession
   let directory: URL
+  /// Awaited between the eviction wait and the flight, for tests that need an ask to stand still in that window.
+  private let beforeFlight: @Sendable () async -> Void
   private let flights = Flights()
+  private let evictions = Evictions()
 
   init(
     session: URLSession = MediaDownloader.makeSession(),
-    directory: URL = URL.cachesDirectory.appending(path: "iris-media")
+    directory: URL = URL.cachesDirectory.appending(path: "iris-media"),
+    beforeFlight: @escaping @Sendable () async -> Void = {}
   ) {
     self.session = session
     self.directory = directory
+    self.beforeFlight = beforeFlight
   }
 
   /// An ephemeral session whose whole transfer is bounded. The default allows a week, and a request that hangs would hold
@@ -40,15 +46,29 @@ nonisolated struct MediaDownloader: Sendable {
     if request.url.isFileURL { return request.url }
     let name = Self.safeName(request.cacheName ?? UUID().uuidString)
     let destination = directory.appending(path: name)
-    if request.isReusable, FileManager.default.fileExists(atPath: destination.path) { return destination }
+    // The cache check runs on the flights' actor, the same one eviction runs on, so a file is either seen before an
+    // eviction that was asked for earlier removes it, or not at all.
+    // The evictions asked for before this ask, and the point in time after them, in one step. Those finish first (no cache hit
+    // on a file about to go, no flight they would cancel); one asked for after the point discards a download that began
+    // before it.
+    let (earlier, mark) = evictions.snapshot(for: name)
+    for task in earlier { await task.value }
+    if request.isReusable, await flights.useFile(at: destination) { return destination }
+    await beforeFlight()
     let session = session
     let directory = directory
     let flights = flights
+    let evictions = evictions
     let key = "\(request.url.absoluteString)|\(name)"
-    return try await flights.join(key, name: name) { flight in
+    return try await flights.join(
+      key, name: name, mark: mark, isDoomed: { evictions.evicted(name, since: $0) }
+    ) { flight in
       try await Self.download(
         request, to: destination, in: directory, with: session,
-        land: { try await flights.land($0, as: destination, flight: flight, key: key) })
+        land: {
+          try await flights.land(
+            $0, as: destination, flight: flight, key: key, evicted: { evictions.evicted(name, since: mark) })
+        })
     }
   }
 
@@ -60,12 +80,31 @@ nonisolated struct MediaDownloader: Sendable {
     let flights = flights
     let directory = directory
     let prefix = Self.safeName(memoID) + "."
-    Task { await flights.evict(prefix: prefix, in: directory) }
+    evictions.schedule(prefix) { [flights, directory] in
+      await flights.evict(prefix: prefix, in: directory)
+    }
+  }
+
+  /// Removes cached files nobody has touched for `age` seconds: spoken replies that were played (not reusable, so kept only
+  /// by accident), recordings and images of memos deleted on another device or while the app was killed. Runs once at
+  /// launch; the scan is off the caller's actor and the call returns at once. A removed file is simply downloaded again.
+  func sweepStale(olderThan age: TimeInterval = 14 * 24 * 3600, now: Date = Date()) {
+    let flights = flights
+    let directory = directory
+    Task { await flights.sweep(in: directory, notModifiedSince: now.addingTimeInterval(-age)) }
+  }
+
+  /// ``sweepStale(olderThan:now:)``, returning once the files are gone.
+  func sweepStaleAndWait(olderThan age: TimeInterval, now: Date = Date()) async {
+    await flights.sweep(in: directory, notModifiedSince: now.addingTimeInterval(-age))
   }
 
   /// ``evict(memoID:)``, returning once the files are gone.
   func evictAndWait(memoID: String) async {
-    await flights.evict(prefix: Self.safeName(memoID) + ".", in: directory)
+    let prefix = Self.safeName(memoID) + "."
+    await evictions.schedule(prefix) { [flights, directory] in
+      await flights.evict(prefix: prefix, in: directory)
+    }.value
   }
 
   private static func download(
@@ -89,6 +128,49 @@ nonisolated struct MediaDownloader: Sendable {
     name.replacingOccurrences(of: "/", with: "_")
   }
 
+  /// The evictions asked for and not finished. ``evict(memoID:)`` returns before its scan, so an ask that comes after it
+  /// waits here for the scan instead of being handed a file that is about to go, or starting a download the scan cancels.
+  private final class Evictions: Sendable {
+    private struct State {
+      var next = 0
+      var running: [Int: (prefix: String, task: Task<Void, Never>)] = [:]
+      /// The `next` value at the time each prefix was last evicted.
+      var evictedAt: [String: Int] = [:]
+    }
+    private let state = Mutex(State())
+
+    @discardableResult
+    func schedule(_ prefix: String, _ work: @escaping @Sendable () async -> Void) -> Task<Void, Never> {
+      state.withLock { state in
+        let id = state.next
+        state.next += 1
+        state.evictedAt[prefix] = state.next
+        // Owned by `state` until it finishes; `finish` waits for this lock, so it always runs after the entry exists.
+        let task = Task {
+          await work()
+          self.finish(id)
+        }
+        state.running[id] = (prefix, task)
+        return task
+      }
+    }
+
+    /// Whether an eviction covering `name` was asked for after `mark` (from ``snapshot(for:)``).
+    func evicted(_ name: String, since mark: Int) -> Bool {
+      state.withLock { state in state.evictedAt.contains { name.hasPrefix($0.key) && $0.value > mark } }
+    }
+
+    private func finish(_ id: Int) {
+      state.withLock { _ = $0.running.removeValue(forKey: id) }
+    }
+
+    func snapshot(for name: String) -> (pending: [Task<Void, Never>], mark: Int) {
+      state.withLock { state in
+        (state.running.values.filter { name.hasPrefix($0.prefix) }.map(\.task), state.next)
+      }
+    }
+  }
+
   /// The downloads on the wire, by request. The download itself is an unstructured task of its own: a caller that is
   /// cancelled stops waiting for it at its next suspension, but the file still lands for the others that joined.
   /// Only the actor moves a finished file into the cache, and eviction runs here too, so a download either lands before
@@ -97,22 +179,51 @@ nonisolated struct MediaDownloader: Sendable {
     private struct Flight {
       let id: UUID
       let name: String
+      /// ``Evictions`` mark of the ask that started it.
+      let mark: Int
       let task: Task<URL, any Error>
     }
     private var running: [String: Flight] = [:]
 
-    func join(_ key: String, name: String, start: @escaping @Sendable (UUID) async throws -> URL) async throws -> URL {
-      if let flight = running[key] { return try await flight.task.value }
+    /// Joins the flight on the wire for `key`, unless an eviction asked for after it began has doomed it (it will discard
+    /// its file): then this ask starts a flight of its own, with its own `mark`.
+    func join(
+      _ key: String, name: String, mark: Int, isDoomed: @Sendable (Int) -> Bool,
+      start: @escaping @Sendable (UUID) async throws -> URL
+    ) async throws -> URL {
+      if let flight = running[key], !isDoomed(flight.mark) { return try await flight.task.value }
       let id = UUID()
       let task = Task { try await start(id) }
-      running[key] = Flight(id: id, name: name, task: task)
+      running[key] = Flight(id: id, name: name, mark: mark, task: task)
       defer { if running[key]?.id == id { running[key] = nil } }
       return try await task.value
     }
 
+    /// Whether the cached file exists; a hit marks it as just used, so the launch sweep (which drops files by age) cannot
+    /// remove it between this answer and the player opening it.
+    func useFile(at url: URL) -> Bool {
+      guard FileManager.default.fileExists(atPath: url.path) else { return false }
+      try? FileManager.default.setAttributes([.modificationDate: Date()], ofItemAtPath: url.path)
+      return true
+    }
+
+    /// Removes files last modified before `cutoff`, except those a download on the wire is about to replace.
+    func sweep(in directory: URL, notModifiedSince cutoff: Date) {
+      let busy = Set(running.values.map(\.name))
+      let urls =
+        (try? FileManager.default.contentsOfDirectory(
+          at: directory, includingPropertiesForKeys: [.contentModificationDateKey])) ?? []
+      for url in urls where !busy.contains(url.lastPathComponent) {
+        let modified = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
+        if let modified, modified < cutoff { try? FileManager.default.removeItem(at: url) }
+      }
+    }
+
     /// Moves a finished download into the cache, unless its flight was evicted meanwhile.
-    func land(_ temporary: URL, as destination: URL, flight: UUID, key: String) throws {
-      guard running[key]?.id == flight else { throw CancellationError() }
+    func land(_ temporary: URL, as destination: URL, flight: UUID, key: String, evicted: () -> Bool) throws {
+      // `evicted` is read here, on the actor eviction also runs on: an eviction asked for after the download began either
+      // has not run yet (its scan removes the file just moved) or has (this sees it).
+      guard running[key]?.id == flight, !evicted() else { throw CancellationError() }
       try? FileManager.default.removeItem(at: destination)
       try FileManager.default.moveItem(at: temporary, to: destination)
     }

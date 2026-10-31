@@ -38,6 +38,8 @@ nonisolated struct HandedOverActivity: Equatable, Sendable {
   let startedAt: Date
   /// A push token exists: the server's pushes move it on and end it. Without one only the device can.
   let remoteUpdates: Bool
+  /// The server the memo lives on (``MemoAttributes/serverKey``); nil for an activity that predates the field.
+  var serverKey: String?
 }
 
 /// When a handed-over Live Activity must go. Without APNs (a Personal Team build) the server's `end` push never arrives,
@@ -96,16 +98,21 @@ protocol ActivityCatalog {
 struct StaleActivitySweeper {
   let catalog: any ActivityCatalog
   let client: any APIClient
+  /// The server `client` talks to right now; an activity of another server is not asked about (this one knows nothing of its
+  /// memo, and its 404 would end a valid activity) and ends by age alone. `nil` weighs no activity as foreign.
+  let serverKey: @Sendable () -> String?
   let now: @Sendable () -> Date
   let sleep: @Sendable (Duration) async throws -> Void
   private let logger = Logger(subsystem: "com.jkrumm.iris", category: "liveactivity")
 
   init(
-    catalog: any ActivityCatalog, client: any APIClient, now: @escaping @Sendable () -> Date = { Date() },
+    catalog: any ActivityCatalog, client: any APIClient, serverKey: @escaping @Sendable () -> String? = { nil },
+    now: @escaping @Sendable () -> Date = { Date() },
     sleep: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
   ) {
     self.catalog = catalog
     self.client = client
+    self.serverKey = serverKey
     self.now = now
     self.sleep = sleep
   }
@@ -113,23 +120,44 @@ struct StaleActivitySweeper {
   /// A take is about to request its activity: it must own the island.
   func makeRoomForTake() async {
     for activity in catalog.handedOverActivities() where StaleActivityRule.yieldsToNewTake(activity) {
+      logger.info("ending activity \(activity.memoID, privacy: .public): a take is starting")
       await catalog.end(memoID: activity.memoID, finalState: nil, dismissal: .immediate)
     }
   }
 
   /// Launch: asks the server about every handed-over activity and ends the ones the rule names. Returns the memos of the
   /// activities it kept that have no push token: nothing will ever move those on, so the caller follows them (``follow(memoID:)``).
-  func sweep() async -> [String] {
-    var toFollow: [String] = []
-    for activity in catalog.handedOverActivities() {
-      let (memo, gone) = await lookup(activity.memoID)
-      guard case .end(let final) = StaleActivityRule.verdict(for: activity, memo: memo, gone: gone, now: now()) else {
-        if !activity.remoteUpdates { toFollow.append(activity.memoID) }
-        continue
+  func sweep(onKept follow: (String) -> Void = { _ in }) async -> [String] {
+    // Each activity is looked up and settled on its own, so a slow lookup holds up that activity only: `follow` is told of
+    // each kept memo as soon as its own answer is in.
+    let followed = await withTaskGroup(of: (Int, String?).self) { group in
+      for (index, activity) in catalog.handedOverActivities().enumerated() {
+        group.addTask { (index, await settle(activity)) }
       }
-      await catalog.end(memoID: activity.memoID, finalState: final, dismissal: .immediate)
+      var found: [(Int, String)] = []
+      for await (index, memoID) in group {
+        guard let memoID else { continue }
+        found.append((index, memoID))
+        follow(memoID)
+      }
+      return found.sorted { $0.0 < $1.0 }.map(\.1)
     }
-    return toFollow
+    return followed
+  }
+
+  /// Asks about one activity and ends it if the rule says so; the memo to follow when it stays and nothing else will end it.
+  private func settle(_ activity: HandedOverActivity) async -> String? {
+    let (memo, gone) = await lookup(activity)
+    // A cancelled sweep (the connection changed) ends and follows nothing: its answers are not this server's.
+    guard !Task.isCancelled else { return nil }
+    guard case .end(let final) = StaleActivityRule.verdict(for: activity, memo: memo, gone: gone, now: now()) else {
+      return activity.remoteUpdates ? nil : activity.memoID
+    }
+    logger.info(
+      "ending activity \(activity.memoID, privacy: .public) at launch: \(Self.reason(final: final, gone: gone), privacy: .public)"
+    )
+    await catalog.end(memoID: activity.memoID, finalState: final, dismissal: .immediate)
+    return nil
   }
 
   /// Polls the memo of an activity until the server is done with it (or the activity is too old), then ends it on the result
@@ -139,9 +167,12 @@ struct StaleActivitySweeper {
     var delay = Duration.seconds(3)
     while !Task.isCancelled {
       guard let activity = catalog.handedOverActivities().first(where: { $0.memoID == memoID }) else { return }
-      let (memo, gone) = await lookup(activity.memoID)
+      let (memo, gone) = await lookup(activity)
       guard !Task.isCancelled else { return }
       if case .end(let final) = StaleActivityRule.verdict(for: activity, memo: memo, gone: gone, now: now()) {
+        logger.info(
+          "ending activity \(activity.memoID, privacy: .public): \(Self.reason(final: final, gone: gone), privacy: .public)"
+        )
         await catalog.end(memoID: activity.memoID, finalState: final, dismissal: final == nil ? .immediate : .later)
         return
       }
@@ -150,7 +181,22 @@ struct StaleActivitySweeper {
     }
   }
 
-  private func lookup(_ memoID: String) async -> (memo: Memo?, gone: Bool) {
+  private static func reason(final: LiveActivityContentState?, gone: Bool) -> String {
+    if gone { return "the server has no such memo" }
+    guard let final else { return "older than \(Int(StaleActivityRule.maxAge)) s" }
+    return "the memo is \(final.phase.rawValue)"
+  }
+
+  private func lookup(_ activity: HandedOverActivity) async -> (memo: Memo?, gone: Bool) {
+    let own = serverKey()
+    if let own, let origin = activity.serverKey, own != origin { return (nil, false) }
+    let answer = await ask(activity.memoID)
+    // The connection switched while the request was out: the answer may be another server's (its 404 included).
+    guard serverKey() == own else { return (nil, false) }
+    return answer
+  }
+
+  private func ask(_ memoID: String) async -> (memo: Memo?, gone: Bool) {
     do {
       return (try await client.memo(id: memoID).memo, false)
     } catch let error as APIError {
@@ -327,13 +373,21 @@ final class TakeLiveActivityCoordinator {
     /// sent has its own entry. Dropped at the hand-over; the token stream and the registrar outlive it.
     private var activities: [String: Activity<MemoAttributes>] = [:]
     private let client: any APIClient
+    /// The key of the server the app talks to now (``ConnectionCredentials/serverKey``); nil without a saved connection.
+    private let serverKey: @Sendable () -> String?
     /// Built per use: the catalog is this object.
-    private var sweeper: StaleActivitySweeper { StaleActivitySweeper(catalog: self, client: client) }
+    private var sweeper: StaleActivitySweeper {
+      StaleActivitySweeper(catalog: self, client: client, serverKey: serverKey)
+    }
+    /// The sweep in progress, by server: a second ask for the same server (launch, foregrounding) joins it; one after a
+    /// connection change cancels it, so a lookup stalled on the old server never holds up the sweep of the new one.
+    private let sweeps = KeyedSingleFlight<String?>()
     /// The poll that ends a handed-over activity without a push token once its memo is finished, by memo id.
     private var followers: [String: (id: UUID, task: Task<Void, Never>)] = [:]
 
-    init(client: any APIClient) {
+    init(client: any APIClient, serverKey: @escaping @Sendable () -> String? = { nil }) {
       self.client = client
+      self.serverKey = serverKey
       tokens = ActivityTokenRegistrar(client: client)
     }
 
@@ -341,7 +395,7 @@ final class TakeLiveActivityCoordinator {
       guard ActivityAuthorizationInfo().areActivitiesEnabled else { return }
       // The island shows one activity: the running take's wins over finished ones and over ones nothing will update.
       await sweeper.makeRoomForTake()
-      let attributes = MemoAttributes(memoId: memoID, mode: mode, startedAt: startedAt)
+      let attributes = MemoAttributes(memoId: memoID, mode: mode, startedAt: startedAt, serverKey: serverKey())
       let activityContent = ActivityContent(state: content, staleDate: nil)
       do {
         let activity: Activity<MemoAttributes>
@@ -402,7 +456,9 @@ final class TakeLiveActivityCoordinator {
     }
 
     func endStaleActivities() async {
-      for memoID in await sweeper.sweep() { follow(memoID) }
+      await sweeps.run(key: serverKey()) { [sweeper] in
+        _ = await sweeper.sweep(onKept: { [self] in follow($0) })
+      }
     }
 
     func handedOverActivities() -> [HandedOverActivity] {
@@ -411,7 +467,8 @@ final class TakeLiveActivityCoordinator {
         guard live, !activity.content.state.phase.isClientPhase else { return nil }
         return HandedOverActivity(
           memoID: activity.attributes.memoId, phase: activity.content.state.phase,
-          startedAt: activity.attributes.startedAt, remoteUpdates: activity.pushToken != nil)
+          startedAt: activity.attributes.startedAt, remoteUpdates: activity.pushToken != nil,
+          serverKey: activity.attributes.serverKey)
       }
     }
 

@@ -205,11 +205,7 @@ extension Memo {
 /// table rows by a single line break), everything else is the characters the reader sees.
 nonisolated enum PlainMarkdown {
   static func text(from markdown: String) -> String {
-    let options = AttributedString.MarkdownParsingOptions(
-      interpretedSyntax: .full, failurePolicy: .returnPartiallyParsedIfPossible)
-    guard let parsed = try? AttributedString(markdown: markdown, options: options) else {
-      return trimmed(markdown)
-    }
+    guard let parsed = ReplyMarkdown.parse(markdown, syntax: .full) else { return trimmed(markdown) }
     var output = ""
     var previous: Block?
     var link: (url: String, label: String)?

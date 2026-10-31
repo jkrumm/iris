@@ -47,6 +47,28 @@ private nonisolated final class MediaStub: URLProtocol {
   }
 }
 
+/// Holds the first caller of `pass()` until `open()`; later callers go straight through.
+private actor FirstCallGate {
+  private var isFirst = true
+  private var isOpen = false
+  private(set) var hasReached = false
+  private var waiting: CheckedContinuation<Void, Never>?
+
+  func pass() async {
+    guard isFirst else { return }
+    isFirst = false
+    hasReached = true
+    if isOpen { return }
+    await withCheckedContinuation { waiting = $0 }
+  }
+
+  func open() {
+    isOpen = true
+    waiting?.resume()
+    waiting = nil
+  }
+}
+
 @Suite("MediaDownloader")
 struct MediaDownloaderTests {
   private let directory = FileManager.default.temporaryDirectory.appending(path: "iris-dl-\(UUID().uuidString)")
@@ -91,6 +113,36 @@ struct MediaDownloaderTests {
     MediaStub.serve(host: host, .init(status: 200, body: Data("three".utf8)))
     let replaced = try await downloader.localURL(for: fresh)
     #expect(try Data(contentsOf: replaced) == Data("three".utf8))
+  }
+
+  @Test("the launch sweep removes files nobody touched for the age and keeps newer ones")
+  func staleSweep() async throws {
+    defer { try? FileManager.default.removeItem(at: directory) }
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    let old = directory.appending(path: "gone.speech.mp3")
+    let fresh = directory.appending(path: "kept.audio.m4a")
+    for url in [old, fresh] { try Data("x".utf8).write(to: url) }
+    let now = Date()
+    try FileManager.default.setAttributes(
+      [.modificationDate: now.addingTimeInterval(-15 * 24 * 3600)], ofItemAtPath: old.path)
+    await downloader().sweepStaleAndWait(olderThan: 14 * 24 * 3600, now: now)
+    #expect(!FileManager.default.fileExists(atPath: old.path))
+    #expect(FileManager.default.fileExists(atPath: fresh.path))
+  }
+
+  @Test("a cache hit counts as use: the sweep right after it keeps the file")
+  func hitSurvivesTheSweep() async throws {
+    defer { try? FileManager.default.removeItem(at: directory) }
+    MediaStub.serve(host: host, .init(status: 200, body: Data("one".utf8)))
+    let downloader = downloader()
+    let kept = try request(reusable: true)
+    let file = try await downloader.localURL(for: kept)
+    let now = Date()
+    try FileManager.default.setAttributes(
+      [.modificationDate: now.addingTimeInterval(-30 * 24 * 3600)], ofItemAtPath: file.path)
+    _ = try await downloader.localURL(for: kept)
+    await downloader.sweepStaleAndWait(olderThan: 14 * 24 * 3600, now: now)
+    #expect(FileManager.default.fileExists(atPath: file.path))
   }
 
   @Test("a non-2xx answer throws and leaves nothing behind; a file URL passes through")
@@ -158,6 +210,59 @@ struct MediaDownloaderTests {
 
     await downloader.evictAndWait(memoID: "never-cached")
     #expect(try FileManager.default.contentsOfDirectory(atPath: directory.path).count == 2)
+  }
+
+  @Test("an ask right after evict(memoID:) is not handed the file that is about to go")
+  func askAfterEvictMisses() async throws {
+    defer { try? FileManager.default.removeItem(at: directory) }
+    MediaStub.serve(host: host, .init(status: 200, body: Data("one".utf8)))
+    let downloader = downloader()
+    let kept = try request(reusable: true)
+    _ = try await downloader.localURL(for: kept)
+    downloader.evict(memoID: "m1")
+    MediaStub.serve(host: host, .init(status: 200, body: Data("two".utf8)))
+    let again = try await downloader.localURL(for: kept)
+    #expect(MediaStub.requests(host: host).count == 2)
+    _ = again
+  }
+
+  @Test("a download that began before an eviction was asked for never lands")
+  func evictionAfterTheDownloadBegan() async throws {
+    defer { try? FileManager.default.removeItem(at: directory) }
+    MediaStub.serve(host: host, .init(status: 200, body: Data("x".utf8)), delay: 0.4)
+    let downloader = downloader()
+    let wanted = try request(reusable: true)
+    async let file = downloader.localURL(for: wanted)
+    while MediaStub.requests(host: host).isEmpty { await Task.yield() }
+    downloader.evict(memoID: "m1")
+    _ = try? await file
+    await downloader.evictAndWait(memoID: "never")
+    #expect(!FileManager.default.fileExists(atPath: directory.appending(path: "m1.audio.m4a").path))
+  }
+
+  @Test("an ask after an eviction does not join the flight an earlier ask started behind it")
+  func askAfterEvictionDoesNotJoinADoomedFlight() async throws {
+    defer { try? FileManager.default.removeItem(at: directory) }
+    MediaStub.serve(host: host, .init(status: 200, body: Data("fresh".utf8)), delay: 0.4)
+    let gate = FirstCallGate()
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [MediaStub.self]
+    let downloader = MediaDownloader(
+      session: URLSession(configuration: configuration), directory: directory, beforeFlight: { await gate.pass() })
+    let wanted = try request(reusable: true)
+
+    // The first ask stands still after its snapshot; the eviction runs and finishes; then its flight starts.
+    async let first = try? downloader.localURL(for: wanted)
+    while !(await gate.hasReached) { await Task.yield() }
+    await downloader.evictAndWait(memoID: "m1")
+    await gate.open()
+    while MediaStub.requests(host: host).isEmpty { await Task.yield() }
+
+    // An ask made after the eviction must not wait on (and fail with) the doomed flight.
+    let second = try await downloader.localURL(for: wanted)
+    #expect(try Data(contentsOf: second) == Data("fresh".utf8))
+    #expect(await first == nil, "the ask from before the eviction is the one that is discarded")
+    #expect(MediaStub.requests(host: host).count == 2)
   }
 
   @Test("a download still on the wire when its memo is evicted never lands")

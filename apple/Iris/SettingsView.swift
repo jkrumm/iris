@@ -121,7 +121,9 @@ struct SettingsView: View {
   }
 
   private var connectionStatus: ConnectionStatusLine {
-    ConnectionStatusLine(connection: model.connection, link: history.link)
+    ConnectionStatusLine(
+      connection: model.connection, link: history.link, probedAt: model.probedAt, linkObservedAt: history.linkObservedAt
+    )
   }
 
   private var connectionLabel: some View {

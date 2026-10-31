@@ -131,6 +131,7 @@ targets:
       - Iris/HistoryFilters.swift
       - Iris/HistoryToast.swift
       - Iris/MemoPresentation.swift
+      - Iris/ReplyMarkdown.swift
       - Iris/SampleData.swift
       - Iris/SampleThreads.swift
       # The connection (URL + Keychain token), the detail's step waterfall and the markdown reading are shared too.

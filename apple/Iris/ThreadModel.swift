@@ -46,7 +46,6 @@ final class ThreadModel {
   private let voice: any VoiceReplyCapture
   private let now: () -> Date
   private let toastDuration: Duration
-  private let sleep: @Sendable (Duration) async throws -> Void
   private let logger = Logger(subsystem: "com.jkrumm.iris", category: "thread")
   private var beginTask: Task<Bool, Never>?
   /// A take is being stopped and sent: a new hold must wait, the capture is still busy with the last one.
@@ -54,7 +53,7 @@ final class ThreadModel {
   /// Bumped by every fetch and every local change; a fetch that is no longer the latest drops its answer.
   private var generation = 0
   private var toastCount = 0
-  private var toastTimer: Task<Void, Never>?
+  private let toastTimer: ExpiryTimer
 
   /// A hold shorter than this is a touch, not a take.
   static let minimumTake: TimeInterval = 0.8
@@ -69,7 +68,7 @@ final class ThreadModel {
     self.voice = voice
     self.now = now
     self.toastDuration = toastDuration
-    self.sleep = sleep
+    toastTimer = ExpiryTimer(sleep: sleep)
   }
 
   var title: String { detail?.thread.title ?? route.title ?? "" }
@@ -226,23 +225,15 @@ final class ThreadModel {
   }
 
   func dismissFailure() {
-    toastTimer?.cancel()
-    toastTimer = nil
+    toastTimer.cancel()
     failure = nil
   }
 
   /// Shows `message` as the toast and starts its timer; the previous toast's timer is cancelled first, so it can
   /// never hide this one.
   private func showFailure(_ message: String) {
-    toastTimer?.cancel()
     toastCount += 1
-    let toast = Failure(id: toastCount, message: message)
-    failure = toast
-    let duration = toastDuration
-    let sleep = sleep
-    toastTimer = Task { [weak self] in
-      guard (try? await sleep(duration)) != nil, !Task.isCancelled, self?.failure?.id == toast.id else { return }
-      self?.dismissFailure()
-    }
+    failure = Failure(id: toastCount, message: message)
+    toastTimer.arm(after: toastDuration) { [weak self] in self?.dismissFailure() }
   }
 }
