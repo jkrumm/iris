@@ -9,8 +9,8 @@ public struct ComposerField: View {
   private let counter: String
   private let isOverLimit: Bool
 
-  /// The field's resting height (`compose.html` `.field`, 176 pt).
-  private static let minHeight: CGFloat = 176
+  /// The field card's height, padding included (`compose.html` `.field`: `flex: none; height: 176px`). A longer text scrolls inside it.
+  private static let height: CGFloat = 176
 
   public init(text: Binding<String>, placeholder: String, counter: String, isOverLimit: Bool = false) {
     _text = text
@@ -26,7 +26,6 @@ public struct ComposerField: View {
         .scrollContentBackground(.hidden)
         .font(.system(size: 19))
         .foregroundStyle(Theme.Ink.primary)
-        .frame(minHeight: Self.minHeight)
         .overlay(alignment: .topLeading) {
           if text.isEmpty {
             Text(verbatim: placeholder)
@@ -39,6 +38,7 @@ public struct ComposerField: View {
           }
         }
         .padding(Theme.Spacing.md)
+        .frame(height: Self.height)
         .detailCard()
         .accessibilityLabel(Text(verbatim: placeholder))
         .accessibilityIdentifier("composer.field")

@@ -37,7 +37,7 @@ opens every exchange after the first, a quote is an accent rule on a quiet panel
 | Composer | field to counter | 12 | 8 | `md` |
 | Composer | counter side padding | 6 | 4 | `snug` |
 | Composer | counter to hint card | 18 (12 + 6) | 16 | `md` + `snug` below the counter |
-| Composer | field height | 176 | 160 | 176 |
+| Composer | field card height | 176 (padded card) | 160 before padding = 184 | 176 applied after the padding |
 | Composer | hint card padding | 10 / 14 | 12 / 12 | `cozy` / `cardInsetHorizontal` |
 | Composer | Send button | tinted "arrow Send" | arrow only (iOS 26.5 draws it tinted, iOS 27 plain glass) | an arrow and the title as two views (a toolbar drops a `Label` title), `.borderedProminent` |
 
