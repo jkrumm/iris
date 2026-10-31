@@ -74,7 +74,12 @@ struct FailedTakeFinishTests {
     for _ in 0..<400 where await !session.isWaitingOutSilentRecorder(id) { try await Task.sleep(for: .milliseconds(5)) }
 
     await #expect(throws: CaptureError.recordingFailed("engine restart failed")) { try await session.stop() }
-    await harness.outbox.settled()
+    // The memo stays open until the pump or the grace period has resolved it; nothing closed by then: it is dropped.
+    for _ in 0..<400 where await !harness.outbox.queue().isEmpty {
+      await harness.clock.advance(by: 11)
+      await harness.outbox.settled()
+      try await Task.sleep(for: .milliseconds(5))
+    }
     #expect(await harness.uploader.completed.isEmpty)
     #expect(await harness.outbox.queue().isEmpty)
     await session.shutdown()

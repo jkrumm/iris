@@ -3,41 +3,37 @@ import Testing
 
 @testable import IrisCapture
 
-/// Parks one chosen `now()` call (counted from `block(call:)`) until the test opens it, to hold the session in the middle of
-/// a step that the event pump runs without the gate.
+/// Parks chosen `now()` calls (counted from `block(calls:)`) until the test opens them one by one, to hold the session in the
+/// middle of a step that the event pump runs without the gate.
 private actor ClockGate {
   private var calls = 0
-  private var blockedCall: Int?
-  private var isOpen = false
-  private var parked: CheckedContinuation<Void, Never>?
-  private var arrived = false
-  private var arrivalWaiters: [CheckedContinuation<Void, Never>] = []
+  private var blocked: Set<Int> = []
+  private var opened: Set<Int> = []
+  private var parked: [Int: CheckedContinuation<Void, Never>] = [:]
+  private var arrivalWaiters: [Int: [CheckedContinuation<Void, Never>]] = [:]
 
-  func block(call number: Int) {
+  func block(calls numbers: Set<Int>) {
     calls = 0
-    blockedCall = number
-    isOpen = false
-    arrived = false
+    blocked = numbers
+    opened = []
   }
 
   func pass() async {
     calls += 1
-    guard calls == blockedCall, !isOpen else { return }
-    arrived = true
-    for waiter in arrivalWaiters { waiter.resume() }
-    arrivalWaiters = []
-    await withCheckedContinuation { parked = $0 }
+    let number = calls
+    guard blocked.contains(number), !opened.contains(number) else { return }
+    for waiter in arrivalWaiters.removeValue(forKey: number) ?? [] { waiter.resume() }
+    await withCheckedContinuation { parked[number] = $0 }
   }
 
-  func waitForArrival() async {
-    guard !arrived else { return }
-    await withCheckedContinuation { arrivalWaiters.append($0) }
+  func waitForArrival(of number: Int) async {
+    guard parked[number] == nil else { return }
+    await withCheckedContinuation { arrivalWaiters[number, default: []].append($0) }
   }
 
-  func open() {
-    isOpen = true
-    parked?.resume()
-    parked = nil
+  func open(_ number: Int) {
+    opened.insert(number)
+    parked.removeValue(forKey: number)?.resume()
   }
 }
 
@@ -90,9 +86,9 @@ struct FailedTakePumpTests {
       clock: GatedClock(base: harness.clock, gate: gate))
     try await session.start(request)
     await fake.record(seconds: 12)
-    await gate.block(call: 1)  // the failed take's stop reads its deadline from the clock first
+    await gate.block(calls: [1])  // the failed take's stop reads its deadline from the clock first
     await fake.recorder.fail(reason: "engine restart failed")
-    await gate.waitForArrival()
+    await gate.waitForArrival(of: 1)
 
     // The failed take is cancelled while its recorder stop is still before its first await.
     #expect(await session.cancel() != nil)
@@ -100,7 +96,7 @@ struct FailedTakePumpTests {
     await #expect(throws: CaptureError.engineFailure("the recorder is still stopping")) {
       try await session.start(request)
     }
-    await gate.open()
+    await gate.open(1)
     await session.shutdown()
     await harness.outbox.shutdown()
   }
@@ -117,21 +113,83 @@ struct FailedTakePumpTests {
       clock: GatedClock(base: harness.clock, gate: gate))
     let id = try await session.start(request)
     await fake.record(seconds: 12)  // segment 0 closed, 2 s in the open one
-    await gate.block(call: 2)  // the failed take's grace deadline, read after its recorder stop gave up
+    await gate.block(calls: [2])  // the failed take's grace deadline, read after its recorder stop gave up
     await recorder.fail(reason: "engine restart failed")
-    await gate.waitForArrival()  // the pump is still inside the failure; the tail and `stopped` sit behind it
+    await gate.waitForArrival(of: 2)  // the pump is still inside the failure; the tail and `stopped` sit behind it
 
     let result = try #require(try await session.stop())
     #expect(result.memoID == id && result.failure == "engine restart failed")
     #expect(await harness.uploader.completed.isEmpty, "the pump finishes the memo, after the tail")
 
-    await gate.open()
+    await gate.open(2)
     for _ in 0..<400 where await harness.uploader.completed.isEmpty {
       await harness.outbox.settled()
       try await Task.sleep(for: .milliseconds(5))
     }
     #expect(await harness.uploader.completed == [.init(memoID: id, segmentCount: 2)], "the tail is in the take")
     #expect(await harness.uploader.uploaded.map(\.index).sorted() == [0, 1])
+    await session.shutdown()
+    await harness.outbox.shutdown()
+  }
+
+  @Test func aStopThatFindsNothingClosedYetKeepsTheMemoOpenForTheTailBehindTheFailure() async throws {
+    let directory = try temporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let harness = try await OutboxHarness()
+    let fake = FakeCapture(directory: directory, clock: harness.clock)
+    let recorder = FlushThenThrowRecorder(base: fake.recorder)
+    let gate = ClockGate()
+    let session = CaptureSession(
+      session: fake.session, routes: fake.routes, recorder: recorder, outbox: harness.outbox,
+      clock: GatedClock(base: harness.clock, gate: gate))
+    let id = try await session.start(request)
+    await fake.record(seconds: 4)  // nothing closed: the only audio is in the open segment, which the stop flushes
+    await gate.block(calls: [2])
+    await recorder.fail(reason: "engine restart failed")
+    await gate.waitForArrival(of: 2)
+
+    await #expect(throws: CaptureError.recordingFailed("engine restart failed")) { try await session.stop() }
+    #expect(await harness.outbox.queue().count == 1, "the memo is not discarded under the tail")
+
+    await gate.open(2)
+    for _ in 0..<400 where await harness.uploader.completed.isEmpty {
+      await harness.outbox.settled()
+      try await Task.sleep(for: .milliseconds(5))
+    }
+    #expect(await harness.uploader.completed == [.init(memoID: id, segmentCount: 1)], "the only audio the take has is sent")
+    await session.shutdown()
+    await harness.outbox.shutdown()
+  }
+
+  @Test func aStopSuspendedWhileThePumpFinishesTheMemoStillReportsTheWholeTakeAndItsFailure() async throws {
+    let directory = try temporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let harness = try await OutboxHarness()
+    let fake = FakeCapture(directory: directory, clock: harness.clock)
+    let recorder = FlushThenThrowRecorder(base: fake.recorder)
+    let gate = ClockGate()
+    let session = CaptureSession(
+      session: fake.session, routes: fake.routes, recorder: recorder, outbox: harness.outbox,
+      clock: GatedClock(base: harness.clock, gate: gate))
+    let id = try await session.start(request)
+    await fake.record(seconds: 12)
+    await gate.block(calls: [2, 3])  // the pump's grace deadline, then the user's stop reading its own
+    await recorder.fail(reason: "engine restart failed")
+    await gate.waitForArrival(of: 2)
+    let stopping = Task { try await session.stop() }
+    await gate.waitForArrival(of: 3)  // `stop()` is suspended, phase `.stopping`
+
+    await gate.open(2)  // the pump delivers the tail and `stopped`, and finishes the memo with both segments
+    for _ in 0..<400 where await harness.uploader.completed.isEmpty {
+      await harness.outbox.settled()
+      try await Task.sleep(for: .milliseconds(5))
+    }
+    #expect(await harness.uploader.completed == [.init(memoID: id, segmentCount: 2)])
+    await gate.open(3)
+
+    let result = try #require(try await stopping.value)
+    #expect(result.segmentCount == 2, "the count the pump finished the memo with")
+    #expect(result.failure == "engine restart failed", "the failure is not forgotten under the stop")
     await session.shutdown()
     await harness.outbox.shutdown()
   }
