@@ -18,6 +18,23 @@
         }
       }
     },
+    "%@ · %@" : {
+      "comment" : "Lock Screen inline widget: the state, then the headline",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ · %2$@"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ · %2$@"
+          }
+        }
+      }
+    },
     "%lld of %lld steps done" : {
       "comment" : "VoiceOver value of an in-flight History row: finished steps of all steps.",
       "localizations" : {
@@ -314,6 +331,57 @@
         }
       }
     },
+    "Iris could not finish this memo" : {
+      "comment" : "Widget memo hint",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Iris konnte dieses Memo nicht abschließen"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Iris could not finish this memo"
+          }
+        }
+      }
+    },
+    "Iris is working on it" : {
+      "comment" : "Widget memo hint",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Iris arbeitet daran"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Iris is working on it"
+          }
+        }
+      }
+    },
+    "Last memo" : {
+      "comment" : "Widget gallery name of the last-memo widget",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Letztes Memo"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Last memo"
+          }
+        }
+      }
+    },
     "Marked done" : {
       "comment" : "VoiceOver value of a History row the user marked done.",
       "localizations" : {
@@ -327,6 +395,74 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Marked done"
+          }
+        }
+      }
+    },
+    "Needs a route" : {
+      "comment" : "Widget memo state",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ziel fehlt"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Needs a route"
+          }
+        }
+      }
+    },
+    "Open Iris" : {
+      "comment" : "Widget title when there is no memo data to show",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Iris öffnen"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Open Iris"
+          }
+        }
+      }
+    },
+    "Open Iris and start a voice memo." : {
+      "comment" : "Widget gallery description of the record widget",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Iris öffnen und ein Sprachmemo starten."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Open Iris and start a voice memo."
+          }
+        }
+      }
+    },
+    "Open Iris for your memos." : {
+      "comment" : "Widget hint when the last memo's state is unknown",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Öffne Iris für deine Memos."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Open Iris for your memos."
           }
         }
       }
@@ -412,6 +548,74 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Position"
+          }
+        }
+      }
+    },
+    "Processing" : {
+      "comment" : "Widget memo state",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wird verarbeitet"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Processing"
+          }
+        }
+      }
+    },
+    "Ready" : {
+      "comment" : "Widget title when the last memo's state is unknown",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bereit"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ready"
+          }
+        }
+      }
+    },
+    "Record" : {
+      "comment" : "Widget record button caption; also the record widget's gallery name",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aufnehmen"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Record"
+          }
+        }
+      }
+    },
+    "Record a memo" : {
+      "comment" : "VoiceOver label of the widget's record button",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Memo aufnehmen"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Record a memo"
           }
         }
       }
@@ -637,6 +841,23 @@
         }
       }
     },
+    "The state of your newest memo." : {
+      "comment" : "Widget gallery description of the last-memo widget",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Der Stand deines neuesten Memos."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The state of your newest memo."
+          }
+        }
+      }
+    },
     "Waiting" : {
       "comment" : "VoiceOver state of a step that has not started",
       "localizations" : {
@@ -654,6 +875,23 @@
         }
       }
     },
+    "Where should this go?" : {
+      "comment" : "Widget memo hint",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wohin soll das?"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Where should this go?"
+          }
+        }
+      }
+    },
     "You" : {
       "comment" : "Who spoke a turn in a thread",
       "localizations" : {
@@ -667,6 +905,40 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "You"
+          }
+        }
+      }
+    },
+    "Your latest memo shows here." : {
+      "comment" : "Widget hint under Open Iris when there is no memo data",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hier erscheint dein letztes Memo."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your latest memo shows here."
+          }
+        }
+      }
+    },
+    "Your memo is ready" : {
+      "comment" : "Widget memo hint",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dein Memo ist fertig"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your memo is ready"
           }
         }
       }
