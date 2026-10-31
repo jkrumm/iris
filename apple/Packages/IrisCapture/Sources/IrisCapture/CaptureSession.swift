@@ -40,6 +40,9 @@ public struct TakeState: Sendable, Equatable {
   public var request: TakeRequest?
   /// Why the recorder failed; set with the `failed` phase.
   public var failure: String?
+  /// A failed take's recorder has been stopped and returned: the microphone is released, though the take waits for the user.
+  /// Set by the snapshot that follows the stop (`false` while it is running, or when it never answered).
+  public var recorderReleased = false
 
   public static let idle = TakeState(phase: .idle, memoID: nil, startedAt: nil, inputName: nil, request: nil)
 }
@@ -590,6 +593,12 @@ public actor CaptureSession {
   private func stopReturned(_ id: UUID, _ result: Result<Bool, any Error>) {
     unreturnedStops.remove(id)
     stopRaces.removeValue(forKey: id)?.resume(with: result)
+    // A take that failed on its own is held for the user, but its microphone is free now: say so, so the app need not wait for
+    // a Stop or Discard that may never come.
+    if state.phase == .failed, !state.recorderReleased, unreturnedStops.isEmpty {
+      state.recorderReleased = true
+      publish()
+    }
     guard deactivationPending, unreturnedStops.isEmpty else { return }
     // Fire and forget, one short deactivation behind the gate; ends on its own.
     Task { await self.stopsDrained() }
