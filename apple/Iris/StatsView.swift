@@ -19,6 +19,7 @@ struct StatsView: View {
       .takeBanner()
       .background(Theme.Surface.background)
       .toolbarVisibility(.hidden, for: .navigationBar)
+      .statusBarScrim()
       .refreshable { await model.load() }
       .task { await model.load() }
     }

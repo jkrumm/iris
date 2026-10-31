@@ -31,6 +31,7 @@ struct SettingsView: View {
       .takeBanner()
       .background(Theme.Surface.background)
       .toolbarVisibility(.hidden, for: .navigationBar)
+      .statusBarScrim()
       .task { await model.load() }
       .task { await micRules.load() }
       .task { await model.observeQueue() }
@@ -488,6 +489,12 @@ struct SettingsLinkRow: View {
 }
 
 extension View {
+  /// The status-bar region of a screen without a navigation bar, filled with the screen background, so content that
+  /// scrolls up under the clock is hidden instead of printed over it.
+  func statusBarScrim() -> some View {
+    safeAreaInset(edge: .top, spacing: 0) { Color.clear.frame(height: 0).background(Theme.Surface.background) }
+  }
+
   /// The padding of a row inside a settings card (`rowx`: 13 / 14 in the mockup; the scale has 12 / 14).
   func settingsRow() -> some View {
     padding(.horizontal, Theme.Spacing.cardInsetHorizontal)
