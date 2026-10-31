@@ -11,9 +11,16 @@
   /// name and the container are unchanged (`audio/mp4`), so the uploader, the server's concat and the startup sweep treat a
   /// killed tail like any other segment file.
   ///
-  /// `@unchecked Sendable`: owned by the recorder actor, which calls `append` and then hands the writer to exactly one
-  /// closing task; after that hand-off only `finish()` touches it, so the two never overlap.
-  final class SegmentWriter: @unchecked Sendable {
+  /// A segment file that is being written and can be finished: `SegmentWriter`, or a scripted one in the tests of the closing chain.
+  protocol ClosableSegment: Sendable {
+    var url: URL { get }
+    func finish() async -> SegmentWriter.Outcome
+  }
+
+  /// `@unchecked Sendable`: the recorder actor calls `append`, a drain task of the writer retries what the encoder was not ready
+  /// for, and one closing task calls `finish()`. Every access to the mutable state below goes through `lock`, so the three
+  /// never overlap; `AVAssetWriter` and its input are only touched with the lock held.
+  final class SegmentWriter: ClosableSegment, @unchecked Sendable {
     /// What a finished segment file is: its size and the frames it reads back with. `error` is what the writer reported, if
     /// anything; a file that reads back is queued whatever the writer said, nothing is thrown away.
     struct Outcome: Sendable, Equatable {
@@ -30,18 +37,26 @@
     static let fragmentInterval = 0.5
     /// `finish()` gives the input this long to take the audio it still holds before the file is closed with what it has.
     private static let drainLimit: Duration = .seconds(5)
+    /// How often a held backlog is offered to the input again while the segment is open.
+    private static let drainRetry: Duration = .milliseconds(20)
 
     let url: URL
     private let sampleRate: Int
     private let writer: AVAssetWriter
     private let input: AVAssetWriterInput
     private let format: CMAudioFormatDescription
+    /// Tests only: when set, the input also counts as not ready while this says so (a slow encoder).
+    private let readiness: (@Sendable () -> Bool)?
+    private let lock = NSLock()
     private var framesAppended = 0
     /// Buffers the real-time input was not ready for yet; written in order before anything newer.
     private var backlog: [CMSampleBuffer] = []
+    /// Offers the backlog to the input again until it is empty, so a pause in the tap's buffers does not strand it in memory.
+    private var drainTask: Task<Void, Never>?
 
-    init(url: URL, sampleRate: Int) throws {
+    init(url: URL, sampleRate: Int, readiness: (@Sendable () -> Bool)? = nil) throws {
       self.url = url
+      self.readiness = readiness
       self.sampleRate = sampleRate
       writer = try AVAssetWriter(outputURL: url, fileType: .m4a)
       writer.movieFragmentInterval = CMTime(seconds: Self.fragmentInterval, preferredTimescale: 600)
@@ -74,41 +89,78 @@
     /// Appends the samples; they continue where the last call ended, so the segment is gapless.
     func append(_ samples: [Float]) throws {
       guard !samples.isEmpty else { return }
-      guard writer.status == .writing else { throw WriterError(description: Self.reason(writer.error, "append")) }
-      backlog.append(try makeBuffer(samples))
-      framesAppended += samples.count
-      try drain()
+      try lock.withLock {
+        guard writer.status == .writing else { throw WriterError(description: Self.reason(writer.error, "append")) }
+        backlog.append(try makeBuffer(samples))
+        framesAppended += samples.count
+        try drain()
+        if !backlog.isEmpty { startDrainTask() }
+      }
     }
 
-    /// Closes the file and reads it back. Waits (off the caller's executor) for the input to take what it still holds.
+    /// Closes the file and reads it back. Waits (off the caller's executor) for the input to take what it still holds. An
+    /// `error` in the outcome means the file ends where the encoder stopped: `readableFrames` is what is really in it.
     func finish() async -> Outcome {
       var failure: String?
-      do {
-        let deadline = ContinuousClock.now + Self.drainLimit
-        try drain()
-        while !backlog.isEmpty {
-          guard ContinuousClock.now < deadline else { throw WriterError(description: "the encoder did not drain") }
-          try await Task.sleep(for: .milliseconds(10))
-          try drain()
+      let deadline = ContinuousClock.now + Self.drainLimit
+      while true {
+        let pending = lock.withLock { () -> Result<Bool, any Error> in
+          Result {
+            try drain(); return !backlog.isEmpty
+          }
         }
-      } catch {
-        failure = String(describing: error)
+        switch pending {
+        case .failure(let error): failure = String(describing: error)
+        case .success(true):
+          if ContinuousClock.now < deadline {
+            try? await Task.sleep(for: .milliseconds(10))
+            continue
+          }
+          failure = "the encoder did not drain"
+        case .success(false): break
+        }
+        break
       }
-      if writer.status == .writing {
+      let task = lock.withLock { () -> Task<Void, Never>? in
+        defer { drainTask = nil }
+        return drainTask
+      }
+      task?.cancel()
+      let open = lock.withLock { () -> Bool in
+        guard writer.status == .writing else { return false }
         input.markAsFinished()
         writer.endSession(atSourceTime: CMTime(value: CMTimeValue(framesAppended), timescale: CMTimeScale(sampleRate)))
-        await writer.finishWriting()
+        return true
       }
+      if open { await writer.finishWriting() }
       if writer.status != .completed, failure == nil { failure = Self.reason(writer.error, "finishWriting") }
       return Outcome(byteCount: Self.byteCount(of: url), readableFrames: Self.readableFrames(of: url), error: failure)
     }
 
     // MARK: Internals
 
+    /// With the lock held.
     private func drain() throws {
-      while let next = backlog.first, input.isReadyForMoreMediaData {
+      while let next = backlog.first, input.isReadyForMoreMediaData, readiness?() ?? true {
         guard input.append(next) else { throw WriterError(description: Self.reason(writer.error, "append")) }
         backlog.removeFirst()
+      }
+    }
+
+    /// With the lock held.
+    private func startDrainTask() {
+      guard drainTask == nil else { return }
+      drainTask = Task { [self] in
+        while !Task.isCancelled {
+          try? await Task.sleep(for: Self.drainRetry)
+          let more = lock.withLock { () -> Bool in
+            // A failed input is reported by `finish()`.
+            let drained = (try? drain()) != nil
+            if !drained || backlog.isEmpty { drainTask = nil }
+            return drained && !backlog.isEmpty
+          }
+          if !more { return }
+        }
       }
     }
 

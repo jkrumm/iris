@@ -22,9 +22,9 @@
     private var rotator: SegmentRotator
     private var take = TakeLifecycle()
     private var openWriter: SegmentWriter?
-    /// The closing of the segments handed off so far, in order: a file is queued only once its writer has finished, and
-    /// `stop()` waits for the last one before `.stopped`. Owned by the recorder, awaited in `stop()`.
-    private var closing: Task<Void, Never>?
+    /// Closes the segments handed off, in order: a file is queued only once its writer has finished, and `stop()` waits for the
+    /// last one before `.stopped`.
+    private let closer: SegmentCloser
     private var sampleSink: AsyncStream<TapChunk>.Continuation?
     private var consumeTask: Task<Void, Never>?
     private var configurationTask: Task<Void, Never>?
@@ -55,6 +55,8 @@
       targetFormat = format
       rotator = SegmentRotator(policy: policy)
       (events, eventContinuation) = AsyncStream.makeStream(of: CaptureEvent.self)
+      let continuation = eventContinuation
+      closer = SegmentCloser(sampleRate: policy.sampleRate) { continuation.yield($0) }
       (levels, levelContinuation) = AsyncStream.makeStream(of: Float.self, bufferingPolicy: .bufferingNewest(1))
     }
 
@@ -62,6 +64,7 @@
       try take.begin(memoID)
       run.begin()
       gate.begin()
+      closer.reset()
       configurationGapStart = nil
       do {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -97,7 +100,7 @@
       await consumeTask?.value
       consumeTask = nil
       apply(rotator.finish(), samples: [])
-      await closing?.value
+      await closer.idle()
       eventContinuation.yield(.stopped(memoID, segmentCount: rotator.closedCount))
       take.finishStop()
     }
@@ -459,28 +462,12 @@
       return writer
     }
 
-    /// Hands the open writer to the closing chain and returns at once, so the next segment starts without a gap. The file
-    /// is queued after its writer has finished and the file reads back; one that does not read back is never queued, stays
-    /// on disk for the next launch's sweep (which sets it aside, never deletes) and fails the take.
+    /// Hands the open writer to the closer and returns at once, so the next segment starts without a gap (`SegmentCloser` has
+    /// the rules for what is published).
     private func close(segment: Int, frames: Int, reason: RotationReason, memoID: MemoID) {
       guard let writer = openWriter else { return }
       openWriter = nil
-      let duration = policy.duration(frames: frames)
-      let previous = closing
-      closing = Task {
-        await previous?.value
-        let outcome = await writer.finish()
-        if let error = outcome.error {
-          Log.capture.error("segment \(segment) finish: \(error, privacy: .public)")
-        }
-        guard outcome.readableFrames > 0 else {
-          eventContinuation.yield(.failed(reason: "segment finish failed"))
-          return
-        }
-        let closed = ClosedSegment(
-          memoID: memoID, index: segment, fileURL: writer.url, byteCount: outcome.byteCount, duration: duration)
-        eventContinuation.yield(.segmentClosed(closed, reason: reason))
-      }
+      closer.close(writer, index: segment, memoID: memoID, duration: policy.duration(frames: frames), reason: reason)
     }
   }
 #endif

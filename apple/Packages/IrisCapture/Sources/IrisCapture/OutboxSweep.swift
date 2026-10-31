@@ -177,6 +177,7 @@ extension Outbox {
 
   /// Logs the sweep and remembers the files it could not deal with, for Settings.
   private func concluded(_ report: SweepReport, files: any SegmentFileStore) async -> SweepReport {
+    if settleEmptyRecoveries() { await flush() }
     noteStrays(report.stuck, in: files)
     guard !report.isEmpty else { return report }
     Log.outbox.notice(
