@@ -104,4 +104,35 @@ struct FailedTakePumpTests {
     await session.shutdown()
     await harness.outbox.shutdown()
   }
+
+  @Test func aStopThatArrivesBeforeThePumpHasDeliveredTheTailLeavesTheFinishToThePump() async throws {
+    let directory = try temporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let harness = try await OutboxHarness()
+    let fake = FakeCapture(directory: directory, clock: harness.clock)
+    let recorder = FlushThenThrowRecorder(base: fake.recorder)
+    let gate = ClockGate()
+    let session = CaptureSession(
+      session: fake.session, routes: fake.routes, recorder: recorder, outbox: harness.outbox,
+      clock: GatedClock(base: harness.clock, gate: gate))
+    let id = try await session.start(request)
+    await fake.record(seconds: 12)  // segment 0 closed, 2 s in the open one
+    await gate.block(call: 2)  // the failed take's grace deadline, read after its recorder stop gave up
+    await recorder.fail(reason: "engine restart failed")
+    await gate.waitForArrival()  // the pump is still inside the failure; the tail and `stopped` sit behind it
+
+    let result = try #require(try await session.stop())
+    #expect(result.memoID == id && result.failure == "engine restart failed")
+    #expect(await harness.uploader.completed.isEmpty, "the pump finishes the memo, after the tail")
+
+    await gate.open()
+    for _ in 0..<400 where await harness.uploader.completed.isEmpty {
+      await harness.outbox.settled()
+      try await Task.sleep(for: .milliseconds(5))
+    }
+    #expect(await harness.uploader.completed == [.init(memoID: id, segmentCount: 2)], "the tail is in the take")
+    #expect(await harness.uploader.uploaded.map(\.index).sorted() == [0, 1])
+    await session.shutdown()
+    await harness.outbox.shutdown()
+  }
 }

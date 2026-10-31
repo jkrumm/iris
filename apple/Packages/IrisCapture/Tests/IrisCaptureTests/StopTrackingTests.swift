@@ -133,7 +133,7 @@ struct StopTrackingTests {
     await rig.harness.outbox.shutdown()
   }
 
-  @Test func theUsersStopEndsTheWaitOfAFailedTakeWhoseRecorderCouldNotBeStopped() async throws {
+  @Test func theUsersStopLeavesTheFinishOfAFailedTakeWhoseRecorderCouldNotBeStoppedToThePump() async throws {
     let directory = try temporaryDirectory()
     defer { try? FileManager.default.removeItem(at: directory) }
     let rig = try await rig(directory, ending: .throwsAtOnce)
@@ -146,11 +146,12 @@ struct StopTrackingTests {
       try await Task.sleep(for: .milliseconds(5))
     }
 
-    // No clock advance: the user does not wait for the grace period.
+    // The user's stop returns at once; the pump finishes the memo when the grace period ends.
     let result = try #require(try await rig.session.stop())
 
     #expect(result.memoID == id && result.segmentCount == 1 && result.failure == "engine restart failed")
-    await rig.harness.outbox.settled()
+    #expect(await rig.harness.uploader.completed.isEmpty)
+    try await letTheTimeoutsPass(rig)
     #expect(await rig.harness.uploader.completed == [.init(memoID: id, segmentCount: 1)])
     await rig.session.shutdown()
     await rig.harness.outbox.shutdown()

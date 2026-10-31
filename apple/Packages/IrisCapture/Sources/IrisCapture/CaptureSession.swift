@@ -230,14 +230,15 @@ public actor CaptureSession {
       if awaitingStop.contains(memoID) {
         // The recorder never said it stopped: the segments that closed are what the take has so far, and the failure says why.
         if failures[memoID] == nil { failures[memoID] = Self.recorderSilent }
-        if recorderStopped || count == 0 {
+        if count == 0 {
           awaitingStop.remove(memoID)
           lateFinish.removeValue(forKey: memoID)?.cancel()
           abandoned.insert(memoID)
           if count > 0 { await outbox.finishMemo(memoID, segmentCount: count) }
         } else {
-          // The tail segment it was flushing may still close, so the memo is finished when `stopped` arrives (or after a
-          // grace period of the same length), not now.
+          // The tail segment it was flushing may still close (a failed take's recorder may have queued it, with `stopped`,
+          // behind the failure the pump is still handling), so the memo is finished by the pump when `stopped` arrives, or
+          // by the grace period, not now.
           holdsOpen = true
           startGrace(for: memoID, until: graceDeadline)
         }
@@ -447,7 +448,10 @@ public actor CaptureSession {
     // delivers whatever is queued; `stopped` finishes the memo with the whole take, and the grace period (or the user's own
     // stop) with the segments that closed. Either way it goes up without the user having to look at the phone.
     awaitingStop.insert(memoID)
-    startGrace(for: memoID, until: await clock.now().addingTimeInterval(stopTimeout))
+    let deadline = await clock.now().addingTimeInterval(stopTimeout)
+    // A `stop()` in that suspension has armed the grace itself, and `stopped` may even have ended the wait.
+    guard awaitingStop.contains(memoID) else { return }
+    startGrace(for: memoID, until: deadline)
   }
 
   /// Whether the take's recorder went silent and the memo waits for its `stopped` or the grace period (tests wait on it).
@@ -577,6 +581,7 @@ public actor CaptureSession {
 
   /// Arms the timer that finishes a take whose `stopped` never comes: the segments that closed by then are the take.
   private func startGrace(for memoID: MemoID, until deadline: Date) {
+    guard lateFinish[memoID] == nil else { return }
     // Owned by `lateFinish`; ends with the `stopped` event or its own firing, and is cancelled by `shutdown()`.
     lateFinish[memoID] = Task { [clock] in
       do { try await clock.sleep(until: deadline) } catch { return }
