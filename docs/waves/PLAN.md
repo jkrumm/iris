@@ -1082,7 +1082,7 @@ behind the recorder's `canImport`, the duplicated step-end rule in `WaterfallBui
 `ask-human` once reported done within a second (never treated as a pass); the mini ran at load ~88 and Spotlight indexed `apple/.dd`
 (now `apple/.dd.noindex`, C1).
 
-## Wave 18 — device re-test + D3 when enrolled ∥ R4 Mac menu-bar app ∥ Wave 17 debt            <!-- status: active -->
+## Wave 18 — device re-test + D3 when enrolled ∥ R4 Mac menu-bar app ∥ Wave 17 debt            <!-- status: done -->
 The owner is back on the phone later (evenings); everything that needs no phone runs meanwhile. Tracks: **D** (the paired iPhone,
 `docs/spikes/**`, the kept worker `w17-d2r-device-retest`) ∥ **M** (`apple/IrisMac/**`, Mac-only code in the packages, TDD §5) ∥ **I**
 (`apple/**` iOS app and package code) ∥ **S** (`server/**`, `contracts/**`, `scripts/**`). One `xcodebuild` at a time fleet-wide (a device
@@ -1101,39 +1101,39 @@ cannot double-act); its row names the take it belongs to.
 - [ ] **D2. Only if the enrolment has cleared** (the pending `ask-human` from Wave 17; ask again once if it timed out): APNs `.p8`
       (Key ID, Team ID) + App Store Connect API key in 1Password, `make secrets-seed` through `ask-human`, `DEVICE_SIGNING=paid`, S3 (APNs
       Live Activity, [Play] from a suspended app) and TestFlight (`make testflight`). Not cleared → Left behind.
-- [ ] **M1. R4 Mac, first slice (backlog 8, TDD §5):** the `MenuBarExtra` (`.window` style, `LSUIElement`) with History rows that match
+- [x] **M1. R4 Mac, first slice (backlog 8, TDD §5):** the `MenuBarExtra` (`.window` style, `LSUIElement`) with History rows that match
       the iOS History (shared IrisUI components, no forked row), a memo opened in a detail panel, live SSE `/v1/events` updates and a local
       notification per finished memo while it runs; connection settings (server URL + token, Keychain) like the iPhone. Snapshot or
       screenshot proof on the mini (`IrisMac` builds and runs on the mini's macOS). No capture yet.
-- [ ] **M2. R4 Mac capture (after M1):** the global hotkey (`KeyboardShortcuts` if it holds on macOS 26 — `/research` first — else a
+- [x] **M2. R4 Mac capture (after M1):** the global hotkey (`KeyboardShortcuts` if it holds on macOS 26 — `/research` first — else a
       `CGEventTap`; configurable, default distinct from the owner's dictation key), the floating non-activating `NSPanel` (timer, level,
       mic picker from Core Audio), the take through `IrisCapture` + the outbox. Stable Apple Development signing (ad-hoc resets TCC).
       Mic-permission and real-take proof need the owner's MacBook: build and prove what the mini can, leave the hands-on rows for D.
-- [ ] **I1. Owner-question defaults:** (1) take start pauses a playing spoken reply; (2) a late tail on a closed memo is uploaded as its
+- [x] **I1. Owner-question defaults:** (1) take start pauses a playing spoken reply; (2) a late tail on a closed memo is uploaded as its
       own transcribe memo. Tests; TDD §4 amended; AGENTS.md if it describes the behaviour.
-- [ ] **I2. Kill-test loss (Wave 17 D2.8: a force-quit lost the in-progress segment, ~5–8 s):** recover the partial segment at the next
+- [x] **I2. Kill-test loss (Wave 17 D2.8: a force-quit lost the in-progress segment, ~5–8 s):** recover the partial segment at the next
       launch (the sweep adopts a playable truncated file) or shorten what a kill can lose; research what AVAudioFile/AAC leaves on disk
       at a kill first. Fake-tested here, device-proven in D1 if the owner has time.
-- [ ] **I3. Capture debt (Wave 17 Follow-ups #49, #57, #60, D1b):** data-safety first: `failTake` skips `outbox.finishMemo` when stop
+- [x] **I3. Capture debt (Wave 17 Follow-ups #49, #57, #60, D1b):** data-safety first: `failTake` skips `outbox.finishMemo` when stop
       throws; a stalled `complete` when the server holds fewer segments than the phone sent; legacy outbox records without
       `completeMayHaveLanded`; a hung stop deactivates the session; unmovable stray files visible in Settings; then the rest of those lines.
-- [ ] **I4. UI debt (Wave 17 Follow-ups #52, #58, #64, #65, #61):** a gateway 5xx keeps "Connected"; a server-URL switch must not end
+- [x] **I4. UI debt (Wave 17 Follow-ups #52, #58, #64, #65, #61):** a gateway 5xx keeps "Connected"; a server-URL switch must not end
       the old server's activities; eviction vs `localURL`; the take sample race in `memoDone`; `PlainMarkdown` reuses `ReplyMarkdown`'s
       parsing; the rest of those lines.
-- [ ] **I5. Visual fidelity pass (owner, 2026-10-30 21:25, binding):** "so much bad spacing", e.g. the top of History, "and many other
+- [x] **I5. Visual fidelity pass (owner, 2026-10-30 21:25, binding):** "so much bad spacing", e.g. the top of History, "and many other
       places"; the app has drifted from the design renders "at many, many places", they were much better. The reference is
       `docs/design/mockups/*.html` (round 1/2, still tracked; `feedback-round-{1,2}.md` binding, round 2 wins) plus the kept Wave 15 I5 /
       Wave 16 I4 renders. Per screen (History incl. its top, detail, thread, composer, take screen + banner, Stats, Settings, route sheet,
       Live Activity views): render the mockup and screenshot the app at the same size, light and dark, list every spacing / alignment /
       type / colour delta in a table, fix them, re-record snapshots. One shared spacing scale in IrisUI instead of per-view literals.
       D1 adds device screenshots of every screen and the places the owner points at. Large: split per screen group across workers.
-- [ ] **I6. Device observability (owner, 2026-10-30 22:05):** device testing must not depend on the owner narrating what he saw. Every
+- [x] **I6. Device observability (owner, 2026-10-30 22:05):** device testing must not depend on the owner narrating what he saw. Every
       capture, route-change, interruption, outbox, intent and Live Activity event is an `os.Logger` line **and** a relayed `IrisTelemetry`
       record (HyperDX, `service.name=iris-ios`, the memo trace id), flushed on background and at launch; MetricKit crash and hang
       diagnostics (`MXDiagnosticPayload`) are uploaded through `POST /v1/telemetry` at the next launch; a `memo-debug` / `device` skill
       recipe shows one take's device timeline next to its server timeline. Ask the D worker (`w17-d2r-device-retest`) what it was
       missing in Wave 17/18 and cover that first. Prove it on the simulator, then with one device take in D1.
-- [ ] **I7. Device failures of the D1 re-test (2026-10-30 night, `docs/spikes/device-checklist.md` "Wave 18 D1", iPhone 15 / iOS 26.6.1),
+- [x] **I7. Device failures of the D1 re-test (2026-10-30 night, `docs/spikes/device-checklist.md` "Wave 18 D1", iPhone 15 / iOS 26.6.1),
       after I6's logging is in:** row 1 the Lock Screen control does nothing (also after unlock; Lock Screen buttons are inactive until
       unlock and a plain `AppIntent` control runs in the widget extension, which cannot record: make the Lock Screen control an
       `OpenIntent`/`ForegroundContinuableIntent` like the Control Center fallback that passed, a66fc402); row 15 / 21 island Resume says
@@ -1141,14 +1141,49 @@ cannot double-act); its row names the take it belongs to.
       Processing Live Activity survives Stop and the memo's `done` (end stale activities from `Activity.activities` at launch and inside
       the finishing task, I8's sweep did not catch it). Fake-tested, then one device take with the owner. `ddaad4d8`'s quarantined tail is an
       unfinalised m4a no tool reads (no `moov`): a raw-AAC frame parser or mark lost (Left behind unless I23's shadow design makes it moot).
-- [ ] **S1. Server debt (Wave 17 Follow-ups #47, #50):** sweep limit / ENOENT / stat concurrency, fake order, hold simplification; a
+- [x] **S1. Server debt (Wave 17 Follow-ups #47, #50):** sweep limit / ENOENT / stat concurrency, fake order, hold simplification; a
       `RoutableMode` type. Deploy, `make verify`, `make smoke`.
 - [x] **C1. CI flake:** `CaptureUITests.testAMemoTypedOfflineIsQueuedThenSentWithRetryNow` (`history.toast` 10 s wait) made deterministic
       (assert on state, not on a transient toast); the rd merge train's local `make check` under load (server checks + `make e2e` locally,
       Apple gated by CI) written into the Fleet section if it is the rule now.
-- [ ] **Deploy + prove:** server deployed, `make verify` healthy, `make smoke` green; `apple.yml` green on master.
+- [x] **Deploy + prove:** server deployed, `make verify` healthy, `make smoke` green; `apple.yml` green on master.
 Not this wave: the route-configuration build (waits for the owner's review of the Wave 17 I6 render), H1's B2 `private/` objects (owner,
 B2 console; keep them until I5 is done, they are the round-1/2 renders), device-token rotation and easier token entry (owner notes, Left behind of Wave 17), R5 polish.
+
+**Wave 18 closed 2026-10-31 (master `b853215`).** Shipped: S1 (#68, deployed, `make verify` + `make smoke` green), C1, I1 take start pauses a playing reply, I2 fragmented
+m4a segments (a force-quit keeps all but about 0.5 s; macOS SIGKILL experiment, `docs/research/2026-10-30-avaudiofile-kill.md`), I3 capture data safety, I4 UI debt,
+I5 a-e the visual fidelity pass on one `Theme.Spacing` scale, I6 device observability, I7 the three D1 device failures, M1 Mac menu-bar, M2 Mac capture (Carbon hotkey
+Control-Option-M via `KeyboardShortcuts` 3.1.0, non-activating panel, take through `IrisCapture`). Batch PRs #74, #80, #85, #86, #87, #90, each one `apple.yml` run.
+**Left behind:**
+**Not done:** D1 (the device re-test needs the owner's hands), D2 (the Apple enrolment email has not arrived, owner 2026-10-31; S3 APNs Live Activity, [Play] from a
+suspended app and TestFlight wait), D3.
+**Owner hardware batch, next:** a fresh build is on the iPhone (`b853215`; the app was installed over the old one, the launch failed because the phone was locked).
+Checklist `docs/spikes/device-checklist.md`: Wave 18 I7 (German steps) rows 1 (Lock Screen control), 15 / 21 (island Resume), 20 (no stale Processing activity), row 8a
+(force-quit mid-segment, relaunch, the tail is in the memo), the History scroll jump, copy into Notes, I5's visuals on the phone (incl. the iOS 26 take screen, never
+opened on a simulator), whether the microphone indicator staying on while paused is acceptable (I7 keeps the engine running), the Mac rows M1-M14 on the MacBook
+(microphone prompt, hotkey, focus stays in the other app, a real take). Row 5 (car Bluetooth) never run. `ddaad4d8`'s quarantined tail is an unfinalised m4a with no
+`moov`: mark it lost.
+**Parked:** `w18-i23-capture-recovery-debt` (I2's first design, a PCM shadow file; superseded by the fragmented m4a, kept for its notes; PR #71 closed) and
+`w18-i1b-late-tail` (a late tail of a closed memo as its own transcribe memo, owner default 2; 922 lines in the outbox, three blocking rounds, not small; the pause part
+of I1 shipped). Owner defaults still to confirm: take start pauses a playing reply (shipped); the late tail is not shipped.
+**Known limits:** a take that fails on its own and is never stopped or cancelled keeps `captureActive` set (no spoken replies until it ends). Review convergence: `agw
+review` does not converge on large capture / notification / telemetry code; after round 2 only data-loss, privacy, security and crash blockers were fixed.
+**Follow-ups (from the PR bodies):** M1: Mac notification catch-up edge cases (unfiltered reconcile, failed / needs_route catch-up, transition-based dedupe, search-debounce
+baseline, generation races, banner delivery during a switch, URL userinfo, token / URL write pairing, detail late-retry overwrite, events-503 "Connected").
+M2 (#88): outbox work is not bound to its originating server on a connection switch (a create epoch read before the client swap, a buffered create event across a switch,
+stale History reconciliation), a DELETE can settle before the hide is published, no Mac status / retry UI for stalled uploads, the original input is not persisted across a
+kill, the panel cannot become key, no German strings, the Mac take is not on the telemetry relay. I2 (#89): files of a cancelled take whose close failed are not cleaned up,
+`finishWriting` is not bounded. I6 / #87 telemetry: flush / recovery concurrency, records unbound before the first unlock, no background assertion on a hung send,
+quarantine inspection on the main actor, `commandSource` overwrite, audio port names, unreachable-server queue discard. #75: `HistoryModel` take sample at the event,
+`MediaDownloader` eviction scans, sweeper lookup bounds, `note(failure:)` overwrite. I5: Stop-button contrast, the shared `DetailSectionLabel` tracking decision, the Record
+accessory under detail / thread bottom actions, mode chips / `RecordModeSheet` redesign, features shown in mockups that do not exist, `TrendRow` / `VolumeChart`, index-based
+identity in I5e. Server side by design: the telemetry relay answers 202 before the export.
+**Owner items:** H1 (the B2 `private/` mockup objects, console), device-token rotation and easier entry, the route-configuration build waits for his review of the Wave 17
+I6 render.
+**Fleet note:** one `xcodebuild` fleet-wide under `lockf -t 1800 /tmp/iris-apple.lock` (exit 75 = wait) after load hit 248; Apple PRs ride batch trains (one `apple.yml`
+run of 45-75 min per batch), server and docs PRs merge alone; a second simulator (iPhone 15, iOS 26.5, `SIM_NAME="iPhone 15" SIM_OS=26.5`) covers the iOS 26 code paths;
+close a worker's pane as soon as its PR is merged; do not run a device build from a checkout another session may have switched to a branch (build from a detached worktree
+of `origin/master`).
 
 ## Fleet backlog (for the long-running fleet: mother → lead → workers)
 
