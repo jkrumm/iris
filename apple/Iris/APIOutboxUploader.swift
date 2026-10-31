@@ -52,8 +52,9 @@ nonisolated struct APIOutboxUploader: SegmentUploader {
       try await client.uploadSegment(memoID: segment.memoID.wireID, index: segment.index, data: data)
     } catch let APIError.server(status, body) where status == 409 && body.error == .badState {
       // The memo has left `receiving`. When the server completed it with this segment, the segment is delivered and `complete`
-      // then answers with the memo it has. When it completed it with fewer, this file is the only copy of that audio: it is
-      // set aside where Settings shows it, never deleted with the rest of the take.
+      // then answers with the memo it has. When it completed it with fewer, this file is the only copy of that audio: the
+      // outbox makes it its own transcribe memo (`LateTailError`); of a memo the user deleted it is set aside where Settings
+      // shows it, never deleted with the rest of the take.
       try await settleClosedMemo(segment, answer: body.message)
     } catch {
       throw Self.classified(error)
@@ -61,13 +62,14 @@ nonisolated struct APIOutboxUploader: SegmentUploader {
   }
 
   private func settleClosedMemo(_ segment: ClosedSegment, answer: String) async throws {
-    let held: Int
+    let closed: Memo
     do {
-      held = try await client.memo(id: segment.memoID.wireID).memo.segmentCount ?? 0
+      closed = try await client.memo(id: segment.memoID.wireID).memo
     } catch {
       throw Self.classified(error)  // not knowing what the server holds is not an answer: try again later
     }
-    guard held <= segment.index else { return }
+    guard (closed.segmentCount ?? 0) <= segment.index else { return }
+    if !closed.isDeleted { throw LateTailError(answer) }
     guard let keeping, await keeping.setAside(segment.fileURL) != nil else {
       throw PermanentTransferError("the server closed this memo without this recording, which is kept: \(answer)")
     }

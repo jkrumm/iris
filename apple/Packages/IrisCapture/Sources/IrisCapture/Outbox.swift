@@ -83,7 +83,14 @@ public actor Outbox: SegmentOutbox {
     // Withheld from upload until a save that carries it has landed (`persist()` releases it): a segment the server has but
     // the queue file does not know is lost to a crash, and its file is orphaned. A failed save is retried on a timer and
     // shows in `saveFailure()`.
-    guard machine.enqueue(segment, withheld: true) else { return }
+    guard machine.enqueue(segment, withheld: true) else {
+      // The take completed without this segment: it is the end of the take, and becomes its own memo (`LateTail`).
+      let now = await clock.now()
+      guard machine.isCompleted(segment.memoID), divertTail(segment, now: now) else { return }
+      await persist()
+      await resume()
+      return
+    }
     unsavedSegments[SegmentKey(memoID: segment.memoID, index: segment.index)] = requested + 1
     await persist()
     await resume()
@@ -343,6 +350,11 @@ public actor Outbox: SegmentOutbox {
         reason: Self.reason(error))
     case (.segment(let key), .success): machine.uploadSucceeded(key)
     case (.segment(let key), .failure) where cancelled: machine.uploadCancelled(key)
+    case (.segment(let key), .failure(let error as LateTailError)):
+      Log.outbox.notice("segment \(key.index) of a closed memo becomes its own transcribe memo")
+      if let segment = machine.entries[key]?.segment, !divertTail(segment, now: now) {
+        machine.uploadFailed(key, now: now, reason: error.message)
+      }
     case (.segment(let key), .failure(let error)):
       Log.outbox.error("upload failed: \(String(describing: error), privacy: .public)")
       machine.uploadFailed(
@@ -350,9 +362,15 @@ public actor Outbox: SegmentOutbox {
         reason: Self.reason(error))
     case (.completion(let memoID), .success):
       // The server acknowledged the memo: its segment files are no longer needed, once the state that says so is saved.
-      if deletesFilesWhenDone {
-        retire(machine.entries.values.filter { $0.key.memoID == memoID }.map(\.segment.fileURL))
+      // Segments past the count `complete` carried are not in the memo (a tail that closed after the stop gave up on it):
+      // each becomes its own memo before the take's entries go, and a file that cannot be diverted is not deleted.
+      let count = machine.memos[memoID]?.segmentCount ?? .max
+      let ours = machine.entries.values.filter { $0.key.memoID == memoID }
+      var files = ours.map(\.segment.fileURL)
+      for entry in ours where entry.key.index >= count && !divertTail(entry.segment, now: now) {
+        files.removeAll { $0 == entry.segment.fileURL }
       }
+      if deletesFilesWhenDone { retire(files) }
       machine.completeSucceeded(memoID)
     case (.completion(let memoID), .failure) where wrongServer: machine.completeBounced(memoID)
     case (.completion(let memoID), .failure) where cancelled: machine.completeCancelled(memoID)
@@ -376,6 +394,22 @@ public actor Outbox: SegmentOutbox {
     await resume()
     finishing -= 1
     resolveIdleWaiters()
+  }
+
+  /// Queues the segment of a closed memo as its own transcribe memo and marks it delivered on its take. `false` when it cannot
+  /// be (no second file name, or the segment belongs to a tail itself): the caller keeps the segment where it is. Saved by the
+  /// caller's `persist()` with nothing in between (the segment is withheld until that save has landed).
+  private func divertTail(_ segment: ClosedSegment, now: Date) -> Bool {
+    let take = machine.items[segment.memoID]
+    guard take?.tailOf == nil else { return false }
+    let item = LateTail.item(after: take, segment: segment, now: now)
+    if machine.isQueueable(item.memoID) {
+      guard let linked = LateTail.link(segment, as: item.memoID) else { return false }
+      machine.queueTail(item, segment: linked)
+      unsavedSegments[SegmentKey(memoID: item.memoID, index: 0)] = requested + 1
+    }
+    machine.uploadSucceeded(SegmentKey(memoID: segment.memoID, index: segment.index))
+    return true
   }
 
   /// Called right before the `persist()` that records why the files are obsolete, so that call's number is the next one.

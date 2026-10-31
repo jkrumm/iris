@@ -154,6 +154,9 @@ public struct OutboxItem: Sendable, Equatable, Codable {
   /// server it waits in the queue, and goes out when the first one is configured again. `nil` for an item queued before the
   /// binding existed, or by an uploader that does not know its server: it goes to whichever server is configured.
   public var serverKey: String?
+  /// Set on a late tail (`LateTail`): the take whose memo the server had already closed, which this client-only transcribe
+  /// memo carries the end of. The queue row names it; nothing of it goes over the wire.
+  public var tailOf: MemoID?
 
   public init(
     memoID: MemoID, kind: OutboxItemKind, mode: String, threadID: String? = nil, startedAt: Date, queuedAt: Date,
@@ -188,6 +191,7 @@ public struct OutboxItem: Sendable, Equatable, Codable {
     attempts = try container.decode(Int.self, forKey: .attempts)
     lastError = try container.decodeIfPresent(String.self, forKey: .lastError)
     serverKey = try container.decodeIfPresent(String.self, forKey: .serverKey)
+    tailOf = try container.decodeIfPresent(MemoID.self, forKey: .tailOf)
     // Only a create that was never handed out is known not to have landed: a stalled one may have been refused or may have
     // run out of attempts after the server made the memo, and a pending one with failures behind it was sent before.
     let sentBefore =
