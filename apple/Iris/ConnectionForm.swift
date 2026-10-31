@@ -6,31 +6,43 @@ struct ConnectionForm: View {
   @Bindable var model: ConnectionModel
 
   var body: some View {
-    TextField(
-      String(localized: "Server URL", comment: "Settings connection field"), text: $model.urlText,
-      prompt: Text(verbatim: "https://iris.example.com")
-    )
-    .keyboardType(.URL)
-    .textContentType(.URL)
-    .textInputAutocapitalization(.never)
-    .autocorrectionDisabled()
-    .accessibilityIdentifier("settings.connection.url")
-
-    SecureField(String(localized: "Device token", comment: "Settings connection field"), text: $model.tokenText)
+    VStack(alignment: .leading, spacing: 0) {
+      TextField(
+        String(localized: "Server URL", comment: "Settings connection field"), text: $model.urlText,
+        prompt: Text(verbatim: "https://iris.example.com")
+      )
+      .keyboardType(.URL)
+      .textContentType(.URL)
       .textInputAutocapitalization(.never)
       .autocorrectionDisabled()
-      .accessibilityIdentifier("settings.connection.token")
+      .themeFont(.subheadline)
+      .settingsRow()
+      .accessibilityIdentifier("settings.connection.url")
 
-    if let failure = model.failure {
-      Text(verbatim: message(for: failure))
-        .themeFont(.footnote)
-        .foregroundStyle(Theme.Status.bad)
-        .accessibilityIdentifier("settings.connection.error")
+      Divider().overlay(Theme.divider)
+      SecureField(String(localized: "Device token", comment: "Settings connection field"), text: $model.tokenText)
+        .textInputAutocapitalization(.never)
+        .autocorrectionDisabled()
+        .themeFont(.subheadline)
+        .settingsRow()
+        .accessibilityIdentifier("settings.connection.token")
+
+      if let failure = model.failure {
+        Divider().overlay(Theme.divider)
+        Text(verbatim: message(for: failure))
+          .themeFont(.footnote)
+          .foregroundStyle(Theme.Status.bad)
+          .settingsRow()
+          .accessibilityIdentifier("settings.connection.error")
+      }
+
+      Divider().overlay(Theme.divider)
+      Button(String(localized: "Save", comment: "Saves the server URL and device token")) { model.save() }
+        .themeFont(.subheadline, weight: .semibold)
+        .disabled(!model.canSave)
+        .settingsRow()
+        .accessibilityIdentifier("settings.connection.save")
     }
-
-    Button(String(localized: "Save", comment: "Saves the server URL and device token")) { model.save() }
-      .disabled(!model.canSave)
-      .accessibilityIdentifier("settings.connection.save")
   }
 
   private func message(for failure: ConnectionModel.Failure) -> String {

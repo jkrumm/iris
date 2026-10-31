@@ -13,72 +13,100 @@ struct DiagnosticsView: View {
     let memos = history.memos
     let recent = model.recent(memos)
     let selected = model.selectedMemo(in: memos)
-    return List {
-      Section {
-        if recent.isEmpty {
-          Text("No memos yet.", comment: "Diagnostics without memos")
-            .foregroundStyle(Theme.Ink.muted)
-        } else {
-          Picker(String(localized: "Memo", comment: "Diagnostics picker"), selection: $model.selectedID) {
-            ForEach(recent) { memo in
-              Text(verbatim: "\(memo.rowHeadline) · \(memo.timeText)")
-                .lineLimit(1)
-                .tag(Optional(memo.id))
-            }
-          }
-          .labelsHidden()
-          .accessibilityIdentifier("diagnostics.picker")
-        }
-        if let selected {
-          VStack(alignment: .leading, spacing: Theme.Spacing.md) {
-            IDValueField(selected.id)
-              .accessibilityIdentifier("diagnostics.id")
-            CopyButton(
-              title: String(localized: "Copy memo id", comment: "Diagnostics copy button"),
-              copiedTitle: String(localized: "Copied", comment: "Diagnostics copy confirmation"),
-              isCopied: model.isCopied
-            ) {
-              model.copyID(from: memos)
-            }
-            .accessibilityIdentifier("diagnostics.copy")
-          }
-          .listRowSeparator(.hidden)
-        }
-      } header: {
-        Text("Memo", comment: "Diagnostics section")
-      } footer: {
-        Text(
-          "The trace id is this id without the dashes. Paste either into the dashboard to find the memo's trace.",
-          comment: "Diagnostics footer")
-      }
-      .listRowBackground(Theme.Surface.panel)
-
-      if !quarantinedFiles.isEmpty {
-        Section {
-          ForEach(quarantinedFiles, id: \.self) { file in
-            ShareLink(item: file) {
-              Label {
-                Text(verbatim: file.lastPathComponent).lineLimit(1).truncationMode(.middle)
-              } icon: {
-                Image(systemName: "square.and.arrow.up")
+    return ScrollView {
+      VStack(alignment: .leading, spacing: Theme.Spacing.gutter) {
+        ScreenTitle(String(localized: "Diagnostics", comment: "Title of the Diagnostics screen"))
+        SettingsGroup(title: String(localized: "Memo", comment: "Diagnostics section")) {
+          if recent.isEmpty {
+            Text("No memos yet.", comment: "Diagnostics without memos")
+              .themeFont(.subheadline)
+              .foregroundStyle(Theme.Ink.muted)
+              .settingsRow()
+          } else {
+            Menu {
+              Picker(String(localized: "Memo", comment: "Diagnostics picker"), selection: $model.selectedID) {
+                ForEach(recent) { memo in
+                  Text(verbatim: "\(memo.rowHeadline) · \(memo.timeText)").tag(Optional(memo.id))
+                }
               }
+            } label: {
+              HStack(spacing: Theme.Spacing.rowColumnGap) {
+                VStack(alignment: .leading, spacing: Theme.Spacing.hair) {
+                  Text("Memo", comment: "Diagnostics picker")
+                    .themeFont(.subheadline)
+                    .foregroundStyle(Theme.Ink.primary)
+                  if let selected {
+                    Text(verbatim: selected.rowHeadline)
+                      .themeFont(.footnote)
+                      .foregroundStyle(Theme.Ink.muted)
+                      .lineLimit(2)
+                      .multilineTextAlignment(.leading)
+                  }
+                }
+                Spacer(minLength: Theme.Spacing.sm)
+                if let selected {
+                  Text(verbatim: selected.timeText)
+                    .themeFont(.footnote)
+                    .foregroundStyle(Theme.Ink.muted)
+                }
+                Image(systemName: "chevron.up.chevron.down")
+                  .themeFont(.footnote, weight: .semibold)
+                  .foregroundStyle(Theme.Ink.faint)
+                  .accessibilityHidden(true)
+              }
+              .contentShape(.rect)
             }
-            .accessibilityIdentifier("diagnostics.quarantined")
+            .buttonStyle(.plain)
+            .settingsRow()
+            .accessibilityIdentifier("diagnostics.picker")
           }
-        } header: {
-          Text("Set-aside outbox", comment: "Diagnostics section")
+          if let selected {
+            VStack(alignment: .leading, spacing: Theme.Spacing.cozy) {
+              IDValueField(selected.id)
+                .accessibilityIdentifier("diagnostics.id")
+              CopyButton(
+                title: String(localized: "Copy memo id", comment: "Diagnostics copy button"),
+                copiedTitle: String(localized: "Copied", comment: "Diagnostics copy confirmation"),
+                isCopied: model.isCopied
+              ) {
+                model.copyID(from: memos)
+              }
+              .accessibilityIdentifier("diagnostics.copy")
+            }
+            .settingsRow()
+          }
         } footer: {
           Text(
-            "A reset renamed the unreadable outbox file instead of deleting it. Share it to have the queue looked at.",
+            "The trace id is this id without the dashes. Paste either into the dashboard to find the memo's trace.",
             comment: "Diagnostics footer")
         }
-        .listRowBackground(Theme.Surface.panel)
+
+        if !quarantinedFiles.isEmpty {
+          SettingsGroup(title: String(localized: "Set-aside outbox", comment: "Diagnostics section")) {
+            ForEach(quarantinedFiles, id: \.self) { file in
+              ShareLink(item: file) {
+                Label {
+                  Text(verbatim: file.lastPathComponent).lineLimit(1).truncationMode(.middle)
+                } icon: {
+                  Image(systemName: "square.and.arrow.up")
+                }
+                .themeFont(.subheadline)
+                .frame(maxWidth: .infinity, alignment: .leading)
+              }
+              .settingsRow()
+              .accessibilityIdentifier("diagnostics.quarantined")
+            }
+          } footer: {
+            Text(
+              "A reset renamed the unreadable outbox file instead of deleting it. Share it to have the queue looked at.",
+              comment: "Diagnostics footer")
+          }
+        }
       }
+      .padding(.horizontal, Theme.Spacing.screenMargin)
     }
     .accessibilityIdentifier("diagnostics.view")
-    .scrollContentBackground(.hidden)
     .background(Theme.Surface.background)
-    .navigationTitle(String(localized: "Diagnostics", comment: "Navigation title"))
     .navigationBarTitleDisplayMode(.inline)
     .task { model.selectedID = model.selectedID ?? selected?.id }
     .task(id: model.copyCount) {

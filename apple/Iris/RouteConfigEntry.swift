@@ -11,24 +11,18 @@ struct RouteConfigEntry: View {
 
   var body: some View {
     if ProcessInfo.processInfo.arguments.contains(Self.launchArgument) {
-      Section {
+      SettingsGroup {
         NavigationLink {
           RouteConfigReviewView(micRules: micRules)
         } label: {
-          Label {
-            VStack(alignment: .leading, spacing: 2) {
-              Text("Routes", comment: "Settings row")
-              Text("Where memos can go, and the microphone per audio route", comment: "Settings row detail")
-                .themeFont(.footnote)
-                .foregroundStyle(Theme.Ink.muted)
-            }
-          } icon: {
-            Image(systemName: "arrow.triangle.branch").foregroundStyle(Theme.Accent.tint)
-          }
+          SettingsLinkRow(
+            systemImage: "arrow.triangle.branch", title: String(localized: "Routes", comment: "Settings row"),
+            detail: String(
+              localized: "Where memos can go, and the microphone per audio route", comment: "Settings row detail"))
         }
+        .buttonStyle(.plain)
         .accessibilityIdentifier("settings.routes")
       }
-      .listRowBackground(Theme.Surface.panel)
     }
   }
 }

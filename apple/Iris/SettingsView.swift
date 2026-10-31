@@ -14,56 +14,24 @@ struct SettingsView: View {
 
   var body: some View {
     NavigationStack {
-      List {
-        Section {
-          NavigationLink {
-            DiagnosticsView(model: diagnostics, history: history, quarantinedFiles: model.quarantinedFiles)
-          } label: {
-            Label {
-              VStack(alignment: .leading, spacing: 2) {
-                Text("Diagnostics", comment: "Settings row")
-                Text("Copy a memo id for debugging", comment: "Settings row detail")
-                  .themeFont(.footnote)
-                  .foregroundStyle(Theme.Ink.muted)
-              }
-            } icon: {
-              Image(systemName: "stethoscope").foregroundStyle(Theme.Accent.tint)
-            }
-          }
-          .accessibilityIdentifier("settings.diagnostics")
+      ScrollView {
+        VStack(alignment: .leading, spacing: Theme.Spacing.gutter) {
+          ScreenTitle(String(localized: "Settings", comment: "Title of the Settings tab"))
+          diagnosticsLink
+          connection
+          outbox
+          setAside
+          playback
+          RouteConfigEntry(micRules: micRules)
+          microphone
         }
-        .listRowBackground(Theme.Surface.panel)
-
-        Section {
-          LabeledContent(String(localized: "Server", comment: "Settings row")) {
-            connectionLabel
-          }
-          if let connectionForm { ConnectionForm(model: connectionForm) }
-        } header: {
-          Text("Connection", comment: "Settings section")
-        } footer: {
-          if model.connection == .notConfigured {
-            Text("Enter the server URL and this device's token to connect.", comment: "Settings connection hint")
-              .accessibilityIdentifier("settings.connection.hint")
-          } else if let hint = connectionStatus.hint {
-            Text(verbatim: hint)
-              .accessibilityIdentifier("settings.server.hint")
-          }
-        }
-        .listRowBackground(Theme.Surface.panel)
-
-        outbox
-        setAside
-
-        playback
-        RouteConfigEntry(micRules: micRules)
-        microphone
+        .padding(.horizontal, Theme.Spacing.screenMargin)
       }
       .accessibilityIdentifier("settings.view")
       .takeBanner()
-      .scrollContentBackground(.hidden)
       .background(Theme.Surface.background)
-      .navigationTitle(String(localized: "Settings", comment: "Navigation title of the Settings tab"))
+      .toolbarVisibility(.hidden, for: .navigationBar)
+      .statusBarScrim()
       .task { await model.load() }
       .task { await micRules.load() }
       .task { await model.observeQueue() }
@@ -74,31 +42,68 @@ struct SettingsView: View {
     }
   }
 
+  private var diagnosticsLink: some View {
+    SettingsGroup {
+      NavigationLink {
+        DiagnosticsView(model: diagnostics, history: history, quarantinedFiles: model.quarantinedFiles)
+      } label: {
+        SettingsLinkRow(
+          systemImage: "stethoscope", title: String(localized: "Diagnostics", comment: "Settings row"),
+          detail: String(localized: "Copy a memo id for debugging", comment: "Settings row detail"))
+      }
+      .buttonStyle(.plain)
+      .accessibilityIdentifier("settings.diagnostics")
+    }
+  }
+
+  private var connection: some View {
+    SettingsGroup(title: String(localized: "Connection", comment: "Settings section")) {
+      HStack(spacing: Theme.Spacing.rowColumnGap) {
+        Text("Server", comment: "Settings row")
+          .themeFont(.subheadline)
+          .foregroundStyle(Theme.Ink.primary)
+        Spacer(minLength: Theme.Spacing.sm)
+        connectionLabel
+      }
+      .settingsRow()
+      if let connectionForm { ConnectionForm(model: connectionForm) }
+    } footer: {
+      if model.connection == .notConfigured {
+        Text("Enter the server URL and this device's token to connect.", comment: "Settings connection hint")
+          .accessibilityIdentifier("settings.connection.hint")
+      } else if let hint = connectionStatus.hint {
+        Text(verbatim: hint)
+          .accessibilityIdentifier("settings.server.hint")
+      }
+    }
+  }
+
   /// Spoken replies: a finished memo is read out on its own while the app is open.
   private var playback: some View {
     @Bindable var spokenReplies = spokenReplies
-    return Section {
+    return SettingsGroup(title: String(localized: "Playback", comment: "Settings section")) {
       Toggle(isOn: $spokenReplies.isOn) {
-        Label {
+        HStack(spacing: Theme.Spacing.rowColumnGap) {
+          Image(systemName: "speaker.wave.2").foregroundStyle(Theme.Accent.tint).frame(
+            width: SettingsRowMetrics.iconWidth)
           Text("Spoken replies", comment: "Settings toggle")
-        } icon: {
-          Image(systemName: "speaker.wave.2").foregroundStyle(Theme.Accent.tint)
+            .themeFont(.subheadline)
+            .foregroundStyle(Theme.Ink.primary)
         }
       }
+      .tint(Theme.Status.good)
+      .settingsRow()
       .accessibilityIdentifier("settings.spokenReplies")
-    } header: {
-      Text("Playback", comment: "Settings section")
     } footer: {
       Text(
         "When on, the reply to a memo you recorded here is read out as soon as it is done, while Iris is open. Play always speaks it on demand.",
         comment: "Settings spoken replies hint")
     }
-    .listRowBackground(Theme.Surface.panel)
   }
 
   /// The microphone rule of the audio route in use right now.
   private var microphone: some View {
-    Section {
+    SettingsGroup(title: String(localized: "Microphone", comment: "Settings section")) {
       MicRuleList(
         routeTitle: micRules.routeTitle,
         routeCaption: String(
@@ -108,16 +113,14 @@ struct SettingsView: View {
       ) { uid in
         Task { await micRules.pick(uid) }
       }
+      .settingsRow()
       .accessibilityElement(children: .contain)
       .accessibilityIdentifier("settings.mic")
-    } header: {
-      Text("Microphone", comment: "Settings section")
     } footer: {
       Text(
         "Rules are kept on this device, one per audio route (for example the car's Bluetooth). Connect to another route to set its rule.",
         comment: "Settings mic rule hint")
     }
-    .listRowBackground(Theme.Surface.panel)
   }
 
   private var connectionStatus: ConnectionStatusLine {
@@ -128,12 +131,13 @@ struct SettingsView: View {
 
   private var connectionLabel: some View {
     let status = connectionStatus
-    return HStack(spacing: Theme.Spacing.sm) {
+    return HStack(spacing: Theme.Spacing.snug) {
       Circle().fill(Self.color(for: status.tone)).frame(width: 8, height: 8).accessibilityHidden(true)
-      Text(verbatim: status.title).foregroundStyle(Theme.Ink.secondary)
+      Text(verbatim: status.title)
+        .themeFont(.footnote)
+        .foregroundStyle(Theme.Ink.muted)
         .accessibilityIdentifier("settings.server.status")
     }
-
   }
 
   private static func color(for tone: ConnectionStatusLine.Tone) -> Color {
@@ -146,30 +150,20 @@ struct SettingsView: View {
   }
 
   private var outbox: some View {
-    Section {
+    SettingsGroup(title: String(localized: "Outbox", comment: "Settings section")) {
       if model.queueUnavailable {
-        Label {
-          Text(
-            "The outbox cannot be opened, so new memos are not accepted. Iris tries again when you pull to refresh or reopen the app.",
-            comment: "Outbox unavailable")
-        } icon: {
-          Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(Theme.Status.warn)
-        }
-        .themeFont(.footnote)
-        .foregroundStyle(Theme.Ink.secondary)
-        .accessibilityIdentifier("settings.outbox.unavailable")
+        notice(
+          String(
+            localized:
+              "The outbox cannot be opened, so new memos are not accepted. Iris tries again when you pull to refresh or reopen the app.",
+            comment: "Outbox unavailable"), id: "settings.outbox.unavailable")
       }
       if model.resetLeftUnopened {
-        Label {
-          Text(
-            "The old outbox file was set aside and kept, but a new outbox could not be opened yet. Iris tries again when you pull to refresh or reopen the app.",
-            comment: "Outbox reset left unopened")
-        } icon: {
-          Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(Theme.Status.warn)
-        }
-        .themeFont(.footnote)
-        .foregroundStyle(Theme.Ink.secondary)
-        .accessibilityIdentifier("settings.outbox.resetunopened")
+        notice(
+          String(
+            localized:
+              "The old outbox file was set aside and kept, but a new outbox could not be opened yet. Iris tries again when you pull to refresh or reopen the app.",
+            comment: "Outbox reset left unopened"), id: "settings.outbox.resetunopened")
       }
       if model.discardFailed {
         Text(
@@ -178,6 +172,7 @@ struct SettingsView: View {
         )
         .themeFont(.footnote)
         .foregroundStyle(Theme.Status.bad)
+        .settingsRow()
         .accessibilityIdentifier("settings.outbox.discardfailed")
       }
       if model.queueUnreadable {
@@ -201,36 +196,47 @@ struct SettingsView: View {
           .themeFont(.footnote, weight: .medium)
           .accessibilityIdentifier("settings.outbox.reset")
         }
+        .settingsRow()
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("settings.outbox.unreadable")
       }
       if model.queueSaveFailure != nil {
-        Label {
-          Text(
-            "The queue could not be saved to this device. Recordings wait to be sent until it can, and Iris keeps trying.",
-            comment: "Outbox save failed")
-        } icon: {
-          Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(Theme.Status.warn)
-        }
-        .themeFont(.footnote)
-        .foregroundStyle(Theme.Ink.secondary)
-        .accessibilityIdentifier("settings.outbox.savefailed")
+        notice(
+          String(
+            localized:
+              "The queue could not be saved to this device. Recordings wait to be sent until it can, and Iris keeps trying.",
+            comment: "Outbox save failed"), id: "settings.outbox.savefailed")
       }
       if model.queue.isEmpty && !model.queueUnavailable {
         Text("Nothing waiting. Memos and chat messages that cannot be sent yet queue here.", comment: "Outbox empty")
           .themeFont(.footnote)
           .foregroundStyle(Theme.Ink.muted)
+          .frame(maxWidth: .infinity, alignment: .leading)
+          .settingsRow()
           .accessibilityIdentifier("settings.outbox.empty")
       } else {
         ForEach(model.queue) { item in
           row(for: item)
         }
       }
-    } header: {
-      Text("Outbox", comment: "Settings section")
     }
-    .listRowBackground(Theme.Surface.panel)
     .animation(.snappy, value: model.queue)
+  }
+
+  /// A warning line with its triangle, one row of a group.
+  private func notice(_ text: String, id: String) -> some View {
+    HStack(alignment: .firstTextBaseline, spacing: Theme.Spacing.rowColumnGap) {
+      Image(systemName: "exclamationmark.triangle.fill")
+        .foregroundStyle(Theme.Status.warn)
+        .frame(width: SettingsRowMetrics.iconWidth)
+      Text(verbatim: text)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+    .themeFont(.footnote)
+    .foregroundStyle(Theme.Ink.secondary)
+    .settingsRow()
+    .accessibilityElement(children: .combine)
+    .accessibilityIdentifier(id)
   }
 
   /// Files the app set aside instead of deleting: shown with their count and size, shared on request, never removed here.
@@ -238,27 +244,27 @@ struct SettingsView: View {
   private var setAside: some View {
     let summary = model.setAside
     if !summary.isEmpty {
-      Section {
-        LabeledContent(String(localized: "Kept on this device", comment: "Settings set-aside row")) {
+      SettingsGroup(title: String(localized: "Set-aside files", comment: "Settings section")) {
+        HStack(spacing: Theme.Spacing.rowColumnGap) {
+          Text("Kept on this device", comment: "Settings set-aside row")
+            .themeFont(.subheadline)
+            .foregroundStyle(Theme.Ink.primary)
+          Spacer(minLength: Theme.Spacing.sm)
           Text(
             "\(summary.count) files · \(SetAsideSummary.size(summary.byteCount))",
             comment: "Settings set-aside count and size"
           )
-          .foregroundStyle(Theme.Ink.secondary)
+          .themeFont(.footnote)
+          .foregroundStyle(Theme.Ink.muted)
         }
+        .settingsRow()
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("settings.setaside")
         if summary.exceedsBound {
-          Label {
-            Text(
-              "That is a lot. Iris never deletes them on its own; share the list to have them looked at.",
-              comment: "Settings set-aside bound exceeded")
-          } icon: {
-            Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(Theme.Status.warn)
-          }
-          .themeFont(.footnote)
-          .foregroundStyle(Theme.Ink.secondary)
-          .accessibilityIdentifier("settings.setaside.large")
+          notice(
+            String(
+              localized: "That is a lot. Iris never deletes them on its own; share the list to have them looked at.",
+              comment: "Settings set-aside bound exceeded"), id: "settings.setaside.large")
         }
         ShareLink(
           item: summary.report,
@@ -267,16 +273,16 @@ struct SettingsView: View {
           Label(
             String(localized: "Share or copy the list", comment: "Settings set-aside action"), systemImage: "doc.on.doc"
           )
+          .themeFont(.subheadline)
+          .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .settingsRow()
         .accessibilityIdentifier("settings.setaside.share")
-      } header: {
-        Text("Set-aside files", comment: "Settings section")
       } footer: {
         Text(
           "Outbox files that could not be read and recordings no queue entry owned. They are kept, never deleted on their own.",
           comment: "Settings set-aside footer")
       }
-      .listRowBackground(Theme.Surface.panel)
     }
   }
 
@@ -289,26 +295,24 @@ struct SettingsView: View {
         statusText: statusText(of: item.state)
       )
       .accessibilityIdentifier("settings.outbox.row")
-      if canRetry {
+      if canRetry || item.canDiscard {
         HStack(spacing: Theme.Spacing.lg) {
-          Button(String(localized: "Retry now", comment: "Outbox action")) { Task { await model.retry(item) } }
-            .accessibilityIdentifier("settings.outbox.retry")
-          Button(discardTitle(of: item), role: .destructive) {
-            Task { await model.discard(item) }
+          if canRetry {
+            Button(String(localized: "Retry now", comment: "Outbox action")) { Task { await model.retry(item) } }
+              .accessibilityIdentifier("settings.outbox.retry")
           }
-          .accessibilityIdentifier("settings.outbox.discard")
+          if item.canDiscard {
+            Button(discardTitle(of: item), role: .destructive) {
+              Task { await model.discard(item) }
+            }
+            .accessibilityIdentifier("settings.outbox.discard")
+          }
         }
         .buttonStyle(.borderless)
         .themeFont(.footnote, weight: .medium)
       }
     }
-    .swipeActions(edge: .trailing) {
-      if item.canDiscard {
-        Button(discardTitle(of: item), role: .destructive) {
-          Task { await model.discard(item) }
-        }
-      }
-    }
+    .settingsRow()
     .contextMenu {
       if canRetry {
         Button(String(localized: "Retry now", comment: "Outbox action"), systemImage: "arrow.clockwise") {
@@ -379,5 +383,122 @@ extension QueuedItem.State {
     case .sending: .sending
     case .failed: .failed
     }
+  }
+}
+
+// MARK: Screen chrome shared by Stats, Settings and Diagnostics
+
+/// The large title the mockups draw right under the status bar (a hidden navigation bar leaves no title slot).
+struct ScreenTitle: View {
+  private let title: String
+
+  init(_ title: String) {
+    self.title = title
+  }
+
+  var body: some View {
+    Text(verbatim: title)
+      .themeFont(.display, weight: .bold)
+      .foregroundStyle(Theme.Ink.primary)
+      .frame(maxWidth: .infinity, alignment: .leading)
+      .padding(.top, Theme.Spacing.titleTop)
+      .accessibilityAddTraits(.isHeader)
+  }
+}
+
+/// Control size, not spacing: the leading icon column of a row, so labels line up with or without an icon.
+enum SettingsRowMetrics {
+  static let iconWidth: CGFloat = 24
+}
+
+/// One settings group as the render draws it: an uppercase label, a flat card of rows split by hairlines, a footnote.
+/// Rows bring their own padding (`settingsRow()`), so a row may also carry its own controls and full-width content.
+struct SettingsGroup<Rows: View, Footer: View>: View {
+  private let title: String?
+  private let rows: Rows
+  private let footer: Footer
+
+  init(
+    title: String? = nil, @ViewBuilder content: () -> Rows, @ViewBuilder footer: () -> Footer
+  ) {
+    self.title = title
+    self.rows = content()
+    self.footer = footer()
+  }
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 0) {
+      if let title {
+        DetailSectionLabel(title)
+          .padding(.horizontal, Theme.Spacing.xs)
+          .padding(.bottom, Theme.Spacing.sm)
+      }
+      LazyVStack(alignment: .leading, spacing: 0) {
+        Group(subviews: rows) { subviews in
+          ForEach(subviews.indices, id: \.self) { index in
+            if index > 0 { Divider().overlay(Theme.divider) }
+            subviews[index]
+          }
+        }
+      }
+      .detailCard()
+      footer
+        .themeFont(.caption)
+        .foregroundStyle(Theme.Ink.faint)
+        .padding(.horizontal, Theme.Spacing.xs)
+        .padding(.top, Theme.Spacing.sm)
+    }
+  }
+}
+
+extension SettingsGroup where Footer == EmptyView {
+  init(title: String? = nil, @ViewBuilder content: () -> Rows) {
+    self.init(title: title, content: content, footer: { EmptyView() })
+  }
+}
+
+/// A row that opens another screen: icon, title with a line of detail, chevron.
+struct SettingsLinkRow: View {
+  let systemImage: String
+  let title: String
+  let detail: String
+
+  var body: some View {
+    HStack(spacing: Theme.Spacing.rowColumnGap) {
+      Image(systemName: systemImage)
+        .foregroundStyle(Theme.Accent.tint)
+        .frame(width: SettingsRowMetrics.iconWidth)
+        .accessibilityHidden(true)
+      VStack(alignment: .leading, spacing: Theme.Spacing.hair) {
+        Text(verbatim: title)
+          .themeFont(.subheadline)
+          .foregroundStyle(Theme.Ink.primary)
+        Text(verbatim: detail)
+          .themeFont(.footnote)
+          .foregroundStyle(Theme.Ink.muted)
+      }
+      Spacer(minLength: Theme.Spacing.sm)
+      Image(systemName: "chevron.right")
+        .themeFont(.footnote, weight: .semibold)
+        .foregroundStyle(Theme.Ink.faint)
+        .accessibilityHidden(true)
+    }
+    .settingsRow()
+    .contentShape(.rect)
+  }
+}
+
+extension View {
+  /// The status-bar region of a screen without a navigation bar, filled with the screen background, so content that
+  /// scrolls up under the clock is hidden instead of printed over it.
+  func statusBarScrim() -> some View {
+    safeAreaInset(edge: .top, spacing: 0) { Color.clear.frame(height: 0).background(Theme.Surface.background) }
+  }
+
+  /// The padding of a row inside a settings card (`rowx`: 13 / 14 in the mockup; the scale has 12 / 14).
+  func settingsRow() -> some View {
+    padding(.horizontal, Theme.Spacing.cardInsetHorizontal)
+      .padding(.vertical, Theme.Spacing.rowVertical)
+      .frame(maxWidth: .infinity, alignment: .leading)
   }
 }
