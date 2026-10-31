@@ -30,6 +30,8 @@ public final class DeviceEventLog: Sendable {
   private enum Item: Sendable {
     case log(LogRecord)
     case barrier(CheckedContinuation<Void, Never>)
+    /// Signalled once every item before it is in the buffer and its store: a caller that cannot await waits on it.
+    case persisted(DispatchSemaphore)
   }
 
   private struct State {
@@ -70,10 +72,14 @@ public final class DeviceEventLog: Sendable {
     self.intake = intake
     // The single consumer: records reach the buffer in call order. Ends when `deinit` finishes the stream.
     Task {
+      // What the last run left is loaded before the first new record is numbered: a record numbered first would reuse a stored
+      // sequence, and acknowledging it would delete an older record.
+      await buffer.recover()
       for await item in items {
         switch item {
         case .log(let record): await buffer.record(log: record)
         case .barrier(let continuation): continuation.resume()
+        case .persisted(let semaphore): semaphore.signal()
         }
       }
     }
@@ -105,6 +111,22 @@ public final class DeviceEventLog: Sendable {
       return record
     }
     console(Self.category(of: name), severity, Self.consoleLine(of: record))
+  }
+
+  /// Records an event and returns only once it is in the crash file (or `timeout` has passed): for the breadcrumb written just
+  /// before a call that can abort the process, where the ordinary path (queued, written a moment later) would lose it.
+  /// Blocks the calling thread, so it belongs on a setup path, never on the audio thread.
+  public func durableEvent(
+    _ name: String, memoID: UUID? = nil, timeout: Duration = .milliseconds(500),
+    _ attributes: [String: AttributeValue] = [:]
+  ) {
+    event(name, memoID: memoID, attributes)
+    // A semaphore, because the caller is synchronous: the consumer task signals it from the cooperative pool.
+    let semaphore = DispatchSemaphore(value: 0)
+    guard case .enqueued = intake.yield(.persisted(semaphore)) else { return }
+    let parts = timeout.components
+    let seconds = Double(parts.seconds) + Double(parts.attoseconds) / 1e18
+    _ = semaphore.wait(timeout: .now() + seconds)
   }
 
   /// Sets (or, with `nil`, removes) an attribute that rides on every following record: `app.state`, `process`.

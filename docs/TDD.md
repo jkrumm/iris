@@ -1080,30 +1080,40 @@ the `IrisCore` dependency when R1 wires them together.
     `IRIS_BUILD_SHA` (a git sha when the build passes one, otherwise `dev`), `device.name` the phone. The console line has the same name as its category
     prefix: subsystem `com.jkrumm.iris`, category = the part before the first dot.
   - **Delivery:** records are written to the crash file (`FileTelemetryStore`, Application Support) as they are recorded, sent at
-    launch (what a killed run left), every 10 s, and on background under a background-task assertion. A record is in the file
-    before it is acknowledged, so a kill loses only the events still queued in memory (microseconds). `dropped` reports overflow
-    (2 000 records).
+    launch (what a killed run left), every 10 s, and on background under a background-task assertion.
+    - A record is in the file before it is acknowledged, so a kill loses only the events still queued in memory (microseconds).
+    - The stored queue of the last run is loaded before the first new record is numbered: no reused `seq`, and no acknowledgement
+      deleting an older record.
+    - A torn last line is cut off before the next append, and a flush that finds one running waits for it, so a background-task
+      assertion outlives the send.
+    - Each record carries the `server.id` (a hash) of the connection it was recorded under. The transport delivers a record only
+      to that server and drops the rest: a queue written for one server is never handed to another after a switch.
+    - `dropped` reports overflow (2 000 records).
   - **Privacy:** no transcript, reply or token: a key naming one is dropped before it is recorded, a string is cut at 240
-    characters, port uids are not logged (route and microphone *names* are). Public repo: no real value in tests or docs.
+    characters, port uids are not logged, and a port name that can carry a person's name ("Anna's AirPods") is a short hash;
+    only the phone's own generic port names stay. An error is logged as its type (and an enum's case), never its message or payload:
+    server text and file paths do not reach a record. Public repo: no real value in tests or docs.
   - **Records:**
 
     | `event.name` | Attributes |
     |-|-|
-    | `app.launch` | `launch.reason` (`user`\|`background_launch`), `previous.phase` (last scene phase of the run before), `previous.exit=unknown`, `outbox.items`, `outbox.quarantined_files`, `mode` |
+    | `app.launch` | `launch.reason` (`user`\|`background_launch`), `previous.phase` (last scene phase of the run before), `previous.exit=unknown`, `outbox.state` (`available`\|`unavailable`\|`unreadable`), `outbox.items` (only when available: never a zero for a queue that could not be read), `outbox.quarantined_files`, `mode` |
+    | `outbox.state` | `reason=recovered`, the attributes of `app.launch`'s queue part, when a queue that launched closed or unreadable opens |
     | `app.lifecycle` | `scene.phase`, `reason` |
-    | `take.phase` | `phase` (`starting`\|`recording`\|`paused`\|`stopping`\|`failed`\|`stopped`), `source` (the control that asked last: `app`\|`intent`\|`island`\|`thread`), `mode`, `input.name`, `failure` |
+    | `take.phase` | `phase` (`starting`\|`recording`\|`paused`\|`stopping`\|`failed`\|`stopped`), `source` (the control that asked last: `app`\|`intent`\|`island`\|`thread`), `mode`, `input.name` (generic names of the phone's own ports; any other name is a short hash), `failure` |
     | `capture.session.error` | `call` (`setCategory`\|`setActive`\|`setActive(false)`\|`installTap`\|`engine.start`), `error.domain`, `error.code`, `error.fourcc` (`561145187` is `!rec`, `560557684` `!int`), `error.type`, `engine.running`, `session.category`, `session.mode`, `session.options`, `session.other_audio_playing`, `session.sample_rate`, `session.io_buffer_ms` |
-    | `capture.tap.install` | `rate`, `channels`, `hardware_rate`, `valid`, `generation`; written *before* the call that can abort, so the last one before a gap in `seq` is the one that did |
-    | `audio.route_change` | `reason`, `route.prev`, `route.current` (`portType:portName,…`), session snapshot |
+    | `capture.tap.install` | `rate`, `channels`, `hardware_rate`, `valid`, `generation`; written to the crash file and flushed to disk *before* the call that can abort returns (a blocking write, bounded to 500 ms), so the last one before a gap in `seq` is the one that did |
+    | `audio.route_change` | `reason`, `route.prev`, `route.current` (`portType:name,…`, names as for `input.name`), session snapshot |
     | `audio.config_change` | `engine.running_before`, `input.rate_before`, `input.channels_before`, `generation`, session snapshot |
     | `audio.interruption` | `type` (`began`\|`ended`\|`resume`\|`resume_skipped`), `reason`, `options`, `should_resume`, `resume.result`, `api` |
     | `capture.gap` | `ms`, `reason` (`pause`\|`interruption`\|`media_services_reset`\|`config_change`), `frames_lost` (`ms` at 16 kHz) |
-    | `capture.segment.closed` | `index`, `bytes`, `seconds`, `reason` (`rotate`\|`route`\|`pause`\|`stop`), `closed_ok` (the file has bytes) |
-    | `outbox.segment.upload` | `index`, `attempt`, `status` (`ok`\|`permanent`\|`transient`\|`error`), `ms`, `error` |
+    | `capture.segment.closed` | `index`, `bytes`, `seconds`, `reason` (`rotate`\|`route`\|`pause`\|`stop`), `closed_ok` (the file has bytes), `disposition` (`queued`\|`discarded`\|`late`) |
+    | `take.discarded` | `segments` (closed so far); the take was dropped on purpose, so its segments never upload |
+    | `outbox.segment.upload` | `index`, `attempt`, `status` (`ok`\|`permanent`\|`transient`\|`error`), `ms`, `error` (the error's type, never its message) |
     | `outbox.complete.sent` | `segment_count`, `status`, `ms`, `error` |
     | `capture.quarantine` | `file`, `bytes`, `has_moov` (per set-aside file at launch) |
     | `capture.level` | `rms_db`, `peak_db` (dBFS, twice a second while a take records) |
-    | `intent.perform` / `intent.result` | `intent`, `process`, `handler.present`, `mode`, `can_continue_in_foreground`, `press_lag_ms`; `ok`, `error` |
+    | `intent.perform` / `intent.result` | `intent`, `process`, `handler.present`, `mode`, `can_continue_in_foreground`, `press_lag_ms`; `ok`, `error` (type and case only); both carry the take's `memo.id` (Start: the new memo, on its result) |
     | `liveactivity.request` / `.update` / `.end` | `activity.id`, `phase`, `ok`, `error`, `push` (token or none), `dismissal` (`immediate`\|`after`), `reason` |
     | `liveactivity.snapshot` | `reason` (`launch`\|`foreground`), `count`, `states` (`id:state;…`), `age_s` (`id:seconds;…`) |
     | `metrickit.crash` / `.hang` / `.cpu_exception` | `app.version`, `window.end`, `call_stack` (innermost frames, `binary+0xoffset`), `exception.type`, `exception.code`, `signal`, `termination.reason`, `hang_ms`, `cpu_ms` |

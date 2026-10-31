@@ -42,4 +42,38 @@ struct IntentEventsTests {
     #expect(result["error"] as? String == "appNotReady")
     #expect(records.last?["severity"] as? String == "error")
   }
+
+  @Test("Stop, Pause and Switch join the take's trace, before and after the take is gone; a Start joins its new memo")
+  @MainActor
+  func takeContext() async throws {
+    let file = FileManager.default.temporaryDirectory.appending(path: "iris-dump-\(UUID().uuidString).jsonl")
+    let log = TelemetryBootstrap.makeDeviceLog(arguments: ["-IrisFakeCapture", "-IrisTelemetryDump", file.path])
+    let sink = DeviceLogIntentSink(log: log)
+    let memo = UUID()
+    func run(_ name: String) -> IntentRun {
+      IntentRun(
+        intent: name, process: "com.jkrumm.iris", handlerPresent: true, memoID: nil, mode: "background",
+        canContinueInForeground: false, pressLagMilliseconds: nil)
+    }
+
+    sink.intentPerformed(run("StartMemoIntent"))
+    log.trackTake(memo, phase: .string("starting"))
+    sink.intentFinished(intent: "StartMemoIntent", error: nil)
+    sink.intentPerformed(run("StopMemoIntent"))
+    log.trackTake(memo, phase: .string("stopped"))
+    sink.intentFinished(intent: "StopMemoIntent", error: nil)
+
+    let records = try await records(file, after: log)
+    let trace = memo.uuidString.lowercased().replacing("-", with: "")
+    #expect(records.map { $0["traceId"] as? String } == [nil, trace, trace, trace])
+  }
+
+  @Test("an intent's error is its type and case, never the payload")
+  func errorSummary() {
+    enum Failure: Error { case recordingFailed(String) }
+    #expect(
+      IntentEvents.summary(of: Failure.recordingFailed("/private/var/mobile/secret.m4a")).hasSuffix(".recordingFailed"))
+    #expect(!IntentEvents.summary(of: Failure.recordingFailed("/private/var/mobile/secret.m4a")).contains("secret"))
+    #expect(IntentEvents.summary(of: StartMemoError.appNotReady).hasSuffix(".appNotReady"))
+  }
 }

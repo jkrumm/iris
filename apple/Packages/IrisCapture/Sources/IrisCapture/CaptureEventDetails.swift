@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 #if canImport(AVFAudio)
@@ -12,6 +13,22 @@ public enum FourCC {
     let bytes = [24, 16, 8, 0].map { UInt8((code >> $0) & 0xFF) }
     guard bytes.allSatisfy({ (0x20...0x7E).contains($0) }) else { return nil }
     return String(decoding: bytes, as: UTF8.self)
+  }
+}
+
+/// How an audio port shows in an event. A port name can carry a person's name ("Anna's AirPods"), so only the generic names of the
+/// phone's own ports are kept; any other name becomes a short stable hash that still tells two devices apart.
+enum PortLabel {
+  private static let generic: Set<String> = ["iPhone Microphone", "Speaker", "Receiver"]
+
+  static func name(_ name: String) -> String {
+    generic.contains(name)
+      ? name : SHA256.hash(data: Data(name.utf8)).prefix(6).map { String(format: "%02x", $0) }.joined()
+  }
+
+  /// `portType:name-or-hash`.
+  static func describe(type: String, name: String) -> String {
+    "\(type):\(Self.name(name))"
   }
 }
 
@@ -98,10 +115,10 @@ enum SessionSnapshot {
     #endif
   }
 
-  /// `portType:portName` of each port, joined by `,`. Names are fine to log; the uid is left out.
+  /// `portType:name` of each port, joined by `,` (``PortLabel``: a personal name is hashed). The uid is left out.
   #if os(iOS)
     static func describe(_ ports: [AVAudioSessionPortDescription]) -> String {
-      ports.map { "\($0.portType.rawValue):\($0.portName)" }.joined(separator: ",")
+      ports.map { PortLabel.describe(type: $0.portType.rawValue, name: $0.portName) }.joined(separator: ",")
     }
   #endif
 }

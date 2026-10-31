@@ -63,6 +63,11 @@ nonisolated final class DeviceLog: Sendable {
     events.event(name, memoID: memoID, severity: severity, attributes)
   }
 
+  /// An event that is in the crash file when this returns (``DeviceEventLog/durableEvent(_:memoID:timeout:_:)``).
+  func durableEvent(_ name: String, memoID: UUID? = nil, _ attributes: [String: AttributeValue] = [:]) {
+    events.durableEvent(name, memoID: memoID, attributes)
+  }
+
   /// The same for a memo id as the wire carries it (lowercase UUID); an id that is not a UUID records no memo.
   func event(
     _ name: String, memoWireID: String?, severity: LogSeverity = .info, _ attributes: [String: AttributeValue] = [:]
@@ -83,6 +88,12 @@ nonisolated final class DeviceLog: Sendable {
   func trackTake(_ memoID: UUID?, phase: CaptureEventValue?) {
     guard case .string(let name)? = phase else { return }
     take.withLock { $0 = name == "stopped" ? nil : (memoID ?? $0) }
+  }
+
+  /// The server the saved connection points at, or none. Every record from here on is bound to it (`server.id`), and the transport
+  /// delivers a record only to that server: a queue written for one server is never handed to another after a switch.
+  func serverChanged(_ url: URL?) {
+    events.setAmbient("server.id", url.map { .string(TelemetryBootstrap.serverID($0)) })
   }
 
   /// Starts the relay: sends what a killed run left in the crash file, then flushes every 10 s for the life of the process.
@@ -148,6 +159,8 @@ nonisolated enum DeviceConsole {
 @MainActor
 final class DeviceLogIntentSink: IntentEventSink {
   private let log: DeviceLog
+  /// The memo each intent was for when it started, so its result joins the same trace after the take is gone (a Stop).
+  private var memoAtPerform: [String: String] = [:]
 
   init(log: DeviceLog = .shared) {
     self.log = log
@@ -159,13 +172,20 @@ final class DeviceLogIntentSink: IntentEventSink {
       "mode": .string(run.mode), "can_continue_in_foreground": .bool(run.canContinueInForeground),
     ]
     if let lag = run.pressLagMilliseconds { attributes["press_lag_ms"] = .int(lag) }
-    log.event("intent.perform", memoWireID: run.memoID, attributes)
+    // The take's memo, so Stop, Pause and Switch join the take's trace; a Start has none yet.
+    let memo = run.memoID ?? log.currentTake?.uuidString.lowercased()
+    memoAtPerform[run.intent] = memo
+    log.event("intent.perform", memoWireID: memo, attributes)
   }
 
   func intentFinished(intent: String, error: String?) {
     var attributes: [String: AttributeValue] = ["intent": .string(intent), "ok": .bool(error == nil)]
     if let error { attributes["error"] = .string(error) }
-    log.event("intent.result", severity: error == nil ? .info : .error, attributes)
+    // A Start has its memo now; the others keep the one they started with.
+    let memo = memoAtPerform.removeValue(forKey: intent)
+    log.event(
+      "intent.result", memoWireID: log.currentTake?.uuidString.lowercased() ?? memo,
+      severity: error == nil ? .info : .error, attributes)
   }
 }
 

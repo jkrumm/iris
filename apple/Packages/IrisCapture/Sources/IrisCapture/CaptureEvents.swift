@@ -22,9 +22,17 @@ public enum CaptureEventValue: Sendable, Equatable, ExpressibleByStringLiteral, 
 public protocol CaptureEvents: Sendable {
   /// `name` is `area.thing` (`capture.gap`, `audio.route_change`); `memoID` joins the record to the take's trace.
   func event(_ name: String, memoID: MemoID?, error: Bool, _ attributes: [String: CaptureEventValue])
+  /// An event that must be in the crash file before this returns: the breadcrumb written just before a call that can abort the
+  /// process. May block briefly; never call it from the audio thread.
+  func preflight(_ name: String, memoID: MemoID?, _ attributes: [String: CaptureEventValue])
 }
 
 extension CaptureEvents {
+  /// Without a durable path an event is recorded the ordinary way.
+  public func preflight(_ name: String, memoID: MemoID? = nil, _ attributes: [String: CaptureEventValue]) {
+    event(name, memoID: memoID, error: false, attributes)
+  }
+
   public func event(_ name: String, memoID: MemoID? = nil, _ attributes: [String: CaptureEventValue] = [:]) {
     event(name, memoID: memoID, error: false, attributes)
   }

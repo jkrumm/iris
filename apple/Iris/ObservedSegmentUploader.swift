@@ -69,13 +69,14 @@ nonisolated final class ObservedSegmentUploader: SegmentUploader {
     log.event(name, memoID: memoID, severity: .warn, all)
   }
 
-  /// `permanent` (stalls), `transient` (retried without counting) or `error` (retried, counts), and the error's own words.
-  /// Their messages are the app's fixed phrases, never audio or memo text.
+  /// `permanent` (stalls), `transient` (retried without counting) or `error` (retried, counts), and the error's type: never its
+  /// message, which can be a server's own words.
   static func describe(_ error: any Error) -> (status: String, message: String) {
+    let type = String(describing: Swift.type(of: error))
     switch error {
-    case let error as PermanentTransferError: ("permanent", error.message)
-    case let error as TransientTransferError: ("transient", error.message)
-    default: ("error", String(describing: type(of: error)))
+    case is PermanentTransferError: return ("permanent", type)
+    case is TransientTransferError: return ("transient", type)
+    default: return ("error", type)
     }
   }
 }

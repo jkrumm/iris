@@ -186,7 +186,7 @@
         let hardware = input.inputFormat(forBus: 0)
         let valid = format.sampleRate > 0 && format.channelCount > 0 && format.sampleRate == hardware.sampleRate
         // Written before the call that can abort the process: the last one before a gap in `seq` is the one that did.
-        events.event(
+        events.preflight(
           "capture.tap.install",
           [
             "rate": .double(format.sampleRate), "channels": .int(Int(format.channelCount)),

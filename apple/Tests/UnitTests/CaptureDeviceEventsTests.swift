@@ -93,6 +93,8 @@ struct CaptureDeviceEventsTests {
     #expect(records.map { attributes($0)["attempt"] as? Int } == [1, 2])
     #expect(records.allSatisfy { $0["severity"] as? String == "warn" })
     #expect(attributes(records[0])["status"] as? String == "permanent")
-    #expect(attributes(records[0])["error"] as? String == "the server refused the segment")
+    #expect(attributes(records[0])["error"] as? String == "PermanentTransferError")
+    let wire = String(describing: records)
+    #expect(!wire.contains("refused"), "the server's own words never reach a record")
   }
 }

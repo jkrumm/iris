@@ -135,6 +135,47 @@ struct CaptureEventsTests {
   }
 }
 
+extension CaptureEventsTests {
+  @Test func aDiscardedTakeSaysSoAndItsClosedSegmentsAreNotAMissingUpload() async throws {
+    let rig = try await makeRig()
+    let id = try await rig.session.start(request)
+    await rig.fake.record(seconds: 12)
+    _ = await rig.session.cancel()
+    for _ in 0..<100 where rig.events.entries(named: "capture.segment.closed").count < 2 {
+      try await Task.sleep(for: .milliseconds(10))
+    }
+
+    let discarded = try #require(rig.events.entries(named: "take.discarded").first)
+    #expect(discarded.memoID == id)
+    // The first segment's event may be handled before or after the cancel (the pump runs on its own task); the one the
+    // cancel itself closes is always discarded.
+    let dispositions = rig.events.entries(named: "capture.segment.closed").compactMap { $0.attributes["disposition"] }
+    #expect(dispositions.count == 2)
+    #expect(dispositions.last == "discarded")
+    #expect(dispositions.allSatisfy { $0 == "queued" || $0 == "discarded" })
+    await finish(rig)
+  }
+}
+
+struct PortLabelTests {
+  @Test func aPersonalDeviceNameNeverLeavesTheLabel() {
+    let label = PortLabel.describe(type: "BluetoothHFP", name: "Johannes's AirPods Pro")
+    #expect(label.hasPrefix("BluetoothHFP:"))
+    #expect(!label.contains("Johannes") && !label.contains("AirPods"))
+    #expect(
+      label == PortLabel.describe(type: "BluetoothHFP", name: "Johannes's AirPods Pro"),
+      "stable, so two events can be compared")
+    #expect(label != PortLabel.describe(type: "BluetoothHFP", name: "Anna's AirPods"))
+  }
+
+  @Test func theBuiltInPortsKeepTheirGenericProductNames() {
+    #expect(
+      PortLabel.describe(type: "MicrophoneBuiltIn", name: "iPhone Microphone") == "MicrophoneBuiltIn:iPhone Microphone")
+    #expect(PortLabel.name("Speaker") == "Speaker")
+    #expect(PortLabel.name("Johannes's iPhone Microphone") != "Johannes's iPhone Microphone")
+  }
+}
+
 struct FourCCTests {
   @Test(arguments: [
     (561_145_187, "!rec"), (560_557_684, "!int"), (561_015_905, "!pla"), (561_017_449, "!pri"),

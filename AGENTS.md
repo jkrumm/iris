@@ -158,7 +158,7 @@ about either is tracked. Overrides: `IRIS_DEVICE_ID`, `TEAM=<id>`, `DEVICE_SIGNI
 - **Device observability (TDD §8):** every capture, route, interruption, outbox, intent and Live Activity event is `DeviceLog.shared.event(...)` (apple/Iris) or
   an `IrisCapture` `CaptureEvents` call: one `os.Logger` line in `com.jkrumm.iris` and one relayed record (`service.name=iris-ios`, trace id = the memo id
   without dashes, ordered by `seq`). Add an event there, not a bare `Logger` call, and never a token, transcript, reply or port uid in one. `service.version` is the
-  `IRIS_BUILD_SHA` build setting (`dev` unless a build passes it; `scripts/device-build.sh` does not yet, so a device build reports `dev`). The widget extension only logs to the console (no App Group on a Personal Team).
+  `IRIS_BUILD_SHA` build setting (`scripts/device-build.sh` passes the short git sha; any other build reports `dev`). The widget extension only logs to the console (no App Group on a Personal Team).
   Headless read of a take: skills `device` and `memo-debug`.
 
 ## Validate

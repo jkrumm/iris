@@ -62,11 +62,18 @@ enum IntentEvents {
       deliver(finished: (name, nil))
       return result
     } catch {
-      let description = String(describing: error)
+      let description = summary(of: error)
       logger.error("intent.result \(name, privacy: .public) error=\(description, privacy: .public)")
       deliver(finished: (name, description))
       throw error
     }
+  }
+
+  /// The error's type and, for an enum, its case: never the payload, which can carry a server's words or a path.
+  static func summary(of error: any Error) -> String {
+    let text = String(describing: error)
+    let caseName = text.prefix { $0 != "(" && $0 != " " }
+    return "\(type(of: error)).\(caseName)"
   }
 
   private static func deliver(run: IntentRun) {

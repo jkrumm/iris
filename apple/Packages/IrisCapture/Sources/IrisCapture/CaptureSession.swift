@@ -273,6 +273,7 @@ public actor CaptureSession {
     // Discarded first so a segment that closes while the recorder stops is deleted, not queued.
     cancelled.insert(memoID)
     await outbox.discard(memoID)
+    deviceEvents.event("take.discarded", memoID: memoID, ["segments": .int(closedCounts[memoID, default: 0])])
     // A failed take's recorder is already stopped (it has nothing to flush, and no last event to wait for).
     if state.failure == nil {
       do {
@@ -373,15 +374,19 @@ public actor CaptureSession {
         for await event in events {
           switch event {
           case .segmentClosed(let segment, let reason):
+            // What became of the file: a segment that closed but was never uploaded is an alarm unless the take was dropped.
+            let disposition =
+              cancelled.contains(segment.memoID) ? "discarded" : abandoned.contains(segment.memoID) ? "late" : "queued"
             deviceEvents.event(
               "capture.segment.closed", memoID: segment.memoID,
               [
                 "index": .int(segment.index), "bytes": .int(segment.byteCount), "seconds": .double(segment.duration),
                 "reason": .string(reason.eventName), "closed_ok": .bool(segment.byteCount > 0),
+                "disposition": .string(disposition),
               ])
-            if cancelled.contains(segment.memoID) {
+            if disposition == "discarded" {
               try? FileManager.default.removeItem(at: segment.fileURL)
-            } else if abandoned.contains(segment.memoID) {
+            } else if disposition == "late" {
               // Late: the memo was finished without it. Not queued; the file stays for the next launch's sweep to set aside.
               Log.capture.error("segment \(segment.index) closed after its take was finished, left on disk")
             } else {
@@ -702,7 +707,7 @@ public actor CaptureSession {
       "phase": .string(state.phase == .idle ? "stopped" : state.phase.eventName)
     ]
     if let mode = state.request?.mode { attributes["mode"] = .string(mode) }
-    if let input = state.inputName { attributes["input.name"] = .string(input) }
+    if let input = state.inputName { attributes["input.name"] = .string(PortLabel.name(input)) }
     if let failure = state.failure { attributes["failure"] = .string(failure) }
     deviceEvents.event("take.phase", memoID: memoID, error: state.phase == .failed, attributes)
   }

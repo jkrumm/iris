@@ -10,12 +10,32 @@ nonisolated enum TelemetryRelayError: Error {
 
 /// Posts to the server saved in Settings. Reads the connection at every send, so a changed server or token is followed and a
 /// device with nothing saved keeps its records (in the crash file) until there is somewhere to send them.
+///
+/// A record is bound to the server it was recorded for (`server.id`, set when the connection changes). One bound to another
+/// server is dropped: the records of server A are not for server B, and holding them would block the queue behind them for ever.
+/// A record with no `server.id` was recorded before any connection existed and goes to the first server there is.
 nonisolated struct CredentialedTelemetryTransport: TelemetryTransport {
+  typealias Sender = @Sendable (_ server: URL, _ token: String, _ batch: TelemetryBatch) async throws -> Void
+
   let credentials: any CredentialStore
+  var sender: Sender = { server, token, batch in
+    try await URLSessionTelemetryTransport(baseURL: server, bearerToken: token).send(batch)
+  }
 
   func send(_ batch: TelemetryBatch) async throws {
     guard let saved = credentials.load() else { throw TelemetryRelayError.notConnected }
-    try await URLSessionTelemetryTransport(baseURL: saved.serverURL, bearerToken: saved.token).send(batch)
+    let current = TelemetryBootstrap.serverID(saved.serverURL)
+    var mine = batch
+    mine.logs = batch.logs.filter { record in
+      guard case .string(let bound)? = record.attributes["server.id"] else { return true }
+      return bound == current
+    }
+    mine.spans = batch.spans.filter { span in
+      guard case .string(let bound)? = span.attributes["server.id"] else { return true }
+      return bound == current
+    }
+    guard !mine.logs.isEmpty || !mine.spans.isEmpty || batch.dropped > 0 else { return }
+    try await sender(saved.serverURL, saved.token, mine)
   }
 }
 
@@ -63,9 +83,15 @@ nonisolated enum TelemetryBootstrap {
       serviceName: .ios, deviceName: fake ? "Simulator" : deviceName(), appVersion: buildSHA(bundle))
     let exporter = RelayExporter(buffer: buffer, transport: transport, resource: resource)
     let events = DeviceEventLog(buffer: buffer, console: DeviceConsole.write)
+    if !fake, let server = credentials.load()?.serverURL { events.setAmbient("server.id", .string(serverID(server))) }
     // A simulator run must not read or write the real install's last-phase marker.
     return DeviceLog(
       events: events, exporter: exporter, suiteName: fake ? "com.jkrumm.iris.telemetry.fake" : nil)
+  }
+
+  /// A short stable id of a server, so a record can say which one it is for without carrying the address.
+  static func serverID(_ url: URL) -> String {
+    DeviceEventLog.hashed(url.absoluteString.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "/")))
   }
 
   /// The git sha of the build (`IRIS_BUILD_SHA`, passed by the device build), or `dev`.

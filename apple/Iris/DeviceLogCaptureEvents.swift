@@ -22,6 +22,13 @@ nonisolated struct DeviceLogCaptureEvents: CaptureEvents {
   }
 }
 
+extension DeviceLogCaptureEvents {
+  /// Durable before it returns: the breadcrumb before the call that can abort the process (`capture.tap.install`).
+  func preflight(_ name: String, memoID: MemoID?, _ attributes: [String: CaptureEventValue]) {
+    log.durableEvent(name, memoID: memoID ?? log.currentTake, attributes.mapValues(AttributeValue.init))
+  }
+}
+
 extension AttributeValue {
   nonisolated init(_ value: CaptureEventValue) {
     switch value {

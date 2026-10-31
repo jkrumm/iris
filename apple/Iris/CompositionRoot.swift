@@ -290,6 +290,8 @@ final class CompositionRoot: CaptureIntentHandler, PlaybackIntentHandler {
   }
 
   private var hasLoggedLaunch = false
+  /// What the last `app.launch` / `outbox.state` found: the queue was open.
+  private var lastOutboxState = true
 
   /// `app.launch`, once per process: why it started, what the last run was doing when it ended, and what the queue and the
   /// set-aside folder hold (a kill without a crash report shows as files in there).
@@ -298,16 +300,13 @@ final class CompositionRoot: CaptureIntentHandler, PlaybackIntentHandler {
     hasLoggedLaunch = true
     let aside = await outbox.setAside()
     let log = DeviceLog.shared
-    log.event(
-      "app.launch",
-      [
-        "launch.reason": .string(UIApplication.shared.applicationState == .background ? "background_launch" : "user"),
-        "previous.phase": .string(log.previousPhase),
-        "previous.exit": "unknown",
-        "outbox.items": .int(await outbox.queuedItems().count),
-        "outbox.quarantined_files": .int(aside.count),
-        "mode": .string(mode == .fake ? "fake" : "production"),
-      ])
+    var attributes = await outboxStateAttributes(aside: aside)
+    attributes["launch.reason"] = .string(
+      UIApplication.shared.applicationState == .background ? "background_launch" : "user")
+    attributes["previous.phase"] = .string(log.previousPhase)
+    attributes["previous.exit"] = "unknown"
+    attributes["mode"] = .string(mode == .fake ? "fake" : "production")
+    log.event("app.launch", attributes)
     // The server never hears of a file in the set-aside folder: one record each, so the data-loss case is visible at once.
     for file in aside.recordings + aside.queueFiles {
       log.event(
@@ -317,6 +316,25 @@ final class CompositionRoot: CaptureIntentHandler, PlaybackIntentHandler {
           "has_moov": .bool(file.url.pathExtension == "m4a" ? Self.hasMovieAtom(file.url) : false),
         ])
     }
+  }
+
+  /// The queue as the log reports it: its state, and its item count only when it could be read.
+  private func outboxStateAttributes(aside: SetAsideSummary) async -> [String: AttributeValue] {
+    let available = await outbox.isAvailable()
+    let unreadable = available ? false : await outbox.isUnreadable()
+    let items = available ? await outbox.queuedItems().count : 0
+    lastOutboxState = available
+    return OutboxStateRecord.attributes(
+      available: available, unreadable: unreadable, items: items, quarantined: aside.count)
+  }
+
+  /// The launch found the queue closed or unreadable: say so again when it opens, so the record that read "unavailable" is not
+  /// the last word.
+  private func reportOutboxRecovery() async {
+    guard !lastOutboxState else { return }
+    let attributes = await outboxStateAttributes(aside: await outbox.setAside())
+    guard lastOutboxState else { return }
+    DeviceLog.shared.event("outbox.state", attributes.merging(["reason": "recovered"]) { current, _ in current })
   }
 
   /// A finalised m4a has a `moov` atom; one the process died while writing has none and no tool reads it.
@@ -380,12 +398,14 @@ final class CompositionRoot: CaptureIntentHandler, PlaybackIntentHandler {
     liveActivity.snapshot(reason: "foreground")
     guard mode == .production, isConfigured else { return }
     await outbox.resume()
+    await reportOutboxRecovery()
     // A follower does not poll while the app is suspended: look at the handed-over activities again.
     await liveActivity.endOrphans()
   }
 
   private func connectionChanged() {
     reconfigurable?.reconfigure(credentials?.load())
+    DeviceLog.shared.serverChanged(credentials?.load()?.serverURL)
     connectionRevision += 1
   }
 
