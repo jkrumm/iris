@@ -116,7 +116,8 @@ final class CompositionRoot: CaptureIntentHandler, PlaybackIntentHandler {
       simulatesOffline = arguments.contains("-IrisFakeOffline")
       let recording = RecordingLiveActivity()
       fakeLiveActivity = recording
-      let coordinator = TakeLiveActivityCoordinator(activity: recording, stack: stack, created: created)
+      let coordinator = TakeLiveActivityCoordinator(
+        activity: ObservedTakeLiveActivity(recording), stack: stack, created: created)
       liveActivity = coordinator
       takeController = TakeController(
         stack: stack, liveActivity: coordinator, outbox: service, microphone: mic, canRecord: true,
@@ -270,9 +271,13 @@ final class CompositionRoot: CaptureIntentHandler, PlaybackIntentHandler {
     // An outbox that cannot be opened says nothing about its deletes: the persisted hidden ids are left as they are.
     if let pending = await outbox.pendingDeletionIDs() { history.reconcileHidden(pendingDeletions: pending) }
     await logLaunchOnce()
+    liveActivity.snapshot(reason: "launch")
     // A take's Live Activity does not outlive its process: end the ones the last run left in a client phase. Off to the side:
     // its server lookups never hold up the list.
-    let orphans = Task { await liveActivity.endOrphans() }
+    let orphans = Task {
+      await liveActivity.endOrphans()
+      liveActivity.snapshot(reason: "launch_swept")
+    }
     defer { orphans.cancel() }
     if connectionRevision > 0 {
       await settings.load()
@@ -370,6 +375,7 @@ final class CompositionRoot: CaptureIntentHandler, PlaybackIntentHandler {
   /// The app came to the foreground: what waited out a backoff while it was away is tried now. Fakes keep their queue as
   /// it is (a UI test reads a queued item).
   func foregrounded() async {
+    liveActivity.snapshot(reason: "foreground")
     guard mode == .production, isConfigured else { return }
     await outbox.resume()
     // A follower does not poll while the app is suspended: look at the handed-over activities again.
