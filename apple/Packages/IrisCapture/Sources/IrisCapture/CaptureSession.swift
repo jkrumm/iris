@@ -40,6 +40,9 @@ public struct TakeState: Sendable, Equatable {
   public var request: TakeRequest?
   /// Why the recorder failed; set with the `failed` phase.
   public var failure: String?
+  /// A failed take's recorder has been stopped and returned: the microphone is released, though the take waits for the user.
+  /// Set by the snapshot that follows the stop (`false` while it is running, or when it never answered).
+  public var recorderReleased = false
 
   public static let idle = TakeState(phase: .idle, memoID: nil, startedAt: nil, inputName: nil, request: nil)
 }
@@ -67,6 +70,9 @@ public actor CaptureSession {
   private let outbox: Outbox
   private let clock: any CaptureClock
   private let deviceEvents: any CaptureEvents
+  /// The capture directory, to remove the files of a cancelled take that never reached the outbox (a segment whose close
+  /// failed, and the ones behind it). `nil`: nothing is removed.
+  private let files: (any SegmentFileStore)?
   /// What `take.phase` last reported, so a snapshot that changes nothing about the phase is not an event.
   private var reportedPhase: (phase: TakePhase, memoID: MemoID?)?
   /// When the take stopped recording and why, until it records again: the audio lost in between is `capture.gap`.
@@ -114,9 +120,10 @@ public actor CaptureSession {
   public init(
     session: any AudioSessionController, routes: any RouteManager, recorder: any SegmentRecorder, outbox: Outbox,
     clock: any CaptureClock, stopTimeout: TimeInterval = 10, reactivationDelay: TimeInterval = 0.5,
-    events deviceEvents: any CaptureEvents = NoCaptureEvents()
+    events deviceEvents: any CaptureEvents = NoCaptureEvents(), files: (any SegmentFileStore)? = nil
   ) {
     self.deviceEvents = deviceEvents
+    self.files = files
     self.session = session
     self.routes = routes
     self.recorder = recorder
@@ -297,6 +304,9 @@ public actor CaptureSession {
     forget(memoID)
     lateFinish.removeValue(forKey: memoID)?.cancel()
     awaitingStop.remove(memoID)
+    // The recorder has closed what it could. A segment whose close failed never became a queue entry, so the outbox did not
+    // retire its file, nor the files of the segments held back behind it: the user dropped the take, so none of it is kept.
+    await files?.discardFiles(of: memoID)
     await deactivateSession()
     setState(.idle)
     return memoID
@@ -590,6 +600,12 @@ public actor CaptureSession {
   private func stopReturned(_ id: UUID, _ result: Result<Bool, any Error>) {
     unreturnedStops.remove(id)
     stopRaces.removeValue(forKey: id)?.resume(with: result)
+    // A take that failed on its own is held for the user, but its microphone is free now: say so, so the app need not wait for
+    // a Stop or Discard that may never come.
+    if state.phase == .failed, !state.recorderReleased, unreturnedStops.isEmpty {
+      state.recorderReleased = true
+      publish()
+    }
     guard deactivationPending, unreturnedStops.isEmpty else { return }
     // Fire and forget, one short deactivation behind the gate; ends on its own.
     Task { await self.stopsDrained() }
