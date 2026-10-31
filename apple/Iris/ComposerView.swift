@@ -18,7 +18,7 @@ struct ComposerView: View {
 
   var body: some View {
     NavigationStack {
-      VStack(alignment: .leading, spacing: Theme.Spacing.lg) {
+      VStack(alignment: .leading, spacing: Theme.Spacing.md) {
         if model.threadId == nil {
           ModePicker(modes: ComposerModel.modes, selection: $model.mode)
             .disabled(model.isSending)
@@ -52,9 +52,16 @@ struct ComposerView: View {
             .accessibilityIdentifier("composer.cancel")
         }
         ToolbarItem(placement: .confirmationAction) {
-          Button(String(localized: "Send", comment: "Sends the typed memo"), systemImage: "arrow.up") {
+          Button {
             Task { await send() }
+          } label: {
+            // The toolbar drops a `Label`'s title; two views keep the mockup's "arrow Send".
+            HStack(spacing: Theme.Spacing.xs) {
+              Image(systemName: "arrow.up")
+              Text("Send", comment: "Sends the typed memo")
+            }
           }
+          .buttonStyle(.borderedProminent)
           .disabled(!model.canSend)
           .accessibilityIdentifier("composer.send")
         }
@@ -82,7 +89,8 @@ struct ComposerView: View {
     }
     .themeFont(.footnote)
     .foregroundStyle(Theme.Ink.secondary)
-    .padding(Theme.Spacing.md)
+    .padding(.horizontal, Theme.Spacing.cardInsetHorizontal)
+    .padding(.vertical, Theme.Spacing.cozy)
     .frame(maxWidth: .infinity, alignment: .leading)
     .detailCard()
   }

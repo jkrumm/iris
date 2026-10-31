@@ -9,6 +9,9 @@ public struct ComposerField: View {
   private let counter: String
   private let isOverLimit: Bool
 
+  /// The field card's height, padding included (`compose.html` `.field`: `flex: none; height: 176px`). A longer text scrolls inside it.
+  private static let height: CGFloat = 176
+
   public init(text: Binding<String>, placeholder: String, counter: String, isOverLimit: Bool = false) {
     _text = text
     self.placeholder = placeholder
@@ -17,13 +20,12 @@ public struct ComposerField: View {
   }
 
   public var body: some View {
-    VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
+    VStack(alignment: .leading, spacing: Theme.Spacing.md) {
       TextEditor(text: $text)
         .focused($isFocused)
         .scrollContentBackground(.hidden)
         .font(.system(size: 19))
         .foregroundStyle(Theme.Ink.primary)
-        .frame(minHeight: 160)
         .overlay(alignment: .topLeading) {
           if text.isEmpty {
             Text(verbatim: placeholder)
@@ -36,6 +38,7 @@ public struct ComposerField: View {
           }
         }
         .padding(Theme.Spacing.md)
+        .frame(height: Self.height)
         .detailCard()
         .accessibilityLabel(Text(verbatim: placeholder))
         .accessibilityIdentifier("composer.field")
@@ -43,7 +46,8 @@ public struct ComposerField: View {
         .themeFont(.caption)
         .foregroundStyle(isOverLimit ? Theme.Status.bad : Theme.Ink.faint)
         .monospacedDigit()
-        .padding(.horizontal, Theme.Spacing.xs)
+        .padding(.horizontal, Theme.Spacing.snug)
+        .padding(.bottom, Theme.Spacing.snug)
     }
     .task { isFocused = true }
   }

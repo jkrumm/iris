@@ -39,10 +39,10 @@ struct ThreadView: View {
   var body: some View {
     ScrollViewReader { proxy in
       ScrollView {
-        LazyVStack(alignment: .leading, spacing: Theme.Spacing.lg) {
-          header.padding(.bottom, Theme.Spacing.sm)
+        LazyVStack(alignment: .leading, spacing: Theme.Spacing.inset) {
+          header
           ForEach(Array(model.turns.enumerated()), id: \.element.id) { index, turn in
-            VStack(alignment: .leading, spacing: Theme.Spacing.lg) {
+            VStack(alignment: .leading, spacing: Theme.Spacing.inset) {
               // A question after an answer opens a new exchange.
               if index > 0, case .user = turn.content { ExchangeDivider() }
               view(for: turn)
@@ -52,8 +52,8 @@ struct ThreadView: View {
           }
           Color.clear.frame(height: 1).id(Self.bottom)
         }
-        .padding(.horizontal, Theme.Spacing.lg)
-        .padding(.top, Theme.Spacing.sm)
+        .padding(.horizontal, Theme.Spacing.screenMargin)
+        .padding(.top, Theme.Spacing.inset)
         .padding(.bottom, Theme.Spacing.lg)
         .animation(reduceMotion ? nil : .smooth(duration: 0.4), value: model.turns)
       }
@@ -67,8 +67,12 @@ struct ThreadView: View {
     .background(Theme.Surface.background)
     .scrollEdgeEffectStyle(.soft, for: .bottom)
     .overlay { placeholder }
-    .safeAreaInset(edge: .bottom) { replyBar.disabled(!model.canReply) }
-    .overlay(alignment: .bottom) { failureToast }
+    .safeAreaInset(edge: .bottom, spacing: 0) {
+      VStack(spacing: Theme.Spacing.barGap) {
+        failureToast
+        replyBar.disabled(!model.canReply)
+      }
+    }
     .navigationTitle(String(localized: "Conversation", comment: "Navigation title of a thread"))
     .navigationBarTitleDisplayMode(.inline)
     .toolbarVisibility(.hidden, for: .tabBar)
@@ -99,7 +103,7 @@ struct ThreadView: View {
   // MARK: Sections
 
   private var header: some View {
-    VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
+    VStack(alignment: .leading, spacing: Theme.Spacing.cozy) {
       HStack(spacing: Theme.Spacing.sm) {
         RouteChip(
           label: model.kind == .chat
@@ -170,8 +174,7 @@ struct ThreadView: View {
   @ViewBuilder private var failureToast: some View {
     if let failure = model.failure {
       ToastBanner(message: failure.message)
-        .padding(.horizontal, Theme.Spacing.lg)
-        .padding(.bottom, 96)
+        .padding(.horizontal, Theme.Spacing.barInset)
         .transition(.move(edge: .bottom).combined(with: .opacity))
         .accessibilityIdentifier("thread.toast")
     }
