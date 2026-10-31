@@ -95,10 +95,11 @@ public actor CaptureSession {
   private var abandoned: Set<MemoID> = []
   /// Recorder stops in flight that `stopRecorder()` is waiting on, settled by the stop itself or by its timer.
   private var stopRaces: [UUID: CheckedContinuation<Bool, any Error>] = [:]
-  /// Recorder stops that were given up on and have not returned: the recorder may still be live (its microphone open), so no
-  /// new take starts on it until they do.
-  private var hungStops: Set<UUID> = []
-  /// A take ended while a hung stop was still running, so the audio session was left active; the stop's return deactivates it.
+  /// Every recorder stop that has not returned, whoever started it and whether or not it was given up on: the recorder may still
+  /// be live (its microphone open), so no new take starts on it and the audio session is not deactivated under it until they do.
+  private var unreturnedStops: Set<UUID> = []
+  /// A take ended while a recorder stop was still running, so the audio session was left active; the last stop's return
+  /// deactivates it (through the gate, so a take that starts meanwhile is not cut off).
   private var deactivationPending = false
   private var finishWaiter: (id: MemoID, continuation: CheckedContinuation<Int?, Never>)?
   /// The gate: true while a start, stop or cancel is running; the others wait in `queue`, first come first served.
@@ -145,7 +146,7 @@ public actor CaptureSession {
     defer { leave() }
     guard state.phase == .idle else { throw CaptureError.alreadyRecording }
     // A recorder that never answered its stop may still hold the microphone: a new take waits until it has.
-    guard hungStops.isEmpty else { throw CaptureError.engineFailure("the recorder is still stopping") }
+    guard unreturnedStops.isEmpty else { throw CaptureError.engineFailure("the recorder is still stopping") }
     let memoID = MemoID()
     deactivationPending = false  // this take activates the session itself
     // Claimed with no suspension between the guard and here (the gate is ours): nothing else sees an idle session.
@@ -498,10 +499,12 @@ public actor CaptureSession {
   }
 
   /// Stops the recorder, giving up after `stopTimeout` (`false`): a recorder whose `stop()` never returns must not hold the
-  /// gate or the event pump for ever, and the next take must be able to start. Its late answer finds no waiter and is ignored.
+  /// gate or the event pump for ever, and the next take must be able to start. The stop stays on `unreturnedStops` until the
+  /// recorder answers; its late answer finds no waiter and is ignored.
   private func stopRecorder() async throws -> Bool {
     let id = UUID()
     let deadline = await clock.now().addingTimeInterval(stopTimeout)
+    unreturnedStops.insert(id)
     // Owned by this call. The stop ends when the recorder answers (a hung one keeps it, harmlessly); the timer ends with the
     // race.
     Task { [recorder] in
@@ -512,21 +515,21 @@ public actor CaptureSession {
       } catch {
         result = .failure(error)
       }
-      self.settleStop(id, result)
+      self.stopReturned(id, result)
     }
     let timer = Task { [clock] in
       do { try await clock.sleep(until: deadline) } catch { return }
-      self.settleStop(id, .success(false))
+      self.stopGivenUp(id)
     }
     defer { timer.cancel() }
     return try await withCheckedThrowingContinuation { stopRaces[id] = $0 }
   }
 
-  /// Deactivates the audio session, unless a recorder stop that was given up on is still running: that recorder may still hold
-  /// the microphone and its engine, and pulling the session from under it is the one thing worse than leaving it active a
-  /// while. The deactivation is then done when the stop returns (`settleStop`).
+  /// Deactivates the audio session, unless a recorder stop has not returned: that recorder may still hold the microphone and its
+  /// engine, and pulling the session from under it is worse than leaving it active a while. The deactivation is then done by
+  /// `stopsDrained` when the last stop returns.
   private func deactivateSession() async {
-    guard hungStops.isEmpty else {
+    guard unreturnedStops.isEmpty else {
       deactivationPending = true
       return
     }
@@ -534,21 +537,25 @@ public actor CaptureSession {
     try? await session.deactivate()
   }
 
-  /// The stop that was given up on has returned: the session can go now, if no take has claimed it again.
-  private func hungStopReturned() async {
-    guard deactivationPending, hungStops.isEmpty, state.phase == .idle else { return }
-    await deactivateSession()
+  /// A recorder stop has returned. When the take that left the session active is over and no stop remains, the session goes.
+  private func stopReturned(_ id: UUID, _ result: Result<Bool, any Error>) {
+    unreturnedStops.remove(id)
+    stopRaces.removeValue(forKey: id)?.resume(with: result)
+    guard deactivationPending, unreturnedStops.isEmpty else { return }
+    // Fire and forget, one short deactivation behind the gate; ends on its own.
+    Task { await self.stopsDrained() }
   }
 
-  private func settleStop(_ id: UUID, _ result: Result<Bool, any Error>) {
-    guard let waiter = stopRaces.removeValue(forKey: id) else {
-      hungStops.remove(id)  // the stop that was given up on has returned at last
-      // Fire and forget, one short deactivation; ends on its own.
-      Task { await self.hungStopReturned() }
-      return
-    }
-    if case .success(false) = result { hungStops.insert(id) }
-    waiter.resume(with: result)
+  private func stopGivenUp(_ id: UUID) {
+    stopRaces.removeValue(forKey: id)?.resume(returning: false)
+  }
+
+  /// Behind the gate, like every other change of the session: a take that is starting holds it until it has activated, and finds
+  /// the take running when it is this one's turn, so a late deactivation never lands on top of an activation.
+  private func stopsDrained() async {
+    guard deactivationPending, unreturnedStops.isEmpty, state.phase == .idle else { return }
+    deactivationPending = false
+    try? await session.deactivate()
   }
 
   /// Arms the timer that finishes a take whose `stopped` never comes: the segments that closed by then are the take.
