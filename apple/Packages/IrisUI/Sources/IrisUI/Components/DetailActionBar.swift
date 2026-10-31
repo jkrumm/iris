@@ -44,8 +44,8 @@ public struct DetailActionBar: View {
   }
 
   public var body: some View {
-    GlassEffectContainer(spacing: Theme.Spacing.md) {
-      HStack(spacing: Theme.Spacing.md) {
+    GlassEffectContainer(spacing: Theme.Spacing.barGap) {
+      HStack(spacing: Theme.Spacing.barGap) {
         Button(action: onPlayReply) {
           icon(isPlayingReply ? "stop.fill" : "speaker.wave.2.fill", isEnabled: canPlayReply)
         }

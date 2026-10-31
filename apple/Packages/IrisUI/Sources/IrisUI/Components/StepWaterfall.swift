@@ -66,8 +66,8 @@ public struct StepWaterfall: View {
       }
       .themeFont(.subheadline)
       .monospacedDigit()
-      .padding(.horizontal, Theme.Spacing.lg)
-      .padding(.vertical, Theme.Spacing.md)
+      .padding(.horizontal, Theme.Spacing.cardInsetHorizontal)
+      .padding(.vertical, Theme.Spacing.cardInsetVertical)
       .frame(maxWidth: .infinity)
       .contentShape(.rect)
     }
@@ -143,9 +143,9 @@ private struct WaterfallRowView: View {
         .accessibilityIdentifier("detail.step.retry")
       }
     }
-    .padding(.horizontal, Theme.Spacing.lg)
-    .padding(.top, Theme.Spacing.md)
-    .padding(.bottom, Theme.Spacing.md + Self.trackHeight)
+    .padding(.horizontal, Theme.Spacing.cardInsetHorizontal)
+    .padding(.top, Theme.Spacing.cardInsetVertical)
+    .padding(.bottom, Theme.Spacing.cardInsetVertical + Self.trackHeight)
     .overlay(alignment: .bottom) { track }
     .accessibilityElement(children: .contain)
     .accessibilityIdentifier("detail.step")

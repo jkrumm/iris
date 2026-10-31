@@ -88,8 +88,8 @@ public struct MemoPlayerBar: View {
       )
       .accessibilityIdentifier("detail.player.back")
     }
-    .padding(.horizontal, Theme.Spacing.md)
-    .padding(.vertical, Theme.Spacing.md)
+    .padding(.horizontal, Theme.Spacing.cardInsetHorizontal)
+    .padding(.vertical, Theme.Spacing.cardInsetVertical)
     .detailCard()
     .disabled(!isEnabled)
     .opacity(isEnabled ? 1 : 0.5)

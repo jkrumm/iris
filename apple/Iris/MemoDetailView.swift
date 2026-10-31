@@ -33,7 +33,7 @@ struct MemoDetailView: View {
 
   var body: some View {
     ScrollView {
-      VStack(alignment: .leading, spacing: Theme.Spacing.lg) {
+      VStack(alignment: .leading, spacing: Theme.Spacing.sectionTop) {
         header
         routeCard
         if model.audioRequest != nil { player }
@@ -42,7 +42,7 @@ struct MemoDetailView: View {
         reply
         footer
       }
-      .padding(.horizontal, Theme.Spacing.lg)
+      .padding(.horizontal, Theme.Spacing.screenMargin)
       .padding(.top, Theme.Spacing.sm)
       .padding(.bottom, Theme.Spacing.xl)
     }
@@ -50,8 +50,12 @@ struct MemoDetailView: View {
     .takeBanner()
     .background(Theme.Surface.background)
     .scrollEdgeEffectStyle(.soft, for: .bottom)
-    .safeAreaInset(edge: .bottom) { actions }
-    .overlay(alignment: .bottom) { failureToast }
+    .safeAreaInset(edge: .bottom, spacing: 0) {
+      VStack(spacing: Theme.Spacing.sm) {
+        failureToast
+        actions
+      }
+    }
     .navigationTitle(String(localized: "Memo", comment: "Navigation title of the memo detail"))
     .navigationBarTitleDisplayMode(.inline)
     .toolbarVisibility(.hidden, for: .tabBar)
@@ -85,7 +89,7 @@ struct MemoDetailView: View {
 
   private var header: some View {
     let memo = model.memo
-    return VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
+    return VStack(alignment: .leading, spacing: Theme.Spacing.cozy) {
       HStack(spacing: Theme.Spacing.sm) {
         RouteChip(label: memo.routeLabel, systemImage: memo.routeChipIcon)
         Text(verbatim: metaLine(memo))
@@ -101,18 +105,20 @@ struct MemoDetailView: View {
           .accessibilityIdentifier("detail.route.correct")
         }
       }
-      Text(verbatim: memo.rowHeadline)
-        .themeFont(.title, weight: .bold)
-        .foregroundStyle(Theme.Ink.primary)
-        .fixedSize(horizontal: false, vertical: true)
-      if memo.state == .failed, let error = memo.error {
-        Text(verbatim: error)
-          .themeFont(.callout)
-          .foregroundStyle(Theme.Status.bad)
-      } else if let detail = memo.summary?.detail {
-        Text(verbatim: detail)
-          .themeFont(.callout)
-          .foregroundStyle(Theme.Ink.secondary)
+      VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
+        Text(verbatim: memo.rowHeadline)
+          .themeFont(.title, weight: .bold)
+          .foregroundStyle(Theme.Ink.primary)
+          .fixedSize(horizontal: false, vertical: true)
+        if memo.state == .failed, let error = memo.error {
+          Text(verbatim: error)
+            .themeFont(.callout)
+            .foregroundStyle(Theme.Status.bad)
+        } else if let detail = memo.summary?.detail {
+          Text(verbatim: detail)
+            .themeFont(.callout)
+            .foregroundStyle(Theme.Ink.secondary)
+        }
       }
     }
   }
@@ -142,9 +148,12 @@ struct MemoDetailView: View {
             .frame(maxWidth: .infinity)
         }
         .buttonStyle(.borderedProminent)
+        .tint(Theme.Accent.fill)
         .accessibilityIdentifier("detail.route.answer")
       }
-      .padding(Theme.Spacing.md)
+      .padding(.horizontal, Theme.Spacing.cardInsetHorizontal)
+      .padding(.vertical, Theme.Spacing.cardInsetVertical)
+      .frame(maxWidth: .infinity, alignment: .leading)
       .detailCard()
     }
   }
@@ -286,8 +295,7 @@ struct MemoDetailView: View {
   @ViewBuilder private var failureToast: some View {
     if let failure = model.failure {
       ToastBanner(message: failure.message)
-        .padding(.horizontal, Theme.Spacing.lg)
-        .padding(.bottom, 96)
+        .padding(.horizontal, Theme.Spacing.screenMargin)
         .transition(.move(edge: .bottom).combined(with: .opacity))
         .accessibilityIdentifier("detail.toast")
     }
@@ -299,7 +307,8 @@ private struct TextCard: ViewModifier {
   func body(content: Content) -> some View {
     content
       .frame(maxWidth: .infinity, alignment: .leading)
-      .padding(Theme.Spacing.md)
+      .padding(.horizontal, Theme.Spacing.cardInsetHorizontal)
+      .padding(.vertical, Theme.Spacing.cardInsetVertical)
       .detailCard()
   }
 }
