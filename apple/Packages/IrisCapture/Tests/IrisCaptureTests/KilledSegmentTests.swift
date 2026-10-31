@@ -366,6 +366,15 @@
     func finish() async -> SegmentWriter.Outcome { outcome }
   }
 
+  /// A segment whose writer never answers `finishWriting`.
+  private struct HungSegment: ClosableSegment {
+    let url: URL
+    func finish() async -> SegmentWriter.Outcome {
+      try? await Task.sleep(for: .seconds(3_600))
+      return SegmentWriter.Outcome(byteCount: 1_000, readableFrames: 160_000, error: nil)
+    }
+  }
+
   /// Appended by the closer's tasks, read after `idle()`.
   private final class Published: @unchecked Sendable {
     private let lock = NSLock()
@@ -447,6 +456,28 @@
 
       #expect(indices(published.all) == [0])
       #expect(failures(published.all) == 1)
+    }
+
+    @Test func aFinishThatNeverReturnsFailsThatCloseInOrderAndHaltsTheLaterOnes() async {
+      let published = Published()
+      let closer = SegmentCloser(sampleRate: 16_000, finishLimit: .milliseconds(50)) { published.add($0) }
+      closer.close(whole(0), index: 0, memoID: memo(1), duration: 10, reason: .duration)
+      closer.close(HungSegment(url: file(1)), index: 1, memoID: memo(1), duration: 10, reason: .duration)
+      closer.close(whole(2), index: 2, memoID: memo(1), duration: 10, reason: .duration)
+
+      await closer.idle()
+
+      #expect(indices(published.all) == [0], "the hung close publishes nothing and the one behind it is held back")
+      #expect(failures(published.all) == 1, "the take ends there, with the prefix it has")
+    }
+
+    @Test func aFinishThatReturnsInTimeIsNotCutShort() async {
+      let published = Published()
+      let closer = SegmentCloser(sampleRate: 16_000, finishLimit: .seconds(30)) { published.add($0) }
+      closer.close(whole(0), index: 0, memoID: memo(1), duration: 10, reason: .duration)
+      await closer.idle()
+
+      #expect(indices(published.all) == [0] && failures(published.all) == 0)
     }
 
     @Test func aFailedCloseThenASuccessInTheNextTakePublishesAgain() async {

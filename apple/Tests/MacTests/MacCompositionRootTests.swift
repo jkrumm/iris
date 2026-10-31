@@ -45,9 +45,45 @@ struct MacCompositionRootTests {
     let root = fakeRoot(poster: poster)
     root.begin()
     #expect(await eventually { !root.history.memos.isEmpty })
-    root.fakeAPI?.emit(.memoDone(MemoEvent(id: Self.finished, state: .notified, at: .now)))
+    // The sample memo is finished already (the list's baseline); a run through the pipeline is a new transition.
+    try? await root.fakeAPI?.advance(Self.finished, to: .acted)
+    try? await root.fakeAPI?.advance(Self.finished, to: .notified)
     #expect(await eventually { await !poster.posted.isEmpty })
     #expect(await poster.posted.first?.memoID == Self.finished)
+  }
+
+  @Test("a memo that finished while the stream was down is announced when the stream is back, once")
+  func catchesUpAfterTheStreamReturns() async throws {
+    let poster = RecordingNotificationPoster()
+    let root = fakeRoot(poster: poster)
+    let fake = try #require(root.fakeAPI)
+    root.begin()
+    #expect(await eventually { !root.history.memos.isEmpty })
+    // The memo is still running when the connection is first read (the baseline) ...
+    var detail = try await fake.memo(id: Self.finished)
+    detail.memo.state = .acted
+    await fake.seed(detail)
+    fake.emit(.ready)
+    #expect(await eventually { root.notifier.hasBaseline })
+    #expect(await poster.posted.isEmpty)
+    // ... and has finished by the time the stream says `ready` again, with no event in between.
+    detail.memo.state = .notified
+    await fake.seed(detail)
+    fake.emit(.ready)
+    #expect(await eventually { await poster.posted.map(\.memoID) == [Self.finished] })
+    fake.emit(.ready)
+    try? await Task.sleep(for: .milliseconds(300))
+    #expect(await poster.posted.count == 1)
+  }
+
+  @Test("the catch-up reads the newest memos with no filter, whatever History is showing")
+  func catchUpIsUnfiltered() async throws {
+    let root = fakeRoot()
+    root.begin()
+    #expect(await eventually { !root.history.memos.isEmpty })
+    root.history.filters.searchText = "no memo says this"
+    let recent = try #require(await root.notifier.fetchRecent())
+    #expect(recent.contains { $0.id == Self.finished })
   }
 
   @Test("opening a memo selects it for the detail panel and asks the app to open the window")
@@ -241,7 +277,6 @@ struct MacCompositionRootTests {
     root.connectionForm.save()
     #expect(root.history !== before)
     #expect(root.detailMemoID == nil && root.detailDismissals == dismissals + 1)
-    #expect(root.history.onMemoDone != nil)
     #expect(await eventually { !root.history.memos.isEmpty })
   }
 
@@ -268,16 +303,25 @@ struct MacCompositionRootTests {
     #expect(ran == ["current"])
   }
 
-  @Test("a memo.done seen before a switch posts nothing once its task runs after it")
-  func staleEventsAreDropped() async {
+  @Test("a memo.done on the stream announces the memo once, with no memo.updated and no History hook")
+  func memoDoneOnTheStreamPosts() async throws {
     let poster = RecordingNotificationPoster()
     let root = fakeRoot(poster: poster)
+    let fake = try #require(root.fakeAPI)
     root.begin()
     #expect(await eventually { !root.history.memos.isEmpty })
-    root.history.onMemoDone?(Self.finished)
-    switchServer(root)
+    var detail = try await fake.memo(id: Self.finished)
+    detail.memo.state = .acted
+    await fake.seed(detail)
+    fake.emit(.memoUpdated(MemoEvent(id: Self.finished, state: .acted, at: .now)))
+    detail.memo.state = .notified
+    await fake.seed(detail)
+    let done = MemoEvent(id: Self.finished, state: .notified, at: .now)
+    fake.emit(.memoDone(done))
+    #expect(await eventually { await poster.posted.map(\.memoID) == [Self.finished] })
+    fake.emit(.memoDone(done))
     try? await Task.sleep(for: .milliseconds(300))
-    #expect(await poster.posted.isEmpty)
+    #expect(await poster.posted.count == 1)
   }
 }
 
@@ -292,5 +336,70 @@ struct MacConnectionStatusTests {
     #expect(MacConnectionStatus(isConfigured: true, link: .unreachable).hint != nil)
     #expect(MacConnectionStatus(isConfigured: true, link: .rejected).tone == .bad)
     #expect(MacConnectionStatus(isConfigured: true, link: .unknown).tone == .muted)
+  }
+}
+
+@MainActor
+@Suite("Mac server binding")
+struct MacServerBindingTests {
+  private func credentials(_ url: String) throws -> ConnectionCredentials {
+    try #require(ConnectionCredentials(urlText: url, token: "t"))
+  }
+
+  private func fakeRoot() -> MacCompositionRoot {
+    MacCompositionRoot(
+      arguments: [MacCompositionRoot.fakeDataArgument], credentials: InMemoryCredentialStore(),
+      poster: RecordingNotificationPoster())
+  }
+
+  private func switchServer(_ root: MacCompositionRoot, to url: String) {
+    root.connectionForm.urlText = url
+    root.connectionForm.tokenText = "token"
+    root.connectionForm.save()
+  }
+
+  @Test("the capture stack's server key follows the saved connection, and is nil without one")
+  func stackServerKey() throws {
+    let a = try credentials("https://a.example.com")
+    let b = try credentials("https://b.example.com")
+    let root = FileManager.default.temporaryDirectory.appending(path: "iris-mac-bind-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: root) }
+    let log = MacTelemetry.makeDeviceLog(fake: true, credentials: InMemoryCredentialStore())
+    let stack = MacCaptureStack.production(credentials: a, log: log, root: root)
+    #expect(stack.serverKey == a.serverKey)
+    stack.reconnect(b)
+    #expect(stack.serverKey == b.serverKey && b.serverKey != a.serverKey)
+    stack.reconnect(nil)
+    #expect(stack.serverKey == nil)
+  }
+
+  @Test("a History load that is still out when the connection changes is dropped: the old server's list never shows")
+  func staleListAfterASwitch() async throws {
+    let root = fakeRoot()
+    let fake = try #require(root.fakeAPI)
+    await SampleData.seed(fake)
+    let old = root.history
+    let gate = await fake.hold(.listMemos)
+    let loading = Task { await old.load() }
+    await gate.waitUntilHeld()
+    switchServer(root, to: "https://other.example.com")
+    #expect(root.history !== old)
+    gate.release()
+    await loading.value
+    #expect(old.memos.isEmpty && !old.hasLoaded)
+  }
+
+  @Test("a memo created on another server than the one History reads is not inserted; one with no origin is")
+  func insertByOrigin() async throws {
+    let root = fakeRoot()
+    switchServer(root, to: "https://other.example.com")
+    let current = try credentials("https://other.example.com").serverKey
+    let memo = Memo(
+      id: "11111111-2222-4333-8444-555555555555", mode: .auto, device: "mac", startedAt: .now, state: .received,
+      createdAt: .now, updatedAt: .now)
+    root.history.insert(memo, origin: "some-other-server")
+    #expect(root.history.memos.isEmpty)
+    root.history.insert(memo, origin: current)
+    #expect(root.history.memos.map(\.id) == [memo.id])
   }
 }

@@ -7,16 +7,16 @@ import Testing
 @MainActor
 @Suite("Memo notifier")
 struct MemoNotifierTests {
-  private static let now = Date(timeIntervalSince1970: 1_800_000_000)
+  static let now = Date(timeIntervalSince1970: 1_800_000_000)
 
   static let secret = "my secret transcript about the bank account"
 
-  private static func memo(
+  static func memo(
     _ id: String, state: MemoState = .notified, route: String? = "journal",
-    summary: MemoSummary? = MemoSummary(headline: "Buy oat milk", detail: "d", spoken: "s")
+    summary: MemoSummary? = MemoSummary(headline: "Buy oat milk", detail: "d", spoken: "s"), started: Date = now
   ) -> Memo {
     Memo(
-      id: id, mode: .auto, device: "iphone", startedAt: now, state: state, transcript: secret, route: route,
+      id: id, mode: .auto, device: "iphone", startedAt: started, state: state, transcript: secret, route: route,
       replyText: "the reply " + secret, summary: summary, createdAt: now, updatedAt: now)
   }
 
@@ -247,6 +247,377 @@ struct MemoNotifierTests {
     await notifier.memoDone(id: "a")
     #expect(await poster.posted.isEmpty)
     await poster.failNextPosts(0)
+    await notifier.memoDone(id: "a")
+    #expect(await poster.posted.map(\.memoID) == ["a"])
+  }
+}
+
+/// Catch-up, transitions and the banner of a server that is gone (Wave 19 M1).
+@MainActor
+@Suite("Memo notifier: transitions, catch-up, switches")
+struct MemoNotifierCatchUpTests {
+  private static let now = MemoNotifierTests.now
+
+  /// The server as a script: the memos the unfiltered fetch and the per-memo lookup answer from.
+  @MainActor
+  final class Server {
+    var memos: [Memo] = []
+    var fetches = 0
+
+    func memo(_ id: String) -> Memo? { memos.first { $0.id == id } }
+
+    func set(_ id: String, _ state: MemoState) {
+      guard let index = memos.firstIndex(where: { $0.id == id }) else { return }
+      memos[index].state = state
+    }
+  }
+
+  private func rig(
+    _ poster: RecordingNotificationPoster, _ server: Server
+  ) -> MemoNotifier {
+    let notifier = MemoNotifier(
+      poster: poster, connectionID: "c1", lookup: { server.memo($0) }, retryDelays: [.zero, .zero])
+    notifier.fetchRecent = {
+      server.fetches += 1
+      return server.memos
+    }
+    return notifier
+  }
+
+  private func event(_ id: String, _ state: MemoState) -> MemoEvent {
+    MemoEvent(id: id, state: state, at: Self.now)
+  }
+
+  private func memo(_ id: String, _ state: MemoState, minutesAgo: Double = 0) -> Memo {
+    MemoNotifierTests.memo(id, state: state, started: Self.now.addingTimeInterval(-minutesAgo * 60))
+  }
+
+  @Test("a failed memo is announced once, in generic words; a repeated event for it posts nothing")
+  func failedOnce() async {
+    let poster = RecordingNotificationPoster()
+    let server = Server()
+    server.memos = [memo("a", .failed)]
+    let notifier = rig(poster, server)
+    #expect(notifier.noteState(of: event("a", .failed)))
+    await notifier.memoDone(id: "a")
+    #expect(!notifier.noteState(of: event("a", .failed)))
+    await notifier.memoDone(id: "a")
+    let posted = await poster.posted
+    #expect(posted.map(\.title) == ["Memo failed"] && posted.map(\.body) == ["Open Iris to retry it."])
+  }
+
+  @Test(
+    "the transition is what counts: failed, retried, then notified is two banners; a running state clears the record")
+  func transitions() async {
+    let poster = RecordingNotificationPoster()
+    let server = Server()
+    server.memos = [memo("a", .failed)]
+    let notifier = rig(poster, server)
+    _ = notifier.noteState(of: event("a", .failed))
+    await notifier.memoDone(id: "a")
+
+    #expect(!notifier.noteState(of: event("a", .transcribed)))
+    server.set("a", .notified)
+    #expect(notifier.noteState(of: event("a", .notified)))
+    await notifier.memoDone(id: "a")
+    #expect(await poster.posted.map(\.title) == ["Memo failed", "Journal"])
+    #expect(!notifier.noteState(of: event("a", .notified)))
+  }
+
+  @Test("a parked memo announces on entering needs_route, and again as done once it has been routed")
+  func parkedThenDone() async {
+    let poster = RecordingNotificationPoster()
+    let server = Server()
+    server.memos = [memo("a", .needsRoute)]
+    let notifier = rig(poster, server)
+    #expect(notifier.noteState(of: event("a", .needsRoute)))
+    await notifier.memoDone(id: "a")
+    #expect(!notifier.noteState(of: event("a", .needsRoute)))
+    _ = notifier.noteState(of: event("a", .routed))
+    server.set("a", .notified)
+    #expect(notifier.noteState(of: event("a", .notified)))
+    await notifier.memoDone(id: "a")
+    #expect(await poster.posted.map(\.title) == ["Where should this go?", "Journal"])
+  }
+
+  @Test("the event's state is not the answer: a memo that moved on by the time it is fetched is judged by the fetch")
+  func freshStateWins() async {
+    let poster = RecordingNotificationPoster()
+    let server = Server()
+    server.memos = [memo("a", .acted)]
+    let notifier = rig(poster, server)
+    #expect(notifier.noteState(of: event("a", .failed)))
+    await notifier.memoDone(id: "a")
+    #expect(await poster.posted.isEmpty)
+  }
+
+  @Test("the first catch-up of a connection is the baseline: what already finished is not announced")
+  func baselineIsSilent() async {
+    let poster = RecordingNotificationPoster()
+    let server = Server()
+    server.memos = [memo("a", .notified, minutesAgo: 5), memo("b", .failed, minutesAgo: 4), memo("c", .needsRoute)]
+    let notifier = rig(poster, server)
+    #expect(!notifier.hasBaseline)
+    await notifier.catchUp()
+    #expect(notifier.hasBaseline && server.fetches == 1)
+    await notifier.catchUp()
+    #expect(await poster.posted.isEmpty)
+  }
+
+  @Test("a memo that finished, failed or parked while the stream was down is announced once on the next catch-up")
+  func catchUpAnnouncesWhatHappenedMeanwhile() async {
+    let poster = RecordingNotificationPoster()
+    let server = Server()
+    server.memos = [
+      memo("a", .acted, minutesAgo: 3), memo("b", .routed, minutesAgo: 2), memo("c", .transcribed, minutesAgo: 1),
+    ]
+    let notifier = rig(poster, server)
+    await notifier.catchUp()
+    server.set("a", .notified)
+    server.set("b", .needsRoute)
+    server.set("c", .failed)
+    await notifier.catchUp()
+    let posted = await poster.posted
+    #expect(Set(posted.map(\.memoID)) == ["a", "b", "c"] && posted.count == 3)
+    await notifier.catchUp()
+    #expect(await poster.posted.count == 3)
+    // Whatever a banner says, never a word of what was spoken or answered.
+    for banner in posted { #expect(!banner.title.contains("secret") && !banner.body.contains("secret")) }
+    #expect(posted.first { $0.memoID == "b" }?.body == "Open Iris to choose a route.")
+    #expect(posted.first { $0.memoID == "c" }?.body == "Open Iris to retry it.")
+  }
+
+  @Test("a catch-up does not repeat what an event already announced")
+  func catchUpSeesWhatEventsSaid() async {
+    let poster = RecordingNotificationPoster()
+    let server = Server()
+    server.memos = [memo("a", .acted)]
+    let notifier = rig(poster, server)
+    await notifier.catchUp()
+    server.set("a", .notified)
+    #expect(notifier.noteState(of: event("a", .notified)))
+    await notifier.memoDone(id: "a")
+    await notifier.catchUp()
+    #expect(await poster.posted.map(\.memoID) == ["a"])
+  }
+
+  @Test("a memo this connection never saw is new only when it started after the baseline's newest")
+  func unseenMemos() async {
+    let poster = RecordingNotificationPoster()
+    let server = Server()
+    server.memos = [memo("old", .notified, minutesAgo: 30)]
+    let notifier = rig(poster, server)
+    await notifier.catchUp()
+    server.memos.append(memo("new", .notified, minutesAgo: 1))
+    server.memos.append(memo("older", .notified, minutesAgo: 90))
+    await notifier.catchUp()
+    #expect(await poster.posted.map(\.memoID) == ["new"])
+  }
+
+  @Test("an empty server's first memo is new")
+  func emptyBaseline() async {
+    let poster = RecordingNotificationPoster()
+    let server = Server()
+    let notifier = rig(poster, server)
+    await notifier.catchUp()
+    server.memos = [memo("a", .notified)]
+    await notifier.catchUp()
+    #expect(await poster.posted.map(\.memoID) == ["a"])
+  }
+
+  @Test("a long outage is not a wall of banners: the newest few are announced, the rest recorded")
+  func catchUpIsBounded() async {
+    let poster = RecordingNotificationPoster()
+    let server = Server()
+    server.memos = (0..<8).map { memo("m\($0)", .acted, minutesAgo: Double(20 - $0)) }
+    let notifier = rig(poster, server)
+    await notifier.catchUp()
+    for index in 0..<8 { server.set("m\(index)", .notified) }
+    await notifier.catchUp()
+    #expect(await poster.posted.count == MemoNotifier.catchUpLimit)
+    #expect(await poster.posted.map(\.memoID) == ["m7", "m6", "m5", "m4", "m3"])
+    await notifier.catchUp()
+    #expect(await poster.posted.count == MemoNotifier.catchUpLimit)
+  }
+
+  @Test("a memo that is running again after a retry is not announced by a catch-up, and is when it finishes")
+  func retriedMemo() async {
+    let poster = RecordingNotificationPoster()
+    let server = Server()
+    server.memos = [memo("a", .failed)]
+    let notifier = rig(poster, server)
+    await notifier.catchUp()
+    server.set("a", .acted)
+    await notifier.catchUp()
+    server.set("a", .notified)
+    await notifier.catchUp()
+    #expect(await poster.posted.map(\.memoID) == ["a"])
+  }
+
+  @Test("a catch-up whose fetch comes back after a server switch records and posts nothing on the new server")
+  func catchUpAcrossASwitch() async {
+    let poster = RecordingNotificationPoster()
+    let server = Server()
+    server.memos = [memo("a", .acted)]
+    let notifier = rig(poster, server)
+    await notifier.catchUp()
+    server.set("a", .notified)
+    let (opened, open) = AsyncStream<Void>.makeStream()
+    var started = false
+    notifier.fetchRecent = {
+      started = true
+      for await _ in opened { break }
+      return server.memos
+    }
+    let pending = Task { await notifier.catchUp() }
+    #expect(await eventually { started })
+    notifier.reset(connectionID: "c2")
+    open.yield()
+    open.finish()
+    await pending.value
+    #expect(await poster.posted.isEmpty && !notifier.hasBaseline)
+  }
+
+  @Test(
+    "a banner the system takes while the connection switches is taken back, so it never names the old server's memo")
+  func bannerDuringASwitch() async {
+    let poster = RecordingNotificationPoster()
+    await poster.holdPosts(true)
+    let server = Server()
+    server.memos = [memo("a", .notified)]
+    let notifier = rig(poster, server)
+    let pending = Task { await notifier.memoDone(id: "a") }
+    #expect(await eventually { await poster.postsStarted == 1 })
+    notifier.reset(connectionID: "c2")
+    await poster.releasePost()
+    await pending.value
+    #expect(await poster.posted.map(\.connectionID) == ["c1"])
+    #expect(await poster.delivered.isEmpty)
+    // The id is free on the new server, and its banner carries the new connection.
+    await poster.holdPosts(false)
+    await notifier.memoDone(id: "a")
+    #expect(await poster.delivered.map(\.connectionID) == ["c2"])
+  }
+
+  @Test("a server switch takes the old server's banners out of Notification Center")
+  func switchWithdrawsBanners() async {
+    let poster = RecordingNotificationPoster()
+    let server = Server()
+    server.memos = [memo("a", .notified)]
+    let notifier = rig(poster, server)
+    await notifier.memoDone(id: "a")
+    #expect(await poster.delivered.count == 1)
+    notifier.reset(connectionID: "c2")
+    #expect(await eventually { await poster.delivered.isEmpty })
+  }
+
+  @Test("launch takes back banners left by another connection and keeps this one's")
+  func launchWithdrawsForeignBanners() async throws {
+    let poster = RecordingNotificationPoster()
+    let server = Server()
+    let notifier = rig(poster, server)
+    try await poster.post(MemoNotification(memoID: "x", connectionID: "old", title: "t", body: "b"))
+    try await poster.post(MemoNotification(memoID: "y", connectionID: "c1", title: "t", body: "b"))
+    notifier.withdrawForeignBanners()
+    #expect(await eventually { await poster.delivered.map(\.memoID) == ["y"] })
+  }
+
+  @Test("catch-ups run one at a time: a later fetch never becomes the baseline over an earlier one still in flight")
+  func overlappingCatchUps() async {
+    let poster = RecordingNotificationPoster()
+    let server = Server()
+    server.memos = [memo("a", .acted)]
+    let notifier = rig(poster, server)
+    let (opened, open) = AsyncStream<Void>.makeStream()
+    var fetches = 0
+    let running = [memo("a", .acted)]
+    let finishedMeanwhile = [memo("a", .notified)]
+    notifier.fetchRecent = {
+      fetches += 1
+      if fetches == 1 {
+        for await _ in opened { break }
+        return running
+      }
+      return finishedMeanwhile
+    }
+    let first = Task { await notifier.catchUp() }
+    #expect(await eventually { fetches == 1 })
+    let second = Task { await notifier.catchUp() }
+    try? await Task.sleep(for: .milliseconds(100))
+    #expect(fetches == 1, "the second catch-up waits for the first")
+    open.yield()
+    open.finish()
+    await first.value
+    await second.value
+    #expect(fetches == 2)
+    // The first fetch is the baseline (the memo was running), so the second one's finished memo is announced.
+    #expect(await poster.posted.map(\.memoID) == ["a"])
+  }
+
+  @Test(
+    "a retry while a failed memo's banner is being posted does not leave the failure recorded: the next failure announces"
+  )
+  func retryDuringAPost() async {
+    let poster = RecordingNotificationPoster()
+    await poster.holdPosts(true)
+    let server = Server()
+    server.memos = [memo("a", .failed)]
+    let notifier = rig(poster, server)
+    _ = notifier.noteState(of: event("a", .failed))
+    let pending = Task { await notifier.memoDone(id: "a") }
+    #expect(await eventually { await poster.postsStarted == 1 })
+    _ = notifier.noteState(of: event("a", .transcribed))
+    await poster.releasePost()
+    await pending.value
+    await poster.holdPosts(false)
+    #expect(notifier.noteState(of: event("a", .failed)), "a second failure is a new transition")
+    await notifier.memoDone(id: "a")
+    #expect(await poster.posted.count == 2)
+  }
+
+  @Test("a failed first fetch leaves the baseline pending: the next successful one becomes it, silently")
+  func failedFirstFetch() async {
+    let poster = RecordingNotificationPoster()
+    let server = Server()
+    server.memos = [memo("a", .notified, minutesAgo: 5)]
+    let notifier = rig(poster, server)
+    var answer: [Memo]?
+    notifier.fetchRecent = { answer }
+    await notifier.catchUp()
+    #expect(!notifier.hasBaseline)
+    answer = server.memos
+    await notifier.catchUp()
+    let nothingPosted = await poster.posted.isEmpty
+    #expect(notifier.hasBaseline && nothingPosted)
+  }
+
+  @Test("news that arrives while the tries run out gets one more round")
+  func newsDuringTheLastTries() async {
+    let poster = RecordingNotificationPoster()
+    await poster.failNextPosts(3)
+    let server = Server()
+    server.memos = [memo("a", .failed)]
+    let notifier = rig(poster, server)
+    _ = notifier.noteState(of: event("a", .failed))
+    let delivery = Task { await notifier.memoDone(id: "a") }
+    // Asked for again while the first delivery is still going: it is queued, not dropped.
+    await Task.yield()
+    await notifier.memoDone(id: "a")
+    await delivery.value
+    #expect(await poster.posted.map(\.memoID) == ["a"])
+  }
+
+  @Test("a deleted memo that is not announceable is not recorded as done: if it comes back finished, it announces")
+  func deletedRunningMemo() async {
+    let poster = RecordingNotificationPoster()
+    let server = Server()
+    var gone = memo("a", .acted)
+    gone.deletedAt = Self.now
+    server.memos = [gone]
+    let notifier = rig(poster, server)
+    await notifier.memoDone(id: "a")
+    #expect(await poster.posted.isEmpty)
+    server.memos = [memo("a", .notified)]
     await notifier.memoDone(id: "a")
     #expect(await poster.posted.map(\.memoID) == ["a"])
   }

@@ -43,6 +43,7 @@ final class RecordingPanelModel {
   private(set) var phase = Phase.idle {
     didSet {
       if (oldValue != .idle) != (phase != .idle) { onVisibilityChange?(phase != .idle) }
+      if oldValue != phase { onPhaseChange?(phase) }
     }
   }
   /// The input level 0...1 and the last few, newest last, for the waveform.
@@ -51,6 +52,10 @@ final class RecordingPanelModel {
   private(set) var microphones = Microphones()
   /// Told whenever the panel should appear or go (`true` = show).
   @ObservationIgnored var onVisibilityChange: ((Bool) -> Void)?
+  /// Told every new phase (the device log's `mac.panel`).
+  @ObservationIgnored var onPhaseChange: ((Phase) -> Void)?
+  /// Told which control a command came from, before it runs: `hotkey` or `panel` (the device log's `source`).
+  @ObservationIgnored var onCommand: ((String) -> Void)?
 
   static let waveformBars = 36
 
@@ -83,6 +88,7 @@ final class RecordingPanelModel {
 
   /// The hotkey: start when idle (or when a message is up), stop when recording; nothing while a start or stop runs.
   func toggle() {
+    onCommand?("hotkey")
     perform { model in
       switch model.phase {
       case .idle, .failed: await model.begin()
@@ -94,11 +100,13 @@ final class RecordingPanelModel {
 
   /// The panel's Stop button.
   func stop() {
+    onCommand?("panel")
     perform { await $0.finish() }
   }
 
   /// The panel's Cancel button: drops the take, or closes a message.
   func cancel() {
+    onCommand?("panel")
     if case .failed = phase {
       phase = .idle
       return
@@ -108,6 +116,7 @@ final class RecordingPanelModel {
 
   /// Another microphone for the rest of the take; the segment rolls over so each file has one input.
   func select(microphone uid: String) {
+    onCommand?("panel")
     // Queued, never dropped: the last pick is the one the user wants.
     enqueue { model in
       guard model.isRecording, uid != model.microphones.current?.uid else { return }
@@ -245,5 +254,23 @@ final class RecordingPanelModel {
     level = value
     recentLevels.append(value)
     if recentLevels.count > Self.waveformBars { recentLevels.removeFirst(recentLevels.count - Self.waveformBars) }
+  }
+}
+
+extension RecordingPanelModel.Phase {
+  /// The phase's name for the device log: no time, no sentence.
+  var telemetryName: String {
+    switch self {
+    case .idle: "idle"
+    case .starting: "starting"
+    case .recording: "recording"
+    case .stopping: "stopping"
+    case .failed: "failed"
+    }
+  }
+
+  /// Which failure, as the enum case's name; `nil` outside `failed`.
+  var telemetryFailure: String? {
+    if case .failed(let failure) = self { failure.telemetryName } else { nil }
   }
 }

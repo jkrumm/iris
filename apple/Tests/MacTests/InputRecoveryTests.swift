@@ -1,0 +1,189 @@
+import Foundation
+import IrisCapture
+import Testing
+
+@testable import IrisMac
+
+/// The original default input survives a kill: the wrapper writes it down before a pick, `recover` puts it back at launch.
+@Suite("Mac input recovery")
+struct InputRecoveryTests {
+  private let builtIn = FakeAudioDeviceDirectory.builtIn
+  private let usb = FakeAudioDeviceDirectory.usb
+
+  private func rig() -> (
+    devices: FakeAudioDeviceDirectory, store: InMemoryInputRecoveryStore, routes: RecoveringRouteManager
+  ) {
+    let devices = FakeAudioDeviceDirectory()
+    let store = InMemoryInputRecoveryStore()
+    let inner = DirectoryRouteManager(directory: devices, suiteName: "iris.mac.tests.\(UUID().uuidString)")
+    return (devices, store, RecoveringRouteManager(inner, store: store))
+  }
+
+  @Test("a pick writes the original down before it changes the default")
+  func pickRecordsTheOriginal() async throws {
+    let (devices, store, routes) = rig()
+    try await routes.setPreferredInput(uid: usb.uid)
+    #expect(devices.defaultInput()?.uid == usb.uid)
+    #expect(store.load() == InputRecovery(original: builtIn.uid, chosen: usb.uid, replaced: builtIn.uid))
+  }
+
+  @Test("a second pick keeps the first original")
+  func secondPickKeepsTheOriginal() async throws {
+    let (devices, store, routes) = rig()
+    try await routes.setPreferredInput(uid: usb.uid)
+    try await routes.setPreferredInput(uid: builtIn.uid)
+    #expect(devices.defaultInput()?.uid == builtIn.uid)
+    #expect(store.load() == InputRecovery(original: builtIn.uid, chosen: builtIn.uid, replaced: usb.uid))
+  }
+
+  @Test("the restore at the end of a take clears the record")
+  func restoreClearsTheRecord() async throws {
+    let (devices, store, routes) = rig()
+    try await routes.setPreferredInput(uid: usb.uid)
+    try await routes.setPreferredInput(uid: nil)
+    #expect(devices.defaultInput()?.uid == builtIn.uid)
+    #expect(store.load() == nil)
+  }
+
+  @Test("picking the default that is already set writes nothing")
+  func samePickWritesNothing() async throws {
+    let (_, store, routes) = rig()
+    try await routes.setPreferredInput(uid: builtIn.uid)
+    #expect(store.load() == nil)
+  }
+
+  @Test("a pick that throws leaves no record behind")
+  func failedPickLeavesNoRecord() async {
+    let (devices, store, routes) = rig()
+    devices.failSetting("denied")
+    await #expect(throws: CaptureError.self) { try await routes.setPreferredInput(uid: usb.uid) }
+    #expect(store.load() == nil)
+    #expect(devices.defaultInput()?.uid == builtIn.uid)
+  }
+
+  @Test("a kill mid-take: the next launch puts the original input back")
+  func launchRestoresAfterAKill() async throws {
+    let (devices, store, routes) = rig()
+    try await routes.setPreferredInput(uid: usb.uid)
+    // The process dies here: a new run has the device list and the store, nothing else.
+    #expect(RecoveringRouteManager.recover(store: store, directory: devices) == .restored)
+    #expect(devices.defaultInput()?.uid == builtIn.uid)
+    #expect(store.load() == nil)
+  }
+
+  private let other = InputPort(uid: "fake-mac-other", name: "Other", kind: .other)
+
+  @Test("a second pick killed before the system call: the default is still the first pick, and the original comes back")
+  func killBeforeTheSecondSwitch() async throws {
+    let devices = FakeAudioDeviceDirectory(inputs: [builtIn, usb, other])
+    let store = InMemoryInputRecoveryStore()
+    let routes = RecoveringRouteManager(
+      DirectoryRouteManager(directory: devices, suiteName: "iris.mac.tests.\(UUID().uuidString)"), store: store)
+    try await routes.setPreferredInput(uid: usb.uid)
+    // The record of the next pick is on disk, the call that makes `other` the default never ran.
+    store.save(InputRecovery(original: builtIn.uid, chosen: other.uid, replaced: usb.uid))
+    #expect(devices.defaultInput()?.uid == usb.uid)
+    #expect(RecoveringRouteManager.recover(store: store, directory: devices) == .restored)
+    #expect(devices.defaultInput()?.uid == builtIn.uid)
+  }
+
+  @Test("a second pick killed after the system call: the default is the second pick, and the original comes back")
+  func killAfterTheSecondSwitch() async throws {
+    let devices = FakeAudioDeviceDirectory(inputs: [builtIn, usb, other])
+    let store = InMemoryInputRecoveryStore()
+    let routes = RecoveringRouteManager(
+      DirectoryRouteManager(directory: devices, suiteName: "iris.mac.tests.\(UUID().uuidString)"), store: store)
+    try await routes.setPreferredInput(uid: usb.uid)
+    try await routes.setPreferredInput(uid: other.uid)
+    #expect(store.load() == InputRecovery(original: builtIn.uid, chosen: other.uid, replaced: usb.uid))
+    #expect(RecoveringRouteManager.recover(store: store, directory: devices) == .restored)
+    #expect(devices.defaultInput()?.uid == builtIn.uid)
+  }
+
+  @Test("a record from before the replaced field existed still recovers on the chosen side")
+  func recordWithoutReplaced() throws {
+    let devices = FakeAudioDeviceDirectory()
+    let store = InMemoryInputRecoveryStore()
+    try devices.setDefaultInput(uid: usb.uid)
+    store.save(InputRecovery(original: builtIn.uid, chosen: usb.uid))
+    #expect(RecoveringRouteManager.recover(store: store, directory: devices) == .restored)
+    #expect(devices.defaultInput()?.uid == builtIn.uid)
+  }
+
+  @Test("a default somebody else chose since is left alone")
+  func launchLeavesSomebodyElsesChoice() async throws {
+    let (devices, store, routes) = rig()
+    try await routes.setPreferredInput(uid: usb.uid)
+    devices.setDevices([builtIn, usb, other])
+    try devices.setDefaultInput(uid: other.uid)
+    #expect(RecoveringRouteManager.recover(store: store, directory: devices) == .dropped)
+    #expect(devices.defaultInput()?.uid == other.uid)
+    #expect(store.load() == nil)
+  }
+
+  @Test("the original device is not attached yet: the record stays, and restores once it shows up")
+  func launchKeepsTheRecordUntilTheOriginalIsAttached() async throws {
+    let (devices, store, routes) = rig()
+    try await routes.setPreferredInput(uid: usb.uid)
+    devices.setDevices([usb])
+    #expect(RecoveringRouteManager.recover(store: store, directory: devices) == .pending)
+    #expect(store.load() != nil && devices.defaultInput()?.uid == usb.uid)
+    devices.setDevices([builtIn, usb])
+    #expect(RecoveringRouteManager.recover(store: store, directory: devices) == .restored)
+    #expect(devices.defaultInput()?.uid == builtIn.uid)
+  }
+
+  @Test("a take without a pick does not clear a record an earlier run left: the next launch still restores")
+  func takeWithoutAPickKeepsTheOldRecord() async throws {
+    let devices = FakeAudioDeviceDirectory()
+    let store = InMemoryInputRecoveryStore()
+    try devices.setDefaultInput(uid: usb.uid)
+    store.save(InputRecovery(original: builtIn.uid, chosen: usb.uid, replaced: builtIn.uid))
+    devices.failSetting("busy")
+    #expect(RecoveringRouteManager.recover(store: store, directory: devices) == .failed)
+    devices.failSetting(nil)
+    // The next take picks nothing and ends: the restore call finds nothing of this process to put back.
+    let routes = RecoveringRouteManager(
+      DirectoryRouteManager(directory: devices, suiteName: "iris.mac.tests.\(UUID().uuidString)"), store: store)
+    try await routes.setPreferredInput(uid: nil)
+    #expect(store.load() != nil)
+    #expect(RecoveringRouteManager.recover(store: store, directory: devices) == .restored)
+    #expect(devices.defaultInput()?.uid == builtIn.uid)
+  }
+
+  @Test("a pick whose restore ran in this process ends its own record")
+  func ownRestoreEndsTheRecord() async throws {
+    let (devices, store, routes) = rig()
+    try await routes.setPreferredInput(uid: usb.uid)
+    try await routes.setPreferredInput(uid: nil)
+    try await routes.setPreferredInput(uid: nil)
+    #expect(store.load() == nil && devices.defaultInput()?.uid == builtIn.uid)
+  }
+
+  @Test("a restore that fails keeps the record for the next launch")
+  func failedRestoreKeepsTheRecord() async throws {
+    let (devices, store, routes) = rig()
+    try await routes.setPreferredInput(uid: usb.uid)
+    devices.failSetting("busy")
+    #expect(RecoveringRouteManager.recover(store: store, directory: devices) == .failed)
+    #expect(store.load() != nil)
+    devices.failSetting(nil)
+    #expect(RecoveringRouteManager.recover(store: store, directory: devices) == .restored)
+  }
+
+  @Test("no record, nothing to do")
+  func launchWithoutRecord() {
+    let (devices, store, _) = rig()
+    #expect(RecoveringRouteManager.recover(store: store, directory: devices) == .none)
+  }
+
+  @Test("the UserDefaults store round-trips a record")
+  func userDefaultsRoundTrip() {
+    let store = UserDefaultsInputRecoveryStore(suiteName: "iris.mac.tests.\(UUID().uuidString)")
+    #expect(store.load() == nil)
+    store.save(InputRecovery(original: "a", chosen: "b"))
+    #expect(store.load() == InputRecovery(original: "a", chosen: "b"))
+    store.clear()
+    #expect(store.load() == nil)
+  }
+}

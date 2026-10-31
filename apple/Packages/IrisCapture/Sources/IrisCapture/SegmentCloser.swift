@@ -8,6 +8,9 @@
   /// - A segment is published only after its writer has finished and the file reads back.
   /// - A file that ends where the encoder stopped (the writer reported an error) is published with the duration it really
   ///   holds, followed by `.failed`: the take ends there, with that prefix.
+  /// - A finish that does not return within `finishLimit` (`AVAssetWriter.finishWriting` can hang) fails that close like any other:
+  ///   nothing is published for it and the take ends there. The file stays where it is, never deleted and never read while its
+  ///   writer may still be changing it (the next launch's sweep adopts it); the hung call is left to finish or not.
   /// - After any failed close no later segment of the take is published (the outbox would wait for the missing index, and
   ///   the memo would claim audio it does not hold). Their writers are still finished and their files stay on disk for the next
   ///   launch's sweep. Nothing is deleted.
@@ -21,14 +24,57 @@
   }
 
   final class SegmentCloser: Sendable {
+    /// The writer drains for at most 5 s, and a healthy `finishWriting` takes milliseconds.
+    static let defaultFinishLimit: Duration = .seconds(30)
+
     private let emit: @Sendable (CaptureEvent) -> Void
     private let sampleRate: Int
+    private let finishLimit: Duration
     private let halted = Mutex(false)
     private let chain = Mutex<Task<Void, Never>?>(nil)
 
-    init(sampleRate: Int, emit: @escaping @Sendable (CaptureEvent) -> Void) {
+    init(
+      sampleRate: Int, finishLimit: Duration = SegmentCloser.defaultFinishLimit,
+      emit: @escaping @Sendable (CaptureEvent) -> Void
+    ) {
       self.sampleRate = sampleRate
+      self.finishLimit = finishLimit
       self.emit = emit
+    }
+
+    /// Whichever of the finish and the timer answers first resumes the waiter; the other is ignored.
+    private final class Race: Sendable {
+      private let answered = Mutex(false)
+      /// `true` for the first caller only.
+      func claim() -> Bool {
+        answered.withLock { done in
+          guard !done else { return false }
+          done = true
+          return true
+        }
+      }
+    }
+
+    /// The segment's finish, or a failed outcome once `finishLimit` has passed. Not a task group: a group waits for its
+    /// children, and a finish that never returns would hold it for ever.
+    private func finishBounded(_ segment: any ClosableSegment) async -> SegmentWriter.Outcome {
+      let race = Race()
+      return await withCheckedContinuation { continuation in
+        // Owned by the race: the finish ends when the writer answers (a hung one keeps running, harmlessly), the timer when the
+        // finish wins or after its own firing.
+        let timer = Task { [finishLimit] in
+          do { try await Task.sleep(for: finishLimit) } catch { return }
+          guard race.claim() else { return }
+          continuation.resume(
+            returning: SegmentWriter.Outcome(byteCount: 0, readableFrames: 0, error: "finishWriting did not return"))
+        }
+        Task {
+          let outcome = await segment.finish()
+          guard race.claim() else { return }
+          timer.cancel()
+          continuation.resume(returning: outcome)
+        }
+      }
     }
 
     /// A new take publishes again.
@@ -57,7 +103,7 @@
     private func run(
       _ segment: any ClosableSegment, index: Int, memoID: MemoID, duration: TimeInterval, reason: RotationReason
     ) async {
-      let outcome = await segment.finish()
+      let outcome = await finishBounded(segment)
       if let error = outcome.error { Log.capture.error("segment \(index) finish: \(error, privacy: .public)") }
       if halted.withLock({ $0 }) {
         Log.capture.error("segment \(index) left on disk: an earlier segment of the take did not close")

@@ -157,6 +157,14 @@ targets:
       - Iris/APIOutboxUploader.swift
       - Iris/OutboxService.swift
       - Iris/QueuedItem.swift
+      # The device log (Wave 19 M1): the iPhone's `DeviceLog`, its capture-event mapping, the upload observer and the credentialed
+      # transport are compiled in as they are (`MacTelemetry` builds the log for `iris-macos`). `DeviceLog` names the intent sink,
+      # so the intent event types come along.
+      - Iris/DeviceLog.swift
+      - Iris/DeviceLogCaptureEvents.swift
+      - Iris/TelemetryBootstrap.swift
+      - Iris/ObservedSegmentUploader.swift
+      - Iris/Intents/IntentEvents.swift
     entitlements:
       path: IrisMac/IrisMac.entitlements
       properties:
