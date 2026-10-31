@@ -33,6 +33,47 @@ private struct ScriptedStopRecorder: SegmentRecorder {
   func fail(reason: String) async { await base.fail(reason: reason) }
 }
 
+private actor Latch {
+  private var isOpen = false
+  private var waiters: [CheckedContinuation<Void, Never>] = []
+  private var arrivalWaiters: [CheckedContinuation<Void, Never>] = []
+  private var arrived = false
+
+  func open() {
+    isOpen = true
+    for waiter in waiters { waiter.resume() }
+    waiters = []
+  }
+
+  func wait() async {
+    arrived = true
+    for waiter in arrivalWaiters { waiter.resume() }
+    arrivalWaiters = []
+    guard !isOpen else { return }
+    await withCheckedContinuation { waiters.append($0) }
+  }
+
+  func waitForArrival() async {
+    guard !arrived else { return }
+    await withCheckedContinuation { arrivalWaiters.append($0) }
+  }
+}
+
+/// A session whose `deactivate()` waits for the test, to hold a deactivation in the middle.
+private struct SlowDeactivateSession: AudioSessionController {
+  let base: FakeAudioSessionController
+  let latch: Latch
+
+  var interruptions: AsyncStream<InterruptionEvent> { base.interruptions }
+  func configure() async throws { try await base.configure() }
+  func activate() async throws { try await base.activate() }
+
+  func deactivate() async throws {
+    await latch.wait()
+    await base.deactivate()
+  }
+}
+
 struct StopTrackingTests {
   private let request = TakeRequest(mode: "auto", title: "Voice memo")
 
@@ -96,6 +137,36 @@ struct StopTrackingTests {
     rig.release.finish()  // the stop returns
     for _ in 0..<400 where await rig.fake.session.isActive { try await Task.sleep(for: .milliseconds(5)) }
     #expect(await !rig.fake.session.isActive, "and the session goes with it")
+    await rig.session.shutdown()
+    await rig.harness.outbox.shutdown()
+  }
+
+  @Test func aDeferredDeactivationIsSerialisedWithTheNextStartNotRacedAgainstIt() async throws {
+    let directory = try temporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let latch = Latch()
+    let rig = try await rig(directory, ending: .waitsForRelease) { SlowDeactivateSession(base: $0, latch: latch) }
+    try await rig.session.start(request)
+    await rig.fake.record(seconds: 12)
+    let stopping = Task { try await rig.session.stop() }
+    for _ in 0..<400 where await rig.session.current.phase != .stopping { try await Task.sleep(for: .milliseconds(5)) }
+    for _ in 0..<400 where await rig.session.current.phase == .stopping {
+      await rig.harness.clock.advance(by: 11)  // the stop is given up on
+      try await Task.sleep(for: .milliseconds(5))
+    }
+    _ = try await stopping.value
+    #expect(await rig.fake.session.isActive, "deactivation waits for the hung stop")
+
+    rig.release.finish()  // the stop returns: the deferred deactivation starts and parks inside `deactivate()`
+    await latch.waitForArrival()
+    let starting = Task { try await rig.session.start(request) }
+    try await Task.sleep(for: .milliseconds(50))  // a start that is not behind the deactivation would activate by now
+    await latch.open()
+    try await starting.value
+
+    #expect(await rig.session.current.phase == .recording)
+    try await Task.sleep(for: .milliseconds(50))
+    #expect(await rig.fake.session.isActive, "the new take's activation is not undone by the old deactivation")
     await rig.session.shutdown()
     await rig.harness.outbox.shutdown()
   }
