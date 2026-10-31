@@ -24,6 +24,10 @@ settings:
     # Signing is injected per invocation (simulator builds pass CODE_SIGNING_ALLOWED=NO; device and TestFlight
     # builds pass DEVELOPMENT_TEAM). No team id is tracked here.
     CODE_SIGN_STYLE: Automatic
+    # String catalogs (TDD §4 "Localization"): the compiler extracts every localizable literal of every target, and
+    # `scripts/check-strings.ts` holds the catalogs to it.
+    SWIFT_EMIT_LOC_STRINGS: YES
+    LOCALIZATION_PREFERS_STRING_CATALOGS: YES
 
 packages:
   IrisCore:

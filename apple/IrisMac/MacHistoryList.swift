@@ -78,13 +78,27 @@ struct MacHistoryList: View {
     .accessibilityIdentifier("mac.history.row")
     .listRowBackground(HistoryRowBackground(needsAttention: memo.isOpenNeedsRoute))
     .contextMenu {
-      Button(memo.done ? "Not done" : "Done", systemImage: "checkmark") {
+      Button(
+        memo.done
+          ? String(localized: "Not done", comment: "Context menu") : String(localized: "Done", comment: "Context menu"),
+        systemImage: "checkmark"
+      ) {
         act(on: memo) { await $0.toggleDone($1) }
       }
-      Button(memo.favorite ? "Unfavorite" : "Favorite", systemImage: memo.favorite ? "star.slash" : "star") {
+      Button(
+        memo.favorite
+          ? String(localized: "Unfavorite", comment: "Context menu")
+          : String(localized: "Favorite", comment: "Context menu"),
+        systemImage: memo.favorite ? "star.slash" : "star"
+      ) {
         act(on: memo) { await $0.toggleFavorite($1) }
       }
-      Button(memo.archived ? "Unarchive" : "Archive", systemImage: memo.archived ? "tray.and.arrow.up" : "archivebox") {
+      Button(
+        memo.archived
+          ? String(localized: "Unarchive", comment: "Context menu")
+          : String(localized: "Archive", comment: "Context menu"),
+        systemImage: memo.archived ? "tray.and.arrow.up" : "archivebox"
+      ) {
         act(on: memo) { await $0.toggleArchived($1) }
       }
       if memo.state.isDeletable {

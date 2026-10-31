@@ -1,6 +1,556 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "%@ (partial)" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ (unvollständig)"
+          }
+        }
+      }
+    },
+    "%@ / memo" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ / Memo"
+          }
+        }
+      }
+    },
+    "%@ / wk" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ / Wo."
+          }
+        }
+      }
+    },
+    "%@ is not available on the server right now. Pick another destination." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ ist auf dem Server gerade nicht verfügbar. Ein anderes Ziel wählen."
+          }
+        }
+      }
+    },
+    "%@ · %@ of audio" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ · %2$@ Audio"
+          }
+        }
+      }
+    },
+    "%@%lld %% vs prior" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@%2$lld %% ggü. Vorzeitraum"
+          }
+        }
+      }
+    },
+    "%lld attempts" : {
+      "localizations" : {
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld attempt"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld attempts"
+                }
+              }
+            }
+          }
+        },
+        "de" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld Versuch"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld Versuche"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "%lld characters" : {
+      "localizations" : {
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld character"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld characters"
+                }
+              }
+            }
+          }
+        },
+        "de" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld Zeichen"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld Zeichen"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "%lld earlier memos are still sending" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld frühere Memos werden noch gesendet"
+          }
+        }
+      }
+    },
+    "%lld files · %@" : {
+      "localizations" : {
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld file · %@"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld files · %@"
+                }
+              }
+            }
+          }
+        },
+        "de" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld Datei · %@"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld Dateien · %@"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "%lld memos" : {
+      "localizations" : {
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld memo"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld memos"
+                }
+              }
+            }
+          }
+        },
+        "de" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld Memo"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld Memos"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "%lld memos today" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld Memos heute"
+          }
+        }
+      }
+    },
+    "%lld of %lld characters" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$lld von %2$lld Zeichen"
+          }
+        }
+      }
+    },
+    "%lld segments" : {
+      "localizations" : {
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld segment"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld segments"
+                }
+              }
+            }
+          }
+        },
+        "de" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld Segment"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld Segmente"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "%lld sending" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld werden gesendet"
+          }
+        }
+      }
+    },
+    "%lld tabs live" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld Tabs aktiv"
+          }
+        }
+      }
+    },
+    "+%lld %% slower" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "+%lld %% langsamer"
+          }
+        }
+      }
+    },
+    "1 earlier memo is still sending" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "1 früheres Memo wird noch gesendet"
+          }
+        }
+      }
+    },
+    "1 memo today" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "1 Memo heute"
+          }
+        }
+      }
+    },
+    "1 tab live" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "1 Tab aktiv"
+          }
+        }
+      }
+    },
+    "A conversation with your agent" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Eine Unterhaltung mit dem Agenten"
+          }
+        }
+      }
+    },
+    "A mode you pick wins over spoken words. With neither, Iris decides, and asks you when it is under 80 %% sure." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ein gewählter Modus hat Vorrang vor gesprochenen Wörtern. Ohne beides entscheidet Iris und fragt nach, wenn die Sicherheit unter 80 %% liegt."
+          }
+        }
+      }
+    },
+    "A note in the brain inbox" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Eine Notiz im Brain-Eingang"
+          }
+        }
+      }
+    },
+    "A plain conversation: an answer, no todo, no journal." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Eine einfache Unterhaltung: eine Antwort, keine Aufgabe, kein Journal."
+          }
+        }
+      }
+    },
+    "A reset renamed the unreadable outbox file instead of deleting it. Share it to have the queue looked at." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Beim Zurücksetzen wurde die unlesbare Warteschlangen-Datei umbenannt statt gelöscht. Teilen, um die Warteschlange prüfen zu lassen."
+          }
+        }
+      }
+    },
+    "A route you have connected to before keeps its rule. Change it here without being connected to it." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Eine Route, mit der schon einmal eine Verbindung bestand, behält ihre Regel. Sie lässt sich hier ändern, ohne verbunden zu sein."
+          }
+        }
+      }
+    },
+    "Act" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ausführen"
+          }
+        }
+      }
+    },
+    "Acted" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ausgeführt"
+          }
+        }
+      }
+    },
+    "Acting" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wird ausgeführt"
+          }
+        }
+      }
+    },
+    "Add your server URL and device token to see your memos." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Server-URL und Geräte-Token hinzufügen, um die Memos zu sehen."
+          }
+        }
+      }
+    },
+    "AirPods microphone" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "AirPods-Mikrofon"
+          }
+        }
+      }
+    },
+    "Another reply is still loading. Try again in a moment." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Eine andere Antwort lädt noch. In einem Moment erneut versuchen."
+          }
+        }
+      }
+    },
+    "Appended to today's journal." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wird an das heutige Journal angehängt."
+          }
+        }
+      }
+    },
+    "Archive" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Archivieren"
+          }
+        }
+      }
+    },
+    "Archived" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Archiviert"
+          }
+        }
+      }
+    },
+    "Asking Hermes…" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hermes wird gefragt …"
+          }
+        }
+      }
+    },
+    "Audio routes" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Audiorouten"
+          }
+        }
+      }
+    },
+    "Auto" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Auto"
+          }
+        }
+      }
+    },
+    "Automatic" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Automatisch"
+          }
+        }
+      }
+    },
+    "Available" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Verfügbar"
+          }
+        }
+      }
+    },
     "Average per week over %lld weeks." : {
       "comment" : "Stats trends footnote",
       "localizations" : {
@@ -35,6 +585,36 @@
         }
       }
     },
+    "Back to the app" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zurück zur App"
+          }
+        }
+      }
+    },
+    "Busiest" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aktivster Tag"
+          }
+        }
+      }
+    },
+    "Cancel" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Abbrechen"
+          }
+        }
+      }
+    },
     "Change against the 7 days before." : {
       "comment" : "Stats trends footnote",
       "localizations" : {
@@ -48,6 +628,1556 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Change against the 7 days before."
+          }
+        }
+      }
+    },
+    "Chat" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Chat"
+          }
+        }
+      }
+    },
+    "Chat message" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Chat-Nachricht"
+          }
+        }
+      }
+    },
+    "Chats" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Chats"
+          }
+        }
+      }
+    },
+    "Checking…" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wird geprüft …"
+          }
+        }
+      }
+    },
+    "Choose a route…" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Route wählen …"
+          }
+        }
+      }
+    },
+    "Choose mode…" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Modus wählen …"
+          }
+        }
+      }
+    },
+    "Clear search" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Suche löschen"
+          }
+        }
+      }
+    },
+    "Connect Iris to your server in Settings first." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zuerst in den Einstellungen Iris mit dem Server verbinden."
+          }
+        }
+      }
+    },
+    "Connected" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Verbunden"
+          }
+        }
+      }
+    },
+    "Connected now" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Jetzt verbunden"
+          }
+        }
+      }
+    },
+    "Connection" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Verbindung"
+          }
+        }
+      }
+    },
+    "Continues this conversation." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Setzt diese Unterhaltung fort."
+          }
+        }
+      }
+    },
+    "Conversation" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Unterhaltung"
+          }
+        }
+      }
+    },
+    "Copied" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kopiert"
+          }
+        }
+      }
+    },
+    "Copy" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kopieren"
+          }
+        }
+      }
+    },
+    "Copy a memo id for debugging" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Memo-ID zum Debuggen kopieren"
+          }
+        }
+      }
+    },
+    "Copy memo id" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Memo-ID kopieren"
+          }
+        }
+      }
+    },
+    "Correct the route" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Route korrigieren"
+          }
+        }
+      }
+    },
+    "Cost · %lld d" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kosten · %lld T."
+          }
+        }
+      }
+    },
+    "Could not delete the memo" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Das Memo ließ sich nicht löschen"
+          }
+        }
+      }
+    },
+    "Could not load memos" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Memos ließen sich nicht laden"
+          }
+        }
+      }
+    },
+    "Could not load stats" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Statistik ließ sich nicht laden"
+          }
+        }
+      }
+    },
+    "Could not load the conversation" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Die Unterhaltung ließ sich nicht laden"
+          }
+        }
+      }
+    },
+    "Could not queue the memo. Your text is still here." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Das Memo ließ sich nicht einreihen. Der Text ist noch da."
+          }
+        }
+      }
+    },
+    "Could not reach the server. Try again." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Der Server ist nicht erreichbar. Erneut versuchen."
+          }
+        }
+      }
+    },
+    "Could not restore the memo" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Das Memo ließ sich nicht wiederherstellen"
+          }
+        }
+      }
+    },
+    "Could not retry the memo" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Das Memo ließ sich nicht wiederholen"
+          }
+        }
+      }
+    },
+    "Could not send the voice reply" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Die Sprachantwort ließ sich nicht senden"
+          }
+        }
+      }
+    },
+    "Could not start recording" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aufnahme ließ sich nicht starten"
+          }
+        }
+      }
+    },
+    "Could not store the token in the Keychain." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Das Token ließ sich nicht im Schlüsselbund sichern."
+          }
+        }
+      }
+    },
+    "Could not switch the microphone." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Das Mikrofon ließ sich nicht wechseln."
+          }
+        }
+      }
+    },
+    "Could not update the memo" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Das Memo ließ sich nicht aktualisieren"
+          }
+        }
+      }
+    },
+    "Days" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tage"
+          }
+        }
+      }
+    },
+    "Degraded" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Eingeschränkt"
+          }
+        }
+      }
+    },
+    "Degraded · %@" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Eingeschränkt · %@"
+          }
+        }
+      }
+    },
+    "Delete" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Löschen"
+          }
+        }
+      }
+    },
+    "Destination" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ziel"
+          }
+        }
+      }
+    },
+    "Destinations" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ziele"
+          }
+        }
+      }
+    },
+    "Device token" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Geräte-Token"
+          }
+        }
+      }
+    },
+    "Diagnostics" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Diagnose"
+          }
+        }
+      }
+    },
+    "Diagram" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Diagramm"
+          }
+        }
+      }
+    },
+    "Discard" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Verwerfen"
+          }
+        }
+      }
+    },
+    "Discard this recording?" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Diese Aufnahme verwerfen?"
+          }
+        }
+      }
+    },
+    "Discarded memo" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Verworfenes Memo"
+          }
+        }
+      }
+    },
+    "Done" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Erledigt"
+          }
+        }
+      }
+    },
+    "Enter an https address and a token." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Eine https-Adresse und ein Token eingeben."
+          }
+        }
+      }
+    },
+    "Enter the server URL and this device's token to connect." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Server-URL und Token dieses Geräts eingeben, um sich zu verbinden."
+          }
+        }
+      }
+    },
+    "Failed" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Fehlgeschlagen"
+          }
+        }
+      }
+    },
+    "Failed · %@" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Fehlgeschlagen · %@"
+          }
+        }
+      }
+    },
+    "Favorite" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Favorit"
+          }
+        }
+      }
+    },
+    "Favorites" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Favoriten"
+          }
+        }
+      }
+    },
+    "Filter" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Filter"
+          }
+        }
+      }
+    },
+    "Herdr tab" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Herdr-Tab"
+          }
+        }
+      }
+    },
+    "Hermes" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hermes"
+          }
+        }
+      }
+    },
+    "History" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Verlauf"
+          }
+        }
+      }
+    },
+    "Iris cannot open its outbox right now, so it cannot record." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Iris kann die Warteschlange gerade nicht öffnen und daher nicht aufnehmen."
+          }
+        }
+      }
+    },
+    "Iris could not discard the recording." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Iris konnte die Aufnahme nicht verwerfen."
+          }
+        }
+      }
+    },
+    "Iris could not start recording." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Iris konnte die Aufnahme nicht starten."
+          }
+        }
+      }
+    },
+    "Iris could not stop the recording." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Iris konnte die Aufnahme nicht beenden."
+          }
+        }
+      }
+    },
+    "Iris decides where it goes, and asks when it is unsure." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Iris entscheidet, wohin es geht, und fragt bei Unsicherheit nach."
+          }
+        }
+      }
+    },
+    "Iris is not ready to play yet." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Iris ist noch nicht bereit zum Abspielen."
+          }
+        }
+      }
+    },
+    "Iris is not ready to record yet." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Iris ist noch nicht bereit zum Aufnehmen."
+          }
+        }
+      }
+    },
+    "Iris needs microphone access to record." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Iris braucht Mikrofonzugriff, um aufzunehmen."
+          }
+        }
+      }
+    },
+    "Journal" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Journal"
+          }
+        }
+      }
+    },
+    "Kept on this device" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Auf diesem Gerät aufbewahrt"
+          }
+        }
+      }
+    },
+    "Last %lld weeks · %@" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Letzte %lld Wochen · %@"
+          }
+        }
+      }
+    },
+    "Last 7 days · %@" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Letzte 7 Tage · %@"
+          }
+        }
+      }
+    },
+    "Live tabs" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aktive Tabs"
+          }
+        }
+      }
+    },
+    "Log correction" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Korrektur festhalten"
+          }
+        }
+      }
+    },
+    "Looking for live tabs…" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Suche aktive Tabs …"
+          }
+        }
+      }
+    },
+    "Memo" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Memo"
+          }
+        }
+      }
+    },
+    "Memo deleted" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Memo gelöscht"
+          }
+        }
+      }
+    },
+    "Memos" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Memos"
+          }
+        }
+      }
+    },
+    "Memos in the last eight weeks show up here." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Memos der letzten acht Wochen erscheinen hier."
+          }
+        }
+      }
+    },
+    "Memos per route" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Memos pro Route"
+          }
+        }
+      }
+    },
+    "Memos per route. %@" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Memos pro Route. %@"
+          }
+        }
+      }
+    },
+    "Microphone" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mikrofon"
+          }
+        }
+      }
+    },
+    "Needs a route" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Route erforderlich"
+          }
+        }
+      }
+    },
+    "Needs route" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Route nötig"
+          }
+        }
+      }
+    },
+    "New memo" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Neues Memo"
+          }
+        }
+      }
+    },
+    "No memo matches these filters." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kein Memo passt zu diesen Filtern."
+          }
+        }
+      }
+    },
+    "No memos" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Keine Memos"
+          }
+        }
+      }
+    },
+    "No memos yet" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Noch keine Memos"
+          }
+        }
+      }
+    },
+    "No memos yet." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Noch keine Memos."
+          }
+        }
+      }
+    },
+    "Not configured" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nicht eingerichtet"
+          }
+        }
+      }
+    },
+    "Not connected" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nicht verbunden"
+          }
+        }
+      }
+    },
+    "Not done" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nicht erledigt"
+          }
+        }
+      }
+    },
+    "Not set up" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nicht eingerichtet"
+          }
+        }
+      }
+    },
+    "Nothing is sent." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Es wird nichts gesendet."
+          }
+        }
+      }
+    },
+    "Nothing waiting. Memos and chat messages that cannot be sent yet queue here." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nichts wartet. Memos und Chat-Nachrichten, die noch nicht gesendet werden können, erscheinen hier."
+          }
+        }
+      }
+    },
+    "Nothing was recorded." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Es wurde nichts aufgenommen."
+          }
+        }
+      }
+    },
+    "Notify" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Benachrichtigen"
+          }
+        }
+      }
+    },
+    "Now connected · %@" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Jetzt verbunden · %@"
+          }
+        }
+      }
+    },
+    "OK" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "OK"
+          }
+        }
+      }
+    },
+    "One word for a round of testing. Every device log record carries it, so one filter finds the whole round." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ein Wort für eine Testrunde. Jeder Geräte-Logeintrag trägt es, ein Filter findet also die ganze Runde."
+          }
+        }
+      }
+    },
+    "Only the transcript: nothing is routed, answered or summarized." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nur das Transkript: nichts wird geroutet, beantwortet oder zusammengefasst."
+          }
+        }
+      }
+    },
+    "Open Iris and start a voice memo." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Iris öffnen und ein Sprachmemo starten."
+          }
+        }
+      }
+    },
+    "Open Settings" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Einstellungen öffnen"
+          }
+        }
+      }
+    },
+    "Opens the recording" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Öffnet die Aufnahme"
+          }
+        }
+      }
+    },
+    "Optional · the memo is done without it" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Optional · das Memo wird auch ohne ihn fertig"
+          }
+        }
+      }
+    },
+    "Outbox" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Warteschlange"
+          }
+        }
+      }
+    },
+    "Outbox files that could not be read and recordings no queue entry owned, including any Iris could not move out of the way yet. They are kept, never deleted on their own." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Warteschlangen-Dateien, die sich nicht lesen ließen, und Aufnahmen ohne zugehörigen Eintrag, auch solche, die Iris noch nicht beiseiteschieben konnte. Sie werden aufbewahrt und nie von selbst gelöscht."
+          }
+        }
+      }
+    },
+    "Pause" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pause"
+          }
+        }
+      }
+    },
+    "Pause or resume recording" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aufnahme pausieren oder fortsetzen"
+          }
+        }
+      }
+    },
+    "Paused" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pausiert"
+          }
+        }
+      }
+    },
+    "Period" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zeitraum"
+          }
+        }
+      }
+    },
+    "Play reply" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Antwort abspielen"
+          }
+        }
+      }
+    },
+    "Playback" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wiedergabe"
+          }
+        }
+      }
+    },
+    "Processing…" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wird verarbeitet …"
+          }
+        }
+      }
+    },
+    "Queued. It is sent as soon as the server answers." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Eingereiht. Es wird gesendet, sobald der Server antwortet."
+          }
+        }
+      }
+    },
+    "Read from herdr each time. A tab that closes before the memo arrives sends it back for a new answer." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wird jedes Mal aus herdr gelesen. Schließt ein Tab, bevor das Memo ankommt, geht es zur neuen Entscheidung zurück."
+          }
+        }
+      }
+    },
+    "Received" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Empfangen"
+          }
+        }
+      }
+    },
+    "Receiving" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wird empfangen"
+          }
+        }
+      }
+    },
+    "Receiving the recording…" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aufnahme wird empfangen …"
+          }
+        }
+      }
+    },
+    "Record" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aufnehmen"
+          }
+        }
+      }
+    },
+    "Record as" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aufnehmen als"
+          }
+        }
+      }
+    },
+    "Record mode" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aufnahmemodus"
+          }
+        }
+      }
+    },
+    "Record with Iris" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mit Iris aufnehmen"
+          }
+        }
+      }
+    },
+    "Recorder" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rekorder"
+          }
+        }
+      }
+    },
+    "Recording" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aufnahme"
+          }
+        }
+      }
+    },
+    "Recording starts with the microphone you pick for this route." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Die Aufnahme startet mit dem Mikrofon, das für diese Route gewählt ist."
+          }
+        }
+      }
+    },
+    "Reply" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Antwort"
+          }
+        }
+      }
+    },
+    "Reset" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zurücksetzen"
+          }
+        }
+      }
+    },
+    "Reset outbox" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Warteschlange zurücksetzen"
+          }
+        }
+      }
+    },
+    "Resume" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Fortsetzen"
+          }
+        }
+      }
+    },
+    "Retry %@" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wiederholen %@"
+          }
+        }
+      }
+    },
+    "Retry from %@" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wiederholen ab %@"
+          }
+        }
+      }
+    },
+    "Retry now" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Jetzt wiederholen"
+          }
+        }
+      }
+    },
+    "Route" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Route"
+          }
+        }
+      }
+    },
+    "Route to %@…" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "An %@ routen …"
+          }
+        }
+      }
+    },
+    "Routed" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Geroutet"
+          }
+        }
+      }
+    },
+    "Routes" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Routen"
+          }
+        }
+      }
+    },
+    "Route…" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Route …"
+          }
+        }
+      }
+    },
+    "Rules are kept on this device, one per audio route (for example the car's Bluetooth). Connect to another route to set its rule." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Regeln liegen auf diesem Gerät, eine pro Audioroute (zum Beispiel das Bluetooth im Auto). Mit einer anderen Route verbinden, um deren Regel festzulegen."
+          }
+        }
+      }
+    },
+    "Run" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Testlauf"
+          }
+        }
+      }
+    },
+    "Run id" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Testlauf-ID"
+          }
+        }
+      }
+    },
+    "Save" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sichern"
+          }
+        }
+      }
+    },
+    "Say first" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zuerst sagen"
+          }
+        }
+      }
+    },
+    "Search transcripts" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Transkripte durchsuchen"
+          }
+        }
+      }
+    },
+    "Seen before" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Schon gesehen"
+          }
+        }
+      }
+    },
+    "Send" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Senden"
+          }
+        }
+      }
+    },
+    "Send a memo here" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Memo hierhin senden"
+          }
+        }
+      }
+    },
+    "Send it to" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Senden an"
+          }
+        }
+      }
+    },
+    "Sending" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wird gesendet"
+          }
+        }
+      }
+    },
+    "Sent to Hermes as an instruction." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wird als Anweisung an Hermes gesendet."
+          }
+        }
+      }
+    },
+    "Server" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Server"
+          }
+        }
+      }
+    },
+    "Server URL" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Server-URL"
+          }
+        }
+      }
+    },
+    "Server not reachable — is Tailscale on?" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Server nicht erreichbar – ist Tailscale an?"
+          }
+        }
+      }
+    },
+    "Set-aside files" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Beiseitegelegte Dateien"
+          }
+        }
+      }
+    },
+    "Set-aside outbox" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Beiseitegelegte Warteschlange"
+          }
+        }
+      }
+    },
+    "Settings" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Einstellungen"
+          }
+        }
+      }
+    },
+    "Share or copy the list" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Liste teilen oder kopieren"
+          }
+        }
+      }
+    },
+    "Show memos" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Memos anzeigen"
+          }
+        }
+      }
+    },
+    "Speak the reply of a memo." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Die Antwort eines Memos vorlesen."
+          }
+        }
+      }
+    },
+    "Spoken replies" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gesprochene Antworten"
           }
         }
       }
@@ -86,6 +2216,76 @@
         }
       }
     },
+    "Start a voice memo." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ein Sprachmemo starten."
+          }
+        }
+      }
+    },
+    "Start recording" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aufnahme starten"
+          }
+        }
+      }
+    },
+    "State" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Status"
+          }
+        }
+      }
+    },
+    "Stats" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Statistik"
+          }
+        }
+      }
+    },
+    "Steps" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Schritte"
+          }
+        }
+      }
+    },
+    "Stop and send" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Stoppen und senden"
+          }
+        }
+      }
+    },
+    "Stop recording" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aufnahme beenden"
+          }
+        }
+      }
+    },
     "Stop sends the take · × discards it" : {
       "comment" : "Take screen hint under the controls",
       "localizations" : {
@@ -103,6 +2303,106 @@
         }
       }
     },
+    "Stop trying" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nicht mehr versuchen"
+          }
+        }
+      }
+    },
+    "Suggested: %@" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vorschlag: %@"
+          }
+        }
+      }
+    },
+    "Summarize" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zusammenfassen"
+          }
+        }
+      }
+    },
+    "Summarized" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zusammengefasst"
+          }
+        }
+      }
+    },
+    "Switch microphone" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mikrofon wechseln"
+          }
+        }
+      }
+    },
+    "Tab" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tab"
+          }
+        }
+      }
+    },
+    "Tabs" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tabs"
+          }
+        }
+      }
+    },
+    "Tap to decide" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zum Entscheiden tippen"
+          }
+        }
+      }
+    },
+    "Text typed into a running agent tab" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Text, der in einen laufenden Agenten-Tab getippt wird"
+          }
+        }
+      }
+    },
+    "That is a lot. Iris never deletes them on its own; share the list to have them looked at." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Das sind viele. Iris löscht sie nie von selbst; die Liste teilen, um sie prüfen zu lassen."
+          }
+        }
+      }
+    },
     "That was too short to send" : {
       "comment" : "Toast after a too-short voice reply",
       "localizations" : {
@@ -116,6 +2416,706 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "That was too short to send"
+          }
+        }
+      }
+    },
+    "The memo was already sent. This is only logged, to teach Iris; nothing is sent again." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Das Memo wurde bereits gesendet. Die Korrektur wird nur festgehalten, damit Iris dazulernt; es wird nichts erneut gesendet."
+          }
+        }
+      }
+    },
+    "The old outbox file was set aside and kept, but a new outbox could not be opened yet. Iris tries again when you pull to refresh or reopen the app." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Die alte Warteschlangen-Datei wurde beiseitegelegt und aufbewahrt, eine neue Warteschlange ließ sich aber noch nicht öffnen. Iris versucht es erneut beim Herunterziehen zum Aktualisieren oder wenn die App neu geöffnet wird."
+          }
+        }
+      }
+    },
+    "The outbox cannot be opened, so new memos are not accepted. Iris tries again when you pull to refresh or reopen the app." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Die Warteschlange lässt sich nicht öffnen, neue Memos werden daher nicht angenommen. Iris versucht es erneut beim Herunterziehen zum Aktualisieren oder wenn die App neu geöffnet wird."
+          }
+        }
+      }
+    },
+    "The outbox could not be opened, so nothing was discarded. Try again when it is available." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Die Warteschlange ließ sich nicht öffnen, daher wurde nichts verworfen. Erneut versuchen, sobald sie verfügbar ist."
+          }
+        }
+      }
+    },
+    "The outbox could not be reset. Nothing was changed." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Die Warteschlange ließ sich nicht zurücksetzen. Es wurde nichts geändert."
+          }
+        }
+      }
+    },
+    "The queue could not be saved to this device. Recordings wait to be sent until it can, and Iris keeps trying." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Die Warteschlange ließ sich nicht auf diesem Gerät speichern. Aufnahmen warten mit dem Senden, bis das möglich ist; Iris versucht es weiter."
+          }
+        }
+      }
+    },
+    "The recorder stopped." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Die Aufnahme wurde beendet."
+          }
+        }
+      }
+    },
+    "The recorder stopped: %@" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Die Aufnahme wurde beendet: %@"
+          }
+        }
+      }
+    },
+    "The recording failed and was not saved" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Die Aufnahme ist fehlgeschlagen und wurde nicht gesichert"
+          }
+        }
+      }
+    },
+    "The recording failed, so nothing was kept." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Die Aufnahme ist fehlgeschlagen, daher wurde nichts behalten."
+          }
+        }
+      }
+    },
+    "The saved outbox cannot be read, so it is set aside. Resetting renames the file and keeps it, recordings included, and opens an empty outbox. Diagnostics can share the old file." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Die gespeicherte Warteschlange lässt sich nicht lesen und wurde beiseitegelegt. Beim Zurücksetzen wird die Datei samt Aufnahmen umbenannt und aufbewahrt, und eine leere Warteschlange wird geöffnet. Über die Diagnose lässt sich die alte Datei teilen."
+          }
+        }
+      }
+    },
+    "The server cannot reach herdr." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Der Server erreicht herdr nicht."
+          }
+        }
+      }
+    },
+    "The server did not accept this device's token. Check it below." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Der Server hat das Token dieses Geräts nicht akzeptiert. Es unten prüfen."
+          }
+        }
+      }
+    },
+    "The server has no Hermes connection." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Der Server hat keine Hermes-Verbindung."
+          }
+        }
+      }
+    },
+    "The server has no brain checkout, so there is nowhere to write a note." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Der Server hat kein Brain-Checkout, daher gibt es keinen Ort für eine Notiz."
+          }
+        }
+      }
+    },
+    "The server refused it: %@. Your text is still here." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Der Server hat es abgelehnt: %@. Der Text ist noch da."
+          }
+        }
+      }
+    },
+    "The trace id is this id without the dashes. Paste either into the dashboard to find the memo's trace." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Die Trace-ID ist diese ID ohne Bindestriche. Beide lassen sich im Dashboard einfügen, um den Trace des Memos zu finden."
+          }
+        }
+      }
+    },
+    "The transcript is typed into the agent pane of one live herdr tab and sent with Enter. Which tab is decided per memo; the tab's answer stays in the terminal." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Das Transkript wird in den Agenten-Bereich eines aktiven herdr-Tabs getippt und mit Enter gesendet. Welcher Tab, wird je Memo entschieden; die Antwort des Tabs bleibt im Terminal."
+          }
+        }
+      }
+    },
+    "The transcript is written as a note into the brain inbox, then committed and pushed. There is no reply, so the memo ends with the note." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Das Transkript wird als Notiz in den Brain-Eingang geschrieben, committet und gepusht. Es gibt keine Antwort, das Memo endet mit der Notiz."
+          }
+        }
+      }
+    },
+    "The transcript starts a new Hermes session and the answer comes back as the reply. A chat memo, or a reply inside a thread, continues the same session." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Das Transkript startet eine neue Hermes-Sitzung, die Antwort kommt als Antwort zurück. Ein Chat-Memo oder eine Antwort in einer Unterhaltung setzt dieselbe Sitzung fort."
+          }
+        }
+      }
+    },
+    "This memo has no reply to play." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dieses Memo hat keine Antwort zum Abspielen."
+          }
+        }
+      }
+    },
+    "This memo no longer exists." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dieses Memo gibt es nicht mehr."
+          }
+        }
+      }
+    },
+    "This memo was already routed. It has been refreshed." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dieses Memo wurde bereits geroutet. Es wurde aktualisiert."
+          }
+        }
+      }
+    },
+    "This route" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Diese Route"
+          }
+        }
+      }
+    },
+    "This turn failed." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Diese Runde ist fehlgeschlagen."
+          }
+        }
+      }
+    },
+    "Today" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Heute"
+          }
+        }
+      }
+    },
+    "Token rejected" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Token abgelehnt"
+          }
+        }
+      }
+    },
+    "Total" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gesamt"
+          }
+        }
+      }
+    },
+    "Total so far" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bisher gesamt"
+          }
+        }
+      }
+    },
+    "Transcribe" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Transkribieren"
+          }
+        }
+      }
+    },
+    "Transcribed" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Transkribiert"
+          }
+        }
+      }
+    },
+    "Transcribing…" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wird transkribiert …"
+          }
+        }
+      }
+    },
+    "Transcript" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Transkript"
+          }
+        }
+      }
+    },
+    "Try again" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Erneut versuchen"
+          }
+        }
+      }
+    },
+    "Typed into a running agent tab." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wird in einen laufenden Agenten-Tab getippt."
+          }
+        }
+      }
+    },
+    "Typed memo" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Getipptes Memo"
+          }
+        }
+      }
+    },
+    "Typed memos take the same route as spoken ones: same history, same result." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Getippte Memos nehmen dieselbe Route wie gesprochene: derselbe Verlauf, dasselbe Ergebnis."
+          }
+        }
+      }
+    },
+    "Unarchive" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aus Archiv holen"
+          }
+        }
+      }
+    },
+    "Undo" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rückgängig"
+          }
+        }
+      }
+    },
+    "Unfavorite" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Favorit entfernen"
+          }
+        }
+      }
+    },
+    "Unreachable" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nicht erreichbar"
+          }
+        }
+      }
+    },
+    "Unrouted" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ohne Route"
+          }
+        }
+      }
+    },
+    "Upload" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hochladen"
+          }
+        }
+      }
+    },
+    "Use an https address. Plain http is only allowed for localhost." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Eine https-Adresse verwenden. Einfaches http ist nur für localhost erlaubt."
+          }
+        }
+      }
+    },
+    "Voice memo" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sprachmemo"
+          }
+        }
+      }
+    },
+    "Voice reply" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sprachantwort"
+          }
+        }
+      }
+    },
+    "W%lld" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "KW %lld"
+          }
+        }
+      }
+    },
+    "Waiting" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wartet"
+          }
+        }
+      }
+    },
+    "Weeks" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wochen"
+          }
+        }
+      }
+    },
+    "What should Iris do?" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Was soll Iris tun?"
+          }
+        }
+      }
+    },
+    "When on, the reply to a memo you recorded here is read out as soon as it is done, while Iris is open. Play always speaks it on demand." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wenn aktiv, wird die Antwort auf ein hier aufgenommenes Memo vorgelesen, sobald sie fertig ist und solange Iris geöffnet ist. Mit „Abspielen“ lässt sie sich jederzeit anhören."
+          }
+        }
+      }
+    },
+    "Where a memo can be sent. The server decides what exists; say a destination first, pick a mode, or let Iris choose when it is sure enough. Otherwise the memo waits for your answer." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wohin ein Memo gehen kann. Der Server bestimmt, was es gibt; zuerst ein Ziel sagen, einen Modus wählen oder Iris entscheiden lassen, wenn sie sicher genug ist. Sonst wartet das Memo auf eine Antwort."
+          }
+        }
+      }
+    },
+    "Where memos can go, and the microphone per audio route" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wohin Memos gehen können, und das Mikrofon je Audioroute"
+          }
+        }
+      }
+    },
+    "Where should this go?" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wohin damit?"
+          }
+        }
+      }
+    },
+    "Which microphone recording starts with, per audio route such as the car's Bluetooth. Kept on this device." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mit welchem Mikrofon die Aufnahme startet, je Audioroute, etwa das Bluetooth im Auto. Auf diesem Gerät gespeichert."
+          }
+        }
+      }
+    },
+    "Working…" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wird bearbeitet …"
+          }
+        }
+      }
+    },
+    "Wrong route?" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Falsche Route?"
+          }
+        }
+      }
+    },
+    "Yesterday" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gestern"
+          }
+        }
+      }
+    },
+    "avg %@ / wk" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ø %@ / Wo."
+          }
+        }
+      }
+    },
+    "blocked" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "blockiert"
+          }
+        }
+      }
+    },
+    "done" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "fertig"
+          }
+        }
+      }
+    },
+    "herdr has no live tab to send this to." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "herdr hat keinen aktiven Tab, an den das gehen könnte."
+          }
+        }
+      }
+    },
+    "herdr is not reachable, so a tab cannot be picked." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "herdr ist nicht erreichbar, daher lässt sich kein Tab wählen."
+          }
+        }
+      }
+    },
+    "iPhone microphone" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "iPhone-Mikrofon"
+          }
+        }
+      }
+    },
+    "idle" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "untätig"
+          }
+        }
+      }
+    },
+    "refused by the server" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "vom Server abgelehnt"
+          }
+        }
+      }
+    },
+    "retry from %@" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wiederholen ab %@"
+          }
+        }
+      }
+    },
+    "waiting" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "wartet"
+          }
+        }
+      }
+    },
+    "working" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "arbeitet"
+          }
+        }
+      }
+    },
+    "−%lld %% faster" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "−%lld %% schneller"
           }
         }
       }
