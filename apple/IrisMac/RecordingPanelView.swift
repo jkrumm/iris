@@ -8,6 +8,8 @@ import SwiftUI
 struct RecordingPanelView: View {
   static let width: CGFloat = 360
   let model: RecordingPanelModel
+  /// Told the content's size whenever it changes (a message is taller than the running take), so the panel follows it.
+  var onResize: (CGSize) -> Void = { _ in }
 
   var body: some View {
     Group {
@@ -23,6 +25,11 @@ struct RecordingPanelView: View {
     .frame(width: Self.width, alignment: .leading)
     .background(.regularMaterial, in: .rect(cornerRadius: Theme.Radius.floating))
     .overlay { RoundedRectangle(cornerRadius: Theme.Radius.floating).stroke(Theme.Surface.hairline) }
+    .onGeometryChange(for: CGSize.self) {
+      $0.size
+    } action: {
+      onResize($0)
+    }
     .accessibilityIdentifier("mac.recording.panel")
   }
 
@@ -157,7 +164,7 @@ final class RecordingPanelController {
   func show() {
     let panel = panel ?? makePanel()
     self.panel = panel
-    place(panel)
+    place(panel, size: panel.contentView?.fittingSize ?? .zero)
     panel.orderFrontRegardless()
   }
 
@@ -166,7 +173,11 @@ final class RecordingPanelController {
   }
 
   private func makePanel() -> NSPanel {
-    let hosting = NSHostingView(rootView: RecordingPanelView(model: model))
+    let view = RecordingPanelView(model: model) { [weak self] size in
+      guard let self, let panel = self.panel, panel.isVisible else { return }
+      self.place(panel, size: size)
+    }
+    let hosting = NSHostingView(rootView: view)
     hosting.sizingOptions = [.intrinsicContentSize]
     let panel = NonActivatingPanel(
       contentRect: NSRect(origin: .zero, size: hosting.fittingSize),
@@ -184,14 +195,12 @@ final class RecordingPanelController {
     return panel
   }
 
-  /// Top centre of the screen under the menu bar, resized to what the phase needs.
-  private func place(_ panel: NSPanel) {
-    guard let hosting = panel.contentView else { return }
-    let size = hosting.fittingSize
+  /// Top centre of the screen under the menu bar, `size` big.
+  private func place(_ panel: NSPanel, size: CGSize) {
+    guard size.width > 0, size.height > 0 else { return }
     panel.setContentSize(size)
     guard let screen = NSScreen.main ?? NSScreen.screens.first else { return }
     let frame = screen.visibleFrame
-    panel.setFrameOrigin(
-      NSPoint(x: frame.midX - size.width / 2, y: frame.maxY - size.height - Theme.Spacing.xl))
+    panel.setFrameOrigin(NSPoint(x: frame.midX - size.width / 2, y: frame.maxY - size.height - Theme.Spacing.xl))
   }
 }
