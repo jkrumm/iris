@@ -51,21 +51,17 @@ public struct OutboxMemo: Sendable, Equatable, Codable {
     self.completeMayHaveLanded = completeMayHaveLanded
   }
 
-  /// A record written before `completeMayHaveLanded` has no flag. Only a completion that was never handed out is known not to
-  /// have landed (`pending` with no failure behind it; one in flight at the kill is saved as `uploading`): any other state
-  /// may have reached the server, and a tail must not grow a memo it may have closed.
+  /// A record written before `completeMayHaveLanded` has no flag, and nothing in it proves `complete` was never sent: a
+  /// completion that is `pending` with no attempts is also what "retry now" leaves behind (it resets the attempts), and the
+  /// flag was not there to say it had gone out. So an absent flag reads "may have landed", and a tail then stays out of the memo.
+  /// The cost is one quarantined tail for a memo finished by an older build and not yet completed.
   public init(from decoder: any Decoder) throws {
     let container = try decoder.container(keyedBy: CodingKeys.self)
     memoID = try container.decode(MemoID.self, forKey: .memoID)
     segmentCount = try container.decode(Int.self, forKey: .segmentCount)
     completion = try container.decode(OutboxState.self, forKey: .completion)
     attempts = try container.decode(Int.self, forKey: .attempts)
-    let sentBefore =
-      switch completion {
-      case .pending: attempts > 0
-      case .uploading, .uploaded, .failed, .stalled: true
-      }
-    completeMayHaveLanded = try container.decodeIfPresent(Bool.self, forKey: .completeMayHaveLanded) ?? sentBefore
+    completeMayHaveLanded = try container.decodeIfPresent(Bool.self, forKey: .completeMayHaveLanded) ?? true
   }
 }
 

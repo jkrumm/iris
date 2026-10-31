@@ -4,7 +4,7 @@ import Testing
 @testable import IrisCapture
 
 /// A queue file written before `completeMayHaveLanded` has no flag. Reading its absence as "never sent" let a tail grow a memo
-/// whose `complete` had reached the server; only a completion that was never handed out is known not to have.
+/// whose `complete` had reached the server; nothing in such a record proves it had not.
 struct LegacyMemoRecordTests {
   /// What an older build wrote: the memo without the flag.
   private func legacyDecoded(_ completion: OutboxState, attempts: Int) throws -> OutboxMemo {
@@ -15,15 +15,13 @@ struct LegacyMemoRecordTests {
     return try JSONDecoder().decode(OutboxMemo.self, from: JSONSerialization.data(withJSONObject: object))
   }
 
-  @Test func aCompletionThatWasNeverHandedOutIsKnownNotToHaveLanded() throws {
-    #expect(try legacyDecoded(.pending, attempts: 0).completeMayHaveLanded == false)
-  }
-
+  /// "Retry now" resets a memo's attempts to 0 and its completion to pending, so a pending completion with no attempts is
+  /// also what a `complete` that went out and was refused leaves behind: no state of a legacy record proves it was not sent.
   @Test(arguments: [
-    (OutboxState.pending, 3), (.uploading, 0), (.failed(retryAt: Date(timeIntervalSince1970: 5)), 1), (.stalled, 10),
-    (.uploaded, 0),
+    (OutboxState.pending, 0), (.pending, 3), (.uploading, 0), (.failed(retryAt: Date(timeIntervalSince1970: 5)), 1),
+    (.stalled, 10), (.uploaded, 0),
   ])
-  func anyOtherStateMayHaveReachedTheServer(completion: OutboxState, attempts: Int) throws {
+  func aRecordWithoutTheFlagMayHaveLanded(completion: OutboxState, attempts: Int) throws {
     #expect(try legacyDecoded(completion, attempts: attempts).completeMayHaveLanded == true)
   }
 
