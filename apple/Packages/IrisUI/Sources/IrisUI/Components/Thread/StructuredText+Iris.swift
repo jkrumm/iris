@@ -34,6 +34,22 @@ extension StructuredText.HighlighterTheme {
   }()
 }
 
+/// A paragraph of a reply: the mockups' 16 pt body on a 1.5 line (`mock.css` `.mdx`), 10 pt between blocks, 6 pt between list items.
+struct IrisParagraphStyle: StructuredText.ParagraphStyle {
+  private static let lineSpacing: CGFloat = 0.31
+  /// 10 pt at the 16 pt body.
+  private static let spaceAbove: CGFloat = 0.625
+
+  /// 6 pt at the 16 pt body.
+  static let listItemSpacing = FontScaled<StructuredText.BlockSpacing>.fontScaled(top: 0.375)
+
+  func makeBody(configuration: Configuration) -> some View {
+    configuration.label
+      .textual.lineSpacing(.fontScaled(Self.lineSpacing))
+      .textual.blockSpacing(.fontScaled(top: Self.spaceAbove))
+  }
+}
+
 /// Headings of a reply: one step above the body at the top, a hairline under the first two levels.
 struct IrisHeadingStyle: StructuredText.HeadingStyle {
   /// Font scale per level (1...6): h1 to h3 step above the body, h4 to h6 are body size and told apart by weight and colour.
@@ -100,7 +116,7 @@ struct IrisCodeBlockStyle: StructuredText.CodeBlockStyle {
       Overflow {
         configuration.label
           .textual.lineSpacing(.fontScaled(0.39))
-          .textual.fontScale(0.882)
+          .textual.fontScale(0.8125)
           .fixedSize(horizontal: false, vertical: true)
           .monospaced()
           .padding(Theme.Spacing.md)
@@ -108,9 +124,9 @@ struct IrisCodeBlockStyle: StructuredText.CodeBlockStyle {
     }
     .frame(maxWidth: .infinity, alignment: .leading)
     .background(CodeColors.background)
-    .clipShape(.rect(cornerRadius: Theme.Radius.card))
+    .clipShape(.rect(cornerRadius: Theme.Radius.control))
     .overlay {
-      RoundedRectangle(cornerRadius: Theme.Radius.card).strokeBorder(Theme.Surface.border, lineWidth: 0.5)
+      RoundedRectangle(cornerRadius: Theme.Radius.control).strokeBorder(Theme.Surface.border, lineWidth: 0.5)
     }
     .textual.blockSpacing(.fontScaled(top: 0.8, bottom: 0))
   }

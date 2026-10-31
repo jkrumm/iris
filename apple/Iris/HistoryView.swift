@@ -20,19 +20,34 @@ struct HistoryView: View {
   /// `RouteAnswerSheet` in this view's modifier chain made the list's top scroll edge mis-size on some launches (a blur over
   /// the bar and the first rows that ate their touches, TDD §4), where an empty sheet or none did not.
   let onRoute: (Memo) -> Void
+  /// The mockup's row: 12 pt above and below, 20 pt screen margin on both sides (`history.html` `.row`).
+  private static let rowInsets = EdgeInsets(
+    top: Theme.Spacing.rowVertical, leading: Theme.Spacing.screenMargin, bottom: Theme.Spacing.rowVertical,
+    trailing: Theme.Spacing.screenMargin)
+  private static let headerInsets = EdgeInsets(
+    top: 0, leading: Theme.Spacing.screenMargin, bottom: 0, trailing: Theme.Spacing.screenMargin)
   @State private var showingFilters = false
   @State private var composer: ComposerRequest?
 
   var body: some View {
     NavigationStack {
       List {
-        // The chips are the list's first row, not a bar pinned with `safeAreaBar` around the list: the list stays the
-        // navigation stack's root scroll content, so the large title tracks it.
+        // The title block and the chips are the list's first rows, not bars pinned with `safeAreaBar` around the list:
+        // the list stays the navigation stack's root scroll content, so they scroll with it. The title is drawn here,
+        // not by the navigation bar, so it sits on the same 20 pt margin as the rows (the system large title is 16).
+        HistoryTitleBlock(
+          title: String(localized: "History", comment: "Navigation title of the memo list"),
+          subtitle: HistoryDaySection.subtitle(for: model.memos), onCompose: { composer = ComposerRequest() }
+        )
+        .listRowInsets(EdgeInsets())
+        .listRowSeparator(.hidden)
+        .listRowBackground(Color.clear)
         HistoryFilterBar(filters: $model.filters)
           .listRowInsets(EdgeInsets())
           .listRowSeparator(.hidden)
           .listRowBackground(Color.clear)
-        ForEach(HistoryDaySection.group(model.memos)) { section in
+        let sections = HistoryDaySection.group(model.memos)
+        ForEach(sections) { section in
           Section {
             ForEach(section.memos) { memo in
               NavigationLink(value: memo) {
@@ -41,6 +56,7 @@ struct HistoryView: View {
                   timeText: memo.timeText, isDone: memo.done, isFavorite: memo.favorite)
               }
               .accessibilityIdentifier("history.row")
+              .listRowInsets(Self.rowInsets)
               .listRowBackground(HistoryRowBackground(needsAttention: memo.isOpenNeedsRoute))
               .modifier(MemoSwipeActions(memo: memo, model: model, onRoute: onRoute))
               .task { await model.loadMoreIfNeeded(current: memo) }
@@ -50,10 +66,21 @@ struct HistoryView: View {
               .themeFont(.caption, weight: .semibold)
               .textCase(.uppercase)
               .foregroundStyle(Theme.Ink.muted)
+              // The first label follows the chips, whose tap area already takes the top of that gap.
+              .padding(
+                .top,
+                section.id == sections.first?.id
+                  ? Theme.Spacing.sectionTop - Theme.Spacing.chipTapOverhang : Theme.Spacing.sectionTop
+              )
+              .padding(.bottom, Theme.Spacing.sectionBottom)
+              .listRowInsets(Self.headerInsets)
           }
         }
       }
       .listStyle(.plain)
+      .environment(\.defaultMinListHeaderHeight, 0)
+      .environment(\.defaultMinListRowHeight, 0)
+      .listSectionSpacing(.custom(0))
       .accessibilityIdentifier("history.list")
       .scrollContentBackground(.hidden)
       .background(Theme.Surface.background)
@@ -62,7 +89,7 @@ struct HistoryView: View {
       .takeBanner()
       .overlay(alignment: .bottom) { toastBanner }
       .navigationTitle(String(localized: "History", comment: "Navigation title of the memo list"))
-      .navigationSubtitle(HistoryDaySection.subtitle(for: model.memos) ?? "")
+      .toolbar(.hidden, for: .navigationBar)
       .navigationDestination(for: Memo.self) { memo in
         // A chat or a continued thread opens as a conversation; the rest is a single memo.
         if memo.opensThread, let route = memo.threadRoute {
@@ -77,25 +104,10 @@ struct HistoryView: View {
       .navigationDestination(for: ThreadRoute.self) { route in
         threadView(route)
       }
-      .searchable(
-        text: $model.filters.searchText, placement: .navigationBarDrawer(displayMode: .always),
-        prompt: String(localized: "Search transcripts", comment: "Search field prompt on the memo list")
-      )
-      .toolbar {
-        ToolbarItem(placement: .topBarLeading) {
-          Button(
-            String(localized: "New memo", comment: "Opens the typed-memo composer"), systemImage: "square.and.pencil"
-          ) {
-            composer = ComposerRequest()
-          }
-          .accessibilityIdentifier("history.compose")
-        }
-        ToolbarItem(placement: .topBarTrailing) {
-          Button(String(localized: "Filter", comment: "Opens the filter sheet"), systemImage: filterIcon) {
-            showingFilters = true
-          }
-          .accessibilityIdentifier("history.filter")
-        }
+      .safeAreaInset(edge: .bottom, spacing: 0) {
+        HistorySearchBar(
+          text: $model.filters.searchText, filterCount: model.filters.sheetFilterCount,
+          onFilter: { showingFilters = true })
       }
       .sheet(isPresented: $showingFilters) {
         HistoryFilterSheet(filters: $model.filters)
@@ -138,11 +150,6 @@ struct HistoryView: View {
     return override > 0 ? override : 5
   }
 
-  private var filterIcon: String {
-    model.filters.sheetFilterCount > 0
-      ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle"
-  }
-
   @ViewBuilder private var emptyState: some View {
     if !isConfigured {
       ContentUnavailableView {
@@ -181,8 +188,8 @@ struct HistoryView: View {
         actionTitle: toast.kind.isUndo ? String(localized: "Undo", comment: "Undoes a delete") : nil,
         action: { Task { await model.undoDelete() } }
       )
-      .padding(.horizontal, Theme.Spacing.lg)
-      .padding(.bottom, Theme.Spacing.lg)
+      .padding(.horizontal, Theme.Spacing.barInset)
+      .padding(.bottom, Theme.Spacing.barInset)
       .transition(.move(edge: .bottom).combined(with: .opacity))
       .accessibilityIdentifier("history.toast")
     }

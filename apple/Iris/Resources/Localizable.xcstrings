@@ -1,6 +1,108 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "Average per week over %lld weeks." : {
+      "comment" : "Stats trends footnote",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Durchschnitt pro Woche über %lld Wochen."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Average per week over %lld weeks."
+          }
+        }
+      }
+    },
+    "Average per week." : {
+      "comment" : "Stats trends footnote, a single week",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Durchschnitt pro Woche."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Average per week."
+          }
+        }
+      }
+    },
+    "Change against the 7 days before." : {
+      "comment" : "Stats trends footnote",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Änderung gegenüber den 7 Tagen davor."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Change against the 7 days before."
+          }
+        }
+      }
+    },
+    "Stacked by route, per day. Today is partial." : {
+      "comment" : "Stats chart subtitle",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pro Tag nach Route gestapelt. Heute ist unvollständig."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Stacked by route, per day. Today is partial."
+          }
+        }
+      }
+    },
+    "Stacked by route, per week. The current week is partial." : {
+      "comment" : "Stats chart subtitle",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pro Woche nach Route gestapelt. Die aktuelle Woche ist unvollständig."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Stacked by route, per week. The current week is partial."
+          }
+        }
+      }
+    },
+    "Stop sends the take · × discards it" : {
+      "comment" : "Take screen hint under the controls",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Stopp sendet die Aufnahme · × verwirft sie"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Stop sends the take · × discards it"
+          }
+        }
+      }
+    },
     "That was too short to send" : {
       "comment" : "Toast after a too-short voice reply",
       "localizations" : {

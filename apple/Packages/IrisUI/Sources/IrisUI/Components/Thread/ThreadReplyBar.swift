@@ -37,8 +37,8 @@ public struct ThreadReplyBar: View {
   private var isLockedRecording: Bool { isRecording && lock.isLocked }
 
   public var body: some View {
-    GlassEffectContainer(spacing: Theme.Spacing.md) {
-      HStack(spacing: Theme.Spacing.md) {
+    GlassEffectContainer(spacing: Theme.Spacing.barGap) {
+      HStack(spacing: Theme.Spacing.barGap) {
         if isLockedRecording {
           lockedBar
         } else {
@@ -48,7 +48,7 @@ public struct ThreadReplyBar: View {
         }
       }
     }
-    .padding(.horizontal, Theme.Spacing.lg)
+    .padding(.horizontal, Theme.Spacing.barInset)
     .padding(.vertical, Theme.Spacing.sm)
     .animation(.snappy, value: isRecording)
     // A take the app ended on its own (a cancel on disappear) never reaches the gesture's `onEnded`.
@@ -100,7 +100,7 @@ public struct ThreadReplyBar: View {
 
   /// Hold to talk: the mic as an icon while idle; the timer and the release hint while the finger is down.
   private var holdPill: some View {
-    HStack(spacing: Theme.Spacing.md) {
+    HStack(spacing: Theme.Spacing.cozy) {
       Image(systemName: isCancelling ? "xmark" : "mic.fill")
         .font(.system(size: 22, weight: .semibold))
         .contentTransition(.symbolEffect(.replace))
@@ -155,7 +155,7 @@ public struct ThreadReplyBar: View {
 
   /// Cross to discard, the running timer, and the send button.
   private var lockedBar: some View {
-    HStack(spacing: Theme.Spacing.md) {
+    HStack(spacing: Theme.Spacing.barGap) {
       Button {
         onHoldEnded(true)
       } label: {
@@ -171,7 +171,7 @@ public struct ThreadReplyBar: View {
       )
       .accessibilityIdentifier("thread.reply.lock.cancel")
 
-      HStack(spacing: Theme.Spacing.md) {
+      HStack(spacing: Theme.Spacing.cozy) {
         Image(systemName: "mic.fill").symbolEffect(.pulse)
         if let holdStartedAt { elapsed(since: holdStartedAt) }
       }

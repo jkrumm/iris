@@ -20,6 +20,8 @@ nonisolated struct StatsReport: Equatable {
     var title: String
     var value: String
     var caption: String?
+    /// The caption reports a rise against the period before: it reads in the good colour.
+    var isRise = false
   }
 
   struct Trend: Equatable, Identifiable {
@@ -53,10 +55,12 @@ nonisolated struct StatsReport: Equatable {
       barList = dates.map { grid.dayBar($0) }
       let before = previous.map { grid.dayBar($0) }
       rangeText = String(localized: "Last 7 days · \(grid.rangeText(dates.first, dates.last))", comment: "Stats range")
-      tiles = Self.tiles(
-        bars: barList,
-        change: Self.percentChange(barList.map(\.total).reduce(0, +), before.map(\.total).reduce(0, +)),
-        stats: stats, locale: locale)
+      let now = barList.map(\.total).reduce(0, +)
+      let prior = before.map(\.total).reduce(0, +)
+      var dayTiles = Self.tiles(
+        bars: barList, change: Self.percentChange(now, prior), stats: stats, locale: locale)
+      dayTiles[0].isRise = now > prior
+      tiles = dayTiles
       trends = VolumeSeries.allCases.compactMap { series in
         let points = barList.map { $0.counts[series, default: 0] }
         let prior = before.map { $0.counts[series, default: 0] }.reduce(0, +)

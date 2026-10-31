@@ -5,11 +5,13 @@ public struct StatTile: View {
   private let title: String
   private let value: String
   private let caption: String?
+  private let captionColor: Color
 
-  public init(title: String, value: String, caption: String? = nil) {
+  public init(title: String, value: String, caption: String? = nil, captionColor: Color = Theme.Ink.muted) {
     self.title = title
     self.value = value
     self.caption = caption
+    self.captionColor = captionColor
   }
 
   public var body: some View {
@@ -24,7 +26,7 @@ public struct StatTile: View {
         .minimumScaleFactor(0.7)
       Text(verbatim: caption ?? " ")
         .themeFont(.caption)
-        .foregroundStyle(Theme.Ink.muted)
+        .foregroundStyle(captionColor)
         .lineLimit(1)
         .minimumScaleFactor(0.8)
     }

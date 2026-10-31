@@ -17,7 +17,7 @@ public struct MessageContentView: View {
   }
 
   public var body: some View {
-    VStack(alignment: .leading, spacing: Theme.Spacing.md) {
+    VStack(alignment: .leading, spacing: Theme.Spacing.cozy) {
       ForEach(Array(blocks.enumerated()), id: \.offset) { _, block in
         view(for: block)
       }
@@ -45,7 +45,9 @@ public struct MessageContentView: View {
       .textual.inlineStyle(.iris)
       .irisMarkdown()
       .textual.textSelection(.enabled)
-      .themeFont(.subheadline)
+      .textual.paragraphStyle(IrisParagraphStyle())
+      .textual.listItemSpacing(IrisParagraphStyle.listItemSpacing)
+      .themeFont(.callout)
       .foregroundStyle(Theme.Ink.primary)
       .frame(maxWidth: .infinity, alignment: .leading)
   }

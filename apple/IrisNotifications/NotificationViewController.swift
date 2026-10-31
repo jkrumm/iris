@@ -42,13 +42,13 @@ private struct NotificationCard: View {
 
   var body: some View {
     VStack(alignment: .leading, spacing: Theme.Spacing.md) {
+      Text(model.headline)
+        .themeFont(.title3, weight: .bold)
+        .foregroundStyle(Theme.Ink.primary)
+        .frame(maxWidth: .infinity, alignment: .leading)
       if !model.routeChip.isEmpty {
         RouteChip(label: model.routeChip, systemImage: "arrow.triangle.branch")
       }
-      Text(model.headline)
-        .themeFont(.subheadline, weight: .semibold)
-        .foregroundStyle(Theme.Ink.primary)
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
     .padding(Theme.Spacing.lg)
   }
