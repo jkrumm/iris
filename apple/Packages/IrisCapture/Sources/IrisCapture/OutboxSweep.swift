@@ -210,6 +210,12 @@ extension Outbox {
     // A take with no segment is dropped unless a file the sweep could not deal with may still hold its audio.
     let unresolved = Set((report.stuck + report.kept).compactMap { Self.parse($0.lastPathComponent)?.0 })
     await settleEmptyTakes(keeping: unresolved)
+    // The end of a take may be in a shadow that would not transcode: its `complete` waits (transfers resume right after this).
+    holdCompletions(
+      of: Set(
+        (report.stuck + report.kept).filter { SegmentShadow.isShadow($0.lastPathComponent) }.compactMap {
+          Self.parse($0.lastPathComponent)?.0
+        }))
     guard !report.isEmpty else { return report }
     Log.outbox.notice(
       "capture sweep: \(report.adopted.count) adopted, \(report.quarantined.count) quarantined, \(report.kept.count) kept, \(report.recovered.count) recovered, \(report.stuck.count) stuck"

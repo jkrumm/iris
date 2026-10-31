@@ -38,6 +38,10 @@ public struct OutboxStateMachine: Sendable {
   private var emptyTakes: [MemoID: OutboxItem] = [:]
   /// `createMayHaveLanded` as it was before `dispatch` handed the create out, for `revertDispatch`. Not persisted.
   private var flagBeforeDispatch: [MemoID: Bool] = [:]
+  /// Takes whose `complete` is held back for this run because a file that may hold the end of the recording could not be
+  /// recovered (the sweep's shadow that would not transcode): completing now would close the memo without it. Not persisted:
+  /// the next launch's sweep tries again; "retry now" is the user choosing to send what there is.
+  private var heldCompletions: [MemoID: String] = [:]
   /// The same for a memo's `completeMayHaveLanded`.
   private var completeFlagBeforeDispatch: [MemoID: Bool] = [:]
   /// Memos discarded in this run, so a follower can tell a discard from a memo the server has completed.
@@ -148,7 +152,7 @@ public struct OutboxStateMachine: Sendable {
   /// there was nothing to retry.
   @discardableResult
   public mutating func retryNow(_ memoID: MemoID) -> Bool {
-    var changed = false
+    var changed = heldCompletions.removeValue(forKey: memoID) != nil
     if var item = items[memoID], Self.isRetryable(item.create) {
       item.create = .pending
       item.attempts = 0
@@ -292,6 +296,7 @@ public struct OutboxStateMachine: Sendable {
     // A take that is still being recorded is a live take whatever its create is doing: Settings must not offer to retry
     // or discard it while the recorder runs.
     if item.kind == .voice, memo == nil { return .recording }
+    if let reason = heldCompletions[item.memoID] { return .failed(retryAt: nil, reason: reason) }
     let states =
       [item.create] + entries.values.filter { $0.key.memoID == item.memoID }.map(\.state)
       + [memo?.completion].compactMap { $0 }
@@ -316,6 +321,12 @@ public struct OutboxStateMachine: Sendable {
         items[item.memoID] = nil
       }
     }
+  }
+
+  /// Holds the take's `complete` back for this run (see `heldCompletions`). Nothing for a memo that is not queued.
+  public mutating func holdCompletion(_ memoID: MemoID, reason: String) {
+    guard memos[memoID] != nil else { return }
+    heldCompletions[memoID] = reason
   }
 
   // MARK: Segments
@@ -415,7 +426,9 @@ public struct OutboxStateMachine: Sendable {
 
     for memo in memos.values.sorted(by: { $0.memoID.uuidString < $1.memoID.uuidString }) {
       guard capacity > 0 else { break }
-      guard isCreated(memo.memoID), isDue(memo.completion, now: now), allUploaded(memo) else { continue }
+      guard isCreated(memo.memoID), isDue(memo.completion, now: now), allUploaded(memo),
+        heldCompletions[memo.memoID] == nil
+      else { continue }
       memos[memo.memoID]?.completion = .uploading
       completeFlagBeforeDispatch[memo.memoID] = memo.completeMayHaveLanded
       memos[memo.memoID]?.completeMayHaveLanded = true
@@ -532,6 +545,7 @@ public struct OutboxStateMachine: Sendable {
     }
     memos[memoID] = nil
     items[memoID] = nil
+    heldCompletions[memoID] = nil
     flagBeforeDispatch[memoID] = nil
     withheld.remove(memoID)
     withheldSegments = withheldSegments.filter { $0.memoID != memoID }

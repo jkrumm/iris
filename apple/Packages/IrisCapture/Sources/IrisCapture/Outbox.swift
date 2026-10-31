@@ -277,6 +277,23 @@ public actor Outbox: SegmentOutbox {
   /// Without a capture directory to sweep (fakes) nothing can bring an empty take back: they are dropped.
   public func settleUnrecoveredTakes() async { await settleEmptyTakes(keeping: []) }
 
+  /// The sweep is over: a take that had no segment and has no file that could still hold its audio is dropped from the saved
+  /// queue; one whose audio could not be ruled out stays in it (`keeping`) for the next launch.
+  func settleEmptyTakes(keeping: Set<MemoID>) async {
+    if machine.settleEmptyTakes(keeping: keeping) { await persist() }
+  }
+
+  /// Holds back the `complete` of takes whose end may sit in a shadow the sweep could not recover.
+  func holdCompletions(of memoIDs: Set<MemoID>) {
+    for id in memoIDs {
+      machine.holdCompletion(
+        id, reason: "A recording of this take could not be recovered yet. It is tried again at the next launch.")
+    }
+  }
+
+  /// Without a capture directory to sweep (fakes) nothing can bring an empty take back: they are dropped.
+  public func settleUnrecoveredTakes() async { await settleEmptyTakes(keeping: []) }
+
   /// The queue files earlier resets set aside (they may name segment files the sweep must leave alone).
   func setAsideQueueFiles() async -> [URL] { await store.quarantined() }
 

@@ -231,6 +231,65 @@
       await harness.outbox.shutdown()
     }
 
+    /// A take with segments 0 and 1 uploaded whose queue was last saved before its open segment 2 closed: the sweep must bring 2 back.
+    private func recoveredTake(_ id: MemoID, in directory: URL) throws -> OutboxRecord {
+      var item = voiceItem(id)
+      item.create = .uploaded
+      item.createMayHaveLanded = true
+      let entries = try (0..<2).map { index in
+        let closed = try writeSegment(id, index, seconds: 1, in: directory)
+        closed.close()
+        return OutboxEntry(
+          segment: ClosedSegment(memoID: id, index: index, fileURL: closed.url, byteCount: 5, duration: 1),
+          sequence: index, state: .uploaded, attempts: 0)
+      }
+      return OutboxRecord(entries: entries, items: [item], nextSequence: 2)
+    }
+
+    @Test func aTakeIsNotCompletedWithoutItsTailWhileTheTailShadowCannotBeRecovered() async throws {
+      let directory = try temporaryDirectory()
+      defer { try? FileManager.default.removeItem(at: directory) }
+      let id = memo(1)
+      let record = try recoveredTake(id, in: directory)
+      try Data(repeating: 7, count: 9_000).write(to: directory.appending(path: "\(id.uuidString)-2.caf"))
+      let harness = try await OutboxHarness(record: record)
+
+      await harness.outbox.sweepOrphans(using: DirectorySegmentFiles(directory: directory))
+      await harness.outbox.settled()
+
+      #expect(await harness.uploader.completed.isEmpty, "the take would go up without its last seconds")
+      let row = try #require(await harness.outbox.queue().first)
+      guard case .failed(let retryAt, let reason) = row.status else {
+        Issue.record("expected a stalled row, got \(row.status)")
+        return
+      }
+      #expect(retryAt == nil && reason?.contains("could not be recovered") == true, "and the queue says why")
+
+      // Sending it as it is stays the user's decision: retry now releases the hold.
+      await harness.outbox.retryNow(id)
+      await harness.outbox.settled()
+      #expect(await harness.uploader.completed == [.init(memoID: id, segmentCount: 2)])
+      await harness.outbox.shutdown()
+    }
+
+    @Test func aTakeWhoseTailShadowIsRecoveredIsNotHeld() async throws {
+      let live = try temporaryDirectory()
+      let directory = try temporaryDirectory()
+      defer { for url in [live, directory] { try? FileManager.default.removeItem(at: url) } }
+      let id = memo(1)
+      let record = try recoveredTake(id, in: directory)
+      let open = try writeSegment(id, 2, seconds: 2, in: live)
+      try killed(open, into: directory)
+      open.close()
+      let harness = try await OutboxHarness(record: record)
+
+      await harness.outbox.sweepOrphans(using: DirectorySegmentFiles(directory: directory))
+      await harness.outbox.settled()
+
+      #expect(await harness.uploader.completed == [.init(memoID: id, segmentCount: 3)])
+      await harness.outbox.shutdown()
+    }
+
     @Test func aTakeWithNothingOnDiskStaysDropped() async throws {
       let directory = try temporaryDirectory()
       defer { try? FileManager.default.removeItem(at: directory) }
