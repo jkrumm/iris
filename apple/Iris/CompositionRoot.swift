@@ -103,11 +103,12 @@ final class CompositionRoot: CaptureIntentHandler, PlaybackIntentHandler {
         .init(
           session: capture.session, routes: capture.routes, recorder: capture.recorder, clock: SystemCaptureClock(),
           store: fakeStore,
-          uploader: FakePipelineUploader(
-            base: APIOutboxUploader(client: fake, created: created),
-            pipeline: FakePipeline(client: fake, step: Self.fakePipelineStep(arguments))),
+          uploader: ObservedSegmentUploader(
+            FakePipelineUploader(
+              base: APIOutboxUploader(client: fake, created: created),
+              pipeline: FakePipeline(client: fake, step: Self.fakePipelineStep(arguments)))),
           // A slow first retry: a queued item stays visible until "retry now", whatever the speed of the test runner.
-          policy: OutboxPolicy(baseDelay: 30), deletesFilesWhenDone: false))
+          policy: OutboxPolicy(baseDelay: 30), events: DeviceLogCaptureEvents(), deletesFilesWhenDone: false))
       let service = OutboxService(stack: stack, created: created)
       outbox = service
       micRules = MicRulesModel(routes: stack.routes)
@@ -300,32 +301,47 @@ final class CompositionRoot: CaptureIntentHandler, PlaybackIntentHandler {
         "outbox.quarantined_files": .int(aside.count),
         "mode": .string(mode == .fake ? "fake" : "production"),
       ])
+    // The server never hears of a file in the set-aside folder: one record each, so the data-loss case is visible at once.
+    for file in aside.recordings + aside.queueFiles {
+      log.event(
+        "capture.quarantine", severity: .warn,
+        [
+          "file": .string(file.url.lastPathComponent), "bytes": .int(file.byteCount),
+          "has_moov": .bool(file.url.pathExtension == "m4a" ? Self.hasMovieAtom(file.url) : false),
+        ])
+    }
+  }
+
+  /// A finalised m4a has a `moov` atom; one the process died while writing has none and no tool reads it.
+  private nonisolated static func hasMovieAtom(_ url: URL) -> Bool {
+    guard let data = try? Data(contentsOf: url, options: .mappedIfSafe) else { return false }
+    return data.range(of: Data("moov".utf8)) != nil
   }
 
   // MARK: CaptureIntentHandler
 
   /// Starts a take in `auto` mode with its Live Activity: what the Control, Siri and the Shortcuts app run.
   func startMemo() async throws {
-    try await takeController.start(mode: .auto)
+    try await takeController.start(mode: .auto, source: "intent")
   }
 
   /// Ends the take and sends it: the Live Activity's Stop.
   func endTake() async throws {
-    _ = try await takeController.stop()
+    _ = try await takeController.stop(source: "island")
   }
 
   func toggleTakePause() async {
-    await takeController.togglePause()
+    await takeController.togglePause(source: "island")
   }
 
   func switchTakeInput() async throws {
-    try await takeController.switchToNextInput()
+    try await takeController.switchToNextInput(source: "island")
   }
 
   /// Ends the take the intent started: the memo is finished in the outbox. `nil` when there is none, or nothing was said.
   @discardableResult
   func stopMemo() async throws -> TakeResult? {
-    try await takeController.stop()
+    try await takeController.stop(source: "intent")
   }
 
   // MARK: PlaybackIntentHandler
@@ -371,15 +387,16 @@ final class CompositionRoot: CaptureIntentHandler, PlaybackIntentHandler {
   ) -> (stack: CaptureStack, canRecord: Bool) {
     let root = URL.applicationSupportDirectory.appending(path: "Iris", directoryHint: .isDirectory)
     let captureDirectory = root.appending(path: "capture", directoryHint: .isDirectory)
-    let recorder = try? AVAudioEngineSegmentRecorder(directory: captureDirectory)
+    let events = DeviceLogCaptureEvents()
+    let recorder = try? AVAudioEngineSegmentRecorder(directory: captureDirectory, events: events)
     let segmentFiles = DirectorySegmentFiles(directory: captureDirectory)
     let stack = CaptureStack(
       .init(
-        session: AVAudioSessionController(), routes: AVAudioSessionRouteManager(),
+        session: AVAudioSessionController(events: events), routes: AVAudioSessionRouteManager(events: events),
         recorder: recorder ?? UnavailableSegmentRecorder(), clock: SystemCaptureClock(),
         store: JSONFileOutboxStore(fileURL: root.appending(path: "outbox.json"), segmentDirectory: captureDirectory),
-        uploader: APIOutboxUploader(client: client, created: created, keeping: segmentFiles),
-        segmentFiles: segmentFiles))
+        uploader: ObservedSegmentUploader(APIOutboxUploader(client: client, created: created, keeping: segmentFiles)),
+        events: events, segmentFiles: segmentFiles))
     return (stack, recorder != nil)
   }
 }

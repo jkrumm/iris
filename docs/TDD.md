@@ -1069,7 +1069,41 @@ the `IrisCore` dependency when R1 wires them together.
     resent batch shows twice (`(traceId, spanId)` identifies a span). The export
     is part of the OTel flush at shutdown. Without `OTEL_EXPORTER_OTLP_ENDPOINT`
     the batch is accepted and discarded (`degraded` already lists `otel`).
-  - On iOS, MetricKit crash and hang diagnostics are relayed on the next launch.
+  - On iOS, MetricKit crash and hang diagnostics are relayed on the next launch (`metrickit.*`, below).
+- **Device events (iOS).** Device testing does not depend on the owner narrating what he saw: every capture, route,
+  interruption, outbox, intent and Live Activity event goes through one `DeviceLog` and is **an `os.Logger` line and a
+  relayed log record** (`service.name=iris-ios`, `Body` = the event name).
+  - **Every record** carries `event.name`, `seq` (per-process counter), `uptime_ms` (monotonic since launch, so order and
+    durations survive a phone clock step), `app.pid` (a new pid mid-take is the relaunch), `memo.id` (= the trace id, 32 hex,
+    when the event belongs to a memo; the log's `traceId` is the same) and `run.id` (the word typed once in Settings >
+    Diagnostics, unset otherwise); ambient `app.state` and `process` (`com.jkrumm.iris`). `service.version` is the git sha of the
+    build (`IRIS_BUILD_SHA`, `dev` when unset), `device.name` the phone. The console line has the same name as its category
+    prefix: subsystem `com.jkrumm.iris`, category = the part before the first dot.
+  - **Delivery:** records are written to the crash file (`FileTelemetryStore`, Application Support) as they are recorded, sent at
+    launch (what a killed run left), every 10 s, and on background under a background-task assertion. A record is in the file
+    before it is acknowledged, so a kill loses only the events still queued in memory (microseconds). `dropped` reports overflow
+    (2 000 records).
+  - **Privacy:** no transcript, reply or token: a key naming one is dropped before it is recorded, a string is cut at 240
+    characters, port uids are not logged (route and microphone *names* are). Public repo: no real value in tests or docs.
+  - **Records:**
+
+    | `event.name` | Attributes |
+    |-|-|
+    | `app.launch` | `launch.reason` (`user`\|`background_launch`), `previous.phase` (last scene phase of the run before), `previous.exit=unknown`, `outbox.items`, `outbox.quarantined_files`, `mode` |
+    | `app.lifecycle` | `scene.phase`, `reason` |
+    | `take.phase` | `phase` (`starting`\|`recording`\|`paused`\|`stopping`\|`failed`\|`stopped`), `source` (the control that asked last: `app`\|`intent`\|`island`\|`thread`), `mode`, `input.name`, `failure` |
+    | `capture.session.error` | `call` (`setCategory`\|`setActive`\|`setActive(false)`\|`installTap`\|`engine.start`), `error.domain`, `error.code`, `error.fourcc` (`561145187` is `!rec`, `560557684` `!int`), `error.type`, `engine.running`, `session.category`, `session.mode`, `session.options`, `session.other_audio_playing`, `session.sample_rate`, `session.io_buffer_ms` |
+    | `capture.tap.install` | `rate`, `channels`, `hardware_rate`, `valid`, `generation`; written *before* the call that can abort, so the last one before a gap in `seq` is the one that did |
+    | `audio.route_change` | `reason`, `route.prev`, `route.current` (`portType:portName,…`), session snapshot |
+    | `audio.config_change` | `engine.running_before`, `input.rate_before`, `input.channels_before`, `generation`, session snapshot |
+    | `audio.interruption` | `type` (`began`\|`ended`\|`resume`\|`resume_skipped`), `reason`, `options`, `should_resume`, `resume.result`, `api` |
+    | `capture.gap` | `ms`, `reason` (`pause`\|`interruption`\|`media_services_reset`\|`config_change`), `frames_lost` (`ms` at 16 kHz) |
+    | `capture.segment.closed` | `index`, `bytes`, `seconds`, `reason` (`rotate`\|`route`\|`pause`\|`stop`), `closed_ok` (the file has bytes) |
+    | `outbox.segment.upload` | `index`, `attempt`, `status` (`ok`\|`permanent`\|`transient`\|`error`), `ms`, `error` |
+    | `outbox.complete.sent` | `segment_count`, `status`, `ms`, `error` |
+    | `capture.quarantine` | `file`, `bytes`, `has_moov` (per set-aside file at launch) |
+    | `capture.level` | `rms_db`, `peak_db` (dBFS, twice a second while a take records) |
+
 - **Propagation:** the audio door and the agw host don't accept `traceparent` (factory
   ADR-006 plans it), so Iris spans carry the memo id as an attribute on every
   downstream call. Once ADR-006 lands, `traceparent` is added.

@@ -1,4 +1,5 @@
 import Foundation
+import IrisCapture
 import IrisTelemetry
 import Synchronization
 import os
@@ -30,6 +31,7 @@ nonisolated final class DeviceLog: Sendable {
   /// The scene phase the last run reported last (`active`, `inactive`, `background`), read before this run writes its own.
   let previousPhase: String
   private let source = Mutex("app")
+  private let take = Mutex<UUID?>(nil)
 
   private static let phaseKey = "com.jkrumm.iris.telemetry.lastPhase"
 
@@ -60,6 +62,15 @@ nonisolated final class DeviceLog: Sendable {
   var commandSource: String {
     get { source.withLock { $0 } }
     set { source.withLock { $0 = newValue } }
+  }
+
+  /// The take in progress, so an event from below the take (the audio session, the tap) joins its trace.
+  var currentTake: UUID? { take.withLock { $0 } }
+
+  /// Follows `take.phase`: a take starts with `starting` and ends with `stopped`.
+  func trackTake(_ memoID: UUID?, phase: CaptureEventValue?) {
+    guard case .string(let name)? = phase else { return }
+    take.withLock { $0 = name == "stopped" ? nil : (memoID ?? $0) }
   }
 
   /// Starts the relay: sends what a killed run left in the crash file, then flushes every 10 s for the life of the process.
