@@ -30,7 +30,11 @@ struct MacCaptureStack {
     let captureDirectory = root.appending(path: "capture", directoryHint: .isDirectory)
     let recorder = try? AVAudioEngineSegmentRecorder(directory: captureDirectory)
     let segmentFiles = DirectorySegmentFiles(directory: captureDirectory)
-    let routes = DirectoryRouteManager(directory: CoreAudioDeviceDirectory())
+    // A kill mid-take leaves the picked microphone as the system default: the record the wrapper keeps says what to put back.
+    let directory = CoreAudioDeviceDirectory()
+    let inputStore = UserDefaultsInputRecoveryStore()
+    RecoveringRouteManager.recover(store: inputStore, directory: directory)
+    let routes = RecoveringRouteManager(DirectoryRouteManager(directory: directory), store: inputStore)
     let stack = CaptureStack(
       .init(
         session: MacAudioSessionController(), routes: routes, recorder: recorder ?? UnavailableSegmentRecorder(),

@@ -998,9 +998,15 @@ pinned simulator in light and dark (`LiveActivitySnapshotTests`, the island thro
   The default before the first pick is kept and put back when the take ends,
   however it ends, a start that throws after the session applied a mic rule
   included (`setPreferredInput(uid: nil)`), and only while the default is still
-  the device Iris set: a default somebody else chose mid-take is left alone. A
-  crash mid-take leaves the last pick as the default (known limit; the original
-  is not persisted). `routeChanges`, the directory's `changes` and the engine's
+  the device Iris set: a default somebody else chose mid-take is left alone. The
+  original is also written down (`RecoveringRouteManager` wraps the route
+  manager; `UserDefaults`, `{original, chosen}`) **before** the first pick of a
+  take changes the default, and cleared when the restore has run. A kill
+  mid-take leaves the record; the next launch (`RecoveringRouteManager.recover`,
+  run by `MacCaptureStack.production`) puts the original back under the same
+  rules as the in-process restore (only while the default is still the device
+  the killed run set, and the original is still attached), else drops it. A
+  restore that fails keeps the record for the next launch. `routeChanges`, the directory's `changes` and the engine's
   levels, failures and mic list are broadcasts (`Broadcast`): every read is its
   own subscription, because the capture session and the panel both listen and an
   `AsyncStream` ends for everyone when one consumer stops. Per-device mic rules are local
