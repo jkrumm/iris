@@ -1186,7 +1186,7 @@ close a worker's pane as soon as its PR is merged; do not run a device build fro
 of `origin/master`).
 
 ## Wave 19 — R5 polish (live preview, widgets, German) ∥ R4 Mac completion ∥ Wave 18 data-safety debt            <!-- status: active -->
-Owner direction 2026-10-31: keep going without him; pause after this wave until the enrolment email or his feedback arrives. Tracks: **I**
+Mother's plan 2026-10-31 (the owner asked "finished or pause?"; my recommendation, not yet answered): this wave runs without him, then the fleet pauses until the enrolment email or his feedback arrives. Tracks: **I**
 (`apple/**` iOS and package code) ∥ **M** (`apple/IrisMac/**`, Mac-only package code) ∥ **S** (`server/**`, `contracts/**`, `scripts/**`) ∥
 **D** (the owner's hardware batch, only when he says he is ready). Fleet rules hold: one `xcodebuild` under `lockf -t 1800
 /tmp/iris-apple.lock`; Apple PRs ride `w19-batch-N`; device builds from a detached worktree of `origin/master`; a worker's pane closes when

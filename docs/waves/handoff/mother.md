@@ -8,7 +8,7 @@ and skim `docs/TDD.md`. Role contract: `~/.claude/skills/wave/roles/mother.md` (
 
 Wave 15 done 2026-10-29. Wave 16 done 2026-10-30 07:47. Wave 17 done 2026-10-30 20:38. Wave 18 done 2026-10-31 09:58 (`2b4c60c`:
 I5 visual pass, device observability, Mac M1+M2, kill recovery, the I7 device fixes; batches 1–5). **Wave 19 active** (R5 polish ∥ Mac
-completion ∥ data-safety debt), lead `iris-w19`. **Owner direction 2026-10-31: pause after Wave 19** until the enrolment email (not arrived
+completion ∥ data-safety debt), lead `iris-w19`. **Mother's recommendation 2026-10-31 (owner has not answered): pause after Wave 19** until the enrolment email (not arrived
 2026-10-31) or his feedback arrives; do not write Wave 20 unless he answers. Owner pending: hardware batch + UI feedback on the phone build
 `b853215`, the I6 route-config render review, B2 mockups, token rotation. Quota 10:00: iu 59% (11-04 16:00), me 67% (11-05 06:00), me2
 walled until 11-01 18:00. All walled → wait for a reset, never IU API tokens.
