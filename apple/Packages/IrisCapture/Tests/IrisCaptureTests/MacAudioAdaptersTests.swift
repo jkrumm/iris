@@ -10,8 +10,7 @@
       inputs: [InputPort] = [FakeAudioDeviceDirectory.builtIn, FakeAudioDeviceDirectory.usb]
     ) -> (DirectoryRouteManager, FakeAudioDeviceDirectory) {
       let directory = FakeAudioDeviceDirectory(inputs: inputs)
-      let defaults = UserDefaults(suiteName: "iris.tests.\(UUID().uuidString)") ?? .standard
-      return (DirectoryRouteManager(directory: directory, defaults: defaults), directory)
+      return (DirectoryRouteManager(directory: directory, suiteName: "iris.tests.\(UUID().uuidString)"), directory)
     }
 
     @Test func routeIsTheDeviceListWithTheDefaultAsCurrentInput() async {

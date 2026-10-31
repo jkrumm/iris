@@ -19,6 +19,10 @@ enum MacPanelPage: Equatable {
 ///   and each connection gets its own ``ReconfigurableAPIClient``. With nothing saved the
 ///   panel opens on Settings and nothing loads.
 ///
+/// - The capture side (Wave 18 M2): under `-IrisFakeData` a scripted ``FakeTakeEngine`` and permission, no microphone and no
+///   hotkey registration; otherwise ``MacCaptureStack`` (the outbox on the Mac's audio devices, uploading over the saved
+///   connection), the system microphone permission and the `KeyboardShortcuts` hotkey.
+///
 /// History's list and event stream run from launch, not from the first time the popover opens: a notification per finished
 /// memo needs the stream while the panel is closed.
 @MainActor
@@ -49,6 +53,16 @@ final class MacCompositionRoot {
   private(set) var reconnects = 0
 
   let notifier: MemoNotifier
+  /// The floating recording panel's state machine, and the controller that shows the panel for it.
+  let recording: RecordingPanelModel
+  let recordingPanel: RecordingPanelController
+  /// The global key that toggles a take.
+  let hotkey: any TakeHotkey
+  /// The scripted engine behind ``Mode/fake``; the snapshot run feeds its levels.
+  let fakeTake: FakeTakeEngine?
+  /// Production only: the outbox the takes go through, and the client its uploader talks to.
+  private let capture: MacCaptureStack?
+  private var hotkeyListening: Task<Void, Never>?
   /// Signals each `ready` of the current connection's event stream (see ``StreamTappingClient``).
   private var streamReady: AsyncStream<Void>
   /// The client of the current connection. Each connection gets its own, so a task that started on the old server can never
@@ -66,7 +80,10 @@ final class MacCompositionRoot {
   init(
     arguments: [String] = ProcessInfo.processInfo.arguments,
     credentials: (any CredentialStore)? = nil,
-    poster: (any NotificationPoster)? = nil
+    poster: (any NotificationPoster)? = nil,
+    takeEngine: (any TakeEngine)? = nil,
+    permission: (any MicrophonePermission)? = nil,
+    hotkey: (any TakeHotkey)? = nil
   ) {
     sampleNow = SampleData.now(arguments: arguments)
     let client: any APIClient
@@ -79,6 +96,7 @@ final class MacCompositionRoot {
       fakeAPI = fake
       self.credentials = credentials ?? InMemoryCredentialStore()
       page = arguments.contains(Self.settingsArgument) ? .settings : .history
+      capture = nil
     } else {
       let store = credentials ?? KeychainCredentialStore()
       let saved = store.load()
@@ -88,6 +106,7 @@ final class MacCompositionRoot {
       fakeAPI = nil
       self.credentials = store
       page = saved == nil ? .settings : .history
+      capture = MacCaptureStack.production(credentials: saved)
     }
     let (ready, signal) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
     streamReady = ready
@@ -98,14 +117,41 @@ final class MacCompositionRoot {
     notifier = MemoNotifier(
       poster: poster ?? (isFake ? RecordingNotificationPoster() : UserNotificationPoster()),
       connectionID: Self.connectionID(for: isFake ? nil : self.credentials.load()), lookup: { _ in nil })
+    let engine: any TakeEngine = takeEngine ?? capture?.engine ?? FakeTakeEngine()
+    fakeTake = engine as? FakeTakeEngine
+    let store = self.credentials
+    recording = RecordingPanelModel(
+      engine: engine, permission: permission ?? (isFake ? FakeMicrophonePermission() : SystemMicrophonePermission()),
+      isConfigured: { isFake || store.load() != nil })
+    recordingPanel = RecordingPanelController(model: recording)
+    self.hotkey = hotkey ?? (isFake ? FakeTakeHotkey() : KeyboardShortcutsHotkey())
     // Always fetched: the list's copy can be stale, and a failed refresh must not announce a memo that is still running.
     notifier.lookup = { [weak self] id in try? await self?.api.memo(id: id).memo }
     wireNotifications()
+    wireCreatedMemos()
   }
 
   private static func makeHistory(client: any APIClient, mode: Mode) -> HistoryModel {
     mode == .fake
       ? HistoryModel(client: client) : HistoryModel(client: client, hiddenStore: UserDefaultsHiddenMemoStore())
+  }
+
+  /// A memo the outbox created on the server shows in History at once, before the event stream has told the list.
+  private func wireCreatedMemos() {
+    guard let created = capture?.created else { return }
+    Task { [weak self] in
+      await created.setHandler { memo in Task { @MainActor in self?.history.insert(memo) } }
+    }
+  }
+
+  /// Starts listening to the global key: each press toggles a take. Called once at launch.
+  func installHotkey() {
+    guard hotkeyListening == nil else { return }
+    let presses = hotkey.presses
+    // Owned by the root, which lives as long as the app.
+    hotkeyListening = Task { [weak self] in
+      for await _ in presses { self?.recording.toggle() }
+    }
   }
 
   private func wireNotifications() {
@@ -172,6 +218,8 @@ final class MacCompositionRoot {
   private func follow() async {
     if let fakeAPI { await SampleData.seed(fakeAPI, now: sampleNow) }
     guard isConfigured else { return }
+    // Opens the outbox and sends what an earlier run left in it (a take made offline, or cut short by a quit).
+    Task { await capture?.service.resume() }
     notifier.requestPermissionIfNeeded()
     let history = history
     // The stream does not wait for the first list request: a slow or hung list must not keep the notifications away. The stream's
@@ -231,6 +279,7 @@ final class MacCompositionRoot {
     wireNotifications()
     notifier.reset(connectionID: Self.connectionID(for: credentials.load()))
     queues = [:]
+    capture?.client.reconfigure(credentials.load())
     closeDetail()
     reconnects = 0
     connectionRevision += 1

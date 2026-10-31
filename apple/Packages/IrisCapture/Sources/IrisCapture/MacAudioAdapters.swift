@@ -43,9 +43,10 @@
     private var originalDefault: String?
     private static let rulesKey = "com.jkrumm.iris.capture.routeRules"
 
-    public init(directory: any AudioDeviceDirectory, defaults: UserDefaults = .standard) {
+    /// - Parameter suiteName: the `UserDefaults` suite the rules live in; `nil` is the app's own.
+    public init(directory: any AudioDeviceDirectory, suiteName: String? = nil) {
       self.directory = directory
-      self.defaults = defaults
+      defaults = suiteName.flatMap(UserDefaults.init(suiteName:)) ?? .standard
       let changes = directory.changes
       routeChanges = AsyncStream { continuation in
         // Owned by the stream; ends when the directory's stream does or the consumer goes away.
@@ -145,7 +146,8 @@
       listeners = selectors.map { selector in
         var address = Self.address(selector)
         let block: AudioObjectPropertyListenerBlock = { _, _ in continuation.yield() }
-        AudioObjectAddPropertyListenerBlock(AudioObjectID(kAudioObjectSystemObject), &address, DispatchQueue.main, block)
+        AudioObjectAddPropertyListenerBlock(
+          AudioObjectID(kAudioObjectSystemObject), &address, DispatchQueue.main, block)
         return Listener(address: address, block: block)
       }
     }
@@ -183,7 +185,9 @@
       var device = id
       let status = AudioObjectSetPropertyData(
         AudioObjectID(kAudioObjectSystemObject), &address, 0, nil, UInt32(MemoryLayout<AudioDeviceID>.size), &device)
-      guard status == noErr else { throw CaptureError.sessionFailure("the default input was not set (OSStatus \(status))") }
+      guard status == noErr else {
+        throw CaptureError.sessionFailure("the default input was not set (OSStatus \(status))")
+      }
     }
 
     // MARK: Core Audio

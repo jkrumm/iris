@@ -9,6 +9,7 @@ struct IrisMacApp: App {
     let root = MacCompositionRoot()
     _root = State(initialValue: root)
     root.installNotificationClicks()
+    root.installHotkey()
     // The list and the event stream run from launch, popover open or not: a notification per finished memo needs them.
     root.begin()
     if root.mode == .fake, let snapshot = MacSnapshotRun(arguments: ProcessInfo.processInfo.arguments, root: root) {
