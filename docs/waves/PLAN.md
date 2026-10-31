@@ -1185,6 +1185,43 @@ run of 45-75 min per batch), server and docs PRs merge alone; a second simulator
 close a worker's pane as soon as its PR is merged; do not run a device build from a checkout another session may have switched to a branch (build from a detached worktree
 of `origin/master`).
 
+## Wave 19 — R5 polish (live preview, widgets, German) ∥ R4 Mac completion ∥ Wave 18 data-safety debt            <!-- status: active -->
+Owner direction 2026-10-31: keep going without him; pause after this wave until the enrolment email or his feedback arrives. Tracks: **I**
+(`apple/**` iOS and package code) ∥ **M** (`apple/IrisMac/**`, Mac-only package code) ∥ **S** (`server/**`, `contracts/**`, `scripts/**`) ∥
+**D** (the owner's hardware batch, only when he says he is ready). Fleet rules hold: one `xcodebuild` under `lockf -t 1800
+/tmp/iris-apple.lock`; Apple PRs ride `w19-batch-N`; device builds from a detached worktree of `origin/master`; a worker's pane closes when
+its PR merges; review convergence after round 2 (only data-loss, privacy, security and crash blockers). A genuinely new surface (widgets, the
+live preview) gets a render for the owner's async review in `docs/design/README.md` while it is built, never a blocking round. Capture work
+loads `apple-capture-notes`; library facts go through `/research` first.
+- [ ] **D1. Owner hardware batch (Wave 18 Left behind "Owner hardware batch", verbatim):** only once the owner says he is ready, grouped
+      `ask-human` steps (one per group, German iOS paths), the device logs (`iris-ios` in HyperDX) instead of narration. Fails become I items
+      here (small) or Left behind.
+- [ ] **I1. Data safety first (Wave 18 follow-ups M2, I2, Known limits):** outbox work bound to the server it was created for across a
+      connection switch (iOS and Mac: the create epoch, a buffered create event, stale History reconciliation); a DELETE never settles before
+      the hide is published; a cancelled take's files whose close failed are cleaned up; `finishWriting` is bounded; a take that fails on its
+      own clears `captureActive`; Mac: the original input survives a kill. Tests per item.
+- [ ] **I2. Late tail as its own transcribe memo (owner default 2, parked `w18-i1b-late-tail`):** a fresh worker with a narrow brief: start
+      from the branch's notes, the smallest design that cannot lose or double-act (a new outbox item kind, not a change to the take state
+      machine), under 400 lines if at all possible. Not converging after round 2 → Left behind with the design written down.
+- [ ] **R1. Live on-device preview (R5, PRD release plan):** the take screen shows the transcript as it is spoken, on device
+      (`SpeechAnalyzer` / `SpeechTranscriber`, iOS 26; `/research` the API, locale support and model download first; German checked at
+      runtime, absent locale or model → no preview, never a blocked take). The server transcript stays the truth. Render for async review;
+      fake-tested on the simulator; device proof in D1.
+- [ ] **R2. Widgets (R5):** a Home Screen / Lock Screen widget: record (starts a take like the control) and the last memo's state
+      and headline; StandBy-friendly. Render for async review; snapshot-tested; device proof in D1.
+- [ ] **R3. German strings (R5, `.xcstrings`):** every app-target, widget and Mac string in a catalog with `de` (the owner's phone is German),
+      English the source language; IrisUI's catalog completed. No hard-coded user-facing strings left (a check fails on new ones).
+- [ ] **M1. Mac completion (Wave 18 follow-ups M1, M2):** notification catch-up edge cases (failed / needs_route catch-up, transition-based
+      dedupe, generation races, banner during a switch), an outbox status / retry UI for stalled uploads, the panel can become key, the
+      Mac take on the telemetry relay, history rows still match iOS after Wave 18 I5. Proof on the mini; the MacBook rows go to D1.
+- [ ] **I3. Telemetry and UI follow-ups (Wave 18 follow-ups I6/#87, #75, I5):** flush / recovery concurrency, no background assertion
+      on a hung send, quarantine inspection off the main actor; the Stop-button contrast, the Record accessory under the detail / thread bottom
+      actions, `TrendRow` / `VolumeChart`, index-based identity in I5e; whatever of the rest is small.
+- [ ] **S1. Dependency PR #91** (minor and patch upgrades): review, merge, deploy, `make verify`, `make smoke`.
+- [ ] **Deploy + prove:** server deployed, `make verify` healthy, `make smoke` green; `apple.yml` green on master.
+Not this wave: D2/S3/TestFlight (enrolment), the route-configuration build (owner review), HyperDX alerts to Slack + `probe_iris`
+(TDD §8 Later; outward, the owner's call), the PRD "Later" surfaces and R6, H1's B2 objects, device-token rotation.
+
 ## Fleet backlog (for the long-running fleet: mother → lead → workers)
 
 Not waves of this chain. The fleet's mother turns these into active waves, one at a time,

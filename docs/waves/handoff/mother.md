@@ -6,13 +6,12 @@ and skim `docs/TDD.md`. Role contract: `~/.claude/skills/wave/roles/mother.md` (
 
 ## Status: RESUMED by the owner (2026-10-28), run through the night
 
-Wave 15 done 2026-10-29 08:56. Wave 16 done 2026-10-30 07:47 (`29391b6`). Wave 17 done 2026-10-30 20:38 (`4cfe59c`; batches 1–3
-merged, prod verify/smoke green). **Wave 18 active** (device re-test + D3 when enrolled ∥ R4 Mac ∥ Wave 17 debt), lead `iris-w18`.
-The device re-test waits for the owner (left 18:03, back "later"); worker `w17-d2r-device-retest` is kept open for it. Two owner
-questions got reversible mother defaults in Wave 18's header (take start pauses a playing reply; a late tail is its own transcribe
-memo) — tell him when he is back. Enrolment question pending in the human queue. Batch train + mini CPU diet are Fleet rules.
-Quota 20:40: iu 53% (resets 11-04 16:00), me 53% (11-05 06:00), me2 walled until 11-01 18:00. All walled → wait for the next
-reset (`claude-account usage`), never IU API tokens. Stop only for the four reasons.
+Wave 15 done 2026-10-29. Wave 16 done 2026-10-30 07:47. Wave 17 done 2026-10-30 20:38. Wave 18 done 2026-10-31 09:58 (`2b4c60c`:
+I5 visual pass, device observability, Mac M1+M2, kill recovery, the I7 device fixes; batches 1–5). **Wave 19 active** (R5 polish ∥ Mac
+completion ∥ data-safety debt), lead `iris-w19`. **Owner direction 2026-10-31: pause after Wave 19** until the enrolment email (not arrived
+2026-10-31) or his feedback arrives; do not write Wave 20 unless he answers. Owner pending: hardware batch + UI feedback on the phone build
+`b853215`, the I6 route-config render review, B2 mockups, token rotation. Quota 10:00: iu 59% (11-04 16:00), me 67% (11-05 06:00), me2
+walled until 11-01 18:00. All walled → wait for a reset, never IU API tokens.
 
 ## Mission
 
