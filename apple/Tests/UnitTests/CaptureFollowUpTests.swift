@@ -26,7 +26,7 @@ struct CaptureFollowUpTests {
     let coordinator = TakeLiveActivityCoordinator(activity: activity, stack: rig.stack, created: rig.created)
     let controller = TakeController(
       stack: rig.stack, liveActivity: coordinator, outbox: rig.service, microphone: nil, canRecord: true,
-      isConfigured: { true }, requestPermission: { true })
+      isConfigured: { true }, requestPermission: { true }, preview: nil)
     return (controller, coordinator)
   }
 
@@ -90,7 +90,7 @@ struct CaptureFollowUpTests {
     let coordinator = TakeLiveActivityCoordinator(activity: activity, stack: rig.stack, created: rig.created)
     let denied = TakeController(
       stack: rig.stack, liveActivity: coordinator, outbox: rig.service, microphone: nil, canRecord: true,
-      isConfigured: { true }, requestPermission: { false })
+      isConfigured: { true }, requestPermission: { false }, preview: nil)
     await #expect(throws: StartMemoError.microphoneDenied) { try await denied.start(mode: .auto) }
     await #expect(throws: StartMemoError.microphoneDenied) { try await denied.start(mode: .auto) }
   }
@@ -108,7 +108,8 @@ struct CaptureFollowUpTests {
     let controller = TakeController(
       stack: stack,
       liveActivity: TakeLiveActivityCoordinator(activity: RecordingLiveActivity(), stack: stack, created: created),
-      outbox: service, microphone: nil, canRecord: true, isConfigured: { true }, requestPermission: { true })
+      outbox: service, microphone: nil, canRecord: true, isConfigured: { true }, requestPermission: { true },
+      preview: nil)
 
     await #expect(throws: StartMemoError.queueUnavailable) { try await controller.cancel() }
 

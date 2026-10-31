@@ -123,7 +123,7 @@ final class CompositionRoot: CaptureIntentHandler, PlaybackIntentHandler {
       liveActivity = coordinator
       takeController = TakeController(
         stack: stack, liveActivity: coordinator, outbox: service, microphone: mic, canRecord: true,
-        isConfigured: { true }, requestPermission: { true }, speech: speech)
+        isConfigured: { true }, requestPermission: { true }, speech: speech, preview: .fake(tap: capture.recorder))
       history = HistoryModel(client: fake, evictMedia: { MediaDownloader.shared.evict(memoID: $0) })
       stats = StatsModel(client: fake)
       settings = SettingsModel(client: fake, queue: service)
@@ -159,7 +159,8 @@ final class CompositionRoot: CaptureIntentHandler, PlaybackIntentHandler {
       takeController = TakeController(
         stack: production.stack, liveActivity: coordinator, outbox: service, microphone: nil,
         canRecord: production.canRecord, isConfigured: { credentials.load() != nil },
-        requestPermission: { await AVAudioApplication.requestRecordPermission() }, speech: speech)
+        requestPermission: { await AVAudioApplication.requestRecordPermission() }, speech: speech,
+        preview: production.preview)
       history = HistoryModel(
         client: client, hiddenStore: UserDefaultsHiddenMemoStore(),
         evictMedia: { MediaDownloader.shared.evict(memoID: $0) })
@@ -435,7 +436,7 @@ final class CompositionRoot: CaptureIntentHandler, PlaybackIntentHandler {
   /// The real recorder, session and route manager, with the queue and the segment files in Application Support.
   private static func productionStack(
     client: any APIClient, created: CreatedMemoLog
-  ) -> (stack: CaptureStack, canRecord: Bool) {
+  ) -> (stack: CaptureStack, canRecord: Bool, preview: LivePreviewSource?) {
     let root = URL.applicationSupportDirectory.appending(path: "Iris", directoryHint: .isDirectory)
     let captureDirectory = root.appending(path: "capture", directoryHint: .isDirectory)
     let events = DeviceLogCaptureEvents()
@@ -448,6 +449,6 @@ final class CompositionRoot: CaptureIntentHandler, PlaybackIntentHandler {
         store: JSONFileOutboxStore(fileURL: root.appending(path: "outbox.json"), segmentDirectory: captureDirectory),
         uploader: ObservedSegmentUploader(APIOutboxUploader(client: client, created: created, keeping: segmentFiles)),
         events: events, segmentFiles: segmentFiles))
-    return (stack, recorder != nil)
+    return (stack, recorder != nil, recorder.map { .speech(tap: $0) })
   }
 }

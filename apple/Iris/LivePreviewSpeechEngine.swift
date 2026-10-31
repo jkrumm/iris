@@ -2,7 +2,6 @@ import AVFAudio
 import Foundation
 import IrisCapture
 import Speech
-import os
 
 /// The production preview recognizer: `SpeechTranscriber` driven by a `SpeechAnalyzer` (iOS 26), fed from the recorder's tap.
 ///
@@ -11,10 +10,8 @@ import os
 /// screen and the failure paths are tested on ``FakeLivePreviewEngine``. Speech recognition needs no permission of its own
 /// (`NSSpeechRecognitionUsageDescription` belongs to `SFSpeechRecognizer`); the take already holds the microphone one.
 ///
-/// Never logs, stores or forwards what it hears.
+/// Never logs, stores or forwards what it hears; a failure is rethrown for the model to record.
 nonisolated struct SpeechAnalyzerPreviewEngine: LivePreviewEngine {
-  private static let logger = Logger(subsystem: "com.jkrumm.iris", category: "preview")
-
   enum Failure: Error {
     case unsupportedLocale
     case noAudioFormat
@@ -84,7 +81,7 @@ nonisolated struct SpeechAnalyzerPreviewEngine: LivePreviewEngine {
     } catch {
       builder.finish()
       await analyzer.cancelAndFinishNow()
-      logger.notice("live preview stopped: \((error as NSError).domain, privacy: .public) \((error as NSError).code)")
+      // Rethrown unlogged: `LivePreviewModel` records the one `preview.stopped` event.
       throw error
     }
   }

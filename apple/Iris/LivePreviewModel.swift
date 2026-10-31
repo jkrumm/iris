@@ -1,8 +1,8 @@
 import Foundation
 import IrisCapture
 import IrisCore
+import IrisTelemetry
 import Observation
-import os
 
 /// The text of the take screen's live preview: what the on-device recognizer has settled on (`finalized`) and what it is still
 /// changing (`volatile`). Display only (TDD §4): never uploaded, stored, logged or put into telemetry; it lives as long as
@@ -24,7 +24,6 @@ final class LivePreviewModel {
   private let source: LivePreviewSource?
   private var memo: MemoID?
   private var task: Task<Void, Never>?
-  private let logger = Logger(subsystem: "com.jkrumm.iris", category: "preview")
 
   init(source: LivePreviewSource?) {
     self.source = source
@@ -45,6 +44,10 @@ final class LivePreviewModel {
     task = nil
     memo = nil
     isRunning = false
+    clearText()
+  }
+
+  private func clearText() {
     finalized = ""
     volatile = ""
   }
@@ -54,7 +57,9 @@ final class LivePreviewModel {
     let audio = await source.tap.openPreview()
     let locale = source.locale()
     guard await source.engine.isAvailable(for: locale) else {
-      logger.notice("no live preview: the language is not ready on this device")
+      // Which language, never what was said.
+      DeviceLog.shared.event(
+        "preview.unavailable", memoID: memo, severity: .warn, ["locale": .string(locale.identifier(.bcp47))])
       return
     }
     guard !Task.isCancelled, self.memo == memo else { return }
@@ -68,11 +73,14 @@ final class LivePreviewModel {
       return
     } catch {
       guard self.memo == memo else { return }
-      // The recognizer failed: the take goes on and the preview is simply gone.
-      logger.notice("live preview stopped: \((error as NSError).domain, privacy: .public) \((error as NSError).code)")
+      // The recognizer failed: the take goes on and the preview is simply gone. Logged here only (the engine rethrows), as
+      // domain and code, never text.
+      let failure = error as NSError
+      DeviceLog.shared.event(
+        "preview.stopped", memoID: memo, severity: .warn,
+        ["error.domain": .string(failure.domain), "error.code": .int(failure.code)])
       isRunning = false
-      finalized = ""
-      volatile = ""
+      clearText()
     }
   }
 

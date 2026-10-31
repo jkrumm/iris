@@ -165,4 +165,22 @@ struct LivePreviewTests {
     #expect(take.preview.finalized.isEmpty && !take.preview.isRunning, "the text goes with the take")
     #expect(take.failure == nil)
   }
+
+  @Test("the fake composition root wires the preview: a take under -IrisFakeCapture runs it", .timeLimit(.minutes(1)))
+  func compositionRootWiresThePreview() async throws {
+    let root = CompositionRoot(arguments: ["-IrisFakeCapture"], credentials: InMemoryCredentialStore())
+    let take = root.take
+    let follower = Task { await take.run() }
+    defer { follower.cancel() }
+
+    await take.start()
+    #expect(await waitFor { take.preview.isRunning }, "the root hands the take controller a preview source")
+    #expect(
+      await waitFor { take.preview.volatile.hasPrefix("Remind") || !take.preview.finalized.isEmpty },
+      "the fake recognizer follows the fake microphone")
+
+    await take.stop()
+    #expect(await waitFor { !take.isActive })
+    #expect(!take.preview.isRunning)
+  }
 }

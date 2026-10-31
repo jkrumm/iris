@@ -3,7 +3,7 @@ import IrisCapture
 import Testing
 
 /// The preview tap on the fake recorder: an additive copy of the samples the recorder accepts, nothing while nobody listens.
-@Suite("Preview tap")
+@Suite("Preview tap", .timeLimit(.minutes(1)))
 struct PreviewTapTests {
   private func recorder() -> FakeSegmentRecorder {
     FakeSegmentRecorder(
@@ -72,7 +72,7 @@ struct PreviewTapTests {
     #expect(await take(second, count: 1).map(\.samples.count) == [10])
   }
 
-  @Test("nothing is kept while no preview is open, and a released stream does not disturb the take")
+  @Test("nothing is kept while no preview is open, and a released stream does not disturb the take or a later preview")
   func costsNothingUnwatched() async throws {
     let recorder = recorder()
     try await recorder.start(memoID: MemoID())
@@ -84,6 +84,10 @@ struct PreviewTapTests {
     }
     await recorder.feed(frames: 4096)  // the consumer is gone: the feed closes itself
     await recorder.feed(frames: 4096)
+
+    let later = await recorder.openPreview()
+    await recorder.feed(frames: 77)
+    #expect(await take(later, count: 1).map(\.samples.count) == [77], "the earlier audio is not replayed")
     try await recorder.stop()
   }
 }

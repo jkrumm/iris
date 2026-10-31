@@ -35,7 +35,7 @@ final class TakeController {
   init(
     stack: CaptureStack, liveActivity: TakeLiveActivityCoordinator, outbox: OutboxService, microphone: FakeMicrophone?,
     canRecord: Bool, isConfigured: @escaping () -> Bool, requestPermission: @escaping @Sendable () async -> Bool,
-    speech: SpeechPlayer? = nil, preview: LivePreviewSource? = nil
+    speech: SpeechPlayer? = nil, preview: LivePreviewSource?
   ) {
     self.stack = stack
     self.liveActivity = liveActivity
