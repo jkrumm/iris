@@ -6,12 +6,23 @@ and skim `docs/TDD.md`. Role contract: `~/.claude/skills/wave/roles/mother.md` (
 
 ## Status: RESUMED by the owner (2026-10-28), run through the night
 
-Wave 15 done 2026-10-29. Wave 16 done 2026-10-30 07:47. Wave 17 done 2026-10-30 20:38. Wave 18 done 2026-10-31 09:58 (`2b4c60c`:
-I5 visual pass, device observability, Mac M1+M2, kill recovery, the I7 device fixes; batches 1–5). **Wave 19 active** (R5 polish ∥ Mac
-completion ∥ data-safety debt), lead `iris-w19`. **Mother's recommendation 2026-10-31 (owner has not answered): pause after Wave 19** until the enrolment email (not arrived
-2026-10-31) or his feedback arrives; do not write Wave 20 unless he answers. Owner pending: hardware batch + UI feedback on the phone build
-`b853215`, the I6 route-config render review, B2 mockups, token rotation. Quota 10:00: iu 59% (11-04 16:00), me 67% (11-05 06:00), me2
-walled until 11-01 18:00. All walled → wait for a reset, never IU API tokens.
+Wave 15 done 2026-10-29. Wave 16 done 2026-10-30 07:47. Wave 17 done 2026-10-30 20:38. Wave 18 done 2026-10-31 09:58 (`2b4c60c`).
+**Wave 19 active** (R5 polish ∥ Mac completion ∥ data-safety debt). **Paused 2026-10-31 ~14:00 for a mini update (reboot):** the lead
+`iris-w19` finishes batch 1 (#92 widgets, #93 live preview, #94 data safety, #95 Mac completion), pushes every branch, writes
+`handoff/lead.md` and stops. Not started: R3 German strings, I2 late tail (after #94), I3 follow-ups, D1 (owner hardware batch, only
+when he says ready). **On resume:** check `git log origin/master`, `gh pr list`, `handoff/lead.md`, `claude-account usage`; spawn a fresh
+lead for Wave 19 (the spawn command below), restart the watcher (`/tmp/iris-mother/watch.sh` is in /tmp and gone after a reboot:
+recreate it from the "Watcher" note below or watch by hand). **After Wave 19: pause** (mother's recommendation, the owner has not
+answered) until the enrolment email (not arrived 2026-10-31) or his feedback. Owner pending: hardware batch + UI feedback on the phone
+build `b853215`, the Wave 17 I6 route-config render review, B2 mockups (keep until he approves the I5 visuals), token rotation. Quota
+12:15: iu 60% (11-04 16:00), me 67% (11-05 06:00), me2 walled until 11-01 18:00. All walled → wait for a reset, never IU API tokens.
+**Spawn:** `cd ~/SourceRoot/iris && RD_ORCHESTRATED=1 rd wave iris 'Read docs/waves/PLAN.md and ~/.claude/skills/wave/roles/lead.md. You
+are the fleet lead for the active wave (Wave <n>). Brief workers with rd fan, review, merge with rd merge, close out the wave in PLAN.md
+(the label must be exactly **Left behind:**), and stop; the mother spawns the next lead.'` The green gate refuses a spawn while the
+previous wave has `- [ ]` items: rewrite carried ones as `- (carried …)`. **Watcher:** a loop that every 5 min reads the wave's status
+marker in PLAN.md (DONE), `rd agents` for the lead (BLOCKED / GONE), master's head (STALE after 60 min unmoved) and a 90 min HEARTBEAT.
+Mini rules: every Apple build under `lockf -t 1800 /tmp/iris-apple.lock`; approve a blocked worker's prompt (`herdr agent send-keys
+<pane> enter`) only when the command is safe.
 
 ## Mission
 
