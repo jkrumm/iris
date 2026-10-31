@@ -946,6 +946,43 @@ pinned simulator in light and dark (`LiveActivitySnapshotTests`, the island thro
   Core Audio, and per-device mic rules are local.
 - **Notifications:** live SSE `/v1/events` for status, local notifications
   while it runs, and APNs registration for when it is asleep.
+- **First slice (Wave 18 M1, no capture yet):**
+  - *Composition:* `MacCompositionRoot` picks the adapters once. `-IrisFakeData` runs the fake API with the sample
+    memos, an in-memory credential store (an unsigned build has no Keychain, `-34018`) and a notification poster that
+    records; otherwise production, with the iPhone's `ReconfigurableAPIClient`, `ConnectionModel` and `KeychainCredentialStore`
+    (same sources, compiled into both targets). With nothing saved the panel opens on Settings and nothing loads.
+  - *Panel:* a 460 × 560 `.window` popover. Header: the connection line (`MacConnectionStatus`, from `HistoryModel.link`) and a
+    History / Settings switch. History is the iOS list on the same `HistoryModel`: `HistoryRow` and `HistoryRowBackground` from
+    `IrisUI`, day sections, filter chips, search, a context menu for done / favorite / archive / delete (with the undo toast).
+    Settings holds the connection form and Quit.
+  - *Detail panel:* one `Window` ("Memo"), reused by the next memo opened; it opens from a row or a clicked notification banner
+    (the always-present menu-bar label observes `detailRequest`). `MacMemoDetailView` composes the `IrisUI` pieces (`StepWaterfall`,
+    `DetailSectionLabel`, `detailCard`, `RouteChip`) over `MacMemoDetailModel`: steps with the stats baselines, transcript and
+    reply with Copy as plain text, retry from the waterfall. Not yet: the recording and spoken-reply players (the iOS `MemoPlayer`
+    configures an `AVAudioSession`, which macOS does not have) and the route sheet for a parked memo.
+  - *Live updates:* the list and `HistoryModel.observeEvents()` start at launch, independently of each other (a hung first list
+    request does not hold the stream back; its `ready` event reloads the list), whether or not the popover was ever opened, and
+    restart on a connection change. The list reloads on every stream reconnect.
+  - *Notifications:* only a live `memo.done` from the open stream is announced. **Known limit:** a memo that finished while the
+    stream was down (the stream has no replay) is not announced; it shows in the list after the reload. `MemoNotifier` fetches the
+    memo fresh before posting and announces it only when the server says it is result-ready (a stale or running copy is never
+    announced and not remembered). One local notification per memo, never with the transcript, the reply or the park reason: a
+    finished memo shows its route and the summary's headline ("Done." without one), a parked or failed one generic words. A
+    memo is tracked as in flight vs posted; a fetch or post that fails is tried three times in all, logged, and forgotten, so a
+    later event may try again. The permission is read again for every memo, never cached, and the system prompt runs on the
+    side: an unanswered prompt holds neither History nor the stream, and finished memos wait on it.
+  - *Connection change:* the connection gets its own client and a new `HistoryModel`; the notifier is cleared (every event and
+    fetch carries the notifier's generation from when it started and re-checks it after each await, so a task of the old server
+    posts and records nothing); a banner carries its connection id (a digest of the server URL and token, so it survives an app restart
+    and changes only with the saved connection) and a click on a banner of another connection is ignored; queued row actions of
+    the old list are dropped, and the actions on one memo run in tap order, each on the memo as it is then, so the last tap wins on the server
+    (`MacCompositionRoot.perform`); the detail window closes and following restarts.
+  - *Open detail:* reloads on each `memo.updated` and on every stream `ready` (`StreamTappingClient`; a list request that
+    succeeds during an outage does not count), and a response overtaken by a newer load is dropped.
+  - *Proof:* a menu-bar popover cannot be opened without a click and the mini has no Screen Recording grant, so
+    `-IrisMacPanelWindow` shows the same panel as a regular window and `-IrisMacSnapshot <dir>` has the app write PNGs of its own
+    windows (history, detail, settings) and quit; snapshot mode only exists on the fake composition. Unit tests: `IrisMacTests`,
+    hosted in the app (launched with `-IrisFakeData`), run by `make check-apple`.
 - **Signing:** a stable Apple Development identity. Ad-hoc signing resets TCC
   on every build.
 
