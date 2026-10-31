@@ -156,7 +156,8 @@ struct FailedTakePumpTests {
       await harness.outbox.settled()
       try await Task.sleep(for: .milliseconds(5))
     }
-    #expect(await harness.uploader.completed == [.init(memoID: id, segmentCount: 1)], "the only audio the take has is sent")
+    #expect(
+      await harness.uploader.completed == [.init(memoID: id, segmentCount: 1)], "the only audio the take has is sent")
     await session.shutdown()
     await harness.outbox.shutdown()
   }

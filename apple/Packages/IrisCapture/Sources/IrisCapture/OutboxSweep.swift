@@ -83,7 +83,8 @@ public struct DirectorySegmentFiles: SegmentFileStore {
     urls.compactMap { url in
       guard let attributes = try? FileManager.default.attributesOfItem(atPath: url.path) else {
         // Still there but unreadable: listed by name with an unknown size, not dropped from the list.
-        return FileManager.default.fileExists(atPath: url.path) ? SetAsideFile(url: url, byteCount: 0, modifiedAt: nil) : nil
+        return FileManager.default.fileExists(atPath: url.path)
+          ? SetAsideFile(url: url, byteCount: 0, modifiedAt: nil) : nil
       }
       return SetAsideFile(
         url: url, byteCount: (attributes[.size] as? Int) ?? 0, modifiedAt: attributes[.modificationDate] as? Date)
