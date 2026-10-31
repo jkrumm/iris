@@ -661,6 +661,13 @@ follows the memos: `evict(memoID:)` removes `<memo>.*` (recording, speech, diagr
   recording plays (`SpeechPlayer.isBusy`), or a take is open (`TakeModel.isCapturing`: starting, recording, paused or stopping, a thread's hold-to-talk included), the memo is not spoken. It is marked as spoken-or-skipped,
   so there is no queue and no auto-play later when the player goes quiet or the take ends; the reply stays available as the memo's notification and [Play]. Checked at `memo.done`, after the memo is fetched, and again
   when the speech has downloaded: a take that opened meanwhile cancels the start even if it is over again by then (`TakeModel.takesStarted`, compared against its value when `memo.done` arrived), and the memo is skipped. One rule (`SpokenReplies.skipWhileBusy`) serves all three checks; a failed download is not a skip. When nothing plays or records nothing changes.
+  **A take start pauses playback (Wave 18 I1, mother default 2026-10-30, owner may overrule; his I3 answer was "rather B, pause playing").** Recording takes priority and the reply is never recorded into the take. One synchronous flag carries it:
+  `TakeController.captureActive`. A start sets it before it awaits anything (`start`, and a thread's hold-to-talk through `OutboxVoiceReplyCapture.claim`, first line of `begin`; the same `claimCapture()` also calls `SpeechPlayer.pauseForTake()`), and it is
+  cleared only once the session has ended: after `stop()` / `cancel()` return (a stop that hangs in the recorder keeps it set until it returns; the session's own 10 s bound still applies), or when a start fails and no take is running. No timeout,
+  no mirror of the model's state. `pauseForTake()` pauses the spoken reply and the open detail's recording and drops a speech that is still downloading (so it cannot attach afterwards). Paused, not released: nothing resumes by itself when the
+  take ends, the user presses Play again. Every playback start reads the flag (`SpeechPlayer.captureActive`, bound weakly by the composition root) at the moment it starts, with no `await` between the check and the start: `play` (the detail's Play,
+  `PlayReplyIntent`, spoken replies) checks on entry and again after the speech has downloaded, together with `shouldPlay` (setting, foreground); resuming a paused reply and the recording's play button check too; pausing never does. Together with the
+  rule above: a take and a reply never overlap, whichever came first. Unit: `ReplyPausesForTakeTests`.
 - **Per-route mic rules (R-CAP-4).** The capture engine already keeps `[routeFingerprint: preferredPortUID]` and applies the rule when a take starts (`CaptureSession`); Wave 16 adds the UI:
   Settings → Microphone shows the active route (`RouteSnapshot.outputNames`, new, for display only; the fingerprint is still the sorted output UIDs) and its inputs, Automatic removes the rule.
   Only the active route is editable: other routes get their rule when they are the active one (the rules store holds fingerprints, not names). Device-verified: nothing (no phone paired); simulator: the fake route manager.
@@ -939,6 +946,43 @@ pinned simulator in light and dark (`LiveActivitySnapshotTests`, the island thro
   Core Audio, and per-device mic rules are local.
 - **Notifications:** live SSE `/v1/events` for status, local notifications
   while it runs, and APNs registration for when it is asleep.
+- **First slice (Wave 18 M1, no capture yet):**
+  - *Composition:* `MacCompositionRoot` picks the adapters once. `-IrisFakeData` runs the fake API with the sample
+    memos, an in-memory credential store (an unsigned build has no Keychain, `-34018`) and a notification poster that
+    records; otherwise production, with the iPhone's `ReconfigurableAPIClient`, `ConnectionModel` and `KeychainCredentialStore`
+    (same sources, compiled into both targets). With nothing saved the panel opens on Settings and nothing loads.
+  - *Panel:* a 460 × 560 `.window` popover. Header: the connection line (`MacConnectionStatus`, from `HistoryModel.link`) and a
+    History / Settings switch. History is the iOS list on the same `HistoryModel`: `HistoryRow` and `HistoryRowBackground` from
+    `IrisUI`, day sections, filter chips, search, a context menu for done / favorite / archive / delete (with the undo toast).
+    Settings holds the connection form and Quit.
+  - *Detail panel:* one `Window` ("Memo"), reused by the next memo opened; it opens from a row or a clicked notification banner
+    (the always-present menu-bar label observes `detailRequest`). `MacMemoDetailView` composes the `IrisUI` pieces (`StepWaterfall`,
+    `DetailSectionLabel`, `detailCard`, `RouteChip`) over `MacMemoDetailModel`: steps with the stats baselines, transcript and
+    reply with Copy as plain text, retry from the waterfall. Not yet: the recording and spoken-reply players (the iOS `MemoPlayer`
+    configures an `AVAudioSession`, which macOS does not have) and the route sheet for a parked memo.
+  - *Live updates:* the list and `HistoryModel.observeEvents()` start at launch, independently of each other (a hung first list
+    request does not hold the stream back; its `ready` event reloads the list), whether or not the popover was ever opened, and
+    restart on a connection change. The list reloads on every stream reconnect.
+  - *Notifications:* only a live `memo.done` from the open stream is announced. **Known limit:** a memo that finished while the
+    stream was down (the stream has no replay) is not announced; it shows in the list after the reload. `MemoNotifier` fetches the
+    memo fresh before posting and announces it only when the server says it is result-ready (a stale or running copy is never
+    announced and not remembered). One local notification per memo, never with the transcript, the reply or the park reason: a
+    finished memo shows its route and the summary's headline ("Done." without one), a parked or failed one generic words. A
+    memo is tracked as in flight vs posted; a fetch or post that fails is tried three times in all, logged, and forgotten, so a
+    later event may try again. The permission is read again for every memo, never cached, and the system prompt runs on the
+    side: an unanswered prompt holds neither History nor the stream, and finished memos wait on it.
+  - *Connection change:* the connection gets its own client and a new `HistoryModel`; the notifier is cleared (every event and
+    fetch carries the notifier's generation from when it started and re-checks it after each await, so a task of the old server
+    posts and records nothing); a banner carries its connection id (a digest of the server URL and token, so it survives an app restart
+    and changes only with the saved connection) and a click on a banner of another connection is ignored; queued row actions of
+    the old list are dropped, and the actions on one memo run in tap order, each on the memo as it is then, so the last tap wins on the server
+    (`MacCompositionRoot.perform`); the detail window closes and following restarts.
+  - *Open detail:* reloads on each `memo.updated` and on every stream `ready` (`StreamTappingClient`; a list request that
+    succeeds during an outage does not count), and a response overtaken by a newer load is dropped.
+  - *Proof:* a menu-bar popover cannot be opened without a click and the mini has no Screen Recording grant, so
+    `-IrisMacPanelWindow` shows the same panel as a regular window and `-IrisMacSnapshot <dir>` has the app write PNGs of its own
+    windows (history, detail, settings) and quit; snapshot mode only exists on the fake composition. Unit tests: `IrisMacTests`,
+    hosted in the app (launched with `-IrisFakeData`), run by `make check-apple`.
 - **Signing:** a stable Apple Development identity. Ad-hoc signing resets TCC
   on every build.
 

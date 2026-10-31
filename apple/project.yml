@@ -131,8 +131,20 @@ targets:
       - Iris/HistoryFilters.swift
       - Iris/HistoryToast.swift
       - Iris/MemoPresentation.swift
+      - Iris/ReplyMarkdown.swift
       - Iris/SampleData.swift
       - Iris/SampleThreads.swift
+      # The connection (URL + Keychain token), the detail's step waterfall and the markdown reading are shared too.
+      - Iris/ConnectionCredentials.swift
+      - Iris/ConnectionModel.swift
+      - Iris/ReconfigurableAPIClient.swift
+      - Iris/HistorySections.swift
+      - Iris/HistoryFilterBar.swift
+      - Iris/StepBaselines.swift
+      - Iris/StepText.swift
+      - Iris/WaterfallBuilder.swift
+      - Iris/ReplyMarkdown.swift
+      - Iris/Pasteboard.swift
     entitlements:
       path: IrisMac/IrisMac.entitlements
       properties:
@@ -171,6 +183,19 @@ targets:
     dependencies:
       - target: Iris
 
+  # Hosted in the Mac app: `@testable import IrisMac` reaches the composition root, the notifier and the detail model.
+  # Run by `make check-apple` (`xcodebuild -scheme IrisMac -destination 'platform=macOS' test`).
+  IrisMacTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources: [Tests/MacTests]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.jkrumm.iris.mac.tests
+        GENERATE_INFOPLIST_FILE: YES
+    dependencies:
+      - target: IrisMac
+
   IrisUITests:
     type: bundle.ui-testing
     platform: iOS
@@ -203,3 +228,13 @@ schemes:
     build:
       targets:
         IrisMac: all
+    run:
+      config: Debug
+      commandLineArguments:
+        "-IrisFakeData": false
+    test:
+      config: Debug
+      targets: [IrisMacTests]
+      # The hosted app runs on the fake API and an in-memory credential store: no Keychain, no network, no permission prompt.
+      commandLineArguments:
+        "-IrisFakeData": true

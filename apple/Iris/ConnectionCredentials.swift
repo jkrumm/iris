@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import Security
 
@@ -11,6 +12,22 @@ nonisolated struct ConnectionCredentials: Equatable, Sendable {
     case invalid
     /// Plain http to a host other than this machine: the bearer token would travel in cleartext.
     case insecure
+  }
+
+  /// A short digest of the server URL: tells servers apart (a Live Activity remembers which one its memo lives on) without
+  /// keeping the address.
+  var serverKey: String {
+    // Scheme and host are case-insensitive, the path is not (`/Iris` and `/iris` are different servers behind one proxy).
+    var normalized = serverURL.absoluteString
+    if var parts = URLComponents(url: serverURL, resolvingAgainstBaseURL: false) {
+      let scheme = parts.scheme?.lowercased()
+      let host = parts.host?.lowercased()
+      parts.scheme = scheme
+      parts.host = host
+      normalized = parts.string ?? normalized
+    }
+    let digest = SHA256.hash(data: Data(normalized.utf8))
+    return digest.prefix(6).map { String(format: "%02x", $0) }.joined()
   }
 
   private init(serverURL: URL, token: String) {

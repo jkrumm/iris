@@ -178,11 +178,12 @@ build-apple: generate ## xcodebuild build of every app scheme (Iris incl. both e
 	$(XCB) -scheme IrisMac -destination 'platform=macOS' build
 
 .PHONY: check-apple
-check-apple: ## Theme drift, swift format lint, swift test per package, build of all schemes
+check-apple: ## Theme drift, swift format lint, swift test per package, build of all schemes, IrisMacTests
 	cd $(APPLE_DIR)/tools && bun install --frozen-lockfile && bun gen-theme.ts --check
 	$(MAKE) lint-apple
 	$(MAKE) test-packages
 	$(MAKE) build-apple
+	$(XCB) -scheme IrisMac -destination 'platform=macOS' test
 
 .PHONY: snapshots
 snapshots: ## IrisUI snapshot tests on the pinned simulator (RECORD=1 make snapshots re-records the references)

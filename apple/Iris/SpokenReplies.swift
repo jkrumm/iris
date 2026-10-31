@@ -36,6 +36,8 @@ final class SpokenReplies {
   /// Memos that were read out or skipped because something was busy, and those being fetched or downloaded right now (a second `memo.done` waits for the first).
   private var spoken: Set<String> = []
   private var inFlight: Set<String> = []
+  /// The take activity when each memo's latest update arrived (``memoUpdated(id:)``), consumed by its `memo.done`.
+  private var noted: [String: TakeActivity] = [:]
   private let logger = Logger(subsystem: "com.jkrumm.iris", category: "spoken-replies")
 
   /// - Parameters:
@@ -56,29 +58,53 @@ final class SpokenReplies {
     isOn = store.load()
   }
 
-  /// `memo.done` for `id`: speaks the reply when everything allows it.
-  func memoDone(id: String) async {
+  /// `memo.updated` for `id` reached the app: remembers what the microphone was doing. `memo.done` always follows the
+  /// update of the same state, but waits behind its list refresh, so a take that opens and closes in that gap is only
+  /// visible in this sample.
+  func memoUpdated(id: String) {
+    if noted.count > 100 { noted.removeAll() }
+    noted[id] = takes()
+  }
+
+  /// The microphone's activity for the `memo.done` of `id`, taken synchronously when the event is handled: what it was when
+  /// the memo's last update arrived, and what it is now. Hand it to ``memoDone(id:takes:)``, which runs on a task of its own.
+  func consumeSample(id: String) -> TakeActivity {
+    let now = takes()
+    guard let noted = noted.removeValue(forKey: id) else { return now }
+    return TakeActivity(isOpen: noted.isOpen || now.isOpen, started: noted.started)
+  }
+
+  /// `memo.done` for `id`: speaks the reply when everything allows it. `takes` is the sample from when the event arrived
+  /// (``consumeSample(id:)``); without one the sample is taken here.
+  func memoDone(id: String, takes sampled: TakeActivity? = nil) async {
     guard isOn, isForeground, !spoken.contains(id), inFlight.insert(id).inserted else { return }
     defer { inFlight.remove(id) }
-    let takesBefore = takes().started
-    guard !skipWhileBusy(id, takesStartedAfter: takesBefore) else { return }
+    let sample = sampled ?? takes()
+    let takesBefore = sample.started
+    // A take that was open when the event arrived counts even if it has closed again since.
+    guard !sample.isOpen, !isBusy(takesStartedAfter: takesBefore) else { return skip(id) }
     guard await createdHere(id) else { return }
     do {
       let memo = try await client.memo(id: id).memo
       // Re-checked after the fetch and again after the download (`shouldPlay`): the setting, the app state or what is busy
       // may have changed while either was on the wire.
-      guard isOn, isForeground, memo.isSpeakable, !memo.archived,
-        !skipWhileBusy(id, takesStartedAfter: takesBefore)
-      else { return }
+      guard isOn, isForeground, memo.isSpeakable, !memo.archived else { return }
+      guard !isBusy(takesStartedAfter: takesBefore) else { return skip(id) }
       // Marked once it plays, or once something busy made it wait. A reply that failed for any other reason (no speech, a
       // failed download) stays unmarked, but nothing retries it: the server sends `memo.done` once, and the reply is still
       // there for [Play].
+      var wasBusy = false
       let started = await speech.play(
         memo, source: media(),
-        shouldPlay: { isOn && isForeground && !skipWhileBusy(id, takesStartedAfter: takesBefore) })
+        shouldPlay: {
+          wasBusy = isBusy(takesStartedAfter: takesBefore)
+          return isOn && isForeground && !wasBusy
+        })
       if started {
         spoken.insert(id)
-      } else if !spoken.contains(id), !skipWhileBusy(id, takesStartedAfter: takesBefore) {
+      } else if wasBusy || isBusy(takesStartedAfter: takesBefore) {
+        skip(id)
+      } else if !spoken.contains(id) {
         logger.notice("spoken reply not started for \(id, privacy: .public): no speech, or no longer wanted")
       }
     } catch is CancellationError {
@@ -89,13 +115,15 @@ final class SpokenReplies {
   }
 
   /// The one busy rule: a reply or the detail's recording plays, a take is open, or a take opened since `takesStartedAfter`
-  /// (it may be over again by now, and the reply must not start late). When busy, `id` is marked skipped for good and true
-  /// comes back.
-  private func skipWhileBusy(_ id: String, takesStartedAfter: Int) -> Bool {
+  /// (it may be over again by now, and the reply must not start late).
+  private func isBusy(takesStartedAfter: Int) -> Bool {
     let activity = takes()
-    guard activity.isOpen || activity.started != takesStartedAfter || speech.isBusy else { return false }
+    return activity.isOpen || activity.started != takesStartedAfter || speech.isBusy
+  }
+
+  /// Marks `id` skipped for good: there is no queue and no later auto-play.
+  private func skip(_ id: String) {
     spoken.insert(id)
     logger.notice("spoken reply skipped for \(id, privacy: .public): busy")
-    return true
   }
 }

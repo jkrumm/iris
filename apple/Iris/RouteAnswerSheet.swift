@@ -34,7 +34,7 @@ struct RouteAnswerSheet: View {
   var body: some View {
     NavigationStack {
       ScrollView {
-        VStack(alignment: .leading, spacing: Theme.Spacing.lg) {
+        VStack(alignment: .leading, spacing: Theme.Spacing.sectionTop) {
           Text(verbatim: model.memo.rowHeadline)
             .themeFont(.callout, weight: .semibold)
             .foregroundStyle(Theme.Ink.primary)
@@ -50,7 +50,8 @@ struct RouteAnswerSheet: View {
             Task { await send() }
           }
         }
-        .padding(Theme.Spacing.lg)
+        .padding(.horizontal, Theme.Spacing.screenMargin)
+        .padding(.vertical, Theme.Spacing.sectionTop)
       }
       .background(Theme.Surface.background)
       .navigationTitle(

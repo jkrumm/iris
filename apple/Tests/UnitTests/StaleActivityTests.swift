@@ -122,6 +122,42 @@ struct StaleActivitySweeperTests {
     #expect(Set(catalog.activities.map(\.memoID)) == ["busy", "pushed"])
   }
 
+  @Test("an activity of another server is not asked about: that server's 404 does not end it")
+  func foreignServerActivityStays() async {
+    let catalog = FakeCatalog([
+      HandedOverActivity(
+        memoID: "theirs", phase: .processing, startedAt: now.addingTimeInterval(-120), remoteUpdates: false,
+        serverKey: "old"),
+      HandedOverActivity(
+        memoID: "mine", phase: .processing, startedAt: now.addingTimeInterval(-120), remoteUpdates: false,
+        serverKey: "new"),
+      activity("legacy"),
+    ])
+    let sweeper = StaleActivitySweeper(
+      catalog: catalog, client: client, serverKey: { "new" }, now: { now }, sleep: { _ in })
+
+    let toFollow = await sweeper.sweep()
+
+    // `mine` and `legacy` (no key) are unknown to the fake server and end; `theirs` is not this server's to judge.
+    #expect(Set(catalog.ended.map(\.id)) == ["mine", "legacy"])
+    #expect(toFollow == ["theirs"])
+  }
+
+  @Test("a sweep cancelled by a connection change ends and follows nothing")
+  func cancelledSweepSettlesNothing() async {
+    await client.seed(MemoFactory.detail(MemoFactory.memo("done", state: .notified)))
+    await client.seed(MemoFactory.detail(MemoFactory.memo("busy", state: .routed)))
+    let catalog = FakeCatalog([activity("done"), activity("busy")])
+    // Cancelled while the sweep lists its activities, before any lookup answers.
+    catalog.onList = { withUnsafeCurrentTask { $0?.cancel() } }
+    let sweeper = sweeper(catalog)
+
+    let followed = await Task { await sweeper.sweep() }.value
+
+    #expect(followed.isEmpty)
+    #expect(catalog.ended.isEmpty)
+  }
+
   @Test("a take starting ends the finished and the stuck activities, not the running ones")
   func makeRoom() async {
     let catalog = FakeCatalog([

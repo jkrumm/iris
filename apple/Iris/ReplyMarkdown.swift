@@ -5,8 +5,16 @@ import Foundation
 /// as plain lines, which the preserved whitespace keeps legible.
 nonisolated enum ReplyMarkdown {
   static func attributed(_ text: String) -> AttributedString {
+    parse(text, syntax: .inlineOnlyPreservingWhitespace) ?? AttributedString(text)
+  }
+
+  /// The one markdown parse of the app's replies (the screen's inline styling and Copy's block-aware plain text share it);
+  /// nil when Foundation cannot read the text at all.
+  static func parse(
+    _ text: String, syntax: AttributedString.MarkdownParsingOptions.InterpretedSyntax
+  ) -> AttributedString? {
     let options = AttributedString.MarkdownParsingOptions(
-      interpretedSyntax: .inlineOnlyPreservingWhitespace, failurePolicy: .returnPartiallyParsedIfPossible)
-    return (try? AttributedString(markdown: text, options: options)) ?? AttributedString(text)
+      interpretedSyntax: syntax, failurePolicy: .returnPartiallyParsedIfPossible)
+    return try? AttributedString(markdown: text, options: options)
   }
 }
