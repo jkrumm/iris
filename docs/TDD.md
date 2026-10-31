@@ -62,7 +62,7 @@ Iris has three deliverables in one monorepo:
           └──────────── APNs (alert · liveactivity) <───────────────────────────────────────────────┤
                                                                                                     ├─> agw host 127.0.0.1:7791       decide · triage
                                                                                                     ├─> Hermes :8642 (mini tailnet IP)  sessions
-                                                                                                    ├─> herdr socket  snapshot · send_text
+                                                                                                    ├─> herdr-core `hc connect` (+ classic socket)  terminal.list · terminal.send
                                                                                                     ├─> ~/SourceRoot/brain/Inbox  (brain-sync lock)
                                                                                                     ├─> ~/.iris/data  (SQLite · audio)
                                                                                                     └─> otel.<domain>  OTLP traces + logs
@@ -312,7 +312,7 @@ the exported JSON Schema matches `contracts/schema`.
 ### Pipeline steps
 
 Shipped as five runner steps: `transcribe` (includes the concat below), `route`, `act`, `summarize`, `notify`. The journal and herdr
-destinations are registered by `compose()` from `BRAIN_DIR` and `HERDR_SOCKET`. The timeouts follow `agent-limits.md`
+destinations are registered by `compose()` from `BRAIN_DIR`, `HC_BIN` + `HC_SOCKET` and `HERDR_SOCKET`. The timeouts follow `agent-limits.md`
 (idle watchdogs and 30-minute hang guards, not the budgets sketched earlier). Transient failures are retried automatically (§Memo state
 machine, Retries); retention (audio deleted 30 days after `notified`) is not built. Recover a `failed` memo with `POST /retry`.
 
@@ -362,7 +362,7 @@ machine, Retries); retention (audio deleted 30 days after `notified`) is not bui
    | Destination | Action |
    |-|-|
    | journal | Write `brain/Inbox/<YYYY-MM-DD>-<slug>.md` (frontmatter `title`, `date`, `tags: [journal, iris]`, `source: iris`, `memo`) under the brain-sync lock (`brain/docs/brain-access.md`), then commit and push following that doc |
-   | herdr | `pane.send_text` (the transcript) + `pane.send_keys ["enter"]` on the tab's agent pane over the herdr socket (the pane comes from `session.snapshot`: the tab's agent, else its only pane). A tab missing from the snapshot, or a `pane_not_found` answer to either write (the tab closed in between), is `TabGoneError`, which leads to `needs_route`. Deliveries to one pane are serialised in the adapter, so text and Enter of two memos never interleave. `ref` is the tab id, `reply_text` stays empty |
+   | herdr | hc world first: `terminal.list {labels: {"herdr.tab": <tab>}}` finds the tab's agent terminal, `terminal.send {terminal, text}` pastes the transcript and presses Enter (`TabGoneError` when no live terminal, `not_found` or `finished`; a blocked agent is `unavailable`); a tab hc does not know falls back to classic herdr (TODO(Wave 7): drop classic), which does `pane.send_text` (the transcript) + `pane.send_keys ["enter"]` on the tab's agent pane over the herdr socket (the pane comes from `session.snapshot`: the tab's agent, else its only pane). A tab missing from the snapshot, or a `pane_not_found` answer to either write (the tab closed in between), is `TabGoneError`, which leads to `needs_route`. Deliveries to one pane are serialised in the adapter, so text and Enter of two memos never interleave. `ref` is the tab id, `reply_text` stays empty |
    | hermes | `POST /api/sessions {id: memoId, source: "iris"}` (201/409 = OK) → `POST /api/sessions/:id/chat/stream {message}`. Collect the final assistant text from the SSE, store it as `reply_text`, and upsert `threads` (kind `hermes`) |
    | hermes, mode `chat` | The same, with `source: "iris-chat"` and `system_message` on every `chat/stream` turn: answer conversationally and take no action with side effects (no tool call that writes, sends, schedules or changes anything). Thread kind `chat`. `system_message` is Hermes' per-turn ephemeral system prompt: appended to that turn's prompt, never stored, so a later turn in the same session must send it again |
 
@@ -466,7 +466,8 @@ The research gateway was down for this item (503), so the facts above come from 
 | audio door | agent-workflows `audio` process, `http://127.0.0.1:7792/v1`, `Authorization: Bearer` from the `iris=` line of `~/.agent-workflows/data/door-tokens`. Synchronous multipart; `{text}` (`verbose_json` = one segment, so no timestamps); TTS at `POST /audio/speech`, `response_format` mp3. 401 `{error:{message:'unauthorized'}}`. Every response, errors included, has `agw-run-id` (the run that records the call and its cost). `GET :7792/health` is `make verify`'s downstream check | `agent-workflows/packages/audio/README.md` ("The door on the process", "Caller auth") |
 | agent-workflows host | `http://127.0.0.1:7791`, `Authorization: Bearer <AGW_API_SECRET>` (`op://mini/agent-workflows/API_SECRET`), `x-agw-purpose: iris`, `x-agw-caller: iris`, `x-agw-project: iris`, no redirects. Synchronous `POST /triage` and `POST /decide`; flat answers carry `model`, `latencyMs`, `usage` (`costUsd` null when any attempt is unpriced). Every response, errors included, has `agw-run-id`. 400, 401 and 502 `INVALID_OUTPUT` are final, 500 and 503 transient. `GET :7791/health` is `make verify`'s downstream check | `agent-workflows/packages/capabilities/README.md` (triage, decide), `packages/host/README.md` (auth, cancel, idempotency) |
 | Hermes | Bearer from `op://hermes/gateway/api-server-key`; SSE named events | `argo/apps/api/src/lib/hermes-upstream.ts` |
-| herdr | Newline-delimited JSON over `~/.config/herdr/herdr.sock`: `session.snapshot`, `pane.send_text`, `pane.send_keys` | collie `HERDR_API.md` |
+| herdr-core | JSON-RPC 2.0 lines through a per-request `hc connect`: `terminal.list`, `terminal.send` | `hc --skill`, `hc schema` |
+| herdr (classic, until Wave 7) | Newline-delimited JSON over `~/.config/herdr/herdr.sock`: `session.snapshot`, `pane.send_text`, `pane.send_keys` | collie `HERDR_API.md` |
 | APNs | HTTP/2 `api.push.apple.com` / `api.sandbox.push.apple.com`. ES256 provider JWT, refreshed every 20–60 min (`@parse/node-apn` regenerates it at 55 min, inside the window). Live Activity: `apns-push-type: liveactivity`, topic `<bundle>.push-type.liveactivity`, `aps.{timestamp, event, content-state}`. Priority 5 doesn't consume the budget, 10 does | `docs/research/2026-10-27-apns-from-bun.md` |
 
 ### Configuration and secrets
@@ -482,7 +483,8 @@ The research gateway was down for this item (503), so the facts above come from 
 | `AUDIO_DOOR_URL`, `AUDIO_DOOR_TOKEN` | The audio door base (with `/v1`) and the `iris` caller token. Both register `transcribe` and `speech`. The URL is a plain value in `.env.local.tpl`; `launch.sh` reads the token from the local `door-tokens` file (no 1Password ref) |
 | `AGW_URL`, `AGW_API_SECRET` | The agent-workflows host base (`http://127.0.0.1:7791`, https or loopback) and its bearer (`op://mini/agent-workflows/API_SECRET`). Both register `summarize` (`triage`) and the decider (`decide`) |
 | `HERMES_URL`, `HERMES_TOKEN` | Hermes endpoint and bearer |
-| `HERDR_SOCKET` | Path to the herdr socket; registers the `herdr` destination and serves `GET /v1/herd` |
+| `HC_BIN` + `HC_SOCKET` | The `hc` binary and the launchd core's socket (both); register the `herdr` destination and serve `GET /v1/herd`; `hc` is never spawned while the socket file is missing |
+| `HERDR_SOCKET` | Path to the classic herdr socket; registers the same destination and herd beside hc (TODO(Wave 7): drop classic) |
 | `BRAIN_DIR` | The brain checkout; registers the `journal` destination (notes in `Inbox/`, then `git push`). Optional: unset leaves journal unregistered, not degraded. `launch.sh` sets it on the mini when `~/SourceRoot/brain` exists |
 | `APNS_KEY_P8`, `APNS_KEY_ID`, `APNS_TEAM_ID`, `APNS_TOPIC` | APNs credentials |
 | `OTEL_*` | Telemetry export |

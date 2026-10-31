@@ -36,7 +36,7 @@ export const Env = z.object({
   AGW_API_SECRET: z.preprocess(emptyToUndefined, z.string().trim().optional()),
   HERMES_URL: z.preprocess(emptyToUndefined, z.url().optional()),
   HERMES_TOKEN: z.preprocess(emptyToUndefined, z.string().optional()),
-  // herdr's unix socket (`~/.config/herdr/herdr.sock` on the mini); unset leaves `GET /v1/herd` at 503 and the `herdr` destination unregistered.
+  // Classic herdr's unix socket (`~/.config/herdr/herdr.sock` on the mini); with `HC_BIN` + `HC_SOCKET` unset too, `GET /v1/herd` is 503 and the `herdr` destination unregistered.
   HERDR_SOCKET: z.preprocess(emptyToUndefined, z.string().optional()),
   // The herdr-core CLI (`hc`) and its core's socket (`~/.local/state/herdr-core/default/default.sock`). `HC_BIN` + `HC_SOCKET` (both) register the
   // hc world beside classic herdr (the `herdr` destination and `GET /v1/herd` use whichever worlds are set); `HC_SOCKET` makes

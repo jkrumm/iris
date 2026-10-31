@@ -131,6 +131,6 @@ Stats colours: Hermes blue, Journal green, Chat violet, Tabs orange, checked wit
   cannot be found in advance). Not shown: a destination that does not exist yet; the list is the server's fixed three (`hermes`, `journal`, `herdr`). The "Fake Headset" and "iPhone Speaker" names in the connected-now card
   come from the fake audio stack, and the "seen before" rows are sample data: the rule store keeps only a route's fingerprint, so listing earlier routes needs it to remember each route's name when its rule is set.
   Uploaded 2026-10-30 with a 7-day presign, so ask for fresh links after 2026-11-06.
-  *Open question:* the destinations are server configuration (registered from `BRAIN_DIR` and `HERDR_SOCKET` at boot), so today the phone can only read them; that needs a new `GET /v1/destinations`. Is a read-only view enough, or should
+  *Open question:* the destinations are server configuration (registered from `BRAIN_DIR`, `HC_BIN` + `HC_SOCKET` and `HERDR_SOCKET` at boot), so today the phone can only read them; that needs a new `GET /v1/destinations`. Is a read-only view enough, or should
   something here be editable, for example a fallback destination for a memo Iris is under 80 % sure about, instead of parking it at needs-route?
 - **Not designed:** the later routing refinement for herdr-bound memos (orchestration queue, factory), and Settings beyond Diagnostics.
