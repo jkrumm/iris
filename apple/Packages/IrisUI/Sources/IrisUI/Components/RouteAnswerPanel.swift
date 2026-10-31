@@ -76,7 +76,7 @@ public struct RouteAnswerPanel: View {
   }
 
   public var body: some View {
-    VStack(alignment: .leading, spacing: Theme.Spacing.lg) {
+    VStack(alignment: .leading, spacing: Theme.Spacing.sectionTop) {
       if let reason { reasonRow(reason) }
       VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
         DetailSectionLabel(labels.destination)
@@ -111,7 +111,9 @@ public struct RouteAnswerPanel: View {
         .frame(maxWidth: .infinity)
       }
       .buttonStyle(.borderedProminent)
+      .tint(Theme.Accent.fill)
       .controlSize(.large)
+      .padding(.top, Theme.Spacing.xs)
       .disabled(!canSubmit || isSubmitting)
       .accessibilityIdentifier("route.submit")
     }
@@ -180,7 +182,8 @@ public struct RouteAnswerPanel: View {
             .accessibilityHidden(true)
         }
       }
-      .padding(Theme.Spacing.md)
+      .padding(.horizontal, Theme.Spacing.cardInsetHorizontal)
+      .padding(.vertical, Theme.Spacing.cardInsetVertical)
       .frame(maxWidth: .infinity, alignment: .leading)
       .contentShape(.rect)
     }
