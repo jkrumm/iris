@@ -133,4 +133,11 @@ Stats colours: Hermes blue, Journal green, Chat violet, Tabs orange, checked wit
   Uploaded 2026-10-30 with a 7-day presign, so ask for fresh links after 2026-11-06.
   *Open question:* the destinations are server configuration (registered from `BRAIN_DIR` and `HERDR_SOCKET` at boot), so today the phone can only read them; that needs a new `GET /v1/destinations`. Is a read-only view enough, or should
   something here be editable, for example a fallback destination for a memo Iris is under 80 % sure about, instead of parking it at needs-route?
+- **Live transcript on the take screen (Wave 19 R1), for the owner's async review:** the words as they are spoken, from the on-device recognizer; the server transcript stays the truth. A new surface, so a render, not a blocking round.
+  Simulator snapshots of the real view on the fake stack (iPhone 17, iOS 27.0; `TakeSnapshotTests.screenWithPreview`, `screenWithLongPreview`, light and dark), committed as references under
+  `apple/Packages/IrisUI/Tests/IrisUITests/__Snapshots__/TakeSnapshotTests/`: `screenWithPreview.{light,dark}.png` (settled text in primary ink, the words still changing in secondary ink) and
+  `screenWithLongPreview.{light,dark}.png` (a long take: the oldest line fades out at the top, the newest stay in view). Placement: under the level waveform, four lines tall and reserved only while the recognizer
+  runs, so a phone or language without a preview looks exactly as before. Nothing in the compact banner. The same change makes the Stop disc opaque with a dark glyph on the dark scheme's salmon red
+  (white on it was 2.4:1). Not shown: the analyzer itself (it does not run in the Simulator; device proof is the owner's batch D1).
+  *Open question:* the text shows in the device language only (the recognizer follows `Locale.current`); a German phone with an English memo shows garbled text. Pick the language per take (a chip next to the mode), or leave it?
 - **Not designed:** the later routing refinement for herdr-bound memos (orchestration queue, factory), and Settings beyond Diagnostics.

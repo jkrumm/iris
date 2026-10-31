@@ -939,6 +939,43 @@ pinned simulator in light and dark (`LiveActivitySnapshotTests`, the island thro
 - **Done card (round 2):** the checkmark and the headline share a first-baseline row, so the mark stays on the first line however far the headline wraps; the phase title has no second check.
 - **Device exit checks** (Wave 17 D2, results in `docs/spikes/device-checklist.md`): the Lock Screen card and the compact and expanded island **pass**; the compact banner and the keyboard-up composer **pass**; island Pause works and island Resume **fails** (I7); minimal island, two activities in the island (the stale ones, I8), Stop and mic swap from the island, a Bluetooth route and the car are **not run**.
 
+### Live preview (Wave 19 R1, PRD R5)
+
+The take screen shows the transcript as it is spoken, from the on-device `SpeechAnalyzer` / `SpeechTranscriber` (iOS 26). **Display only:** the server's
+transcript stays the truth; the preview is never uploaded, stored, logged or put into telemetry, lives as long as the take and goes with it. A preview that cannot
+run shows nothing and never blocks or fails a take.
+
+- **Tap (`IrisCapture`, `PreviewTap`):** an additive port. `openPreview()` returns a bounded `AsyncStream<PreviewAudio>` (16 kHz mono Float32, the samples the recorder
+  accepts in `ingest`, i.e. after its pause gate; about ten seconds of buffers, oldest dropped). Nothing is copied or buffered while no stream is open; a released stream
+  closes the feed on the next yield; `stop()` (which `cancel()` also calls) finishes the stream. It never touches `SegmentRotator`, the writer or the outbox.
+  `AVAudioEngineSegmentRecorder` and `FakeSegmentRecorder` conform (the fake feeds silent samples of the length `feed(frames:)` gets).
+- **Engine (`Iris`, `LivePreviewEngine`):** `isAvailable(for:)` and `transcribe(_:locale:)`. Production `SpeechAnalyzerPreviewEngine`; fake `FakeLivePreviewEngine`
+  (a script of volatile, final and failure steps, advanced by the audio that arrives). `LivePreviewModel` (`@MainActor @Observable`) consumes it: volatile text
+  replaces, final text is appended (the last 600 characters are kept), an error clears the preview and it stays off for that take. `TakeModel` starts it with the take
+  (`starting`, `recording`, `paused`; not for a thread's hold-to-talk) and ends it at `stopping`, `idle`, `failed`; `TakeController` carries the `LivePreviewSource`
+  (tap + engine + locale), `nil` means no preview. The view is IrisUI's `LiveTranscript` (settled text primary, still-changing text secondary, the newest lines
+  in view; nothing in the compact banner).
+- **Language:** the device's (`Locale.current`), mapped with `SpeechTranscriber.supportedLocale(equivalentTo:)`; German is never assumed. **Available** means:
+  `SpeechTranscriber.isAvailable`, the locale is supported, and it is in `SpeechTranscriber.installedLocales` (compared by BCP-47 identifier). **The app never starts a
+  model download** (no `AssetInstallationRequest`): a missing model is just no preview. (Apple documents `AssetInventory.status` as advisory; one report has it say
+  `supported` for an installed model, so `installedLocales` is the gate.)
+- **Audio into the analyzer:** `bestAvailableAudioFormat(compatibleWith:)` (nil while assets are missing), then `AVAudioConverter` per buffer (`LivePreviewConverter`,
+  `primeMethod = .none`): the analyzer never resamples. Input is an `AsyncStream<AnalyzerInput>` (bounded) given to `analyzer.start(inputSequence:)`; the results loop
+  starts with it. A cancelled take ends with `cancelAndFinishNow()`, an ended input with `finalizeAndFinishThroughEndOfInput()`.
+- **Permissions:** microphone only (the take already holds it). `NSSpeechRecognitionUsageDescription` and `SFSpeechRecognizer.requestAuthorization` belong to
+  `SFSpeechRecognizer`; Apple's own `SpeechAnalyzer` samples declare only `NSMicrophoneUsageDescription`. No Info.plist key was added. **Device: unverified.**
+- **Simulator:** `SpeechTranscriber.isAvailable` is false there (Apple's sample says it does not run in the Simulator; reports from Xcode 26.0 / 26.1 show an empty
+  `supportedLocales`). The adapter is compile-checked; everything around it is tested on `FakeLivePreviewEngine`. Device proof: `docs/spikes/device-checklist.md`.
+- **Cost:** the model runs outside the app's memory space (Apple); the app pays for one extra sample copy per tap buffer, one conversion and the bounded streams.
+  Apple publishes no CPU, battery or model-size figure (one blog says 200 MB or more per language), and none on cellular / Low Data Mode behaviour of the download,
+  which the app never triggers. The system caps simultaneous analyses (`insufficientResources`, treated as any error: no preview). **Unmeasured on the phone.**
+- **Research (2026-10-31, `agw research`, deep):** German is in the shipped language set and Apple's Voice Memos lists it (iPhone 12 or later); `isAvailable` is false on
+  iPhone 11 and SE 2; iOS 27 adds `AnalyzerInputConverter`, `CaptureInputSequenceProvider` and `AssetInputSequenceProvider` (27.0+, Xcode 27 SDK; not used, the app
+  targets iOS 26 and feeds its own engine tap). WWDC25 277 preset names (`offlineTranscription`, `progressiveLiveTranscription`) were renamed before shipping; the code
+  uses the initializer with explicit `reportingOptions: [.volatileResults]`. Unverified: model size per locale, cellular policy, CPU on iPhone, `de_AT` / `de_CH` membership.
+- **Stop button (Wave 18 I5 follow-up):** the take screen's Stop is an opaque `Theme.Status.bad` disc with `Theme.Surface.background` for the glyph (white on the dark
+  scheme's salmon red was 2.4:1, and the 0.82 opacity lowered it further). The banner's Stop still has the old fill (I3).
+
 ### Notifications
 
 - **Registration:** `registerForRemoteNotifications()` on every launch, with

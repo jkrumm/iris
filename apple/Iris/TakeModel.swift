@@ -37,10 +37,13 @@ final class TakeModel {
   private var currentMemo: MemoID?
 
   private let controller: TakeController
+  /// The text of the on-device live preview, shown on the take screen only.
+  let preview: LivePreviewModel
   private let logger = Logger(subsystem: "com.jkrumm.iris", category: "take")
 
   init(controller: TakeController) {
     self.controller = controller
+    preview = LivePreviewModel(source: controller.preview)
   }
 
   // MARK: What the views read
@@ -144,9 +147,20 @@ final class TakeModel {
     }
     if !isCapturing, Self.isCapturing(take.phase) { takesStarted += 1 }
     state = take
+    followPreview(of: take)
     if take.phase == .idle {
       showsFull = false
       showsInputPicker = false
+    }
+  }
+
+  /// The preview lives from the start of a take of this screen to the moment it stops; a pause only stops the audio.
+  private func followPreview(of take: TakeState) {
+    switch take.phase {
+    case .starting, .recording, .paused:
+      if take.request?.threadID == nil, let memoID = take.memoID { preview.begin(memo: memoID) }
+    case .stopping, .idle, .failed:
+      preview.end()
     }
   }
 
