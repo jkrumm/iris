@@ -22,7 +22,9 @@ iPhone 17 / 27.0 after: [light](history/after-i17-light.png), [dark](history/aft
 | Chips | Leading margin | 20 | 16 | `screenMargin` (as scroll content margin) |
 | Chips | Gap | 6 | 8 | `chipGap` |
 | Chips | Gap above the row | 8 | 25 (search drawer plus list row inset) | `chipRowTop`, list row insets zero |
-| Chips | Height / padding | 30 / 12 | ~30 (text plus 8 above and below) | `chipHeight` as `minHeight`, `chipInsetHorizontal` |
+| Chips | Height / padding | 30 / 12 | ~30 (text plus 8 above and below) | `FilterChip(size: .compact)` (`chipHeight` as `minHeight`, `chipInsetHorizontal`), set only in the History bar; the composer and route sheet keep `.standard`, the original sizing |
+| Controls | Tap area | n/a | chips 30 pt, filter-sheet chips 36 pt, search clear button ~17 pt | 44 pt (`tapTarget`) with the drawn shape unchanged: a content shape on the chips (`chipTapOverhang` comes out of the space around the row), `lineSpacing` in the sheet's flow layout, a 44 pt clear button reaching into the capsule's padding |
+| Search | Field height | 44 | fixed 44 | `minHeight` 44 plus `sm` vertical padding, so Dynamic Type can grow it |
 | Sections | Gap from chips to day label | 14 | 49 | `sectionTop`; `listSectionSpacing(0)`, `defaultMinListHeaderHeight` 0 |
 | Sections | Day label to first row | 6 + row padding 12 | 37 | `sectionBottom`; header insets `screenMargin` |
 | Sections | Day label leading | 20 | 16 | `headerInsets` (`screenMargin`) |

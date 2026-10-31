@@ -59,7 +59,10 @@ struct HistoryFilterSheet: View {
         .themeFont(.caption, weight: .semibold)
         .foregroundStyle(Theme.Ink.muted)
         .textCase(.uppercase)
-      ChipFlowLayout { chips() }
+      // The 36 pt chips answer taps over 44 pt, so the drawn rows keep their 8 pt gap with none between the areas.
+      ChipFlowLayout(lineSpacing: Theme.Spacing.sm - (Theme.Spacing.tapTarget - Theme.Spacing.chipHeightLarge)) {
+        chips()
+      }
     }
   }
 }

@@ -27,14 +27,20 @@ struct HistorySearchBar: View {
           Button {
             text = ""
           } label: {
-            Image(systemName: "xmark.circle.fill").foregroundStyle(Theme.Ink.faint)
+            Image(systemName: "xmark.circle.fill")
+              .foregroundStyle(Theme.Ink.faint)
+              .frame(width: Theme.Spacing.tapTarget, height: Theme.Spacing.tapTarget)
+              .contentShape(.rect)
           }
           .buttonStyle(.plain)
+          // The 44 pt area reaches into the capsule's padding and the field; the glyph keeps its place.
+          .padding(.horizontal, -Theme.Spacing.md)
           .accessibilityLabel(String(localized: "Clear search", comment: "Empties the search field"))
         }
       }
       .padding(.horizontal, Theme.Spacing.lg)
-      .frame(height: Theme.Spacing.barControlSize)
+      .padding(.vertical, Theme.Spacing.sm)
+      .frame(minHeight: Theme.Spacing.barControlSize)
       .glassEffect(.regular, in: .capsule)
       Button(action: onFilter) {
         Image(systemName: "line.3.horizontal.decrease")

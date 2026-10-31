@@ -46,7 +46,8 @@ struct HistoryView: View {
           .listRowInsets(EdgeInsets())
           .listRowSeparator(.hidden)
           .listRowBackground(Color.clear)
-        ForEach(HistoryDaySection.group(model.memos)) { section in
+        let sections = HistoryDaySection.group(model.memos)
+        ForEach(sections) { section in
           Section {
             ForEach(section.memos) { memo in
               NavigationLink(value: memo) {
@@ -65,7 +66,12 @@ struct HistoryView: View {
               .themeFont(.caption, weight: .semibold)
               .textCase(.uppercase)
               .foregroundStyle(Theme.Ink.muted)
-              .padding(.top, Theme.Spacing.sectionTop)
+              // The first label follows the chips, whose tap area already takes the top of that gap.
+              .padding(
+                .top,
+                section.id == sections.first?.id
+                  ? Theme.Spacing.sectionTop - Theme.Spacing.chipTapOverhang : Theme.Spacing.sectionTop
+              )
               .padding(.bottom, Theme.Spacing.sectionBottom)
               .listRowInsets(Self.headerInsets)
           }

@@ -3,9 +3,13 @@ import SwiftUI
 /// Lays chips left to right and wraps them onto the next line when the row is full.
 public struct ChipFlowLayout: Layout {
   private let spacing: CGFloat
+  private let lineSpacing: CGFloat
 
-  public init(spacing: CGFloat = Theme.Spacing.sm) {
+  /// `lineSpacing` is the gap between wrapped rows; it defaults to `spacing`. Chips that pad their tap area to 44 pt
+  /// pass a smaller one so the drawn rows keep their gap.
+  public init(spacing: CGFloat = Theme.Spacing.sm, lineSpacing: CGFloat? = nil) {
     self.spacing = spacing
+    self.lineSpacing = lineSpacing ?? spacing
   }
 
   public func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
@@ -29,7 +33,7 @@ public struct ChipFlowLayout: Layout {
       let size = subview.sizeThatFits(.unspecified)
       if x > 0, x + size.width > width {
         x = 0
-        y += lineHeight + spacing
+        y += lineHeight + lineSpacing
         lineHeight = 0
       }
       origins.append(CGPoint(x: x, y: y))

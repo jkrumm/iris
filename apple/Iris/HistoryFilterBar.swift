@@ -9,7 +9,9 @@ struct HistoryFilterBar: View {
     ScrollView(.horizontal) {
       HStack(spacing: Theme.Spacing.chipGap) {
         ForEach(QuickFilter.allCases, id: \.self) { filter in
-          FilterChip(title: filter.title, systemImage: filter.systemImage, isOn: filters.quick == filter) {
+          FilterChip(
+            title: filter.title, systemImage: filter.systemImage, isOn: filters.quick == filter, size: .compact
+          ) {
             withAnimation(.snappy) { filters.toggle(filter) }
           }
           .accessibilityIdentifier("history.chip.\(filter.identifier)")
@@ -18,7 +20,7 @@ struct HistoryFilterBar: View {
     }
     .contentMargins(.horizontal, Theme.Spacing.screenMargin, for: .scrollContent)
     .scrollIndicators(.hidden)
-    .padding(.top, Theme.Spacing.chipRowTop)
+    .padding(.top, Theme.Spacing.chipRowTop - Theme.Spacing.chipTapOverhang)
   }
 }
 

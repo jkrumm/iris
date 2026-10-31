@@ -35,13 +35,17 @@ extension Theme.Spacing {
   public static let chipHeightLarge: CGFloat = 36
   /// Space between the filter row and the section label under it is the section's own top; the row adds this above.
   public static let chipRowTop = sm
+  /// The part of a chip's 44 pt tap area that lies outside its drawn 30 pt: the row removes it from the space around it.
+  public static let chipTapOverhang = (tapTarget - chipHeight) / 2
   /// A bottom sheet's side and bottom inset (`.fsheet`).
   public static let sheetInset: CGFloat = 18
   /// Floating bars (search, tab dock, record): side inset and gap between neighbours.
   public static let barInset = inset
   public static let barGap = cozy
   /// A floating bar's height and the diameter of its round buttons (`.searchbar`, `.fbtn` in `history.html`).
-  public static let barControlSize: CGFloat = 44
+  public static let barControlSize = tapTarget
+  /// The smallest area a control answers taps in (Apple's 44 pt); a smaller visual is padded to it with a content shape.
+  public static let tapTarget: CGFloat = 44
   /// A card (`DetailCard`, panels): padding inside it.
   public static let cardInsetHorizontal = inset
   public static let cardInsetVertical = md
