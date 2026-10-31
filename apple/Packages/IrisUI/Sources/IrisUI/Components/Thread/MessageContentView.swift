@@ -18,8 +18,8 @@ public struct MessageContentView: View {
 
   public var body: some View {
     VStack(alignment: .leading, spacing: Theme.Spacing.cozy) {
-      ForEach(Array(blocks.enumerated()), id: \.offset) { _, block in
-        view(for: block)
+      ForEach(blocks.identified) { item in
+        view(for: item.block)
       }
     }
     .frame(maxWidth: .infinity, alignment: .leading)
@@ -50,5 +50,32 @@ public struct MessageContentView: View {
       .themeFont(.callout)
       .foregroundStyle(Theme.Ink.primary)
       .frame(maxWidth: .infinity, alignment: .leading)
+  }
+}
+
+/// A block with an identity that survives the reply changing around it, so a loaded diagram is not handed to another block when
+/// one is inserted above it: a Mermaid block is its fence index (the server's `ReplyBlock.index`), text and tables are numbered
+/// among their own kind.
+struct IdentifiedBlock: Identifiable, Equatable {
+  let id: String
+  let block: MessageBlock
+}
+
+extension [MessageBlock] {
+  var identified: [IdentifiedBlock] {
+    var texts = 0
+    var tables = 0
+    return map { block in
+      switch block {
+      case .markdown:
+        defer { texts += 1 }
+        return IdentifiedBlock(id: "text-\(texts)", block: block)
+      case .table:
+        defer { tables += 1 }
+        return IdentifiedBlock(id: "table-\(tables)", block: block)
+      case .mermaid(let index, _):
+        return IdentifiedBlock(id: "mermaid-\(index)", block: block)
+      }
+    }
   }
 }

@@ -69,4 +69,17 @@ struct MessageBlockTests {
   func widthMismatch() {
     #expect(MessageBlock.split("| A | B |\n|-|\n| 1 | 2 |") == [.markdown("| A | B |\n|-|\n| 1 | 2 |")])
   }
+
+  @Test("a block keeps its identity when text is inserted above it")
+  func stableIdentity() {
+    let before = MessageBlock.split("Intro\n\n```mermaid\ngraph TD\n```\nEnd").identified.map(\.id)
+    let after = MessageBlock.split("Intro\n\n```mermaid\ngraph TD\n```\nEnd").identified.map(\.id)
+    #expect(before == ["text-0", "mermaid-0", "text-1"])
+    #expect(before == after)
+
+    // A table above the diagram does not renumber the diagram.
+    let withTable = MessageBlock.split("| a |\n|-|\n| 1 |\n\n```mermaid\ngraph TD\n```").identified.map(\.id)
+    #expect(withTable.contains("mermaid-0"))
+    #expect(Set(withTable).count == withTable.count, "ids are unique")
+  }
 }
