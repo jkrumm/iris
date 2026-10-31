@@ -63,6 +63,7 @@ final class MacCompositionRoot {
   /// Production only: the outbox the takes go through, and the client its uploader talks to.
   private let capture: MacCaptureStack?
   private var hotkeyListening: Task<Void, Never>?
+  private var createdListening: Task<Void, Never>?
   /// Signals each `ready` of the current connection's event stream (see ``StreamTappingClient``).
   private var streamReady: AsyncStream<Void>
   /// The client of the current connection. Each connection gets its own, so a task that started on the old server can never
@@ -136,11 +137,35 @@ final class MacCompositionRoot {
       ? HistoryModel(client: client) : HistoryModel(client: client, hiddenStore: UserDefaultsHiddenMemoStore())
   }
 
-  /// A memo the outbox created on the server shows in History at once, before the event stream has told the list.
+  /// What the outbox tells History, in the order it happened.
+  private enum CreatedChange: Sendable {
+    case created(Memo)
+    /// A cancelled take: its memo is dropped and stays out of the list until its server `DELETE` settles.
+    case hide(String)
+    case unhide(String)
+  }
+
+  /// A memo the outbox created on the server shows in History at once, before the event stream has told the list; a cancelled
+  /// take's memo goes from it at once and stays out until the server `DELETE` has settled (the iPhone's hide/settle lifecycle).
+  /// One stream, one consumer: a discard and its delete settling reach History in the order they happened.
   private func wireCreatedMemos() {
     guard let created = capture?.created else { return }
-    Task { [weak self] in
-      await created.setHandler { memo in Task { @MainActor in self?.history.insert(memo) } }
+    let (changes, changed) = AsyncStream.makeStream(of: CreatedChange.self)
+    // Owned by the root, which lives as long as the app. Reads `history` per change: the model of the current connection.
+    createdListening = Task { [weak self] in
+      for await change in changes {
+        guard let history = self?.history else { return }
+        switch change {
+        case .created(let memo): history.insert(memo)
+        case .hide(let id): history.hide(id)
+        case .unhide(let id): history.unhide(id)
+        }
+      }
+    }
+    Task {
+      await created.setHandler { changed.yield(.created($0)) }
+      await created.setForgottenHandler { changed.yield(.hide($0)) }
+      await created.setSettledHandler { changed.yield(.unhide($0)) }
     }
   }
 
@@ -218,10 +243,16 @@ final class MacCompositionRoot {
   private func follow() async {
     if let fakeAPI { await SampleData.seed(fakeAPI, now: sampleNow) }
     guard isConfigured else { return }
-    // Opens the outbox and sends what an earlier run left in it (a take made offline, or cut short by a quit).
-    Task { await capture?.service.resume() }
-    notifier.requestPermissionIfNeeded()
     let history = history
+    // Opens the outbox and sends what an earlier run left in it (a take made offline, or cut short by a quit). Then the hidden
+    // ids of discarded takes whose server `DELETE` is no longer queued are let go (an outbox that cannot be opened says nothing).
+    Task {
+      await capture?.service.resume()
+      if let pending = await capture?.service.pendingDeletionIDs() {
+        history.reconcileHidden(pendingDeletions: pending)
+      }
+    }
+    notifier.requestPermissionIfNeeded()
     // The stream does not wait for the first list request: a slow or hung list must not keep the notifications away. The stream's
     // `ready` event reloads the list on its own.
     async let list: Void = history.load()
@@ -279,7 +310,7 @@ final class MacCompositionRoot {
     wireNotifications()
     notifier.reset(connectionID: Self.connectionID(for: credentials.load()))
     queues = [:]
-    capture?.client.reconfigure(credentials.load())
+    capture?.reconnect(credentials.load())
     closeDetail()
     reconnects = 0
     connectionRevision += 1

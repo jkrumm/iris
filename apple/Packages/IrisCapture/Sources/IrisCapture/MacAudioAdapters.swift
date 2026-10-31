@@ -28,27 +28,35 @@
     func defaultOutput() -> (uid: String, name: String)?
     /// Makes this device the system default input.
     func setDefaultInput(uid: String) throws
-    /// Yields when the device list or a default changes. One consumer.
+    /// Yields when the device list or a default changes. Every read is its own subscription (see ``Broadcast``).
     var changes: AsyncStream<Void> { get }
   }
 
   /// `RouteManager` over the device list: the available inputs are the recording devices, the current input is the default one,
   /// and choosing a microphone sets the default input. The default that was there before the first choice is kept, so
-  /// `setPreferredInput(uid: nil)` puts it back: a take must not leave the Mac's input changed for the next call.
+  /// `setPreferredInput(uid: nil)` puts it back, unless the Mac's default is no longer the one this manager set (the user or
+  /// the system changed it since): a take must not leave the input changed for the next call, nor undo somebody else's choice.
   public actor DirectoryRouteManager: RouteManager {
-    public nonisolated let routeChanges: AsyncStream<RouteChange>
     private let directory: any AudioDeviceDirectory
     private let defaults: UserDefaults
     /// The default input before the first choice of a take, until it is restored.
     private var originalDefault: String?
+    /// The device this manager made the default last; the restore applies only while that is still the default.
+    private var chosenDefault: String?
     private static let rulesKey = "com.jkrumm.iris.capture.routeRules"
 
     /// - Parameter suiteName: the `UserDefaults` suite the rules live in; `nil` is the app's own.
     public init(directory: any AudioDeviceDirectory, suiteName: String? = nil) {
       self.directory = directory
       defaults = suiteName.flatMap(UserDefaults.init(suiteName:)) ?? .standard
+    }
+
+    /// Every read is its own subscription, taken now: the capture session and the recording panel each read it, and one
+    /// stopping must not end it for the other (nor for the next take).
+    public nonisolated var routeChanges: AsyncStream<RouteChange> {
+      let directory = directory
       let changes = directory.changes
-      routeChanges = AsyncStream { continuation in
+      return AsyncStream { continuation in
         // Owned by the stream; ends when the directory's stream does or the consumer goes away.
         let forwarding = Task {
           for await _ in changes {
@@ -72,6 +80,7 @@
       guard current?.uid != uid else { return }
       try setDefault(uid)
       if originalDefault == nil { originalDefault = current?.uid }
+      chosenDefault = uid
     }
 
     private func setDefault(_ uid: String) throws {
@@ -84,13 +93,16 @@
       }
     }
 
-    /// Puts the kept default back, when it is still there. Nothing kept: nothing to do.
+    /// Puts the kept default back, when the default is still the device this manager set and the old one is still there.
+    /// Nothing kept: nothing to do.
     private func restoreOriginal() throws {
       guard let original = originalDefault else { return }
+      let chosen = chosenDefault
       originalDefault = nil
-      guard directory.defaultInput()?.uid != original, directory.inputs().contains(where: { $0.uid == original }) else {
-        return
-      }
+      chosenDefault = nil
+      guard directory.defaultInput()?.uid == chosen, chosen != original,
+        directory.inputs().contains(where: { $0.uid == original })
+      else { return }
       try setDefault(original)
     }
 
@@ -128,7 +140,8 @@
   /// Production directory over Core Audio's hardware object. Thin on purpose: only compile-checked and smoke-run on the mini
   /// (which may have no input at all); a real microphone is the owner's MacBook (`docs/spikes/device-checklist.md`).
   public final class CoreAudioDeviceDirectory: AudioDeviceDirectory {
-    public let changes: AsyncStream<Void>
+    public var changes: AsyncStream<Void> { broadcast.subscribe() }
+    private let broadcast = Broadcast<Void>()
     private let listeners: [Listener]
 
     private struct Listener: @unchecked Sendable {
@@ -137,15 +150,14 @@
     }
 
     public init() {
-      let (stream, continuation) = AsyncStream.makeStream(of: Void.self, bufferingPolicy: .bufferingNewest(1))
-      changes = stream
+      let broadcast = broadcast
       let selectors = [
         kAudioHardwarePropertyDevices, kAudioHardwarePropertyDefaultInputDevice,
         kAudioHardwarePropertyDefaultOutputDevice,
       ]
       listeners = selectors.map { selector in
         var address = Self.address(selector)
-        let block: AudioObjectPropertyListenerBlock = { _, _ in continuation.yield() }
+        let block: AudioObjectPropertyListenerBlock = { _, _ in broadcast.yield(()) }
         AudioObjectAddPropertyListenerBlock(
           AudioObjectID(kAudioObjectSystemObject), &address, DispatchQueue.main, block)
         return Listener(address: address, block: block)
@@ -256,15 +268,14 @@
     public static let builtIn = InputPort(uid: "fake-mac-builtin", name: "MacBook Microphone", kind: .builtInMic)
     public static let usb = InputPort(uid: "fake-mac-usb", name: "USB Microphone", kind: .usb)
 
-    public let changes: AsyncStream<Void>
-    private let continuation: AsyncStream<Void>.Continuation
+    public var changes: AsyncStream<Void> { broadcast.subscribe() }
+    private let broadcast = Broadcast<Void>()
     private let lock = NSLock()
     private var devices: [InputPort]
     private var current: String?
     private var failure: String?
 
     public init(inputs: [InputPort] = [FakeAudioDeviceDirectory.builtIn, FakeAudioDeviceDirectory.usb]) {
-      (changes, continuation) = AsyncStream.makeStream(of: Void.self, bufferingPolicy: .bufferingNewest(1))
       devices = inputs
       current = inputs.first?.uid
     }
@@ -278,7 +289,7 @@
         if let failure { throw CaptureError.sessionFailure(failure) }
         current = uid
       }
-      continuation.yield()
+      broadcast.yield(())
     }
 
     /// Script hook: the next `setDefaultInput` throws.
@@ -290,7 +301,7 @@
         devices = inputs
         if !inputs.contains(where: { $0.uid == current }) { current = inputs.first?.uid }
       }
-      continuation.yield()
+      broadcast.yield(())
     }
   }
 #endif

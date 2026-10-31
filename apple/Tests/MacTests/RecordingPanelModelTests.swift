@@ -183,6 +183,43 @@ struct RecordingPanelModelTests {
     #expect(h.model.level == 0)
   }
 
+  @Test("the waveform, the microphone list and the failure watch work in every take, not only the first")
+  func theConsumersSurviveTheFirstTake() async {
+    let h = harness()
+    for round in 1...3 {
+      h.model.toggle()
+      await h.model.settled()
+      let level = Float(round) / 10
+      h.engine.level(level)
+      #expect(await eventually { h.model.level == level })
+      let mics = Microphones(inputs: [FakeAudioDeviceDirectory.usb], current: FakeAudioDeviceDirectory.usb)
+      h.engine.setMicrophones(mics)
+      #expect(await eventually { h.model.microphones == mics })
+      h.engine.setMicrophones(FakeTakeEngine.microphones)
+      #expect(await eventually { h.model.microphones == FakeTakeEngine.microphones })
+      if round == 3 {
+        h.engine.fail()
+        #expect(await eventually { h.model.phase == .failed(.stoppedEarly) })
+      } else {
+        h.model.stop()
+        await h.model.settled()
+        #expect(h.model.phase == .idle)
+        #expect(h.model.level == 0)
+      }
+    }
+  }
+
+  @Test("a take that kept only part of the audio says the recording stopped early")
+  func partialTake() async {
+    let h = harness()
+    h.engine.endStop(with: .partial)
+    h.model.toggle()
+    await h.model.settled()
+    h.model.stop()
+    await h.model.settled()
+    #expect(h.model.phase == .failed(.stoppedEarly))
+  }
+
   @Test("the recorder failing mid-take stops it, keeps what closed and says so")
   func recorderFailure() async {
     let h = harness()

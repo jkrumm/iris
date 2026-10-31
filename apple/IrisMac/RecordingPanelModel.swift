@@ -114,7 +114,7 @@ final class RecordingPanelModel {
       do {
         try await model.engine.select(microphone: uid)
       } catch {
-        Self.logger.error("microphone not switched: \(String(describing: error), privacy: .public)")
+        Self.logger.error("microphone not switched: \(logDescription(of: error), privacy: .public)")
       }
       model.microphones = await model.engine.microphones()
     }
@@ -175,7 +175,7 @@ final class RecordingPanelModel {
       phase = .recording(since: startedAt)
       follow()
     } catch {
-      Self.logger.error("take not started: \(String(describing: error), privacy: .public)")
+      Self.logger.error("take not started: \(logDescription(of: error), privacy: .public)")
       phase = .failed(.couldNotStart)
     }
   }
@@ -188,10 +188,12 @@ final class RecordingPanelModel {
     do {
       switch try await engine.stop() {
       case .queued: phase = failure.map(Phase.failed) ?? .idle
+      // The memo is sent, but short: say so instead of looking like a whole take.
+      case .partial: phase = .failed(failure ?? .stoppedEarly)
       case .nothingRecorded: phase = .failed(failure ?? .nothingRecorded)
       }
     } catch {
-      Self.logger.error("take not kept: \(String(describing: error), privacy: .public)")
+      Self.logger.error("take not kept: \(logDescription(of: error), privacy: .public)")
       phase = .failed(.lost)
     }
   }
@@ -207,20 +209,24 @@ final class RecordingPanelModel {
   /// The levels, the microphone list and the recorder's failures, until the take ends.
   private func follow() {
     unfollow()
-    let engine = engine
+    // Subscribed here, not inside the tasks: each take has its own subscriptions, and nothing that happens between the start and
+    // the tasks' first run may be missed. They end with the take, and the next take subscribes again.
+    let levels = engine.levels
+    let changes = engine.microphoneChanges()
+    let failures = engine.failures()
     following = [
       Task { [weak self] in
-        for await value in engine.levels {
+        for await value in levels {
           self?.take(level: value)
         }
       },
       Task { [weak self] in
-        for await mics in engine.microphoneChanges() {
+        for await mics in changes {
           self?.microphones = mics
         }
       },
       Task { [weak self] in
-        for await _ in engine.failures() {
+        for await _ in failures {
           // The recorder stopped: keep what closed before that, and say so.
           self?.enqueue { await $0.finish(after: .stoppedEarly) }
         }

@@ -34,10 +34,10 @@ packages:
     path: Packages/IrisUI
   IrisTelemetry:
     path: Packages/IrisTelemetry
-  # The Mac's global hotkey and its recorder view (Carbon, no permission prompt; docs/research/2026-10-31-mac-hotkey.md).
+  # The Mac's global hotkey and its recorder view (Carbon, no permission prompt, pinned exactly: the recorder broke on new macOS releases before; docs/research/2026-10-31-mac-hotkey.md).
   KeyboardShortcuts:
     url: https://github.com/sindresorhus/KeyboardShortcuts
-    from: 3.1.0
+    exactVersion: 3.1.0
 
 targets:
   Iris:

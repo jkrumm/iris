@@ -11,12 +11,20 @@ struct MacCaptureStack {
   let stack: CaptureStack
   let service: OutboxService
   let engine: CaptureTakeEngine
-  /// The uploader's client: pointed at the new server when the connection changes.
-  let client: ReconfigurableAPIClient
   let created: CreatedMemoLog
+  private let client: ReconfigurableAPIClient
+  private let epoch: ConnectionEpoch
+
+  /// The saved connection changed: the uploader's client points at the new server, and a create the old one is still
+  /// answering is refused (see ``ConnectionBoundClient``).
+  func reconnect(_ credentials: ConnectionCredentials?) {
+    epoch.advance()
+    client.reconfigure(credentials)
+  }
 
   static func production(credentials: ConnectionCredentials?, root: URL? = nil) -> MacCaptureStack {
     let client = ReconfigurableAPIClient(credentials: credentials)
+    let epoch = ConnectionEpoch()
     let created = CreatedMemoLog()
     let root = root ?? URL.applicationSupportDirectory.appending(path: "Iris", directoryHint: .isDirectory)
     let captureDirectory = root.appending(path: "capture", directoryHint: .isDirectory)
@@ -28,11 +36,13 @@ struct MacCaptureStack {
         session: MacAudioSessionController(), routes: routes, recorder: recorder ?? UnavailableSegmentRecorder(),
         clock: SystemCaptureClock(),
         store: JSONFileOutboxStore(fileURL: root.appending(path: "outbox.json"), segmentDirectory: captureDirectory),
-        uploader: APIOutboxUploader(client: client, created: created, keeping: segmentFiles),
+        uploader: APIOutboxUploader(
+          client: ConnectionBoundClient(base: client, epoch: epoch), created: created, keeping: segmentFiles),
         segmentFiles: segmentFiles))
     return MacCaptureStack(
       stack: stack, service: OutboxService(stack: stack, created: created),
-      engine: CaptureTakeEngine(stack: stack, routes: routes, levels: recorder?.levels ?? AsyncStream { $0.finish() }),
-      client: client, created: created)
+      engine: CaptureTakeEngine(
+        stack: stack, routes: routes, levels: recorder?.levels ?? AsyncStream { $0.finish() }, created: created),
+      created: created, client: client, epoch: epoch)
   }
 }

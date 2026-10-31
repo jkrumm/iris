@@ -74,6 +74,40 @@
       #expect(change?.snapshot.currentInput?.uid == "fake-mac-usb")
     }
 
+    @Test func theOriginalIsNotRestoredOverAnInputSomebodyElseChose() async throws {
+      let (routes, directory) = manager(inputs: [
+        FakeAudioDeviceDirectory.builtIn, FakeAudioDeviceDirectory.usb,
+        InputPort(uid: "fake-mac-headset", name: "Headset", kind: .bluetoothHFP),
+      ])
+      try await routes.setPreferredInput(uid: "fake-mac-usb")
+      try directory.setDefaultInput(uid: "fake-mac-headset")  // the user picks one in System Settings mid-take
+      try await routes.setPreferredInput(uid: nil)
+      #expect(directory.defaultInput()?.uid == "fake-mac-headset")
+      // The restore is spent: a later one has nothing to put back either.
+      try await routes.setPreferredInput(uid: nil)
+      #expect(directory.defaultInput()?.uid == "fake-mac-headset")
+    }
+
+    @Test func everyRouteChangeSubscriptionIsIndependent() async throws {
+      let (routes, directory) = manager()
+      var first = routes.routeChanges.makeAsyncIterator()
+      var second = routes.routeChanges.makeAsyncIterator()
+      directory.setDevices([FakeAudioDeviceDirectory.usb])
+      #expect(await first.next()?.snapshot.currentInput?.uid == "fake-mac-usb")
+      #expect(await second.next()?.snapshot.currentInput?.uid == "fake-mac-usb")
+
+      // One consumer going away (a take ended, its task was cancelled) does not end the other, nor the next one.
+      let ended = Task { for await _ in routes.routeChanges {} }
+      ended.cancel()
+      await ended.value
+      directory.setDevices([FakeAudioDeviceDirectory.builtIn, FakeAudioDeviceDirectory.usb])
+      #expect(await first.next()?.snapshot.availableInputs.count == 2)
+      #expect(await second.next()?.snapshot.availableInputs.count == 2)
+      var later = routes.routeChanges.makeAsyncIterator()
+      directory.setDevices([FakeAudioDeviceDirectory.builtIn])
+      #expect(await later.next()?.snapshot.availableInputs.count == 1)
+    }
+
     @Test func rulesArePerFingerprintAndPersist() async {
       let (routes, _) = manager()
       await routes.setRule(fingerprint: "fake-mac-speakers", preferredPortUID: "fake-mac-usb")
