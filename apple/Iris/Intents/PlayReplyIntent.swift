@@ -47,8 +47,13 @@ struct PlayReplyIntent: AudioPlaybackIntent {
 
   @MainActor
   func perform() async throws -> some IntentResult {
-    guard let handler = PlaybackIntents.handler else { throw PlayReplyError.appNotReady }
-    try await handler.playReply(memoID: memoID)
+    let memoID = memoID
+    try await IntentEvents.run(
+      self, named: "PlayReplyIntent", handlerPresent: PlaybackIntents.handler != nil, memoID: memoID
+    ) {
+      guard let handler = PlaybackIntents.handler else { throw PlayReplyError.appNotReady }
+      try await handler.playReply(memoID: memoID)
+    }
     return .result()
   }
 }

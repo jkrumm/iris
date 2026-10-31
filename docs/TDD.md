@@ -739,6 +739,7 @@ the runner needs a workflow step and was left out of this change (owned files: `
   written atomically, each segment named by **file name only**: the app's data container gets a new path when a build is installed over it (found on the first device, Wave 17 D1b), so an absolute path saved by an earlier run pointed at nothing, the upload failed as "the recording file is gone" and stalled while the audio sat unharmed in the new container. `JSONFileOutboxStore(segmentDirectory:)` puts every segment in the current capture directory on load, which also heals a record written with absolute paths, and a segment that had stalled on such a stale path with its file present is retried once; a file that is really gone stays stalled. A file that cannot be read or decoded (including a newer build's enum case) is an **error, never an empty queue**: it is left on disk untouched and the outbox reports itself closed (below), until Settings **"Reset outbox"** (Wave 16 I1) renames it aside: `outbox.quarantined-<UTC timestamp>.json`, kept next to it, never deleted, its segment files untouched, and a fresh empty outbox opens. Diagnostics lists the set-aside files with a `ShareLink`. A second tap while the reset runs joins it (`CaptureStack` keeps the one reset task) and gets its outcome; it is not reported as a failure. The reset claims the move in the same actor turn it starts (the stack already knows the file is unreadable from the refresh that offered the button), so no `open()` can read the file between the tap and the rename. An item whose write fails (a full disk) is taken back out and refused, so nothing is ever "queued" that a kill would lose. Three kinds of work, all
   idempotent on the server, so a retry after a lost answer is harmless:
   - A segment `PUT` for a memo that has left `receiving` is 409 `bad_state`, and the server answers it before it compares bytes. `APIOutboxUploader` then asks `GET /memos/:id` what the server holds: with `segmentCount` above this index the segment is **delivered** (the memo was completed with it: a lost answer, or the audio sent by hand), `complete` returns the memo it has and the queue clears; with fewer, the local file is the only copy, so it is **set aside** (the capture directory's `quarantine/`, which Settings counts and sizes) and the entry clears, never deleted. No place to keep it, or no answer to the lookup, is a stall or a retry, not a decision. A 409 `conflict` (other bytes) stays a refusal.
+  - `complete` answered 422 `missing_segments` (the server holds fewer segments than the phone sent: a restored backup, a write refused in flight) is **not a refusal**: the files stay until `complete` succeeds, so the listed segments go back to pending and `complete` follows them on a backoff (`MissingSegmentsError`, `OutboxStateMachine.completeMissingSegments`), counted like any failure so a server that keeps losing them ends in a stall; an index the phone does not hold is the stall it was.
   - **`create`**, one per memo or message (`OutboxItem`: memo id, mode, thread id, text or voice, queued-at). A typed memo or chat
     message is `POST /memos/text` and is done with that call; a take is `POST /memos`. A take is created once it has something to
     send (its first closed segment, or its end), so a take cancelled early never reaches the server and leaves no stuck `receiving`
@@ -785,10 +786,10 @@ the runner needs a workflow step and was left out of this change (owned files: `
   out a backoff due at once, keeping its attempt count; a stalled one waits for the user. A take the app died in the middle of is finished with the segments it had (contiguous from 0), or dropped when it had none.
   **Startup sweep** (`Outbox.sweepOrphans(using:)` over the `SegmentFileStore` port, production `DirectorySegmentFiles`; run by `CaptureStack` right after the queue loads and before anything is sent or recorded; the sweep reaches the queue only through `segmentFileNames()` / `adoptSwept(_:)`, the machine and its bookkeeping stay private to `Outbox`): a segment file is written before the
   queue file that names it is saved, so a crash or a failed save leaves files no record owns. Each `<memo id>-<index>.m4a` in the capture directory that the queue does not
-  know is **adopted** when it belongs to a take the queue holds, fills one of its indices (below its count, or the next one after a take recovered from a crash, or after a finished take whose `complete` was never handed out, which then grows: a stop that gave up on the recorder finished the memo without its tail, and the app died before the tail's file was saved; `OutboxMemo.completeMayHaveLanded` is set and saved with the dispatch of `complete`, and from then on the server may hold the memo closed at the old count, so a tail is set aside instead: a segment `PUT` would be 409 `bad_state` and `complete` with a larger count 409 `conflict`) and
+  know is **adopted** when it belongs to a take the queue holds, fills one of its indices (below its count, or the next one after a take recovered from a crash, or after a finished take whose `complete` was never handed out, which then grows: a stop that gave up on the recorder finished the memo without its tail, and the app died before the tail's file was saved; `OutboxMemo.completeMayHaveLanded` (always written; a queue file from before the flag reads "may have landed" unless the rest of the queue proves otherwise: `complete` follows the create and every segment, so a memo whose create or a segment is not uploaded was never completed; a `pending` completion with no attempts is also what "Retry now" leaves behind) is set and saved with the dispatch of `complete`, and from then on the server may hold the memo closed at the old count, so a tail is set aside instead: a segment `PUT` would be 409 `bad_state` and `complete` with a larger count 409 `conflict`) and
   opens as audio with frames in it (a truncated AAC file does not); otherwise it is **moved** into `capture/quarantine/`. A file that a set-aside queue file names stays where it is, and when a set-aside queue file cannot be read, every candidate stays where it is (the read failure is logged).
   **Nothing is deleted** (the files of a memo the server completed, left by a crash between the save and the removal, are quarantined too).
-  **Set-aside files are surfaced, not bounded by deletion.** `capture/quarantine/` and the `outbox.quarantined-*.json` files grow only when something went wrong, and the app never removes them on its own: Settings
+  **A file the sweep cannot move** (a full disk, a read-only volume) stays in the capture directory and is tried again at the next launch; `SweepReport.stuck` / `Outbox.strayFiles()` (described by the `SegmentFileStore`) list it and Settings counts it with the set-aside files, marked "not moved" in the shared list. **Set-aside files are surfaced, not bounded by deletion.** `capture/quarantine/` and the `outbox.quarantined-*.json` files grow only when something went wrong, and the app never removes them on its own: Settings
   shows "Kept on this device" (count and size, `SetAsideSummary`) with a share/copy of the list (names, sizes, dates; no audio), and past 50 files or 200 MB a note says so. A delete action waits for the owner's word.
   Everything runs on a default `URLSession` (`URLSessionAPIClient`); the background `URLSession` and the `result?wait=600`
   long-poll as a background download are not built (device-only, below). The app side is `OutboxService` (submit text, await the
@@ -806,7 +807,7 @@ the runner needs a workflow step and was left out of this change (owned files: `
   finishes the memo with the segments that closed, at once: a locked phone or a killed app must not hold captured audio
   back for a stop that never comes. The user's `stop()` then acknowledges the failure and `cancel()` drops what the outbox
   still holds (a memo the server already completed stays). An interruption that ends without a resume recommendation leaves
-  the take visibly `paused` with everything before it closed and queued. `stop()` on a failed take returns the memo with the segments that really closed (`TakeResult.failure` set) or, with none, throws
+  the take visibly `paused` with everything before it closed and queued. a failed take whose recorder cannot be stopped (the stop throws or hangs) waits as a silent recorder does: the tail segment and `stopped` it put on the stream are delivered first and finish the memo with the whole take, else the grace period does with the segments that closed, without the user having to look at the phone (a `stop()` in between leaves the finish to the pump, so a queued tail is never overtaken, also when nothing has closed yet: the memo stays open and is dropped by the pump or the grace period only if no tail came; a `stop()` that is still reading the take keeps its count and failure until it returns) (a segment it closes after that is late and stays on disk for the sweep); `stop()` on a failed take returns the memo with the segments that really closed (`TakeResult.failure` set) or, with none, throws
   `CaptureError.recordingFailed` instead of returning `nil` (which means nothing was said); the thread screen tells the user.
   Both actors are reentrant, so every write that follows an `await` re-checks what it assumed or is authoritative: `pause` and
   `resume` (and the interruption handlers) leave a take that failed meanwhile as `failed`, a failure that comes in while the
@@ -820,7 +821,7 @@ the runner needs a workflow step and was left out of this change (owned files: `
   and returns the segments that closed (`TakeResult.failure` = "the recorder did not stop") or, with none, throws `CaptureError.recordingFailed`. **The memo is not finished at the timeout**: the tail segment the
   recorder was flushing can still close and is queued like any other, and the `.stopped` event finishes the memo with the whole take; if it never comes the memo is finished after a grace period of the same length with
   the segments that closed, and only a segment that closes after *that* is ignored (its file stays for the next launch's sweep). The timeout marks the take as waiting in the same actor turn that resumes `stop()`,
-  so a `.stopped` that lands between the two finishes the memo once and is not mistaken for a late one. `cancel()` has the same bounds, and drops the tail. A `stopped` that did arrive while `stop()` hung counts as reported (the memo is finished once, no failure). While a given-up `recorder.stop()` has not returned the recorder may still hold the microphone, so `start` refuses (`engineFailure("the recorder is still stopping")`) until it does. `TakeController.start` is single-flight: a second start while one is in flight (the Control and the record button together, a double tap)
+  so a `.stopped` that lands between the two finishes the memo once and is not mistaken for a late one. `cancel()` has the same bounds, and drops the tail. A `stopped` that did arrive while `stop()` hung counts as reported (the memo is finished once, no failure). While a given-up `recorder.stop()` has not returned the recorder may still hold the microphone, so `start` refuses (`engineFailure("the recorder is still stopping")`) until it does. The audio session is not deactivated under any recorder stop that has not returned (a failed take's included, `CaptureSession.unreturnedStops`; a cancel during `failTake` too): the take ends with the session active and the last stop's return deactivates it behind the take gate (so a take that starts meanwhile is not cut off), and `start` refuses until every stop has returned. `TakeController.start` is single-flight: a second start while one is in flight (the Control and the record button together, a double tap)
   joins it and returns the same memo, as does a start that finds a take already running; `TakeController.cancel()` throws when the capture session cannot be opened and `TakeModel` shows the failure instead of looking done.
 - **`CaptureStack` never queues into memory.** If the persistent queue cannot be loaded (the file unreadable before the first unlock after
   a reboot), the stack stays unbuilt: the composer keeps the text and shows why, a voice take and the start intent refuse to start,
@@ -1069,7 +1070,63 @@ the `IrisCore` dependency when R1 wires them together.
     resent batch shows twice (`(traceId, spanId)` identifies a span). The export
     is part of the OTel flush at shutdown. Without `OTEL_EXPORTER_OTLP_ENDPOINT`
     the batch is accepted and discarded (`degraded` already lists `otel`).
-  - On iOS, MetricKit crash and hang diagnostics are relayed on the next launch.
+  - On iOS, MetricKit crash and hang diagnostics are relayed on the next launch (`metrickit.*`, below).
+- **Device events (iOS).** Device testing does not depend on the owner narrating what he saw: every capture, route,
+  interruption, outbox, intent and Live Activity event goes through one `DeviceLog` and is **an `os.Logger` line and a
+  relayed log record** (`service.name=iris-ios`, `Body` = the event name).
+  - **Every record** carries `event.name`, `seq` (per-process counter), `uptime_ms` (monotonic since launch, so order and
+    durations survive a phone clock step), `app.pid` (a new pid mid-take is the relaunch), `memo.id` (= the trace id, 32 hex,
+    when the event belongs to a memo; the log's `traceId` is the same) and `run.id` (the word typed once in Settings >
+    Diagnostics, unset otherwise); ambient `app.state` and `process` (`com.jkrumm.iris`). `service.version` is the build's
+    `IRIS_BUILD_SHA` (a git sha when the build passes one, otherwise `dev`), `device.name` the phone. The console line has the same name as its category
+    prefix: subsystem `com.jkrumm.iris`, category = the part before the first dot.
+  - **Delivery:** records are written to the crash file (`FileTelemetryStore`, Application Support) as they are recorded, sent at
+    launch (what a killed run left), every 10 s, and on background under a background-task assertion.
+    - A record is in the file before it is acknowledged, so a kill loses only the events still queued in memory (microseconds).
+    - The stored queue of the last run is loaded before the first new record is numbered: no reused `seq`, and no acknowledgement
+      deleting an older record.
+    - A torn last line is cut off before the next append, and a flush that finds one running waits for it, so a background-task
+      assertion outlives the send.
+    - Each record carries the `server.id` (a hash) of the connection it was recorded under. The transport delivers a record only
+      to that server and drops the rest: a queue written for one server is never handed to another after a switch.
+    - `dropped` reports overflow (2 000 records).
+  - **Privacy:** no transcript, reply or token: a key naming one is dropped before it is recorded, a string is cut at 240
+    characters, port uids are not logged, and a port name that can carry a person's name ("Anna's AirPods") is a short hash;
+    only the phone's own generic port names stay. An error is logged as its type (and an enum's case), never its message or payload:
+    server text and file paths do not reach a record. Public repo: no real value in tests or docs.
+  - **Records:**
+
+    | `event.name` | Attributes |
+    |-|-|
+    | `app.launch` | `launch.reason` (`user`\|`background_launch`), `previous.phase` (last scene phase of the run before), `previous.exit=unknown`, `outbox.state` (`available`\|`unavailable`\|`unreadable`), `outbox.items` (only when available: never a zero for a queue that could not be read), `outbox.quarantined_files`, `mode` |
+    | `outbox.state` | `reason=recovered`, the attributes of `app.launch`'s queue part, when a queue that launched closed or unreadable opens |
+    | `app.lifecycle` | `scene.phase`, `reason` |
+    | `take.phase` | `phase` (`starting`\|`recording`\|`paused`\|`stopping`\|`failed`\|`stopped`), `source` (the control that asked last: `app`\|`intent`\|`island`\|`thread`), `mode`, `input.name` (generic names of the phone's own ports; any other name is a short hash), `failure` |
+    | `capture.session.error` | `call` (`setCategory`\|`setActive`\|`setActive(false)`\|`installTap`\|`engine.start`), `error.domain`, `error.code`, `error.fourcc` (`561145187` is `!rec`, `560557684` `!int`), `error.type`, `engine.running`, `session.category`, `session.mode`, `session.options`, `session.other_audio_playing`, `session.sample_rate`, `session.io_buffer_ms` |
+    | `capture.tap.install` | `rate`, `channels`, `hardware_rate`, `valid`, `generation`; written to the crash file and flushed to disk *before* the call that can abort returns (a blocking write, bounded to 500 ms), so the last one before a gap in `seq` is the one that did |
+    | `audio.route_change` | `reason`, `route.prev`, `route.current` (`portType:name,…`, names as for `input.name`), session snapshot |
+    | `audio.config_change` | `engine.running_before`, `input.rate_before`, `input.channels_before`, `generation`, session snapshot |
+    | `audio.interruption` | `type` (`began`\|`ended`\|`resume`\|`resume_skipped`), `reason`, `options`, `should_resume`, `resume.result`, `api` |
+    | `capture.gap` | `ms`, `reason` (`pause`\|`interruption`\|`media_services_reset`\|`config_change`), `frames_lost` (`ms` at 16 kHz) |
+    | `capture.segment.closed` | `index`, `bytes`, `seconds`, `reason` (`rotate`\|`route`\|`pause`\|`stop`), `closed_ok` (the file has bytes), `disposition` (`queued`\|`discarded`\|`late`) |
+    | `take.discarded` | `segments` (closed so far); the take was dropped on purpose, so its segments never upload |
+    | `outbox.segment.upload` | `index`, `attempt`, `status` (`ok`\|`permanent`\|`transient`\|`error`), `ms`, `error` (the error's type, never its message) |
+    | `outbox.complete.sent` | `segment_count`, `status`, `ms`, `error` |
+    | `capture.quarantine` | `file`, `bytes`, `has_moov` (per set-aside file at launch) |
+    | `capture.level` | `rms_db`, `peak_db` (dBFS, twice a second while a take records) |
+    | `intent.perform` / `intent.result` | `intent`, `process`, `handler.present`, `mode`, `can_continue_in_foreground`, `press_lag_ms`; `ok`, `error` (type and case only); both carry the take's `memo.id` (Start: the new memo, on its result) |
+    | `liveactivity.request` / `.update` / `.end` | `activity.id`, `phase`, `ok`, `error`, `push` (token or none), `dismissal` (`immediate`\|`after`), `reason` |
+    | `liveactivity.snapshot` | `reason` (`launch`\|`foreground`), `count`, `states` (`id:state;…`), `age_s` (`id:seconds;…`) |
+    | `metrickit.crash` / `.hang` / `.cpu_exception` | `app.version`, `window.end`, `call_stack` (innermost frames, `binary+0xoffset`), `exception.type`, `exception.code`, `signal`, `termination.reason`, `hang_ms`, `cpu_ms` |
+    | `ui.screen` | `screen`, `shown` |
+
+  - **Read it:** a take's device timeline sits next to its server timeline in HyperDX (skills `device`, `memo-debug`): the
+    memo id without dashes joins them; order by `seq`, not by timestamp. A segment with `capture.segment.closed` and no
+    `outbox.segment.upload` is a data-loss alarm visible while the take still runs.
+  - **The widget extension logs to `os.Logger` only.** A Personal Team has no App Group, the server URL lives in the app's
+    `UserDefaults`, and the extension has no other way to reach it. `StartMemoIntent` and the Live Activity buttons are
+    `LiveActivityIntent`s and run in the app process, where they *are* relayed; a Record press with no `intent.perform` means the
+    app was never reached.
 - **Propagation:** the audio door and the agw host don't accept `traceparent` (factory
   ADR-006 plans it), so Iris spans carry the memo id as an attribute on every
   downstream call. Once ADR-006 lands, `traceparent` is added.

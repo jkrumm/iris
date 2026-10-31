@@ -16,10 +16,18 @@ final class DiagnosticsModel {
   /// Bumped on every copy, so a second copy restarts the view's confirmation timer.
   private(set) var copyCount = 0
 
-  private let pasteboard: any Pasteboard
+  /// The word every device record carries as `run.id` (TDD §8), so one round of takes is one filter. Typed once; saved.
+  var runID: String {
+    didSet { if runID != oldValue { onRunIDChange(runID) } }
+  }
 
-  init(pasteboard: any Pasteboard) {
+  private let pasteboard: any Pasteboard
+  private let onRunIDChange: (String) -> Void
+
+  init(pasteboard: any Pasteboard, runID: String = "", onRunIDChange: @escaping (String) -> Void = { _ in }) {
     self.pasteboard = pasteboard
+    self.runID = runID
+    self.onRunIDChange = onRunIDChange
   }
 
   /// The newest memos, newest first.

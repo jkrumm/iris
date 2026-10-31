@@ -81,6 +81,19 @@ struct DiagnosticsView: View {
             comment: "Diagnostics footer")
         }
 
+        SettingsGroup(title: String(localized: "Run", comment: "Diagnostics section")) {
+          TextField(String(localized: "Run id", comment: "Diagnostics run id field"), text: $model.runID)
+            .themeFont(.subheadline)
+            .textInputAutocapitalization(.never)
+            .autocorrectionDisabled()
+            .settingsRow()
+            .accessibilityIdentifier("diagnostics.runid")
+        } footer: {
+          Text(
+            "One word for a round of testing. Every device log record carries it, so one filter finds the whole round.",
+            comment: "Diagnostics footer")
+        }
+
         if !quarantinedFiles.isEmpty {
           SettingsGroup(title: String(localized: "Set-aside outbox", comment: "Diagnostics section")) {
             ForEach(quarantinedFiles, id: \.self) { file in

@@ -1,6 +1,7 @@
 import Foundation
 import IrisCapture
 import IrisCore
+import IrisTelemetry
 import os
 
 /// How long a finished Live Activity stays on the Lock Screen after the app ended it.
@@ -29,6 +30,12 @@ protocol TakeLiveActivity {
   func endClientPhaseActivities(except memoIDs: Set<String>) async
   /// Ends the handed-over activities of earlier runs that have outlived their use (``StaleActivityRule``).
   func endStaleActivities() async
+  /// `liveactivity.snapshot`: the activities the system lists right now, for the device log.
+  func logSnapshot(reason: String)
+}
+
+extension TakeLiveActivity {
+  func logSnapshot(reason: String) {}
 }
 
 /// A Live Activity the app handed to the server (any phase after `uploading`), as the stale rules see it.
@@ -318,6 +325,11 @@ final class TakeLiveActivityCoordinator {
     return false  // waiting, sending, or failed with a retry coming: the outbox is still on it
   }
 
+  /// `liveactivity.snapshot` (see ``TakeLiveActivity/logSnapshot(reason:)``).
+  func snapshot(reason: String) {
+    activity.logSnapshot(reason: reason)
+  }
+
   /// Waits for every follower to finish (tests).
   func finished() async {
     for follower in Array(followers.values) { await follower.value }
@@ -392,30 +404,53 @@ final class TakeLiveActivityCoordinator {
     }
 
     func start(memoID: String, mode: MemoMode, startedAt: Date, state content: LiveActivityContentState) async {
-      guard ActivityAuthorizationInfo().areActivitiesEnabled else { return }
+      guard ActivityAuthorizationInfo().areActivitiesEnabled else {
+        DeviceLog.shared.event(
+          "liveactivity.request", memoWireID: memoID, severity: .warn,
+          ["phase": .string(content.phase.rawValue), "ok": false, "error": "activities_disabled"])
+        return
+      }
       // The island shows one activity: the running take's wins over finished ones and over ones nothing will update.
       await sweeper.makeRoomForTake()
       let attributes = MemoAttributes(memoId: memoID, mode: mode, startedAt: startedAt, serverKey: serverKey())
       let activityContent = ActivityContent(state: content, staleDate: nil)
       do {
         let activity: Activity<MemoAttributes>
+        var push = "token"
         do {
           activity = try Activity.request(attributes: attributes, content: activityContent, pushType: .token)
         } catch {
           // No push entitlement (an unsigned simulator build): the local activity still shows the take.
+          push = "none"
           activity = try Activity.request(attributes: attributes, content: activityContent, pushType: nil)
         }
         activities[memoID] = activity
+        DeviceLog.shared.event(
+          "liveactivity.request", memoWireID: memoID,
+          [
+            "activity.id": .string(activity.id), "phase": .string(content.phase.rawValue), "ok": true,
+            "push": .string(push),
+          ])
         tokens.begin(memoID)
         followToken(of: activity, memoID: memoID)
       } catch {
         // The system refused (the app is not allowed to start it from here). The take goes on without it.
         logger.error("live activity not started: \(String(describing: error), privacy: .public)")
+        DeviceLog.shared.event(
+          "liveactivity.request", memoWireID: memoID, severity: .error,
+          [
+            "phase": .string(content.phase.rawValue), "ok": false,
+            "error": .string(String(describing: error)),
+          ])
       }
     }
 
     func update(memoID: String, _ content: LiveActivityContentState) async {
-      await activities[memoID]?.update(ActivityContent(state: content, staleDate: nil))
+      let activity = activities[memoID]
+      await activity?.update(ActivityContent(state: content, staleDate: nil))
+      DeviceLog.shared.event(
+        "liveactivity.update", memoWireID: memoID,
+        ["activity.id": .string(activity?.id ?? "none"), "phase": .string(content.phase.rawValue)])
       await tokens.attempt(memoID)
     }
 
@@ -453,12 +488,35 @@ final class TakeLiveActivityCoordinator {
         case .later: .after(Date().addingTimeInterval(15 * 60))
         }
       await activity.end(content, dismissalPolicy: policy)
+      DeviceLog.shared.event(
+        "liveactivity.end", memoWireID: memoID,
+        [
+          "activity.id": .string(activity.id), "phase": .string(finalState?.phase.rawValue ?? "none"),
+          "dismissal": .string(dismissal == .immediate ? "immediate" : "after"),
+        ])
     }
 
     func endStaleActivities() async {
       await sweeps.run(key: serverKey()) { [sweeper] in
         _ = await sweeper.sweep(onKept: { [self] in follow($0) })
       }
+    }
+
+    /// What the system lists, every state: a count above 1, or an age of hours, is the stale card in one row.
+    func logSnapshot(reason: String) {
+      let now = Date()
+      let all = Activity<MemoAttributes>.activities
+      func label(_ activity: Activity<MemoAttributes>) -> String { String(activity.id.prefix(8)) }
+      DeviceLog.shared.event(
+        "liveactivity.snapshot",
+        [
+          "reason": .string(reason), "count": .int(all.count),
+          "states": .string(all.map { "\(label($0)):\($0.activityState)" }.joined(separator: ";")),
+          "phases": .string(all.map { "\(label($0)):\($0.content.state.phase.rawValue)" }.joined(separator: ";")),
+          "memos": .string(all.map { "\(label($0)):\($0.attributes.memoId.prefix(8))" }.joined(separator: ";")),
+          "age_s": .string(
+            all.map { "\(label($0)):\(Int(now.timeIntervalSince($0.attributes.startedAt)))" }.joined(separator: ";")),
+        ])
     }
 
     func handedOverActivities() -> [HandedOverActivity] {
@@ -483,6 +541,12 @@ final class TakeLiveActivityCoordinator {
         && activities[orphan.attributes.memoId] == nil
       {
         await orphan.end(nil, dismissalPolicy: .immediate)
+        DeviceLog.shared.event(
+          "liveactivity.end", memoWireID: orphan.attributes.memoId,
+          [
+            "activity.id": .string(orphan.id), "phase": .string(orphan.content.state.phase.rawValue),
+            "dismissal": "immediate", "reason": "orphan",
+          ])
         tokens.finish(orphan.attributes.memoId)
       }
     }
@@ -566,4 +630,52 @@ final class RecordingLiveActivity: TakeLiveActivity {
 
   /// Some activity was ended for good (not handed to the server).
   var ended: Bool { !ends.isEmpty }
+}
+
+/// The fake mode's stand-in for the ActivityKit adapter's records: every call the app makes is a `liveactivity.*` event, so a
+/// simulator take has the same timeline as a device take (minus the platform's own ids, answers and errors).
+final class ObservedTakeLiveActivity: TakeLiveActivity {
+  private let base: any TakeLiveActivity
+  private let log: DeviceLog
+
+  init(_ base: any TakeLiveActivity, log: DeviceLog = .shared) {
+    self.base = base
+    self.log = log
+  }
+
+  func start(memoID: String, mode: MemoMode, startedAt: Date, state: LiveActivityContentState) async {
+    await base.start(memoID: memoID, mode: mode, startedAt: startedAt, state: state)
+    log.event(
+      "liveactivity.request", memoWireID: memoID, ["phase": .string(state.phase.rawValue), "ok": true, "fake": true])
+  }
+
+  func update(memoID: String, _ state: LiveActivityContentState) async {
+    await base.update(memoID: memoID, state)
+    log.event(
+      "liveactivity.update", memoWireID: memoID, ["phase": .string(state.phase.rawValue), "fake": true])
+  }
+
+  func memoCreated(memoID: String) async { await base.memoCreated(memoID: memoID) }
+
+  func handOverToServer(memoID: String) async { await base.handOverToServer(memoID: memoID) }
+
+  func end(memoID: String, finalState: LiveActivityContentState?, dismissal: ActivityDismissal) async {
+    await base.end(memoID: memoID, finalState: finalState, dismissal: dismissal)
+    log.event(
+      "liveactivity.end", memoWireID: memoID,
+      [
+        "phase": .string(finalState?.phase.rawValue ?? "none"),
+        "dismissal": .string(dismissal == .immediate ? "immediate" : "after"), "fake": true,
+      ])
+  }
+
+  func endClientPhaseActivities(except memoIDs: Set<String>) async {
+    await base.endClientPhaseActivities(except: memoIDs)
+  }
+
+  func endStaleActivities() async { await base.endStaleActivities() }
+
+  func logSnapshot(reason: String) {
+    log.event("liveactivity.snapshot", ["reason": .string(reason), "count": 0, "fake": true])
+  }
 }

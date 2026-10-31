@@ -27,16 +27,27 @@
     private var consumeTask: Task<Void, Never>?
     private var configurationTask: Task<Void, Never>?
     private var run = EngineRun()
+    private let deviceEvents: any CaptureEvents
+    /// Counts the engines of this recorder; `capture.tap.install` and `audio.config_change` carry it.
+    private var generation = 0
+    private var levelReporter: LevelReporter
+    /// When a configuration change closed the segment: the first sample of the fresh engine ends the gap.
+    private var configurationGapStart: ContinuousClock.Instant?
 
     private var memoID: MemoID? { take.activeMemoID }
 
-    public init(directory: URL, policy: SegmentRotationPolicy = SegmentRotationPolicy()) throws {
+    public init(
+      directory: URL, policy: SegmentRotationPolicy = SegmentRotationPolicy(),
+      events deviceEvents: any CaptureEvents = NoCaptureEvents()
+    ) throws {
       guard
         let format = AVAudioFormat(
           commonFormat: .pcmFormatFloat32, sampleRate: Double(policy.sampleRate), channels: 1, interleaved: false)
       else { throw CaptureError.engineFailure("cannot build the 16 kHz mono format") }
       self.directory = directory
       self.policy = policy
+      self.deviceEvents = deviceEvents
+      levelReporter = LevelReporter(sampleRate: policy.sampleRate)
       targetFormat = format
       rotator = SegmentRotator(policy: policy)
       (events, eventContinuation) = AsyncStream.makeStream(of: CaptureEvent.self)
@@ -46,6 +57,7 @@
     public func start(memoID: MemoID) async throws {
       try take.begin(memoID)
       run.begin()
+      configurationGapStart = nil
       do {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let (stream, sink) = AsyncStream.makeStream(of: [Float].self)
@@ -70,6 +82,7 @@
       // Claimed synchronously: the awaits below let other calls in, and they must see a stopping take.
       let memoID = try take.beginStop()
       run.end()
+      configurationGapStart = nil
       configurationTask?.cancel()
       configurationTask = nil
       engine.inputNode.removeTap(onBus: 0)
@@ -100,10 +113,16 @@
       guard run.resume() == .startEngine else { return }
       do {
         let target = targetFormat
+        let events = deviceEvents
+        let current = generation
         let resumed = try EngineStartup.resume(
-          InputTapEngine(engine: engine, target: target, sink: sink),
-          replacement: { InputTapEngine(engine: AVAudioEngine(), target: target, sink: sink) })
+          InputTapEngine(engine: engine, target: target, sink: sink, events: events, generation: current),
+          replacement: {
+            InputTapEngine(
+              engine: AVAudioEngine(), target: target, sink: sink, events: events, generation: current + 1)
+          })
         engine = resumed.engine
+        generation = resumed.generation
         run.resumed()
       } catch {
         Log.capture.error("engine resume failed: \(String(describing: error), privacy: .public)")
@@ -117,12 +136,17 @@
     /// activates (an `installTap` then aborts the process), so it is retried like a restart before the start fails.
     private func bringUpFirstEngine(sink: AsyncStream<[Float]>.Continuation) async throws {
       let target = targetFormat
+      let events = deviceEvents
+      let current = generation
       let token = run.beginRestart()
       let fresh: InputTapEngine?
       do {
         fresh = try await EngineStartup.recover(
-          InputTapEngine(engine: engine, target: target, sink: sink),
-          replacement: { InputTapEngine(engine: AVAudioEngine(), target: target, sink: sink) },
+          InputTapEngine(engine: engine, target: target, sink: sink, events: events, generation: current),
+          replacement: {
+            InputTapEngine(
+              engine: AVAudioEngine(), target: target, sink: sink, events: events, generation: current + 1)
+          },
           attempts: Self.startAttempts,
           pause: {
             try? await Task.sleep(for: .milliseconds(Self.restartDelayMilliseconds))
@@ -140,6 +164,8 @@
         throw CaptureError.engineFailure("the take ended while the engine started")
       }
       engine = fresh.engine
+      if verdict == .keepPaused { engine.pause() }  // paused while the first engine was coming up
+      generation = fresh.generation
     }
 
     /// Production `TapEngine`: the input tap converts to the target format and feeds `sink`.
@@ -147,8 +173,10 @@
       let engine: AVAudioEngine
       let target: AVAudioFormat
       let sink: AsyncStream<[Float]>.Continuation
+      let events: any CaptureEvents
+      let generation: Int
 
-      func removeTap() { try? IrisObjCGuard.perform { engine.inputNode.removeTap(onBus: 0) } }
+      func removeTap() { Self.guarded("removing the tap") { engine.inputNode.removeTap(onBus: 0) } }
 
       func installTap() throws {
         let input = engine.inputNode
@@ -157,7 +185,15 @@
         // Refuse it here so the caller retries, and keep the shim as the net under the checks.
         let format = input.outputFormat(forBus: 0)
         let hardware = input.inputFormat(forBus: 0)
-        guard format.sampleRate > 0, format.channelCount > 0, format.sampleRate == hardware.sampleRate else {
+        let valid = format.sampleRate > 0 && format.channelCount > 0 && format.sampleRate == hardware.sampleRate
+        // Written before the call that can abort the process: the last one before a gap in `seq` is the one that did.
+        events.preflight(
+          "capture.tap.install",
+          [
+            "rate": .double(format.sampleRate), "channels": .int(Int(format.channelCount)),
+            "hardware_rate": .double(hardware.sampleRate), "valid": .bool(valid), "generation": .int(generation),
+          ])
+        guard valid else {
           throw CaptureError.engineFailure("the input format is not ready")
         }
         let converter = TapConverter(target: target)
@@ -167,6 +203,7 @@
             AVAudioEngineSegmentRecorder.installTap(on: input, format: format, converter: converter, sink: sink)
           }
         } catch {
+          events.sessionError(call: "installTap", error: error, engineRunning: engine.isRunning)
           throw CaptureError.engineFailure("installing the tap failed: \(error.localizedDescription)")
         }
       }
@@ -179,12 +216,25 @@
             do { try engine.start() } catch { startError = error }
           }
         } catch {
+          events.sessionError(call: "engine.start", error: error, engineRunning: engine.isRunning)
           throw CaptureError.engineFailure("starting the engine failed: \(error.localizedDescription)")
         }
-        if let startError { throw startError }
+        if let startError {
+          events.sessionError(call: "engine.start", error: startError, engineRunning: engine.isRunning)
+          throw startError
+        }
       }
 
-      func stop() { try? IrisObjCGuard.perform { engine.stop() } }
+      func stop() { Self.guarded("stopping the engine") { engine.stop() } }
+
+      /// Teardown must not abort the process, and must not vanish either: an exception is logged.
+      private static func guarded(_ what: String, _ work: () -> Void) {
+        do {
+          try IrisObjCGuard.perform(work)
+        } catch {
+          Log.capture.error("\(what, privacy: .public) raised: \(error.localizedDescription, privacy: .public)")
+        }
+      }
     }
 
     /// Nonisolated on purpose: the tap block runs on the audio thread and must not inherit the actor.
@@ -250,14 +300,21 @@
 
     private func handleConfigurationChange() async {
       guard take.isRecording, !run.isPaused, let sink = sampleSink else { return }
+      reportConfigurationChange()
       apply(rotator.rotate(for: .configurationChange), samples: [])
+      configurationGapStart = .now
       let target = targetFormat
+      let events = deviceEvents
+      let current = generation
       let token = run.beginRestart()
       let fresh: InputTapEngine?
       do {
         fresh = try await EngineStartup.recover(
-          InputTapEngine(engine: engine, target: target, sink: sink),
-          replacement: { InputTapEngine(engine: AVAudioEngine(), target: target, sink: sink) },
+          InputTapEngine(engine: engine, target: target, sink: sink, events: events, generation: current),
+          replacement: {
+            InputTapEngine(
+              engine: AVAudioEngine(), target: target, sink: sink, events: events, generation: current + 1)
+          },
           attempts: Self.restartAttempts,
           pause: { [weak self] in
             try? await Task.sleep(for: .milliseconds(Self.restartDelayMilliseconds))
@@ -281,6 +338,7 @@
       }
       engine.stop()
       engine = fresh.engine
+      generation = fresh.generation
       if verdict == .keepPaused { engine.pause() }  // paused while the engine was coming up
     }
 
@@ -294,7 +352,40 @@
     private func ingest(_ samples: [Float]) {
       guard memoID != nil, !run.isPaused, !samples.isEmpty else { return }
       levelContinuation.yield(InputLevel.meter(samples))
+      reportLevel(samples)
       apply(rotator.append(frames: samples.count), samples: samples)
+    }
+
+    /// `capture.level` twice a second, and the end of a configuration-change gap at the first sample after it.
+    private func reportLevel(_ samples: [Float]) {
+      if let start = configurationGapStart {
+        configurationGapStart = nil
+        let elapsed = ContinuousClock.now - start
+        let milliseconds =
+          Int(elapsed.components.seconds) * 1000 + Int(elapsed.components.attoseconds / 1_000_000_000_000_000)
+        deviceEvents.event(
+          "capture.gap",
+          memoID: memoID,
+          [
+            "ms": .int(milliseconds), "reason": "config_change",
+            "frames_lost": .int(milliseconds * policy.sampleRate / 1000),
+          ])
+      }
+      guard let level = levelReporter.add(samples) else { return }
+      deviceEvents.event(
+        "capture.level", memoID: memoID,
+        ["rms_db": .double(level.rmsDecibels), "peak_db": .double(level.peakDecibels)])
+    }
+
+    /// `audio.config_change`: what the engine's input looked like when the system said it changed.
+    private func reportConfigurationChange() {
+      let format = engine.inputNode.inputFormat(forBus: 0)
+      deviceEvents.event(
+        "audio.config_change", memoID: memoID,
+        SessionSnapshot.attributes().merging([
+          "engine.running_before": .bool(engine.isRunning), "input.rate_before": .double(format.sampleRate),
+          "input.channels_before": .int(Int(format.channelCount)), "generation": .int(generation),
+        ]) { current, _ in current })
     }
 
     private func apply(_ actions: [SegmentAction], samples: [Float]) {

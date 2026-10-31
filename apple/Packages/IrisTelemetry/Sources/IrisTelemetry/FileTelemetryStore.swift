@@ -23,10 +23,24 @@ public actor FileTelemetryStore: TelemetryStore {
       try data.write(to: fileURL, options: .atomic)
       return
     }
-    let handle = try FileHandle(forWritingTo: fileURL)
+    let handle = try FileHandle(forUpdating: fileURL)
     defer { try? handle.close() }
+    try Self.cutTornTail(of: handle)
     try handle.seekToEnd()
     try handle.write(contentsOf: data)
+  }
+
+  /// A crash mid-write leaves a last line without its newline. Appending after it would glue the next record to the fragment and
+  /// lose both, so the fragment is cut off first.
+  private static func cutTornTail(of handle: FileHandle) throws {
+    let end = try handle.seekToEnd()
+    guard end > 0 else { return }
+    try handle.seek(toOffset: end - 1)
+    guard let last = try handle.read(upToCount: 1), last.first != 0x0A else { return }
+    try handle.seek(toOffset: 0)
+    let data = try handle.readToEnd() ?? Data()
+    let keep = data.lastIndex(of: 0x0A).map { data.distance(from: data.startIndex, to: $0) + 1 } ?? 0
+    try handle.truncate(atOffset: UInt64(keep))
   }
 
   public func load() async throws -> [StoredEntry] {

@@ -62,4 +62,16 @@ struct DiagnosticsModelTests {
     #expect(model.recent(many).count == 10)
     #expect(model.recent(many).first?.id == "m0")
   }
+
+  @Test("the run id starts from what was saved and reports every change to the device log")
+  func runID() {
+    var seen: [String] = []
+    let model = DiagnosticsModel(pasteboard: pasteboard, runID: "round-1", onRunIDChange: { seen.append($0) })
+    #expect(model.runID == "round-1")
+    #expect(seen.isEmpty, "a saved id is not a change")
+    model.runID = "round-2"
+    model.runID = "round-2"
+    model.runID = ""
+    #expect(seen == ["round-2", ""])
+  }
 }

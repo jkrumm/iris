@@ -50,6 +50,8 @@ public actor Outbox: SegmentOutbox {
   /// fails, the record on disk still names them and a relaunch needs them.
   private var obsoleteFiles: [(url: URL, generation: Int)] = []
   private var isShutDown = false
+  private var sweptStrays: [URL] = []
+  private var strayStore: (any SegmentFileStore)?
   private var observers: [UUID: AsyncStream<Void>.Continuation] = [:]
 
   /// - Parameter deletesFilesWhenDone: Remove a memo's segment files once `complete` succeeded (tests that read them turn it off).
@@ -254,6 +256,19 @@ public actor Outbox: SegmentOutbox {
     return true
   }
 
+  /// What the last sweep could neither attach nor move (`SweepReport.stuck`), and the store that can describe it.
+  func noteStrays(_ urls: [URL], in files: any SegmentFileStore) {
+    sweptStrays = urls
+    strayStore = files
+  }
+
+  /// The files the last startup sweep left in the capture directory because it could not move them (a full disk, a read-only
+  /// volume), those still there, for Settings to list. They are tried again at the next launch.
+  public func strayFiles() async -> [SetAsideFile] {
+    guard let strayStore, !sweptStrays.isEmpty else { return [] }
+    return await strayStore.describe(sweptStrays)
+  }
+
   /// The queue files earlier resets set aside (they may name segment files the sweep must leave alone).
   func setAsideQueueFiles() async -> [URL] { await store.quarantined() }
 
@@ -315,6 +330,9 @@ public actor Outbox: SegmentOutbox {
       }
       machine.completeSucceeded(memoID)
     case (.completion(let memoID), .failure) where cancelled: machine.completeCancelled(memoID)
+    case (.completion(let memoID), .failure(let error as MissingSegmentsError)):
+      Log.outbox.error("complete refused, the server lacks \(error.indices.count) segments: sending them again")
+      machine.completeMissingSegments(memoID, missing: error.indices, now: now, reason: error.message)
     case (.completion(let memoID), .failure(let error)):
       Log.outbox.error("complete failed: \(String(describing: error), privacy: .public)")
       machine.completeFailed(

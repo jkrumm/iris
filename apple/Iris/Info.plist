@@ -22,6 +22,8 @@
 	<string>1</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
+	<key>IrisBuildSHA</key>
+	<string>$(IRIS_BUILD_SHA)</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Iris records your voice memos.</string>
 	<key>NSSupportsLiveActivities</key>
