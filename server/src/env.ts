@@ -38,6 +38,11 @@ export const Env = z.object({
   HERMES_TOKEN: z.preprocess(emptyToUndefined, z.string().optional()),
   // herdr's unix socket (`~/.config/herdr/herdr.sock` on the mini); unset leaves `GET /v1/herd` at 503 and the `herdr` destination unregistered.
   HERDR_SOCKET: z.preprocess(emptyToUndefined, z.string().optional()),
+  // The herdr-core CLI (`hc`) and its core's socket (`~/.local/state/herdr-core/default/default.sock`). `HC_BIN` + `HC_SOCKET` (both) register the
+  // hc world beside classic herdr (the `herdr` destination and `GET /v1/herd` use whichever worlds are set); `HC_SOCKET` makes
+  // the adapter refuse to spawn `hc` while no core runs, since any `hc` call would start one under iris's launchd job.
+  HC_BIN: z.preprocess(emptyToUndefined, z.string().optional()),
+  HC_SOCKET: z.preprocess(emptyToUndefined, z.string().optional()),
   // The brain git checkout (`~/SourceRoot/brain` on the mini); set registers the `journal` destination, which
   // writes notes into `Inbox/` and pushes. Unset leaves journal unregistered (not `degraded`).
   BRAIN_DIR: z.preprocess(emptyToUndefined, z.string().optional()),

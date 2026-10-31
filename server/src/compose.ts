@@ -9,6 +9,8 @@ import { createAgwDecider } from "./adapters/agw-decider.js";
 import { createAudioDoorClient } from "./adapters/audio-door-client.js";
 import { createAudioDoorSpeaker } from "./adapters/audio-door-speaker.js";
 import { createAudioDoorTranscriber, ffmpegCombiner } from "./adapters/audio-door.js";
+import { createHcDestination, createHcHerd, createHcTransport } from "./adapters/hc.js";
+import { mergeHerds, preferHc } from "./adapters/herdr-worlds.js";
 import { createHerdrDestination, createHerdrHerd } from "./adapters/herdr.js";
 import { createHermesDestination } from "./adapters/hermes.js";
 import { createJournalDestination } from "./adapters/journal.js";
@@ -57,6 +59,8 @@ export type ComposeEnv = Partial<
     | "HERMES_URL"
     | "HERMES_TOKEN"
     | "HERDR_SOCKET"
+    | "HC_BIN"
+    | "HC_SOCKET"
     | "BRAIN_DIR"
     | "APNS_KEY_P8"
     | "APNS_KEY_ID"
@@ -69,10 +73,12 @@ export type ComposeEnv = Partial<
 const MP3_FRAME = new Uint8Array(417);
 MP3_FRAME.set([0xff, 0xfb, 0x90, 0x00]);
 
+// Both worlds, as in production while classic herdr lives: `w1:t1` ids are classic tabs, `tb…` ids are hc `herdr.tab` labels.
 const TABS: HerdTab[] = [
   { id: "w1:t1", repo: "example-app", label: "server", agentState: "working", lastActivity: null },
   { id: "w2:t1", repo: "example-infra", label: "1", agentState: "idle", lastActivity: null },
   { id: "w3:t1", repo: "example-docs", label: "2", agentState: "blocked", lastActivity: null },
+  { id: "tbfake0001", repo: "example-core", label: "wave", agentState: "idle", lastActivity: null },
 ];
 
 /** Every downstream port as a deterministic in-memory fake (`IRIS_FAKES=1`, see `make e2e`). */
@@ -147,6 +153,21 @@ export function compose(deps: {
       ? createAgwClient({ baseUrl: env.AGW_URL, secret: env.AGW_API_SECRET })
       : undefined;
 
+  // The herdr destination and the herd serve both worlds until classic herdr is retired: hc when `HC_BIN` and `HC_SOCKET` are set,
+  // classic when `HERDR_SOCKET` is. A tab id belongs to one of them, hc is preferred for a delivery.
+  const hcTransport =
+    env.HC_BIN && env.HC_SOCKET
+      ? createHcTransport({ bin: env.HC_BIN, socket: env.HC_SOCKET })
+      : undefined;
+  const classicDestination = env.HERDR_SOCKET
+    ? createHerdrDestination({ socketPath: env.HERDR_SOCKET })
+    : undefined;
+  const hcDestination = hcTransport ? createHcDestination({ transport: hcTransport }) : undefined;
+  const herdrDestination =
+    hcDestination && classicDestination
+      ? preferHc({ hc: hcDestination, classic: classicDestination })
+      : (hcDestination ?? classicDestination);
+
   const ports = {
     transcriber: choose<Transcriber>("transcribe", fakes?.transcriber, () =>
       audioDoor ? createAudioDoorTranscriber({ client: audioDoor }) : undefined,
@@ -158,9 +179,7 @@ export function compose(deps: {
         ...(env.BRAIN_DIR && {
           journal: createJournalDestination({ brainDir: env.BRAIN_DIR, clock }),
         }),
-        ...(env.HERDR_SOCKET && {
-          herdr: createHerdrDestination({ socketPath: env.HERDR_SOCKET }),
-        }),
+        ...(herdrDestination && { herdr: herdrDestination }),
         ...(env.HERMES_URL &&
           env.HERMES_TOKEN && {
             hermes: createHermesDestination({ baseUrl: env.HERMES_URL, token: env.HERMES_TOKEN }),
@@ -174,9 +193,13 @@ export function compose(deps: {
     speaker: choose<Speaker>("speech", fakes?.speaker, () =>
       audioDoor ? createAudioDoorSpeaker({ client: audioDoor }) : undefined,
     ),
-    herd: choose<Herd>("herd", fakes?.herd, () =>
-      env.HERDR_SOCKET ? createHerdrHerd({ socketPath: env.HERDR_SOCKET }) : undefined,
-    ),
+    herd: choose<Herd>("herd", fakes?.herd, () => {
+      const worlds = [
+        ...(hcTransport ? [createHcHerd({ transport: hcTransport })] : []),
+        ...(env.HERDR_SOCKET ? [createHerdrHerd({ socketPath: env.HERDR_SOCKET })] : []),
+      ];
+      return worlds.length > 0 ? mergeHerds(worlds) : undefined;
+    }),
     // Always present, never degraded.
     combiner: deps.combiner ?? ffmpegCombiner,
     speechCache: fakes?.speechCache ?? createFsSpeechCache(join(dataDir, "speech")),

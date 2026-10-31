@@ -90,12 +90,16 @@ async function probe(base: string) {
   assert(type?.startsWith("audio/mpeg"), `/speech is audio/mpeg (got ${type})`);
   assert((await speech.arrayBuffer()).byteLength > 0, "/speech has bytes");
 
-  const herd = (await (await call("/herd")).json()) as { tabs?: unknown[] };
+  const herd = (await (await call("/herd")).json()) as { tabs?: { id: string }[] };
   assert(herd.tabs && herd.tabs.length >= 2, "GET /herd returns tabs");
+  assert(
+    herd.tabs.some((t) => t.id.includes(":")) && herd.tabs.some((t) => t.id.startsWith("tb")),
+    `GET /herd lists both worlds (classic w:t ids and hc tb ids), got ${herd.tabs.map((t) => t.id).join(", ")}`,
+  );
   out(`e2e: R1 endpoints ok for memo ${id}`);
 }
 
-/** Parks a memo (mode tab with three live tabs asks "which tab?"), answers it with hermes, then corrects it after act. */
+/** Parks a memo (mode tab with four live tabs asks "which tab?"), answers it with hermes, then corrects it after act. */
 async function probeRoute(base: string) {
   const call = (path: string, init: RequestInit = {}) =>
     fetch(`${base}/v1${path}`, {

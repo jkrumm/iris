@@ -61,6 +61,13 @@ fi
 export IRIS_DATA="$HOME/.iris/data"
 # Registers the herdr destination and the herd; left unset when herdr is not running, so neither is half-registered.
 [[ -S "$HOME/.config/herdr/herdr.sock" ]] && export HERDR_SOCKET="$HOME/.config/herdr/herdr.sock"
+# The herdr-core world beside it: registers the same destination and the herd's hc half. HC_SOCKET is the core's socket, so the
+# adapter never spawns `hc` (which would start a core under this job) while the launchd core is down.
+HC_BIN_PATH="$HOME/.local/bin/hc"
+if [[ -x "$HC_BIN_PATH" ]]; then
+  export HC_BIN="$HC_BIN_PATH"
+  export HC_SOCKET="$HOME/.local/state/herdr-core/default/default.sock"
+fi
 # Registers the journal destination; left unset when the checkout is missing, so the server still boots.
 [[ -d "$HOME/SourceRoot/brain" ]] && export BRAIN_DIR="$HOME/SourceRoot/brain"
 

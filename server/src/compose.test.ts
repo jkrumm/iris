@@ -120,7 +120,7 @@ describe("compose with IRIS_FAKES", () => {
     );
 
     const herd = await call(app, { path: "/v1/herd" });
-    expect(((await herd.json()) as { tabs: unknown[] }).tabs).toHaveLength(3);
+    expect(((await herd.json()) as { tabs: unknown[] }).tabs).toHaveLength(4);
 
     // The stats store comes from compose(), over the same database as the memo store.
     const stats = await call(app, { path: "/v1/stats" });
@@ -230,6 +230,24 @@ describe("compose", () => {
     expect(herdr.names).toEqual(["herdr"]);
     expect(herdr.degraded).not.toContain("act");
     expect(herdr.degraded).not.toContain("herd");
+
+    // The hc world registers the same destination and the herd on its own, or beside classic herdr.
+    for (const env of [
+      { HC_BIN: "/nonexistent/hc", HC_SOCKET: "/nonexistent/default.sock" },
+      {
+        HC_BIN: "/nonexistent/hc",
+        HC_SOCKET: "/nonexistent/default.sock",
+        HERDR_SOCKET: "/nonexistent/herdr.sock",
+      },
+    ]) {
+      const both = only(env);
+      expect(both.names).toEqual(["herdr"]);
+      expect(both.degraded).not.toContain("act");
+      expect(both.degraded).not.toContain("herd");
+    }
+    // The binary and the socket come together (no socket, no guard against hc starting a core under iris): either alone registers nothing.
+    expect(only({ HC_SOCKET: "/nonexistent/default.sock" }).degraded).toContain("act");
+    expect(only({ HC_BIN: "/nonexistent/hc" }).degraded).toContain("act");
 
     const several = only({ ...hermes, BRAIN_DIR: "/nonexistent/brain" });
     expect(several.names.toSorted()).toEqual(["hermes", "journal"]);
