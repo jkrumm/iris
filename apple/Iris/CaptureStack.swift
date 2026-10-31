@@ -53,6 +53,8 @@ actor CaptureStack {
     var deletesFilesWhenDone = true
     /// The capture directory the recorder writes segment files to, for the startup sweep; `nil` skips it (fakes).
     var segmentFiles: (any SegmentFileStore)?
+    /// The server the uploader sends to now; items are bound to it when queued (``Outbox``). `nil` binds nothing.
+    var serverKey: @Sendable () -> String? = { nil }
   }
 
   private typealias Built = (outbox: Outbox, session: CaptureSession)
@@ -181,7 +183,7 @@ actor CaptureStack {
     do {
       outbox = try await Outbox(
         store: parts.store, uploader: parts.uploader, clock: parts.clock, policy: parts.policy,
-        deletesFilesWhenDone: parts.deletesFilesWhenDone)
+        deletesFilesWhenDone: parts.deletesFilesWhenDone, serverKey: parts.serverKey)
     } catch {
       logger.error("outbox store cannot be opened, nothing is queued: \(String(describing: error), privacy: .public)")
       return .failure(error)

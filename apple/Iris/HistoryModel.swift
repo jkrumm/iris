@@ -31,6 +31,11 @@ final class HistoryModel {
   var memos: [Memo] { pinned + items }
 
   private let client: any APIClient
+  /// The key of the server `client` talks to now. A response is merged only when it is still the same server it was asked of:
+  /// after a connection switch an answer from the old one belongs to a list that is gone.
+  private let serverKey: () -> String?
+  /// The server the rows and `nextCursor` came from.
+  private var loadedServer: String?
   private let logger = Logger(subsystem: "com.jkrumm.iris", category: "history")
   private var nextCursor: String?
   private var isLoadingMore = false
@@ -54,17 +59,18 @@ final class HistoryModel {
   /// Bumped by every first-page load; a response that finds it changed belongs to filters that are gone.
   private var generation = 0
 
-  init(
-    client: any APIClient, hiddenStore: any HiddenMemoStore = InMemoryHiddenMemoStore(),
-    evictMedia: @escaping (String) -> Void = { _ in }
-  ) {
-    self.client = client
   /// Ids whose delete settled before their hide arrived (a cancelled take's `DELETE` can be acknowledged before the cancel has
   /// told History): the hide then removes the row but does not keep the id hidden, since there is nothing left to wait for.
   private var settledBeforeHide: Set<String> = []
 
   /// - Parameter serverKey: The server `client` sends to; by default read from a ``ReconfigurableAPIClient``, `nil` for any
   ///   other client (a fake), which then never sees a switch.
+  init(
+    client: any APIClient, hiddenStore: any HiddenMemoStore = InMemoryHiddenMemoStore(),
+    evictMedia: @escaping (String) -> Void = { _ in }, serverKey: (() -> String?)? = nil
+  ) {
+    self.client = client
+    self.serverKey = serverKey ?? { (client as? ReconfigurableAPIClient)?.serverKey }
     self.hiddenStore = hiddenStore
     self.evictMedia = evictMedia
     let restored = hiddenStore.load()
@@ -79,25 +85,28 @@ final class HistoryModel {
     generation += 1
     let current = generation
     let requested = filters
-    if loadedFilters != requested { reset() }
+    let server = serverKey()
+    // Rows of the old server are not shown while the new one's first page is on its way.
+    if loadedFilters != requested || loadedServer != server { reset() }
     isLoading = true
     defer { if current == generation { isLoading = false } }
     do {
       let page = try await client.listMemos(requested.query())
-      guard current == generation else { return }
+      guard current == generation, server == serverKey() else { return }
       // A memo answered after the first page can repeat across pinned and items: pinned first, then the new ids.
       let pinnedIDs = Set(page.pinned.map(\.id))
       pinned = page.pinned.filter { !hidden.contains($0.id) }
       items = page.items.filter { !pinnedIDs.contains($0.id) && !hidden.contains($0.id) }
       nextCursor = page.nextCursor
       loadedFilters = requested
+      loadedServer = server
       loadFailed = false
       hasLoaded = true
       link = .live
     } catch is CancellationError {
       return
     } catch {
-      guard current == generation else { return }
+      guard current == generation, server == serverKey() else { return }
       note(failure: error)
       logger.error("history load failed: \(String(describing: error), privacy: .public)")
       loadFailed = true
@@ -116,19 +125,21 @@ final class HistoryModel {
     items = []
     nextCursor = nil
     loadedFilters = nil
+    loadedServer = nil
   }
 
   /// Fetches the next page when `memo` is the last row on screen.
   func loadMoreIfNeeded(current memo: Memo) async {
+    let server = serverKey()
     guard let cursor = nextCursor, let paging = loadedFilters, paging == filters, !isLoadingMore,
-      memo.id == items.last?.id
+      memo.id == items.last?.id, loadedServer == server
     else { return }
     isLoadingMore = true
     defer { isLoadingMore = false }
     let loading = generation
     do {
       let page = try await client.listMemos(paging.query(cursor: cursor))
-      guard loading == generation else { return }
+      guard loading == generation, server == serverKey() else { return }
       let known = Set(memos.map(\.id))
       items += page.items.filter { !known.contains($0.id) && !hidden.contains($0.id) }
       nextCursor = page.nextCursor
@@ -209,14 +220,16 @@ final class HistoryModel {
       return
     }
     let started = lifecycle[id]
+    let server = serverKey()
     do {
       let memo = try await client.memo(id: id).memo
-      guard lifecycle[id] == started else { return }
+      guard lifecycle[id] == started, server == serverKey() else { return }
       if memo.isDeleted { evictMedia(id) }
       place(memo)
     } catch let error as APIError {
       if case .server(404, _) = error {
-        guard lifecycle[id] == started else { return }
+        // A 404 from the server this memo's event did not come from says nothing about the memo.
+        guard lifecycle[id] == started, server == serverKey() else { return }
         remove(id)
         evictMedia(id)
       } else {
@@ -284,8 +297,11 @@ final class HistoryModel {
   }
 
   /// Shows a memo this device just created (a typed memo) without waiting for the next refresh. A memo this session hid and
-  /// unhid is left to the server's list: the hand-off that carries it is not ordered against the hidden-change channel.
-  func insert(_ memo: Memo) {
+  /// unhid is left to the server's list: the hand-off that carries it is not ordered against the hidden-change channel. A memo
+  /// created on another server than the one shown now (`origin`; the hand-off can arrive after a connection switch) is not
+  /// this list's: the server it lives on is not the one History reads.
+  func insert(_ memo: Memo, origin: String? = nil) {
+    if let origin, origin != serverKey() { return }
     guard !unhiddenThisSession.contains(memo.id) else { return }
     place(memo, force: true)
   }
@@ -293,6 +309,13 @@ final class HistoryModel {
   /// Drops a memo this device discarded (a cancelled take) and keeps it out of the list from here on.
   func hide(_ id: String) {
     restoredHidden.remove(id)
+    lifecycle[id, default: 0] += 1
+    // The server's delete was over before this arrived: the row goes, but nothing is left that would unhide the id again.
+    if settledBeforeHide.remove(id) != nil {
+      remove(id)
+      evictMedia(id)
+      return
+    }
     hidden.insert(id)
     hiddenStore.save(hidden)
     remove(id)
@@ -308,13 +331,6 @@ final class HistoryModel {
     guard !hidden.isDisjoint(with: stale) else { return }
     hidden.subtract(stale)
     hiddenStore.save(hidden)
-    lifecycle[id, default: 0] += 1
-    // The server's delete was over before this arrived: the row goes, but nothing is left that would unhide the id again.
-    if settledBeforeHide.remove(id) != nil {
-      remove(id)
-      evictMedia(id)
-      return
-    }
   }
 
   /// The discard's server delete is over: the server's list decides again. A memo that is gone stays out of it, and one the
