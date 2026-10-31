@@ -241,6 +241,9 @@ schemes:
     test:
       config: Debug
       targets: [IrisTests, IrisUITests]
+      # The tests read English text; the app is German now, so a German simulator (or a German developer machine) must not change them.
+      language: en
+      region: US
   IrisMac:
     build:
       targets:
@@ -252,6 +255,8 @@ schemes:
     test:
       config: Debug
       targets: [IrisMacTests]
+      language: en
+      region: US
       # The hosted app runs on the fake API and an in-memory credential store: no Keychain, no network, no permission prompt.
       commandLineArguments:
         "-IrisFakeData": true
