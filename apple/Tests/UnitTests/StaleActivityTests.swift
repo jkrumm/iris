@@ -143,6 +143,21 @@ struct StaleActivitySweeperTests {
     #expect(toFollow == ["theirs"])
   }
 
+  @Test("a sweep cancelled by a connection change ends and follows nothing")
+  func cancelledSweepSettlesNothing() async {
+    await client.seed(MemoFactory.detail(MemoFactory.memo("done", state: .notified)))
+    await client.seed(MemoFactory.detail(MemoFactory.memo("busy", state: .routed)))
+    let catalog = FakeCatalog([activity("done"), activity("busy")])
+    // Cancelled while the sweep lists its activities, before any lookup answers.
+    catalog.onList = { withUnsafeCurrentTask { $0?.cancel() } }
+    let sweeper = sweeper(catalog)
+
+    let followed = await Task { await sweeper.sweep() }.value
+
+    #expect(followed.isEmpty)
+    #expect(catalog.ended.isEmpty)
+  }
+
   @Test("a take starting ends the finished and the stuck activities, not the running ones")
   func makeRoom() async {
     let catalog = FakeCatalog([

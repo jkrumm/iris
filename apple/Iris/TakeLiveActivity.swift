@@ -148,6 +148,8 @@ struct StaleActivitySweeper {
   /// Asks about one activity and ends it if the rule says so; the memo to follow when it stays and nothing else will end it.
   private func settle(_ activity: HandedOverActivity) async -> String? {
     let (memo, gone) = await lookup(activity)
+    // A cancelled sweep (the connection changed) ends and follows nothing: its answers are not this server's.
+    guard !Task.isCancelled else { return nil }
     guard case .end(let final) = StaleActivityRule.verdict(for: activity, memo: memo, gone: gone, now: now()) else {
       return activity.remoteUpdates ? nil : activity.memoID
     }
@@ -377,8 +379,9 @@ final class TakeLiveActivityCoordinator {
     private var sweeper: StaleActivitySweeper {
       StaleActivitySweeper(catalog: self, client: client, serverKey: serverKey)
     }
-    /// The sweep in progress: a second ask (launch and a connection change, foregrounding) joins it instead of running twice.
-    private var sweeping: Task<Void, Never>?
+    /// The sweep in progress, by server: a second ask for the same server (launch, foregrounding) joins it; one after a
+    /// connection change cancels it, so a lookup stalled on the old server never holds up the sweep of the new one.
+    private let sweeps = KeyedSingleFlight<String?>()
     /// The poll that ends a handed-over activity without a push token once its memo is finished, by memo id.
     private var followers: [String: (id: UUID, task: Task<Void, Never>)] = [:]
 
@@ -453,18 +456,9 @@ final class TakeLiveActivityCoordinator {
     }
 
     func endStaleActivities() async {
-      if let running = sweeping { return await running.value }
-      let task = Task { [sweeper, serverKey] in
-        // A connection change during the sweep discards the answers of the old server: sweep again against the new one.
-        var key: String?
-        repeat {
-          key = serverKey()
-          _ = await sweeper.sweep(onKept: { follow($0) })
-        } while serverKey() != key
+      await sweeps.run(key: serverKey()) { [sweeper] in
+        _ = await sweeper.sweep(onKept: { [self] in follow($0) })
       }
-      sweeping = task
-      await task.value
-      sweeping = nil
     }
 
     func handedOverActivities() -> [HandedOverActivity] {

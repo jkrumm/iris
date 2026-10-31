@@ -19,15 +19,19 @@ nonisolated struct MediaDownloader: Sendable {
 
   let session: URLSession
   let directory: URL
+  /// Awaited between the eviction wait and the flight, for tests that need an ask to stand still in that window.
+  private let beforeFlight: @Sendable () async -> Void
   private let flights = Flights()
   private let evictions = Evictions()
 
   init(
     session: URLSession = MediaDownloader.makeSession(),
-    directory: URL = URL.cachesDirectory.appending(path: "iris-media")
+    directory: URL = URL.cachesDirectory.appending(path: "iris-media"),
+    beforeFlight: @escaping @Sendable () async -> Void = {}
   ) {
     self.session = session
     self.directory = directory
+    self.beforeFlight = beforeFlight
   }
 
   /// An ephemeral session whose whole transfer is bounded. The default allows a week, and a request that hangs would hold
@@ -50,12 +54,15 @@ nonisolated struct MediaDownloader: Sendable {
     let (earlier, mark) = evictions.snapshot(for: name)
     for task in earlier { await task.value }
     if request.isReusable, await flights.useFile(at: destination) { return destination }
+    await beforeFlight()
     let session = session
     let directory = directory
     let flights = flights
     let evictions = evictions
     let key = "\(request.url.absoluteString)|\(name)"
-    return try await flights.join(key, name: name) { flight in
+    return try await flights.join(
+      key, name: name, mark: mark, isDoomed: { evictions.evicted(name, since: $0) }
+    ) { flight in
       try await Self.download(
         request, to: destination, in: directory, with: session,
         land: {
@@ -172,15 +179,22 @@ nonisolated struct MediaDownloader: Sendable {
     private struct Flight {
       let id: UUID
       let name: String
+      /// ``Evictions`` mark of the ask that started it.
+      let mark: Int
       let task: Task<URL, any Error>
     }
     private var running: [String: Flight] = [:]
 
-    func join(_ key: String, name: String, start: @escaping @Sendable (UUID) async throws -> URL) async throws -> URL {
-      if let flight = running[key] { return try await flight.task.value }
+    /// Joins the flight on the wire for `key`, unless an eviction asked for after it began has doomed it (it will discard
+    /// its file): then this ask starts a flight of its own, with its own `mark`.
+    func join(
+      _ key: String, name: String, mark: Int, isDoomed: @Sendable (Int) -> Bool,
+      start: @escaping @Sendable (UUID) async throws -> URL
+    ) async throws -> URL {
+      if let flight = running[key], !isDoomed(flight.mark) { return try await flight.task.value }
       let id = UUID()
       let task = Task { try await start(id) }
-      running[key] = Flight(id: id, name: name, task: task)
+      running[key] = Flight(id: id, name: name, mark: mark, task: task)
       defer { if running[key]?.id == id { running[key] = nil } }
       return try await task.value
     }
