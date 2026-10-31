@@ -1,10 +1,20 @@
 import AppKit
 import IrisUI
+import KeyboardShortcuts
 import SwiftUI
 
 /// Settings → Connection in the panel: the server URL and device token, saved like on the iPhone (token in the Keychain).
 struct MacSettingsView: View {
   @Bindable var model: ConnectionModel
+  let hotkey: any TakeHotkey
+  /// Re-read after the user records another key: a combination another app holds is refused by the system.
+  @State private var hotkeyRegistered: Bool
+
+  init(model: ConnectionModel, hotkey: any TakeHotkey) {
+    self.model = model
+    self.hotkey = hotkey
+    _hotkeyRegistered = State(initialValue: hotkey.isRegistered)
+  }
 
   var body: some View {
     VStack(alignment: .leading, spacing: Theme.Spacing.md) {
@@ -25,6 +35,7 @@ struct MacSettingsView: View {
           .foregroundStyle(Theme.Status.bad)
           .accessibilityIdentifier("mac.settings.error")
       }
+      recordingSection
       HStack {
         Button(String(localized: "Save", comment: "Saves the server URL and device token")) { model.save() }
           .keyboardShortcut(.defaultAction)
@@ -41,6 +52,30 @@ struct MacSettingsView: View {
     .padding(Theme.Spacing.lg)
     .frame(maxHeight: .infinity, alignment: .top)
     .accessibilityIdentifier("mac.settings")
+  }
+
+  /// The global key that starts and stops a take, recorded by the user (default Control-Option-M).
+  private var recordingSection: some View {
+    VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
+      DetailSectionLabel(String(localized: "Recording", comment: "Settings section"))
+      HStack {
+        Text(String(localized: "Start / stop key", comment: "Settings: the global recording key"))
+          .themeFont(.body)
+        Spacer()
+        KeyboardShortcuts.Recorder(for: .toggleTake) { _ in hotkeyRegistered = hotkey.isRegistered }
+          .accessibilityIdentifier("mac.settings.hotkey")
+      }
+      if !hotkeyRegistered {
+        Text(
+          String(
+            localized: "This key is not active. Another app may use it; record a different one.",
+            comment: "Settings: the recording key is cleared or taken")
+        )
+        .themeFont(.footnote)
+        .foregroundStyle(Theme.Status.warn)
+        .accessibilityIdentifier("mac.settings.hotkey-warning")
+      }
+    }
   }
 
   private func message(for failure: ConnectionModel.Failure) -> String {

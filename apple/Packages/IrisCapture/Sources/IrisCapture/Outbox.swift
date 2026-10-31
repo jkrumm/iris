@@ -256,6 +256,9 @@ public actor Outbox: SegmentOutbox {
     return true
   }
 
+  /// Ends the recovery of takes that held no segment: the ones the sweep found no file for are dropped. `true` when any was.
+  func settleEmptyRecoveries() -> Bool { !machine.settleEmptyRecoveries().isEmpty }
+
   /// What the last sweep could neither attach nor move (`SweepReport.stuck`), and the store that can describe it.
   func noteStrays(_ urls: [URL], in files: any SegmentFileStore) {
     sweptStrays = urls

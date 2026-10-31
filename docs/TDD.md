@@ -38,7 +38,7 @@ Iris has three deliverables in one monorepo:
 | D2 | Iris owns the memo record; Hermes owns conversations | History must survive a Hermes reset and cover non-Hermes memos. Mirrors Argo | Hermes sessions as the only store |
 | D3 | Routing: prefix → `decide` → ask. Three destinations | Hermes's skills already route todos, notes and work. A second full router would pay twice | `decide` on every intent; an LLM router |
 | D4 | 10 s segments, uploaded during the take | A crash loses ≤ 10 s, the upload is done at [Stop], and a mic switch is a segment rollover | One file at [Stop] (loses everything on a crash, slow); shorter (request churn) |
-| D5 | `AVAudioEngine` tap → `AVAudioFile` (AAC/m4a) per segment; the server decodes and re-encodes on concat | Continuous buffers plus edit lists make the concatenated decode gapless. `AVAudioRecorder` stop/start drops audio | `ffmpeg -c copy` concat (priming gaps); PCM segments (too large on cellular) |
+| D5 | `AVAudioEngine` tap → `AVAssetWriter` (AAC, fragmented m4a) per segment; the server decodes and re-encodes on concat | Continuous buffers plus edit lists make the concatenated decode gapless. `AVAudioRecorder` stop/start drops audio | `ffmpeg -c copy` concat (priming gaps); PCM segments (too large on cellular) |
 | D6 | APNs via `@parse/node-apn` on Bun `node:http2`, streams capped at 10 | Maintained and pure JS; `apns2` is broken on Bun (undici). Bun ignores `peerMaxConcurrentStreams`, so cap in-flight streams ourselves | `apns2`, the abandoned `apn`, a Go/Swift sidecar |
 | D7 | Hand-rolled OTLP JSON telemetry on all three runtimes; clients relay through the server | The estate convention (no SDK on Bun). The ingestion key stays off the devices. opentelemetry-swift's 2026 status is unverified | opentelemetry-swift, Sentry/Embrace |
 | D8 | The memo UUID is the trace id (dashes stripped), minted on the client at record start | Phone, server and usage rows join without an extra column; the trace starts at the press | Server-minted ids |
@@ -718,11 +718,15 @@ the runner needs a workflow step and was left out of this change (owned files: `
     applied at start and on route change;
   - publishes `currentInput` for the UI and the Live Activity.
 - **`SegmentRecorder`:**
-  - an `AVAudioEngine` input tap → `AVAudioConverter` → `AVAudioFile` (AAC,
-    16 kHz mono, about 32 kbps);
+  - an `AVAudioEngine` input tap → `AVAudioConverter` → `SegmentWriter` (an
+    `AVAssetWriter` fragmented m4a, AAC, 16 kHz mono, about 32 kbps; a
+    fragment every 0.5 s, so a file whose writer was killed still plays up to
+    its last whole fragment and the startup sweep adopts it like any orphan;
+    a segment is queued once its writer has finished and the file reads back;
+    `docs/research/2026-10-30-avaudiofile-kill.md`);
   - rotates files every 10 s of frames, on a mic switch, and on an
     interruption;
-  - each closed file goes to the `Outbox`; a segment still open when the app dies or the recorder fails stays an unfinalised m4a (no `moov` atom, ffprobe cannot read it), which the startup sweep quarantines (Wave 17 D2: three such files, a few seconds of audio each; a crash-safe container is the fix);
+  - each closed file goes to the `Outbox`; a segment still open when the app dies is a fragmented m4a that plays up to its last whole fragment (all but about a second; Wave 17 D2 lost three whole segments to the unfragmented format), and the startup sweep adopts it as the take's next segment, a killed first segment included (the take's item waits for the sweep, which attaches index 0 or drops the empty take); a file that does not play (killed before the first fragment) is set aside, never deleted. After a segment fails to close (the encoder stopped, the file does not read back) no later segment of the take is queued: a prefix that still plays goes up with its real duration, the take fails, and the later files stay on disk;
   - a level meter is fed from the tap's RMS on a perceptual scale (`InputLevel`, Wave 17 I5): linear in dB between −50 dBFS (0) and −10 dBFS (1), a clipped sample reads 1; normal speech
     (about −30 dBFS) sits at the middle, where the linear amplitude left it near the floor;
   - an engine configuration change (a mic switch, AirPods connecting) closes the segment and replaces the engine with a fresh
@@ -963,13 +967,70 @@ pinned simulator in light and dark (`LiveActivitySnapshotTests`, the island thro
 ## 5. macOS app (`IrisMac`)
 
 - **Window and hotkey:** `MenuBarExtra` with `.menuBarExtraStyle(.window)`,
-  `LSUIElement`. The global hotkey goes through `KeyboardShortcuts`
-  (Carbon-based, no Accessibility prompt) if it holds up on macOS 26, otherwise
-  a `CGEventTap`. `NSEvent` global monitors reportedly crash on macOS 26.
-- **Panel:** a floating non-activating `NSPanel` for the take, showing the
-  timer, level and mic picker.
-- **Capture:** the same `IrisCapture` package; Mac input devices come from
-  Core Audio, and per-device mic rules are local.
+  `LSUIElement`. The global hotkey goes through `KeyboardShortcuts` 3.1.0
+  (Carbon `RegisterEventHotKey`: no Accessibility or Input Monitoring prompt,
+  works in the sandbox), decided in `docs/research/2026-10-31-mac-hotkey.md`.
+  No `CGEventTap` fallback: a listen-only tap costs an Input Monitoring grant
+  and an active one Accessibility, for features (modifier-only keys, media
+  keys) the take does not need. `NSEvent` global monitors reportedly crash on
+  macOS 26 and are not used. The default is **Control-Option-M**, recorded by
+  the user in Settings (`KeyboardShortcuts.Recorder`, stored in `UserDefaults`
+  by the package). Control-Option-Space is *not* free: it is the system's "next
+  input source". The default is also none of the owner's dictation keys (Fn,
+  double Fn, Cmd-Shift-Space style). A combination another app holds fails
+  silently in Carbon; Settings shows "This key is not active" when
+  `KeyboardShortcuts.isEnabled(for:)` is false.
+- **Panel:** a floating non-activating `NSPanel` (`NonActivatingPanel`:
+  `.borderless` + `.nonactivatingPanel`, `canBecomeKey` false, floating level,
+  every Space and over full-screen apps, top centre under the menu bar) for the
+  take, showing the timer (`ElapsedTimerText`), the level (`LevelWaveform`, the
+  last 36 buffers), a mic picker and Stop / Cancel. A refused microphone,
+  a missing connection or a failed start leaves a sentence in the same panel
+  (with "Open Settings" for the microphone) until closed.
+- **Capture (Wave 18 M2):** the same `IrisCapture` package. macOS has no
+  `AVAudioSession`: `MacAudioSessionController` is a no-op, and
+  `DirectoryRouteManager` (over the `AudioDeviceDirectory` port;
+  `CoreAudioDeviceDirectory` reads Core Audio's hardware object and listens for
+  device and default changes) is the `RouteManager`: the available inputs are
+  the recording devices (hidden ones left out), the current input is the system
+  default, and **picking a microphone sets the system default input**, which
+  the engine follows (`AVAudioEngineConfigurationChange` rolls the segment).
+  The default before the first pick is kept and put back when the take ends,
+  however it ends, a start that throws after the session applied a mic rule
+  included (`setPreferredInput(uid: nil)`), and only while the default is still
+  the device Iris set: a default somebody else chose mid-take is left alone. A
+  crash mid-take leaves the last pick as the default (known limit; the original
+  is not persisted). `routeChanges`, the directory's `changes` and the engine's
+  levels, failures and mic list are broadcasts (`Broadcast`): every read is its
+  own subscription, because the capture session and the panel both listen and an
+  `AsyncStream` ends for everyone when one consumer stops. Per-device mic rules are local
+  (`UserDefaults`, fingerprint = the default output's UID). The engine is the
+  same `AVAudioEngineSegmentRecorder` (16 kHz mono AAC, 10 s segments); the
+  outbox is the iPhone's `CaptureStack` over `JSONFileOutboxStore` in the app
+  container and `APIOutboxUploader` over a `ReconfigurableAPIClient` the Mac's
+  connection change re-points (`MacCaptureStack`, same sources compiled into
+  both targets). A take is mode Auto, like the iPhone's record control.
+  `RecordingPanelModel` is the state machine (`idle → starting → recording →
+  stopping → idle`, `failed(reason)` side state); a press or button while a
+  start or stop runs is dropped, a microphone pick is queued, and a recorder
+  failure mid-take stops the take, keeps what closed and says so. The model
+  drives a `TakeEngine` port (`CaptureTakeEngine` in production, scripted
+  `FakeTakeEngine`), a `MicrophonePermission` port and a `TakeHotkey` port; the
+  outbox is opened at launch and again on a connection change, so a take made
+  offline or cut short is sent next time. The memo the outbox creates shows in
+  History at once (the created-memo log) and by the SSE after that. Cancel
+  follows the iPhone's lifecycle: the memo the session discarded is forgotten
+  (`CreatedMemoLog.forget` → `HistoryModel.hide`, the hidden set persisted), its
+  server `DELETE` settling unhides it, and the launch reconcile drops hidden ids
+  with no `DELETE` queued. A stop that returns a result with `failure` (the
+  recorder failed, or stopping timed out after earlier segments closed) is
+  `TakeEnd.partial`: the memo is sent with what closed, and the panel says the
+  recording stopped early. A create that the old server answers after the saved
+  connection changed is refused as a transport error (`ConnectionBoundClient`,
+  a connection epoch counted by `MacCaptureStack.reconnect`), so it is neither
+  recorded nor inserted into the new server's History; the outbox sends the item
+  again over the new connection (binding an item to its server is a follow-up).
+  No log line carries a device uid.
 - **Notifications:** live SSE `/v1/events` for status, local notifications
   while it runs, and APNs registration for when it is asleep.
 - **First slice (Wave 18 M1, no capture yet):**
@@ -1010,7 +1071,16 @@ pinned simulator in light and dark (`LiveActivitySnapshotTests`, the island thro
     windows (history, detail, settings) and quit; snapshot mode only exists on the fake composition. Unit tests: `IrisMacTests`,
     hosted in the app (launched with `-IrisFakeData`), run by `make check-apple`.
 - **Signing:** a stable Apple Development identity. Ad-hoc signing resets TCC
-  on every build.
+  on every build (the microphone grant is keyed to the code signature). The
+  mini signs `IrisMac` with its Apple Development identity without a
+  provisioning profile when the build drops the `application-groups`
+  entitlement (nothing reads the App Group on the Mac; sandbox, audio input
+  and network client are unrestricted), so its grants survive rebuilds; the
+  unsigned CI and `check-apple` builds never record. The microphone prompt and a
+  real take need a Mac with a microphone and a person: hands-on rows in
+  `docs/spikes/device-checklist.md` ("Mac hands-on rows").
+- **Telemetry:** the Mac's take is not yet on the device log or the relay
+  (`DeviceLog` is the iOS app's); the package logs through `os.Logger` only.
 
 ## 6. Shared Swift packages
 
@@ -1275,7 +1345,7 @@ the `IrisCore` dependency when R1 wires them together.
 | A Live Activity start from a control intent may need the foreground (one forum report) | S1 (Wave 17 D2, iOS 26.6.1): the control starts nothing at all, with no visible error; not yet the "needs the foreground" refusal, more likely the missing handler in the extension process. I8 fixes it or takes the fallback `openAppWhenRun` + auto-start, accepted by the PRD |
 | Built-in mic while connected to the car's Bluetooth is undocumented | S2 on hardware; Wave 17 D2: the AirPods switch crashes the app before the car question can be asked, the car was not run, still open |
 | An audio engine cannot restart in the background | Device (Wave 17 D2): resume from the island and one lock case failed with "engine resume failed" and the UI kept counting; a route change to the AirPods (or a start with them connected) aborts the app with an uncaught `NSException` in `installTap`; the take loses its open segment (I7) |
-| A segment open at a crash is unreadable | Device (Wave 17 D2): three quarantined segments have no `moov` atom; the "at most 10 s lost" holds but the seconds are gone; a crash-safe segment container |
+| A segment open at a crash is unreadable | Device (Wave 17 D2): three quarantined segments had no `moov` atom, the seconds were gone. Wave 18 I2: fragmented m4a, a kill keeps all but ~0.5 s (macOS SIGKILL experiment); the device row 8a proves it on hardware |
 | Live Activities are server-owned after the hand-over | Without APNs (Personal Team) they stay on "Processing" and hijack the island; I8, and the paid team's pushes must be re-checked in D3 |
 | TTS playback from a Live Activity intent while the app is suspended | S3; fall back to opening the app |
 | Bun `node:http2` over-dispatch to APNs | Cap in-flight streams (D6); Bun 1.3.14's HTTP/2 `fetch` as a fallback |

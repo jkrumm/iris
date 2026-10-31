@@ -34,6 +34,10 @@ packages:
     path: Packages/IrisUI
   IrisTelemetry:
     path: Packages/IrisTelemetry
+  # The Mac's global hotkey and its recorder view (Carbon, no permission prompt, pinned exactly: the recorder broke on new macOS releases before; docs/research/2026-10-31-mac-hotkey.md).
+  KeyboardShortcuts:
+    url: https://github.com/sindresorhus/KeyboardShortcuts
+    exactVersion: 3.1.0
 
 targets:
   Iris:
@@ -148,6 +152,11 @@ targets:
       - Iris/WaterfallBuilder.swift
       - Iris/ReplyMarkdown.swift
       - Iris/Pasteboard.swift
+      # The capture side: the outbox stack, its API uploader and the created-memo log are the iPhone's, compiled in as they are.
+      - Iris/CaptureStack.swift
+      - Iris/APIOutboxUploader.swift
+      - Iris/OutboxService.swift
+      - Iris/QueuedItem.swift
     entitlements:
       path: IrisMac/IrisMac.entitlements
       properties:
@@ -172,6 +181,7 @@ targets:
       - package: IrisCapture
       - package: IrisUI
       - package: IrisTelemetry
+      - package: KeyboardShortcuts
       - sdk: AppIntents.framework
 
   # Hosted in the app: `@testable import Iris` reaches the history model and filters.
