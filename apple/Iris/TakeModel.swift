@@ -157,12 +157,20 @@ final class TakeModel {
     failure = nil
     do {
       try await controller.start(mode: mode)
-    } catch let error as StartMemoError {
-      failure = String(localized: error.localizedStringResource)
     } catch {
-      logger.error("take not started: \(String(describing: error), privacy: .public)")
-      failure = String(localized: "Iris could not start recording.", comment: "Take failure")
+      reportStartFailure(error)
     }
+  }
+
+  /// Puts a start that did not go through where the user sees it (the alert of `RootView`). The Record control starts the take
+  /// through an intent, with the app on screen: a failure there must not stay in the intent's result.
+  func reportStartFailure(_ error: any Error) {
+    if let error = error as? StartMemoError {
+      failure = String(localized: error.localizedStringResource)
+      return
+    }
+    logger.error("take not started: \(String(describing: error), privacy: .public)")
+    failure = String(localized: "Iris could not start recording.", comment: "Take failure")
   }
 
   /// Ends the take and sends it.

@@ -45,6 +45,38 @@ struct StartMemoIntentTests {
     await #expect(throws: StartMemoError.self) { try await root.startMemo() }
   }
 
+  @Test("the Record control's OpenIntent starts the same take, in the foreground path")
+  func controlIntentStartsTheTake() async throws {
+    let root = CompositionRoot(arguments: ["-IrisFakeCapture"], credentials: InMemoryCredentialStore())
+    let activity = try #require(root.fakeLiveActivity)
+
+    _ = try await OpenRecorderIntent().perform()
+
+    #expect(await activity.starts.count == 1)
+    #expect(await activity.phases == [.recording])
+    #expect(root.take.failure == nil)
+    _ = try await root.stopMemo()
+  }
+
+  @Test("a control press that cannot start a take says so in the app and to the system")
+  func controlIntentFailureIsVisible() async {
+    let root = CompositionRoot(arguments: [], credentials: InMemoryCredentialStore())
+    await #expect(throws: StartMemoError.self) { _ = try await OpenRecorderIntent().perform() }
+    #expect(root.take.failure == String(localized: StartMemoError.notConfigured.localizedStringResource))
+  }
+
+  @Test("the control's intent asks for an unlock on the Lock Screen and targets the one destination")
+  func controlIntentPolicy() {
+    #expect(OpenRecorderIntent.authenticationPolicy == .requiresAuthentication)
+    #expect(OpenRecorderIntent().target == .recorder)
+  }
+
+  @Test("a control press with no handler throws appNotReady instead of doing nothing")
+  func controlIntentWithoutHandler() async {
+    CaptureIntents.handler = nil
+    await #expect(throws: StartMemoError.self) { _ = try await OpenRecorderIntent().perform() }
+  }
+
   @Test("the intent says so when the app has not registered a handler")
   func noHandler() async {
     CaptureIntents.handler = nil

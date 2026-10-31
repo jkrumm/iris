@@ -345,9 +345,15 @@ final class CompositionRoot: CaptureIntentHandler, PlaybackIntentHandler {
 
   // MARK: CaptureIntentHandler
 
-  /// Starts a take in `auto` mode with its Live Activity: what the Control, Siri and the Shortcuts app run.
+  /// Starts a take in `auto` mode with its Live Activity: what the Control (`OpenRecorderIntent`, in the foreground), Siri and the
+  /// Shortcuts app (`StartMemoIntent`) run. A failure is shown in the app too: the control's press must never end in silence.
   func startMemo() async throws {
-    try await takeController.start(mode: .auto, source: "intent")
+    do {
+      try await takeController.start(mode: .auto, source: "intent")
+    } catch {
+      take.reportStartFailure(error)
+      throw error
+    }
   }
 
   /// Ends the take and sends it: the Live Activity's Stop.
