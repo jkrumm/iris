@@ -17,6 +17,9 @@ final class SpeechPlayer {
   /// Whether that screen's recording is playing, for ``isBusy``.
   private var recordingIsPlaying: (() -> Bool)?
   private weak var recordingOwner: AnyObject?
+  /// Whether a take holds, or is about to hold, the microphone: ``TakeController``'s one synchronous flag, read right before
+  /// anything starts playing. Unbound (tests, previews) nothing is ever blocked.
+  var captureActive: () -> Bool = { false }
   /// Bumped by every start, pause and stop; a download that finds it changed belongs to a start that was overtaken (the
   /// user paused, stopped, or started the recording, while the speech was downloading).
   private var attempt = 0
@@ -51,7 +54,10 @@ final class SpeechPlayer {
   func toggle(_ memo: Memo, source: any MemoMediaSource) async {
     guard !player.isLoading else { return }
     if memoID == memo.id, player.isLoaded {
-      if !player.isPlaying { pauseRecording?() }
+      if !player.isPlaying {
+        guard !captureActive() else { return }
+        pauseRecording?()
+      }
       player.toggle()
       return
     }
@@ -63,7 +69,7 @@ final class SpeechPlayer {
   /// done, so a reply the caller no longer wants (the app went to the background meanwhile) stays silent.
   @discardableResult
   func play(_ memo: Memo, source: any MemoMediaSource, shouldPlay: () -> Bool = { true }) async -> Bool {
-    guard !player.isLoading, let request = source.speech(for: memo) else { return false }
+    guard !player.isLoading, !captureActive(), let request = source.speech(for: memo) else { return false }
     attempt += 1
     let mine = attempt
     memoID = memo.id
@@ -75,7 +81,8 @@ final class SpeechPlayer {
       memoID = nil
       return false
     }
-    guard shouldPlay() else { return false }
+    // Nothing suspends between these checks and the start: a take that opened while the speech downloaded has priority.
+    guard shouldPlay(), !captureActive() else { return false }
     pauseRecording?()
     player.seek(to: 0)
     player.play()
@@ -86,6 +93,14 @@ final class SpeechPlayer {
   func pause() {
     attempt += 1
     player.pause()
+  }
+
+  /// A take is starting: recording takes priority, so the reply and the open detail's recording stop at once and the
+  /// microphone never hears either. A speech still downloading is dropped too (it cannot attach afterwards). Nothing
+  /// resumes by itself.
+  func pauseForTake() {
+    if player.isLoading { stop() } else { pause() }
+    pauseRecording?()
   }
 
   /// Stops and releases the player, for the memo it speaks (`id`), or whichever when `id` is nil.

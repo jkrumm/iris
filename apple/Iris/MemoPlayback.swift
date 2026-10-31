@@ -30,6 +30,8 @@ final class MemoPlayback {
   var isReplyPlaying: Bool { speech.isPlaying(memoID) }
 
   func toggleRecording() {
+    // Starting it while a take records would record it into the take; pausing it is always allowed.
+    guard recording.isPlaying || !speech.captureActive() else { return }
     speech.pause()
     recording.toggle()
   }
