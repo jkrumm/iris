@@ -51,6 +51,15 @@ struct LastMemoSnapshotTests {
     #expect(throws: DecodingError.self) { try JSONDecoder().decode(LastMemoSnapshot.self, from: Data(json.utf8)) }
   }
 
+  @Test("staleAt is the one rule: a settled snapshot has none, an in-flight one is stale after it")
+  func staleAt() {
+    #expect(snapshot(phase: .done).staleAt == nil)
+    let running = snapshot(phase: .processing)
+    #expect(running.staleAt == Self.t0.addingTimeInterval(LastMemoSnapshot.staleAfter))
+    #expect(!running.isStale(at: Self.t0.addingTimeInterval(LastMemoSnapshot.staleAfter)))
+    #expect(running.isStale(at: Self.t0.addingTimeInterval(LastMemoSnapshot.staleAfter + 1)))
+  }
+
   @Test("only an in-flight snapshot goes stale")
   func staleness() {
     let old = Self.t0.addingTimeInterval(LastMemoSnapshot.staleAfter + 1)
@@ -156,6 +165,11 @@ struct LastMemoWidgetFeedTests {
     var reloads = 0
   }
 
+  private final class Clock {
+    var now: Date
+    init(_ now: Date) { self.now = now }
+  }
+
   private func feed(
     _ store: InMemoryLastMemoSnapshotStore, counter: Counter, now: @escaping @MainActor () -> Date = { t0 }
   ) -> LastMemoWidgetFeed {
@@ -171,7 +185,7 @@ struct LastMemoWidgetFeedTests {
       isDeleted: deleted)
   }
 
-  @Test("a memo is stored and the widget reloaded; the same state again costs no reload")
+  @Test("a memo is stored and the widget reloaded; a settled state seen again costs no write and no reload")
   func storesAndDedupes() {
     let store = InMemoryLastMemoSnapshotStore()
     let counter = Counter()
@@ -179,10 +193,39 @@ struct LastMemoWidgetFeedTests {
     feed.observe(memo("a"))
     #expect(store.load()?.phase == .processing)
     #expect(counter.reloads == 1)
-    feed.observe(memo("a"))
-    #expect(counter.reloads == 1)
     feed.observe(memo("a", phase: .done, chip: "Hermes", headline: "Plan"))
     #expect(store.load()?.headline == "Plan")
+    #expect(counter.reloads == 2)
+    feed.observe(memo("a", phase: .done, chip: "Hermes", headline: "Plan"))
+    #expect(counter.reloads == 2)
+  }
+
+  @Test("a settled state keeps its first stamp, so its age stays true")
+  func settledKeepsStamp() {
+    let clock = Clock(Self.t0)
+    let store = InMemoryLastMemoSnapshotStore()
+    let feed = feed(store, counter: Counter(), now: { clock.now })
+    feed.observe(memo("a", phase: .done))
+    clock.now = Self.t0.addingTimeInterval(3_600)
+    feed.observe(memo("a", phase: .done))
+    #expect(store.load()?.updatedAt == Self.t0)
+  }
+
+  @Test(
+    "an in-flight memo seen again is restamped and the widget reloaded, so it never goes idle while the app shows it")
+  func inFlightRestamps() throws {
+    let clock = Clock(Self.t0)
+    let counter = Counter()
+    let store = InMemoryLastMemoSnapshotStore()
+    let feed = feed(store, counter: counter, now: { clock.now })
+    feed.observe(memo("a"))
+    let firstStaleAt = try #require(store.load()?.staleAt)
+    clock.now = Self.t0.addingTimeInterval(LastMemoSnapshot.staleAfter + 60)
+    #expect(try #require(store.load()).isStale(at: clock.now))
+    feed.observe(memo("a"))
+    let restamped = try #require(store.load())
+    #expect(!restamped.isStale(at: clock.now))
+    #expect(try #require(restamped.staleAt) > firstStaleAt)
     #expect(counter.reloads == 2)
   }
 
@@ -206,9 +249,33 @@ struct LastMemoWidgetFeedTests {
     #expect(store.load()?.memoID == "a")
     feed.observe(memo("a", deleted: true))
     #expect(store.load() == nil)
+  }
+
+  @Test("a soft-deleted memo comes back when the app sees it restored")
+  func restore() {
+    let store = InMemoryLastMemoSnapshotStore()
+    let feed = feed(store, counter: Counter())
+    feed.observe(memo("a"))
+    feed.observe(memo("a", deleted: true))
+    #expect(store.load() == nil)
+    feed.observe(memo("a", phase: .done))
+    #expect(store.load()?.memoID == "a")
+  }
+
+  @Test("a memo the app hid or purged is not brought back by a late event")
+  func forgetIsFinal() {
+    let store = InMemoryLastMemoSnapshotStore()
+    let counter = Counter()
+    let feed = feed(store, counter: counter)
     feed.observe(memo("c"))
     feed.forget(id: "c")
     #expect(store.load() == nil)
+    let reloads = counter.reloads
+    feed.observe(memo("c", phase: .done))
+    #expect(store.load() == nil)
+    #expect(counter.reloads == reloads)
+    feed.observe(memo("d"))
+    #expect(store.load()?.memoID == "d")
   }
 
   @Test("the first launch picks up what the last run stored")
@@ -238,5 +305,58 @@ struct LastMemoWidgetFeedTests {
     let feed = feed(store, counter: Counter())
     feed.observe(memo("a", phase: .done, headline: String(repeating: "Satz ", count: 60)))
     #expect((store.load()?.headline?.count ?? 0) <= LastMemoSnapshot.headlineLimit)
+  }
+}
+
+struct LastMemoTimelinePlanTests {
+  private static let now = Date(timeIntervalSince1970: 1_800_000_000)
+
+  private func snapshot(_ phase: LastMemoSnapshot.Phase, updated: Date = now) -> LastMemoSnapshot {
+    LastMemoSnapshot(memoID: "m", createdAt: Self.now, phase: phase, headline: "Plan", updatedAt: updated)
+  }
+
+  @Test("no snapshot: one static entry, no relevance")
+  func noData() {
+    let plan = LastMemoTimelinePlan(snapshot: nil, now: Self.now)
+    #expect(plan.entries == [.init(date: Self.now, content: .noData, relevance: nil)])
+  }
+
+  @Test("an in-flight snapshot gets an idle entry at its staleAt, from the same rule isStale uses")
+  func idleEntry() throws {
+    let running = snapshot(.processing)
+    let plan = LastMemoTimelinePlan(snapshot: running, now: Self.now.addingTimeInterval(60))
+    #expect(plan.entries.count == 2)
+    let idle = plan.entries[1]
+    #expect(idle.date == running.staleAt)
+    #expect(idle.content == .idle)
+    #expect(idle.relevance == nil)
+    #expect(plan.entries[0].content != .idle)
+  }
+
+  @Test("settled snapshots have a single entry however old they are")
+  func settled() {
+    for phase in [LastMemoSnapshot.Phase.done, .failed, .needsRoute] {
+      let plan = LastMemoTimelinePlan(snapshot: snapshot(phase), now: Self.now.addingTimeInterval(86_400))
+      #expect(plan.entries.count == 1)
+      #expect(plan.entries[0].content != .idle)
+    }
+  }
+
+  @Test("an in-flight snapshot already past staleAt is idle now, with no relevance and no second entry")
+  func alreadyStale() {
+    let late = Self.now.addingTimeInterval(LastMemoSnapshot.staleAfter + 5)
+    let plan = LastMemoTimelinePlan(snapshot: snapshot(.processing), now: late)
+    #expect(plan.entries == [.init(date: late, content: .idle, relevance: nil)])
+  }
+
+  @Test("relevance: needs a route outranks failed, processing and done")
+  func relevance() throws {
+    func score(_ phase: LastMemoSnapshot.Phase) throws -> Float {
+      try #require(LastMemoTimelinePlan(snapshot: snapshot(phase), now: Self.now).entries[0].relevance).score
+    }
+    #expect(try score(.needsRoute) > score(.failed))
+    #expect(try score(.failed) > score(.processing))
+    #expect(try score(.processing) > score(.done))
+    #expect(try score(.done) > 0)
   }
 }

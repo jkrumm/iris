@@ -60,6 +60,18 @@ struct LastMemoEntry: TimelineEntry {
   let date: Date
   let content: LastMemoWidgetContent
   let relevance: TimelineEntryRelevance?
+
+  init(_ entry: LastMemoTimelinePlan.Entry) {
+    date = entry.date
+    content = entry.content
+    relevance = entry.relevance.map { TimelineEntryRelevance(score: $0.score, duration: $0.duration) }
+  }
+
+  init(date: Date, content: LastMemoWidgetContent) {
+    self.date = date
+    self.content = content
+    relevance = nil
+  }
 }
 
 struct LastMemoProvider: TimelineProvider {
@@ -68,43 +80,20 @@ struct LastMemoProvider: TimelineProvider {
   func placeholder(in context: Context) -> LastMemoEntry {
     LastMemoEntry(
       date: .now,
-      content: .memo(.init(phase: .done, routeChip: nil, headline: "Wochenplan abgestimmt", age: .since(.now))),
-      relevance: nil)
+      content: .memo(.init(phase: .done, routeChip: nil, headline: "Wochenplan abgestimmt", age: .since(.now))))
   }
 
   func getSnapshot(in context: Context, completion: @escaping @Sendable (LastMemoEntry) -> Void) {
-    completion(context.isPreview ? placeholder(in: context) : entry(at: .now))
+    completion(context.isPreview ? placeholder(in: context) : LastMemoEntry(plan(at: .now).entries[0]))
   }
 
   func getTimeline(in context: Context, completion: @escaping @Sendable (Timeline<LastMemoEntry>) -> Void) {
-    let now = Date.now
-    let current = entry(at: now)
-    // The app reloads the timeline on every change it sees. The only change nobody tells the widget about is an in-flight
-    // state going stale, so that is the one date to wake up for; a settled state waits for the app.
-    guard let snapshot = store.load(), !snapshot.phase.isSettled else {
-      completion(Timeline(entries: [current], policy: .never))
-      return
-    }
-    let staleAt = snapshot.updatedAt.addingTimeInterval(LastMemoSnapshot.staleAfter + 1)
-    let idle = LastMemoEntry(date: max(staleAt, now), content: .idle, relevance: nil)
-    completion(Timeline(entries: [current, idle], policy: .never))
+    // `.never`: the app reloads on every change; the plan's idle entry covers the one change nobody announces.
+    completion(Timeline(entries: plan(at: .now).entries.map(LastMemoEntry.init), policy: .never))
   }
 
-  private func entry(at date: Date) -> LastMemoEntry {
-    let snapshot = store.load()
-    return LastMemoEntry(
-      date: date, content: LastMemoWidgetContent(snapshot, at: date), relevance: snapshot.flatMap(Self.relevance))
-  }
-
-  /// Smart Stack: a parked or failed memo asks for attention for an hour, a running or just-finished one for a while.
-  /// (iPhone reads the entry's relevance; the provider-level `relevance()` is watchOS.)
-  private static func relevance(_ snapshot: LastMemoSnapshot) -> TimelineEntryRelevance {
-    switch snapshot.phase {
-    case .needsRoute: TimelineEntryRelevance(score: 100, duration: 60 * 60)
-    case .failed: TimelineEntryRelevance(score: 60, duration: 60 * 60)
-    case .processing: TimelineEntryRelevance(score: 40, duration: 10 * 60)
-    case .done: TimelineEntryRelevance(score: 20, duration: 15 * 60)
-    }
+  private func plan(at now: Date) -> LastMemoTimelinePlan {
+    LastMemoTimelinePlan(snapshot: store.load(), now: now)
   }
 }
 

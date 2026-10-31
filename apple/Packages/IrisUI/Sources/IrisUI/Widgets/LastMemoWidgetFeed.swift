@@ -34,6 +34,8 @@ public final class LastMemoWidgetFeed {
   private let reload: @MainActor () -> Void
   private let now: @MainActor () -> Date
   private var current: LastMemoSnapshot?
+  /// Memos the app hid or purged (``forget(id:)``): a late event for one of them must not bring it back.
+  private var forgotten: Set<String> = []
 
   /// `reload` is `WidgetCenter.shared.reloadTimelines(ofKind:)` in the app (IrisUI does not link WidgetKit).
   public init(
@@ -48,20 +50,34 @@ public final class LastMemoWidgetFeed {
 
   /// A memo appeared or changed.
   public func observe(_ memo: WidgetMemoObservation) {
+    guard !forgotten.contains(memo.id) else { return }
     if memo.isDeleted {
-      forget(id: memo.id)
+      // Soft-deleted: gone for now, and back with the next observation if the user undoes it.
+      clear(id: memo.id)
       return
     }
     if let current, current.memoID != memo.id, memo.createdAt < current.createdAt { return }
     let next = LastMemoSnapshot(
       memoID: memo.id, createdAt: memo.createdAt, phase: memo.phase, routeChip: memo.routeChip,
       headline: memo.headline, updatedAt: now())
-    if let current, current.showsSameAs(next) { return }
+    if let current, current.showsSameAs(next) {
+      // Nothing a widget shows changed. An in-flight memo is still running, though: restamp it, or the timeline's idle
+      // entry (at the old stamp + `staleAfter`) turns the widget to "Ready" while the app shows it processing. A
+      // settled state keeps its first stamp, so its age stays true.
+      if !current.phase.isSettled { write(next) }
+      return
+    }
     write(next)
   }
 
-  /// A memo is gone (purged, hidden, deleted): if it was the one shown, the widget goes back to its idle state.
+  /// A memo is gone for good (hidden, purged): if it was the one shown, the widget goes back to its static state, and no
+  /// later event for the id brings it back.
   public func forget(id: String) {
+    forgotten.insert(id)
+    clear(id: id)
+  }
+
+  private func clear(id: String) {
     guard current?.memoID == id else { return }
     write(nil)
   }

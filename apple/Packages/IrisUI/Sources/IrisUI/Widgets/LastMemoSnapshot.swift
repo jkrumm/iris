@@ -29,7 +29,8 @@ public struct LastMemoSnapshot: Codable, Equatable, Sendable {
   public let phase: Phase
   public let routeChip: String?
   public let headline: String?
-  /// When the app last saw this state; the widget's "3 min ago".
+  /// When the app last saw this memo change, or, while it is in flight, last confirmed it is still running: the age the
+  /// widget shows and where the staleness clock of an in-flight state starts. A settled state keeps its first stamp.
   public let updatedAt: Date
 
   public init(
@@ -85,8 +86,15 @@ public struct LastMemoSnapshot: Codable, Equatable, Sendable {
     memoID == other.memoID && phase == other.phase && routeChip == other.routeChip && headline == other.headline
   }
 
+  /// When an in-flight snapshot goes stale if nobody refreshes it; `nil` for a settled one, which never does. The one
+  /// source of the rule: ``isStale(at:)`` and the idle entry of the timeline both read it.
+  public var staleAt: Date? {
+    phase.isSettled ? nil : updatedAt.addingTimeInterval(Self.staleAfter)
+  }
+
   /// An in-flight snapshot nobody has refreshed for ``staleAfter``.
   public func isStale(at now: Date) -> Bool {
-    !phase.isSettled && now.timeIntervalSince(updatedAt) > Self.staleAfter
+    guard let staleAt else { return false }
+    return now > staleAt
   }
 }

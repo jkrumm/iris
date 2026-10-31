@@ -68,6 +68,8 @@ struct StartMemoIntentTests {
   @Test("the control's intent asks for an unlock on the Lock Screen and targets the one destination")
   func controlIntentPolicy() {
     #expect(OpenRecorderIntent.authenticationPolicy == .requiresAuthentication)
+    // The Siri / Shortcuts start is the other road in and stays as it was: no unlock demanded by the intent itself.
+    #expect(StartMemoIntent.authenticationPolicy == .alwaysAllowed)
     #expect(OpenRecorderIntent().target == .recorder)
   }
 
