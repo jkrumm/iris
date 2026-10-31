@@ -277,7 +277,6 @@ struct MacCompositionRootTests {
     root.connectionForm.save()
     #expect(root.history !== before)
     #expect(root.detailMemoID == nil && root.detailDismissals == dismissals + 1)
-    #expect(root.history.onMemoDone != nil)
     #expect(await eventually { !root.history.memos.isEmpty })
   }
 
@@ -304,16 +303,25 @@ struct MacCompositionRootTests {
     #expect(ran == ["current"])
   }
 
-  @Test("a memo.done seen before a switch posts nothing once its task runs after it")
-  func staleEventsAreDropped() async {
+  @Test("a memo.done on the stream announces the memo once, with no memo.updated and no History hook")
+  func memoDoneOnTheStreamPosts() async throws {
     let poster = RecordingNotificationPoster()
     let root = fakeRoot(poster: poster)
+    let fake = try #require(root.fakeAPI)
     root.begin()
     #expect(await eventually { !root.history.memos.isEmpty })
-    root.history.onMemoDone?(Self.finished)
-    switchServer(root)
+    var detail = try await fake.memo(id: Self.finished)
+    detail.memo.state = .acted
+    await fake.seed(detail)
+    fake.emit(.memoUpdated(MemoEvent(id: Self.finished, state: .acted, at: .now)))
+    detail.memo.state = .notified
+    await fake.seed(detail)
+    let done = MemoEvent(id: Self.finished, state: .notified, at: .now)
+    fake.emit(.memoDone(done))
+    #expect(await eventually { await poster.posted.map(\.memoID) == [Self.finished] })
+    fake.emit(.memoDone(done))
     try? await Task.sleep(for: .milliseconds(300))
-    #expect(await poster.posted.isEmpty)
+    #expect(await poster.posted.count == 1)
   }
 }
 

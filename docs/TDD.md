@@ -1019,12 +1019,14 @@ pinned simulator in light and dark (`LiveActivitySnapshotTests`, the island thro
   included (`setPreferredInput(uid: nil)`), and only while the default is still
   the device Iris set: a default somebody else chose mid-take is left alone. The
   original is also written down (`RecoveringRouteManager` wraps the route
-  manager; `UserDefaults`, `{original, chosen}`) **before** the first pick of a
-  take changes the default, and cleared when the restore has run. A kill
+  manager; `UserDefaults`, `{original, replaced, chosen}`) **before** every pick of a
+  take changes the default (`original` is kept from the first pick, `replaced` is the default this pick replaces, `chosen` the device it sets), and
+  cleared when the restore has run. A kill
   mid-take leaves the record; the next launch (`RecoveringRouteManager.recover`,
   run by `MacCaptureStack.production`) puts the original back under the same
-  rules as the in-process restore (only while the default is still the device
-  the killed run set, and the original is still attached), else drops it. A
+  rules as the in-process restore (only while the default is `chosen` **or** `replaced`, because a kill can land on either side of the
+  system call, and the original is still attached), else drops it. The recovery's failure is not logged with the error (it can name a
+  port); the outcome is the `audio.input_recovery` record. A
   restore that fails keeps the record for the next launch. `routeChanges`, the directory's `changes` and the engine's
   levels, failures and mic list are broadcasts (`Broadcast`): every read is its
   own subscription, because the capture session and the panel both listen and an
@@ -1079,7 +1081,7 @@ pinned simulator in light and dark (`LiveActivitySnapshotTests`, the island thro
     headline, "Done." without a summary), parked (`needs_route`) and failed. Three feeds, one record (`announced`, the kind each
     memo was last announced as): `memo.updated` / `memo.done` payloads from the open stream (`StreamTappingClient` hands every
     state to the root in stream order; `noteState` is synchronous, so an earlier event never overtakes a later one), the
-    `memo.done` id, and the **catch-up** after the stream (re)connects. A state that is not a kind (a retry, a route answer) clears
+    `memo.done` payload (its state is on the same stream: there is no separate `History` hook), and the **catch-up** after the stream (re)connects. A state that is not a kind (a retry, a route answer) clears
     the record, so the memo's next finish is a new banner; a repeated event or a second feed posts nothing. The event's state is
     not the answer: the memo is fetched fresh before posting and judged by that copy. The catch-up fetches the newest 50 memos
     **unfiltered** (History's filters hide memos from its list, not from the banners): the first one of a connection is the
@@ -1088,7 +1090,8 @@ pinned simulator in light and dark (`LiveActivitySnapshotTests`, the island thro
     first, the rest recorded. Banners never carry the transcript, the reply or the park reason: generic words for parked and
     failed. A fetch or post that fails is tried three times, logged, forgotten. The permission is read again for every memo, and
     the system prompt runs on the side. A memo in flight twice (an event while a catch-up delivers it) is delivered once, and looks
-    again fresh when the first delivery is through. **Limit:** a memo that finished while the *app was not running* is not announced
+    again fresh when the first delivery is through; a delivery whose memo changed state while its banner was being posted (a retry) does not
+    record its kind. Catch-ups run one at a time in the order asked, so a later fetch cannot become the baseline over an earlier one. **Limit:** a memo that finished while the *app was not running* is not announced
     (the baseline records it); APNs for an asleep app comes later.
   - *Connection change:* the connection gets its own client and a new `HistoryModel`; the notifier is cleared (every event, fetch and
     catch-up carries the notifier's generation from when it started and re-checks it after each await, so a task of the old server

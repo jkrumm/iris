@@ -75,12 +75,65 @@ struct MacEvents {
   }
 
   /// `app.lifecycle`: launch and quit of the menu-bar app (it has no scene phases).
-  func lifecycle(_ phase: String) {
+  func lifecycle(_ phase: MacLifecyclePhase) {
     // A quit is durable: the process is going, and the crash file is what the next launch sends.
-    if phase == "quit" {
-      log.durableEvent("app.lifecycle", ["phase": .string(phase), "reason": "process"])
+    if phase == .quit {
+      log.durableEvent("app.lifecycle", ["phase": .string(phase.telemetryName), "reason": "process"])
     } else {
-      log.event("app.lifecycle", ["phase": .string(phase), "reason": "process"])
+      log.event("app.lifecycle", ["phase": .string(phase.telemetryName), "reason": "process"])
+    }
+  }
+}
+
+/// The process phases of the menu-bar app that `app.lifecycle` records.
+nonisolated enum MacLifecyclePhase: Equatable, Sendable {
+  case launch
+  case quit
+
+  /// The attribute value: written out, so renaming a case never renames a record.
+  var telemetryName: String {
+    switch self {
+    case .launch: "launch"
+    case .quit: "quit"
+    }
+  }
+}
+
+extension Announcement {
+  /// For the device log (`notify.mac` `kind`).
+  var telemetryName: String {
+    switch self {
+    case .done: "done"
+    case .needsRoute: "needsRoute"
+    case .failed: "failed"
+    }
+  }
+}
+
+extension QueuedItem.Kind {
+  /// For the device log (`outbox.user_action` `kind`).
+  var telemetryName: String {
+    switch self {
+    case .voiceMemo: "voiceMemo"
+    case .voiceReply: "voiceReply"
+    case .typedMemo: "typedMemo"
+    case .chatMessage: "chatMessage"
+    case .textReply: "textReply"
+    case .removal: "removal"
+    }
+  }
+}
+
+extension RecordingPanelModel.Failure {
+  /// For the device log (`mac.panel` `failure`).
+  var telemetryName: String {
+    switch self {
+    case .notConfigured: "notConfigured"
+    case .microphoneDenied: "microphoneDenied"
+    case .couldNotStart: "couldNotStart"
+    case .nothingRecorded: "nothingRecorded"
+    case .stoppedEarly: "stoppedEarly"
+    case .lost: "lost"
     }
   }
 }

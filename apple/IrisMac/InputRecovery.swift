@@ -1,15 +1,24 @@
 import Foundation
 import IrisCapture
 import Synchronization
-import os
 
 /// The system default input a Mac take replaced, written down before it was replaced: a kill mid-take must not leave the
 /// microphone the user picked in the panel as the Mac's input for good (TDD §5).
 nonisolated struct InputRecovery: Codable, Equatable, Sendable {
   /// The default input before the first pick of the take: what a restore puts back.
   var original: String
-  /// The device the take made the default last: a restore applies only while this is still the default.
+  /// The device the take is making the default (the switch in progress, or the last one done): a restore applies only while it,
+  /// or ``replaced``, is still the default.
   var chosen: String
+  /// The default that ``chosen`` replaces. The record is written before the switch, so a kill can leave either of the two as
+  /// the default; `nil` in a record written before this field existed.
+  var replaced: String?
+
+  init(original: String, chosen: String, replaced: String? = nil) {
+    self.original = original
+    self.chosen = chosen
+    self.replaced = replaced
+  }
 }
 
 /// Where ``InputRecovery`` is kept. Production: `UserDefaults`. Tests: in memory.
@@ -98,7 +107,7 @@ actor RecoveringRouteManager: RouteManager {
     let existing = store.load()
     // Already the default: the inner manager changes nothing and remembers no original, so there is nothing to write down.
     if let before, before != uid {
-      store.save(InputRecovery(original: existing?.original ?? before, chosen: uid))
+      store.save(InputRecovery(original: existing?.original ?? before, chosen: uid, replaced: before))
     }
     do {
       try await inner.setPreferredInput(uid: uid)
@@ -125,13 +134,15 @@ actor RecoveringRouteManager: RouteManager {
   }
 
   /// Run once at launch, before the first take: an earlier run killed mid-take left its picked microphone as the system
-  /// default. Puts the original back, but only while the default is still the device that run set (a default somebody else
-  /// chose since is left alone) and the original is still attached.
+  /// default. Puts the original back, but only while the default is one of the two sides of the switch the record was written
+  /// for (the device being set, or the one it replaced: a kill can land either side of the system call; a default somebody
+  /// else chose since is left alone) and the original is still attached.
   @discardableResult
   static func recover(store: any InputRecoveryStore, directory: any AudioDeviceDirectory) -> Recovery {
     guard let record = store.load() else { return .none }
-    guard directory.defaultInput()?.uid == record.chosen, record.chosen != record.original,
-      directory.inputs().contains(where: { $0.uid == record.original })
+    let current = directory.defaultInput()?.uid
+    let interrupted = current == record.chosen || (record.replaced != nil && current == record.replaced)
+    guard interrupted, current != record.original, directory.inputs().contains(where: { $0.uid == record.original })
     else {
       store.clear()
       return .dropped
@@ -141,8 +152,7 @@ actor RecoveringRouteManager: RouteManager {
       store.clear()
       return .restored
     } catch {
-      Logger(subsystem: "com.jkrumm.iris", category: "capture")
-        .error("the input of a killed take was not restored: \(String(describing: error), privacy: .public)")
+      // Not logged here: the error can name a port, and the outcome is the `audio.input_recovery` record the caller writes.
       return .failed
     }
   }

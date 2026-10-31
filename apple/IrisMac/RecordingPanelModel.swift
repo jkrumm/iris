@@ -271,6 +271,6 @@ extension RecordingPanelModel.Phase {
 
   /// Which failure, as the enum case's name; `nil` outside `failed`.
   var telemetryFailure: String? {
-    if case .failed(let failure) = self { String(describing: failure) } else { nil }
+    if case .failed(let failure) = self { failure.telemetryName } else { nil }
   }
 }

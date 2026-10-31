@@ -166,4 +166,24 @@ struct MacTelemetryTests {
     let flattened = entries.flatMap { $0.attributes.values.map { "\($0)" } }.joined()
     #expect(!flattened.contains(FakeAudioDeviceDirectory.usb.uid) && !flattened.contains("USB Microphone"))
   }
+
+  @Test("the attribute values the Mac writes for its enums are spelled out, not derived from the case names")
+  func enumNames() {
+    #expect(
+      [Announcement.done, .needsRoute, .failed].map(\.telemetryName) == ["done", "needsRoute", "failed"])
+    #expect(
+      [MacLifecyclePhase.launch, .quit].map(\.telemetryName) == ["launch", "quit"])
+    #expect(
+      [QueuedItem.Kind.voiceMemo, .voiceReply, .typedMemo, .chatMessage, .textReply, .removal].map(\.telemetryName)
+        == ["voiceMemo", "voiceReply", "typedMemo", "chatMessage", "textReply", "removal"])
+    let failures: [RecordingPanelModel.Failure] = [
+      .notConfigured, .microphoneDenied, .couldNotStart, .nothingRecorded, .stoppedEarly, .lost,
+    ]
+    #expect(
+      failures.map(\.telemetryName)
+        == ["notConfigured", "microphoneDenied", "couldNotStart", "nothingRecorded", "stoppedEarly", "lost"])
+    #expect(
+      [RecoveringRouteManager.Recovery.none, .dropped, .restored, .failed].map(\.telemetryName)
+        == ["none", "dropped", "restored", "failed"])
+  }
 }

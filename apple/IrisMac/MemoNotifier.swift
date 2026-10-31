@@ -99,6 +99,12 @@ final class MemoNotifier {
   private var inFlight: Set<String> = []
   /// Memos asked for again while one delivery was running: it looks again, fresh, when it is through.
   private var again: Set<String> = []
+  /// The state each memo was last seen in, and how often that changed. A delivery that spans a change (a retry while the banner is
+  /// being posted) must not record the kind it posted: the record already says what the newer state needs.
+  private var lastState: [String: MemoState] = [:]
+  private var stateChanges: [String: Int] = [:]
+  /// The catch-up in progress or last queued: the next one waits for it (see ``catchUp(generation:)``).
+  private var catchUpTail: Task<Void, Never>?
   /// The newest `startedAt` of the baseline; `nil` before the baseline, ``Date/distantPast`` for an empty one. A memo this
   /// connection never saw is new only when it started after it.
   private var baselineNewest: Date?
@@ -144,6 +150,9 @@ final class MemoNotifier {
     seen = []
     inFlight = []
     again = []
+    lastState = [:]
+    stateChanges = [:]
+    catchUpTail = nil
     baselineNewest = nil
     withdrawForeignBanners()
   }
@@ -163,11 +172,19 @@ final class MemoNotifier {
   func noteState(of event: MemoEvent, generation expected: Int? = nil) -> Bool {
     guard (expected ?? generation) == generation else { return false }
     seen.insert(event.id)
+    observe(event.id, event.state)
     guard let kind = Announcement(state: event.state) else {
       announced[event.id] = nil
       return false
     }
     return announced[event.id] != kind
+  }
+
+  /// Notes the state a memo was seen in; a different one than before counts as a change.
+  private func observe(_ id: String, _ state: MemoState) {
+    guard lastState[id] != state else { return }
+    lastState[id] = state
+    stateChanges[id, default: 0] += 1
   }
 
   /// Announces `id` once per transition. `expected` is the ``generation`` the event was seen under (the current one when nil);
@@ -179,8 +196,23 @@ final class MemoNotifier {
   /// The catch-up after the event stream (re)connected. The first call of a connection is the baseline: what is finished
   /// already is recorded, nothing is announced. Later calls announce the memos that reached a kind since: ones the connection
   /// had seen running, and ones it never saw that started after the baseline's newest.
+  ///
+  /// One at a time, in the order they were asked for: a `ready` arriving while the previous catch-up is still fetching would
+  /// otherwise let the later (fresher) fetch become the baseline and swallow what finished during the outage.
   func catchUp(generation expected: Int? = nil) async {
     let mine = expected ?? generation
+    let previous = catchUpTail
+    // Owned by `catchUpTail`: the next call waits on it, and this call waits on it below.
+    let run = Task { [self] in
+      await previous?.value
+      await runCatchUp(generation: mine)
+    }
+    catchUpTail = run
+    await run.value
+  }
+
+  private func runCatchUp(generation mine: Int) async {
+    guard mine == generation else { return }
     let fetched = await fetchRecent()
     guard mine == generation, let page = fetched else { return }
     guard let baseline = baselineNewest else {
@@ -188,6 +220,7 @@ final class MemoNotifier {
       for memo in page {
         // A memo an event already told us about is not the baseline's to record: its own delivery decides.
         guard seen.insert(memo.id).inserted else { continue }
+        observe(memo.id, memo.state)
         if let kind = Announcement(state: memo.state), !memo.isDeleted { announced[memo.id] = kind }
       }
       return
@@ -196,6 +229,7 @@ final class MemoNotifier {
     for memo in page where !memo.isDeleted {
       let wasSeen = seen.contains(memo.id)
       seen.insert(memo.id)
+      observe(memo.id, memo.state)
       guard let kind = Announcement(state: memo.state) else {
         announced[memo.id] = nil
         continue
@@ -256,8 +290,9 @@ final class MemoNotifier {
       }
       guard mine == generation else { return .settled }
       guard let memo = found else { continue }
+      observe(id, memo.state)
       guard !memo.isDeleted else {
-        announced[id] = Announcement(state: memo.state) ?? .done
+        announced[id] = Announcement(state: memo.state)
         return .settled
       }
       // A memo the server does not call announceable yet is not announced, and not remembered either: its next event is still to come.
@@ -267,6 +302,7 @@ final class MemoNotifier {
       }
       guard announced[id] != kind else { return .settled }
       let notification = Self.notification(for: memo, connectionID: connectionID)
+      let changesBefore = stateChanges[id, default: 0]
       do {
         try await poster.post(notification)
       } catch {
@@ -280,8 +316,10 @@ final class MemoNotifier {
         return .settled
       }
       seen.insert(id)
-      announced[id] = kind
       report(.posted(memoID: id, kind: kind))
+      // The memo moved on while the banner was posted (a retry, a route answer): what the newer state needs is already recorded,
+      // and this kind must not overwrite it.
+      if stateChanges[id, default: 0] == changesBefore { announced[id] = kind }
       return .settled
     }
     // Every try failed: nothing is recorded, so a later event for the memo may try again.

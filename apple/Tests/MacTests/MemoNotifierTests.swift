@@ -521,4 +521,72 @@ struct MemoNotifierCatchUpTests {
     notifier.withdrawForeignBanners()
     #expect(await eventually { await poster.delivered.map(\.memoID) == ["y"] })
   }
+
+  @Test("catch-ups run one at a time: a later fetch never becomes the baseline over an earlier one still in flight")
+  func overlappingCatchUps() async {
+    let poster = RecordingNotificationPoster()
+    let server = Server()
+    server.memos = [memo("a", .acted)]
+    let notifier = rig(poster, server)
+    let (opened, open) = AsyncStream<Void>.makeStream()
+    var fetches = 0
+    let running = [memo("a", .acted)]
+    let finishedMeanwhile = [memo("a", .notified)]
+    notifier.fetchRecent = {
+      fetches += 1
+      if fetches == 1 {
+        for await _ in opened { break }
+        return running
+      }
+      return finishedMeanwhile
+    }
+    let first = Task { await notifier.catchUp() }
+    #expect(await eventually { fetches == 1 })
+    let second = Task { await notifier.catchUp() }
+    try? await Task.sleep(for: .milliseconds(100))
+    #expect(fetches == 1, "the second catch-up waits for the first")
+    open.yield()
+    open.finish()
+    await first.value
+    await second.value
+    #expect(fetches == 2)
+    // The first fetch is the baseline (the memo was running), so the second one's finished memo is announced.
+    #expect(await poster.posted.map(\.memoID) == ["a"])
+  }
+
+  @Test(
+    "a retry while a failed memo's banner is being posted does not leave the failure recorded: the next failure announces"
+  )
+  func retryDuringAPost() async {
+    let poster = RecordingNotificationPoster()
+    await poster.holdPosts(true)
+    let server = Server()
+    server.memos = [memo("a", .failed)]
+    let notifier = rig(poster, server)
+    _ = notifier.noteState(of: event("a", .failed))
+    let pending = Task { await notifier.memoDone(id: "a") }
+    #expect(await eventually { await poster.postsStarted == 1 })
+    _ = notifier.noteState(of: event("a", .transcribed))
+    await poster.releasePost()
+    await pending.value
+    await poster.holdPosts(false)
+    #expect(notifier.noteState(of: event("a", .failed)), "a second failure is a new transition")
+    await notifier.memoDone(id: "a")
+    #expect(await poster.posted.count == 2)
+  }
+
+  @Test("a deleted memo that is not announceable is not recorded as done: if it comes back finished, it announces")
+  func deletedRunningMemo() async {
+    let poster = RecordingNotificationPoster()
+    let server = Server()
+    var gone = memo("a", .acted)
+    gone.deletedAt = Self.now
+    server.memos = [gone]
+    let notifier = rig(poster, server)
+    await notifier.memoDone(id: "a")
+    #expect(await poster.posted.isEmpty)
+    server.memos = [memo("a", .notified)]
+    await notifier.memoDone(id: "a")
+    #expect(await poster.posted.map(\.memoID) == ["a"])
+  }
 }

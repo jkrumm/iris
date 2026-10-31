@@ -153,7 +153,6 @@ final class MacCompositionRoot {
       guard let page = try? await self?.api.listMemos(ListMemosQuery(limit: 50)) else { return nil }
       return page.pinned + page.items
     }
-    wireNotifications()
     wireCreatedMemos()
     wireTelemetry()
   }
@@ -167,28 +166,28 @@ final class MacCompositionRoot {
     recording.onPhaseChange = { events.panel(phase: $0.telemetryName, failure: $0.telemetryFailure) }
     notifier.report = { event in
       switch event {
-      case .posted(let id, let kind): events.notification("posted", memoID: id, kind: String(describing: kind))
-      case .withdrawn(let id, let kind): events.notification("withdrawn", memoID: id, kind: String(describing: kind))
+      case .posted(let id, let kind): events.notification("posted", memoID: id, kind: kind.telemetryName)
+      case .withdrawn(let id, let kind): events.notification("withdrawn", memoID: id, kind: kind.telemetryName)
       case .caughtUp(let announced, let seen):
         events.notification("catchup", memoID: nil, kind: nil, count: announced, seen: seen)
       }
     }
     outbox.report = { action, item, ok in
-      events.outboxAction(action, memoID: item.id, kind: String(describing: item.kind), ok: ok)
+      events.outboxAction(action, memoID: item.id, kind: item.kind.telemetryName, ok: ok)
     }
   }
 
   /// Starts the relay (production only: the fake composition keeps its records in memory) and records the launch.
   func startTelemetry() {
     log.commandSource = "panel"
-    events.lifecycle("launch")
+    events.lifecycle(.launch)
     guard mode == .production else { return }
     log.start()
     // Delivered on the main queue, so the main actor is where this runs.
     NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: .main)
     {
       [events] _ in
-      MainActor.assumeIsolated { events.lifecycle("quit") }
+      MainActor.assumeIsolated { events.lifecycle(.quit) }
     }
   }
 
@@ -240,10 +239,6 @@ final class MacCompositionRoot {
         self?.recording.toggle()
       }
     }
-  }
-
-  private func wireNotifications() {
-    history.onMemoDone = { [weak self, notifier] id in self?.announce(id, with: notifier) }
   }
 
   /// The generation is read now, not when the task runs: an event of the old server that only gets to run after a switch is dropped.
@@ -392,7 +387,6 @@ final class MacCompositionRoot {
     memoStates = states
     api = StreamTappingClient(base: base, ready: signal, states: stateSignal)
     history = Self.makeHistory(client: api, mode: mode)
-    wireNotifications()
     notifier.reset(connectionID: Self.connectionID(for: credentials.load()))
     queues = [:]
     capture?.reconnect(credentials.load())
