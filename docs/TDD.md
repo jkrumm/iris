@@ -981,12 +981,31 @@ pinned simulator in light and dark (`LiveActivitySnapshotTests`, the island thro
   silently in Carbon; Settings shows "This key is not active" when
   `KeyboardShortcuts.isEnabled(for:)` is false.
 - **Panel:** a floating non-activating `NSPanel` (`NonActivatingPanel`:
-  `.borderless` + `.nonactivatingPanel`, `canBecomeKey` false, floating level,
-  every Space and over full-screen apps, top centre under the menu bar) for the
-  take, showing the timer (`ElapsedTimerText`), the level (`LevelWaveform`, the
-  last 36 buffers), a mic picker and Stop / Cancel. A refused microphone,
-  a missing connection or a failed start leaves a sentence in the same panel
-  (with "Open Settings" for the microphone) until closed.
+  `.borderless` + `.nonactivatingPanel`, floating level, every Space and over
+  full-screen apps, top centre under the menu bar) for the take, showing the
+  timer (`ElapsedTimerText`), the level (`LevelWaveform`, the last 36 buffers),
+  a mic picker and Stop / Cancel. A refused microphone, a missing connection or
+  a failed start leaves a sentence in the same panel (with "Open Settings" for
+  the microphone) until closed.
+  *Keys (Wave 19 M1):* `canBecomeKey` is **true** (a borderless window refuses
+  key status otherwise; `canBecomeMain` stays false) and `becomesKeyOnlyIfNeeded`
+  stays false, but the panel is shown with `orderFrontRegardless`, which changes
+  neither the key nor the main window: the app in front keeps its keystrokes
+  until the user clicks the panel. A click makes it key without making Iris the
+  active app (the `.nonactivatingPanel` bit is set at init; AppKit tags the
+  window then and never again, so it cannot be toggled on a live panel). That
+  gives the Microphone menu a key window to open from, Return = Stop
+  (`.keyboardShortcut(.defaultAction)`) and Escape = Close on a message
+  (`.cancelAction`); Cancel of a running take has no shortcut, so a stray Escape
+  cannot drop a recording. Researched (`agw research`, Apple's `NSPanel` /
+  `NSWindow` pages, philz.blog on the init-only bit, Apple DTS thread 826308) and
+  checked on the mini by `RecordingPanelKeyTests`: the panel is non-activating,
+  can be key, is not key after being shown, and after `makeKey()` it is key while
+  `NSWorkspace.frontmostApplication` is still the app in front. **Found:**
+  `NSApp.isActive` reads `true` after `makeKey()` (the research report expected
+  `false`); what that means for where the keystrokes go, and that the app behind
+  stops getting them while the panel is key (key-focus theft, by design), only a
+  person at a MacBook can show: device-checklist M15.
 - **Capture (Wave 18 M2):** the same `IrisCapture` package. macOS has no
   `AVAudioSession`: `MacAudioSessionController` is a no-op, and
   `DirectoryRouteManager` (over the `AudioDeviceDirectory` port;

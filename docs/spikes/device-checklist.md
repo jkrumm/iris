@@ -210,6 +210,7 @@ never record. A build signed with a stable Apple Development identity keeps its 
 | M12 | **Offline.** WLAN/Tailscale aus, Take (15 s) aufnehmen und stoppen, WLAN wieder an. | Das Memo erscheint nach der Verbindung in der History und läuft bis „Done"; nichts doppelt. | |
 | M13 | **Beenden mitten im Take.** Take starten, nach 15 s Iris mit Cmd-Q beenden, neu starten. | Beim Start sendet der Outbox, was geschlossen war (Verlust höchstens das offene Segment, siehe I2); die History zeigt ein Memo. | |
 | M14 | **Vollbild und Spaces.** Eine App im Vollbild, dann Control-Option-M. Danach auf einen anderen Space wechseln. | Das Panel erscheint über der Vollbild-App und folgt auf den anderen Space. | |
+| M15 | **Panel bekommt Tasten, nur auf Klick.** In TextEdit tippen, Control-Option-M, **weitertippen** (die Buchstaben landen weiter in TextEdit). Dann ins Panel klicken (auf eine freie Stelle), Return drücken; danach noch einmal aufnehmen und das Mikrofon-Menü im Panel öffnen. | Solange nicht geklickt wurde, bleibt TextEdit aktiv und bekommt jede Taste. Nach dem Klick löst Return „Stop" aus, das Mikrofon-Menü öffnet sich als normales Menü, das Menü von TextEdit bleibt in der Menüleiste (Iris wird nicht zur aktiven App). Notiere, ob TextEdit nach dem Klick noch Tasten bekommt (erwartet: nein, solange das Panel Key ist) und ob Escape in der Fehlermeldung „Close" auslöst. | |
 
 ## Wave 18 I7: re-test of the three device failures (fixes built, device proof pending)
 
