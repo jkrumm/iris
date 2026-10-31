@@ -1076,8 +1076,8 @@ the `IrisCore` dependency when R1 wires them together.
   - **Every record** carries `event.name`, `seq` (per-process counter), `uptime_ms` (monotonic since launch, so order and
     durations survive a phone clock step), `app.pid` (a new pid mid-take is the relaunch), `memo.id` (= the trace id, 32 hex,
     when the event belongs to a memo; the log's `traceId` is the same) and `run.id` (the word typed once in Settings >
-    Diagnostics, unset otherwise); ambient `app.state` and `process` (`com.jkrumm.iris`). `service.version` is the git sha of the
-    build (`IRIS_BUILD_SHA`, `dev` when unset), `device.name` the phone. The console line has the same name as its category
+    Diagnostics, unset otherwise); ambient `app.state` and `process` (`com.jkrumm.iris`). `service.version` is the build's
+    `IRIS_BUILD_SHA` (a git sha when the build passes one, otherwise `dev`), `device.name` the phone. The console line has the same name as its category
     prefix: subsystem `com.jkrumm.iris`, category = the part before the first dot.
   - **Delivery:** records are written to the crash file (`FileTelemetryStore`, Application Support) as they are recorded, sent at
     launch (what a killed run left), every 10 s, and on background under a background-task assertion. A record is in the file
@@ -1107,7 +1107,11 @@ the `IrisCore` dependency when R1 wires them together.
     | `liveactivity.request` / `.update` / `.end` | `activity.id`, `phase`, `ok`, `error`, `push` (token or none), `dismissal` (`immediate`\|`after`), `reason` |
     | `liveactivity.snapshot` | `reason` (`launch`\|`foreground`), `count`, `states` (`id:state;…`), `age_s` (`id:seconds;…`) |
     | `metrickit.crash` / `.hang` / `.cpu_exception` | `app.version`, `window.end`, `call_stack` (innermost frames, `binary+0xoffset`), `exception.type`, `exception.code`, `signal`, `termination.reason`, `hang_ms`, `cpu_ms` |
+    | `ui.screen` | `screen`, `shown` |
 
+  - **Read it:** a take's device timeline sits next to its server timeline in HyperDX (skills `device`, `memo-debug`): the
+    memo id without dashes joins them; order by `seq`, not by timestamp. A segment with `capture.segment.closed` and no
+    `outbox.segment.upload` is a data-loss alarm visible while the take still runs.
   - **The widget extension logs to `os.Logger` only.** A Personal Team has no App Group, the server URL lives in the app's
     `UserDefaults`, and the extension has no other way to reach it. `StartMemoIntent` and the Live Activity buttons are
     `LiveActivityIntent`s and run in the app process, where they *are* relayed; a Record press with no `intent.perform` means the

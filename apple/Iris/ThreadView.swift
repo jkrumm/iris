@@ -70,6 +70,7 @@ struct ThreadView: View {
     .safeAreaInset(edge: .bottom) { replyBar.disabled(!model.canReply) }
     .overlay(alignment: .bottom) { failureToast }
     .navigationTitle(String(localized: "Conversation", comment: "Navigation title of a thread"))
+    .reportsScreen("thread")
     .navigationBarTitleDisplayMode(.inline)
     .toolbarVisibility(.hidden, for: .tabBar)
     .task(id: refreshToken(model.route.id, model.memoIDs)) { await model.load() }

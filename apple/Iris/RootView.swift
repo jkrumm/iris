@@ -91,6 +91,24 @@ struct RootView: View {
       Text(verbatim: take.failure ?? "")
     }
     .task { await take.run() }
+    .onChange(of: visibleScreen, initial: true) { previous, screen in
+      if previous != screen {
+        DeviceLog.shared.event("ui.screen", ["screen": .string(previous), "shown": false])
+      }
+      DeviceLog.shared.event("ui.screen", ["screen": .string(screen), "shown": true])
+    }
+  }
+
+  /// What the owner is looking at, for `ui.screen`: a sheet or the take screen over the selected tab.
+  private var visibleScreen: String {
+    if take.showsFull { return "take" }
+    if take.showsModePicker { return "sheet.record_mode" }
+    if routing != nil { return "sheet.route" }
+    return switch selection {
+    case .history: "history"
+    case .stats: "stats"
+    case .settings: "settings"
+    }
   }
 }
 

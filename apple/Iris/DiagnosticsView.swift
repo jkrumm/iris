@@ -53,6 +53,20 @@ struct DiagnosticsView: View {
       }
       .listRowBackground(Theme.Surface.panel)
 
+      Section {
+        TextField(String(localized: "Run id", comment: "Diagnostics run id field"), text: $model.runID)
+          .textInputAutocapitalization(.never)
+          .autocorrectionDisabled()
+          .accessibilityIdentifier("diagnostics.runid")
+      } header: {
+        Text("Run", comment: "Diagnostics section")
+      } footer: {
+        Text(
+          "One word for a round of testing. Every device log record carries it, so one filter finds the whole round.",
+          comment: "Diagnostics footer")
+      }
+      .listRowBackground(Theme.Surface.panel)
+
       if !quarantinedFiles.isEmpty {
         Section {
           ForEach(quarantinedFiles, id: \.self) { file in

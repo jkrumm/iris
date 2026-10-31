@@ -2,6 +2,7 @@ import Foundation
 import IrisCapture
 import IrisTelemetry
 import Synchronization
+import SwiftUI
 import os
 
 #if canImport(UIKit)
@@ -34,6 +35,7 @@ nonisolated final class DeviceLog: Sendable {
   private let take = Mutex<UUID?>(nil)
 
   private static let phaseKey = "com.jkrumm.iris.telemetry.lastPhase"
+  private static let runIDKey = "com.jkrumm.iris.telemetry.runID"
 
   init(events: DeviceEventLog, exporter: RelayExporter, suiteName: String? = nil) {
     self.events = events
@@ -42,6 +44,16 @@ nonisolated final class DeviceLog: Sendable {
     let defaults = Self.defaults(suiteName)
     previousPhase = defaults.string(forKey: Self.phaseKey) ?? "first"
     events.setAmbient("process", .string("app"))
+    events.setRunID(defaults.string(forKey: Self.runIDKey))
+  }
+
+  /// The run id saved by Settings > Diagnostics (empty when none).
+  var runID: String { events.runID ?? "" }
+
+  /// Every record after this carries `run.id`; saved, so it survives a relaunch. Blank clears it.
+  func setRunID(_ id: String) {
+    events.setRunID(id)
+    defaults.set(events.runID, forKey: Self.runIDKey)
   }
 
   /// Records one event of the memo `memoID` (the trace id is the id without dashes).
@@ -154,5 +166,23 @@ final class DeviceLogIntentSink: IntentEventSink {
     var attributes: [String: AttributeValue] = ["intent": .string(intent), "ok": .bool(error == nil)]
     if let error { attributes["error"] = .string(error) }
     log.event("intent.result", severity: error == nil ? .info : .error, attributes)
+  }
+}
+
+/// `ui.screen` for a view that appears and disappears: a pushed detail, a thread, a composer.
+struct ReportsScreen: ViewModifier {
+  let name: String
+
+  func body(content: Content) -> some View {
+    content
+      .onAppear { DeviceLog.shared.event("ui.screen", ["screen": .string(name), "shown": true]) }
+      .onDisappear { DeviceLog.shared.event("ui.screen", ["screen": .string(name), "shown": false]) }
+  }
+}
+
+extension View {
+  /// Reports this view's name to the device log when it appears and when it goes (`ui.screen`).
+  func reportsScreen(_ name: String) -> some View {
+    modifier(ReportsScreen(name: name))
   }
 }

@@ -27,6 +27,18 @@ HyperDX, `service.name = iris-server`, trace id = `<memo id without dashes>`: ro
 trace `<id without dashes>`". The shape was verified in Wave 4 (13 OK spans + 3 logs for a smoke memo); it was not re-queried this wave.
 Local server logs: `make logs` (bounded tail of `~/Library/Logs/iris*.log`).
 
+## The device side of the timeline (unverified until a device take)
+
+A memo recorded on the phone has a second half of the story under the same trace id: `service.name = iris-ios` records (`take.phase`, `capture.*`,
+`audio.*`, `outbox.*`, `intent.*`, `liveactivity.*`, `metrickit.*`; TDD §8). Query the trace id (the memo id without dashes) without a service filter to see
+device and server together, ordered by `seq` for the phone's rows (`uptime_ms` for durations) and by timestamp for the server's:
+
+- the phone says the take ended (`take.phase` `stopped`, `outbox.complete.sent` `status=ok`) and the memo is stuck in `receiving`: compare its `segment_count`
+  with `segmentCount` here, and look for a `capture.segment.closed` index that has no `outbox.segment.upload` (the file is in `capture/quarantine/` or still queued);
+- no `iris-ios` rows at all: the take never started (see `intent.perform`) or the phone could not reach the server and the records wait in its crash file for the next launch.
+
+Full recipe, the `run.id` filter and what each record means: skill `device`, "One take's device timeline".
+
 ## Retry
 
 `POST /v1/memos/$ID/retry {"from":"<step>"}` re-drives from that step and clears the columns of it and later steps; 409 unless the memo is

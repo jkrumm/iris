@@ -78,7 +78,9 @@ final class CompositionRoot: CaptureIntentHandler, PlaybackIntentHandler {
     arguments: [String] = ProcessInfo.processInfo.arguments,
     credentials: any CredentialStore = KeychainCredentialStore()
   ) {
-    let diagnostics = DiagnosticsModel(pasteboard: SystemPasteboard())
+    let log = DeviceLog.shared
+    let diagnostics = DiagnosticsModel(
+      pasteboard: SystemPasteboard(), runID: log.runID, onRunIDChange: { log.setRunID($0) })
     self.diagnostics = diagnostics
     let pinnedNow = SampleData.now(arguments: arguments)
     sampleNow = pinnedNow
