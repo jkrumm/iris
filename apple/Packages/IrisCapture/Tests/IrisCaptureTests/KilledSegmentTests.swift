@@ -366,13 +366,24 @@
     func finish() async -> SegmentWriter.Outcome { outcome }
   }
 
-  /// A segment whose writer never answers `finishWriting`.
-  private struct HungSegment: ClosableSegment {
+  /// A segment whose writer does not answer `finishWriting` until the test releases it (the teardown).
+  private final class HungSegment: ClosableSegment {
     let url: URL
+    private let gate: AsyncStream<Void>
+    private let open: AsyncStream<Void>.Continuation
+
+    init(url: URL) {
+      self.url = url
+      (gate, open) = AsyncStream.makeStream(of: Void.self)
+    }
+
     func finish() async -> SegmentWriter.Outcome {
-      try? await Task.sleep(for: .seconds(3_600))
+      for await _ in gate {}  // ends when `release()` finishes the stream
       return SegmentWriter.Outcome(byteCount: 1_000, readableFrames: 160_000, error: nil)
     }
+
+    /// The hung call returns, late.
+    func release() { open.finish() }
   }
 
   /// Appended by the closer's tasks, read after `idle()`.
@@ -462,13 +473,21 @@
       let published = Published()
       let closer = SegmentCloser(sampleRate: 16_000, finishLimit: .milliseconds(50)) { published.add($0) }
       closer.close(whole(0), index: 0, memoID: memo(1), duration: 10, reason: .duration)
-      closer.close(HungSegment(url: file(1)), index: 1, memoID: memo(1), duration: 10, reason: .duration)
+      let hung = HungSegment(url: file(1))
+      closer.close(hung, index: 1, memoID: memo(1), duration: 10, reason: .duration)
       closer.close(whole(2), index: 2, memoID: memo(1), duration: 10, reason: .duration)
 
       await closer.idle()
 
       #expect(indices(published.all) == [0], "the hung close publishes nothing and the one behind it is held back")
       #expect(failures(published.all) == 1, "the take ends there, with the prefix it has")
+
+      // The hung call returns late (here: the teardown). The close already failed in order; a late answer changes nothing.
+      let before = published.all
+      hung.release()
+      try? await Task.sleep(for: .milliseconds(100))
+      await closer.idle()
+      #expect(published.all == before, "a late finish is not published behind the failure")
     }
 
     @Test func aFinishThatReturnsInTimeIsNotCutShort() async {
