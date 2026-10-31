@@ -140,6 +140,7 @@
         throw CaptureError.engineFailure("the take ended while the engine started")
       }
       engine = fresh.engine
+      if verdict == .keepPaused { engine.pause() }  // paused while the first engine was coming up
     }
 
     /// Production `TapEngine`: the input tap converts to the target format and feeds `sink`.
@@ -148,7 +149,7 @@
       let target: AVAudioFormat
       let sink: AsyncStream<[Float]>.Continuation
 
-      func removeTap() { try? IrisObjCGuard.perform { engine.inputNode.removeTap(onBus: 0) } }
+      func removeTap() { Self.guarded("removing the tap") { engine.inputNode.removeTap(onBus: 0) } }
 
       func installTap() throws {
         let input = engine.inputNode
@@ -184,7 +185,16 @@
         if let startError { throw startError }
       }
 
-      func stop() { try? IrisObjCGuard.perform { engine.stop() } }
+      func stop() { Self.guarded("stopping the engine") { engine.stop() } }
+
+      /// Teardown must not abort the process, and must not vanish either: an exception is logged.
+      private static func guarded(_ what: String, _ work: () -> Void) {
+        do {
+          try IrisObjCGuard.perform(work)
+        } catch {
+          Log.capture.error("\(what, privacy: .public) raised: \(error.localizedDescription, privacy: .public)")
+        }
+      }
     }
 
     /// Nonisolated on purpose: the tap block runs on the audio thread and must not inherit the actor.

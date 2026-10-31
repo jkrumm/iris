@@ -118,7 +118,7 @@ struct OutboxSweepTests {
   /// A take finished by a stop that gave up on the recorder (`complete` queued with the segments it had), then the app was
   /// killed before the tail segment's file reached the saved queue: segments 0 and 1 are saved and uploaded, 2 is on disk.
   private func finishedTakeWithATail(
-    _ id: MemoID, in directory: URL, completeMayHaveLanded: Bool?
+    _ id: MemoID, in directory: URL, completeMayHaveLanded: Bool
   ) throws -> OutboxRecord {
     var record = try crashedTake(id, in: directory)
     record.memos = [
@@ -128,12 +128,11 @@ struct OutboxSweepTests {
     return record
   }
 
-  @Test(arguments: [nil, false] as [Bool?])
-  func aTailOfAFinishedTakeWhoseCompleteWasNeverSentIsAdoptedAndCompleteCountsIt(never: Bool?) async throws {
+  @Test func aTailOfAFinishedTakeWhoseCompleteWasNeverSentIsAdoptedAndCompleteCountsIt() async throws {
     let directory = try temporaryDirectory()
     defer { try? FileManager.default.removeItem(at: directory) }
     let id = memo(1)
-    let record = try finishedTakeWithATail(id, in: directory, completeMayHaveLanded: never)
+    let record = try finishedTakeWithATail(id, in: directory, completeMayHaveLanded: false)
     let tail = try file(directory, id, 2)
     let harness = try await OutboxHarness(record: record)
 
@@ -168,7 +167,7 @@ struct OutboxSweepTests {
     let directory = try temporaryDirectory()
     defer { try? FileManager.default.removeItem(at: directory) }
     let id = memo(1)
-    let record = try finishedTakeWithATail(id, in: directory, completeMayHaveLanded: nil)
+    let record = try finishedTakeWithATail(id, in: directory, completeMayHaveLanded: false)
     _ = try file(directory, id, 3)
     let harness = try await OutboxHarness(record: record)
 

@@ -34,7 +34,7 @@ public struct OutboxStateMachine: Sendable {
   /// `createMayHaveLanded` as it was before `dispatch` handed the create out, for `revertDispatch`. Not persisted.
   private var flagBeforeDispatch: [MemoID: Bool] = [:]
   /// The same for a memo's `completeMayHaveLanded`.
-  private var completeFlagBeforeDispatch: [MemoID: Bool?] = [:]
+  private var completeFlagBeforeDispatch: [MemoID: Bool] = [:]
   /// Memos discarded in this run, so a follower can tell a discard from a memo the server has completed.
   private var discarded: Set<MemoID> = []
   /// Oldest first; bounded so the persisted record does not grow without limit. Holds the memos that completed and the
@@ -65,7 +65,19 @@ public struct OutboxStateMachine: Sendable {
       if deletion.state == .uploading { deletion.state = .pending }
       deletions[deletion.memoID] = deletion
     }
+    settleAssumedCompleteFlags()
     recoverUnfinishedTakes()
+  }
+
+  /// A memo from a record without `completeMayHaveLanded` was read as "may have landed". `complete` goes out only after the
+  /// item's create succeeded and every segment is uploaded, so a queue in which either is still open proves it was not sent.
+  private mutating func settleAssumedCompleteFlags() {
+    for (memoID, memo) in memos where memo.completeFlagIsAssumed {
+      memos[memoID]?.completeFlagIsAssumed = false
+      guard let item = items[memoID] else { continue }
+      let segmentOpen = entries.values.contains { $0.key.memoID == memoID && $0.state != .uploaded }
+      if item.create != .uploaded || segmentOpen { memos[memoID]?.completeMayHaveLanded = false }
+    }
   }
 
   public var record: OutboxRecord {
@@ -333,7 +345,7 @@ public struct OutboxStateMachine: Sendable {
     guard items[segment.memoID]?.kind == .voice, let memo = memos[segment.memoID],
       entries[SegmentKey(memoID: segment.memoID, index: segment.index)] == nil
     else { return false }
-    let completeNotSent = memo.completeMayHaveLanded != true
+    let completeNotSent = !memo.completeMayHaveLanded
     let grows = segment.index == memo.segmentCount && (recoveredTakes.contains(memo.memoID) || completeNotSent)
     guard segment.index < memo.segmentCount || grows else { return false }
     guard enqueue(segment, withheld: true) else { return false }
@@ -415,7 +427,7 @@ public struct OutboxStateMachine: Sendable {
       case .complete(let memoID, _):
         guard memos[memoID]?.completion == .uploading else { continue }
         memos[memoID]?.completion = .pending
-        memos[memoID]?.completeMayHaveLanded = completeFlagBeforeDispatch.removeValue(forKey: memoID) ?? nil
+        memos[memoID]?.completeMayHaveLanded = completeFlagBeforeDispatch.removeValue(forKey: memoID) ?? false
       case .delete(let memoID):
         if deletions[memoID]?.state == .uploading { deletions[memoID]?.state = .pending }
       }
@@ -453,6 +465,25 @@ public struct OutboxStateMachine: Sendable {
     guard var memo = memos[memoID] else { return }
     memo.attempts += 1
     memo.completion = failedState(attempts: memo.attempts, now: now, permanent: permanent, transient: transient)
+    memos[memoID] = memo
+    items[memoID]?.lastError = reason
+  }
+
+  /// The server refused `complete` for lack of segments the phone sent: the listed ones that are still held go back to pending
+  /// and `complete` waits for them and for a backoff, counted like any failure so that it ends in a stall (a server that keeps
+  /// losing them) and not in a loop. Nothing to send again (the index is not one of ours) is the permanent refusal it was.
+  public mutating func completeMissingSegments(_ memoID: MemoID, missing: [Int], now: Date, reason: String) {
+    guard var memo = memos[memoID] else { return }
+    var requeued = false
+    for index in missing {
+      let key = SegmentKey(memoID: memoID, index: index)
+      guard index < memo.segmentCount, entries[key] != nil else { continue }
+      entries[key]?.state = .pending
+      entries[key]?.attempts = 0
+      requeued = true
+    }
+    memo.attempts += 1
+    memo.completion = failedState(attempts: memo.attempts, now: now, permanent: !requeued, transient: false)
     memos[memoID] = memo
     items[memoID]?.lastError = reason
   }

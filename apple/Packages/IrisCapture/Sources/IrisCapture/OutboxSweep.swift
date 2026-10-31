@@ -12,8 +12,11 @@ public struct SweepReport: Sendable, Equatable {
   public var quarantined: [URL] = []
   /// Files left where they are because a quarantined queue file names them.
   public var kept: [URL] = []
+  /// Files the sweep could neither attach nor move: still in the capture directory, tried again at the next launch. Settings
+  /// lists them so they are not invisible.
+  public var stuck: [URL] = []
 
-  public var isEmpty: Bool { adopted.isEmpty && quarantined.isEmpty && kept.isEmpty }
+  public var isEmpty: Bool { adopted.isEmpty && quarantined.isEmpty && kept.isEmpty && stuck.isEmpty }
 }
 
 /// Reads a segment file back: its size and length, or `nil` when it is not a complete audio file (a take the app died in the
@@ -45,6 +48,14 @@ public protocol SegmentFileStore: Sendable {
   func setAside(_ url: URL) async -> URL?
   /// Every file earlier sweeps set aside, oldest first.
   func setAsideFiles() async -> [SetAsideFile]
+  /// Name, size and date of files in the capture directory, for Settings; those that are no longer there are left out.
+  func describe(_ urls: [URL]) async -> [SetAsideFile]
+}
+
+extension SegmentFileStore {
+  public func describe(_ urls: [URL]) async -> [SetAsideFile] {
+    urls.map { SetAsideFile(url: $0, byteCount: 0, modifiedAt: nil) }
+  }
 }
 
 /// Production store: a capture directory and a `quarantine/` folder next to its files.
@@ -67,6 +78,18 @@ public struct DirectorySegmentFiles: SegmentFileStore {
   }
 
   public func inspect(_ url: URL) -> (byteCount: Int, duration: TimeInterval)? { inspector(url) }
+
+  public func describe(_ urls: [URL]) async -> [SetAsideFile] {
+    urls.compactMap { url in
+      guard let attributes = try? FileManager.default.attributesOfItem(atPath: url.path) else {
+        // Still there but unreadable: listed by name with an unknown size, not dropped from the list.
+        return FileManager.default.fileExists(atPath: url.path)
+          ? SetAsideFile(url: url, byteCount: 0, modifiedAt: nil) : nil
+      }
+      return SetAsideFile(
+        url: url, byteCount: (attributes[.size] as? Int) ?? 0, modifiedAt: attributes[.modificationDate] as? Date)
+    }
+  }
 
   /// Moves the file into the quarantine folder under its own name, or a unique one when that is taken.
   public func setAside(_ url: URL) async -> URL? {
@@ -116,7 +139,7 @@ extension Outbox {
       }
       return (left.0.uuidString, left.1) < (right.0.uuidString, right.1)
     }
-    guard !candidates.isEmpty else { return report }
+    guard !candidates.isEmpty else { return await concluded(report, files: files) }
     var heldQueues: [Data] = []
     var unreadable: [String] = []
     for file in await setAsideQueueFiles() {
@@ -143,15 +166,22 @@ extension Outbox {
         report.adopted.append(url)
       } else if let moved = await files.setAside(url) {
         report.quarantined.append(moved)
+      } else {
+        report.stuck.append(url)
       }
     }
     // Saved before anything goes up, as for any new segment (the save releases the withheld ones).
     if !report.adopted.isEmpty { await flush() }
-    if !report.isEmpty {
-      Log.outbox.notice(
-        "capture sweep: \(report.adopted.count) adopted, \(report.quarantined.count) quarantined, \(report.kept.count) kept"
-      )
-    }
+    return await concluded(report, files: files)
+  }
+
+  /// Logs the sweep and remembers the files it could not deal with, for Settings.
+  private func concluded(_ report: SweepReport, files: any SegmentFileStore) async -> SweepReport {
+    noteStrays(report.stuck, in: files)
+    guard !report.isEmpty else { return report }
+    Log.outbox.notice(
+      "capture sweep: \(report.adopted.count) adopted, \(report.quarantined.count) quarantined, \(report.kept.count) kept, \(report.stuck.count) stuck"
+    )
     return report
   }
 

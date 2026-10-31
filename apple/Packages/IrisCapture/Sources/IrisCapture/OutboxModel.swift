@@ -39,8 +39,39 @@ public struct OutboxMemo: Sendable, Equatable, Codable {
   public var completion: OutboxState
   public var attempts: Int
   /// Set when `complete` is handed out and saved with it, never cleared: from then on the server may hold the memo closed with
-  /// `segmentCount` segments, so a tail segment found later cannot join it. `nil` in a record written before the flag.
-  public internal(set) var completeMayHaveLanded: Bool? = nil
+  /// `segmentCount` segments, so a tail segment found later cannot join it. Always written; a record from before the flag
+  /// reads it from the completion state (see `init(from:)`).
+  public internal(set) var completeMayHaveLanded: Bool
+  /// Not persisted: the record had no flag, so `completeMayHaveLanded` was assumed. The state machine settles it on load
+  /// (`OutboxStateMachine.init`), where the queue can prove the completion was never sent.
+  var completeFlagIsAssumed = false
+
+  private enum CodingKeys: String, CodingKey {
+    case memoID, segmentCount, completion, attempts, completeMayHaveLanded
+  }
+
+  init(memoID: MemoID, segmentCount: Int, completion: OutboxState, attempts: Int, completeMayHaveLanded: Bool = false) {
+    self.memoID = memoID
+    self.segmentCount = segmentCount
+    self.completion = completion
+    self.attempts = attempts
+    self.completeMayHaveLanded = completeMayHaveLanded
+  }
+
+  /// A record written before `completeMayHaveLanded` has no flag, and the memo alone does not prove `complete` was never sent:
+  /// a completion that is `pending` with no attempts is also what "retry now" leaves behind (it resets the attempts). So an
+  /// absent flag reads "may have landed" and is marked assumed; the state machine clears it again when the rest of the queue
+  /// proves otherwise (the create is not uploaded, or a segment is not), since `complete` only follows both.
+  public init(from decoder: any Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    memoID = try container.decode(MemoID.self, forKey: .memoID)
+    segmentCount = try container.decode(Int.self, forKey: .segmentCount)
+    completion = try container.decode(OutboxState.self, forKey: .completion)
+    attempts = try container.decode(Int.self, forKey: .attempts)
+    let stored = try container.decodeIfPresent(Bool.self, forKey: .completeMayHaveLanded)
+    completeMayHaveLanded = stored ?? true
+    completeFlagIsAssumed = stored == nil
+  }
 }
 
 public enum OutboxItemKind: Sendable, Equatable, Codable {
@@ -162,6 +193,19 @@ public struct PermanentTransferError: Error, Sendable, Equatable {
   public let message: String
 
   public init(_ message: String) {
+    self.message = message
+  }
+}
+
+/// `complete` was refused because the server holds fewer segments than the phone sent (422 `missing_segments`): a segment it
+/// had was lost (a restored backup, a write that was refused in flight). The files are still here until `complete` succeeds, so
+/// the outbox sends the listed ones again and then tries `complete` again, on a backoff, instead of stalling for good.
+public struct MissingSegmentsError: Error, Sendable, Equatable {
+  public let indices: [Int]
+  public let message: String
+
+  public init(indices: [Int], message: String) {
+    self.indices = indices
     self.message = message
   }
 }

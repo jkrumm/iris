@@ -86,20 +86,25 @@ nonisolated struct SetAsideSummary: Equatable, Sendable {
 
   var queueFiles: [SetAsideFile] = []
   var recordings: [SetAsideFile] = []
+  /// Recordings the sweep could not move out of the capture directory: kept where they are and
+  /// tried again at the next launch, listed here so they are not invisible.
+  var unmoved: [SetAsideFile] = []
 
-  var count: Int { queueFiles.count + recordings.count }
-  var byteCount: Int { (queueFiles + recordings).reduce(0) { $0 + $1.byteCount } }
+  var count: Int { queueFiles.count + recordings.count + unmoved.count }
+  var byteCount: Int { (queueFiles + recordings + unmoved).reduce(0) { $0 + $1.byteCount } }
   var isEmpty: Bool { count == 0 }
   var exceedsBound: Bool { count > Self.countBound || byteCount > Self.byteBound }
 
   /// One line per file (name, size, date): what a share or a copy of the diagnostics carries. No audio, no memo content.
   var report: String {
     let header = "Set-aside files: \(count), \(Self.size(byteCount))"
-    let lines = (queueFiles + recordings).map { file in
-      let date = file.modifiedAt.map { $0.formatted(.iso8601) } ?? "-"
-      return "\(file.url.lastPathComponent)  \(Self.size(file.byteCount))  \(date)"
-    }
+    let lines = (queueFiles + recordings).map { Self.line($0) } + unmoved.map { Self.line($0, note: "  (not moved)") }
     return ([header] + lines).joined(separator: "\n")
+  }
+
+  private static func line(_ file: SetAsideFile, note: String = "") -> String {
+    let date = file.modifiedAt.map { $0.formatted(.iso8601) } ?? "-"
+    return "\(file.url.lastPathComponent)  \(size(file.byteCount))  \(date)\(note)"
   }
 
   static func size(_ bytes: Int) -> String {
