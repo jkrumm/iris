@@ -5,6 +5,11 @@ import IrisCore
 /// The one door to a take in the app: the take screen, the banner, the start intent and the Live Activity buttons all go
 /// through it. A take starts the capture session, feeds the silent microphone under `-IrisFakeCapture`, and requests the
 /// take's Live Activity (Apple stops a background recording that has none), so leaving the app moves the take there.
+///
+/// Recording takes priority over playback, through one synchronous flag, ``captureActive``: a start sets it before it awaits
+/// anything, and it is cleared only once the session has ended (the recorder's stop has returned). The player reads it
+/// right before it starts anything. A thread's hold-to-talk takes the same claim (``claimCapture()``) through
+/// ``OutboxVoiceReplyCapture``.
 @MainActor
 final class TakeController {
   private let stack: CaptureStack
@@ -13,6 +18,12 @@ final class TakeController {
   private let microphone: FakeMicrophone?
   private let isConfigured: () -> Bool
   private let requestPermission: @Sendable () async -> Bool
+  private let speech: SpeechPlayer?
+  /// A take holds the microphone or is about to: set synchronously by ``claimCapture()``, cleared by ``releaseCapture(_:)``
+  /// when the session has ended. No timeout.
+  private(set) var captureActive = false
+  /// The latest claim, so a release that belongs to an earlier take cannot clear a newer one.
+  private var captureClaim = 0
   /// `false` when the engine recorder could not be built: nothing can record.
   let canRecord: Bool
   /// The start in flight: a second start while it runs joins it instead of racing it (the Control and the record button
@@ -21,7 +32,8 @@ final class TakeController {
 
   init(
     stack: CaptureStack, liveActivity: TakeLiveActivityCoordinator, outbox: OutboxService, microphone: FakeMicrophone?,
-    canRecord: Bool, isConfigured: @escaping () -> Bool, requestPermission: @escaping @Sendable () async -> Bool
+    canRecord: Bool, isConfigured: @escaping () -> Bool, requestPermission: @escaping @Sendable () async -> Bool,
+    speech: SpeechPlayer? = nil
   ) {
     self.stack = stack
     self.liveActivity = liveActivity
@@ -30,6 +42,7 @@ final class TakeController {
     self.canRecord = canRecord
     self.isConfigured = isConfigured
     self.requestPermission = requestPermission
+    self.speech = speech
   }
 
   /// Whether a take can be started right now (a server is saved and a recorder exists).
@@ -40,10 +53,43 @@ final class TakeController {
   @discardableResult
   func start(mode: MemoMode) async throws -> MemoID {
     if let starting { return try await starting.value }
+    let claim = claimCapture()
     let task = Task { try await beginOrJoinRunning(mode: mode) }
     starting = task
     defer { starting = nil }
-    return try await task.value
+    do {
+      return try await task.value
+    } catch {
+      await releaseCapture(claim)
+      throw error
+    }
+  }
+
+  /// A take is about to open the microphone: playback stops now and nothing starts until ``releaseCapture(_:)``. Called
+  /// before the first `await` of a start, a thread's included. The token goes back to `releaseCapture`.
+  @discardableResult
+  func claimCapture() -> Int {
+    captureClaim += 1
+    captureActive = true
+    speech?.pauseForTake()
+    return captureClaim
+  }
+
+  /// The take of `claim` is over, or never began: clears the flag unless a later claim exists or the session still holds a
+  /// take (a start that failed because another take was running does not end that one).
+  func releaseCapture(_ claim: Int) async {
+    guard claim == captureClaim else { return }
+    let holding = await sessionHoldsMicrophone()
+    guard claim == captureClaim, !holding else { return }
+    captureActive = false
+  }
+
+  private func sessionHoldsMicrophone() async -> Bool {
+    guard let session = try? await stack.session() else { return false }
+    switch await session.current.phase {
+    case .starting, .recording, .paused, .stopping: return true
+    case .idle, .failed: return false
+    }
   }
 
   /// The shared start: callers that joined it get the same answer, the recovery included.
@@ -86,8 +132,16 @@ final class TakeController {
   /// Ends the take: the memo is finished in the outbox. `nil` when there is none, or nothing was said.
   @discardableResult
   func stop() async throws -> TakeResult? {
+    let claim = captureClaim
     await microphone?.stop()
-    return try await stack.session().stop()
+    do {
+      let result = try await stack.session().stop()
+      await releaseCapture(claim)
+      return result
+    } catch {
+      await releaseCapture(claim)
+      throw error
+    }
   }
 
   /// Drops the take. History stops showing its memo at once (the server may already have it), and the outbox deletes it there.
@@ -95,9 +149,12 @@ final class TakeController {
   /// then sent, and the Discard that arrived late changes nothing. Throws `queueUnavailable` when the capture session cannot
   /// be opened (the outbox file is unreadable): nothing was discarded, and the caller says so instead of looking done.
   func cancel() async throws {
+    let claim = captureClaim
     await microphone?.stop()
     guard let session = try? await stack.session() else { throw StartMemoError.queueUnavailable }
-    if let id = await session.cancel() { await outbox.created.forget(id.wireID) }
+    let id = await session.cancel()
+    await releaseCapture(claim)
+    if let id { await outbox.created.forget(id.wireID) }
   }
 
   /// Pauses a recording take, resumes a paused one.

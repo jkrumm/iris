@@ -117,14 +117,16 @@ final class CompositionRoot: CaptureIntentHandler, PlaybackIntentHandler {
       liveActivity = coordinator
       takeController = TakeController(
         stack: stack, liveActivity: coordinator, outbox: service, microphone: mic, canRecord: true,
-        isConfigured: { true }, requestPermission: { true })
+        isConfigured: { true }, requestPermission: { true }, speech: speech)
       history = HistoryModel(client: fake, evictMedia: { MediaDownloader.shared.evict(memoID: $0) })
       stats = StatsModel(client: fake)
       settings = SettingsModel(client: fake, queue: service)
       replyImages = ReplyImageStore(
         loader: MediaAssetLoader(source: { FakeMediaSource() }, downloader: .shared))
       voiceReply = OutboxVoiceReplyCapture(
-        stack: stack, service: service, onBegan: { mic.start() }, willEnd: { await mic.stop() })
+        stack: stack, service: service, claim: { [takeController] in takeController.claimCapture() },
+        release: { [takeController] in await takeController.releaseCapture($0) }, onBegan: { mic.start() },
+        willEnd: { await mic.stop() })
       take = TakeModel(controller: takeController)
     } else {
       let saved = credentials.load()
@@ -148,7 +150,7 @@ final class CompositionRoot: CaptureIntentHandler, PlaybackIntentHandler {
       takeController = TakeController(
         stack: production.stack, liveActivity: coordinator, outbox: service, microphone: nil,
         canRecord: production.canRecord, isConfigured: { credentials.load() != nil },
-        requestPermission: { await AVAudioApplication.requestRecordPermission() })
+        requestPermission: { await AVAudioApplication.requestRecordPermission() }, speech: speech)
       history = HistoryModel(
         client: client, hiddenStore: UserDefaultsHiddenMemoStore(),
         evictMedia: { MediaDownloader.shared.evict(memoID: $0) })
@@ -157,7 +159,9 @@ final class CompositionRoot: CaptureIntentHandler, PlaybackIntentHandler {
       fakeCapture = nil
       voiceReply = OutboxVoiceReplyCapture(
         stack: production.stack, service: service, isAvailable: production.canRecord,
-        requestPermission: { await AVAudioApplication.requestRecordPermission() })
+        requestPermission: { await AVAudioApplication.requestRecordPermission() },
+        claim: { [takeController] in takeController.claimCapture() },
+        release: { [takeController] in await takeController.releaseCapture($0) })
       replyImages = ReplyImageStore(
         loader: MediaAssetLoader(
           source: { Self.mediaSource(for: credentials.load()) }, downloader: .shared))
@@ -166,6 +170,9 @@ final class CompositionRoot: CaptureIntentHandler, PlaybackIntentHandler {
     let outbox = outbox
     let fake = mode == .fake
     let saved = self.credentials
+    // Every playback start reads the take controller's capture flag at the moment it starts. Weak: the controller owns the
+    // player, not the other way round.
+    speech.captureActive = { [weak controller = takeController] in controller?.captureActive ?? false }
     let reader = SpokenReplies(
       store: fake ? InMemorySpokenRepliesStore() : UserDefaultsSpokenRepliesStore(), speech: speech, client: api,
       media: { fake ? FakeMediaSource() : Self.mediaSource(for: saved?.load()) },
