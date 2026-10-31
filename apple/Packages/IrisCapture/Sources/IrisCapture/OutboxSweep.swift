@@ -48,6 +48,14 @@ public protocol SegmentFileStore: Sendable {
   func setAside(_ url: URL) async -> URL?
   /// Every file earlier sweeps set aside, oldest first.
   func setAsideFiles() async -> [SetAsideFile]
+  /// Name, size and date of files in the capture directory, for Settings; those that are no longer there are left out.
+  func describe(_ urls: [URL]) async -> [SetAsideFile]
+}
+
+extension SegmentFileStore {
+  public func describe(_ urls: [URL]) async -> [SetAsideFile] {
+    urls.map { SetAsideFile(url: $0, byteCount: 0, modifiedAt: nil) }
+  }
 }
 
 /// Production store: a capture directory and a `quarantine/` folder next to its files.
@@ -70,6 +78,14 @@ public struct DirectorySegmentFiles: SegmentFileStore {
   }
 
   public func inspect(_ url: URL) -> (byteCount: Int, duration: TimeInterval)? { inspector(url) }
+
+  public func describe(_ urls: [URL]) async -> [SetAsideFile] {
+    urls.compactMap { url in
+      guard let attributes = try? FileManager.default.attributesOfItem(atPath: url.path) else { return nil }
+      return SetAsideFile(
+        url: url, byteCount: (attributes[.size] as? Int) ?? 0, modifiedAt: attributes[.modificationDate] as? Date)
+    }
+  }
 
   /// Moves the file into the quarantine folder under its own name, or a unique one when that is taken.
   public func setAside(_ url: URL) async -> URL? {
@@ -119,7 +135,7 @@ extension Outbox {
       }
       return (left.0.uuidString, left.1) < (right.0.uuidString, right.1)
     }
-    guard !candidates.isEmpty else { return concluded(report) }
+    guard !candidates.isEmpty else { return await concluded(report, files: files) }
     var heldQueues: [Data] = []
     var unreadable: [String] = []
     for file in await setAsideQueueFiles() {
@@ -152,12 +168,12 @@ extension Outbox {
     }
     // Saved before anything goes up, as for any new segment (the save releases the withheld ones).
     if !report.adopted.isEmpty { await flush() }
-    return concluded(report)
+    return await concluded(report, files: files)
   }
 
   /// Logs the sweep and remembers the files it could not deal with, for Settings.
-  private func concluded(_ report: SweepReport) -> SweepReport {
-    noteStrays(report.stuck)
+  private func concluded(_ report: SweepReport, files: any SegmentFileStore) async -> SweepReport {
+    noteStrays(report.stuck, in: files)
     guard !report.isEmpty else { return report }
     Log.outbox.notice(
       "capture sweep: \(report.adopted.count) adopted, \(report.quarantined.count) quarantined, \(report.kept.count) kept, \(report.stuck.count) stuck"
