@@ -553,6 +553,8 @@ public actor CaptureSession {
   /// Behind the gate, like every other change of the session: a take that is starting holds it until it has activated, and finds
   /// the take running when it is this one's turn, so a late deactivation never lands on top of an activation.
   private func stopsDrained() async {
+    await enter()
+    defer { leave() }
     guard deactivationPending, unreturnedStops.isEmpty, state.phase == .idle else { return }
     deactivationPending = false
     try? await session.deactivate()
