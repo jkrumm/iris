@@ -8,9 +8,9 @@ paths: ["apple/**"]
 Generic Swift lives in `.claude/rules/swift.md`; this file is what only Iris has. Design: `docs/TDD.md` §4–§8.
 
 - **Never `AVAudioRecorder`** (TDD D5, §4 Capture engine). Capture is an `AVAudioEngine` input tap, `AVAudioConverter`, one
-  `AVAudioFile` (AAC, 16 kHz mono) per segment. A recorder stop/start drops audio; continuous buffers keep the server-side concat gapless.
+  `SegmentWriter` (an `AVAssetWriter` fragmented m4a, AAC 16 kHz mono) per segment, never an `AVAudioFile` (its m4a has no index until closed and is unreadable after a kill). A recorder stop/start drops audio; continuous buffers keep the server-side concat gapless.
 - **Segments rotate** every 10 s of frames, on a mic switch and on an interruption (D4). Each closed file goes to the `Outbox`; a crash
-  loses at most 10 s. The rotation and the outbox state machine are pure types (`SegmentRotator`, `OutboxStateMachine`) tested on fakes.
+  loses about a second (the open fragment), the rest of the open segment plays and the startup sweep adopts it. The rotation and the outbox state machine are pure types (`SegmentRotator`, `OutboxStateMachine`) tested on fakes.
 - **Outbox contract:** one persistent entry per (memo, segment), uploads idempotent by index and sha256 (same bytes no-op, different
   bytes 409), retries survive relaunch, `complete {segmentCount}` only after every index is uploaded. Never delete a segment file
   before the server has acknowledged it.

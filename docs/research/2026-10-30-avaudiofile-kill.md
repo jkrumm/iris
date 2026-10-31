@@ -53,7 +53,11 @@ Segments are written by `SegmentWriter`, an `AVAssetWriter` fragmented m4a (`mov
 recovery code**: the startup sweep already adopts a file the production inspector (`AVAudioFile(forReading:)`) reads, so a killed
 tail is adopted like any orphan (the next index of a take the app died in) and sent with the memo; a file that does not read
 (killed before the first fragment) is set aside in `quarantine/`, never deleted. A segment is queued only after its writer has
-finished and the file reads back; one that does not is left on disk for the sweep and fails the take.
+finished and the file reads back. A file that ends where the encoder stopped is queued with the duration it holds and fails the
+take; one that does not read back is left on disk and fails it; either way no later segment of the take is queued, so the
+outbox never waits for a missing index. A take killed in its first segment is the common case (the first 10 s of every take):
+the startup recovery used to drop a take with no queued segment before the sweep ran, which quarantined the playable file;
+it now keeps the item, hidden, until the sweep has attached index 0.
 
 Why not the shadow design: a second file per open segment, a transcode at launch and the rules for who owns, replaces or deletes
 what (nine data-safety findings per review round on the parked branch). Why not PCM only with a transcode at close: an encode

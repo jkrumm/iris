@@ -726,7 +726,7 @@ the runner needs a workflow step and was left out of this change (owned files: `
     `docs/research/2026-10-30-avaudiofile-kill.md`);
   - rotates files every 10 s of frames, on a mic switch, and on an
     interruption;
-  - each closed file goes to the `Outbox`; a segment still open when the app dies or the recorder fails stays an unfinalised m4a (no `moov` atom, ffprobe cannot read it), which the startup sweep quarantines (Wave 17 D2: three such files, a few seconds of audio each; a crash-safe container is the fix);
+  - each closed file goes to the `Outbox`; a segment still open when the app dies is a fragmented m4a that plays up to its last whole fragment (all but about a second; Wave 17 D2 lost three whole segments to the unfragmented format), and the startup sweep adopts it as the take's next segment, a killed first segment included (the take's item waits for the sweep, which attaches index 0 or drops the empty take); a file that does not play (killed before the first fragment) is set aside, never deleted. After a segment fails to close (the encoder stopped, the file does not read back) no later segment of the take is queued: a prefix that still plays goes up with its real duration, the take fails, and the later files stay on disk;
   - a level meter is fed from the tap's RMS on a perceptual scale (`InputLevel`, Wave 17 I5): linear in dB between −50 dBFS (0) and −10 dBFS (1), a clipped sample reads 1; normal speech
     (about −30 dBFS) sits at the middle, where the linear amplitude left it near the floor;
   - an engine configuration change (a mic switch, AirPods connecting) closes the segment and replaces the engine with a fresh
