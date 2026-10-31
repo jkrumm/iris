@@ -11,7 +11,7 @@ struct MacMenuPanel: View {
       Divider()
       switch root.page {
       case .history: MacHistoryList(root: root, model: root.history)
-      case .settings: MacSettingsView(model: root.connectionForm)
+      case .settings: MacSettingsView(model: root.connectionForm, hotkey: root.hotkey)
       }
     }
     .frame(width: 460, height: 560)

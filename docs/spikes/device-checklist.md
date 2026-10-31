@@ -173,6 +173,43 @@ Without these, a device round shows only that a row fails, never why. Wave 17 D2
 
 **Process notes.** The Apple slot was held by other sessions for long stretches (a `check-apple` and `uitest` runs for 15 minutes and more, a 30-minute `xcodebuild` job), so live screenshots during takes never ran; a screenshot is one `lockf` hold and starved. Wave 18 I5 screens: three dark History screens (top, scrolled, search) are in `.artifacts/device-i5/`; the rest was left to the simulator pass at the lead's request. No light-mode device shots (no headless appearance switch).
 
+## Mac hands-on rows (Wave 18 M2, owner's MacBook)
+
+What the mini proved: the panel, the model and the take path on fakes (`IrisMacTests`, `IrisCaptureTests`), screenshots of the real floating panel and of the
+refused-microphone message (`IrisMac -IrisFakeData -IrisMacPanelWindow -IrisMacSnapshot <dir>`: `recording.png`, `recording-refused.png`, `settings.png`). What it
+cannot prove: the microphone prompt, a real hotkey press, a real take. The mini has no microphone and nobody to answer a TCC prompt.
+
+**Signing (why it matters).** macOS keys the microphone grant to the code signature. An ad-hoc or unsigned build gets a new identity on every build, so Iris would
+ask again after each rebuild (`tccutil reset Microphone com.jkrumm.iris.mac` clears a stuck grant). CI and `make check-apple` build unsigned (`CODE_SIGNING_ALLOWED=NO`) and
+never record. A build signed with a stable Apple Development identity keeps its grant.
+
+- **The mini can** build and sign `IrisMac` with its Apple Development identity (hardened runtime, sandbox, audio input; `codesign --verify --strict` passes; checked
+  2026-10-31) without a provisioning profile, provided the build drops the `com.apple.security.application-groups` entitlement (the Mac reads no App Group). Recipe, from `apple/`
+  after `make generate`: write a copy of `IrisMac/IrisMac.entitlements` without the `application-groups` key and build with
+  `xcodebuild build -scheme IrisMac -destination 'platform=macOS,arch=arm64' CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=<sha1 from security find-identity -v -p codesigning> CODE_SIGN_ENTITLEMENTS=<that copy>`.
+  Not done on the mini and not needed for the rows: `-allowProvisioningUpdates` with `DEVELOPMENT_TEAM` would register the `com.jkrumm.iris.mac` App ID, and a Personal Team has 10 App IDs per 7 days
+  (the iPhone targets use three).
+- **The mini cannot** show the microphone prompt, grant it, or press a key for the Mac: TCC prompts need a person at a screen, and the mini has no input device.
+- **On the MacBook** the same recipe works with the MacBook's own Apple Development identity (`security find-identity -v -p codesigning`), run from a checkout of this
+  branch. Build it once, keep that app in `~/Applications`, and rebuild with the same identity: the grant stays. Iris is a menu-bar app (`LSUIElement`): the icon is a waveform in the menu bar.
+
+| # | Check (German steps) | Pass when | Result |
+|-|-|-|-|
+| M1 | **Mikrofon-Berechtigung.** Iris starten. Zuerst im Menüleistensymbol (Wellenform) auf das Zahnrad klicken, Server-URL und Token eintragen, „Save". Dann in einer anderen App (TextEdit) **Control-Option-M** drücken. | Systemdialog „„Iris" möchte auf das Mikrofon zugreifen" erscheint. Nach „Erlauben" erscheint oben mittig ein schwebendes Panel: roter Punkt, Zeit läuft, Pegelbalken bewegen sich beim Sprechen. | |
+| M2 | **Grant bleibt nach Rebuild.** Panel mit Control-Option-M beenden. Iris beenden, mit derselben Signatur neu bauen und starten, wieder Control-Option-M. | Kein zweiter Berechtigungsdialog, die Aufnahme startet sofort. (Mit ad-hoc Signatur käme der Dialog erneut: das ist der Grund für die stabile Signatur.) | |
+| M3 | **Verweigert.** Systemeinstellungen › Datenschutz & Sicherheit › Mikrofon › Iris ausschalten. Control-Option-M. | Das Panel zeigt „Iris may not use the microphone …" mit „Open Settings" und „Close"; „Open Settings" öffnet genau diese Systemeinstellung. Danach Schalter wieder an: Control-Option-M startet. | |
+| M4 | **Fokus bleibt.** In TextEdit tippen, Control-Option-M drücken, weitertippen. | Das Panel nimmt den Fokus nicht: der Cursor in TextEdit bleibt aktiv, die Buchstaben landen weiter in TextEdit, das Panel steht vor TextEdit. | |
+| M5 | **Stoppen und Ankommen.** Etwa 25 Sekunden sprechen („Notiz: Test vom Mac"), Control-Option-M drücken. Menüleistensymbol anklicken. | Das Panel verschwindet, ohne Neuladen steht das Memo oben in der History und läuft bis „Done" durch (Modus Auto, drei Segmente). In der Mac-Benachrichtigung steht Route und Überschrift, kein Transkript. | |
+| M6 | **Popover offen.** Menüleistensymbol anklicken (Popover offen lassen), Control-Option-M. | Genau ein Take startet (nicht zwei, nicht keiner); Stop über Control-Option-M klappt auch bei offenem Popover (offene Fehler 243/244 von KeyboardShortcuts). | |
+| M7 | **Taste ändern.** Menüleistensymbol › Zahnrad › „Recording" › auf das Feld neben „Start / stop key" klicken, Control-Option-R drücken. | Control-Option-M tut nichts mehr, Control-Option-R startet/stoppt. Mit dem ✕ im Feld löschen: Hinweis „This key is not active …"; Control-Option-M erneut aufnehmen stellt den Standard wieder her. | |
+| M8 | **Belegte Taste.** Im Feld eine Kombination aufnehmen, die eine andere App schon global belegt (z. B. die von Raycast oder Alfred). | Der Recorder warnt vor Systemtasten; bei einer Taste einer fremden App erscheint „This key is not active …" (die Registrierung scheitert still). | |
+| M9 | **Diktat unberührt.** Fn-Diktat (doppelt Fn) in einer Textapp benutzen. | Diktat funktioniert wie vorher; Control-Option-M löst kein Diktat aus. | |
+| M10 | **Mikrofon wechseln.** Zweites Mikrofon anschließen (AirPods oder USB). Take starten, im Panel das Mikrofon-Menü öffnen und es wählen. | Das Menü listet beide Geräte; nach der Wahl läuft die Aufnahme weiter (Transkript durchgehend, ein Segmentwechsel am Wechsel). Nach dem Stop steht in Systemeinstellungen › Ton › Eingabe wieder das vorherige Gerät. | |
+| M11 | **Abbrechen.** Take starten, 5 Sekunden sprechen, im Panel „Cancel". | Das Panel verschwindet, nach einer Minute taucht kein Memo in der History auf; die Eingabe ist wieder die alte. | |
+| M12 | **Offline.** WLAN/Tailscale aus, Take (15 s) aufnehmen und stoppen, WLAN wieder an. | Das Memo erscheint nach der Verbindung in der History und läuft bis „Done"; nichts doppelt. | |
+| M13 | **Beenden mitten im Take.** Take starten, nach 15 s Iris mit Cmd-Q beenden, neu starten. | Beim Start sendet der Outbox, was geschlossen war (Verlust höchstens das offene Segment, siehe I2); die History zeigt ein Memo. | |
+| M14 | **Vollbild und Spaces.** Eine App im Vollbild, dann Control-Option-M. Danach auf einen anderen Space wechseln. | Das Panel erscheint über der Vollbild-App und folgt auf den anderen Space. | |
+
 ## Wave 18 I7: re-test of the three device failures (fixes built, device proof pending)
 
 Fixes (PR `w18-i7-device-failures`), none verified on the phone yet: row 1 the Record control is an `OpenIntent` that asks for the unlock, opens the app and starts the take in the foreground
