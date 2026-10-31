@@ -41,6 +41,8 @@ public struct SetAsideFile: Sendable, Equatable {
 public protocol SegmentFileStore: Sendable {
   /// The `.m4a` files directly in the capture directory.
   func segmentFiles() async -> [URL]
+  /// The same, `nil` when the directory could not be listed: the sweep then has looked at nothing and settles nothing.
+  func listSegmentFiles() async -> [URL]?
   /// A complete audio file's size and length, `nil` when it does not play.
   func inspect(_ url: URL) -> (byteCount: Int, duration: TimeInterval)?
   /// Moves the file out of the capture directory and keeps it; its new location, `nil` when it could not be moved (it stays
@@ -53,6 +55,8 @@ public protocol SegmentFileStore: Sendable {
 }
 
 extension SegmentFileStore {
+  public func listSegmentFiles() async -> [URL]? { await segmentFiles() }
+
   public func describe(_ urls: [URL]) async -> [SetAsideFile] {
     urls.map { SetAsideFile(url: $0, byteCount: 0, modifiedAt: nil) }
   }
@@ -72,9 +76,16 @@ public struct DirectorySegmentFiles: SegmentFileStore {
     inspector = inspect
   }
 
-  public func segmentFiles() async -> [URL] {
-    let names = (try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []
-    return names.filter { $0.hasSuffix(".m4a") }.map { directory.appending(path: $0) }
+  public func segmentFiles() async -> [URL] { await listSegmentFiles() ?? [] }
+
+  public func listSegmentFiles() async -> [URL]? {
+    do {
+      let names = try FileManager.default.contentsOfDirectory(atPath: directory.path)
+      return names.filter { $0.hasSuffix(".m4a") }.map { directory.appending(path: $0) }
+    } catch {
+      Log.outbox.error("capture directory cannot be listed: \(String(describing: error), privacy: .public)")
+      return nil
+    }
   }
 
   public func inspect(_ url: URL) -> (byteCount: Int, duration: TimeInterval)? { inspector(url) }
@@ -133,13 +144,17 @@ extension Outbox {
     var report = SweepReport()
     let owned = segmentFileNames()
     // By take and index, so a take that grows is adopted in order.
-    let candidates = await files.segmentFiles().filter { !owned.contains($0.lastPathComponent) }.sorted {
+    // A directory that cannot be listed has not been looked at: no take is settled on that, the next launch tries again.
+    guard let listed = await files.listSegmentFiles() else {
+      return await concluded(report, files: files, settle: false)
+    }
+    let candidates = listed.filter { !owned.contains($0.lastPathComponent) }.sorted {
       guard let left = Self.parse($0.lastPathComponent), let right = Self.parse($1.lastPathComponent) else {
         return $0.lastPathComponent < $1.lastPathComponent
       }
       return (left.0.uuidString, left.1) < (right.0.uuidString, right.1)
     }
-    guard !candidates.isEmpty else { return await concluded(report, files: files) }
+    guard !candidates.isEmpty else { return await concluded(report, files: files, settle: true) }
     var heldQueues: [Data] = []
     var unreadable: [String] = []
     for file in await setAsideQueueFiles() {
@@ -172,12 +187,13 @@ extension Outbox {
     }
     // Saved before anything goes up, as for any new segment (the save releases the withheld ones).
     if !report.adopted.isEmpty { await flush() }
-    return await concluded(report, files: files)
+    // A set-aside queue that could not be read, or one that names a file, means a first segment was not looked at.
+    return await concluded(report, files: files, settle: unreadable.isEmpty && report.kept.isEmpty)
   }
 
   /// Logs the sweep and remembers the files it could not deal with, for Settings.
-  private func concluded(_ report: SweepReport, files: any SegmentFileStore) async -> SweepReport {
-    if settleEmptyRecoveries() { await flush() }
+  private func concluded(_ report: SweepReport, files: any SegmentFileStore, settle: Bool) async -> SweepReport {
+    if settle, settleEmptyRecoveries() { await flush() }
     noteStrays(report.stuck, in: files)
     guard !report.isEmpty else { return report }
     Log.outbox.notice(

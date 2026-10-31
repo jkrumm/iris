@@ -49,6 +49,11 @@
     private let readiness: (@Sendable () -> Bool)?
     private let lock = NSLock()
     private var framesAppended = 0
+    /// Set under the lock together with `markAsFinished()`: nothing is appended after it, by `append` or by the drain task
+    /// (AVFoundation raises an exception for an append to a finished input).
+    private var finished = false
+    /// Why audio the caller handed in is not in the file (a buffer that could not be built, an append the input refused).
+    private var lost: String?
     /// Buffers the real-time input was not ready for yet; written in order before anything newer.
     private var backlog: [CMSampleBuffer] = []
     /// Offers the backlog to the input again until it is empty, so a pause in the tap's buffers does not strand it in memory.
@@ -90,11 +95,18 @@
     func append(_ samples: [Float]) throws {
       guard !samples.isEmpty else { return }
       try lock.withLock {
-        guard writer.status == .writing else { throw WriterError(description: Self.reason(writer.error, "append")) }
-        backlog.append(try makeBuffer(samples))
-        framesAppended += samples.count
-        try drain()
-        if !backlog.isEmpty { startDrainTask() }
+        do {
+          guard !finished, writer.status == .writing else {
+            throw WriterError(description: Self.reason(writer.error, "append"))
+          }
+          backlog.append(try makeBuffer(samples))
+          framesAppended += samples.count
+          try drain()
+          if !backlog.isEmpty { startDrainTask() }
+        } catch {
+          lost = lost ?? String(describing: error)
+          throw error
+        }
       }
     }
 
@@ -105,8 +117,12 @@
       let deadline = ContinuousClock.now + Self.drainLimit
       while true {
         let pending = lock.withLock { () -> Result<Bool, any Error> in
-          Result {
-            try drain(); return !backlog.isEmpty
+          do {
+            try drain()
+            return .success(!backlog.isEmpty)
+          } catch {
+            lost = lost ?? String(describing: error)
+            return .failure(error)
           }
         }
         switch pending {
@@ -121,19 +137,19 @@
         }
         break
       }
-      let task = lock.withLock { () -> Task<Void, Never>? in
+      // One critical section: after it nothing appends (`finished`), whatever the drain task is doing.
+      let (task, open) = lock.withLock { () -> (Task<Void, Never>?, Bool) in
+        finished = true
         defer { drainTask = nil }
-        return drainTask
-      }
-      task?.cancel()
-      let open = lock.withLock { () -> Bool in
-        guard writer.status == .writing else { return false }
+        guard writer.status == .writing else { return (drainTask, false) }
         input.markAsFinished()
         writer.endSession(atSourceTime: CMTime(value: CMTimeValue(framesAppended), timescale: CMTimeScale(sampleRate)))
-        return true
+        return (drainTask, true)
       }
+      task?.cancel()
       if open { await writer.finishWriting() }
       if writer.status != .completed, failure == nil { failure = Self.reason(writer.error, "finishWriting") }
+      if failure == nil { failure = lock.withLock { lost } }
       return Outcome(byteCount: Self.byteCount(of: url), readableFrames: Self.readableFrames(of: url), error: failure)
     }
 
@@ -141,6 +157,7 @@
 
     /// With the lock held.
     private func drain() throws {
+      guard !finished else { return }
       while let next = backlog.first, input.isReadyForMoreMediaData, readiness?() ?? true {
         guard input.append(next) else { throw WriterError(description: Self.reason(writer.error, "append")) }
         backlog.removeFirst()

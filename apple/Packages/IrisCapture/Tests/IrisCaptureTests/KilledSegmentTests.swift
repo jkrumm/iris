@@ -250,6 +250,40 @@
       await harness.outbox.shutdown()
     }
 
+    /// A capture directory that cannot be listed, then can.
+    private struct FlakyListing: SegmentFileStore {
+      let inner: DirectorySegmentFiles
+      let fails: Flag
+      func segmentFiles() async -> [URL] { await inner.segmentFiles() }
+      func listSegmentFiles() async -> [URL]? { fails.isOpen ? nil : await inner.listSegmentFiles() }
+      func inspect(_ url: URL) -> (byteCount: Int, duration: TimeInterval)? { inner.inspect(url) }
+      func setAside(_ url: URL) async -> URL? { await inner.setAside(url) }
+      func setAsideFiles() async -> [SetAsideFile] { await inner.setAsideFiles() }
+    }
+
+    @Test func aDirectoryThatCouldNotBeListedSettlesNoTakeAndTheNextSweepAdoptsItsFirstSegment() async throws {
+      let directory = try temporaryDirectory()
+      defer { try? FileManager.default.removeItem(at: directory) }
+      let id = memo(1)
+      let (record, tail) = try await takeKilledInItsFirstSegment(id, in: directory)
+      let harness = try await OutboxHarness(record: record, deletesFilesWhenDone: false)
+      let failing = Flag()
+      failing.open()
+      let store = FlakyListing(inner: DirectorySegmentFiles(directory: directory), fails: failing)
+
+      let first = await harness.outbox.sweepOrphans(using: store)
+
+      #expect(first.isEmpty, "nothing was looked at")
+      #expect(await harness.outbox.items().map(\.memoID) == [id], "the take is kept, not dropped")
+      #expect(FileManager.default.fileExists(atPath: tail.path))
+
+      let healthy = FlakyListing(inner: DirectorySegmentFiles(directory: directory), fails: Flag())
+      let second = await harness.outbox.sweepOrphans(using: healthy)
+
+      #expect(second.adopted == [tail], "the first segment is adopted once the directory can be read")
+      await harness.outbox.shutdown()
+    }
+
     // MARK: A held backlog
 
     /// Flipped by the test, read by the writer's drain task.
@@ -294,6 +328,22 @@
 
       #expect(outcome.error == nil)
       #expect(abs(outcome.readableFrames - 2 * rate) <= 2_048)
+    }
+
+    @Test func nothingIsAppendedAfterTheInputIsFinishedEvenWhenTheDrainTaskWakesLate() async throws {
+      let directory = try temporaryDirectory()
+      defer { try? FileManager.default.removeItem(at: directory) }
+      let ready = Flag()
+      let writer = try SegmentWriter(
+        url: directory.appending(path: "\(memo(1).uuidString)-0.m4a"), sampleRate: rate, readiness: { ready.isOpen })
+      try writer.append(noise(seconds: 0.25))  // held: the drain task is running and waiting
+
+      let outcome = await writer.finish()  // times out, finishes the input with the backlog still held
+      ready.open()  // the drain task's next wake finds an input that is ready and finished
+      try await Task.sleep(for: .milliseconds(200))
+
+      #expect(outcome.error != nil)
+      #expect(throws: (any Error).self) { try writer.append(noise(seconds: 0.25)) }
     }
 
     @Test func aBacklogThatNeverDrainsIsReportedAsTruncatedNotAsWhole() async throws {
@@ -383,6 +433,20 @@
         return
       }
       #expect(abs(closed.duration - 1.5) < 0.01, "1.5 s are in the file, not the 10 s the rotation counted")
+    }
+
+    @Test func aSegmentWhoseWriterCouldNotBeCreatedHaltsTheLaterOnesInOrder() async {
+      let published = Published()
+      let closer = SegmentCloser(sampleRate: 16_000) { published.add($0) }
+      closer.close(whole(0), index: 0, memoID: memo(1), duration: 10, reason: .duration)
+      closer.close(
+        UnwritableSegment(url: file(1), reason: "no writer"), index: 1, memoID: memo(1), duration: 10, reason: .duration
+      )
+      closer.close(whole(2), index: 2, memoID: memo(1), duration: 10, reason: .duration)
+      await closer.idle()
+
+      #expect(indices(published.all) == [0])
+      #expect(failures(published.all) == 1)
     }
 
     @Test func aFailedCloseThenASuccessInTheNextTakePublishesAgain() async {

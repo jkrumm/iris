@@ -11,6 +11,15 @@
   /// - After any failed close no later segment of the take is published (the outbox would wait for the missing index, and
   ///   the memo would claim audio it does not hold). Their writers are still finished and their files stay on disk for the next
   ///   launch's sweep. Nothing is deleted.
+  /// A segment whose writer could not even be created: nothing is held, and closing it reports why, in order with the others.
+  struct UnwritableSegment: ClosableSegment {
+    let url: URL
+    let reason: String
+    func finish() async -> SegmentWriter.Outcome {
+      SegmentWriter.Outcome(byteCount: 0, readableFrames: 0, error: reason)
+    }
+  }
+
   final class SegmentCloser: Sendable {
     private let emit: @Sendable (CaptureEvent) -> Void
     private let sampleRate: Int

@@ -22,6 +22,8 @@
     private var rotator: SegmentRotator
     private var take = TakeLifecycle()
     private var openWriter: SegmentWriter?
+    /// The open segment whose writer could not be created: its samples are dropped, and closing it reports the failure.
+    private var unwritable: UnwritableSegment?
     /// Closes the segments handed off, in order: a file is queued only once its writer has finished, and `stop()` waits for the
     /// last one before `.stopped`.
     private let closer: SegmentCloser
@@ -65,6 +67,7 @@
       run.begin()
       gate.begin()
       closer.reset()
+      unwritable = nil
       configurationGapStart = nil
       do {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -445,19 +448,32 @@
       }
     }
 
+    /// A failure here is not announced at once: the writer remembers it (`SegmentWriter.lost`) or the segment is marked
+    /// `unwritable`, and the failure is reported by that segment's close, in order with the segments before it, which
+    /// publishes what it really holds and halts the later ones (`SegmentCloser`).
     private func write(_ samples: [Float], segment: Int, memoID: MemoID) {
+      guard unwritable == nil else { return }
+      let writer: SegmentWriter
       do {
-        let writer = try openWriter ?? makeWriter(segment: segment, memoID: memoID)
+        writer = try openWriter ?? makeWriter(segment: segment, memoID: memoID)
+      } catch {
+        Log.capture.error("segment writer failed: \(String(describing: error), privacy: .public)")
+        unwritable = UnwritableSegment(url: segmentURL(segment, memoID), reason: String(describing: error))
+        return
+      }
+      do {
         try writer.append(samples)
       } catch {
         Log.capture.error("segment write failed: \(String(describing: error), privacy: .public)")
-        eventContinuation.yield(.failed(reason: "segment write failed"))
       }
     }
 
+    private func segmentURL(_ segment: Int, _ memoID: MemoID) -> URL {
+      directory.appending(path: "\(memoID.uuidString)-\(segment).m4a")
+    }
+
     private func makeWriter(segment: Int, memoID: MemoID) throws -> SegmentWriter {
-      let url = directory.appending(path: "\(memoID.uuidString)-\(segment).m4a")
-      let writer = try SegmentWriter(url: url, sampleRate: policy.sampleRate)
+      let writer = try SegmentWriter(url: segmentURL(segment, memoID), sampleRate: policy.sampleRate)
       openWriter = writer
       return writer
     }
@@ -465,9 +481,15 @@
     /// Hands the open writer to the closer and returns at once, so the next segment starts without a gap (`SegmentCloser` has
     /// the rules for what is published).
     private func close(segment: Int, frames: Int, reason: RotationReason, memoID: MemoID) {
+      let duration = policy.duration(frames: frames)
+      if let failed = unwritable {
+        unwritable = nil
+        closer.close(failed, index: segment, memoID: memoID, duration: duration, reason: reason)
+        return
+      }
       guard let writer = openWriter else { return }
       openWriter = nil
-      closer.close(writer, index: segment, memoID: memoID, duration: policy.duration(frames: frames), reason: reason)
+      closer.close(writer, index: segment, memoID: memoID, duration: duration, reason: reason)
     }
   }
 #endif
