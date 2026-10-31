@@ -552,7 +552,7 @@ A typed reply goes through the same outbox (`ComposerModel` → `OutboxService.s
 (`mic.fill` with a `lock.fill` badge, composed because no single SF Symbol says "recording, locked"; every name checked against the 27.1 SDK). The locked recording is a tap-to-start
 take through the same `VoiceReplyCapture` port and the same `beginVoice` / `endVoice`: nothing new in the capture path. While it runs the bar shows a cross (discard, `end(cancelled: true)`), the
 timer, and the send button (`end(cancelled: false)`); a take under 0.8 s is discarded with a "too short" hint. During a hold the side buttons give way to the timer and the release hint. Accessibility
-labels: Reply by text, Reply by voice (hint while idle: double-tap to start recording, double-tap again to send; while recording: double-tap to send; the VoiceOver action toggles, so the hint never promises a hold), Record continuously (hint: tap to start, tap send when done), Discard recording, Stop and send. A lock request (`VoiceTakeLock`) only becomes a locked take once the app reports the take running, and any other way of beginning one drops it, so a locked take that fails to start never locks the next one. The too-short toast is the app target's one localized string so far (`Iris/Resources/Localizable.xcstrings`, en and de); the rest of the app target's strings are still source-language (R5 `.xcstrings` catalogs).
+labels: Reply by text, Reply by voice (hint while idle: double-tap to start recording, double-tap again to send; while recording: double-tap to send; the VoiceOver action toggles, so the hint never promises a hold), Record continuously (hint: tap to start, tap send when done), Discard recording, Stop and send. A lock request (`VoiceTakeLock`) only becomes a locked take once the app reports the take running, and any other way of beginning one drops it, so a locked take that fails to start never locks the next one. Every string of the app target is localized (see "Localization").
 
 **Reply layout and code themes** (Wave 16 I4). A thread is exchanges: a question turn and its answer, an `ExchangeDivider` hairline before every question after the first. The question is a
 card in the accent tint, the answer an open document under the Iris header; inside it headings step down (title 1.35x, 1.2x with a hairline under levels 1 and 2), a quote has an accent rule on a
@@ -674,6 +674,75 @@ follows the memos: `evict(memoID:)` removes `<memo>.*` (recording, speech, diagr
 - **Tests.** Unit: `RouteAnswerModelTests`, `SpeechPlayerTests`, `SpokenRepliesTests`, `MicRulesModelTests`, `MemoPlaybackTests`. Snapshots (light + dark): the route panel (parked + suggestion, herdr tabs, herdr unreachable,
   correction with a refusal), the mic rule list, the done card and island with Play. UI (`RoutingUITests`, `-IrisFakeCapture`): answer a pinned memo, herdr needs a tab, answer from the detail, correct a route,
   Play toggles, long-press mode picker incl. Chat, a mic rule picks the input of the next take, the spoken-replies toggle. The fake API's needs-route sample carries a reason and a suggestion, and the fake herd has two tabs.
+
+### Localization (Wave 19 R3)
+
+English is the source language, German (`de`) the only translation (the owner's phone is German). Research and the verified facts:
+`docs/research/2026-10-31-string-catalogs.md`.
+
+**Catalogs, one per target that ships text** (the extensions are separate bundles; a catalog is a resource of the target that compiles it):
+
+| Target | Catalog (`Resources/`) | Holds |
+|-|-|-|
+| `Iris` | `Iris/Resources/Localizable.xcstrings`, `InfoPlist.xcstrings` | every string of the iPhone app, the intents, the microphone prompt |
+| `IrisWidgets` | `IrisWidgets/Resources/Localizable.xcstrings` | the Live Activity, the Record control, and the intent files it compiles from `Iris/Intents` (their keys live in both catalogs) |
+| `IrisMac` | `IrisMac/Resources/Localizable.xcstrings`, `InfoPlist.xcstrings` | the Mac app and the shared `Iris/*.swift` files it compiles in |
+| `IrisUI` (package) | `Sources/IrisUI/Resources/Localizable.xcstrings` | the shared components; reached with `bundle: #bundle` |
+
+`IrisNotifications` has no literal of its own (it renders `IrisUI`). `project.yml` sets `SWIFT_EMIT_LOC_STRINGS` and
+`LOCALIZATION_PREFERS_STRING_CATALOGS` for every target (a generated project gets neither from Xcode); `de` reaches `knownRegions` from the catalogs,
+so the built bundles carry `de.lproj` (the unit test `LocalizationTests` proves it per bundle).
+
+**How a string is written.** The English text is the key; `comment:` says where it appears.
+
+| Where | Form |
+|-|-|
+| A SwiftUI view with a literal | `Text("Key", comment:)`, `Button("Key")`, `Label("Key", systemImage:)`, `.navigationTitle("Key")` (a `LocalizedStringKey`) |
+| A `String` (a model, a title parameter, a `Button(String, ...)`) | `String(localized: "Key", comment: "...")` |
+| App Intents, widget and control names | a `LocalizedStringResource` literal: `static let title: LocalizedStringResource = "Key"`, `IntentDescription("Key")`, `.displayName("Key")`, `@Parameter(title: "Key")` |
+| Inside a Swift package | `bundle: #bundle` on every one of them (`Text("Key", bundle: #bundle, comment:)`, `String(localized: "Key", bundle: #bundle)`): a bare `Text("Key")` looks in the app's bundle and shows English. `Button("Key")` and `Label("Key", ...)` have no `bundle:`; write `Button { } label: { Text("Key", bundle: #bundle) }` |
+| Data | `Text(verbatim:)`, or a plain `String` that is not a title: never in a catalog |
+
+Rules that cost a bug once: `Text(flag ? "A" : "B")` types its literals as `String` and is never localized (give the call a `comment:` or wrap each branch in `String(localized:)`);
+a `%` in a key is `%%`; a number or string interpolation becomes `%lld` / `%@` (by the interpolated type), and a translation that reorders them uses `%1$@`; a count whose noun
+changes gets plural variations in `en` and `de` (the check reads every leaf).
+Not localized, by design: memo transcripts, replies, summaries and headlines; route and tab names the server returns; error codes and messages the server sends;
+the spoken route prefixes (`hermes`, `journal`, `tagebuch`, `tab <name>`: they are what the server matches); ids, durations and numbers (formatters, locale-aware);
+logs, telemetry and accessibility identifiers.
+
+**The check** (`scripts/check-strings.ts`, `make check-strings`, in `make check` and `check-apple`, so CI on Linux runs it too) fails on: a catalog key with no translated `de`
+(plural and device variations: every leaf) or with different format specifiers than its key; a stale key (no literal of that target names it; `extractionState: manual`
+is exempt, for keys looked up dynamically); a user-facing literal whose key is not in the catalog of every target that compiles the file; a bare literal for a `String`
+parameter named `title`, `message`, `detail`, ...; a ternary of literals that types as `String`; a keyed literal in a package without `bundle:`; a `NS*UsageDescription`
+without an `InfoPlist.xcstrings` key. Limits: a lexer, not a type checker; it sees literals at the call site only (a `String` assembled elsewhere and passed to
+`Text(variable)` is invisible), a view initializer it does not know is unchecked (`VIEW_INITS`), fake and sample data files are exempt from the `String` rule. A literal that is really
+data is marked `// l10n:ignore <why>` on its line or the line above. Its tests are `scripts/check-strings.test.ts`.
+
+**Glossary** (keep the same word for the same thing; neutral address, no du/Sie: nouns, infinitives and short imperatives like the system apps):
+
+| English | German | Note |
+|-|-|-|
+| Memo | Memo | |
+| History | Verlauf | the tab and its screen |
+| Settings | Einstellungen | |
+| Stats | Statistik | |
+| Recording / Record | Aufnahme / Aufnehmen | `Aufnahme läuft` for the running state |
+| Reply (noun / verb) | Antwort / Antworten | |
+| Retry | Wiederholen | `Jetzt wiederholen`, `Wiederholen ab <Schritt>` |
+| Transcript | Transkript | |
+| Route / Destination | Route / Ziel | |
+| Steps | Schritte | the pipeline steps |
+| Outbox | Warteschlange | |
+| Conversation / turn | Unterhaltung / Runde | |
+| Done (user flag) / Done (pipeline state) | Erledigt / Fertig | the flag a user sets vs. a finished step, memo or Live Activity |
+| Favorite, Archive, Delete, Discard, Cancel, Undo | Favorit, Archivieren, Löschen, Verwerfen, Abbrechen, Rückgängig | |
+| Connected / Unreachable | Verbunden / Nicht erreichbar | |
+| Token, Keychain | Token, Schlüsselbund | |
+| Chat, Hermes, Journal, Tab, herdr | unchanged | product and destination names |
+
+**Verification.** `xcrun simctl launch <udid> com.jkrumm.iris -IrisFakeCapture -AppleLanguages "(de)" -AppleLocale de_DE` runs the app in German (skill `ios-verify`);
+the German screens are checked for truncation, and a UI/snapshot test is added only where a German string broke a layout. Device-only: the Control Center and Lock Screen
+names of the Record control, the Live Activity text and the Siri/Shortcuts phrases (the widget extension is localized and compile-checked; nothing there renders on the simulator).
 
 ### UI tests on the hosted runner
 
