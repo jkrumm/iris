@@ -1103,7 +1103,12 @@ the `IrisCore` dependency when R1 wires them together.
     | `outbox.complete.sent` | `segment_count`, `status`, `ms`, `error` |
     | `capture.quarantine` | `file`, `bytes`, `has_moov` (per set-aside file at launch) |
     | `capture.level` | `rms_db`, `peak_db` (dBFS, twice a second while a take records) |
+    | `intent.perform` / `intent.result` | `intent`, `process`, `handler.present`, `mode`, `can_continue_in_foreground`, `press_lag_ms`; `ok`, `error` |
 
+  - **The widget extension logs to `os.Logger` only.** A Personal Team has no App Group, the server URL lives in the app's
+    `UserDefaults`, and the extension has no other way to reach it. `StartMemoIntent` and the Live Activity buttons are
+    `LiveActivityIntent`s and run in the app process, where they *are* relayed; a Record press with no `intent.perform` means the
+    app was never reached.
 - **Propagation:** the audio door and the agw host don't accept `traceparent` (factory
   ADR-006 plans it), so Iris spans carry the memo id as an attribute on every
   downstream call. Once ADR-006 lands, `traceparent` is added.

@@ -6,6 +6,7 @@ struct IrisApp: App {
   @Environment(\.scenePhase) private var scenePhase
 
   init() {
+    IntentEvents.sink = DeviceLogIntentSink()
     DeviceLog.shared.start()
   }
 

@@ -9,8 +9,10 @@ struct StopMemoIntent: LiveActivityIntent {
 
   @MainActor
   func perform() async throws -> some IntentResult {
-    guard let handler = CaptureIntents.handler else { throw StartMemoError.appNotReady }
-    try await handler.endTake()
+    try await IntentEvents.run(self, named: "StopMemoIntent", handlerPresent: CaptureIntents.handler != nil) {
+      guard let handler = CaptureIntents.handler else { throw StartMemoError.appNotReady }
+      try await handler.endTake()
+    }
     return .result()
   }
 }
@@ -21,8 +23,10 @@ struct PauseMemoIntent: LiveActivityIntent {
 
   @MainActor
   func perform() async throws -> some IntentResult {
-    guard let handler = CaptureIntents.handler else { throw StartMemoError.appNotReady }
-    await handler.toggleTakePause()
+    try await IntentEvents.run(self, named: "PauseMemoIntent", handlerPresent: CaptureIntents.handler != nil) {
+      guard let handler = CaptureIntents.handler else { throw StartMemoError.appNotReady }
+      await handler.toggleTakePause()
+    }
     return .result()
   }
 }
@@ -33,8 +37,10 @@ struct SwitchInputIntent: LiveActivityIntent {
 
   @MainActor
   func perform() async throws -> some IntentResult {
-    guard let handler = CaptureIntents.handler else { throw StartMemoError.appNotReady }
-    try await handler.switchTakeInput()
+    try await IntentEvents.run(self, named: "SwitchInputIntent", handlerPresent: CaptureIntents.handler != nil) {
+      guard let handler = CaptureIntents.handler else { throw StartMemoError.appNotReady }
+      try await handler.switchTakeInput()
+    }
     return .result()
   }
 }

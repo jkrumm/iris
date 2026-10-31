@@ -131,3 +131,28 @@ nonisolated enum DeviceConsole {
     }
   }
 }
+
+/// The app's end of ``IntentEvents``: `intent.perform` and `intent.result` as device records.
+@MainActor
+final class DeviceLogIntentSink: IntentEventSink {
+  private let log: DeviceLog
+
+  init(log: DeviceLog = .shared) {
+    self.log = log
+  }
+
+  func intentPerformed(_ run: IntentRun) {
+    var attributes: [String: AttributeValue] = [
+      "intent": .string(run.intent), "process": .string(run.process), "handler.present": .bool(run.handlerPresent),
+      "mode": .string(run.mode), "can_continue_in_foreground": .bool(run.canContinueInForeground),
+    ]
+    if let lag = run.pressLagMilliseconds { attributes["press_lag_ms"] = .int(lag) }
+    log.event("intent.perform", memoWireID: run.memoID, attributes)
+  }
+
+  func intentFinished(intent: String, error: String?) {
+    var attributes: [String: AttributeValue] = ["intent": .string(intent), "ok": .bool(error == nil)]
+    if let error { attributes["error"] = .string(error) }
+    log.event("intent.result", severity: error == nil ? .info : .error, attributes)
+  }
+}
