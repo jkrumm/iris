@@ -56,7 +56,7 @@
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%1$@%2$lld %% ggü. Vorzeitraum"
+            "value" : "%1$@%2$lld %% ggü. davor"
           }
         }
       }
