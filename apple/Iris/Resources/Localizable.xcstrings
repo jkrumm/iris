@@ -1,6 +1,23 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "Stop sends the take · × discards it" : {
+      "comment" : "Take screen hint under the controls",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Stopp sendet die Aufnahme · × verwirft sie"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Stop sends the take · × discards it"
+          }
+        }
+      }
+    },
     "That was too short to send" : {
       "comment" : "Toast after a too-short voice reply",
       "localizations" : {

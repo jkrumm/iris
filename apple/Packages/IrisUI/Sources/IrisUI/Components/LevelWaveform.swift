@@ -12,13 +12,21 @@ public struct LevelWaveform: View {
     self.isActive = isActive
   }
 
+  /// The newest bars that fit `width` (bar and gap are both `xs`); a narrower row drops the oldest, never clips a bar.
+  private func visibleLevels(fitting width: CGFloat) -> ArraySlice<Float> {
+    let slot = Theme.Spacing.xs * 2
+    let fitting = max(Int(((width + Theme.Spacing.xs) / slot).rounded(.down)), 0)
+    return levels.suffix(fitting)
+  }
+
   public var body: some View {
     GeometryReader { proxy in
+      let bars = visibleLevels(fitting: proxy.size.width)
       HStack(alignment: .center, spacing: Theme.Spacing.xs) {
-        ForEach(levels.indices, id: \.self) { index in
+        ForEach(Array(bars.enumerated()), id: \.offset) { _, level in
           Capsule()
             .fill(isActive ? Theme.Accent.tint : Theme.Ink.faint)
-            .frame(width: Theme.Spacing.xs, height: max(4, CGFloat(min(max(levels[index], 0), 1)) * proxy.size.height))
+            .frame(width: Theme.Spacing.xs, height: max(4, CGFloat(min(max(level, 0), 1)) * proxy.size.height))
         }
       }
       .frame(maxWidth: .infinity, maxHeight: .infinity)

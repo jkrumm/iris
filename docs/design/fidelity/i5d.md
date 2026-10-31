@@ -78,3 +78,8 @@ as on 27. Not investigated further; worth one device look in D1.
 | 26 | take: gap between the three controls | `xl` (24) |
 | 28 | take: gap between the timer, wave and meter note | `xl` (24) |
 | a control height role (34 chip, 38 button, 40 mic chip, 44 / 56 / 84 round buttons) | take, Live Activity | sizes are not spacing; they stay as frame sizes (`ActivityControlLabel.height` names the 38) |
+
+## Open
+
+- **Contrast:** Stop and the banner's Stop are `status-bad` at 0.82 / 0.85 with a white glyph, as in the mockup's red glass. Their contrast
+  against the light background is lower than the solid red they replaced; not measured against WCAG here, left as the render has it.

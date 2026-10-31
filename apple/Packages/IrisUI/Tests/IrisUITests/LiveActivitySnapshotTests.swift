@@ -14,7 +14,9 @@
       LiveActivityPanel(presentation) {
         if controls { CaptureSamples.controls(paused: presentation.phase == .paused, onDark: false) }
       }
-      .padding(Theme.Spacing.lg)
+      .padding(.horizontal, Theme.Spacing.lg)
+      .padding(.top, Theme.Spacing.inset)
+      .padding(.bottom, Theme.Spacing.lg)
       .background(Theme.Surface.panel, in: .rect(cornerRadius: 24))
       .padding(Theme.Spacing.md)
     }
@@ -72,7 +74,9 @@
       } doneAction: {
         ActivityControlLabel(.play, title: "Play", onDark: false)
       }
-      .padding(Theme.Spacing.lg)
+      .padding(.horizontal, Theme.Spacing.lg)
+      .padding(.top, Theme.Spacing.inset)
+      .padding(.bottom, Theme.Spacing.lg)
       .background(Theme.Surface.panel, in: .rect(cornerRadius: 24))
       .padding(Theme.Spacing.md)
       SnapshotSupport.assertLightAndDark(panel, width: 390, height: 190)
