@@ -10,8 +10,9 @@ struct InputRecoveryTests {
   private let builtIn = FakeAudioDeviceDirectory.builtIn
   private let usb = FakeAudioDeviceDirectory.usb
 
-  private func rig() -> (devices: FakeAudioDeviceDirectory, store: InMemoryInputRecoveryStore, routes: RecoveringRouteManager)
-  {
+  private func rig() -> (
+    devices: FakeAudioDeviceDirectory, store: InMemoryInputRecoveryStore, routes: RecoveringRouteManager
+  ) {
     let devices = FakeAudioDeviceDirectory()
     let store = InMemoryInputRecoveryStore()
     let inner = DirectoryRouteManager(directory: devices, suiteName: "iris.mac.tests.\(UUID().uuidString)")

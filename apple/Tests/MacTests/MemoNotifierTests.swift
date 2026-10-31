@@ -306,7 +306,8 @@ struct MemoNotifierCatchUpTests {
     #expect(posted.map(\.title) == ["Memo failed"] && posted.map(\.body) == ["Open Iris to retry it."])
   }
 
-  @Test("the transition is what counts: failed, retried, then notified is two banners; a running state clears the record")
+  @Test(
+    "the transition is what counts: failed, retried, then notified is two banners; a running state clears the record")
   func transitions() async {
     let poster = RecordingNotificationPoster()
     let server = Server()
@@ -367,7 +368,9 @@ struct MemoNotifierCatchUpTests {
   func catchUpAnnouncesWhatHappenedMeanwhile() async {
     let poster = RecordingNotificationPoster()
     let server = Server()
-    server.memos = [memo("a", .acted, minutesAgo: 3), memo("b", .routed, minutesAgo: 2), memo("c", .transcribed, minutesAgo: 1)]
+    server.memos = [
+      memo("a", .acted, minutesAgo: 3), memo("b", .routed, minutesAgo: 2), memo("c", .transcribed, minutesAgo: 1),
+    ]
     let notifier = rig(poster, server)
     await notifier.catchUp()
     server.set("a", .notified)
@@ -475,7 +478,8 @@ struct MemoNotifierCatchUpTests {
     #expect(await poster.posted.isEmpty && !notifier.hasBaseline)
   }
 
-  @Test("a banner the system takes while the connection switches is taken back, so it never names the old server's memo")
+  @Test(
+    "a banner the system takes while the connection switches is taken back, so it never names the old server's memo")
   func bannerDuringASwitch() async {
     let poster = RecordingNotificationPoster()
     await poster.holdPosts(true)

@@ -169,7 +169,8 @@ final class MacCompositionRoot {
       switch event {
       case .posted(let id, let kind): events.notification("posted", memoID: id, kind: String(describing: kind))
       case .withdrawn(let id, let kind): events.notification("withdrawn", memoID: id, kind: String(describing: kind))
-      case .caughtUp(let announced, let seen): events.notification("catchup", memoID: nil, kind: nil, count: announced, seen: seen)
+      case .caughtUp(let announced, let seen):
+        events.notification("catchup", memoID: nil, kind: nil, count: announced, seen: seen)
       }
     }
     outbox.report = { action, item, ok in
@@ -183,7 +184,8 @@ final class MacCompositionRoot {
     events.lifecycle("launch")
     guard mode == .production else { return }
     log.start()
-    NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: .main) {
+    NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: .main)
+    {
       [events] _ in
       events.lifecycle("quit")
     }

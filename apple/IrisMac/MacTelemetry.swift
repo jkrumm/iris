@@ -48,7 +48,9 @@ struct MacEvents {
   func panel(phase: String, failure: String? = nil) {
     var attributes: [String: AttributeValue] = ["phase": .string(phase)]
     if let failure { attributes["failure"] = .string(failure) }
-    log.event("mac.panel", memoWireID: log.currentTake?.uuidString.lowercased(), severity: failure == nil ? .info : .warn, attributes)
+    log.event(
+      "mac.panel", memoWireID: log.currentTake?.uuidString.lowercased(), severity: failure == nil ? .info : .warn,
+      attributes)
   }
 
   /// `mac.hotkey`: the global key was pressed.
@@ -67,7 +69,9 @@ struct MacEvents {
 
   /// `outbox.user_action`: Retry now or Discard pressed in the panel, for a queued item (its id is the memo id).
   func outboxAction(_ action: String, memoID: String, kind: String, ok: Bool = true) {
-    log.event("outbox.user_action", memoWireID: memoID, severity: ok ? .info : .warn, ["action": .string(action), "kind": .string(kind), "ok": .bool(ok)])
+    log.event(
+      "outbox.user_action", memoWireID: memoID, severity: ok ? .info : .warn,
+      ["action": .string(action), "kind": .string(kind), "ok": .bool(ok)])
   }
 
   /// `app.lifecycle`: launch and quit of the menu-bar app (it has no scene phases).

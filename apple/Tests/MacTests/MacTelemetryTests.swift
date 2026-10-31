@@ -76,7 +76,9 @@ struct MacTelemetryTests {
     #expect(attributes(records[0])["source"] as? String == "hotkey")
   }
 
-  @Test("a take through the panel writes mac.panel records, with the control that asked and a failure's name, not its sentence")
+  @Test(
+    "a take through the panel writes mac.panel records, with the control that asked and a failure's name, not its sentence"
+  )
   func panelRecords() async {
     let dump = Dump()
     let root = root(dump)
@@ -123,7 +125,8 @@ struct MacTelemetryTests {
     #expect(record["traceId"] as? String == Self.finished.replacing("-", with: ""))
     // Nothing the memo said, and no banner text, reaches a record.
     let everything = await dump.text()
-    for words in [before.transcript, before.summary?.headline, before.replyText].compactMap({ $0 }) where words.count > 8 {
+    for words in [before.transcript, before.summary?.headline, before.replyText].compactMap({ $0 })
+    where words.count > 8 {
       #expect(!everything.contains(words.prefix(24)))
     }
   }

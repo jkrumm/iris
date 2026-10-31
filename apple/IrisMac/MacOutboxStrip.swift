@@ -120,7 +120,8 @@ struct MacOutboxStrip: View {
 
   static func title(count: Int, stalled: Int) -> String {
     switch (count, stalled) {
-    case (0, _): String(localized: "The queue could not be used", comment: "Outbox strip title: the queue is unavailable")
+    case (0, _):
+      String(localized: "The queue could not be used", comment: "Outbox strip title: the queue is unavailable")
     case (_, 0): String(localized: "\(count) waiting to send", comment: "Outbox strip title: items are on their way")
     default:
       String(localized: "\(stalled) of \(count) could not be sent", comment: "Outbox strip title: stalled items")
@@ -130,14 +131,16 @@ struct MacOutboxStrip: View {
   /// The first stalled item's reason, or a generic one: what the user reads before choosing Retry now or Discard.
   static func reason(of item: QueuedItem?) -> String? {
     guard let item, case .failed(nil, let reason) = item.state else { return nil }
-    return reason ?? String(localized: "The server did not accept it.", comment: "Outbox strip: a stalled item with no reason")
+    return reason
+      ?? String(localized: "The server did not accept it.", comment: "Outbox strip: a stalled item with no reason")
   }
 
   static let unavailableText = String(
     localized: "The queue cannot be opened right now. Nothing new is accepted until it can.",
     comment: "Outbox strip: the persistent queue is unavailable")
   static let saveFailureText = String(
-    localized: "The queue could not be saved to this Mac. Recordings wait to be sent until it can, and Iris keeps trying.",
+    localized:
+      "The queue could not be saved to this Mac. Recordings wait to be sent until it can, and Iris keeps trying.",
     comment: "Outbox strip: the queue cannot be written")
   static let discardFailedText = String(
     localized: "The item could not be discarded because the queue cannot be opened.",
