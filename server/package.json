@@ -18,15 +18,15 @@
     "@parse/node-apn": "8.1.0",
     "@resvg/resvg-js": "2.6.2",
     "elysia": "1.4.30",
-    "pele": "1.10.0",
+    "pele": "1.12.0",
     "zod": "4.6.7"
   },
   "devDependencies": {
-    "@types/bun": "1.4.2",
+    "@types/bun": "1.4.4",
     "ajv": "8.20.0",
     "eslint-plugin-zod": "4.14.2",
-    "oxfmt": "0.73.0",
-    "oxlint": "1.88.0",
+    "oxfmt": "0.75.0",
+    "oxlint": "1.90.0",
     "typescript": "5.9.3"
   }
 }
