@@ -59,6 +59,8 @@ private final class FakeTapEngine: TapEngine {
   var failStart = false
   private(set) var calls: [String] = []
 
+  var isRunning: Bool { running }
+
   func removeTap() {
     calls.append("removeTap")
     tapInstalled = false
@@ -130,39 +132,74 @@ struct EngineStartupTests {
 }
 
 struct EngineResumeTests {
-  @Test func aPausedEngineThatRestartsIsKept() throws {
+  @Test func anEngineThatKeptRunningThroughThePauseIsKeptAndNeverStartedAgain() async throws {
     let engine = FakeTapEngine()
     try EngineStartup.bringUp(engine)
     var replacements = 0
-    let resumed = try EngineStartup.resume(engine) {
-      replacements += 1
-      return FakeTapEngine()
-    }
+    let resumed = try await EngineStartup.resume(
+      engine, replacement: { replacements += 1; return FakeTapEngine() }, attempts: 3, pause: { true })
     #expect(resumed === engine)
     #expect(replacements == 0)
+    #expect(engine.calls == ["removeTap", "installTap", "start"], "a resume from the background starts nothing")
   }
 
-  @Test func anEngineThatWillNotRestartIsReplacedByAFreshOneWithTheTap() throws {
+  @Test func anEngineTheSystemStoppedIsReplacedByAFreshOneWithTheTap() async throws {
     let stale = FakeTapEngine()
     try EngineStartup.bringUp(stale)
-    stale.failStart = true
+    stale.running = false  // an interruption or a configuration change stopped it
     let fresh = FakeTapEngine()
-    let resumed = try EngineStartup.resume(stale) { fresh }
+    let resumed = try await EngineStartup.resume(stale, replacement: { fresh }, attempts: 3, pause: { true })
     #expect(resumed === fresh)
     #expect(fresh.tapInstalled)
     #expect(fresh.running)
     #expect(stale.tapInstalled == false, "the dead engine gives up bus 0")
-    #expect(stale.running == false)
+    #expect(Array(stale.calls.dropFirst(3)) == ["removeTap", "stop"], "the old engine is not restarted on its old tap")
   }
 
-  @Test func aFreshEngineThatFailsToo_throwsAndLeavesNothingRunning() {
+  @Test func aFreshEngineThatIsNotReadyYetIsRetriedUntilItHolds() async throws {
     let stale = FakeTapEngine()
-    stale.failStart = true
-    let fresh = FakeTapEngine()
-    fresh.failStart = true
-    #expect(throws: CaptureError.engineFailure("start")) { try EngineStartup.resume(stale) { fresh } }
-    #expect(fresh.tapInstalled == false)
-    #expect(fresh.running == false)
+    stale.running = false
+    var made: [FakeTapEngine] = []
+    let resumed = try await EngineStartup.resume(
+      stale,
+      replacement: {
+        let engine = FakeTapEngine()
+        engine.failStart = made.count < 2  // `!rec` twice, then the input is ready
+        made.append(engine)
+        return engine
+      }, attempts: 4, pause: { true })
+    #expect(resumed === made[2])
+    #expect(made[0].tapInstalled == false && made[1].tapInstalled == false)
+  }
+
+  @Test func aTakeThatEndsWhileTheInputIsNotReadyAbandonsTheResume() async throws {
+    let stale = FakeTapEngine()
+    stale.running = false
+    let resumed = try await EngineStartup.resume(
+      stale, replacement: { let engine = FakeTapEngine(); engine.failStart = true; return engine }, attempts: 4,
+      pause: { false })
+    #expect(resumed == nil)
+  }
+
+  @Test func whenEveryAttemptFailsTheErrorIsThrownAndNothingIsLeftRunning() async {
+    let stale = FakeTapEngine()
+    stale.running = false
+    var made: [FakeTapEngine] = []
+    do {
+      _ = try await EngineStartup.resume(
+        stale,
+        replacement: {
+          let engine = FakeTapEngine()
+          engine.failStart = true
+          made.append(engine)
+          return engine
+        }, attempts: 2, pause: { true })
+      Issue.record("the resume should have thrown")
+    } catch {
+      #expect(error as? CaptureError == .engineFailure("start"))
+    }
+    #expect(made.count == 2)
+    #expect(made.allSatisfy { !$0.running && !$0.tapInstalled })
   }
 }
 

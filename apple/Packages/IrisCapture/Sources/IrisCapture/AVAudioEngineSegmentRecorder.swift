@@ -101,26 +101,45 @@
       apply(rotator.rotate(for: reason), samples: [])
     }
 
+    /// Closes the open segment and drops the samples until `resume()`. The engine keeps running on purpose: a paused engine
+    /// stops the hardware, the app loses the right to record, and the island's Resume (a `LiveActivityIntent` that runs with the
+    /// app in the background) then cannot start it again ("engine resume failed", `!rec`). The microphone indicator stays on
+    /// while paused; nothing is written.
     public func pause() {
       guard take.isRecording, !run.isPaused else { return }
       apply(rotator.rotate(for: .interruption), samples: [])
-      if run.pause() == .pauseEngine { engine.pause() }
+      _ = run.pause()
     }
 
-    public func resume() {
+    public func resume() async {
       guard take.isRecording, run.isPaused, let sink = sampleSink else { return }
       // A restart in flight brings the engine up running; the old one is torn down and must stay so.
       guard run.resume() == .startEngine else { return }
+      let target = targetFormat
+      let events = deviceEvents
+      let current = generation
       do {
-        let target = targetFormat
-        let events = deviceEvents
-        let current = generation
-        let resumed = try EngineStartup.resume(
+        let resumed = try await EngineStartup.resume(
           InputTapEngine(engine: engine, target: target, sink: sink, events: events, generation: current),
           replacement: {
             InputTapEngine(
               engine: AVAudioEngine(), target: target, sink: sink, events: events, generation: current + 1)
+          },
+          attempts: Self.restartAttempts,
+          pause: { [weak self] in
+            try? await Task.sleep(for: .milliseconds(Self.restartDelayMilliseconds))
+            guard let self else { return false }
+            return await self.isStillPaused
           })
+        // The take ended or was paused again while the input was not ready: nothing to adopt, the replacement is torn down.
+        guard let resumed else { return }
+        guard take.isRecording, run.isPaused else {
+          if resumed.engine !== engine {
+            resumed.removeTap()
+            resumed.stop()
+          }
+          return
+        }
         engine = resumed.engine
         generation = resumed.generation
         run.resumed()
@@ -164,7 +183,6 @@
         throw CaptureError.engineFailure("the take ended while the engine started")
       }
       engine = fresh.engine
-      if verdict == .keepPaused { engine.pause() }  // paused while the first engine was coming up
       generation = fresh.generation
     }
 
@@ -175,6 +193,8 @@
       let sink: AsyncStream<[Float]>.Continuation
       let events: any CaptureEvents
       let generation: Int
+
+      var isRunning: Bool { engine.isRunning }
 
       func removeTap() { Self.guarded("removing the tap") { engine.inputNode.removeTap(onBus: 0) } }
 
@@ -339,13 +359,13 @@
       engine.stop()
       engine = fresh.engine
       generation = fresh.generation
-      if verdict == .keepPaused { engine.pause() }  // paused while the engine was coming up
     }
 
     private static let restartAttempts = 6
     private static let startAttempts = 4
     private static let restartDelayMilliseconds = 250
     private var isStillRecording: Bool { take.isRecording }
+    private var isStillPaused: Bool { take.isRecording && run.isPaused }
 
     // MARK: Segments
 

@@ -318,6 +318,10 @@ public actor CaptureSession {
     await enter()
     defer { leave() }
     guard state.phase == .paused else { return }
+    // The session is normally still active (a pause keeps the engine running); activating again is a no-op then, and it is
+    // what brings back a session the system deactivated meanwhile. A failure is recorded by the adapter; the recorder decides.
+    try? await session.activate()
+    guard state.phase == .paused else { return }
     await recorder.resume()
     guard state.phase == .paused else { return }
     state.phase = .recording

@@ -53,6 +53,8 @@ struct TakeLifecycle: Sendable, Equatable {
 
 /// The slice of the audio engine that start-up needs, so failure handling is testable without hardware.
 protocol TapEngine {
+  /// Whether the engine is running right now (a system interruption or a configuration change stops it under us).
+  var isRunning: Bool { get }
   /// Removes the input tap on bus 0; harmless when none is installed.
   func removeTap()
   func installTap() throws
@@ -77,20 +79,17 @@ enum EngineStartup {
 }
 
 extension EngineStartup {
-  /// Restarts a paused engine. When that fails (the configuration changed while it was paused, or the audio daemon was reset
-  /// and the engine is dead) the engine is torn down and a fresh one is brought up with the tap on it; a failure of that is
-  /// the caller's to report.
-  static func resume<Engine: TapEngine>(_ engine: Engine, replacement: () -> Engine) throws -> Engine {
-    do {
-      try engine.start()
-      return engine
-    } catch {
-      engine.removeTap()
-      engine.stop()
-      let fresh = replacement()
-      try bringUp(fresh)
-      return fresh
-    }
+  /// Lets a take continue after a pause. A pause leaves the engine running with its tap and drops the samples, so the audio
+  /// session stays hot and the app keeps its right to record: a resume from the island runs while the app is in the background,
+  /// where starting a stopped engine fails (`!rec`, 561145187). Such an engine, still running, is kept as it is. One the
+  /// system stopped meanwhile (an interruption, a configuration change) is not restarted on its old tap and format: it is
+  /// replaced by a fresh one, retried like a restart (``recover(_:replacement:attempts:pause:)``). `nil` when the take ended
+  /// while the input was not ready.
+  static func resume<Engine: TapEngine>(
+    _ engine: Engine, replacement: () -> Engine, attempts: Int, pause: () async -> Bool
+  ) async throws -> Engine? {
+    if engine.isRunning { return engine }
+    return try await recover(engine, replacement: replacement, attempts: attempts, pause: pause)
   }
 }
 
@@ -131,6 +130,7 @@ struct EngineRun: Sendable, Equatable {
   enum Action: Sendable, Equatable {
     /// Nothing: a restart in flight will bring the engine up in the recorded state.
     case none
+    /// Unused by the recorder: a pause keeps the engine running (it drops the samples), see ``EngineStartup/resume(_:replacement:attempts:pause:)``.
     case pauseEngine
     case startEngine
   }
