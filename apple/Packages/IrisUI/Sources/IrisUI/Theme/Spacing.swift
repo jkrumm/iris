@@ -40,6 +40,8 @@ extension Theme.Spacing {
   /// Floating bars (search, tab dock, record): side inset and gap between neighbours.
   public static let barInset = inset
   public static let barGap = cozy
+  /// A floating bar's height and the diameter of its round buttons (`.searchbar`, `.fbtn` in `history.html`).
+  public static let barControlSize: CGFloat = 44
   /// A card (`DetailCard`, panels): padding inside it.
   public static let cardInsetHorizontal = inset
   public static let cardInsetVertical = md
