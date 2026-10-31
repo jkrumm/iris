@@ -142,16 +142,21 @@ public actor Outbox: SegmentOutbox {
   /// transfer (it survives a relaunch and is retried until the server answers) and goes out after a `create` that was on
   /// the wire has ended, so it cannot overtake the request that makes the memo. A late segment or `complete` for that memo
   /// is a 409 the server gives; nothing of the memo is queued any more, so it is dropped, never a stall.
-  public func discard(_ memoID: MemoID) async {
+  ///
+  /// `true` when a save that no longer lists the memo has landed (its queued segment files are then deleted); `false` when the
+  /// write failed and the record on disk still names them. A caller that deletes files of its own waits for `true`.
+  @discardableResult
+  public func discard(_ memoID: MemoID) async -> Bool {
     let deleteOnServer = machine.needsServerDelete(memoID)
     let creating = inFlight[.creation(memoID)]
     for (id, task) in inFlight where id.memoID == memoID { task.cancel() }
     retire(machine.discard(memoID, deleteOnServer: deleteOnServer))
     unsavedSegments = unsavedSegments.filter { $0.key.memoID != memoID }
-    await persist()
+    let saved = await persist()
     await creating?.value
     machine.releaseDeletion(memoID)
     await resume()
+    return saved
   }
 
   /// The user stops trying to remove a discarded take's memo from the server (its `DELETE` stalled and stays in the queue until
@@ -329,6 +334,7 @@ public actor Outbox: SegmentOutbox {
     let cancelled = Task.isCancelled || isShutDown || wrongServer
     switch (id, outcome) {
     case (.creation(let memoID), .success): machine.createSucceeded(memoID)
+    case (.creation(let memoID), .failure) where wrongServer: machine.createBounced(memoID)
     case (.creation(let memoID), .failure) where cancelled: machine.createCancelled(memoID)
     case (.creation(let memoID), .failure(let error)):
       Log.outbox.error("create failed: \(String(describing: error), privacy: .public)")
@@ -348,6 +354,7 @@ public actor Outbox: SegmentOutbox {
         retire(machine.entries.values.filter { $0.key.memoID == memoID }.map(\.segment.fileURL))
       }
       machine.completeSucceeded(memoID)
+    case (.completion(let memoID), .failure) where wrongServer: machine.completeBounced(memoID)
     case (.completion(let memoID), .failure) where cancelled: machine.completeCancelled(memoID)
     case (.completion(let memoID), .failure(let error as MissingSegmentsError)):
       Log.outbox.error("complete refused, the server lacks \(error.indices.count) segments: sending them again")

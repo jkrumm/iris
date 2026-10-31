@@ -286,7 +286,7 @@ public actor CaptureSession {
     publish()
     // Discarded first so a segment that closes while the recorder stops is deleted, not queued.
     cancelled.insert(memoID)
-    await outbox.discard(memoID)
+    let dropped = await outbox.discard(memoID)
     deviceEvents.event("take.discarded", memoID: memoID, ["segments": .int(closedCounts[memoID, default: 0])])
     // A failed take's recorder is already stopped (it has nothing to flush, and no last event to wait for).
     if state.failure == nil {
@@ -305,8 +305,14 @@ public actor CaptureSession {
     lateFinish.removeValue(forKey: memoID)?.cancel()
     awaitingStop.remove(memoID)
     // The recorder has closed what it could. A segment whose close failed never became a queue entry, so the outbox did not
-    // retire its file, nor the files of the segments held back behind it: the user dropped the take, so none of it is kept.
-    await files?.discardFiles(of: memoID)
+    // retire its file, nor the files of the segments held back behind it: the user dropped the take, so none of it is kept. Only
+    // once a save without the take has landed, like every segment file: if it did not, the record on disk still names the take,
+    // and the files stay for the sweep.
+    if dropped {
+      await files?.discardFiles(of: memoID)
+    } else {
+      Log.capture.error("take \(memoID.uuidString, privacy: .public) dropped but not saved, its files are kept")
+    }
     await deactivateSession()
     setState(.idle)
     return memoID

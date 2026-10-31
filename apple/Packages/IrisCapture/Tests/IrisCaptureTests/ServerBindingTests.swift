@@ -19,24 +19,31 @@ final class TestServer: Sendable {
 private actor SwitchingUploader: SegmentUploader {
   let base: TestUploader
   let server: TestServer
+  /// Bounce the first `complete` instead of the first `create`.
+  let bouncesComplete: Bool
   private var switched = false
 
-  init(base: TestUploader, server: TestServer) {
+  init(base: TestUploader, server: TestServer, bouncesComplete: Bool = false) {
     self.base = base
     self.server = server
+    self.bouncesComplete = bouncesComplete
+  }
+
+  private func bounceOnce() throws {
+    guard !switched else { return }
+    switched = true
+    server.switchTo("B")
+    throw WrongServerError()
   }
 
   func create(_ item: OutboxItem) async throws {
-    if !switched {
-      switched = true
-      server.switchTo("B")
-      throw WrongServerError()
-    }
+    if !bouncesComplete { try bounceOnce() }
     try await base.create(item)
   }
 
   func upload(_ segment: ClosedSegment) async throws { try await base.upload(segment) }
   func complete(memoID: MemoID, segmentCount: Int) async throws {
+    if bouncesComplete { try bounceOnce() }
     try await base.complete(memoID: memoID, segmentCount: segmentCount)
   }
   func delete(memoID: MemoID) async throws { try await base.delete(memoID: memoID) }
@@ -222,6 +229,69 @@ struct ServerBindingTests {
     await outbox.retryBackedOff()
     await outbox.settled()
     #expect(await base.created.map(\.memoID) == [memo(1)])
+    await outbox.shutdown()
+  }
+
+  @Test func aBouncedCreateIsNotMistakenForOneThatMayHaveLanded() async throws {
+    let server = TestServer("A")
+    let base = TestUploader()
+    let store = InMemoryOutboxStore()
+    let outbox = try await Outbox(
+      store: store, uploader: SwitchingUploader(base: base, server: server), clock: ManualClock(),
+      policy: OutboxPolicy(jitter: { 0 }), serverKey: { server.current })
+    let id = memo(1)
+    try await outbox.enqueueItem(voiceItem(id))
+    await outbox.enqueue(segment(id, 0))
+    await outbox.settled()
+
+    let item = try #require(await outbox.items().first)
+    #expect(item.create == .pending && !item.createMayHaveLanded, "nothing was sent: the memo was never created")
+    #expect(await store.load().items.first?.createMayHaveLanded == false, "and the saved queue says so too")
+
+    await outbox.discard(id)
+    await outbox.settled()
+    #expect(await base.deleteAttempts == 0, "no DELETE for a memo that was never created")
+    #expect(await store.load().deletions.isEmpty)
+    await outbox.shutdown()
+  }
+
+  @Test func aCreateThatWasSentBeforeStillGetsItsDeleteAfterABounce() async throws {
+    let server = TestServer("A")
+    let harness = try await harness(server)
+    let id = memo(1)
+    await harness.uploader.failNextCreates(1)  // sent, answer lost: it may have landed
+    try await harness.outbox.enqueueItem(voiceItem(id))
+    await harness.outbox.enqueue(segment(id, 0))
+    await harness.outbox.settled()
+    let before = try #require(await harness.outbox.items().first)
+    #expect(before.createMayHaveLanded)
+
+    await harness.outbox.discard(id)
+    await harness.outbox.settled()
+    #expect(await harness.uploader.deleted == [id])
+    await harness.outbox.shutdown()
+  }
+
+  @Test func aBouncedCompleteLeavesTheMemoOpenForALateTailSegment() async throws {
+    let server = TestServer("A")
+    let base = TestUploader()
+    let outbox = try await Outbox(
+      store: InMemoryOutboxStore(), uploader: SwitchingUploader(base: base, server: server, bouncesComplete: true),
+      clock: ManualClock(), policy: OutboxPolicy(jitter: { 0 }), serverKey: { server.current })
+    let id = memo(1)
+    try await outbox.enqueueItem(voiceItem(id))
+    await outbox.enqueue(segment(id, 0))
+    await outbox.finishMemo(id, segmentCount: 1)
+    await outbox.settled()
+
+    let held = try #require(await outbox.memos().first)
+    #expect(held.completion == .pending && !held.completeMayHaveLanded, "the complete never went out")
+    #expect(await base.completed.isEmpty)
+
+    server.switchTo("A")
+    await outbox.retryBackedOff()
+    await outbox.settled()
+    #expect(await base.completed == [.init(memoID: id, segmentCount: 1)])
     await outbox.shutdown()
   }
 

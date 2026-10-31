@@ -150,6 +150,15 @@ public struct OutboxStateMachine: Sendable {
     items[memoID]?.create = .pending
   }
 
+  /// The create found the connection on another server and sent nothing: back to pending with `createMayHaveLanded` as it was
+  /// before the dispatch, so a later discard does not queue a `DELETE` for a memo that was never created. (A cancelled create
+  /// keeps the flag: its request may have reached the server.)
+  public mutating func createBounced(_ memoID: MemoID) {
+    guard items[memoID]?.create == .uploading else { return }
+    items[memoID]?.create = .pending
+    if let before = flagBeforeDispatch.removeValue(forKey: memoID) { items[memoID]?.createMayHaveLanded = before }
+  }
+
   /// Puts every failed or stalled transfer of the memo back to pending with a fresh attempt count. `false` when
   /// there was nothing to retry.
   @discardableResult
@@ -544,6 +553,16 @@ public struct OutboxStateMachine: Sendable {
 
   public mutating func completeCancelled(_ memoID: MemoID) {
     memos[memoID]?.completion = .pending
+  }
+
+  /// The `complete` found the connection on another server and sent nothing: pending again, `completeMayHaveLanded` as it was
+  /// (a flag left set would stop the startup sweep from adopting a tail segment into a memo whose `complete` never went out).
+  public mutating func completeBounced(_ memoID: MemoID) {
+    guard memos[memoID]?.completion == .uploading else { return }
+    memos[memoID]?.completion = .pending
+    if let before = completeFlagBeforeDispatch.removeValue(forKey: memoID) {
+      memos[memoID]?.completeMayHaveLanded = before
+    }
   }
 
   /// The earliest future retry deadline, if any.

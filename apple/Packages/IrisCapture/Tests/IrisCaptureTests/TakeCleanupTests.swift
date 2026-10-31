@@ -3,6 +3,21 @@ import Testing
 
 @testable import IrisCapture
 
+/// A store whose saves can be refused from outside: a full disk.
+private actor SwitchableStore: OutboxStore {
+  struct DiskFull: Error {}
+
+  private var record = OutboxRecord()
+  private var failing = false
+
+  func setFailing(_ failing: Bool) { self.failing = failing }
+  func load() -> OutboxRecord { record }
+  func save(_ record: OutboxRecord) throws {
+    if failing { throw DiskFull() }
+    self.record = record
+  }
+}
+
 /// What a take leaves behind when it is dropped or fails on its own.
 struct TakeCleanupTests {
   private let request = TakeRequest(mode: "auto", title: "Voice memo")
@@ -49,6 +64,45 @@ struct TakeCleanupTests {
     #expect(exists(otherTake), "another take's file is not touched")
     await session.shutdown()
     await harness.outbox.shutdown()
+  }
+
+  @Test func aCancelWhoseSaveFailedKeepsTheFilesForTheSweep() async throws {
+    let directory = try temporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let store = SwitchableStore()
+    let uploader = TestUploader()
+    let clock = ManualClock()
+    let outbox = try await Outbox(
+      store: store, uploader: uploader, clock: clock, policy: OutboxPolicy(jitter: { 0 }), deletesFilesWhenDone: false)
+    let fake = FakeCapture(directory: directory, clock: clock)
+    let session = CaptureSession(
+      session: fake.session, routes: fake.routes, recorder: fake.recorder, outbox: outbox, clock: clock,
+      files: DirectorySegmentFiles(directory: directory))
+    let id = try await session.start(request)
+    await fake.recorder.feed(frames: 12 * SegmentRotationPolicy().sampleRate)
+    await outbox.settled()
+    let stranded = touch("\(id.uuidString)-3.m4a", in: directory)
+
+    await store.setFailing(true)  // the disk is full when the discard is saved
+    #expect(await session.cancel() == id)
+
+    #expect(
+      exists(stranded), "the record on disk still names the take: nothing is deleted before a save without it lands")
+    await store.setFailing(false)
+    await session.shutdown()
+    await outbox.shutdown()
+  }
+
+  @Test func discardSaysWhetherTheSaveLanded() async throws {
+    let store = SwitchableStore()
+    let outbox = try await Outbox(store: store, uploader: TestUploader(), clock: ManualClock())
+    try await outbox.enqueueItem(textItem(memo(1)))
+    try await outbox.enqueueItem(textItem(memo(2)))
+    await store.setFailing(true)
+    #expect(await outbox.discard(memo(1)) == false)
+    await store.setFailing(false)
+    #expect(await outbox.discard(memo(2)) == true)
+    await outbox.shutdown()
   }
 
   @Test func aTakeThatIsStoppedKeepsEveryFile() async throws {
