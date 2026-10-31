@@ -42,6 +42,13 @@ public struct OutboxMemo: Sendable, Equatable, Codable {
   /// `segmentCount` segments, so a tail segment found later cannot join it. Always written; a record from before the flag
   /// reads it from the completion state (see `init(from:)`).
   public internal(set) var completeMayHaveLanded: Bool
+  /// Not persisted: the record had no flag, so `completeMayHaveLanded` was assumed. The state machine settles it on load
+  /// (`OutboxStateMachine.init`), where the queue can prove the completion was never sent.
+  var completeFlagIsAssumed = false
+
+  private enum CodingKeys: String, CodingKey {
+    case memoID, segmentCount, completion, attempts, completeMayHaveLanded
+  }
 
   init(memoID: MemoID, segmentCount: Int, completion: OutboxState, attempts: Int, completeMayHaveLanded: Bool = false) {
     self.memoID = memoID
@@ -51,17 +58,19 @@ public struct OutboxMemo: Sendable, Equatable, Codable {
     self.completeMayHaveLanded = completeMayHaveLanded
   }
 
-  /// A record written before `completeMayHaveLanded` has no flag, and nothing in it proves `complete` was never sent: a
-  /// completion that is `pending` with no attempts is also what "retry now" leaves behind (it resets the attempts), and the
-  /// flag was not there to say it had gone out. So an absent flag reads "may have landed", and a tail then stays out of the memo.
-  /// The cost is one quarantined tail for a memo finished by an older build and not yet completed.
+  /// A record written before `completeMayHaveLanded` has no flag, and the memo alone does not prove `complete` was never sent:
+  /// a completion that is `pending` with no attempts is also what "retry now" leaves behind (it resets the attempts). So an
+  /// absent flag reads "may have landed" and is marked assumed; the state machine clears it again when the rest of the queue
+  /// proves otherwise (the create is not uploaded, or a segment is not), since `complete` only follows both.
   public init(from decoder: any Decoder) throws {
     let container = try decoder.container(keyedBy: CodingKeys.self)
     memoID = try container.decode(MemoID.self, forKey: .memoID)
     segmentCount = try container.decode(Int.self, forKey: .segmentCount)
     completion = try container.decode(OutboxState.self, forKey: .completion)
     attempts = try container.decode(Int.self, forKey: .attempts)
-    completeMayHaveLanded = try container.decodeIfPresent(Bool.self, forKey: .completeMayHaveLanded) ?? true
+    let stored = try container.decodeIfPresent(Bool.self, forKey: .completeMayHaveLanded)
+    completeMayHaveLanded = stored ?? true
+    completeFlagIsAssumed = stored == nil
   }
 }
 

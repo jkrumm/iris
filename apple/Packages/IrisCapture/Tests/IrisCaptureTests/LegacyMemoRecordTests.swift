@@ -61,4 +61,47 @@ struct LegacyMemoRecordTests {
     #expect(await harness.outbox.memos().first?.segmentCount == 2)
     await harness.outbox.shutdown()
   }
+
+  /// A queue with a legacy memo, its files on disk and a tail file beside them.
+  private func sweepWithLegacyMemo(create: OutboxState, segments: OutboxState) async throws -> (SweepReport, Int?) {
+    let directory = try temporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let id = memo(1)
+    var item = voiceItem(id)
+    item.create = create
+    let present = (0..<2).map { directory.appending(path: "\(id.uuidString)-\($0).m4a") }
+    for url in present { try Data("audio".utf8).write(to: url) }
+    try Data("audio".utf8).write(to: directory.appending(path: "\(id.uuidString)-2.m4a"))
+    let entries = present.enumerated().map { index, url in
+      OutboxEntry(
+        segment: ClosedSegment(memoID: id, index: index, fileURL: url, byteCount: 5, duration: 10), sequence: index,
+        state: segments, attempts: 0)
+    }
+    let legacy = try legacyDecoded(.pending, attempts: 0)
+    let harness = try await OutboxHarness(
+      record: OutboxRecord(entries: entries, memos: [legacy], items: [item], nextSequence: 2))
+    let report = await harness.outbox.sweepOrphans(
+      using: DirectorySegmentFiles(directory: directory, inspect: { _ in (5, 10) }))
+    let count = await harness.outbox.memos().first?.segmentCount
+    await harness.outbox.shutdown()
+    return (report, count)
+  }
+
+  @Test func aTailOfALegacyMemoWhoseCreateIsStillPendingJoinsIt() async throws {
+    let (report, count) = try await sweepWithLegacyMemo(create: .pending, segments: .pending)
+    #expect(report.adopted.count == 1 && report.quarantined.isEmpty, "complete cannot have gone out before the create")
+    #expect(count == 3)
+  }
+
+  @Test func aTailOfALegacyMemoWithASegmentNotYetUploadedJoinsIt() async throws {
+    let (report, count) = try await sweepWithLegacyMemo(create: .uploaded, segments: .pending)
+    #expect(report.adopted.count == 1 && report.quarantined.isEmpty, "complete waits for every segment")
+    #expect(count == 3)
+  }
+
+  @Test func aTailOfALegacyMemoWithEverythingUploadedStaysOutBecauseCompleteMayHaveGone() async throws {
+    let (report, count) = try await sweepWithLegacyMemo(create: .uploaded, segments: .uploaded)
+    #expect(report.adopted.isEmpty && report.quarantined.count == 1)
+    #expect(count == 2)
+  }
 }

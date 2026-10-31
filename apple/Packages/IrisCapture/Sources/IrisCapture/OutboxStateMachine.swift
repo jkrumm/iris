@@ -65,7 +65,19 @@ public struct OutboxStateMachine: Sendable {
       if deletion.state == .uploading { deletion.state = .pending }
       deletions[deletion.memoID] = deletion
     }
+    settleAssumedCompleteFlags()
     recoverUnfinishedTakes()
+  }
+
+  /// A memo from a record without `completeMayHaveLanded` was read as "may have landed". `complete` goes out only after the
+  /// item's create succeeded and every segment is uploaded, so a queue in which either is still open proves it was not sent.
+  private mutating func settleAssumedCompleteFlags() {
+    for (memoID, memo) in memos where memo.completeFlagIsAssumed {
+      memos[memoID]?.completeFlagIsAssumed = false
+      guard let item = items[memoID] else { continue }
+      let segmentOpen = entries.values.contains { $0.key.memoID == memoID && $0.state != .uploaded }
+      if item.create != .uploaded || segmentOpen { memos[memoID]?.completeMayHaveLanded = false }
+    }
   }
 
   public var record: OutboxRecord {
