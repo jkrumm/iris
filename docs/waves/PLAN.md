@@ -1093,12 +1093,12 @@ device workers `device` + `apple-dev`.
 **pauses the player** (his I3 answer: "rather B, pause playing"; recording takes priority, the reply is never recorded into the take).
 (2) A late tail for a memo the server already closed becomes **its own `transcribe` memo, client only** (option a: no contract change,
 cannot double-act); its row names the take it belongs to.
-- [ ] **D1. Device re-test with the owner** (Wave 17 Left behind "Device re-test", verbatim list): rows 1, 4, 15, 20, 21, the History
+- (partly run; the rest carried to Wave 19 D1) **D1. Device re-test with the owner** (Wave 17 Left behind "Device re-test", verbatim list): rows 1, 4, 15, 20, 21, the History
       scroll jump (screen recording), Stop from the History banner, I5's device proof (copy into Notes, the level meter); recover
       `ddaad4d8`'s tail from the phone's `capture/quarantine/` as a transcribe memo. One step at a time via `ask-human.sh`, German iOS
       paths (`feedback-device-1.md` §9). Start only once the owner answers a "ready for the re-test?" `ask-human` (a timeout = not yet,
       ask again at most hourly). A fail becomes an I item here (small) or a Left behind line.
-- [ ] **D2. Only if the enrolment has cleared** (the pending `ask-human` from Wave 17; ask again once if it timed out): APNs `.p8`
+- (not run: enrolment pending, carried) **D2. Only if the enrolment has cleared** (the pending `ask-human` from Wave 17; ask again once if it timed out): APNs `.p8`
       (Key ID, Team ID) + App Store Connect API key in 1Password, `make secrets-seed` through `ask-human`, `DEVICE_SIGNING=paid`, S3 (APNs
       Live Activity, [Play] from a suspended app) and TestFlight (`make testflight`). Not cleared → Left behind.
 - [x] **M1. R4 Mac, first slice (backlog 8, TDD §5):** the `MenuBarExtra` (`.window` style, `LSUIElement`) with History rows that match
