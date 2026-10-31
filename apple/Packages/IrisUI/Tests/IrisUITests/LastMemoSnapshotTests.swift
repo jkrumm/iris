@@ -251,6 +251,22 @@ struct LastMemoWidgetFeedTests {
     #expect(store.load() == nil)
   }
 
+  @Test("a reset (the connection changed) clears the snapshot and what was forgotten")
+  func reset() {
+    let store = InMemoryLastMemoSnapshotStore()
+    let counter = Counter()
+    let feed = feed(store, counter: counter)
+    feed.observe(memo("a"))
+    feed.forget(id: "gone")
+    feed.reset()
+    #expect(store.load() == nil)
+    #expect(counter.reloads == 2)
+    feed.reset()
+    #expect(counter.reloads == 2, "nothing stored, nothing to reload")
+    feed.observe(memo("gone", phase: .done))
+    #expect(store.load()?.memoID == "gone", "an id forgotten on the old server is a different memo on the new one")
+  }
+
   @Test("a soft-deleted memo comes back when the app sees it restored")
   func restore() {
     let store = InMemoryLastMemoSnapshotStore()

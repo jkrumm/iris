@@ -65,6 +65,8 @@ final class CompositionRoot: CaptureIntentHandler, PlaybackIntentHandler {
   /// Bumped when the saved connection changes; `IrisApp` restarts ``start()`` on it.
   private(set) var connectionRevision = 0
 
+  /// The newest memo for the Home / Lock Screen widgets; History feeds it (`LastMemoWidgetFeed+Memo.swift`).
+  private let widgetFeed: LastMemoWidgetFeed
   private let api: any APIClient
   let fakeAPI: FakeAPIClient?
   private let credentials: (any CredentialStore)?
@@ -188,6 +190,8 @@ final class CompositionRoot: CaptureIntentHandler, PlaybackIntentHandler {
       createdHere: { await outbox.created.memo(id: $0) != nil },
       takes: { [take] in TakeActivity(isOpen: take.isCapturing, started: take.takesStarted) })
     spokenReplies = reader
+    widgetFeed = LastMemoWidgetFeed.app(fake: fake)
+    widgetFeed.attach(to: history)
     history.onMemoUpdated = { id in reader.memoUpdated(id: id) }
     history.onMemoDone = { id in
       // Sampled here, on the event, not after the task hop: a take that opens in between still blocks the reply.
@@ -432,6 +436,7 @@ final class CompositionRoot: CaptureIntentHandler, PlaybackIntentHandler {
 
   private func connectionChanged() {
     reconfigurable?.reconfigure(credentials?.load())
+    widgetFeed.reset()
     DeviceLog.shared.serverChanged(credentials?.load()?.serverURL)
     connectionRevision += 1
   }

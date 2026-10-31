@@ -77,6 +77,14 @@ public final class LastMemoWidgetFeed {
     clear(id: id)
   }
 
+  /// The connection changed: the stored memo belongs to the server the app just left, so the widget goes back to its static
+  /// state and nothing remembered about the old server (the forgotten ids) applies to the new one.
+  public func reset() {
+    forgotten = []
+    guard current != nil else { return }
+    write(nil)
+  }
+
   private func clear(id: String) {
     guard current?.memoID == id else { return }
     write(nil)
