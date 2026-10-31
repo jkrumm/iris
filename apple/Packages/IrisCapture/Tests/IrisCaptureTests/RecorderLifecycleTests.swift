@@ -137,7 +137,10 @@ struct EngineResumeTests {
     try EngineStartup.bringUp(engine)
     var replacements = 0
     let resumed = try await EngineStartup.resume(
-      engine, replacement: { replacements += 1; return FakeTapEngine() }, attempts: 3, pause: { true })
+      engine,
+      replacement: {
+        replacements += 1; return FakeTapEngine()
+      }, attempts: 3, pause: { true })
     #expect(resumed === engine)
     #expect(replacements == 0)
     #expect(engine.calls == ["removeTap", "installTap", "start"], "a resume from the background starts nothing")
@@ -176,7 +179,10 @@ struct EngineResumeTests {
     let stale = FakeTapEngine()
     stale.running = false
     let resumed = try await EngineStartup.resume(
-      stale, replacement: { let engine = FakeTapEngine(); engine.failStart = true; return engine }, attempts: 4,
+      stale,
+      replacement: {
+        let engine = FakeTapEngine(); engine.failStart = true; return engine
+      }, attempts: 4,
       pause: { false })
     #expect(resumed == nil)
   }

@@ -110,3 +110,10 @@ see which process ran it.
 
 Detail and evidence: `device-checklist.md`, section "Wave 18 D1". **Verdict: S1 is half answered.** Control Center starts a take through the `LiveActivityIntent` fix and opens the app (memo `a66fc402`), which is the PRD's accepted fallback. The Lock Screen control still does nothing, also after the owner unlocks; Apple's rule is that a Lock Screen button is inactive until the device is unlocked, so "start without unlocking" cannot be a pass criterion for a button, and the remaining no-op after unlock is unexplained (no log, see below). Island Resume still fails (`cd6f0e19`: "engine resume failed"), the stale "Processing" activity still outlives its take, and Stop from the History banner no longer hits the watchdog (`3fefefed`). The `ddaad4d8` tail is an unfinalised m4a with no sample table and cannot be recovered with stock tools.
 Next: instrument the app first (Wave 18 I6: `IrisTelemetry` is not imported by any app source, so HyperDX has no `iris-ios` data); the research notes in the checklist list the error codes and fields (`!rec` 561145187, `!int`, `!pla`; `IntentSystemContext.currentMode`) that would turn the Resume and Lock Screen failures into a cause.
+
+### Lock Screen control (Wave 18 I7, fix built, device-unverified)
+
+The re-test left the Lock Screen press silent. Apple's rules (researched 2026-10-31): a control's intent runs in the widget extension, in the background, and only an `OpenIntent` in both targets
+makes the system open the app; a Lock Screen button is inactive until unlock, and `authenticationPolicy = .requiresAuthentication` makes the system ask for it before the intent runs. The control now runs
+`OpenRecorderIntent: OpenIntent` with that policy (TDD §4 Start paths); `StartMemoIntent` stays for Siri and Shortcuts. Not documented, so the device decides: the screen the person lands on after the unlock
+prompt, and whether a background `AudioRecordingIntent` may open the microphone from a locked device. Steps and the headless pass criteria (`intent.perform` with `process=com.jkrumm.iris`): `device-checklist.md`, "Wave 18 I7".
