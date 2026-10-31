@@ -938,13 +938,52 @@ pinned simulator in light and dark (`LiveActivitySnapshotTests`, the island thro
 ## 5. macOS app (`IrisMac`)
 
 - **Window and hotkey:** `MenuBarExtra` with `.menuBarExtraStyle(.window)`,
-  `LSUIElement`. The global hotkey goes through `KeyboardShortcuts`
-  (Carbon-based, no Accessibility prompt) if it holds up on macOS 26, otherwise
-  a `CGEventTap`. `NSEvent` global monitors reportedly crash on macOS 26.
-- **Panel:** a floating non-activating `NSPanel` for the take, showing the
-  timer, level and mic picker.
-- **Capture:** the same `IrisCapture` package; Mac input devices come from
-  Core Audio, and per-device mic rules are local.
+  `LSUIElement`. The global hotkey goes through `KeyboardShortcuts` 3.1.0
+  (Carbon `RegisterEventHotKey`: no Accessibility or Input Monitoring prompt,
+  works in the sandbox), decided in `docs/research/2026-10-31-mac-hotkey.md`.
+  No `CGEventTap` fallback: a listen-only tap costs an Input Monitoring grant
+  and an active one Accessibility, for features (modifier-only keys, media
+  keys) the take does not need. `NSEvent` global monitors reportedly crash on
+  macOS 26 and are not used. The default is **Control-Option-M**, recorded by
+  the user in Settings (`KeyboardShortcuts.Recorder`, stored in `UserDefaults`
+  by the package). Control-Option-Space is *not* free: it is the system's "next
+  input source". The default is also none of the owner's dictation keys (Fn,
+  double Fn, Cmd-Shift-Space style). A combination another app holds fails
+  silently in Carbon; Settings shows "This key is not active" when
+  `KeyboardShortcuts.isEnabled(for:)` is false.
+- **Panel:** a floating non-activating `NSPanel` (`NonActivatingPanel`:
+  `.borderless` + `.nonactivatingPanel`, `canBecomeKey` false, floating level,
+  every Space and over full-screen apps, top centre under the menu bar) for the
+  take, showing the timer (`ElapsedTimerText`), the level (`LevelWaveform`, the
+  last 36 buffers), a mic picker and Stop / Cancel. A refused microphone,
+  a missing connection or a failed start leaves a sentence in the same panel
+  (with "Open Settings" for the microphone) until closed.
+- **Capture (Wave 18 M2):** the same `IrisCapture` package. macOS has no
+  `AVAudioSession`: `MacAudioSessionController` is a no-op, and
+  `DirectoryRouteManager` (over the `AudioDeviceDirectory` port;
+  `CoreAudioDeviceDirectory` reads Core Audio's hardware object and listens for
+  device and default changes) is the `RouteManager`: the available inputs are
+  the recording devices (hidden ones left out), the current input is the system
+  default, and **picking a microphone sets the system default input**, which
+  the engine follows (`AVAudioEngineConfigurationChange` rolls the segment).
+  The default before the first pick is kept and put back when the take ends,
+  however it ends (`setPreferredInput(uid: nil)`; a crash mid-take leaves the
+  last pick as the default, known limit). Per-device mic rules are local
+  (`UserDefaults`, fingerprint = the default output's UID). The engine is the
+  same `AVAudioEngineSegmentRecorder` (16 kHz mono AAC, 10 s segments); the
+  outbox is the iPhone's `CaptureStack` over `JSONFileOutboxStore` in the app
+  container and `APIOutboxUploader` over a `ReconfigurableAPIClient` the Mac's
+  connection change re-points (`MacCaptureStack`, same sources compiled into
+  both targets). A take is mode Auto, like the iPhone's record control.
+  `RecordingPanelModel` is the state machine (`idle → starting → recording →
+  stopping → idle`, `failed(reason)` side state); a press or button while a
+  start or stop runs is dropped, a microphone pick is queued, and a recorder
+  failure mid-take stops the take, keeps what closed and says so. The model
+  drives a `TakeEngine` port (`CaptureTakeEngine` in production, scripted
+  `FakeTakeEngine`), a `MicrophonePermission` port and a `TakeHotkey` port; the
+  outbox is opened at launch and again on a connection change, so a take made
+  offline or cut short is sent next time. The memo the outbox creates shows in
+  History at once (the created-memo log) and by the SSE after that.
 - **Notifications:** live SSE `/v1/events` for status, local notifications
   while it runs, and APNs registration for when it is asleep.
 - **First slice (Wave 18 M1, no capture yet):**
@@ -985,7 +1024,16 @@ pinned simulator in light and dark (`LiveActivitySnapshotTests`, the island thro
     windows (history, detail, settings) and quit; snapshot mode only exists on the fake composition. Unit tests: `IrisMacTests`,
     hosted in the app (launched with `-IrisFakeData`), run by `make check-apple`.
 - **Signing:** a stable Apple Development identity. Ad-hoc signing resets TCC
-  on every build.
+  on every build (the microphone grant is keyed to the code signature). The
+  mini signs `IrisMac` with its Apple Development identity without a
+  provisioning profile when the build drops the `application-groups`
+  entitlement (nothing reads the App Group on the Mac; sandbox, audio input
+  and network client are unrestricted), so its grants survive rebuilds; the
+  unsigned CI and `check-apple` builds never record. The microphone prompt and a
+  real take need a Mac with a microphone and a person: hands-on rows in
+  `docs/spikes/device-checklist.md` ("Mac hands-on rows").
+- **Telemetry:** the Mac's take is not yet on the device log or the relay
+  (`DeviceLog` is the iOS app's); the package logs through `os.Logger` only.
 
 ## 6. Shared Swift packages
 
