@@ -15,7 +15,9 @@
       HistoryRow(
         status: status, headline: headline, secondary: secondary, timeText: time, isDone: done, isFavorite: favorite
       )
-      .padding(.horizontal, Theme.Spacing.xl)
+      // The list's row insets (`HistoryView.rowInsets`): the row itself carries no padding.
+      .padding(.horizontal, Theme.Spacing.screenMargin)
+      .padding(.vertical, Theme.Spacing.rowVertical)
       .background { HistoryRowBackground(needsAttention: needsAttention) }
     }
 
