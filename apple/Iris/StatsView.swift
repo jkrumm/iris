@@ -98,7 +98,7 @@ struct StatsView: View {
           }
         }
         .detailCard()
-        Text(verbatim: trendsFootnote)
+        Text(verbatim: trendsFootnote(report))
           .themeFont(.caption)
           .foregroundStyle(Theme.Ink.faint)
           .padding(.horizontal, Theme.Spacing.xs)
@@ -114,10 +114,12 @@ struct StatsView: View {
     }
   }
 
-  private var trendsFootnote: String {
+  private func trendsFootnote(_ report: StatsReport) -> String {
     switch model.granularity {
     case .days: String(localized: "Change against the 7 days before.", comment: "Stats trends footnote")
-    case .weeks: String(localized: "Average per week over 8 weeks.", comment: "Stats trends footnote")
+    case .weeks where report.bars.count > 1:
+      String(localized: "Average per week over \(report.bars.count) weeks.", comment: "Stats trends footnote")
+    case .weeks: String(localized: "Average per week.", comment: "Stats trends footnote, a single week")
     }
   }
 

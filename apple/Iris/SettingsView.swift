@@ -433,7 +433,7 @@ struct SettingsGroup<Rows: View, Footer: View>: View {
           .padding(.horizontal, Theme.Spacing.xs)
           .padding(.bottom, Theme.Spacing.sm)
       }
-      VStack(alignment: .leading, spacing: 0) {
+      LazyVStack(alignment: .leading, spacing: 0) {
         Group(subviews: rows) { subviews in
           ForEach(subviews.indices, id: \.self) { index in
             if index > 0 { Divider().overlay(Theme.divider) }

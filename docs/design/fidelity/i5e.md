@@ -62,4 +62,5 @@ The native `List` (iOS 26 capsule rows, 17 pt section titles, 16 pt row insets) 
 | Diagnostics copy | "Copy trace id" + "Memo id" buttons, trace id shown | the app copies the memo id; a behaviour change, not a visual one |
 | Diagnostics "Lock Screen" group (hide cost) | toggle and preview | a feature that is not built |
 | Route configuration review screens | n/a | review-only surface behind `-IrisRouteConfigReview`; only its spacing literals moved to `hair`; still a `List` |
+| Outbox row identity | n/a | `Group(subviews:)` keys the rows of a settings group by index, not by item id, so a removal can hand a row its neighbour's view state; harmless today (rows hold no state), a bespoke row container would fix it |
 | Large-title tracking | -0.01 em | no tracking role |

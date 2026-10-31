@@ -7,7 +7,6 @@ struct ConnectionForm: View {
 
   var body: some View {
     VStack(alignment: .leading, spacing: 0) {
-      Divider().overlay(Theme.divider)
       TextField(
         String(localized: "Server URL", comment: "Settings connection field"), text: $model.urlText,
         prompt: Text(verbatim: "https://iris.example.com")
