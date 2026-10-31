@@ -18,7 +18,7 @@
 
     static let labels = TakeScreenLabels(
       recording: "Recording", paused: "Paused", stop: "Stop", discard: "Discard", pause: "Pause", resume: "Resume",
-      microphone: "Microphone", minimize: "Minimize")
+      microphone: "Microphone", minimize: "Minimize", hint: "Stop sends the take · × discards it")
 
     static func presentation(
       _ phase: ActivityPhase, headline: String? = nil, routeChip: String? = nil, note: String? = nil

@@ -68,13 +68,13 @@ public struct TakeBanner: View {
           .font(.system(size: 13, weight: .bold))
           .foregroundStyle(Theme.Accent.onFill)
           .frame(width: 34, height: 34)
-          .background(Theme.Status.bad, in: .circle)
+          .background(Theme.Status.bad.opacity(0.82), in: .circle)
       }
       .buttonStyle(.plain)
       .accessibilityLabel(stopLabel)
       .accessibilityIdentifier("take.banner.stop")
     }
-    .padding(.leading, Theme.Spacing.lg)
+    .padding(.leading, Theme.Spacing.inset)
     .padding(.trailing, Theme.Spacing.sm)
     .padding(.vertical, Theme.Spacing.sm)
     .glassEffect(.regular, in: .capsule)

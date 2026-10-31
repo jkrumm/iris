@@ -14,11 +14,11 @@ public struct LevelWaveform: View {
 
   public var body: some View {
     GeometryReader { proxy in
-      HStack(alignment: .center, spacing: Theme.Spacing.tick) {
+      HStack(alignment: .center, spacing: Theme.Spacing.xs) {
         ForEach(levels.indices, id: \.self) { index in
           Capsule()
             .fill(isActive ? Theme.Accent.tint : Theme.Ink.faint)
-            .frame(width: 3, height: max(4, CGFloat(min(max(levels[index], 0), 1)) * proxy.size.height))
+            .frame(width: Theme.Spacing.xs, height: max(4, CGFloat(min(max(levels[index], 0), 1)) * proxy.size.height))
         }
       }
       .frame(maxWidth: .infinity, maxHeight: .infinity)

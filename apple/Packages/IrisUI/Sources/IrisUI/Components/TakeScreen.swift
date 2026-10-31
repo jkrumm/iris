@@ -10,10 +10,12 @@ public struct TakeScreenLabels: Sendable {
   public var resume: String
   public var microphone: String
   public var minimize: String
+  /// The line under the controls: what Stop and discard do.
+  public var hint: String
 
   public init(
     recording: String, paused: String, stop: String, discard: String, pause: String, resume: String,
-    microphone: String, minimize: String
+    microphone: String, minimize: String, hint: String
   ) {
     self.recording = recording
     self.paused = paused
@@ -23,6 +25,7 @@ public struct TakeScreenLabels: Sendable {
     self.resume = resume
     self.microphone = microphone
     self.minimize = minimize
+    self.hint = hint
   }
 }
 
@@ -65,39 +68,56 @@ public struct TakeScreen: View {
   }
 
   public var body: some View {
-    VStack(spacing: Theme.Spacing.xl) {
-      topBar
-      Text(verbatim: modeLabel)
-        .themeFont(.subheadline, weight: .medium)
-        .foregroundStyle(Theme.Accent.onFill)
-        .padding(.horizontal, Theme.Spacing.md)
-        .padding(.vertical, Theme.Spacing.snug)
-        .background(Theme.Accent.fill, in: .capsule)
-      Spacer(minLength: 0)
-      ElapsedTimerText(start: start, frozenAt: frozenAt)
-        .font(.system(size: 72, weight: .light))
-        .foregroundStyle(Theme.Ink.primary)
-        .minimumScaleFactor(0.6)
-        .accessibilityIdentifier("take.timer")
-      LevelWaveform(levels: levels, isActive: !isPaused)
-        .frame(height: 96)
-      if let notice {
-        Text(verbatim: notice)
-          .themeFont(.footnote)
-          .foregroundStyle(Theme.Status.bad)
-          .multilineTextAlignment(.center)
-          .accessibilityIdentifier("take.notice")
+    VStack(spacing: 0) {
+      VStack(spacing: Theme.Spacing.gutter) {
+        topBar
+        modeChip
       }
-      Spacer(minLength: 0)
-      microphoneButton
-      controls
+      Spacer(minLength: Theme.Spacing.xl)
+      VStack(spacing: Theme.Spacing.xl) {
+        ElapsedTimerText(start: start, frozenAt: frozenAt)
+          .font(.system(size: 76, weight: .light))
+          .tracking(-1.5)
+          .foregroundStyle(Theme.Ink.primary)
+          .minimumScaleFactor(0.6)
+          .accessibilityIdentifier("take.timer")
+        LevelWaveform(levels: levels, isActive: !isPaused)
+          .frame(height: 120)
+        if let notice {
+          Text(verbatim: notice)
+            .themeFont(.footnote)
+            .foregroundStyle(Theme.Status.bad)
+            .multilineTextAlignment(.center)
+            .accessibilityIdentifier("take.notice")
+        }
+      }
+      Spacer(minLength: Theme.Spacing.xl)
+      VStack(spacing: Theme.Spacing.gutter) {
+        microphoneButton
+        VStack(spacing: Theme.Spacing.lg) {
+          controls
+          Text(verbatim: labels.hint)
+            .themeFont(.caption)
+            .foregroundStyle(Theme.Ink.faint)
+            .multilineTextAlignment(.center)
+        }
+      }
     }
-    .padding(.horizontal, Theme.Spacing.lg)
-    .padding(.vertical, Theme.Spacing.lg)
+    .padding(.horizontal, Theme.Spacing.screenMargin)
+    .padding(.vertical, Theme.Spacing.hair)
     .frame(maxWidth: .infinity, maxHeight: .infinity)
     .background(Theme.Surface.background)
     .accessibilityElement(children: .contain)
     .accessibilityIdentifier("take.screen")
+  }
+
+  private var modeChip: some View {
+    Text(verbatim: modeLabel)
+      .themeFont(.subheadline, weight: .medium)
+      .foregroundStyle(Theme.Accent.onFill)
+      .padding(.horizontal, Theme.Spacing.chipInsetHorizontal)
+      .padding(.vertical, Theme.Spacing.snug)
+      .background(Theme.Accent.fill, in: .capsule)
   }
 
   private var topBar: some View {
@@ -152,7 +172,7 @@ public struct TakeScreen: View {
   }
 
   private var controls: some View {
-    HStack(spacing: 26) {
+    HStack(spacing: Theme.Spacing.xl) {
       Button(action: onTogglePause) {
         Image(systemName: isPaused ? "play.fill" : "pause.fill")
           .font(.system(size: 22, weight: .semibold))
@@ -169,7 +189,7 @@ public struct TakeScreen: View {
           .font(.system(size: 30, weight: .bold))
           .foregroundStyle(Theme.Accent.onFill)
           .frame(width: 84, height: 84)
-          .background(Theme.Status.bad, in: .circle)
+          .background(Theme.Status.bad.opacity(0.82), in: .circle)
       }
       .buttonStyle(.plain)
       .accessibilityLabel(labels.stop)
@@ -186,6 +206,5 @@ public struct TakeScreen: View {
       .accessibilityLabel(labels.discard)
       .accessibilityIdentifier("take.discard")
     }
-    .padding(.bottom, Theme.Spacing.md)
   }
 }
