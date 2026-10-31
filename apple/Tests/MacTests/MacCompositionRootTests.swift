@@ -45,9 +45,45 @@ struct MacCompositionRootTests {
     let root = fakeRoot(poster: poster)
     root.begin()
     #expect(await eventually { !root.history.memos.isEmpty })
-    root.fakeAPI?.emit(.memoDone(MemoEvent(id: Self.finished, state: .notified, at: .now)))
+    // The sample memo is finished already (the list's baseline); a run through the pipeline is a new transition.
+    try? await root.fakeAPI?.advance(Self.finished, to: .acted)
+    try? await root.fakeAPI?.advance(Self.finished, to: .notified)
     #expect(await eventually { await !poster.posted.isEmpty })
     #expect(await poster.posted.first?.memoID == Self.finished)
+  }
+
+  @Test("a memo that finished while the stream was down is announced when the stream is back, once")
+  func catchesUpAfterTheStreamReturns() async throws {
+    let poster = RecordingNotificationPoster()
+    let root = fakeRoot(poster: poster)
+    let fake = try #require(root.fakeAPI)
+    root.begin()
+    #expect(await eventually { !root.history.memos.isEmpty })
+    // The memo is still running when the connection is first read (the baseline) ...
+    var detail = try await fake.memo(id: Self.finished)
+    detail.memo.state = .acted
+    await fake.seed(detail)
+    fake.emit(.ready)
+    #expect(await eventually { root.notifier.hasBaseline })
+    #expect(await poster.posted.isEmpty)
+    // ... and has finished by the time the stream says `ready` again, with no event in between.
+    detail.memo.state = .notified
+    await fake.seed(detail)
+    fake.emit(.ready)
+    #expect(await eventually { await poster.posted.map(\.memoID) == [Self.finished] })
+    fake.emit(.ready)
+    try? await Task.sleep(for: .milliseconds(300))
+    #expect(await poster.posted.count == 1)
+  }
+
+  @Test("the catch-up reads the newest memos with no filter, whatever History is showing")
+  func catchUpIsUnfiltered() async throws {
+    let root = fakeRoot()
+    root.begin()
+    #expect(await eventually { !root.history.memos.isEmpty })
+    root.history.filters.searchText = "no memo says this"
+    let recent = try #require(await root.notifier.fetchRecent())
+    #expect(recent.contains { $0.id == Self.finished })
   }
 
   @Test("opening a memo selects it for the detail panel and asks the app to open the window")

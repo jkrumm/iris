@@ -1075,17 +1075,25 @@ pinned simulator in light and dark (`LiveActivitySnapshotTests`, the island thro
   - *Live updates:* the list and `HistoryModel.observeEvents()` start at launch, independently of each other (a hung first list
     request does not hold the stream back; its `ready` event reloads the list), whether or not the popover was ever opened, and
     restart on a connection change. The list reloads on every stream reconnect.
-  - *Notifications:* only a live `memo.done` from the open stream is announced. **Known limit:** a memo that finished while the
-    stream was down (the stream has no replay) is not announced; it shows in the list after the reload. `MemoNotifier` fetches the
-    memo fresh before posting and announces it only when the server says it is result-ready (a stale or running copy is never
-    announced and not remembered). One local notification per memo, never with the transcript, the reply or the park reason: a
-    finished memo shows its route and the summary's headline ("Done." without one), a parked or failed one generic words. A
-    memo is tracked as in flight vs posted; a fetch or post that fails is tried three times in all, logged, and forgotten, so a
-    later event may try again. The permission is read again for every memo, never cached, and the system prompt runs on the
-    side: an unanswered prompt holds neither History nor the stream, and finished memos wait on it.
-  - *Connection change:* the connection gets its own client and a new `HistoryModel`; the notifier is cleared (every event and
-    fetch carries the notifier's generation from when it started and re-checks it after each await, so a task of the old server
-    posts and records nothing); a banner carries its connection id (a digest of the server URL and token, so it survives an app restart
+  - *Notifications (Wave 19 M1, `MemoNotifier`):* a banner per **transition**, for three kinds: finished (`notified`: route and
+    headline, "Done." without a summary), parked (`needs_route`) and failed. Three feeds, one record (`announced`, the kind each
+    memo was last announced as): `memo.updated` / `memo.done` payloads from the open stream (`StreamTappingClient` hands every
+    state to the root in stream order; `noteState` is synchronous, so an earlier event never overtakes a later one), the
+    `memo.done` id, and the **catch-up** after the stream (re)connects. A state that is not a kind (a retry, a route answer) clears
+    the record, so the memo's next finish is a new banner; a repeated event or a second feed posts nothing. The event's state is
+    not the answer: the memo is fetched fresh before posting and judged by that copy. The catch-up fetches the newest 50 memos
+    **unfiltered** (History's filters hide memos from its list, not from the banners): the first one of a connection is the
+    baseline (what is finished is recorded, nothing announced), later ones announce memos that reached a kind since — ones the
+    connection saw running, and ones it never saw that started after the baseline's newest — at most five per catch-up, newest
+    first, the rest recorded. Banners never carry the transcript, the reply or the park reason: generic words for parked and
+    failed. A fetch or post that fails is tried three times, logged, forgotten. The permission is read again for every memo, and
+    the system prompt runs on the side. A memo in flight twice (an event while a catch-up delivers it) is delivered once, and looks
+    again fresh when the first delivery is through. **Limit:** a memo that finished while the *app was not running* is not announced
+    (the baseline records it); APNs for an asleep app comes later.
+  - *Connection change:* the connection gets its own client and a new `HistoryModel`; the notifier is cleared (every event, fetch and
+    catch-up carries the notifier's generation from when it started and re-checks it after each await, so a task of the old server
+    posts and records nothing; a banner the system took while the switch ran is withdrawn again, and the switch withdraws every
+    banner of another connection from Notification Center, as does launch); a banner carries its connection id (a digest of the server URL and token, so it survives an app restart
     and changes only with the saved connection) and a click on a banner of another connection is ignored; queued row actions of
     the old list are dropped, and the actions on one memo run in tap order, each on the memo as it is then, so the last tap wins on the server
     (`MacCompositionRoot.perform`); the detail window closes and following restarts.
@@ -1104,9 +1112,6 @@ pinned simulator in light and dark (`LiveActivitySnapshotTests`, the island thro
   unsigned CI and `check-apple` builds never record. The microphone prompt and a
   real take need a Mac with a microphone and a person: hands-on rows in
   `docs/spikes/device-checklist.md` ("Mac hands-on rows").
-- **Telemetry:** the Mac's take is not yet on the device log or the relay
-  (`DeviceLog` is the iOS app's); the package logs through `os.Logger` only.
-
 ## 6. Shared Swift packages
 
 | Package | Depends on | Tested with |

@@ -66,6 +66,8 @@ final class MacCompositionRoot {
   private var createdListening: Task<Void, Never>?
   /// Signals each `ready` of the current connection's event stream (see ``StreamTappingClient``).
   private var streamReady: AsyncStream<Void>
+  /// Every memo state the current connection's event stream reports, in order (see ``StreamTappingClient``).
+  private var memoStates: AsyncStream<MemoEvent>
   /// The client of the current connection. Each connection gets its own, so a task that started on the old server can never
   /// reach the new one.
   private var api: any APIClient
@@ -110,8 +112,10 @@ final class MacCompositionRoot {
       capture = MacCaptureStack.production(credentials: saved)
     }
     let (ready, signal) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+    let (states, stateSignal) = AsyncStream<MemoEvent>.makeStream()
     streamReady = ready
-    let tapped = StreamTappingClient(base: client, ready: signal)
+    memoStates = states
+    let tapped = StreamTappingClient(base: client, ready: signal, states: stateSignal)
     api = tapped
     history = Self.makeHistory(client: tapped, mode: mode)
     let isFake = mode == .fake
@@ -128,6 +132,11 @@ final class MacCompositionRoot {
     self.hotkey = hotkey ?? (isFake ? FakeTakeHotkey() : KeyboardShortcutsHotkey())
     // Always fetched: the list's copy can be stale, and a failed refresh must not announce a memo that is still running.
     notifier.lookup = { [weak self] id in try? await self?.api.memo(id: id).memo }
+    // The catch-up reads the newest memos with no filter: History's filters decide what its list shows, not what is announced.
+    notifier.fetchRecent = { [weak self] in
+      guard let page = try? await self?.api.listMemos(ListMemosQuery(limit: 50)) else { return nil }
+      return page.pinned + page.items
+    }
     wireNotifications()
     wireCreatedMemos()
   }
@@ -253,19 +262,35 @@ final class MacCompositionRoot {
       }
     }
     notifier.requestPermissionIfNeeded()
+    // Banners left by an earlier run or an earlier server do not name this one's memos.
+    notifier.withdrawForeignBanners()
     // The stream does not wait for the first list request: a slow or hung list must not keep the notifications away. The stream's
     // `ready` event reloads the list on its own.
     async let list: Void = history.load()
     async let events: Void = history.observeEvents()
     async let returns: Void = countReturns(of: streamReady)
-    _ = await (list, events, returns)
+    async let states: Void = followStates(of: memoStates)
+    _ = await (list, events, returns, states)
   }
 
-  /// Every `ready` of the event stream after the first is the server coming back; an open detail reloads on it.
+  /// Every `ready` of the event stream after the first is the server coming back; an open detail reloads on it, and the
+  /// notifier catches up on what finished while the stream was down (the first `ready` of a connection is its baseline).
   private func countReturns(of ready: AsyncStream<Void>) async {
     for await _ in ready {
       guard !Task.isCancelled else { return }
       reconnects += 1
+      let generation = notifier.generation
+      // One catch-up per `ready`, on its own task: it fetches and may post, and must not hold the next `ready` back.
+      Task { [notifier] in await notifier.catchUp(generation: generation) }
+    }
+  }
+
+  /// The states the stream reports, in order: a memo that reached a kind of banner it was not announced as is delivered.
+  /// Noting a state is synchronous, so a later event can never be overtaken by an earlier one.
+  private func followStates(of states: AsyncStream<MemoEvent>) async {
+    for await event in states {
+      guard !Task.isCancelled else { return }
+      if notifier.noteState(of: event) { announce(event.id, with: notifier) }
     }
   }
 
@@ -304,8 +329,10 @@ final class MacCompositionRoot {
     let base: any APIClient =
       fakeAPI ?? ReconfigurableAPIClient(credentials: credentials.load())
     let (ready, signal) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+    let (states, stateSignal) = AsyncStream<MemoEvent>.makeStream()
     streamReady = ready
-    api = StreamTappingClient(base: base, ready: signal)
+    memoStates = states
+    api = StreamTappingClient(base: base, ready: signal, states: stateSignal)
     history = Self.makeHistory(client: api, mode: mode)
     wireNotifications()
     notifier.reset(connectionID: Self.connectionID(for: credentials.load()))
