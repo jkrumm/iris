@@ -39,7 +39,7 @@ struct StopOffMainTests {
     let model = TakeModel(
       controller: TakeController(
         stack: rig.stack, liveActivity: coordinator, outbox: rig.service, microphone: nil, canRecord: true,
-        isConfigured: { true }, requestPermission: { true }))
+        isConfigured: { true }, requestPermission: { true }, preview: nil))
     let follower = Task { await model.run() }
     defer {
       follower.cancel()

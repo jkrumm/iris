@@ -8,7 +8,7 @@
   /// concatenated decode gapless. Rotation decisions come from `SegmentRotator`.
   ///
   /// Thin on purpose; device-verified in spike S1/S2, only compile-checked in the package tests.
-  public actor AVAudioEngineSegmentRecorder: SegmentRecorder {
+  public actor AVAudioEngineSegmentRecorder: SegmentRecorder, PreviewTap {
     public nonisolated let events: AsyncStream<CaptureEvent>
     public nonisolated let levels: AsyncStream<Float>
 
@@ -37,6 +37,8 @@
     /// Counts the engines of this recorder; `capture.tap.install` and `audio.config_change` carry it.
     private var generation = 0
     private var levelReporter: LevelReporter
+    /// The live preview's copy of the samples `ingest` accepts (nothing while no preview is open).
+    private var previewFeed = PreviewFeed()
     /// When a configuration change closed the segment: the first sample of the fresh engine ends the gap.
     private var configurationGapStart: ContinuousClock.Instant?
 
@@ -84,6 +86,7 @@
       } catch {
         sampleSink?.finish()
         sampleSink = nil
+        previewFeed.close()
         take.abortStart()
         throw CaptureError.engineFailure(String(describing: error))
       }
@@ -93,6 +96,7 @@
       // Claimed synchronously: the awaits below let other calls in, and they must see a stopping take.
       let memoID = try take.beginStop()
       run.end()
+      previewFeed.close()
       configurationGapStart = nil
       configurationTask?.cancel()
       configurationTask = nil
@@ -106,6 +110,10 @@
       await closer.idle()
       eventContinuation.yield(.stopped(memoID, segmentCount: rotator.closedCount))
       take.finishStop()
+    }
+
+    public func openPreview() -> AsyncStream<PreviewAudio> {
+      previewFeed.open()
     }
 
     public func rotate(for reason: RotationReason) {
@@ -398,6 +406,7 @@
       // Audio captured before a pause or during one never reaches a segment, however late the consumer gets to it.
       guard memoID != nil, !run.isPaused, gate.accepts(chunk.epoch), !samples.isEmpty else { return }
       levelContinuation.yield(InputLevel.meter(samples))
+      previewFeed.send(PreviewAudio(samples: samples, sampleRate: Double(policy.sampleRate)))
       reportLevel(samples)
       apply(rotator.append(frames: samples.count), samples: samples)
     }

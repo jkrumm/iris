@@ -258,3 +258,23 @@ backgrounded, or by the hand-over itself), and a `liveactivity.snapshot` with `r
 `age_s` after step 4 is the bug; the row's `states` and `memos` fields name the activity and its memo.
 
 Rows to update after the takes: 1 (Lock Screen, Control Center), 15, 20, 21; the `source` of the island buttons is `island`, of the control `intent`.
+
+## Wave 19 R1: live preview on the take screen (device proof pending, owner's batch D1)
+
+The analyzer does not run in the Simulator, so none of this has run yet. Needs an iPhone 12 or newer on iOS 26 or later.
+
+**Preview A: German (row P1).**
+1. Das iPhone steht auf Deutsch. Iris öffnen, Aufnahme starten (Aufnahme-Knopf unten).
+2. „Bitte erinnere mich morgen an den Zahnarzttermin und verschiebe das Treffen am Donnerstag“ sagen. Auf dem Aufnahme-Bildschirm erscheint der Text unter der Pegelanzeige, noch veränderliche Wörter in grau, fertige in schwarz (hell) oder weiß (dunkel).
+3. Pause antippen, zwei Sekunden warten: der Text bleibt stehen. Fortsetzen, weitersprechen: der Text läuft weiter. Stopp antippen.
+
+Headless check: the take's `take.phase` runs `recording` › `paused` › `recording` › `stopping`, `capture.segment.closed` and the upload run as without the preview, the memo's server transcript is the truth and may differ from what the screen showed; the device log
+has no `capture.session.error`, and **no** record carries any transcript text (`category=preview` notices say only "no live preview" or an error domain and code).
+
+**Preview B: no model, no preview (row P2).** A language whose model is not installed (a second device language, or a fresh device where German was never downloaded) shows no text and no empty area; the take records, pauses and sends as usual. Iris starts no download (no progress anywhere, no new language asset on the phone after the take).
+
+**Preview C: the take does not feel it (row P3).** A five-minute take with the preview on: the microphone level keeps moving, no `capture.gap`, `segmentCount` is as long as without it, the phone is not noticeably warm, and the uploaded audio plays gapless. Compare `capture.level` cadence with a take before this wave. If a take stutters, send the device log: the preview feeds from a bounded copy and must not.
+
+**Preview D: Stop contrast (row P4).** Dark and light scheme: the red Stop disc on the take screen shows a clearly visible square (dark glyph on the light red in dark mode, light glyph on dark red in light mode).
+
+**Open questions measured here, not answered by research:** model size per language, whether the system download honours cellular / Low Data Mode (the app never triggers it), CPU and battery cost of a long take with the preview, and which of the owner's languages are installed without a download.

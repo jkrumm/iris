@@ -104,7 +104,7 @@ public actor FakeRouteManager: RouteManager {
 }
 
 /// Writes placeholder segment files: 16 header bytes plus `bytesPerSecond` deterministic bytes per second.
-public actor FakeSegmentRecorder: SegmentRecorder {
+public actor FakeSegmentRecorder: SegmentRecorder, PreviewTap {
   public nonisolated let events: AsyncStream<CaptureEvent>
   public nonisolated let levels: AsyncStream<Float>
   public static let bytesPerSecond = 100
@@ -118,6 +118,7 @@ public actor FakeSegmentRecorder: SegmentRecorder {
   private var memoID: MemoID?
   private var isPaused = false
   private var resumeFailure: String?
+  private var previewFeed = PreviewFeed()
 
   public init(directory: URL, policy: SegmentRotationPolicy = SegmentRotationPolicy()) {
     self.directory = directory
@@ -141,6 +142,12 @@ public actor FakeSegmentRecorder: SegmentRecorder {
     guard memoID != nil, !isPaused else { return }
     apply(rotator.append(frames: frames))
     levelContinuation.yield(0.5)
+    previewFeed.send(
+      PreviewAudio(samples: [Float](repeating: 0, count: frames), sampleRate: Double(policy.sampleRate)))
+  }
+
+  public func openPreview() -> AsyncStream<PreviewAudio> {
+    previewFeed.open()
   }
 
   /// Script hook: the recorder reports a failure (a full disk, an engine that will not restart).
@@ -150,6 +157,7 @@ public actor FakeSegmentRecorder: SegmentRecorder {
 
   public func stop() throws {
     guard let memoID else { throw CaptureError.notRecording }
+    previewFeed.close()
     apply(rotator.finish())
     eventContinuation.yield(.stopped(memoID, segmentCount: rotator.closedCount))
     self.memoID = nil

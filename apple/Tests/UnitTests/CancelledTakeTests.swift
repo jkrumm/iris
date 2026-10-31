@@ -150,7 +150,8 @@ struct CancelledTakeTests {
     let controller = TakeController(
       stack: stack,
       liveActivity: TakeLiveActivityCoordinator(activity: RecordingLiveActivity(), stack: stack, created: created),
-      outbox: service, microphone: nil, canRecord: true, isConfigured: { true }, requestPermission: { true })
+      outbox: service, microphone: nil, canRecord: true, isConfigured: { true }, requestPermission: { true },
+      preview: nil)
 
     let id = try await controller.start(mode: .auto)
     await capture.recordWithoutClock(seconds: 12)
