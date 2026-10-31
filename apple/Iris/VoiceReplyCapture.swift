@@ -76,6 +76,7 @@ final class OutboxVoiceReplyCapture: VoiceReplyCapture {
   var isAvailable: Bool { isRecorderAvailable }
 
   func begin(_ request: VoiceReplyRequest) async throws {
+    DeviceLog.shared.commandSource = "thread"
     let mine = claim()
     held = mine
     do {

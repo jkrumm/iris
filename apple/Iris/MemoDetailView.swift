@@ -57,6 +57,7 @@ struct MemoDetailView: View {
       }
     }
     .navigationTitle(String(localized: "Memo", comment: "Navigation title of the memo detail"))
+    .reportsScreen("memo.detail")
     .navigationBarTitleDisplayMode(.inline)
     .toolbarVisibility(.hidden, for: .tabBar)
     .toolbar {

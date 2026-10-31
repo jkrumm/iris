@@ -16,7 +16,8 @@ public actor RelayExporter {
   private let interval: Duration
   private let maxBackoff: Duration
   private var consecutiveFailures = 0
-  private var isFlushing = false
+  /// The flush running now. A second caller joins it: a background-task assertion must not end while its send is in flight.
+  private var inFlight: Task<Void, Never>?
 
   public init(
     buffer: TelemetryBuffer,
@@ -36,13 +37,24 @@ public actor RelayExporter {
     self.maxBackoff = maxBackoff
   }
 
-  /// Sends everything buffered in batches of at most `batchSize`, stopping at the first failure. A call made while
-  /// another flush is running returns immediately; that flush picks up the data.
+  /// Sends everything buffered in batches of at most `batchSize`, stopping at the first failure. A call made while another flush
+  /// is running waits for that flush, then returns; what was recorded since is picked up by one more pass.
   public func flush() async {
-    guard !isFlushing else { return }
-    isFlushing = true
-    defer { isFlushing = false }
+    if let running = inFlight {
+      await running.value
+      guard inFlight == nil, await buffer.pendingCount > 0 else { return }
+    }
+    let task = Task { await self.sendAll() }
+    inFlight = task
+    await withTaskCancellationHandler {
+      await task.value
+    } onCancel: {
+      task.cancel()
+    }
+    inFlight = nil
+  }
 
+  private func sendAll() async {
     while !Task.isCancelled {
       let drain = await buffer.drain(max: batchSize)
       if drain.isEmpty { return }

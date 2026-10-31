@@ -66,6 +66,11 @@ public actor CaptureSession {
   private let recorder: any SegmentRecorder
   private let outbox: Outbox
   private let clock: any CaptureClock
+  private let deviceEvents: any CaptureEvents
+  /// What `take.phase` last reported, so a snapshot that changes nothing about the phase is not an event.
+  private var reportedPhase: (phase: TakePhase, memoID: MemoID?)?
+  /// When the take stopped recording and why, until it records again: the audio lost in between is `capture.gap`.
+  private var gapStart: (at: Date, reason: String)?
   /// How long `stop()` and `cancel()` wait for the recorder's last event before they give up on it.
   private let stopTimeout: TimeInterval
   /// How long to wait between attempts to reactivate the audio session after an interruption or a media-services reset.
@@ -108,8 +113,10 @@ public actor CaptureSession {
 
   public init(
     session: any AudioSessionController, routes: any RouteManager, recorder: any SegmentRecorder, outbox: Outbox,
-    clock: any CaptureClock, stopTimeout: TimeInterval = 10, reactivationDelay: TimeInterval = 0.5
+    clock: any CaptureClock, stopTimeout: TimeInterval = 10, reactivationDelay: TimeInterval = 0.5,
+    events deviceEvents: any CaptureEvents = NoCaptureEvents()
   ) {
+    self.deviceEvents = deviceEvents
     self.session = session
     self.routes = routes
     self.recorder = recorder
@@ -273,6 +280,7 @@ public actor CaptureSession {
     // Discarded first so a segment that closes while the recorder stops is deleted, not queued.
     cancelled.insert(memoID)
     await outbox.discard(memoID)
+    deviceEvents.event("take.discarded", memoID: memoID, ["segments": .int(closedCounts[memoID, default: 0])])
     // A failed take's recorder is already stopped (it has nothing to flush, and no last event to wait for).
     if state.failure == nil {
       do {
@@ -303,6 +311,7 @@ public actor CaptureSession {
     guard state.phase == .recording else { return }
     state.phase = .paused
     publish()
+    await beginGap("pause")
   }
 
   public func resume() async {
@@ -313,6 +322,7 @@ public actor CaptureSession {
     guard state.phase == .paused else { return }
     state.phase = .recording
     publish()
+    await endGap()
   }
 
   /// The user picks another microphone: the segment rolls over so each file has one input.
@@ -372,10 +382,20 @@ public actor CaptureSession {
       Task { [outbox] in
         for await event in events {
           switch event {
-          case .segmentClosed(let segment, _):
-            if cancelled.contains(segment.memoID) {
+          case .segmentClosed(let segment, let reason):
+            // What became of the file: a segment that closed but was never uploaded is an alarm unless the take was dropped.
+            let disposition =
+              cancelled.contains(segment.memoID) ? "discarded" : abandoned.contains(segment.memoID) ? "late" : "queued"
+            deviceEvents.event(
+              "capture.segment.closed", memoID: segment.memoID,
+              [
+                "index": .int(segment.index), "bytes": .int(segment.byteCount), "seconds": .double(segment.duration),
+                "reason": .string(reason.eventName), "closed_ok": .bool(segment.byteCount > 0),
+                "disposition": .string(disposition),
+              ])
+            if disposition == "discarded" {
               try? FileManager.default.removeItem(at: segment.fileURL)
-            } else if abandoned.contains(segment.memoID) {
+            } else if disposition == "late" {
               // Late: the memo was finished without it. Not queued; the file stays for the next launch's sweep to set aside.
               Log.capture.error("segment \(segment.index) closed after its take was finished, left on disk")
             } else {
@@ -625,12 +645,18 @@ public actor CaptureSession {
     guard state.phase == .recording else { return }
     state.phase = .paused
     publish()
+    await beginGap("interruption")
   }
 
   private func interruptionEnded(shouldResume: Bool) async {
     await enter()
     defer { leave() }
-    guard state.phase == .paused, shouldResume else { return }
+    guard state.phase == .paused, shouldResume else {
+      deviceEvents.event(
+        "audio.interruption", memoID: state.memoID,
+        ["type": "resume_skipped", "should_resume": .bool(shouldResume), "phase": .string(state.phase.eventName)])
+      return
+    }
     await resumeRecorder()
   }
 
@@ -648,6 +674,7 @@ public actor CaptureSession {
       guard state.phase == .recording else { return }
       state.phase = .paused
       publish()
+      await beginGap("media_services_reset")
     }
     do {
       try await retrying { try await session.configure() }
@@ -665,6 +692,10 @@ public actor CaptureSession {
     do {
       try await retrying { try await session.activate() }
     } catch {
+      var attributes = CaptureErrorDetail.attributes(of: error)
+      attributes["type"] = "resume"
+      attributes["resume.result"] = "error"
+      deviceEvents.event("audio.interruption", memoID: state.memoID, error: true, attributes)
       await sessionLost(error)
       return
     }
@@ -673,6 +704,8 @@ public actor CaptureSession {
     guard state.phase == .paused else { return }
     state.phase = .recording
     publish()
+    deviceEvents.event("audio.interruption", memoID: state.memoID, ["type": "resume", "resume.result": "ok"])
+    await endGap()
   }
 
   /// Runs a session call that fails while the audio daemon is not ready, a few times with a pause between, for as long as the
@@ -736,10 +769,70 @@ public actor CaptureSession {
   }
 
   private func publish() {
+    reportPhase()
     for observer in observers.values { observer.yield(state) }
+  }
+
+  /// `take.phase` on every change of phase. The app adds which control asked (`source`). `stopped` is the idle after a take.
+  private func reportPhase() {
+    let memoID = state.memoID ?? reportedPhase?.memoID
+    if let reported = reportedPhase, reported.phase == state.phase, reported.memoID == memoID { return }
+    if state.phase == .idle, reportedPhase == nil { return }
+    reportedPhase = state.phase == .idle ? nil : (state.phase, memoID)
+    var attributes: [String: CaptureEventValue] = [
+      "phase": .string(state.phase == .idle ? "stopped" : state.phase.eventName)
+    ]
+    if let mode = state.request?.mode { attributes["mode"] = .string(mode) }
+    if let input = state.inputName { attributes["input.name"] = .string(PortLabel.name(input)) }
+    if let failure = state.failure { attributes["failure"] = .string(failure) }
+    deviceEvents.event("take.phase", memoID: memoID, error: state.phase == .failed, attributes)
+  }
+
+  /// The take stopped recording (`reason`): the clock starts on the gap that ends when it records again.
+  private func beginGap(_ reason: String) async {
+    gapStart = (await clock.now(), reason)
+  }
+
+  /// The take records again: `capture.gap` says for how long it did not, and why.
+  private func endGap() async {
+    guard let start = gapStart else { return }
+    gapStart = nil
+    let milliseconds = max(0, Int((await clock.now()).timeIntervalSince(start.at) * 1000))
+    deviceEvents.event(
+      "capture.gap", memoID: state.memoID,
+      [
+        "ms": .int(milliseconds), "reason": .string(start.reason),
+        "frames_lost": .int(milliseconds * SegmentRotationPolicy().sampleRate / 1000),
+      ])
   }
 
   private func removeObserver(_ id: UUID) {
     observers[id] = nil
+  }
+}
+
+extension TakePhase {
+  /// The name `take.phase` carries.
+  fileprivate var eventName: String {
+    switch self {
+    case .idle: "idle"
+    case .starting: "starting"
+    case .recording: "recording"
+    case .paused: "paused"
+    case .stopping: "stopping"
+    case .failed: "failed"
+    }
+  }
+}
+
+extension RotationReason {
+  /// The name `capture.segment.closed` carries: `rotate` (the 10 s length), `route` (a mic or configuration change), `pause`, `stop`.
+  fileprivate var eventName: String {
+    switch self {
+    case .duration: "rotate"
+    case .micSwitch, .configurationChange: "route"
+    case .interruption: "pause"
+    case .stop: "stop"
+    }
   }
 }

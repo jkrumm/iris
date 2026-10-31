@@ -39,6 +39,7 @@ struct ComposerView: View {
       }
       .padding(Theme.Spacing.lg)
       .background(Theme.Surface.background)
+      .reportsScreen("sheet.composer")
       .navigationTitle(
         model.threadId == nil
           ? String(localized: "New memo", comment: "Composer title")

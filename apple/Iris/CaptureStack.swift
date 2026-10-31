@@ -47,6 +47,8 @@ actor CaptureStack {
     let store: any OutboxStore
     let uploader: any SegmentUploader
     var policy = OutboxPolicy()
+    /// Where the take's session reports phases, segments and gaps (the device log).
+    var events: any CaptureEvents = NoCaptureEvents()
     /// Fakes keep a take's files until the process ends; production deletes them once the server has the memo.
     var deletesFilesWhenDone = true
     /// The capture directory the recorder writes segment files to, for the startup sweep; `nil` skips it (fakes).
@@ -190,7 +192,8 @@ actor CaptureStack {
     }
     await outbox.resume()
     let session = CaptureSession(
-      session: parts.session, routes: parts.routes, recorder: parts.recorder, outbox: outbox, clock: parts.clock)
+      session: parts.session, routes: parts.routes, recorder: parts.recorder, outbox: outbox, clock: parts.clock,
+      events: parts.events)
     return .success((outbox, session))
   }
 }

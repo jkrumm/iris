@@ -2,7 +2,9 @@ import Foundation
 import IrisCapture
 import IrisCore
 import IrisUI
+import IrisTelemetry
 import Observation
+import UIKit
 
 #if canImport(AVFAudio)
   import AVFAudio
@@ -76,7 +78,9 @@ final class CompositionRoot: CaptureIntentHandler, PlaybackIntentHandler {
     arguments: [String] = ProcessInfo.processInfo.arguments,
     credentials: any CredentialStore = KeychainCredentialStore()
   ) {
-    let diagnostics = DiagnosticsModel(pasteboard: SystemPasteboard())
+    let log = DeviceLog.shared
+    let diagnostics = DiagnosticsModel(
+      pasteboard: SystemPasteboard(), runID: log.runID, onRunIDChange: { log.setRunID($0) })
     self.diagnostics = diagnostics
     let pinnedNow = SampleData.now(arguments: arguments)
     sampleNow = pinnedNow
@@ -101,11 +105,12 @@ final class CompositionRoot: CaptureIntentHandler, PlaybackIntentHandler {
         .init(
           session: capture.session, routes: capture.routes, recorder: capture.recorder, clock: SystemCaptureClock(),
           store: fakeStore,
-          uploader: FakePipelineUploader(
-            base: APIOutboxUploader(client: fake, created: created),
-            pipeline: FakePipeline(client: fake, step: Self.fakePipelineStep(arguments))),
+          uploader: ObservedSegmentUploader(
+            FakePipelineUploader(
+              base: APIOutboxUploader(client: fake, created: created),
+              pipeline: FakePipeline(client: fake, step: Self.fakePipelineStep(arguments)))),
           // A slow first retry: a queued item stays visible until "retry now", whatever the speed of the test runner.
-          policy: OutboxPolicy(baseDelay: 30), deletesFilesWhenDone: false))
+          policy: OutboxPolicy(baseDelay: 30), events: DeviceLogCaptureEvents(), deletesFilesWhenDone: false))
       let service = OutboxService(stack: stack, created: created)
       outbox = service
       micRules = MicRulesModel(routes: stack.routes)
@@ -113,7 +118,8 @@ final class CompositionRoot: CaptureIntentHandler, PlaybackIntentHandler {
       simulatesOffline = arguments.contains("-IrisFakeOffline")
       let recording = RecordingLiveActivity()
       fakeLiveActivity = recording
-      let coordinator = TakeLiveActivityCoordinator(activity: recording, stack: stack, created: created)
+      let coordinator = TakeLiveActivityCoordinator(
+        activity: ObservedTakeLiveActivity(recording), stack: stack, created: created)
       liveActivity = coordinator
       takeController = TakeController(
         stack: stack, liveActivity: coordinator, outbox: service, microphone: mic, canRecord: true,
@@ -258,14 +264,22 @@ final class CompositionRoot: CaptureIntentHandler, PlaybackIntentHandler {
     if let fakeAPI { await SampleData.seed(fakeAPI, now: sampleNow) }
     // Cached media that outlived its memo (deleted elsewhere, or while the app was gone) does not pile up.
     MediaDownloader.shared.sweepStale()
-    guard isConfigured else { return }
+    guard isConfigured else {
+      await logLaunchOnce()
+      return
+    }
     // Loads the saved queue and sends what is due: items left over from the last session, or from before a connection change.
     await outbox.resume()
     // An outbox that cannot be opened says nothing about its deletes: the persisted hidden ids are left as they are.
     if let pending = await outbox.pendingDeletionIDs() { history.reconcileHidden(pendingDeletions: pending) }
+    await logLaunchOnce()
+    liveActivity.snapshot(reason: "launch")
     // A take's Live Activity does not outlive its process: end the ones the last run left in a client phase. Off to the side:
     // its server lookups never hold up the list.
-    let orphans = Task { await liveActivity.endOrphans() }
+    let orphans = Task {
+      await liveActivity.endOrphans()
+      liveActivity.snapshot(reason: "launch_swept")
+    }
     defer { orphans.cancel() }
     if connectionRevision > 0 {
       await settings.load()
@@ -275,30 +289,84 @@ final class CompositionRoot: CaptureIntentHandler, PlaybackIntentHandler {
     await history.observeEvents()
   }
 
+  private var hasLoggedLaunch = false
+  /// What the last `app.launch` / `outbox.state` found: the queue was open.
+  private var lastOutboxState = true
+
+  /// `app.launch`, once per process: why it started, what the last run was doing when it ended, and what the queue and the
+  /// set-aside folder hold (a kill without a crash report shows as files in there).
+  private func logLaunchOnce() async {
+    guard !hasLoggedLaunch else { return }
+    hasLoggedLaunch = true
+    let aside = await outbox.setAside()
+    let log = DeviceLog.shared
+    var attributes = await outboxStateAttributes(aside: aside)
+    attributes["launch.reason"] = .string(
+      UIApplication.shared.applicationState == .background ? "background_launch" : "user")
+    attributes["previous.phase"] = .string(log.previousPhase)
+    attributes["previous.exit"] = "unknown"
+    attributes["mode"] = .string(mode == .fake ? "fake" : "production")
+    log.event("app.launch", attributes)
+    // The server never hears of a file in the set-aside folder: one record each, so the data-loss case is visible at once.
+    for file in aside.recordings + aside.queueFiles {
+      log.event(
+        "capture.quarantine", severity: .warn,
+        [
+          "file": .string(file.url.lastPathComponent), "bytes": .int(file.byteCount),
+          "has_moov": .bool(file.url.pathExtension == "m4a" ? Self.hasMovieAtom(file.url) : false),
+        ])
+    }
+  }
+
+  /// The queue as the log reports it: its state, and its item count only when it could be read.
+  private func outboxStateAttributes(aside: SetAsideSummary) async -> [String: AttributeValue] {
+    let available = await outbox.isAvailable()
+    let unreadable = available ? false : await outbox.isUnreadable()
+    let items = available ? await outbox.queuedItems().count : 0
+    lastOutboxState = available
+    return OutboxStateRecord.attributes(
+      available: available, unreadable: unreadable, items: items, quarantined: aside.count)
+  }
+
+  /// The launch found the queue closed or unreadable: say so again when it opens, so the record that read "unavailable" is not
+  /// the last word.
+  private func reportOutboxRecovery() async {
+    guard !lastOutboxState else { return }
+    let attributes = await outboxStateAttributes(aside: await outbox.setAside())
+    guard lastOutboxState else { return }
+    DeviceLog.shared.event("outbox.state", attributes.merging(["reason": "recovered"]) { current, _ in current })
+  }
+
+  /// A finalised m4a has a `moov` atom; one the process died while writing has none and no tool reads it.
+  private nonisolated static func hasMovieAtom(_ url: URL) -> Bool {
+    guard let data = try? Data(contentsOf: url, options: .mappedIfSafe) else { return false }
+    return data.range(of: Data("moov".utf8)) != nil
+  }
+
   // MARK: CaptureIntentHandler
 
   /// Starts a take in `auto` mode with its Live Activity: what the Control, Siri and the Shortcuts app run.
   func startMemo() async throws {
-    try await takeController.start(mode: .auto)
+    try await takeController.start(mode: .auto, source: "intent")
   }
 
   /// Ends the take and sends it: the Live Activity's Stop.
   func endTake() async throws {
-    _ = try await takeController.stop()
+    _ = try await takeController.stop(source: "island")
   }
 
   func toggleTakePause() async {
-    await takeController.togglePause()
+    await takeController.togglePause(source: "island")
   }
 
   func switchTakeInput() async throws {
-    try await takeController.switchToNextInput()
+    try await takeController.switchToNextInput(source: "island")
   }
 
   /// Ends the take the intent started: the memo is finished in the outbox. `nil` when there is none, or nothing was said.
   @discardableResult
   func stopMemo() async throws -> TakeResult? {
-    try await takeController.stop()
+    try await takeController.stop(source: "intent")
   }
 
   // MARK: PlaybackIntentHandler
@@ -327,14 +395,17 @@ final class CompositionRoot: CaptureIntentHandler, PlaybackIntentHandler {
   /// The app came to the foreground: what waited out a backoff while it was away is tried now. Fakes keep their queue as
   /// it is (a UI test reads a queued item).
   func foregrounded() async {
+    liveActivity.snapshot(reason: "foreground")
     guard mode == .production, isConfigured else { return }
     await outbox.resume()
+    await reportOutboxRecovery()
     // A follower does not poll while the app is suspended: look at the handed-over activities again.
     await liveActivity.endOrphans()
   }
 
   private func connectionChanged() {
     reconfigurable?.reconfigure(credentials?.load())
+    DeviceLog.shared.serverChanged(credentials?.load()?.serverURL)
     connectionRevision += 1
   }
 
@@ -344,15 +415,16 @@ final class CompositionRoot: CaptureIntentHandler, PlaybackIntentHandler {
   ) -> (stack: CaptureStack, canRecord: Bool) {
     let root = URL.applicationSupportDirectory.appending(path: "Iris", directoryHint: .isDirectory)
     let captureDirectory = root.appending(path: "capture", directoryHint: .isDirectory)
-    let recorder = try? AVAudioEngineSegmentRecorder(directory: captureDirectory)
+    let events = DeviceLogCaptureEvents()
+    let recorder = try? AVAudioEngineSegmentRecorder(directory: captureDirectory, events: events)
     let segmentFiles = DirectorySegmentFiles(directory: captureDirectory)
     let stack = CaptureStack(
       .init(
-        session: AVAudioSessionController(), routes: AVAudioSessionRouteManager(),
+        session: AVAudioSessionController(events: events), routes: AVAudioSessionRouteManager(events: events),
         recorder: recorder ?? UnavailableSegmentRecorder(), clock: SystemCaptureClock(),
         store: JSONFileOutboxStore(fileURL: root.appending(path: "outbox.json"), segmentDirectory: captureDirectory),
-        uploader: APIOutboxUploader(client: client, created: created, keeping: segmentFiles),
-        segmentFiles: segmentFiles))
+        uploader: ObservedSegmentUploader(APIOutboxUploader(client: client, created: created, keeping: segmentFiles)),
+        events: events, segmentFiles: segmentFiles))
     return (stack, recorder != nil)
   }
 }

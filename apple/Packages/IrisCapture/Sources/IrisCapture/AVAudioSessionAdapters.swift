@@ -12,8 +12,10 @@
     private var resetTask: Task<Void, Never>?
     // Keeps the iOS 27 message observers registered; they are removed when the tokens deinit.
     private var observationTokens: [Any] = []
+    private let events: any CaptureEvents
 
-    public init() {
+    public init(events: any CaptureEvents = NoCaptureEvents()) {
+      self.events = events
       (interruptions, continuation) = AsyncStream.makeStream(of: InterruptionEvent.self)
     }
 
@@ -26,6 +28,7 @@
           options: [.allowBluetoothHFP, .allowBluetoothA2DP, .bluetoothHighQualityRecording])
         try session.setPrefersNoInterruptionsFromSystemAlerts(true)
       } catch {
+        events.sessionError(call: "setCategory", error: error)
         throw CaptureError.sessionFailure(String(describing: error))
       }
       observeInterruptions()
@@ -35,6 +38,7 @@
       do {
         try AVAudioSession.sharedInstance().setActive(true)
       } catch {
+        events.sessionError(call: "setActive", error: error)
         throw CaptureError.sessionFailure(String(describing: error))
       }
     }
@@ -43,6 +47,7 @@
       do {
         try AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
       } catch {
+        events.sessionError(call: "setActive(false)", error: error)
         throw CaptureError.sessionFailure(String(describing: error))
       }
     }
@@ -72,14 +77,18 @@
     private func observeInterruptionMessages() {
       let session = AVAudioSession.sharedInstance()
       let sink = continuation
+      let events = events
       let center = NotificationCenter.default
       observationTokens = [
         center.addObserver(of: session, for: .didBecomeInactive) { message in
           guard case .systemInterruption = message.deactivationResult else { return }
+          events.event("audio.interruption", ["type": "began", "api": "ios27"])
           sink.yield(.began)
         },
         center.addObserver(of: session, for: .resumptionRecommendation) { message in
-          sink.yield(.ended(shouldResume: message.recommendation == .shouldResume))
+          let resume = message.recommendation == .shouldResume
+          events.event("audio.interruption", ["type": "ended", "should_resume": .bool(resume), "api": "ios27"])
+          sink.yield(.ended(shouldResume: resume))
         },
       ]
     }
@@ -87,6 +96,7 @@
     /// iOS 26: `interruptionNotification` (deprecated from 27).
     private func observeLegacyInterruptionNotification() {
       let sink = continuation
+      let events = events
       // Owned by this controller; ends with the process (the controller lives for the app's lifetime).
       observerTask = Task {
         for await notification in NotificationCenter.default.notifications(
@@ -96,17 +106,41 @@
             let rawType = notification.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
             let type = AVAudioSession.InterruptionType(rawValue: rawType)
           else { continue }
+          let rawReason = notification.userInfo?[AVAudioSessionInterruptionReasonKey] as? UInt
+          let reason =
+            rawReason.map(Self.name(ofInterruptionReason:)) ?? "unknown"
           switch type {
           case .began:
+            events.event("audio.interruption", ["type": "began", "reason": .string(reason), "api": "ios26"])
             sink.yield(.began)
           case .ended:
             let rawOptions = notification.userInfo?[AVAudioSessionInterruptionOptionKey] as? UInt ?? 0
             let options = AVAudioSession.InterruptionOptions(rawValue: rawOptions)
+            events.event(
+              "audio.interruption",
+              [
+                "type": "ended", "options": .int(Int(rawOptions)),
+                "should_resume": .bool(options.contains(.shouldResume)),
+                "reason": .string(reason), "api": "ios26",
+              ])
             sink.yield(.ended(shouldResume: options.contains(.shouldResume)))
           @unknown default:
             continue
           }
         }
+      }
+    }
+  }
+
+  extension AVAudioSessionController {
+    /// By raw value, so a case the SDK deprecates or adds does not break the build.
+    fileprivate static func name(ofInterruptionReason raw: UInt) -> String {
+      switch raw {
+      case 0: "default"
+      case 1: "app_was_suspended"
+      case 2: "built_in_mic_muted"
+      case 4: "route_disconnected"
+      default: "reason_\(raw)"
       }
     }
   }
@@ -118,9 +152,47 @@
     private var observerTask: Task<Void, Never>?
     private static let rulesKey = "com.jkrumm.iris.capture.routeRules"
 
-    public init(defaults: UserDefaults = .standard) {
+    public init(defaults: UserDefaults = .standard, events: any CaptureEvents = NoCaptureEvents()) {
       self.defaults = defaults
       (routeChanges, continuation) = AsyncStream.makeStream(of: RouteChange.self)
+      Self.logRouteChanges(to: events)
+    }
+
+    /// Every route change is an `audio.route_change` event, whether or not anything consumes `routeChanges`.
+    private static func logRouteChanges(to events: any CaptureEvents) {
+      // Owned by the process: the route manager lives for the app's lifetime.
+      Task {
+        for await notification in NotificationCenter.default.notifications(
+          named: AVAudioSession.routeChangeNotification)
+        {
+          let session = AVAudioSession.sharedInstance()
+          let rawReason = notification.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt
+          let reason = rawReason.flatMap(AVAudioSession.RouteChangeReason.init(rawValue:))
+          let previous =
+            notification.userInfo?[AVAudioSessionRouteChangePreviousRouteKey] as? AVAudioSessionRouteDescription
+          var attributes = SessionSnapshot.attributes()
+          attributes["reason"] = .string(reason.map(name(of:)) ?? "unknown")
+          attributes["route.current"] = .string(
+            SessionSnapshot.describe(session.currentRoute.inputs + session.currentRoute.outputs))
+          attributes["route.prev"] = .string(
+            previous.map { SessionSnapshot.describe($0.inputs + $0.outputs) } ?? "none")
+          events.event("audio.route_change", attributes)
+        }
+      }
+    }
+
+    private static func name(of reason: AVAudioSession.RouteChangeReason) -> String {
+      switch reason {
+      case .unknown: "unknown"
+      case .newDeviceAvailable: "new_device_available"
+      case .oldDeviceUnavailable: "old_device_unavailable"
+      case .categoryChange: "category_change"
+      case .override: "override"
+      case .wakeFromSleep: "wake_from_sleep"
+      case .noSuitableRouteForCategory: "no_suitable_route"
+      case .routeConfigurationChange: "route_configuration_change"
+      @unknown default: "unknown"
+      }
     }
 
     public func currentRoute() -> RouteSnapshot {

@@ -45,3 +45,22 @@ xcrun devicectl device capture screenshot --device $D --destination out.png   # 
 - `ask-human.sh ask '…' --cmd true --wait N`: exit 0 Run, 1 Deny, 75 unanswered (a timeout is "not run"). It answers `done` in the same second as the push (seen three times on 2026-10-30): a Run/Deny reply is not proof the
   owner did the step. Verify the effect yourself (a launch that works, a screenshot) before relying on it.
 - Report each checklist row as pass/fail with the date, device model and iOS version, and append it to the checklist file.
+
+## One take's device timeline (unverified until a device take)
+
+The phone has no log access without root (above), so the relay is the log: every capture, route, interruption, outbox, intent and Live Activity
+event is also a record in HyperDX (`service.name = iris-ios`, TDD §8). **Unverified:** proven on the simulator only (`-IrisFakeCapture`, records dumped
+with `-IrisTelemetryDump <file>`); the first device take (D1) confirms it. Do not ask the owner what he saw until you have read this.
+
+1. Optional, once per round: the owner types a word in Settings > Diagnostics > Run id (German: Einstellungen › Diagnose › Lauf-ID); every record then
+   carries `run.id`, so a whole round is one filter.
+2. The take's memo id: the newest `GET /v1/memos` item (skill `memo-debug`); the trace id is the same id without the dashes.
+3. The timeline, through the `/otel` skill (prod): "logs of `ServiceName:"iris-ios"` with trace id `<id without dashes>`, ordered by the attribute `seq`"; or
+   `agw otel "<id without dashes>" --env prod`, or a `clickstack_search` over `ServiceName:"iris-ios"` (add `run.id:<word>` to take every memo of a round).
+   Read `event.name`, `seq`, `uptime_ms` (order and durations; the phone clock can step), `app.pid` (a new one mid-take is a relaunch).
+4. What to look for: `take.phase` rows (with `source`: who pressed), `capture.session.error` (`call`, `error.fourcc`: `!rec` is "recording not allowed", `!int` "interrupted"),
+   `audio.route_change` / `audio.config_change` / `audio.interruption` around a gap in the audio, `capture.gap` (`ms`), `capture.segment.closed` without a later
+   `outbox.segment.upload` (data-loss alarm), `liveactivity.snapshot` with `count > 1`, `intent.perform` missing for a press (the extension never reached the app),
+   `metrickit.crash|hang` on the launch after a crash, `capture.level` (`rms_db`) against the transcript.
+5. Records reach the server at launch, every 10 s and on background; a take killed with the server unreachable shows up at the next launch. No records for a
+   whole run: Settings > Connection is not set, or the phone cannot reach the server (the crash file keeps up to 2 000 records).

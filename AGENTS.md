@@ -155,6 +155,11 @@ about either is tracked. Overrides: `IRIS_DEVICE_ID`, `TEAM=<id>`, `DEVICE_SIGNI
 - **Connecting the app** has no launch-argument route (no production backdoor): the owner types the server URL and the `iphone` device token once in
   Settings > Connection (Keychain item survives reinstalls over the same bundle id). The tailnet VPN must be on. The phone must be unlocked for `launch`.
   Verified 2026-10-30: a typed memo from the phone reached `done`. Known app gap: Settings says "Connected" for any saved configuration, reachable or not.
+- **Device observability (TDD §8):** every capture, route, interruption, outbox, intent and Live Activity event is `DeviceLog.shared.event(...)` (apple/Iris) or
+  an `IrisCapture` `CaptureEvents` call: one `os.Logger` line in `com.jkrumm.iris` and one relayed record (`service.name=iris-ios`, trace id = the memo id
+  without dashes, ordered by `seq`). Add an event there, not a bare `Logger` call, and never a token, transcript, reply or port uid in one. `service.version` is the
+  `IRIS_BUILD_SHA` build setting (`scripts/device-build.sh` passes the short git sha; any other build reports `dev`). The widget extension only logs to the console (no App Group on a Personal Team).
+  Headless read of a take: skills `device` and `memo-debug`.
 
 ## Validate
 

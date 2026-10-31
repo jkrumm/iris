@@ -51,7 +51,8 @@ final class TakeController {
   /// Starts a take in `mode` with its Live Activity. Starts that overlap are one take: the later call returns the memo the
   /// first one started, and so does a start that finds a take already running.
   @discardableResult
-  func start(mode: MemoMode) async throws -> MemoID {
+  func start(mode: MemoMode, source: String = "app") async throws -> MemoID {
+    DeviceLog.shared.commandSource = source
     if let starting { return try await starting.value }
     let claim = claimCapture()
     let task = Task { try await beginOrJoinRunning(mode: mode) }
@@ -131,7 +132,8 @@ final class TakeController {
 
   /// Ends the take: the memo is finished in the outbox. `nil` when there is none, or nothing was said.
   @discardableResult
-  func stop() async throws -> TakeResult? {
+  func stop(source: String = "app") async throws -> TakeResult? {
+    DeviceLog.shared.commandSource = source
     let claim = captureClaim
     await microphone?.stop()
     do {
@@ -158,7 +160,8 @@ final class TakeController {
   }
 
   /// Pauses a recording take, resumes a paused one.
-  func togglePause() async {
+  func togglePause(source: String = "app") async {
+    DeviceLog.shared.commandSource = source
     guard let session = try? await stack.session() else { return }
     if await session.current.phase == .paused {
       await session.resume()
@@ -167,17 +170,18 @@ final class TakeController {
     }
   }
 
-  func switchInput(to uid: String) async throws {
+  func switchInput(to uid: String, source: String = "app") async throws {
+    DeviceLog.shared.commandSource = source
     try await stack.session().switchInput(to: uid)
   }
 
   /// The next available microphone after the one in use (the Live Activity's mic-swap button).
-  func switchToNextInput() async throws {
+  func switchToNextInput(source: String = "app") async throws {
     let route = await stack.routes.currentRoute()
     let inputs = route.availableInputs
     guard inputs.count > 1 else { return }
     let current = inputs.firstIndex { $0.uid == route.currentInput?.uid } ?? -1
-    try await switchInput(to: inputs[(current + 1) % inputs.count].uid)
+    try await switchInput(to: inputs[(current + 1) % inputs.count].uid, source: source)
   }
 
   func route() async -> RouteSnapshot { await stack.routes.currentRoute() }

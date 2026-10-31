@@ -11,4 +11,4 @@ ent="$(entitlement_settings)"  # build settings, one per line; paths hold no spa
 echo "  device build: signing=$DEVICE_SIGNING team=<resolved> entitlement overrides=$(printf %s "$ent" | grep -c .)"
 xcodebuild -project "$APPLE_DIR/Iris.xcodeproj" -scheme Iris -configuration Debug -derivedDataPath "$APPLE_DIR/.dd.noindex" \
   -destination "id=$dev" -allowProvisioningUpdates \
-  DEVELOPMENT_TEAM="$team" $ent build
+  DEVELOPMENT_TEAM="$team" IRIS_BUILD_SHA="$(git rev-parse --short HEAD)" $ent build

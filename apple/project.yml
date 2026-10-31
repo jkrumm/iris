@@ -47,6 +47,8 @@ targets:
         CFBundleDisplayName: Iris
         UIBackgroundModes: [audio]
         NSSupportsLiveActivities: true
+        # The git sha of the build, the `service.version` of every device record; the device build passes IRIS_BUILD_SHA.
+        IrisBuildSHA: $(IRIS_BUILD_SHA)
         NSMicrophoneUsageDescription: Iris records your voice memos.
         UILaunchScreen: {}
         UIApplicationSceneManifest:
@@ -57,6 +59,7 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.jkrumm.iris
         TARGETED_DEVICE_FAMILY: "1"
+        IRIS_BUILD_SHA: dev
         # `scripts/device-build.sh` points these at copies without `aps-environment` (app) and the App Group (all three) while the team is a Personal Team.
         IRIS_APP_ENTITLEMENTS: Iris/Iris.entitlements
         CODE_SIGN_ENTITLEMENTS: $(IRIS_APP_ENTITLEMENTS)
