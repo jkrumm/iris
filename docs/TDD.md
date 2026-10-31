@@ -1112,6 +1112,14 @@ pinned simulator in light and dark (`LiveActivitySnapshotTests`, the island thro
   unsigned CI and `check-apple` builds never record. The microphone prompt and a
   real take need a Mac with a microphone and a person: hands-on rows in
   `docs/spikes/device-checklist.md` ("Mac hands-on rows").
+- **Outbox panel (Wave 19 M1):** a strip under the panel header on every page, only while the queue holds something or cannot
+  be opened or saved (`MacOutboxStrip` over `MacOutboxModel`). It reads the iPhone's `QueuedItemSource` (`OutboxService`, compiled
+  in; no second model of the outbox): a count ("2 of 3 could not be sent"), the first stalled item's reason, and per item the
+  iPhone Settings row (`OutboxItemRow`) with Retry now / Discard (a queued server delete says "Stop trying"). It opens by itself
+  while an item is stalled, three rows show whole and more scroll in 200 pt. A queue that cannot be opened or saved says so in
+  the same words as Settings, and a Discard that did not reach the queue says so. The strip is followed from launch to quit
+  (`begin()` starts the observation once), so a take made before a connection was saved shows. Fakes: `ScriptedQueue`
+  (`-IrisMacStalled` seeds a stalled upload, a retry backoff and a queued removal for the screenshot).
 ## 6. Shared Swift packages
 
 | Package | Depends on | Tested with |

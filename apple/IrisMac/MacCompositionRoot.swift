@@ -58,12 +58,15 @@ final class MacCompositionRoot {
   let recordingPanel: RecordingPanelController
   /// The global key that toggles a take.
   let hotkey: any TakeHotkey
+  /// The stalled-upload panel: the outbox's queue, Retry now and Discard.
+  let outbox: MacOutboxModel
   /// The scripted engine behind ``Mode/fake``; the snapshot run feeds its levels.
   let fakeTake: FakeTakeEngine?
   /// Production only: the outbox the takes go through, and the client its uploader talks to.
   private let capture: MacCaptureStack?
   private var hotkeyListening: Task<Void, Never>?
   private var createdListening: Task<Void, Never>?
+  private var outboxObserving: Task<Void, Never>?
   /// Signals each `ready` of the current connection's event stream (see ``StreamTappingClient``).
   private var streamReady: AsyncStream<Void>
   /// Every memo state the current connection's event stream reports, in order (see ``StreamTappingClient``).
@@ -129,6 +132,13 @@ final class MacCompositionRoot {
       engine: engine, permission: permission ?? (isFake ? FakeMicrophonePermission() : SystemMicrophonePermission()),
       isConfigured: { isFake || store.load() != nil })
     recordingPanel = RecordingPanelController(model: recording)
+    let queue: any QueuedItemSource
+    if let capture {
+      queue = capture.service
+    } else {
+      queue = ScriptedQueue(arguments.contains(Self.stalledArgument) ? ScriptedQueue.stalledSample : [])
+    }
+    outbox = MacOutboxModel(source: queue)
     self.hotkey = hotkey ?? (isFake ? FakeTakeHotkey() : KeyboardShortcutsHotkey())
     // Always fetched: the list's copy can be stale, and a failed refresh must not announce a memo that is still running.
     notifier.lookup = { [weak self] id in try? await self?.api.memo(id: id).memo }
@@ -227,6 +237,8 @@ final class MacCompositionRoot {
   }
 
   static let fakeDataArgument = "-IrisFakeData"
+  /// Fakes: the outbox panel starts with a stalled upload, a waiting one and a queued removal (screenshots).
+  static let stalledArgument = "-IrisMacStalled"
   /// Opens the panel on the Settings page (screenshots).
   static let settingsArgument = "-IrisMacSettings"
   /// Opens the panel as a regular window at launch, because a menu-bar popover cannot be opened without a click
@@ -243,6 +255,8 @@ final class MacCompositionRoot {
   /// Starts following the server: the list and its event stream. Called once at launch
   /// and again on each connection change.
   func begin() {
+    // The queue is followed for the life of the app: a take made before any connection was saved can be waiting in it.
+    if outboxObserving == nil { outboxObserving = Task { [outbox] in await outbox.observe() } }
     following?.cancel()
     following = Task { [weak self] in await self?.follow() }
   }
