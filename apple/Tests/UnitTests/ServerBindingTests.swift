@@ -63,6 +63,94 @@ struct ServerBindingTests {
     #expect(id != TelemetryBootstrap.serverID(b))
   }
 
+  @Test("the id ignores the case of scheme and host but not of the path: /Iris and /iris are two servers")
+  func serverIDKeepsThePathCase() {
+    let upper = TelemetryBootstrap.serverID(URL(string: "https://proxy.example.com/Iris")!)
+    let lower = TelemetryBootstrap.serverID(URL(string: "https://proxy.example.com/iris")!)
+    #expect(upper != lower)
+    #expect(upper == TelemetryBootstrap.serverID(URL(string: "HTTPS://Proxy.Example.com/Iris/")!))
+    #expect(
+      ConnectionCredentials(urlText: "https://proxy.example.com/Iris", token: "t")?.serverKey
+        != ConnectionCredentials(urlText: "https://proxy.example.com/iris", token: "t")?.serverKey)
+  }
+
+  /// A connection whose halves are written apart, with a pause between them: a reader without the gate lands in the pause.
+  private final class SplitStorage: ConnectionStorage {
+    private let halves = Mutex<(token: String?, url: String?)>((nil, nil))
+    func readToken() -> String? { halves.withLock { $0.token } }
+    func readURL() -> String? { halves.withLock { $0.url } }
+    func write(token: String, url: String) throws {
+      halves.withLock { $0.token = token }
+      usleep(300)
+      halves.withLock { $0.url = url }
+    }
+    func clear() { halves.withLock { $0 = (nil, nil) } }
+  }
+
+  @Test("a load during a save sees the old pair or the new one, never the new token with the old URL")
+  func loadNeverMixesTheHalves() async throws {
+    let store = KeychainCredentialStore(storage: SplitStorage())
+    let one = try #require(ConnectionCredentials(urlText: "https://a.example.com", token: "token-a"))
+    let two = try #require(ConnectionCredentials(urlText: "https://b.example.com", token: "token-b"))
+    try store.save(one)
+
+    let finished = Mutex(false)
+    let saver = Task.detached {
+      for round in 0..<300 { try? store.save(round.isMultiple(of: 2) ? two : one) }
+      finished.withLock { $0 = true }
+    }
+    let readers = (0..<3).map { _ in
+      Task.detached { () -> Int in
+        var bad = 0
+        while !finished.withLock({ $0 }) {
+          guard let seen = store.load() else { continue }
+          if seen != one && seen != two { bad += 1 }
+        }
+        return bad
+      }
+    }
+    await saver.value
+    var mixed = 0
+    for reader in readers { mixed += await reader.value }
+    #expect(mixed == 0)
+  }
+
+  @Test("one send reads the connection once: the batch is bound to that server and goes to that URL with that token")
+  func sendUsesOneSnapshot() async throws {
+    // A store that has moved on to server B by the second read: a send that read twice would pair B's token with A's URL.
+    final class Switching: CredentialStore {
+      private let reads = Mutex(0)
+      let first: ConnectionCredentials
+      let later: ConnectionCredentials
+      init(first: ConnectionCredentials, later: ConnectionCredentials) {
+        self.first = first
+        self.later = later
+      }
+      func load() -> ConnectionCredentials? {
+        reads.withLock { n in
+          defer { n += 1 }; return n == 0 ? first : later
+        }
+      }
+      func save(_ credentials: ConnectionCredentials) throws {}
+      func clear() {}
+    }
+    let first = try #require(ConnectionCredentials(urlText: a.absoluteString, token: "token-a"))
+    let later = try #require(ConnectionCredentials(urlText: b.absoluteString, token: "token-b"))
+    let seen = Mutex<[(URL, String)]>([])
+    let transport = CredentialedTelemetryTransport(
+      credentials: Switching(first: first, later: later),
+      sender: { url, token, _ in seen.withLock { $0.append((url, token)) } })
+
+    try await transport.send(
+      TelemetryBatch(
+        resource: TelemetryResource(serviceName: .ios, deviceName: "x", appVersion: "dev"),
+        logs: [record("for-a", server: a), record("for-b", server: b)]))
+
+    let sent = seen.withLock { $0 }
+    #expect(sent.count == 1)
+    #expect(sent.first?.0 == a && sent.first?.1 == "token-a")
+  }
+
   @Test("a connection change binds the records after it to the new server")
   func connectionChangeSetsTheAmbientId() async throws {
     let file = FileManager.default.temporaryDirectory.appending(path: "iris-dump-\(UUID().uuidString).jsonl")

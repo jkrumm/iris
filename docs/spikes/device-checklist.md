@@ -207,7 +207,7 @@ the minute); `intent.result` with `error=StartMemoError.…` means the app was r
 Headless check: `take.phase` runs `recording` › `paused` › `recording` › `stopping` with `source=island`, **no** `capture.session.error` and no `failed` phase; no `intent.result` with an `error`; `capture.segment.closed`
 has `reason=pause` once; `capture.level` records are absent between the pause and the resume (the engine runs, the samples are dropped) and resume after; the memo's transcript contains „Prüfung drei“, „vier“ and „fünf“
 and not the silence in between; `segmentCount >= 3`. If Resume fails again the `capture.session.error` record names the call, the FourCC (`!rec` 561145187, `!int` 560557684, `!pla` 561015905), `app.state` and
-`session.category`: send that row instead of the owner's words. The orange microphone dot stays on during the pause; that is intended (TDD §4).
+`session.category`: send that row instead of the owner's words. The orange microphone dot stays on during the pause and the engine keeps running: a known cost of the fix, not a failure (TDD §4); nothing is written while paused (no `capture.level` records, no audio of the pause in the transcript).
 
 **Take C: no Processing card after Stop (row 20).**
 1. Iris öffnen, Aufnahme starten, „Prüfung sechs“ sagen, die App verlassen (Home-Geste).

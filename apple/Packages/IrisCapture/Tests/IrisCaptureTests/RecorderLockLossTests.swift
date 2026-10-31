@@ -150,6 +150,34 @@ struct RecorderLockLossTests {
     await finish(rig)
   }
 
+  @Test func aUserResumeRetriesTheSessionActivation() async throws {
+    let rig = try await makeRig()
+    try await rig.session.start(request)
+    await rig.fake.record(seconds: 2)
+    await rig.session.pause()
+    await rig.fake.session.failActivations(1)
+    await rig.session.resume()
+    #expect(await rig.session.current.phase == .recording)
+    await rig.session.cancel()
+    await finish(rig)
+  }
+
+  @Test func aUserResumeOverASessionThatStaysInactiveFailsTheTakeInsteadOfReportingRecording() async throws {
+    let rig = try await makeRig()
+    let id = try await rig.session.start(request)
+    await rig.fake.record(seconds: 2)
+    await rig.session.pause()
+    await rig.fake.session.failActivations(100)
+    await rig.session.resume()
+
+    #expect(await rig.session.current.phase == .failed)
+    #expect(await rig.session.current.failure == "audio session could not be restored")
+    let result = try #require(try await rig.session.stop())
+    await rig.harness.outbox.settled()
+    #expect(result.memoID == id && result.segmentCount == 1, "what the pause closed is sent")
+    await finish(rig)
+  }
+
   @Test func aMediaServicesResetClosesTheSegmentRebuildsTheSessionAndContinues() async throws {
     let rig = try await makeRig()
     try await rig.session.start(request)

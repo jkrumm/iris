@@ -1,4 +1,5 @@
 import Foundation
+import Synchronization
 
 /// The lifecycle of one take, kept free of AVFoundation so the reentrancy rules are unit-testable on the host.
 ///
@@ -184,5 +185,58 @@ struct EngineRun: Sendable, Equatable {
     guard token == generation else { return .discard }
     isRestarting = false
     return isPaused ? .keepPaused : .keepRunning
+  }
+}
+
+/// One chunk of converted input, stamped at capture time with the pause epoch it was captured in.
+struct TapChunk: Sendable {
+  let epoch: Int
+  let samples: [Float]
+}
+
+/// Decides at capture time, on the audio thread, whether a buffer belongs to the take. A pause keeps the engine running (the
+/// app must not lose the right to record), so the tap goes on delivering buffers that nobody wants. The consumer lags the tap
+/// by whatever its queue holds: checking "is the take paused" when the consumer gets to a chunk would let audio captured
+/// during a pause through after the resume. So the gate stamps each chunk with an epoch that changes at every pause and every
+/// resume, drops it outright while paused, and the consumer ingests a chunk only if its epoch is still the current one. A buffer
+/// being converted while `pause()` runs was stamped before it: stale, dropped.
+final class PauseGate: Sendable {
+  private struct State {
+    var epoch = 0
+    var paused = false
+  }
+
+  private let state = Mutex(State())
+
+  /// A new take: not paused. The epoch keeps counting, so chunks of an earlier take stay stale.
+  func begin() {
+    state.withLock {
+      $0.epoch += 1
+      $0.paused = false
+    }
+  }
+
+  func pause() {
+    state.withLock {
+      $0.epoch += 1
+      $0.paused = true
+    }
+  }
+
+  func resume() {
+    state.withLock {
+      $0.epoch += 1
+      $0.paused = false
+    }
+  }
+
+  /// The epoch to stamp a buffer captured now with; `nil` while paused (the buffer is dropped).
+  func stamp() -> Int? {
+    state.withLock { $0.paused ? nil : $0.epoch }
+  }
+
+  /// Whether a chunk stamped `epoch` still belongs to the take.
+  func accepts(_ epoch: Int) -> Bool {
+    state.withLock { !$0.paused && $0.epoch == epoch }
   }
 }

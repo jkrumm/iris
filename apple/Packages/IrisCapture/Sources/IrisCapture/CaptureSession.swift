@@ -319,8 +319,9 @@ public actor CaptureSession {
     defer { leave() }
     guard state.phase == .paused else { return }
     // The session is normally still active (a pause keeps the engine running); activating again is a no-op then, and it is
-    // what brings back a session the system deactivated meanwhile. A failure is recorded by the adapter; the recorder decides.
-    try? await session.activate()
+    // what brings back a session the system deactivated meanwhile. One that stays inactive fails the take with its reason:
+    // never "recording" over a session that cannot record.
+    guard await restoreSession(type: "user_resume") else { return }
     guard state.phase == .paused else { return }
     await recorder.resume()
     guard state.phase == .paused else { return }
@@ -693,16 +694,7 @@ public actor CaptureSession {
   /// Reactivates the session (a session an interruption deactivated makes `engine.start()` fail) and restarts the recorder.
   /// Behind the gate. A session that stays inactive fails the take: its segments are closed, queued and finished.
   private func resumeRecorder() async {
-    do {
-      try await retrying { try await session.activate() }
-    } catch {
-      var attributes = CaptureErrorDetail.attributes(of: error)
-      attributes["type"] = "resume"
-      attributes["resume.result"] = "error"
-      deviceEvents.event("audio.interruption", memoID: state.memoID, error: true, attributes)
-      await sessionLost(error)
-      return
-    }
+    guard await restoreSession(type: "resume") else { return }
     guard state.phase == .paused else { return }
     await recorder.resume()
     guard state.phase == .paused else { return }
@@ -710,6 +702,22 @@ public actor CaptureSession {
     publish()
     deviceEvents.event("audio.interruption", memoID: state.memoID, ["type": "resume", "resume.result": "ok"])
     await endGap()
+  }
+
+  /// Activates the session again, retrying while the audio daemon is not ready. A session that stays inactive fails the take
+  /// (its segments are closed, queued and finished) and answers `false`.
+  private func restoreSession(type: String) async -> Bool {
+    do {
+      try await retrying { try await session.activate() }
+      return true
+    } catch {
+      var attributes = CaptureErrorDetail.attributes(of: error)
+      attributes["type"] = .string(type)
+      attributes["resume.result"] = "error"
+      deviceEvents.event("audio.interruption", memoID: state.memoID, error: true, attributes)
+      await sessionLost(error)
+      return false
+    }
   }
 
   /// Runs a session call that fails while the audio daemon is not ready, a few times with a pause between, for as long as the

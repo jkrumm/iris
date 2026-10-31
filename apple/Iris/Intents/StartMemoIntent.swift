@@ -19,10 +19,15 @@ enum CaptureIntents {
   static var handler: (any CaptureIntentHandler)?
 
   /// The handler, waiting a moment for it: an intent that launches the app cold is performed while the composition root is
-  /// still being built. `nil` when it never shows up (the extension, which has none), so the caller can say so.
-  static func readyHandler(timeout: Duration = .seconds(3)) async -> (any CaptureIntentHandler)? {
+  /// still being built. `nil` when it never shows up (the extension, which has none), so the caller can say so. Throws
+  /// `CancellationError` as soon as the intent is cancelled, so a cancelled press can never go on to start a recording.
+  static func readyHandler(timeout: Duration = .seconds(3)) async throws -> (any CaptureIntentHandler)? {
+    try Task.checkCancellation()
     let deadline = ContinuousClock.now + timeout
-    while handler == nil, ContinuousClock.now < deadline { try? await Task.sleep(for: .milliseconds(50)) }
+    while handler == nil, ContinuousClock.now < deadline {
+      try await Task.sleep(for: .milliseconds(50))
+    }
+    try Task.checkCancellation()
     return handler
   }
 }
@@ -93,7 +98,7 @@ struct OpenRecorderIntent: OpenIntent {
 
   @MainActor
   func perform() async throws -> some IntentResult {
-    let handler = await CaptureIntents.readyHandler()
+    let handler = try await CaptureIntents.readyHandler()
     try await IntentEvents.run(self, named: "OpenRecorderIntent", handlerPresent: handler != nil) {
       guard let handler else { throw StartMemoError.appNotReady }
       try await handler.startMemo()

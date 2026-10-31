@@ -331,3 +331,48 @@ struct EngineRunTests {
     #expect(run.endRestart(current) == .keepRunning)
   }
 }
+
+struct PauseGateTests {
+  @Test func aRunningTakeStampsEveryBufferWithTheCurrentEpoch() {
+    let gate = PauseGate()
+    gate.begin()
+    let epoch = gate.stamp()
+    #expect(epoch != nil)
+    #expect(gate.stamp() == epoch)
+    #expect(gate.accepts(epoch!))
+  }
+
+  @Test func aPausedGateDropsBuffersAtCapture() {
+    let gate = PauseGate()
+    gate.begin()
+    gate.pause()
+    #expect(gate.stamp() == nil)
+  }
+
+  @Test func aChunkCapturedBeforeThePauseIsStaleEvenAfterTheResume() throws {
+    let gate = PauseGate()
+    gate.begin()
+    let before = try #require(gate.stamp())  // captured, still in the consumer's queue
+    gate.pause()
+    #expect(!gate.accepts(before), "dropped while paused")
+    gate.resume()
+    #expect(!gate.accepts(before), "and still dropped once the take runs again: it is paused-era audio")
+  }
+
+  @Test func aChunkCapturedAfterTheResumeIsIngested() throws {
+    let gate = PauseGate()
+    gate.begin()
+    gate.pause()
+    gate.resume()
+    let after = try #require(gate.stamp())
+    #expect(gate.accepts(after))
+  }
+
+  @Test func aChunkOfAnEarlierTakeIsStale() throws {
+    let gate = PauseGate()
+    gate.begin()
+    let old = try #require(gate.stamp())
+    gate.begin()
+    #expect(!gate.accepts(old))
+  }
+}
