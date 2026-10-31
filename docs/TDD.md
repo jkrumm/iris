@@ -723,7 +723,10 @@ the runner needs a workflow step and was left out of this change (owned files: `
     fragment every 0.5 s, so a file whose writer was killed still plays up to
     its last whole fragment and the startup sweep adopts it like any orphan;
     a segment is queued once its writer has finished and the file reads back;
-    `docs/research/2026-10-30-avaudiofile-kill.md`);
+    `docs/research/2026-10-30-avaudiofile-kill.md`; `SegmentCloser` bounds the writer's `finishWriting` (30 s,
+    Wave 19 I1): a finish that never returns fails that segment's close in order like a failed finish, publishes nothing, halts
+    the later segments of the take and ends it with `.failed`, and the file stays on disk for the next launch's sweep, never
+    deleted and never read while its writer may still be changing it);
   - rotates files every 10 s of frames, on a mic switch, and on an
     interruption;
   - each closed file goes to the `Outbox`; a segment still open when the app dies is a fragmented m4a that plays up to its last whole fragment (all but about a second; Wave 17 D2 lost three whole segments to the unfragmented format), and the startup sweep adopts it as the take's next segment, a killed first segment included (the take's item waits for the sweep, which attaches index 0 or drops the empty take); a file that does not play (killed before the first fragment) is set aside, never deleted. After a segment fails to close (the encoder stopped, the file does not read back) no later segment of the take is queued: a prefix that still plays goes up with its real duration, the take fails, and the later files stay on disk;
