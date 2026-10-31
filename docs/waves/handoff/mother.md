@@ -11,8 +11,7 @@ Wave 15 done 2026-10-29. Wave 16 done 2026-10-30 07:47. Wave 17 done 2026-10-30 
 `iris-w19` finishes batch 1 (#92 widgets, #93 live preview, #94 data safety, #95 Mac completion), pushes every branch, writes
 `handoff/lead.md` and stops. Not started: R3 German strings, I2 late tail (after #94), I3 follow-ups, D1 (owner hardware batch, only
 when he says ready). **On resume:** check `git log origin/master`, `gh pr list`, `handoff/lead.md`, `claude-account usage`; spawn a fresh
-lead for Wave 19 (the spawn command below), restart the watcher (`/tmp/iris-mother/watch.sh` is in /tmp and gone after a reboot:
-recreate it from the "Watcher" note below or watch by hand). **After Wave 19: pause** (mother's recommendation, the owner has not
+lead for Wave 19 (the spawn command below), restart the watcher (`docs/waves/handoff/mother-watch.sh <wave> <lead>`, run in the background; reason in `/tmp/iris-mother/watch.out`). **After Wave 19: pause** (mother's recommendation, the owner has not
 answered) until the enrolment email (not arrived 2026-10-31) or his feedback. Owner pending: hardware batch + UI feedback on the phone
 build `b853215`, the Wave 17 I6 route-config render review, B2 mockups (keep until he approves the I5 visuals), token rotation. Quota
 12:15: iu 60% (11-04 16:00), me 67% (11-05 06:00), me2 walled until 11-01 18:00. All walled → wait for a reset, never IU API tokens.
