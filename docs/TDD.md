@@ -38,7 +38,7 @@ Iris has three deliverables in one monorepo:
 | D2 | Iris owns the memo record; Hermes owns conversations | History must survive a Hermes reset and cover non-Hermes memos. Mirrors Argo | Hermes sessions as the only store |
 | D3 | Routing: prefix → `decide` → ask. Three destinations | Hermes's skills already route todos, notes and work. A second full router would pay twice | `decide` on every intent; an LLM router |
 | D4 | 10 s segments, uploaded during the take | A crash loses ≤ 10 s, the upload is done at [Stop], and a mic switch is a segment rollover | One file at [Stop] (loses everything on a crash, slow); shorter (request churn) |
-| D5 | `AVAudioEngine` tap → `AVAudioFile` (AAC/m4a) per segment; the server decodes and re-encodes on concat | Continuous buffers plus edit lists make the concatenated decode gapless. `AVAudioRecorder` stop/start drops audio | `ffmpeg -c copy` concat (priming gaps); PCM segments (too large on cellular) |
+| D5 | `AVAudioEngine` tap → `AVAssetWriter` (AAC, fragmented m4a) per segment; the server decodes and re-encodes on concat | Continuous buffers plus edit lists make the concatenated decode gapless. `AVAudioRecorder` stop/start drops audio | `ffmpeg -c copy` concat (priming gaps); PCM segments (too large on cellular) |
 | D6 | APNs via `@parse/node-apn` on Bun `node:http2`, streams capped at 10 | Maintained and pure JS; `apns2` is broken on Bun (undici). Bun ignores `peerMaxConcurrentStreams`, so cap in-flight streams ourselves | `apns2`, the abandoned `apn`, a Go/Swift sidecar |
 | D7 | Hand-rolled OTLP JSON telemetry on all three runtimes; clients relay through the server | The estate convention (no SDK on Bun). The ingestion key stays off the devices. opentelemetry-swift's 2026 status is unverified | opentelemetry-swift, Sentry/Embrace |
 | D8 | The memo UUID is the trace id (dashes stripped), minted on the client at record start | Phone, server and usage rows join without an extra column; the trace starts at the press | Server-minted ids |
@@ -718,11 +718,15 @@ the runner needs a workflow step and was left out of this change (owned files: `
     applied at start and on route change;
   - publishes `currentInput` for the UI and the Live Activity.
 - **`SegmentRecorder`:**
-  - an `AVAudioEngine` input tap → `AVAudioConverter` → `AVAudioFile` (AAC,
-    16 kHz mono, about 32 kbps);
+  - an `AVAudioEngine` input tap → `AVAudioConverter` → `SegmentWriter` (an
+    `AVAssetWriter` fragmented m4a, AAC, 16 kHz mono, about 32 kbps; a
+    fragment every 0.5 s, so a file whose writer was killed still plays up to
+    its last whole fragment and the startup sweep adopts it like any orphan;
+    a segment is queued once its writer has finished and the file reads back;
+    `docs/research/2026-10-30-avaudiofile-kill.md`);
   - rotates files every 10 s of frames, on a mic switch, and on an
     interruption;
-  - each closed file goes to the `Outbox`; a segment still open when the app dies or the recorder fails stays an unfinalised m4a (no `moov` atom, ffprobe cannot read it), which the startup sweep quarantines (Wave 17 D2: three such files, a few seconds of audio each; a crash-safe container is the fix);
+  - each closed file goes to the `Outbox`; a segment still open when the app dies is a fragmented m4a that plays up to its last whole fragment (all but about a second; Wave 17 D2 lost three whole segments to the unfragmented format), and the startup sweep adopts it as the take's next segment, a killed first segment included (the take's item waits for the sweep, which attaches index 0 or drops the empty take); a file that does not play (killed before the first fragment) is set aside, never deleted. After a segment fails to close (the encoder stopped, the file does not read back) no later segment of the take is queued: a prefix that still plays goes up with its real duration, the take fails, and the later files stay on disk;
   - a level meter is fed from the tap's RMS on a perceptual scale (`InputLevel`, Wave 17 I5): linear in dB between −50 dBFS (0) and −10 dBFS (1), a clipped sample reads 1; normal speech
     (about −30 dBFS) sits at the middle, where the linear amplitude left it near the floor;
   - an engine configuration change (a mic switch, AirPods connecting) closes the segment and replaces the engine with a fresh
@@ -1341,7 +1345,7 @@ the `IrisCore` dependency when R1 wires them together.
 | A Live Activity start from a control intent may need the foreground (one forum report) | S1 (Wave 17 D2, iOS 26.6.1): the control starts nothing at all, with no visible error; not yet the "needs the foreground" refusal, more likely the missing handler in the extension process. I8 fixes it or takes the fallback `openAppWhenRun` + auto-start, accepted by the PRD |
 | Built-in mic while connected to the car's Bluetooth is undocumented | S2 on hardware; Wave 17 D2: the AirPods switch crashes the app before the car question can be asked, the car was not run, still open |
 | An audio engine cannot restart in the background | Device (Wave 17 D2): resume from the island and one lock case failed with "engine resume failed" and the UI kept counting; a route change to the AirPods (or a start with them connected) aborts the app with an uncaught `NSException` in `installTap`; the take loses its open segment (I7) |
-| A segment open at a crash is unreadable | Device (Wave 17 D2): three quarantined segments have no `moov` atom; the "at most 10 s lost" holds but the seconds are gone; a crash-safe segment container |
+| A segment open at a crash is unreadable | Device (Wave 17 D2): three quarantined segments had no `moov` atom, the seconds were gone. Wave 18 I2: fragmented m4a, a kill keeps all but ~0.5 s (macOS SIGKILL experiment); the device row 8a proves it on hardware |
 | Live Activities are server-owned after the hand-over | Without APNs (Personal Team) they stay on "Processing" and hijack the island; I8, and the paid team's pushes must be re-checked in D3 |
 | TTS playback from a Live Activity intent while the app is suspended | S3; fall back to opening the app |
 | Bun `node:http2` over-dispatch to APNs | Cap in-flight streams (D6); Bun 1.3.14's HTTP/2 `fetch` as a fallback |

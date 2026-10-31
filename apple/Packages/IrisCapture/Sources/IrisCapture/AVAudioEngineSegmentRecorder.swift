@@ -4,7 +4,7 @@
   import IrisObjCGuard
 
   /// Production recorder: `AVAudioEngine` input tap -> `AVAudioConverter` (16 kHz mono) -> one
-  /// `AVAudioFile` (AAC, ~32 kbps) per segment. Never `AVAudioRecorder` (D5): continuous buffers keep the
+  /// fragmented m4a (`SegmentWriter`: AAC, ~32 kbps) per segment. Never `AVAudioRecorder` (D5): continuous buffers keep the
   /// concatenated decode gapless. Rotation decisions come from `SegmentRotator`.
   ///
   /// Thin on purpose; device-verified in spike S1/S2, only compile-checked in the package tests.
@@ -21,8 +21,12 @@
 
     private var rotator: SegmentRotator
     private var take = TakeLifecycle()
-    private var openFile: AVAudioFile?
-    private var openFileURL: URL?
+    private var openWriter: SegmentWriter?
+    /// The open segment whose writer could not be created: its samples are dropped, and closing it reports the failure.
+    private var unwritable: UnwritableSegment?
+    /// Closes the segments handed off, in order: a file is queued only once its writer has finished, and `stop()` waits for the
+    /// last one before `.stopped`.
+    private let closer: SegmentCloser
     private var sampleSink: AsyncStream<TapChunk>.Continuation?
     private var consumeTask: Task<Void, Never>?
     private var configurationTask: Task<Void, Never>?
@@ -53,6 +57,8 @@
       targetFormat = format
       rotator = SegmentRotator(policy: policy)
       (events, eventContinuation) = AsyncStream.makeStream(of: CaptureEvent.self)
+      let continuation = eventContinuation
+      closer = SegmentCloser(sampleRate: policy.sampleRate) { continuation.yield($0) }
       (levels, levelContinuation) = AsyncStream.makeStream(of: Float.self, bufferingPolicy: .bufferingNewest(1))
     }
 
@@ -60,6 +66,8 @@
       try take.begin(memoID)
       run.begin()
       gate.begin()
+      closer.reset()
+      unwritable = nil
       configurationGapStart = nil
       do {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -95,6 +103,7 @@
       await consumeTask?.value
       consumeTask = nil
       apply(rotator.finish(), samples: [])
+      await closer.idle()
       eventContinuation.yield(.stopped(memoID, segmentCount: rotator.closedCount))
       take.finishStop()
     }
@@ -439,50 +448,48 @@
       }
     }
 
+    /// A failure here is not announced at once: the writer remembers it (`SegmentWriter.lost`) or the segment is marked
+    /// `unwritable`, and the failure is reported by that segment's close, in order with the segments before it, which
+    /// publishes what it really holds and halts the later ones (`SegmentCloser`).
     private func write(_ samples: [Float], segment: Int, memoID: MemoID) {
+      guard unwritable == nil else { return }
+      let writer: SegmentWriter
       do {
-        let file = try openFile ?? makeFile(segment: segment, memoID: memoID)
-        guard
-          let buffer = AVAudioPCMBuffer(pcmFormat: targetFormat, frameCapacity: AVAudioFrameCount(samples.count)),
-          let channel = buffer.floatChannelData
-        else { return }
-        samples.withUnsafeBufferPointer { source in
-          guard let base = source.baseAddress else { return }
-          channel[0].update(from: base, count: source.count)
-        }
-        buffer.frameLength = AVAudioFrameCount(samples.count)
-        try file.write(from: buffer)
+        writer = try openWriter ?? makeWriter(segment: segment, memoID: memoID)
+      } catch {
+        Log.capture.error("segment writer failed: \(String(describing: error), privacy: .public)")
+        unwritable = UnwritableSegment(url: segmentURL(segment, memoID), reason: String(describing: error))
+        return
+      }
+      do {
+        try writer.append(samples)
       } catch {
         Log.capture.error("segment write failed: \(String(describing: error), privacy: .public)")
-        eventContinuation.yield(.failed(reason: "segment write failed"))
       }
     }
 
-    private func makeFile(segment: Int, memoID: MemoID) throws -> AVAudioFile {
-      let url = directory.appending(path: "\(memoID.uuidString)-\(segment).m4a")
-      let settings: [String: Any] = [
-        AVFormatIDKey: kAudioFormatMPEG4AAC,
-        AVSampleRateKey: Double(policy.sampleRate),
-        AVNumberOfChannelsKey: 1,
-        AVEncoderBitRateKey: 32_000,
-      ]
-      let file = try AVAudioFile(
-        forWriting: url, settings: settings, commonFormat: .pcmFormatFloat32, interleaved: false)
-      openFile = file
-      openFileURL = url
-      return file
+    private func segmentURL(_ segment: Int, _ memoID: MemoID) -> URL {
+      directory.appending(path: "\(memoID.uuidString)-\(segment).m4a")
     }
 
+    private func makeWriter(segment: Int, memoID: MemoID) throws -> SegmentWriter {
+      let writer = try SegmentWriter(url: segmentURL(segment, memoID), sampleRate: policy.sampleRate)
+      openWriter = writer
+      return writer
+    }
+
+    /// Hands the open writer to the closer and returns at once, so the next segment starts without a gap (`SegmentCloser` has
+    /// the rules for what is published).
     private func close(segment: Int, frames: Int, reason: RotationReason, memoID: MemoID) {
-      // Releasing the AVAudioFile finalizes the m4a.
-      let url = openFileURL
-      openFile = nil
-      openFileURL = nil
-      guard let url else { return }
-      let size = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int) ?? 0
-      let closed = ClosedSegment(
-        memoID: memoID, index: segment, fileURL: url, byteCount: size, duration: policy.duration(frames: frames))
-      eventContinuation.yield(.segmentClosed(closed, reason: reason))
+      let duration = policy.duration(frames: frames)
+      if let failed = unwritable {
+        unwritable = nil
+        closer.close(failed, index: segment, memoID: memoID, duration: duration, reason: reason)
+        return
+      }
+      guard let writer = openWriter else { return }
+      openWriter = nil
+      closer.close(writer, index: segment, memoID: memoID, duration: duration, reason: reason)
     }
   }
 #endif

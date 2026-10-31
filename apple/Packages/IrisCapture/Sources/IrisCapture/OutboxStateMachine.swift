@@ -31,6 +31,10 @@ public struct OutboxStateMachine: Sendable {
   /// Takes the app died in the middle of, finished by `recoverUnfinishedTakes` with the segments the saved queue had. Not
   /// persisted: only the load that recovered them may add the segment files that never made it into the saved queue.
   private var recoveredTakes: Set<MemoID> = []
+  /// Takes the app died in before their first segment reached the saved queue. Their item stays, hidden from `queue()`, until
+  /// the startup sweep has looked for a segment file of theirs: a force-quit in the first 10 s leaves a playable index 0 that
+  /// `adopt` attaches. What the sweep leaves is dropped by `settleEmptyRecoveries()`. Not persisted.
+  private var emptyRecoveredTakes: Set<MemoID> = []
   /// `createMayHaveLanded` as it was before `dispatch` handed the create out, for `revertDispatch`. Not persisted.
   private var flagBeforeDispatch: [MemoID: Bool] = [:]
   /// The same for a memo's `completeMayHaveLanded`.
@@ -269,7 +273,10 @@ public struct OutboxStateMachine: Sendable {
     let removals = deletions.values.map { deletion in
       OutboxQueueItem(item: Self.row(of: deletion), status: status(of: deletion), isDeletion: true)
     }
-    let rows = orderedItems.map { OutboxQueueItem(item: $0, status: status(of: $0)) } + removals
+    let rows =
+      orderedItems.filter { !emptyRecoveredTakes.contains($0.memoID) }.map {
+        OutboxQueueItem(item: $0, status: status(of: $0))
+      } + removals
     return rows.sorted { ($0.item.queuedAt, $0.id.uuidString) < ($1.item.queuedAt, $1.id.uuidString) }
   }
 
@@ -314,9 +321,19 @@ public struct OutboxStateMachine: Sendable {
         memos[item.memoID] = OutboxMemo(memoID: item.memoID, segmentCount: count, completion: .pending, attempts: 0)
         recoveredTakes.insert(item.memoID)
       } else {
-        items[item.memoID] = nil
+        emptyRecoveredTakes.insert(item.memoID)
       }
     }
+  }
+
+  /// Drops the recovered takes that still hold no segment (the sweep found no file for them): nothing was captured that the
+  /// queue can send. Their files, if any, stay on disk and are set aside by the sweep, never deleted.
+  @discardableResult
+  public mutating func settleEmptyRecoveries() -> [MemoID] {
+    let empty = emptyRecoveredTakes.filter { memos[$0] == nil }
+    emptyRecoveredTakes = []
+    for id in empty { items[id] = nil }
+    return Array(empty)
   }
 
   // MARK: Segments
@@ -342,9 +359,20 @@ public struct OutboxStateMachine: Sendable {
   /// out. `false` when the segment does not belong to a take this queue holds or would not fit; the caller quarantines the
   /// file. Held back like any new segment.
   public mutating func adopt(_ segment: ClosedSegment) -> Bool {
-    guard items[segment.memoID]?.kind == .voice, let memo = memos[segment.memoID],
+    guard items[segment.memoID]?.kind == .voice,
       entries[SegmentKey(memoID: segment.memoID, index: segment.index)] == nil
     else { return false }
+    // A take killed in its first segment: index 0 is the take (its create waits for the sweep's save like any new segment).
+    if memos[segment.memoID] == nil {
+      guard emptyRecoveredTakes.contains(segment.memoID), segment.index == 0, enqueue(segment, withheld: true) else {
+        return false
+      }
+      emptyRecoveredTakes.remove(segment.memoID)
+      memos[segment.memoID] = OutboxMemo(memoID: segment.memoID, segmentCount: 1, completion: .pending, attempts: 0)
+      recoveredTakes.insert(segment.memoID)
+      return true
+    }
+    guard let memo = memos[segment.memoID] else { return false }
     let completeNotSent = !memo.completeMayHaveLanded
     let grows = segment.index == memo.segmentCount && (recoveredTakes.contains(memo.memoID) || completeNotSent)
     guard segment.index < memo.segmentCount || grows else { return false }

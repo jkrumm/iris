@@ -296,10 +296,41 @@ struct OutboxItemStateMachineTests {
     #expect(restored.queue().first?.status == .waiting)
   }
 
-  @Test func relaunchDropsATakeThatNeverClosedASegment() {
+  @Test func relaunchHoldsATakeThatNeverClosedASegmentHiddenUntilTheSweepSettlesIt() {
     var before = machine()
     before.enqueueItem(voiceItem(memo(1)))
-    #expect(machine(before.record).items.isEmpty)
+    var restored = machine(before.record)
+    #expect(restored.queue().isEmpty, "not shown as a live take")
+
+    let dropped = restored.settleEmptyRecoveries()
+    #expect(dropped == [memo(1)])
+    #expect(restored.items.isEmpty, "nothing was found for it")
+  }
+
+  @Test func theSweepMayAdoptIndexZeroOfATakeKilledInItsFirstSegment() {
+    var before = machine()
+    before.enqueueItem(voiceItem(memo(1)))
+    var restored = machine(before.record)
+
+    let second = restored.adopt(segment(memo(1), 1))
+    let first = restored.adopt(segment(memo(1), 0))
+    #expect(!second, "only the first segment can be the take")
+    #expect(first)
+    #expect(restored.memos[memo(1)]?.segmentCount == 1)
+    let grown = restored.adopt(segment(memo(1), 1))
+    #expect(grown, "a second file of the killed take grows it")
+    let dropped = restored.settleEmptyRecoveries()
+    #expect(dropped.isEmpty, "adopted: nothing to drop")
+    #expect(restored.items[memo(1)] != nil)
+  }
+
+  @Test func aLiveTakeIsNeverTakenForAnEmptyRecovery() {
+    var live = machine()
+    live.enqueueItem(voiceItem(memo(1)))
+
+    let dropped = live.settleEmptyRecoveries()
+    #expect(dropped.isEmpty)
+    #expect(live.queue().first?.status == .recording)
   }
 
   @Test func aRecordWrittenBeforeItemsExistedStillDecodes() throws {
