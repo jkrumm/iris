@@ -5,6 +5,8 @@ import WidgetKit
 struct IrisWidgetBundle: WidgetBundle {
   var body: some Widget {
     RecordControl()
+    RecordWidget()
+    LastMemoWidget()
     MemoLiveActivity()
   }
 }
