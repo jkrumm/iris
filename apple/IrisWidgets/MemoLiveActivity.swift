@@ -16,7 +16,9 @@ struct MemoLiveActivity: Widget {
       } doneAction: {
         PlayReplyControl(memoID: context.attributes.memoId, onDark: false)
       }
-      .padding(Theme.Spacing.lg)
+      .padding(.horizontal, Theme.Spacing.lg)
+      .padding(.top, Theme.Spacing.inset)
+      .padding(.bottom, Theme.Spacing.lg)
       .activityBackgroundTint(Theme.Surface.panel)
     } dynamicIsland: { context in
       let presentation = context.presentation
