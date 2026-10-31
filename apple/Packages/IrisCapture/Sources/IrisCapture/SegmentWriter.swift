@@ -62,9 +62,27 @@ enum SegmentShadow {
     private var aac: AVAudioFile?
     private var shadow: AVAudioFile?
     private let shadowURL: URL
+    private let sampleRate: Int
+    private let readsBack: @Sendable (URL) -> TimeInterval?
 
-    init(url: URL, sampleRate: Int) throws {
+    /// How a closed segment ended.
+    enum Closing: Equatable {
+      /// The m4a reads back, at the shadow's length when there is one; the shadow is gone.
+      case closed
+      /// The m4a did not read back as it should and was rebuilt from the shadow.
+      case recoveredFromShadow
+      /// The m4a does not read back and could not be rebuilt: the files are kept for the next launch's sweep and the segment must
+      /// not be queued.
+      case unreadable
+    }
+
+    /// - Parameter readsBack: the length of a file in seconds, `nil` when it does not open (the check after the m4a is closed).
+    init(url: URL, sampleRate: Int, readsBack: @escaping @Sendable (URL) -> TimeInterval? = SegmentWriter.duration(of:))
+      throws
+    {
       self.url = url
+      self.sampleRate = sampleRate
+      self.readsBack = readsBack
       shadowURL = SegmentShadow.url(of: url)
       aac = try AVAudioFile(
         forWriting: url, settings: Self.aacSettings(sampleRate: sampleRate), commonFormat: .pcmFormatFloat32,
@@ -112,18 +130,32 @@ enum SegmentShadow {
       }
     }
 
-    /// Releases the files (which finalizes the m4a) and removes the shadow once the m4a reads back; a shadow whose m4a does not
-    /// play stays for the next launch's sweep.
-    func close() {
+    /// Releases the files (which finalizes the m4a) and checks the m4a by reading it back. With the shadow the check is that the m4a
+    /// has the shadow's length: the shadow is removed only then. An m4a that fails it is rebuilt from the shadow before it is
+    /// handed out; when that fails too, both files stay and the segment is `unreadable` (never queued).
+    @discardableResult
+    func close() -> Closing {
       aac = nil
       shadow = nil
-      guard FileManager.default.fileExists(atPath: shadowURL.path) else { return }
-      if Outbox.inspectAudioFile(url) != nil {
+      let hasShadow = FileManager.default.fileExists(atPath: shadowURL.path)
+      let length = readsBack(url)
+      guard hasShadow else { return length == nil ? .unreadable : .closed }
+      if let length, Self.isCopy(length, of: shadowURL) {
         try? FileManager.default.removeItem(at: shadowURL)
-      } else {
-        Log.capture.error(
-          "segment \(self.url.lastPathComponent, privacy: .public) does not read back, its shadow is kept")
+        return .closed
       }
+      Log.capture.error(
+        "segment \(self.url.lastPathComponent, privacy: .public) does not read back, rebuilding it from its shadow")
+      guard case .recovered = Self.recover(shadow: shadowURL, sampleRate: sampleRate),
+        let rebuilt = readsBack(url), Self.isCopy(rebuilt, of: shadowURL)
+      else { return .unreadable }
+      try? FileManager.default.removeItem(at: shadowURL)
+      return .recoveredFromShadow
+    }
+
+    private static func isCopy(_ length: TimeInterval, of shadow: URL) -> Bool {
+      guard let held = duration(of: shadow) else { return false }
+      return abs(held - length) <= SegmentShadow.durationTolerance
     }
 
     /// The length of an audio file in seconds, `nil` when it does not open.

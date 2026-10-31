@@ -349,11 +349,16 @@
     }
 
     private func close(segment: Int, frames: Int, reason: RotationReason, memoID: MemoID) {
-      // Releasing the AVAudioFile finalizes the m4a; the PCM shadow beside it goes once the m4a reads back.
+      // Releasing the AVAudioFile finalizes the m4a; the PCM shadow beside it goes once the m4a reads back at its length.
       guard let writer = openSegment else { return }
       openSegment = nil
-      writer.close()
       let url = writer.url
+      guard writer.close() != .unreadable else {
+        // Neither readable nor rebuilt: queueing it would upload a file the server cannot use. Both files stay for the sweep.
+        Log.capture.error("segment \(url.lastPathComponent, privacy: .public) is unreadable and was not queued")
+        eventContinuation.yield(.failed(reason: "segment unreadable"))
+        return
+      }
       let size = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int) ?? 0
       let closed = ClosedSegment(
         memoID: memoID, index: segment, fileURL: url, byteCount: size, duration: policy.duration(frames: frames))

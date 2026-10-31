@@ -1,6 +1,7 @@
 #if canImport(AVFAudio)
   import AVFAudio
   import Foundation
+  import Synchronization
   import Testing
 
   @testable import IrisCapture
@@ -59,6 +60,49 @@
       #expect(names(directory) == ["\(memo(1).uuidString)-0.m4a"])
       let audio = try #require(Outbox.inspectAudioFile(writer.url))
       #expect(abs(audio.duration - 2) < 0.2)
+    }
+
+    /// A segment writer whose m4a reads back as unplayable for the first `failures` checks, then as it is.
+    private func writer(_ id: MemoID, in directory: URL, failures: Int) throws -> SegmentWriter {
+      let remaining = Mutex(failures)
+      let url = directory.appending(path: "\(id.uuidString)-0.m4a")
+      let writer = try SegmentWriter(
+        url: url, sampleRate: 16_000,
+        readsBack: { file in
+          let fail = remaining.withLock { count in
+            defer { count -= 1 }
+            return count > 0
+          }
+          return fail ? nil : SegmentWriter.duration(of: file)
+        })
+      for _ in 0..<30 {
+        let buffer = try #require(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 1_600))
+        for frame in 0..<1_600 { buffer.floatChannelData![0][frame] = Float.random(in: -0.3...0.3) }
+        buffer.frameLength = 1_600
+        try writer.write(buffer)
+      }
+      return writer
+    }
+
+    @Test func aClosedM4aThatDoesNotReadBackIsRebuiltFromItsShadowBeforeItIsHandedOut() throws {
+      let directory = try temporaryDirectory()
+      defer { try? FileManager.default.removeItem(at: directory) }
+      let writer = try writer(memo(1), in: directory, failures: 1)
+
+      #expect(writer.close() == .recoveredFromShadow)
+
+      let audio = try #require(Outbox.inspectAudioFile(writer.url))
+      #expect(abs(audio.duration - 3) < 0.3)
+      #expect(!names(directory).contains { $0.hasSuffix(".caf") }, "the shadow goes once the rebuilt m4a reads back")
+    }
+
+    @Test func aSegmentThatCannotBeRebuiltIsUnreadableAndKeepsBothFiles() throws {
+      let directory = try temporaryDirectory()
+      defer { try? FileManager.default.removeItem(at: directory) }
+      let writer = try writer(memo(1), in: directory, failures: 100)
+
+      #expect(writer.close() == .unreadable, "the recorder must not queue it")
+      #expect(names(directory).count == 2, "m4a and shadow stay for the next launch's sweep")
     }
 
     @Test func recoveringAShadowGivesAPlayableM4aOfTheSameLength() throws {
