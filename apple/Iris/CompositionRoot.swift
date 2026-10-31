@@ -2,7 +2,9 @@ import Foundation
 import IrisCapture
 import IrisCore
 import IrisUI
+import IrisTelemetry
 import Observation
+import UIKit
 
 #if canImport(AVFAudio)
   import AVFAudio
@@ -258,11 +260,15 @@ final class CompositionRoot: CaptureIntentHandler, PlaybackIntentHandler {
     if let fakeAPI { await SampleData.seed(fakeAPI, now: sampleNow) }
     // Cached media that outlived its memo (deleted elsewhere, or while the app was gone) does not pile up.
     MediaDownloader.shared.sweepStale()
-    guard isConfigured else { return }
+    guard isConfigured else {
+      await logLaunchOnce()
+      return
+    }
     // Loads the saved queue and sends what is due: items left over from the last session, or from before a connection change.
     await outbox.resume()
     // An outbox that cannot be opened says nothing about its deletes: the persisted hidden ids are left as they are.
     if let pending = await outbox.pendingDeletionIDs() { history.reconcileHidden(pendingDeletions: pending) }
+    await logLaunchOnce()
     // A take's Live Activity does not outlive its process: end the ones the last run left in a client phase. Off to the side:
     // its server lookups never hold up the list.
     let orphans = Task { await liveActivity.endOrphans() }
@@ -273,6 +279,27 @@ final class CompositionRoot: CaptureIntentHandler, PlaybackIntentHandler {
     }
     await history.load()
     await history.observeEvents()
+  }
+
+  private var hasLoggedLaunch = false
+
+  /// `app.launch`, once per process: why it started, what the last run was doing when it ended, and what the queue and the
+  /// set-aside folder hold (a kill without a crash report shows as files in there).
+  private func logLaunchOnce() async {
+    guard !hasLoggedLaunch else { return }
+    hasLoggedLaunch = true
+    let aside = await outbox.setAside()
+    let log = DeviceLog.shared
+    log.event(
+      "app.launch",
+      [
+        "launch.reason": .string(UIApplication.shared.applicationState == .background ? "background_launch" : "user"),
+        "previous.phase": .string(log.previousPhase),
+        "previous.exit": "unknown",
+        "outbox.items": .int(await outbox.queuedItems().count),
+        "outbox.quarantined_files": .int(aside.count),
+        "mode": .string(mode == .fake ? "fake" : "production"),
+      ])
   }
 
   // MARK: CaptureIntentHandler
