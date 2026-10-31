@@ -184,10 +184,11 @@ final class MacCompositionRoot {
     events.lifecycle("launch")
     guard mode == .production else { return }
     log.start()
+    // Delivered on the main queue, so the main actor is where this runs.
     NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: .main)
     {
       [events] _ in
-      events.lifecycle("quit")
+      MainActor.assumeIsolated { events.lifecycle("quit") }
     }
   }
 
