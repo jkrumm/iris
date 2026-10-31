@@ -735,6 +735,14 @@ the runner needs a workflow step and was left out of this change (owned files: `
     The first engine of a take is brought up the same way (up to four tries), since a start with AirPods connected hit the same
     exception. While a restart is in flight `pause()` and `resume()` only record the wanted state (`EngineRun`), which the
     restart applies to the new engine; a take that ends or begins meanwhile makes the restart's engine stale and it is torn down.
+  - **A pause keeps the engine running (Wave 18 I7).** `pause()` closes the segment and the recorder drops the samples; it no longer calls `engine.pause()`, which stops the
+    hardware. Device (Wave 18 D1): island Pause passed, island Resume said "engine resume failed" (`cd6f0e19`). The island's buttons are `LiveActivityIntent`s performed with the app in
+    the background; once the paused engine had stopped the hardware there was no audio I/O to keep the app alive and the start of an engine from the background is refused
+    (`!rec`, 561145187; Apple DTS: "usually happens when trying to start a recording while the app is in the background"). A running engine needs no start, so Resume is a flag. The
+    session is activated again first (`CaptureSession.resume`; a no-op on a live session). An engine the system stopped meanwhile (an interruption, a configuration change)
+    is replaced by a fresh one with the tap, retried like a restart (`EngineStartup.resume`, up to six tries 250 ms apart), never restarted on its old tap and format; when that
+    fails too the take is `failed` and says so. Samples are gated at capture time, not at consumption: the tap stamps each chunk with a pause epoch (`PauseGate`, changed by every pause and resume) and drops it while paused, and the consumer ingests a chunk only while its epoch is current, so audio captured around a pause that the consumer reaches late can never land in a segment after the resume. A resume whose session activation stays failing (retried, 4 tries) fails the take with "audio session could not be restored" instead of reporting recording. **Known cost: the microphone indicator (orange dot) stays on while a take is paused**, and the engine keeps drawing power; nothing is written. The cause is a hypothesis fitted to the evidence (no
+    log of the failing call existed); the next device take shows it in `capture.session.error` (`call`, FourCC, `app.state`) next to `take.phase`.
 - **`Outbox`** (Wave 15 I3): a persistent queue of **whole items**, in one JSON file (`Application Support/Iris/outbox.json`,
   written atomically, each segment named by **file name only**: the app's data container gets a new path when a build is installed over it (found on the first device, Wave 17 D1b), so an absolute path saved by an earlier run pointed at nothing, the upload failed as "the recording file is gone" and stalled while the audio sat unharmed in the new container. `JSONFileOutboxStore(segmentDirectory:)` puts every segment in the current capture directory on load, which also heals a record written with absolute paths, and a segment that had stalled on such a stale path with its file present is retried once; a file that is really gone stays stalled. A file that cannot be read or decoded (including a newer build's enum case) is an **error, never an empty queue**: it is left on disk untouched and the outbox reports itself closed (below), until Settings **"Reset outbox"** (Wave 16 I1) renames it aside: `outbox.quarantined-<UTC timestamp>.json`, kept next to it, never deleted, its segment files untouched, and a fresh empty outbox opens. Diagnostics lists the set-aside files with a `ShareLink`. A second tap while the reset runs joins it (`CaptureStack` keeps the one reset task) and gets its outcome; it is not reported as a failure. The reset claims the move in the same actor turn it starts (the stack already knows the file is unreadable from the refresh that offered the button), so no `open()` can read the file between the tap and the rename. An item whose write fails (a full disk) is taken back out and refused, so nothing is ever "queued" that a kill would lose. Three kinds of work, all
   idempotent on the server, so a retry after a lost answer is harmless:
@@ -851,8 +859,19 @@ the runner needs a workflow step and was left out of this change (owned files: `
   Screen and from Control Center, starts nothing (no take, the app is not launched, only the widget extension runs); Siri has no phrase (no `AppShortcutsProvider`); a take started in the app
   requests its Live Activity and runs fine. The cause (Wave 17 I8) is the intent running in the extension process without the app's handler; it is now a `LiveActivityIntent` (above), so
   S1's central question stays open until the owner presses the Control on the phone; the `openAppWhenRun` fallback below is not needed for it and is deprecated in iOS 26.
-- **Callers:** the `ControlWidget` button calls the intent. So do Siri ("Record
-  with Iris") and Control Center.
+- **The Record control is an `OpenIntent` (Wave 18 I7).** Device re-test (build `459a517`, iPhone 15, iOS 26.6.1): Control Center started a take and opened the
+  app (memo `a66fc402`), the Lock Screen press did nothing, also after unlocking. Apple (WidgetKit, "Creating controls to perform actions across the system"; App
+  Intents, "Configuring the runtime behavior of your app intents"): the system runs a control's intent in the widget extension, in the background; opening the
+  app takes an `OpenIntent` whose file is in the app and the extension (`ControlWidgetButton(action:label:)` has an `OpenIntent` overload for it); a Lock Screen button is inactive until the
+  device is unlocked, and `authenticationPolicy = .requiresAuthentication` makes the system ask for that before the intent runs. So the control runs
+  `OpenRecorderIntent: OpenIntent` (`target: RecorderDestination`, one case; `authenticationPolicy = .requiresAuthentication`): the press asks for the unlock,
+  opens the app, and `perform()` (in the app, in the foreground) calls `startMemo()`, where a session activation and `Activity.request` are allowed. A start that fails
+  is `TakeModel.failure` (the alert of `RootView`) and is thrown back to the system, so a press never ends in silence; a cold launch waits up to 3 s for the composition
+  root's handler (`CaptureIntents.readyHandler`). `StartMemoIntent` (`AudioRecordingIntent, LiveActivityIntent`, background start) stays for Siri and the Shortcuts app and is
+  not what the control runs. Not documented by Apple and so device-only: the state the person lands in after the unlock prompt, and whether a background
+  `AudioRecordingIntent` start may open the microphone from a locked device at all (a forum report shows `setActive` failing with `561015905` (`!pla`) there).
+- **Callers:** the `ControlWidget` button runs `OpenRecorderIntent`. Siri ("Record
+  with Iris") and the Shortcuts app run `StartMemoIntent`.
 - **Fallback, accepted by the PRD:** if the system refuses to start a Live
   Activity from the background ("Target is not foreground", reported once), the
   control uses `openAppWhenRun` and the app auto-starts. Spike S1 decides.
@@ -883,12 +902,18 @@ the runner needs a workflow step and was left out of this change (owned files: `
     up to 8 h, hiding a running take's controls. So (1) at the hand-over an activity without a token is followed: the sweeper polls
     `GET /memos/:id` (3 s, doubling to 30 s) until the memo `isResultReady` and then ends it on that result (`done` / `failed` /
     `needsRoute`, shown 15 minutes like the server's `end`); (2) at launch (`endOrphans()`) every handed-over activity is checked
-    the same way and ended at once when its memo is finished (no token), gone (404) or older than one hour (token or not: the
+    the same way and ended at once when its memo is finished (no token), gone (404) or older than 30 minutes (`StaleActivityRule.maxAge`, token or not: the
     server's `end` is 15 minutes after done); one without a token whose memo is still in the pipeline gets a follower as in (1);
     an activity with a token and a young memo is the server's; (3) a starting take
     (`ActivityKitTakeLiveActivity.start`) first ends the finished (`done`, `failed`) activities and those nothing will update
     (`processing`/`needsRoute` without a token), so the take's activity owns the island; a `processing` activity the server still
     drives stays. A server that cannot be asked keeps a young activity. Unit-tested on a fake catalog and `FakeAPIClient`; the ActivityKit adapter is device-only.
+    **Why the card survived Stop and `done` (Wave 18 I7, device row 20; read from the code, the device proof is the `liveactivity.snapshot` records):** every one of the above runs inside the app process, and an app
+    whose take was stopped from the island or the Lock Screen is suspended seconds later (the recorder's audio I/O was the only thing keeping it running). The follower's poll froze with it, the server cannot push (no
+    APNs), and the launch / foreground sweep only runs when the owner opens the app. So (4) a hand-over made while the app is not active, and the move to the background (`scenePhase == .background`,
+    `CompositionRoot.backgrounded()` under a background-task assertion), end every handed-over activity without a push token at once with `ActivityDismissal.soon`
+    (`StaleActivitySweeper.endUnreachable`): the activity keeps showing what it showed and the **system** removes it a minute later, with the app asleep. The follower still serves the app while it is on screen (the result card
+    for 15 minutes); (5) the hard age limit is `StaleActivityRule.maxAge` = 30 minutes, checked at launch and at every foregrounding. An activity with a push token stays the server's until then.
     The widget renders all seven (timer for recording and processing); on the device (Wave 17 D2) recording, paused and processing were seen, on the Lock Screen and in the island (compact and expanded), the other four not yet. **Without APNs (a Personal Team) nothing moves a processing activity on: every finished take left a "Processing" card counting up, and the system showed one of those in the island instead of the running take, so its Stop / Pause / mic swap were unreachable (Wave 17 I8).** A new take's `headline` carries one line about earlier memos still sending ("1 earlier memo is still sending", client phases only), which the card shows as a note;
   - `inputName`;
   - `routeChip`;
@@ -1116,7 +1141,7 @@ the `IrisCore` dependency when R1 wires them together.
     | `capture.level` | `rms_db`, `peak_db` (dBFS, twice a second while a take records) |
     | `intent.perform` / `intent.result` | `intent`, `process`, `handler.present`, `mode`, `can_continue_in_foreground`, `press_lag_ms`; `ok`, `error` (type and case only); both carry the take's `memo.id` (Start: the new memo, on its result) |
     | `liveactivity.request` / `.update` / `.end` | `activity.id`, `phase`, `ok`, `error`, `push` (token or none), `dismissal` (`immediate`\|`after`), `reason` |
-    | `liveactivity.snapshot` | `reason` (`launch`\|`foreground`), `count`, `states` (`id:state;…`), `age_s` (`id:seconds;…`) |
+    | `liveactivity.snapshot` | `reason` (`launch`\|`launch_swept`\|`foreground`\|`background`), `count`, `states` (`id:state;…`), `age_s` (`id:seconds;…`) |
     | `metrickit.crash` / `.hang` / `.cpu_exception` | `app.version`, `window.end`, `call_stack` (innermost frames, `binary+0xoffset`), `exception.type`, `exception.code`, `signal`, `termination.reason`, `hang_ms`, `cpu_ms` |
     | `ui.screen` | `screen`, `shown` |
 

@@ -23,10 +23,12 @@
     private var take = TakeLifecycle()
     private var openFile: AVAudioFile?
     private var openFileURL: URL?
-    private var sampleSink: AsyncStream<[Float]>.Continuation?
+    private var sampleSink: AsyncStream<TapChunk>.Continuation?
     private var consumeTask: Task<Void, Never>?
     private var configurationTask: Task<Void, Never>?
     private var run = EngineRun()
+    /// Stamps the tap's buffers with the pause epoch and drops them while paused (see ``PauseGate``).
+    private let gate = PauseGate()
     private let deviceEvents: any CaptureEvents
     /// Counts the engines of this recorder; `capture.tap.install` and `audio.config_change` carry it.
     private var generation = 0
@@ -57,16 +59,17 @@
     public func start(memoID: MemoID) async throws {
       try take.begin(memoID)
       run.begin()
+      gate.begin()
       configurationGapStart = nil
       do {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let (stream, sink) = AsyncStream.makeStream(of: [Float].self)
+        let (stream, sink) = AsyncStream.makeStream(of: TapChunk.self)
         sampleSink = sink
         try await bringUpFirstEngine(sink: sink)
         rotator = SegmentRotator(policy: policy)
         // Owned by the recorder; ends when `stop()` finishes the stream.
         consumeTask = Task {
-          for await samples in stream { self.ingest(samples) }
+          for await chunk in stream { self.ingest(chunk) }
         }
         observeConfigurationChanges()
         eventContinuation.yield(.started(memoID))
@@ -101,29 +104,54 @@
       apply(rotator.rotate(for: reason), samples: [])
     }
 
+    /// Closes the open segment and drops the samples until `resume()`. The engine keeps running on purpose: a paused engine
+    /// stops the hardware, the app loses the right to record, and the island's Resume (a `LiveActivityIntent` that runs with the
+    /// app in the background) then cannot start it again ("engine resume failed", `!rec`). The microphone indicator stays on
+    /// while paused; nothing is written.
     public func pause() {
       guard take.isRecording, !run.isPaused else { return }
+      gate.pause()
       apply(rotator.rotate(for: .interruption), samples: [])
-      if run.pause() == .pauseEngine { engine.pause() }
+      _ = run.pause()
     }
 
-    public func resume() {
+    public func resume() async {
       guard take.isRecording, run.isPaused, let sink = sampleSink else { return }
       // A restart in flight brings the engine up running; the old one is torn down and must stay so.
-      guard run.resume() == .startEngine else { return }
+      guard run.resume() == .startEngine else {
+        gate.resume()  // the engine of the restart comes up running; what it captures from now on belongs to the take
+        return
+      }
+      let target = targetFormat
+      let events = deviceEvents
+      let gate = gate
+      let current = generation
       do {
-        let target = targetFormat
-        let events = deviceEvents
-        let current = generation
-        let resumed = try EngineStartup.resume(
-          InputTapEngine(engine: engine, target: target, sink: sink, events: events, generation: current),
+        let resumed = try await EngineStartup.resume(
+          InputTapEngine(engine: engine, target: target, sink: sink, gate: gate, events: events, generation: current),
           replacement: {
             InputTapEngine(
-              engine: AVAudioEngine(), target: target, sink: sink, events: events, generation: current + 1)
+              engine: AVAudioEngine(), target: target, sink: sink, gate: gate, events: events, generation: current + 1)
+          },
+          attempts: Self.restartAttempts,
+          pause: { [weak self] in
+            try? await Task.sleep(for: .milliseconds(Self.restartDelayMilliseconds))
+            guard let self else { return false }
+            return await self.isStillPaused
           })
+        // The take ended or was paused again while the input was not ready: nothing to adopt, the replacement is torn down.
+        guard let resumed else { return }
+        guard take.isRecording, run.isPaused else {
+          if resumed.engine !== engine {
+            resumed.removeTap()
+            resumed.stop()
+          }
+          return
+        }
         engine = resumed.engine
         generation = resumed.generation
         run.resumed()
+        gate.resume()
       } catch {
         Log.capture.error("engine resume failed: \(String(describing: error), privacy: .public)")
         eventContinuation.yield(.failed(reason: "engine resume failed"))
@@ -134,18 +162,19 @@
 
     /// The first engine of a take. With AirPods already connected the input can report no format for a moment after the session
     /// activates (an `installTap` then aborts the process), so it is retried like a restart before the start fails.
-    private func bringUpFirstEngine(sink: AsyncStream<[Float]>.Continuation) async throws {
+    private func bringUpFirstEngine(sink: AsyncStream<TapChunk>.Continuation) async throws {
       let target = targetFormat
       let events = deviceEvents
+      let gate = gate
       let current = generation
       let token = run.beginRestart()
       let fresh: InputTapEngine?
       do {
         fresh = try await EngineStartup.recover(
-          InputTapEngine(engine: engine, target: target, sink: sink, events: events, generation: current),
+          InputTapEngine(engine: engine, target: target, sink: sink, gate: gate, events: events, generation: current),
           replacement: {
             InputTapEngine(
-              engine: AVAudioEngine(), target: target, sink: sink, events: events, generation: current + 1)
+              engine: AVAudioEngine(), target: target, sink: sink, gate: gate, events: events, generation: current + 1)
           },
           attempts: Self.startAttempts,
           pause: {
@@ -164,7 +193,6 @@
         throw CaptureError.engineFailure("the take ended while the engine started")
       }
       engine = fresh.engine
-      if verdict == .keepPaused { engine.pause() }  // paused while the first engine was coming up
       generation = fresh.generation
     }
 
@@ -172,9 +200,12 @@
     private struct InputTapEngine: TapEngine {
       let engine: AVAudioEngine
       let target: AVAudioFormat
-      let sink: AsyncStream<[Float]>.Continuation
+      let sink: AsyncStream<TapChunk>.Continuation
+      let gate: PauseGate
       let events: any CaptureEvents
       let generation: Int
+
+      var isRunning: Bool { engine.isRunning }
 
       func removeTap() { Self.guarded("removing the tap") { engine.inputNode.removeTap(onBus: 0) } }
 
@@ -198,9 +229,11 @@
         }
         let converter = TapConverter(target: target)
         let sink = sink
+        let gate = gate
         do {
           try IrisObjCGuard.perform {
-            AVAudioEngineSegmentRecorder.installTap(on: input, format: format, converter: converter, sink: sink)
+            AVAudioEngineSegmentRecorder.installTap(
+              on: input, format: format, converter: converter, sink: sink, gate: gate)
           }
         } catch {
           events.sessionError(call: "installTap", error: error, engineRunning: engine.isRunning)
@@ -240,11 +273,12 @@
     /// Nonisolated on purpose: the tap block runs on the audio thread and must not inherit the actor.
     private nonisolated static func installTap(
       on input: AVAudioInputNode, format: AVAudioFormat, converter: TapConverter,
-      sink: AsyncStream<[Float]>.Continuation
+      sink: AsyncStream<TapChunk>.Continuation, gate: PauseGate
     ) {
       input.installTap(onBus: 0, bufferSize: 4096, format: format) { buffer, _ in
-        guard let samples = converter.convert(buffer) else { return }
-        sink.yield(samples)
+        // Stamped before the conversion: a buffer that was captured before a pause() is stale however long it takes.
+        guard let epoch = gate.stamp(), let samples = converter.convert(buffer) else { return }
+        sink.yield(TapChunk(epoch: epoch, samples: samples))
       }
     }
 
@@ -305,15 +339,16 @@
       configurationGapStart = .now
       let target = targetFormat
       let events = deviceEvents
+      let gate = gate
       let current = generation
       let token = run.beginRestart()
       let fresh: InputTapEngine?
       do {
         fresh = try await EngineStartup.recover(
-          InputTapEngine(engine: engine, target: target, sink: sink, events: events, generation: current),
+          InputTapEngine(engine: engine, target: target, sink: sink, gate: gate, events: events, generation: current),
           replacement: {
             InputTapEngine(
-              engine: AVAudioEngine(), target: target, sink: sink, events: events, generation: current + 1)
+              engine: AVAudioEngine(), target: target, sink: sink, gate: gate, events: events, generation: current + 1)
           },
           attempts: Self.restartAttempts,
           pause: { [weak self] in
@@ -339,18 +374,20 @@
       engine.stop()
       engine = fresh.engine
       generation = fresh.generation
-      if verdict == .keepPaused { engine.pause() }  // paused while the engine was coming up
     }
 
     private static let restartAttempts = 6
     private static let startAttempts = 4
     private static let restartDelayMilliseconds = 250
     private var isStillRecording: Bool { take.isRecording }
+    private var isStillPaused: Bool { take.isRecording && run.isPaused }
 
     // MARK: Segments
 
-    private func ingest(_ samples: [Float]) {
-      guard memoID != nil, !run.isPaused, !samples.isEmpty else { return }
+    private func ingest(_ chunk: TapChunk) {
+      let samples = chunk.samples
+      // Audio captured before a pause or during one never reaches a segment, however late the consumer gets to it.
+      guard memoID != nil, !run.isPaused, gate.accepts(chunk.epoch), !samples.isEmpty else { return }
       levelContinuation.yield(InputLevel.meter(samples))
       reportLevel(samples)
       apply(rotator.append(frames: samples.count), samples: samples)

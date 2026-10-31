@@ -45,6 +45,62 @@ struct StartMemoIntentTests {
     await #expect(throws: StartMemoError.self) { try await root.startMemo() }
   }
 
+  @Test("the Record control's OpenIntent starts the same take, in the foreground path")
+  func controlIntentStartsTheTake() async throws {
+    let root = CompositionRoot(arguments: ["-IrisFakeCapture"], credentials: InMemoryCredentialStore())
+    let activity = try #require(root.fakeLiveActivity)
+
+    _ = try await OpenRecorderIntent().perform()
+
+    #expect(await activity.starts.count == 1)
+    #expect(await activity.phases == [.recording])
+    #expect(root.take.failure == nil)
+    _ = try await root.stopMemo()
+  }
+
+  @Test("a control press that cannot start a take says so in the app and to the system")
+  func controlIntentFailureIsVisible() async {
+    let root = CompositionRoot(arguments: [], credentials: InMemoryCredentialStore())
+    await #expect(throws: StartMemoError.self) { _ = try await OpenRecorderIntent().perform() }
+    #expect(root.take.failure == String(localized: StartMemoError.notConfigured.localizedStringResource))
+  }
+
+  @Test("the control's intent asks for an unlock on the Lock Screen and targets the one destination")
+  func controlIntentPolicy() {
+    #expect(OpenRecorderIntent.authenticationPolicy == .requiresAuthentication)
+    #expect(OpenRecorderIntent().target == .recorder)
+  }
+
+  @Test("a cancelled control press never starts a recording")
+  func cancelledPressStartsNothing() async throws {
+    let root = CompositionRoot(arguments: ["-IrisFakeCapture"], credentials: InMemoryCredentialStore())
+    let activity = try #require(root.fakeLiveActivity)
+
+    let press = Task { @MainActor in try await OpenRecorderIntent().perform() }
+    press.cancel()
+    await #expect(throws: CancellationError.self) { _ = try await press.value }
+
+    #expect(await activity.starts.isEmpty)
+    #expect(await root.take.state.phase == .idle)
+  }
+
+  @Test("waiting for the handler of a cold launch stops as soon as the press is cancelled")
+  func coldLaunchWaitEndsOnCancellation() async {
+    CaptureIntents.handler = nil
+    let started = ContinuousClock.now
+    let wait = Task { @MainActor in _ = try await CaptureIntents.readyHandler(timeout: .seconds(30)) }
+    try? await Task.sleep(for: .milliseconds(100))
+    wait.cancel()
+    await #expect(throws: CancellationError.self) { try await wait.value }
+    #expect(ContinuousClock.now - started < .seconds(5), "it did not run out the 30 s")
+  }
+
+  @Test("a control press with no handler throws appNotReady instead of doing nothing")
+  func controlIntentWithoutHandler() async {
+    CaptureIntents.handler = nil
+    await #expect(throws: StartMemoError.self) { _ = try await OpenRecorderIntent().perform() }
+  }
+
   @Test("the intent says so when the app has not registered a handler")
   func noHandler() async {
     CaptureIntents.handler = nil

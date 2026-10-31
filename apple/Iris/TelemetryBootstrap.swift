@@ -89,9 +89,10 @@ nonisolated enum TelemetryBootstrap {
       events: events, exporter: exporter, suiteName: fake ? "com.jkrumm.iris.telemetry.fake" : nil)
   }
 
-  /// A short stable id of a server, so a record can say which one it is for without carrying the address.
+  /// A short stable id of a server, so a record can say which one it is for without carrying the address. Case and a trailing
+  /// slash of the scheme and host do not matter, the path does (``ConnectionCredentials/normalizedAddress(of:)``).
   static func serverID(_ url: URL) -> String {
-    DeviceEventLog.hashed(url.absoluteString.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "/")))
+    DeviceEventLog.hashed(ConnectionCredentials.normalizedAddress(of: url))
   }
 
   /// The git sha of the build (`IRIS_BUILD_SHA`, passed by the device build), or `dev`.

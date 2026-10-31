@@ -282,6 +282,35 @@ struct CaptureSessionTests {
     await finish(rig)
   }
 
+  @Test func aUserResumeReactivatesTheSessionBeforeTheRecorderRestarts() async throws {
+    let rig = try await makeRig()
+    try await rig.session.start(request)
+    await rig.fake.record(seconds: 2)
+    await rig.session.pause()
+    let before = await rig.fake.session.activationCount
+    await rig.session.resume()
+    #expect(await rig.fake.session.activationCount == before + 1)
+    #expect(await rig.session.current.phase == .recording)
+    await rig.session.cancel()
+    await finish(rig)
+  }
+
+  @Test func aUserResumeThatTheRecorderCannotCarryOutFailsTheTakeAndKeepsWhatWasCaptured() async throws {
+    let rig = try await makeRig()
+    try await rig.session.start(request)
+    await rig.fake.record(seconds: 2)
+    await rig.session.pause()
+    await rig.fake.recorder.failNextResume(reason: "engine resume failed")
+    await rig.session.resume()
+    try await waitForPhase(.failed, in: rig.session)
+    #expect(await rig.session.current.failure == "engine resume failed")
+    let result = try #require(try await rig.session.stop())
+    await rig.harness.outbox.settled()
+    #expect(result.segmentCount == 1, "the segment closed by the pause is kept")
+    #expect(result.failure == "engine resume failed")
+    await finish(rig)
+  }
+
   @Test func anInterruptionThatDoesNotRecommendResumingKeepsTheTakePaused() async throws {
     let rig = try await makeRig()
     try await rig.session.start(request)

@@ -61,3 +61,8 @@ Rerun D2-6 and D2-10 after I7, with the numbered phrases above.
 ### Re-test after Wave 17 I7 (2026-10-30 evening, build `459a517`, iPhone 15, iOS 26.6.1)
 
 **The crash is gone.** Switching iPhone to AirPods in the app and swapping in the island during one take (memo `d1f19d64`: 88.8 s, 13 segments, transcript continuous across both switches) raised no new crash report. The island swap lagged (the first press looked like nothing, then it switched). Phases 3 to 5 of D2-6 (forced built-in while connected, disconnect) were not run with numbered phrases, and the car (row 5) is still not run, so the questions "built-in mic while connected to the car" and "which Bluetooth profile was used" stay open. Wave 18 I6 logging should record the input format (sample rate, channel count) before and after each route change, which also answers the HFP sample-rate question.
+
+### Island Resume (Wave 18 I7, fix built, device-unverified)
+
+Pause then Resume from the island failed with "engine resume failed" while mic swap and Stop passed. A pause no longer stops the engine (`engine.pause()` stops the hardware); it closes the segment and drops
+the samples, so Resume, which runs with the app in the background, starts nothing (TDD §4 Capture engine). Steps and pass criteria: `device-checklist.md`, "Wave 18 I7" take B.

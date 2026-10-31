@@ -17,6 +17,19 @@ protocol CaptureIntentHandler: AnyObject {
 @MainActor
 enum CaptureIntents {
   static var handler: (any CaptureIntentHandler)?
+
+  /// The handler, waiting a moment for it: an intent that launches the app cold is performed while the composition root is
+  /// still being built. `nil` when it never shows up (the extension, which has none), so the caller can say so. Throws
+  /// `CancellationError` as soon as the intent is cancelled, so a cancelled press can never go on to start a recording.
+  static func readyHandler(timeout: Duration = .seconds(3)) async throws -> (any CaptureIntentHandler)? {
+    try Task.checkCancellation()
+    let deadline = ContinuousClock.now + timeout
+    while handler == nil, ContinuousClock.now < deadline {
+      try await Task.sleep(for: .milliseconds(50))
+    }
+    try Task.checkCancellation()
+    return handler
+  }
 }
 
 enum StartMemoError: Error, CustomLocalizedStringResourceConvertible {
@@ -49,6 +62,45 @@ struct StartMemoIntent: AudioRecordingIntent, LiveActivityIntent {
   func perform() async throws -> some IntentResult {
     try await IntentEvents.run(self, named: "StartMemoIntent", handlerPresent: CaptureIntents.handler != nil) {
       guard let handler = CaptureIntents.handler else { throw StartMemoError.appNotReady }
+      try await handler.startMemo()
+    }
+    return .result()
+  }
+}
+
+/// The one thing the Record control opens.
+enum RecorderDestination: String, AppEnum {
+  case recorder
+
+  static let typeDisplayRepresentation = TypeDisplayRepresentation(name: "Recorder")
+  static let caseDisplayRepresentations: [RecorderDestination: DisplayRepresentation] = [
+    .recorder: DisplayRepresentation(title: "Recorder")
+  ]
+}
+
+/// What the Record control runs. WidgetKit performs a control's intent in the widget extension, in the background, and the
+/// extension cannot record; only an `OpenIntent` that is in both targets makes the system bring the app to the foreground
+/// and perform the intent there. On the Lock Screen a button is inactive until the device is unlocked, so the policy asks for
+/// that: the press shows the unlock prompt, then the app opens and the take starts (a foreground start can activate the
+/// audio session and request the Live Activity; the `LiveActivityIntent` start of the earlier build ran in the background,
+/// did nothing on the Lock Screen and left no trace). A start that fails is shown in the app (`TakeModel.failure`) and
+/// thrown back to the system.
+struct OpenRecorderIntent: OpenIntent {
+  static let title: LocalizedStringResource = "Record with Iris"
+  static let description = IntentDescription("Open Iris and start a voice memo.")
+  static let isDiscoverable = false
+  static let authenticationPolicy: IntentAuthenticationPolicy = .requiresAuthentication
+
+  @Parameter(title: "Destination")
+  var target: RecorderDestination
+
+  init() { target = .recorder }
+
+  @MainActor
+  func perform() async throws -> some IntentResult {
+    let handler = try await CaptureIntents.readyHandler()
+    try await IntentEvents.run(self, named: "OpenRecorderIntent", handlerPresent: handler != nil) {
+      guard let handler else { throw StartMemoError.appNotReady }
       try await handler.startMemo()
     }
     return .result()
