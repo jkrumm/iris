@@ -967,8 +967,14 @@ pinned simulator in light and dark (`LiveActivitySnapshotTests`, the island thro
   default, and **picking a microphone sets the system default input**, which
   the engine follows (`AVAudioEngineConfigurationChange` rolls the segment).
   The default before the first pick is kept and put back when the take ends,
-  however it ends (`setPreferredInput(uid: nil)`; a crash mid-take leaves the
-  last pick as the default, known limit). Per-device mic rules are local
+  however it ends, a start that throws after the session applied a mic rule
+  included (`setPreferredInput(uid: nil)`), and only while the default is still
+  the device Iris set: a default somebody else chose mid-take is left alone. A
+  crash mid-take leaves the last pick as the default (known limit; the original
+  is not persisted). `routeChanges`, the directory's `changes` and the engine's
+  levels, failures and mic list are broadcasts (`Broadcast`): every read is its
+  own subscription, because the capture session and the panel both listen and an
+  `AsyncStream` ends for everyone when one consumer stops. Per-device mic rules are local
   (`UserDefaults`, fingerprint = the default output's UID). The engine is the
   same `AVAudioEngineSegmentRecorder` (16 kHz mono AAC, 10 s segments); the
   outbox is the iPhone's `CaptureStack` over `JSONFileOutboxStore` in the app
@@ -983,7 +989,19 @@ pinned simulator in light and dark (`LiveActivitySnapshotTests`, the island thro
   `FakeTakeEngine`), a `MicrophonePermission` port and a `TakeHotkey` port; the
   outbox is opened at launch and again on a connection change, so a take made
   offline or cut short is sent next time. The memo the outbox creates shows in
-  History at once (the created-memo log) and by the SSE after that.
+  History at once (the created-memo log) and by the SSE after that. Cancel
+  follows the iPhone's lifecycle: the memo the session discarded is forgotten
+  (`CreatedMemoLog.forget` → `HistoryModel.hide`, the hidden set persisted), its
+  server `DELETE` settling unhides it, and the launch reconcile drops hidden ids
+  with no `DELETE` queued. A stop that returns a result with `failure` (the
+  recorder failed, or stopping timed out after earlier segments closed) is
+  `TakeEnd.partial`: the memo is sent with what closed, and the panel says the
+  recording stopped early. A create that the old server answers after the saved
+  connection changed is refused as a transport error (`ConnectionBoundClient`,
+  a connection epoch counted by `MacCaptureStack.reconnect`), so it is neither
+  recorded nor inserted into the new server's History; the outbox sends the item
+  again over the new connection (binding an item to its server is a follow-up).
+  No log line carries a device uid.
 - **Notifications:** live SSE `/v1/events` for status, local notifications
   while it runs, and APNs registration for when it is asleep.
 - **First slice (Wave 18 M1, no capture yet):**
