@@ -130,13 +130,18 @@ nonisolated struct MediaDownloader: Sendable {
 
   /// The evictions asked for and not finished. ``evict(memoID:)`` returns before its scan, so an ask that comes after it
   /// waits here for the scan instead of being handed a file that is about to go, or starting a download the scan cancels.
-  private final class Evictions: Sendable {
+  final class Evictions: Sendable {
     private struct State {
       var next = 0
       var running: [Int: (prefix: String, task: Task<Void, Never>)] = [:]
-      /// The `next` value at the time each prefix was last evicted.
+      /// The `next` value at the time each prefix was last evicted. Bounded by ``Evictions/evictedLimit``: every purged memo adds
+      /// a prefix, and ``Evictions/evicted(_:since:)`` reads all of them on every download.
       var evictedAt: [String: Int] = [:]
     }
+
+    /// Prefixes remembered. A download only asks about evictions newer than its own start, so the oldest can go; one that
+    /// outlived 512 evictions of other memos while on the wire (a 300 s bound) is not a case worth a lookup table.
+    static let evictedLimit = 512
     private let state = Mutex(State())
 
     @discardableResult
@@ -145,6 +150,10 @@ nonisolated struct MediaDownloader: Sendable {
         let id = state.next
         state.next += 1
         state.evictedAt[prefix] = state.next
+        if state.evictedAt.count > Self.evictedLimit {
+          let oldest = state.evictedAt.sorted { $0.value < $1.value }.prefix(state.evictedAt.count - Self.evictedLimit)
+          for (key, _) in oldest { state.evictedAt[key] = nil }
+        }
         // Owned by `state` until it finishes; `finish` waits for this lock, so it always runs after the entry exists.
         let task = Task {
           await work()
