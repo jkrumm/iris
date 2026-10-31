@@ -262,9 +262,13 @@ for await (const chunk of Bun.stdin.stream()) {
     return bin;
   }
 
-  /** The stub's "core socket": the transport only needs the file to exist. */
+  /** The stub's "core socket": a listening unix socket, which is all the transport's probe asks of a core. */
   const sock = () => join(dir, "default.sock");
-  beforeEach(() => writeFile(sock(), ""));
+  let core: ReturnType<typeof Bun.listen> | undefined;
+  beforeEach(() => {
+    core = Bun.listen({ unix: sock(), socket: { data() {} } });
+  });
+  afterEach(() => core?.stop(true));
 
   const list = (transport: HcTransport, timeoutMs = 5000) =>
     transport.call({ method: "terminal.list", params: { labels: { a: "b" } }, timeoutMs });
@@ -340,14 +344,17 @@ for await (const chunk of Bun.stdin.stream()) {
     expect(Date.now() - started).toBeLessThan(3000);
   });
 
-  it("refuses without spawning while the core's socket is missing", async () => {
+  it("refuses without spawning while the core's socket is missing or left over by a dead core", async () => {
     const marker = join(dir, "spawned");
     const bin = await stub(`await Bun.write(${JSON.stringify(marker)}, "x");`);
-    const transport = createHcTransport({ bin, socket: join(dir, "missing.sock") });
-    await expect(list(transport)).rejects.toMatchObject({
-      code: "unavailable",
-      message: expect.stringContaining("no core is running"),
-    });
+    const leftover = join(dir, "leftover.sock");
+    await writeFile(leftover, "");
+    for (const socket of [join(dir, "missing.sock"), leftover]) {
+      await expect(list(createHcTransport({ bin, socket }))).rejects.toMatchObject({
+        code: "unavailable",
+        message: expect.stringContaining("no core is running"),
+      });
+    }
     expect(await Bun.file(marker).exists()).toBe(false);
   });
 });

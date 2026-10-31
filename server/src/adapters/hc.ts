@@ -1,4 +1,3 @@
-import { existsSync } from "node:fs";
 import { basename } from "node:path";
 import { z } from "zod";
 import { MemoError } from "../memo/errors.js";
@@ -77,12 +76,34 @@ export interface HcTransportOptions {
   bin: string;
   /**
    * The core's socket (`~/.local/state/herdr-core/default/default.sock`), required. Any `hc` call starts a core when none
-   * runs, and a core born under iris would hand iris's environment to every terminal: when this file is missing the
-   * transport refuses without spawning, and the child gets `HC_SOCKET` as its whole environment. A core that stops between
-   * the check and the spawn can still be replaced by this child (`hc` has no flag against it); the LaunchAgent's
-   * KeepAlive makes that window a restart, and the scrubbed environment keeps iris's secrets out of it.
+   * runs (also when the socket file is a leftover of a dead one: verified on a scratch core), and a core born under iris
+   * would hand iris's environment to every terminal: unless a connection to the socket is accepted the transport refuses
+   * without spawning, and the child gets `HC_SOCKET` as its whole environment. A core that stops between the probe and the
+   * spawn can still be replaced by this child (`hc` has no flag against it); the LaunchAgent's KeepAlive makes that window
+   * a restart, and the scrubbed environment keeps iris's secrets out of it.
    */
   socket: string;
+}
+
+const PROBE_TIMEOUT_MS = 1_000;
+
+/** True when something accepts connections on the unix socket: a file left by a dead core refuses. */
+async function coreAccepts(path: string): Promise<boolean> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const probe = Bun.connect({ unix: path, socket: { data() {} } }).then((socket) => {
+      socket.end();
+      return true;
+    });
+    const timeout = new Promise<boolean>((resolve) => {
+      timer = setTimeout(() => resolve(false), PROBE_TIMEOUT_MS);
+    });
+    return await Promise.race([probe, timeout]);
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 /** Per-request `hc connect`: spawn, one line in, read until the matching answer, kill. */
@@ -90,7 +111,7 @@ export function createHcTransport(opts: HcTransportOptions): HcTransport {
   let nextId = 1;
   return {
     async call({ method, params, timeoutMs }) {
-      if (!existsSync(opts.socket)) {
+      if (!(await coreAccepts(opts.socket))) {
         throw unavailable("no core is running");
       }
       const id = nextId++;
