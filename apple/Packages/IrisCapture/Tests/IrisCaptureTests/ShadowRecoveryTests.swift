@@ -189,6 +189,48 @@
       await harness.outbox.shutdown()
     }
 
+    @Test func anEmptyTakeWhoseShadowCouldNotBeRecoveredStaysInEverySaveUntilItCan() async throws {
+      let directory = try temporaryDirectory()
+      defer { try? FileManager.default.removeItem(at: directory) }
+      let id = memo(1)
+      // A shadow that cannot be read now (the next launch may read it): the take's audio is not known to be absent.
+      try Data(repeating: 7, count: 9_000).write(to: directory.appending(path: "\(id.uuidString)-0.caf"))
+      let harness = try await OutboxHarness(record: OutboxRecord(items: [voiceItem(id)]))
+
+      await harness.outbox.sweepOrphans(using: DirectorySegmentFiles(directory: directory))
+      await harness.outbox.flush()  // any later save, whatever caused it
+
+      #expect(await harness.store.load().items.map(\.memoID) == [id], "the take is kept on disk for the next launch")
+      #expect(await harness.outbox.queue().isEmpty, "and shows nowhere: it is not a take that can be sent")
+      #expect(await harness.outbox.items().isEmpty)
+
+      // The next launch reads the shadow at last.
+      let relaunched = try await OutboxHarness(record: await harness.store.load())
+      let live = try temporaryDirectory()
+      defer { try? FileManager.default.removeItem(at: live) }
+      try FileManager.default.removeItem(at: directory.appending(path: "\(id.uuidString)-0.caf"))
+      let open = try writeSegment(id, 0, seconds: 3, in: live)
+      try killed(open, into: directory)
+      open.close()
+      let report = await relaunched.outbox.sweepOrphans(using: DirectorySegmentFiles(directory: directory))
+      #expect(report.adopted.count == 1)
+      #expect(await relaunched.outbox.items().map(\.memoID) == [id])
+      await harness.outbox.shutdown()
+      await relaunched.outbox.shutdown()
+    }
+
+    @Test func anEmptyTakeIsDroppedFromTheSaveOnceNothingOfItRemains() async throws {
+      let directory = try temporaryDirectory()
+      defer { try? FileManager.default.removeItem(at: directory) }
+      let harness = try await OutboxHarness(record: OutboxRecord(items: [voiceItem(memo(1))]))
+
+      await harness.outbox.sweepOrphans(using: DirectorySegmentFiles(directory: directory))
+      await harness.outbox.flush()
+
+      #expect(await harness.store.load().items.isEmpty, "no file names it: absence of audio is established")
+      await harness.outbox.shutdown()
+    }
+
     @Test func aTakeWithNothingOnDiskStaysDropped() async throws {
       let directory = try temporaryDirectory()
       defer { try? FileManager.default.removeItem(at: directory) }

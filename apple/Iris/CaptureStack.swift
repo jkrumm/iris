@@ -187,6 +187,8 @@ actor CaptureStack {
     if let files = parts.segmentFiles {
       // Before anything is sent or recorded: a file written but never saved belongs to a take of an earlier run.
       await outbox.sweepOrphans(using: files)
+    } else {
+      await outbox.settleUnrecoveredTakes()
     }
     await outbox.resume()
     let session = CaptureSession(

@@ -31,8 +31,10 @@ public struct OutboxStateMachine: Sendable {
   /// Takes the app died in the middle of, finished by `recoverUnfinishedTakes` with the segments the saved queue had. Not
   /// persisted: only the load that recovered them may add the segment files that never made it into the saved queue.
   private var recoveredTakes: Set<MemoID> = []
-  /// Takes the app died in before any segment reached the saved queue, dropped on load. The sweep may still find their first
-  /// segment on disk (a kill loses the open segment's m4a, the PCM shadow recovers it) and brings the take back. Not persisted.
+  /// Takes the app died in before any segment reached the saved queue. They are not live (no memo, nothing to send, not in
+  /// `queue()`), but they stay in every save until the sweep has settled them: it may still find their first segment on disk (a
+  /// kill loses the open segment's m4a, the PCM shadow recovers it) and brings the take back, and a recovery that failed this
+  /// time must find the take again at the next launch.
   private var emptyTakes: [MemoID: OutboxItem] = [:]
   /// `createMayHaveLanded` as it was before `dispatch` handed the create out, for `revertDispatch`. Not persisted.
   private var flagBeforeDispatch: [MemoID: Bool] = [:]
@@ -75,12 +77,17 @@ public struct OutboxStateMachine: Sendable {
     OutboxRecord(
       entries: entries.values.sorted { $0.sequence < $1.sequence },
       memos: memos.values.sorted { $0.memoID.uuidString < $1.memoID.uuidString },
-      items: orderedItems,
+      items: (orderedItems + emptyTakes.values).sorted {
+        ($0.queuedAt, $0.memoID.uuidString) < ($1.queuedAt, $1.memoID.uuidString)
+      },
       deletions: deletions.values.sorted { $0.memoID.uuidString < $1.memoID.uuidString },
       nextSequence: nextSequence,
       completedMemos: completedMemos
     )
   }
+
+  /// The takes and messages that are queued now, oldest first (not the empty takes the sweep has yet to settle).
+  public var liveItems: [OutboxItem] { orderedItems }
 
   private var orderedItems: [OutboxItem] {
     items.values.sorted { ($0.queuedAt, $0.memoID.uuidString) < ($1.queuedAt, $1.memoID.uuidString) }
@@ -353,6 +360,16 @@ public struct OutboxStateMachine: Sendable {
     }
     if grows { memos[memoID]?.segmentCount += 1 }
     return true
+  }
+
+  /// The sweep is done with the takes that had no segment: those whose audio it could not rule out (`keeping`: a shadow it could
+  /// not recover, a file it could not move) stay in the saved queue for the next launch, the rest are dropped. `true` when
+  /// something was dropped.
+  @discardableResult
+  public mutating func settleEmptyTakes(keeping: Set<MemoID> = []) -> Bool {
+    let doomed = emptyTakes.keys.filter { !keeping.contains($0) }
+    for id in doomed { emptyTakes[id] = nil }
+    return !doomed.isEmpty
   }
 
   private static func emptyMemo(of item: OutboxItem) -> OutboxMemo {

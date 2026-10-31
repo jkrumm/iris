@@ -166,7 +166,7 @@ extension Outbox {
     let owned = segmentFileNames()
     let shadows = await files.shadowFiles().sorted { $0.lastPathComponent < $1.lastPathComponent }
     var candidates = await orphans(in: files, excluding: owned)
-    guard !shadows.isEmpty || !candidates.isEmpty else { return concluded(report) }
+    guard !shadows.isEmpty || !candidates.isEmpty else { return await concluded(report) }
     // Who owns what is settled before anything is replaced or moved: a set-aside queue may name any of these files.
     let held = await HeldQueues.load(from: await setAsideQueueFiles())
     if !shadows.isEmpty {
@@ -190,7 +190,7 @@ extension Outbox {
     }
     // Saved before anything goes up, as for any new segment (the save releases the withheld ones).
     if !report.adopted.isEmpty { await flush() }
-    return concluded(report)
+    return await concluded(report)
   }
 
   /// The segment files in the capture directory that the queue does not know, by take and index so a take that grows is
@@ -205,8 +205,11 @@ extension Outbox {
   }
 
   /// Logs the sweep and remembers the files it could not deal with, for Settings.
-  private func concluded(_ report: SweepReport) -> SweepReport {
+  private func concluded(_ report: SweepReport) async -> SweepReport {
     noteStrays(report.stuck)
+    // A take with no segment is dropped unless a file the sweep could not deal with may still hold its audio.
+    let unresolved = Set((report.stuck + report.kept).compactMap { Self.parse($0.lastPathComponent)?.0 })
+    await settleEmptyTakes(keeping: unresolved)
     guard !report.isEmpty else { return report }
     Log.outbox.notice(
       "capture sweep: \(report.adopted.count) adopted, \(report.quarantined.count) quarantined, \(report.kept.count) kept, \(report.recovered.count) recovered, \(report.stuck.count) stuck"

@@ -238,7 +238,7 @@ public actor Outbox: SegmentOutbox {
   /// Current queue, oldest first.
   public func entries() -> [OutboxEntry] { machine.record.entries }
   public func memos() -> [OutboxMemo] { machine.record.memos }
-  public func items() -> [OutboxItem] { machine.record.items }
+  public func items() -> [OutboxItem] { machine.liveItems }
 
   // MARK: Startup sweep (`OutboxSweep.swift`)
 
@@ -267,6 +267,15 @@ public actor Outbox: SegmentOutbox {
         url: url, byteCount: (attributes[.size] as? Int) ?? 0, modifiedAt: attributes[.modificationDate] as? Date)
     }
   }
+
+  /// The sweep is over: a take that had no segment and has no file that could still hold its audio is dropped from the saved
+  /// queue; one whose audio could not be ruled out stays in it (`keeping`) for the next launch.
+  func settleEmptyTakes(keeping: Set<MemoID>) async {
+    if machine.settleEmptyTakes(keeping: keeping) { await persist() }
+  }
+
+  /// Without a capture directory to sweep (fakes) nothing can bring an empty take back: they are dropped.
+  public func settleUnrecoveredTakes() async { await settleEmptyTakes(keeping: []) }
 
   /// The queue files earlier resets set aside (they may name segment files the sweep must leave alone).
   func setAsideQueueFiles() async -> [URL] { await store.quarantined() }
