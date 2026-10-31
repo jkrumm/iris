@@ -48,9 +48,10 @@ public struct LiveActivityPanel<Controls: View, DoneAction: View>: View {
   @ViewBuilder private var content: some View {
     switch presentation.phase {
     case .recording:
-      HStack(alignment: .firstTextBaseline, spacing: Theme.Spacing.md) {
+      HStack(alignment: .firstTextBaseline, spacing: Theme.Spacing.inset) {
         ElapsedTimerText(start: presentation.start, frozenAt: presentation.timerFrozenAt)
-          .font(.system(size: 38, weight: .light))
+          .font(.system(size: 44, weight: .light))
+          .tracking(-0.44)
           .foregroundStyle(primary)
         Spacer(minLength: 0)
         if let inputName = presentation.inputName { inputChip(inputName) }
@@ -64,10 +65,10 @@ public struct LiveActivityPanel<Controls: View, DoneAction: View>: View {
         if let inputName = presentation.inputName { inputChip(inputName) }
       }
     case .uploading, .processing:
-      VStack(alignment: .leading, spacing: Theme.Spacing.cozy) {
+      VStack(alignment: .leading, spacing: Theme.Spacing.md) {
         if let subtitle = presentation.subtitle {
           Text(verbatim: subtitle)
-            .themeFont(.callout, weight: .semibold)
+            .themeFont(.body, weight: .semibold)
             .foregroundStyle(primary)
         }
         ActivityStageDashes(phase: presentation.phase, onDark: style == .island)
@@ -75,15 +76,15 @@ public struct LiveActivityPanel<Controls: View, DoneAction: View>: View {
     case .needsRoute:
       VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
         Text(verbatim: presentation.subtitle ?? presentation.phaseTitle)
-          .themeFont(.callout, weight: .semibold)
+          .themeFont(.body, weight: .semibold)
           .foregroundStyle(primary)
         if let routeChip = presentation.routeChip { chip(routeChip) }
       }
     case .done:
-      VStack(alignment: .leading, spacing: Theme.Spacing.snug) {
+      VStack(alignment: .leading, spacing: Theme.Spacing.hair) {
         // First-text-baseline alignment with the same font on the mark and the headline keeps the check on the first line,
         // however far the headline wraps (round 2: the mockup's mark sat too low).
-        HStack(alignment: .firstTextBaseline, spacing: Theme.Spacing.sm) {
+        HStack(alignment: .firstTextBaseline, spacing: Theme.Spacing.md) {
           Image(systemName: "checkmark.circle.fill")
             .foregroundStyle(Theme.Status.good)
             .accessibilityHidden(true)
@@ -91,7 +92,7 @@ public struct LiveActivityPanel<Controls: View, DoneAction: View>: View {
             .lineLimit(2)
             .foregroundStyle(primary)
         }
-        .themeFont(.callout, weight: .semibold)
+        .themeFont(.body, weight: .semibold)
         if let routeChip = presentation.routeChip {
           Text(verbatim: routeChip)
             .themeFont(.footnote)
@@ -99,7 +100,7 @@ public struct LiveActivityPanel<Controls: View, DoneAction: View>: View {
         }
       }
     case .failed:
-      HStack(alignment: .firstTextBaseline, spacing: Theme.Spacing.sm) {
+      HStack(alignment: .firstTextBaseline, spacing: Theme.Spacing.md) {
         Image(systemName: "exclamationmark.triangle.fill")
           .foregroundStyle(Theme.Status.warn)
           .accessibilityHidden(true)
@@ -107,7 +108,7 @@ public struct LiveActivityPanel<Controls: View, DoneAction: View>: View {
           .lineLimit(2)
           .foregroundStyle(primary)
       }
-      .themeFont(.callout, weight: .semibold)
+      .themeFont(.body, weight: .semibold)
     }
   }
 

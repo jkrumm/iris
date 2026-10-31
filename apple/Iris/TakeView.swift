@@ -46,7 +46,8 @@ struct TakeView: View {
       pause: String(localized: "Pause", comment: "Take screen control"),
       resume: String(localized: "Resume", comment: "Take screen control"),
       microphone: String(localized: "Microphone", comment: "Take screen control"),
-      minimize: String(localized: "Back to the app", comment: "Take screen control"))
+      minimize: String(localized: "Back to the app", comment: "Take screen control"),
+      hint: String(localized: "Stop sends the take · × discards it", comment: "Take screen hint under the controls"))
   }
 }
 
@@ -92,8 +93,8 @@ struct TakeBannerView: View {
       openHint: String(localized: "Opens the recording", comment: "Take banner hint"),
       onOpen: { model.showsFull = true }, onStop: { Task { await model.stop() } }
     )
-    .padding(.horizontal, Theme.Spacing.lg)
-    .padding(.bottom, Theme.Spacing.sm)
+    .padding(.horizontal, Theme.Spacing.barInset)
+    .padding(.bottom, Theme.Spacing.barGap)
     .accessibilityIdentifier("take.banner")
   }
 }
