@@ -70,6 +70,9 @@ public actor CaptureSession {
   private let outbox: Outbox
   private let clock: any CaptureClock
   private let deviceEvents: any CaptureEvents
+  /// The capture directory, to remove the files of a cancelled take that never reached the outbox (a segment whose close
+  /// failed, and the ones behind it). `nil`: nothing is removed.
+  private let files: (any SegmentFileStore)?
   /// What `take.phase` last reported, so a snapshot that changes nothing about the phase is not an event.
   private var reportedPhase: (phase: TakePhase, memoID: MemoID?)?
   /// When the take stopped recording and why, until it records again: the audio lost in between is `capture.gap`.
@@ -117,9 +120,10 @@ public actor CaptureSession {
   public init(
     session: any AudioSessionController, routes: any RouteManager, recorder: any SegmentRecorder, outbox: Outbox,
     clock: any CaptureClock, stopTimeout: TimeInterval = 10, reactivationDelay: TimeInterval = 0.5,
-    events deviceEvents: any CaptureEvents = NoCaptureEvents()
+    events deviceEvents: any CaptureEvents = NoCaptureEvents(), files: (any SegmentFileStore)? = nil
   ) {
     self.deviceEvents = deviceEvents
+    self.files = files
     self.session = session
     self.routes = routes
     self.recorder = recorder
@@ -300,6 +304,9 @@ public actor CaptureSession {
     forget(memoID)
     lateFinish.removeValue(forKey: memoID)?.cancel()
     awaitingStop.remove(memoID)
+    // The recorder has closed what it could. A segment whose close failed never became a queue entry, so the outbox did not
+    // retire its file, nor the files of the segments held back behind it: the user dropped the take, so none of it is kept.
+    await files?.discardFiles(of: memoID)
     await deactivateSession()
     setState(.idle)
     return memoID

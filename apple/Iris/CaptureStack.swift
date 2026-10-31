@@ -193,7 +193,7 @@ actor CaptureStack {
     await outbox.resume()
     let session = CaptureSession(
       session: parts.session, routes: parts.routes, recorder: parts.recorder, outbox: outbox, clock: parts.clock,
-      events: parts.events)
+      events: parts.events, files: parts.segmentFiles)
     return .success((outbox, session))
   }
 }

@@ -814,7 +814,9 @@ the runner needs a workflow step and was left out of this change (owned files: `
 - **`CaptureSession`:** one take behind one handle. `start(TakeRequest)` mints the memo id, configures and activates the session,
   applies the route rule, starts the recorder and registers the take with the outbox; closed segments go to the outbox while the
   take runs; `stop()` flushes the last segment and finishes the memo (a take that never closed a segment is dropped); `cancel()`
-  discards the memo and deletes its files; an interruption pauses the recorder at a segment boundary and resumes it when the system
+  discards the memo and deletes its files (the outbox retires the queued segments' files; the capture directory's files of the memo
+  that never became an entry, a segment whose close failed and those held back behind it, go through `SegmentFileStore.discardFiles(of:)`
+  after the recorder has stopped. Only a cancel deletes a take's audio); an interruption pauses the recorder at a segment boundary and resumes it when the system
   recommends; `switchInput` rolls the segment, and so does a route rule that applies mid-take (behind the same gate, only while
   recording or paused), so one file never holds two inputs. `updates()` is the state stream the UI and the Live Activity follow.
   A recorder failure (`.failed`: a segment write error, an engine that will not resume or restart) is a take failure: the session
