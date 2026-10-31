@@ -59,6 +59,12 @@ final class HistoryModel {
     evictMedia: @escaping (String) -> Void = { _ in }
   ) {
     self.client = client
+  /// Ids whose delete settled before their hide arrived (a cancelled take's `DELETE` can be acknowledged before the cancel has
+  /// told History): the hide then removes the row but does not keep the id hidden, since there is nothing left to wait for.
+  private var settledBeforeHide: Set<String> = []
+
+  /// - Parameter serverKey: The server `client` sends to; by default read from a ``ReconfigurableAPIClient``, `nil` for any
+  ///   other client (a fake), which then never sees a switch.
     self.hiddenStore = hiddenStore
     self.evictMedia = evictMedia
     let restored = hiddenStore.load()
@@ -289,7 +295,6 @@ final class HistoryModel {
     restoredHidden.remove(id)
     hidden.insert(id)
     hiddenStore.save(hidden)
-    lifecycle[id, default: 0] += 1
     remove(id)
     evictMedia(id)
   }
@@ -303,12 +308,24 @@ final class HistoryModel {
     guard !hidden.isDisjoint(with: stale) else { return }
     hidden.subtract(stale)
     hiddenStore.save(hidden)
+    lifecycle[id, default: 0] += 1
+    // The server's delete was over before this arrived: the row goes, but nothing is left that would unhide the id again.
+    if settledBeforeHide.remove(id) != nil {
+      remove(id)
+      evictMedia(id)
+      return
+    }
   }
 
   /// The discard's server delete is over: the server's list decides again. A memo that is gone stays out of it, and one the
   /// server kept (it left `receiving` before the delete landed) shows up with the next refresh.
   func unhide(_ id: String) {
-    guard hidden.remove(id) != nil else { return }
+    guard hidden.remove(id) != nil else {
+      // Not hidden (yet): the settle outran the hide. Remembered, so the hide that follows does not outlive its delete.
+      settledBeforeHide.insert(id)
+      unhiddenThisSession.insert(id)
+      return
+    }
     unhiddenThisSession.insert(id)
     hiddenStore.save(hidden)
   }
