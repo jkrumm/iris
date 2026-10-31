@@ -1,12 +1,22 @@
 import Foundation
+import IrisCapture
 import IrisCore
 import Synchronization
 
 /// The `APIClient` every model holds in production: it forwards to the `URLSessionAPIClient` for the saved
 /// connection, and swaps it when the connection changes, so no model has to be rebuilt. With no connection it throws
 /// `APIError.unauthorized` (no token), which the app avoids by not loading until the connection exists.
+///
+/// A call made for the outbox carries the server its item belongs to (`OutboxTransfer.serverKey`); the client compares it with
+/// the connection it holds at the moment it picks its target, in the same step the swap takes, and throws
+/// `WrongServerError` instead of sending to another server.
 nonisolated final class ReconfigurableAPIClient: APIClient {
-  private let target = Mutex<(any APIClient)?>(nil)
+  private struct Target {
+    let key: String
+    let client: any APIClient
+  }
+
+  private let target = Mutex<Target?>(nil)
   private let makeClient: @Sendable (ConnectionCredentials) -> any APIClient
 
   init(
@@ -20,13 +30,18 @@ nonisolated final class ReconfigurableAPIClient: APIClient {
   }
 
   func reconfigure(_ credentials: ConnectionCredentials?) {
-    let client = credentials.map(makeClient)
-    target.withLock { $0 = client }
+    let next = credentials.map { Target(key: $0.serverKey, client: makeClient($0)) }
+    target.withLock { $0 = next }
   }
 
+  /// The key of the server calls go to now (``ConnectionCredentials/serverKey``); `nil` without a connection.
+  var serverKey: String? { target.withLock { $0?.key } }
+
   private func current() throws -> any APIClient {
-    guard let client = target.withLock({ $0 }) else { throw APIError.unauthorized }
-    return client
+    let held = target.withLock { $0 }
+    if let expected = OutboxTransfer.serverKey, held?.key != expected { throw WrongServerError() }
+    guard let held else { throw APIError.unauthorized }
+    return held.client
   }
 
   func health() async throws -> Health { try await current().health() }

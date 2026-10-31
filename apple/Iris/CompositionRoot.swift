@@ -212,7 +212,11 @@ final class CompositionRoot: CaptureIntentHandler, PlaybackIntentHandler {
       }
     }
     Task {
-      await outbox.created.setHandler { memo in Task { @MainActor in history.insert(memo) } }
+      // The hand-off hops to the main actor, and the connection can switch meanwhile: `insert` compares the memo's server with the
+      // one History reads when it runs.
+      await outbox.created.setServerHandler { memo, origin in
+        Task { @MainActor in history.insert(memo, origin: origin) }
+      }
       await outbox.created.setForgottenHandler { id in hiddenChanged.yield(.hide(id)) }
       await outbox.created.setSettledHandler { id in hiddenChanged.yield(.unhide(id)) }
     }
@@ -434,7 +438,7 @@ final class CompositionRoot: CaptureIntentHandler, PlaybackIntentHandler {
 
   /// The real recorder, session and route manager, with the queue and the segment files in Application Support.
   private static func productionStack(
-    client: any APIClient, created: CreatedMemoLog
+    client: ReconfigurableAPIClient, created: CreatedMemoLog
   ) -> (stack: CaptureStack, canRecord: Bool) {
     let root = URL.applicationSupportDirectory.appending(path: "Iris", directoryHint: .isDirectory)
     let captureDirectory = root.appending(path: "capture", directoryHint: .isDirectory)
@@ -447,7 +451,7 @@ final class CompositionRoot: CaptureIntentHandler, PlaybackIntentHandler {
         recorder: recorder ?? UnavailableSegmentRecorder(), clock: SystemCaptureClock(),
         store: JSONFileOutboxStore(fileURL: root.appending(path: "outbox.json"), segmentDirectory: captureDirectory),
         uploader: ObservedSegmentUploader(APIOutboxUploader(client: client, created: created, keeping: segmentFiles)),
-        events: events, segmentFiles: segmentFiles))
+        events: events, segmentFiles: segmentFiles, serverKey: { client.serverKey }))
     return (stack, recorder != nil)
   }
 }
