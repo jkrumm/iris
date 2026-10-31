@@ -1120,6 +1120,18 @@ pinned simulator in light and dark (`LiveActivitySnapshotTests`, the island thro
   the same words as Settings, and a Discard that did not reach the queue says so. The strip is followed from launch to quit
   (`begin()` starts the observation once), so a take made before a connection was saved shows. Fakes: `ScriptedQueue`
   (`-IrisMacStalled` seeds a stalled upload, a retry backoff and a queued removal for the screenshot).
+- **Telemetry (Wave 19 M1):** the Mac is on the device log and the relay like the iPhone (§8): the iPhone's `DeviceLog`,
+  `DeviceLogCaptureEvents`, `ObservedSegmentUploader` and credentialed transport are compiled into `IrisMac`, and `MacTelemetry`
+  builds the log with `service.name=iris-macos` (crash file `telemetry.jsonl` in the app container; under `-IrisFakeData` the
+  records stay in memory). The capture session, the recorder and the uploader report through it (`take.phase`, `capture.*`,
+  `outbox.segment.upload`, `outbox.complete.sent`; trace id = memo id without dashes), `take.phase` names the control that asked
+  (`source`: `hotkey` or `panel`). Mac-only records: `mac.panel` (the panel's phase, and a failure's enum name), `mac.hotkey`,
+  `audio.input_switch` (`pick` / `restore` and whether it worked) and `audio.input_recovery` (`restored`, `dropped`, `failed`),
+  `notify.mac` (`posted`, `withdrawn`, `catchup` with the banner's kind or counts), `outbox.user_action` (`retry`, `discard` and
+  the item's kind, on the memo's trace) and `app.lifecycle` (`launch`, `quit`). **Never in a record:** a transcript, a reply, a
+  park reason, a banner text, a token, a URL, a device uid or name (a test scans the records for the memo's words). A server switch
+  rebinds the records (`server.id`), so the old server's are never sent to the new one.
+
 ## 6. Shared Swift packages
 
 | Package | Depends on | Tested with |

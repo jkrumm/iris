@@ -22,27 +22,32 @@ struct MacCaptureStack {
     client.reconfigure(credentials)
   }
 
-  static func production(credentials: ConnectionCredentials?, root: URL? = nil) -> MacCaptureStack {
+  static func production(credentials: ConnectionCredentials?, log: DeviceLog, root: URL? = nil) -> MacCaptureStack {
     let client = ReconfigurableAPIClient(credentials: credentials)
     let epoch = ConnectionEpoch()
     let created = CreatedMemoLog()
     let root = root ?? URL.applicationSupportDirectory.appending(path: "Iris", directoryHint: .isDirectory)
     let captureDirectory = root.appending(path: "capture", directoryHint: .isDirectory)
-    let recorder = try? AVAudioEngineSegmentRecorder(directory: captureDirectory)
+    // Capture, route and outbox events go to the device log (`iris-macos`), the same records the iPhone writes.
+    let events = DeviceLogCaptureEvents(log: log)
+    let recorder = try? AVAudioEngineSegmentRecorder(directory: captureDirectory, events: events)
     let segmentFiles = DirectorySegmentFiles(directory: captureDirectory)
     // A kill mid-take leaves the picked microphone as the system default: the record the wrapper keeps says what to put back.
     let directory = CoreAudioDeviceDirectory()
     let inputStore = UserDefaultsInputRecoveryStore()
-    RecoveringRouteManager.recover(store: inputStore, directory: directory)
-    let routes = RecoveringRouteManager(DirectoryRouteManager(directory: directory), store: inputStore)
+    let recovery = RecoveringRouteManager.recover(store: inputStore, directory: directory)
+    if recovery != .none { events.event("audio.input_recovery", ["result": .string(recovery.telemetryName)]) }
+    let routes = RecoveringRouteManager(DirectoryRouteManager(directory: directory), store: inputStore, events: events)
     let stack = CaptureStack(
       .init(
         session: MacAudioSessionController(), routes: routes, recorder: recorder ?? UnavailableSegmentRecorder(),
         clock: SystemCaptureClock(),
         store: JSONFileOutboxStore(fileURL: root.appending(path: "outbox.json"), segmentDirectory: captureDirectory),
-        uploader: APIOutboxUploader(
-          client: ConnectionBoundClient(base: client, epoch: epoch), created: created, keeping: segmentFiles),
-        segmentFiles: segmentFiles))
+        uploader: ObservedSegmentUploader(
+          APIOutboxUploader(
+            client: ConnectionBoundClient(base: client, epoch: epoch), created: created, keeping: segmentFiles),
+          log: log),
+        events: events, segmentFiles: segmentFiles))
     return MacCaptureStack(
       stack: stack, service: OutboxService(stack: stack, created: created),
       engine: CaptureTakeEngine(

@@ -60,6 +60,9 @@ final class MacCompositionRoot {
   let hotkey: any TakeHotkey
   /// The stalled-upload panel: the outbox's queue, Retry now and Discard.
   let outbox: MacOutboxModel
+  /// The device log (`service.name=iris-macos`) and the Mac's own records on it.
+  let log: DeviceLog
+  private let events: MacEvents
   /// The scripted engine behind ``Mode/fake``; the snapshot run feeds its levels.
   let fakeTake: FakeTakeEngine?
   /// Production only: the outbox the takes go through, and the client its uploader talks to.
@@ -89,22 +92,26 @@ final class MacCompositionRoot {
     poster: (any NotificationPoster)? = nil,
     takeEngine: (any TakeEngine)? = nil,
     permission: (any MicrophonePermission)? = nil,
-    hotkey: (any TakeHotkey)? = nil
+    hotkey: (any TakeHotkey)? = nil,
+    log deviceLog: DeviceLog? = nil
   ) {
     sampleNow = SampleData.now(arguments: arguments)
     let client: any APIClient
-    if arguments.contains(Self.fakeDataArgument) {
+    let isFakeLaunch = arguments.contains(Self.fakeDataArgument)
+    let store = credentials ?? (isFakeLaunch ? InMemoryCredentialStore() : KeychainCredentialStore())
+    log = deviceLog ?? MacTelemetry.makeDeviceLog(fake: isFakeLaunch, credentials: store)
+    events = MacEvents(log: log)
+    if isFakeLaunch {
       let launched = Date()
       let pinned = sampleNow
       let fake = FakeAPIClient(now: { pinned.addingTimeInterval(Date().timeIntervalSince(launched)) })
       mode = .fake
       client = fake
       fakeAPI = fake
-      self.credentials = credentials ?? InMemoryCredentialStore()
+      self.credentials = store
       page = arguments.contains(Self.settingsArgument) ? .settings : .history
       capture = nil
     } else {
-      let store = credentials ?? KeychainCredentialStore()
       let saved = store.load()
       let reconfigurable = ReconfigurableAPIClient(credentials: saved)
       mode = .production
@@ -112,7 +119,7 @@ final class MacCompositionRoot {
       fakeAPI = nil
       self.credentials = store
       page = saved == nil ? .settings : .history
-      capture = MacCaptureStack.production(credentials: saved)
+      capture = MacCaptureStack.production(credentials: saved, log: log)
     }
     let (ready, signal) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
     let (states, stateSignal) = AsyncStream<MemoEvent>.makeStream()
@@ -127,7 +134,6 @@ final class MacCompositionRoot {
       connectionID: Self.connectionID(for: isFake ? nil : self.credentials.load()), lookup: { _ in nil })
     let engine: any TakeEngine = takeEngine ?? capture?.engine ?? FakeTakeEngine()
     fakeTake = engine as? FakeTakeEngine
-    let store = self.credentials
     recording = RecordingPanelModel(
       engine: engine, permission: permission ?? (isFake ? FakeMicrophonePermission() : SystemMicrophonePermission()),
       isConfigured: { isFake || store.load() != nil })
@@ -149,6 +155,38 @@ final class MacCompositionRoot {
     }
     wireNotifications()
     wireCreatedMemos()
+    wireTelemetry()
+  }
+
+  /// The Mac's take, panel, banners and queue actions on the device log. Every record is an enum or a count: nothing a person
+  /// said, nothing a server answered, no token, URL or device id.
+  private func wireTelemetry() {
+    let log = log
+    let events = events
+    recording.onCommand = { log.commandSource = $0 }
+    recording.onPhaseChange = { events.panel(phase: $0.telemetryName, failure: $0.telemetryFailure) }
+    notifier.report = { event in
+      switch event {
+      case .posted(let id, let kind): events.notification("posted", memoID: id, kind: String(describing: kind))
+      case .withdrawn(let id, let kind): events.notification("withdrawn", memoID: id, kind: String(describing: kind))
+      case .caughtUp(let announced, let seen): events.notification("catchup", memoID: nil, kind: nil, count: announced, seen: seen)
+      }
+    }
+    outbox.report = { action, item, ok in
+      events.outboxAction(action, memoID: item.id, kind: String(describing: item.kind), ok: ok)
+    }
+  }
+
+  /// Starts the relay (production only: the fake composition keeps its records in memory) and records the launch.
+  func startTelemetry() {
+    log.commandSource = "panel"
+    events.lifecycle("launch")
+    guard mode == .production else { return }
+    log.start()
+    NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: .main) {
+      [events] _ in
+      events.lifecycle("quit")
+    }
   }
 
   private static func makeHistory(client: any APIClient, mode: Mode) -> HistoryModel {
@@ -194,7 +232,10 @@ final class MacCompositionRoot {
     let presses = hotkey.presses
     // Owned by the root, which lives as long as the app.
     hotkeyListening = Task { [weak self] in
-      for await _ in presses { self?.recording.toggle() }
+      for await _ in presses {
+        self?.events.hotkey()
+        self?.recording.toggle()
+      }
     }
   }
 
@@ -352,6 +393,7 @@ final class MacCompositionRoot {
     notifier.reset(connectionID: Self.connectionID(for: credentials.load()))
     queues = [:]
     capture?.reconnect(credentials.load())
+    log.serverChanged(credentials.load()?.serverURL)
     closeDetail()
     reconnects = 0
     connectionRevision += 1

@@ -63,10 +63,12 @@ nonisolated final class InMemoryInputRecoveryStore: InputRecoveryStore {
 actor RecoveringRouteManager: RouteManager {
   private let inner: any RouteManager
   private let store: any InputRecoveryStore
+  private let events: any CaptureEvents
 
-  init(_ inner: any RouteManager, store: any InputRecoveryStore) {
+  init(_ inner: any RouteManager, store: any InputRecoveryStore, events: any CaptureEvents = NoCaptureEvents()) {
     self.inner = inner
     self.store = store
+    self.events = events
   }
 
   nonisolated var routeChanges: AsyncStream<RouteChange> { inner.routeChanges }
@@ -82,8 +84,14 @@ actor RecoveringRouteManager: RouteManager {
   func setPreferredInput(uid: String?) async throws {
     guard let uid else {
       // A restore that threw keeps the record: the launch recovery tries again. One that ran (or had nothing to do) ends it.
-      try await inner.setPreferredInput(uid: nil)
+      do {
+        try await inner.setPreferredInput(uid: nil)
+      } catch {
+        events.event("audio.input_switch", memoID: nil, error: true, ["action": "restore", "ok": false])
+        throw error
+      }
       store.clear()
+      events.event("audio.input_switch", ["action": "restore", "ok": true])
       return
     }
     let before = await inner.currentRoute().currentInput?.uid
@@ -97,8 +105,11 @@ actor RecoveringRouteManager: RouteManager {
     } catch {
       // Nothing changed: put the record back as it was.
       if let existing { store.save(existing) } else { store.clear() }
+      events.event("audio.input_switch", memoID: nil, error: true, ["action": "pick", "ok": false])
       throw error
     }
+    // No device id or name in the record: the action and the outcome are what a trace needs.
+    events.event("audio.input_switch", ["action": "pick", "ok": true])
   }
 
   /// What launch did about a record left by an earlier run.
@@ -133,6 +144,18 @@ actor RecoveringRouteManager: RouteManager {
       Logger(subsystem: "com.jkrumm.iris", category: "capture")
         .error("the input of a killed take was not restored: \(String(describing: error), privacy: .public)")
       return .failed
+    }
+  }
+}
+
+extension RecoveringRouteManager.Recovery {
+  /// For the device log (`audio.input_recovery`).
+  var telemetryName: String {
+    switch self {
+    case .none: "none"
+    case .dropped: "dropped"
+    case .restored: "restored"
+    case .failed: "failed"
     }
   }
 }
