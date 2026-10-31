@@ -121,13 +121,43 @@ struct InputRecoveryTests {
     #expect(store.load() == nil)
   }
 
-  @Test("the original device is gone: the record is dropped")
-  func launchDropsWhenTheOriginalIsGone() async throws {
+  @Test("the original device is not attached yet: the record stays, and restores once it shows up")
+  func launchKeepsTheRecordUntilTheOriginalIsAttached() async throws {
     let (devices, store, routes) = rig()
     try await routes.setPreferredInput(uid: usb.uid)
     devices.setDevices([usb])
-    #expect(RecoveringRouteManager.recover(store: store, directory: devices) == .dropped)
-    #expect(store.load() == nil)
+    #expect(RecoveringRouteManager.recover(store: store, directory: devices) == .pending)
+    #expect(store.load() != nil && devices.defaultInput()?.uid == usb.uid)
+    devices.setDevices([builtIn, usb])
+    #expect(RecoveringRouteManager.recover(store: store, directory: devices) == .restored)
+    #expect(devices.defaultInput()?.uid == builtIn.uid)
+  }
+
+  @Test("a take without a pick does not clear a record an earlier run left: the next launch still restores")
+  func takeWithoutAPickKeepsTheOldRecord() async throws {
+    let devices = FakeAudioDeviceDirectory()
+    let store = InMemoryInputRecoveryStore()
+    try devices.setDefaultInput(uid: usb.uid)
+    store.save(InputRecovery(original: builtIn.uid, chosen: usb.uid, replaced: builtIn.uid))
+    devices.failSetting("busy")
+    #expect(RecoveringRouteManager.recover(store: store, directory: devices) == .failed)
+    devices.failSetting(nil)
+    // The next take picks nothing and ends: the restore call finds nothing of this process to put back.
+    let routes = RecoveringRouteManager(
+      DirectoryRouteManager(directory: devices, suiteName: "iris.mac.tests.\(UUID().uuidString)"), store: store)
+    try await routes.setPreferredInput(uid: nil)
+    #expect(store.load() != nil)
+    #expect(RecoveringRouteManager.recover(store: store, directory: devices) == .restored)
+    #expect(devices.defaultInput()?.uid == builtIn.uid)
+  }
+
+  @Test("a pick whose restore ran in this process ends its own record")
+  func ownRestoreEndsTheRecord() async throws {
+    let (devices, store, routes) = rig()
+    try await routes.setPreferredInput(uid: usb.uid)
+    try await routes.setPreferredInput(uid: nil)
+    try await routes.setPreferredInput(uid: nil)
+    #expect(store.load() == nil && devices.defaultInput()?.uid == builtIn.uid)
   }
 
   @Test("a restore that fails keeps the record for the next launch")

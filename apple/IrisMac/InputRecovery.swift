@@ -73,6 +73,9 @@ actor RecoveringRouteManager: RouteManager {
   private let inner: any RouteManager
   private let store: any InputRecoveryStore
   private let events: any CaptureEvents
+  /// This process changed the default input and has not put it back: the inner manager remembers an original to restore. A
+  /// record left by an earlier run (a recovery that failed or is waiting for a device) is not this process's to clear.
+  private var changedByThisProcess = false
 
   init(_ inner: any RouteManager, store: any InputRecoveryStore, events: any CaptureEvents = NoCaptureEvents()) {
     self.inner = inner
@@ -92,14 +95,17 @@ actor RecoveringRouteManager: RouteManager {
 
   func setPreferredInput(uid: String?) async throws {
     guard let uid else {
-      // A restore that threw keeps the record: the launch recovery tries again. One that ran (or had nothing to do) ends it.
+      // The inner manager restores what this process changed. A restore that threw keeps the record (the launch recovery tries
+      // again), and so does a take that changed nothing: a record from an earlier run is only ended by its own recovery.
+      let owned = changedByThisProcess
+      changedByThisProcess = false
       do {
         try await inner.setPreferredInput(uid: nil)
       } catch {
         events.event("audio.input_switch", memoID: nil, error: true, ["action": "restore", "ok": false])
         throw error
       }
-      store.clear()
+      if owned { store.clear() }
       events.event("audio.input_switch", ["action": "restore", "ok": true])
       return
     }
@@ -117,6 +123,7 @@ actor RecoveringRouteManager: RouteManager {
       events.event("audio.input_switch", memoID: nil, error: true, ["action": "pick", "ok": false])
       throw error
     }
+    if before != nil, before != uid { changedByThisProcess = true }
     // No device id or name in the record: the action and the outcome are what a trace needs.
     events.event("audio.input_switch", ["action": "pick", "ok": true])
   }
@@ -131,22 +138,26 @@ actor RecoveringRouteManager: RouteManager {
     case restored
     /// The restore failed; the record stays for the next launch.
     case failed
+    /// The default is still one of the switch's two sides but the original is not attached yet (a USB or Bluetooth microphone
+    /// that comes up after login): the record stays for the next launch.
+    case pending
   }
 
   /// Run once at launch, before the first take: an earlier run killed mid-take left its picked microphone as the system
   /// default. Puts the original back, but only while the default is one of the two sides of the switch the record was written
   /// for (the device being set, or the one it replaced: a kill can land either side of the system call; a default somebody
-  /// else chose since is left alone) and the original is still attached.
+  /// else chose since is left alone) and the original is attached; one that is not attached yet keeps the record (`pending`).
   @discardableResult
   static func recover(store: any InputRecoveryStore, directory: any AudioDeviceDirectory) -> Recovery {
     guard let record = store.load() else { return .none }
     let current = directory.defaultInput()?.uid
     let interrupted = current == record.chosen || (record.replaced != nil && current == record.replaced)
-    guard interrupted, current != record.original, directory.inputs().contains(where: { $0.uid == record.original })
-    else {
+    guard interrupted, current != record.original else {
       store.clear()
       return .dropped
     }
+    // The original may simply not be enumerated yet: dropping the record then would leave the wrong default for good.
+    guard directory.inputs().contains(where: { $0.uid == record.original }) else { return .pending }
     do {
       try directory.setDefaultInput(uid: record.original)
       store.clear()
@@ -166,6 +177,7 @@ extension RecoveringRouteManager.Recovery {
     case .dropped: "dropped"
     case .restored: "restored"
     case .failed: "failed"
+    case .pending: "pending"
     }
   }
 }

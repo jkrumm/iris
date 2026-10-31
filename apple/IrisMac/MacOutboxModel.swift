@@ -19,6 +19,8 @@ final class MacOutboxModel {
   private(set) var discardFailed = false
 
   @ObservationIgnored private let source: any QueuedItemSource
+  /// Counts refreshes: one whose answer arrives after a later one started is stale and is dropped.
+  @ObservationIgnored private var refreshes = 0
   /// Told what the user did to a queued item (the device log's `outbox.user_action`).
   @ObservationIgnored var report: (_ action: String, _ item: QueuedItem, _ ok: Bool) -> Void = { _, _, _ in }
 
@@ -36,17 +38,23 @@ final class MacOutboxModel {
 
   /// Follows the queue for as long as the task lives: every change of the outbox refreshes the list.
   func observe() async {
+    // Subscribed before the first snapshot: a change between the two would otherwise be missed until the next one.
+    let changes = await source.changes()
     await refresh()
-    for await _ in await source.changes() {
+    for await _ in changes {
       guard !Task.isCancelled else { return }
       await refresh()
     }
   }
 
   func refresh() async {
+    refreshes += 1
+    let ticket = refreshes
     let available = await source.isAvailable()
     let queued = available ? await source.queuedItems() : []
     let failure = available ? await source.saveFailure() : nil
+    // A refresh that started after this one reads the newer queue; its answer wins, whichever finishes last.
+    guard ticket == refreshes else { return }
     items = queued
     isUnavailable = !available
     saveFailure = failure

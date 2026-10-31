@@ -214,7 +214,12 @@ final class MemoNotifier {
   private func runCatchUp(generation mine: Int) async {
     guard mine == generation else { return }
     let fetched = await fetchRecent()
-    guard mine == generation, let page = fetched else { return }
+    guard mine == generation else { return }
+    guard let page = fetched else {
+      // The baseline (or the comparison with it) waits for the next catch-up; nothing is recorded from a fetch that failed.
+      logger.error("catch-up fetch failed\(self.baselineNewest == nil ? ", baseline pending" : "")")
+      return
+    }
     guard let baseline = baselineNewest else {
       baselineNewest = page.map(\.startedAt).max() ?? .distantPast
       for memo in page {
@@ -260,12 +265,20 @@ final class MemoNotifier {
       return
     }
     var first = known
+    var extraTry = true
     repeat {
       again.remove(id)
       let outcome = await attempt(id: id, generation: mine, known: first)
       first = nil
       guard mine == generation else { return }
-      if outcome == .gaveUp { break }
+      if outcome == .gaveUp {
+        // The tries ran out, but news came in meanwhile (an event asked for the memo again): one more round for that news.
+        if again.contains(id), extraTry {
+          extraTry = false
+          continue
+        }
+        break
+      }
     } while again.contains(id)
     again.remove(id)
     inFlight.remove(id)

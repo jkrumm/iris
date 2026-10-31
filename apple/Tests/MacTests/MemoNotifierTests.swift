@@ -575,6 +575,38 @@ struct MemoNotifierCatchUpTests {
     #expect(await poster.posted.count == 2)
   }
 
+  @Test("a failed first fetch leaves the baseline pending: the next successful one becomes it, silently")
+  func failedFirstFetch() async {
+    let poster = RecordingNotificationPoster()
+    let server = Server()
+    server.memos = [memo("a", .notified, minutesAgo: 5)]
+    let notifier = rig(poster, server)
+    var answer: [Memo]?
+    notifier.fetchRecent = { answer }
+    await notifier.catchUp()
+    #expect(!notifier.hasBaseline)
+    answer = server.memos
+    await notifier.catchUp()
+    let nothingPosted = await poster.posted.isEmpty
+    #expect(notifier.hasBaseline && nothingPosted)
+  }
+
+  @Test("news that arrives while the tries run out gets one more round")
+  func newsDuringTheLastTries() async {
+    let poster = RecordingNotificationPoster()
+    await poster.failNextPosts(3)
+    let server = Server()
+    server.memos = [memo("a", .failed)]
+    let notifier = rig(poster, server)
+    _ = notifier.noteState(of: event("a", .failed))
+    let delivery = Task { await notifier.memoDone(id: "a") }
+    // Asked for again while the first delivery is still going: it is queued, not dropped.
+    await Task.yield()
+    await notifier.memoDone(id: "a")
+    await delivery.value
+    #expect(await poster.posted.map(\.memoID) == ["a"])
+  }
+
   @Test("a deleted memo that is not announceable is not recorded as done: if it comes back finished, it announces")
   func deletedRunningMemo() async {
     let poster = RecordingNotificationPoster()

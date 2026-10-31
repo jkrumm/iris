@@ -183,7 +183,7 @@ struct MacTelemetryTests {
       failures.map(\.telemetryName)
         == ["notConfigured", "microphoneDenied", "couldNotStart", "nothingRecorded", "stoppedEarly", "lost"])
     #expect(
-      [RecoveringRouteManager.Recovery.none, .dropped, .restored, .failed].map(\.telemetryName)
-        == ["none", "dropped", "restored", "failed"])
+      [RecoveringRouteManager.Recovery.none, .dropped, .restored, .failed, .pending].map(\.telemetryName)
+        == ["none", "dropped", "restored", "failed", "pending"])
   }
 }

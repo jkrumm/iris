@@ -15,6 +15,10 @@ struct MacCaptureStack {
   private let client: ReconfigurableAPIClient
   private let epoch: ConnectionEpoch
 
+  /// The server the outbox's calls go to now (``ConnectionCredentials/serverKey``), `nil` without a connection: what the outbox
+  /// binds new work to, and what a call made for an item checks (`WrongServerError`).
+  var serverKey: String? { client.serverKey }
+
   /// The saved connection changed: the uploader's client points at the new server, and a create the old one is still
   /// answering is refused (see ``ConnectionBoundClient``).
   func reconnect(_ credentials: ConnectionCredentials?) {
@@ -47,7 +51,9 @@ struct MacCaptureStack {
           APIOutboxUploader(
             client: ConnectionBoundClient(base: client, epoch: epoch), created: created, keeping: segmentFiles),
           log: log),
-        events: events, segmentFiles: segmentFiles))
+        events: events, segmentFiles: segmentFiles,
+        // Work is bound to the server it was queued under: after a switch it is held back, and a call checks it (`WrongServerError`).
+        serverKey: { client.serverKey }))
     return MacCaptureStack(
       stack: stack, service: OutboxService(stack: stack, created: created),
       engine: CaptureTakeEngine(

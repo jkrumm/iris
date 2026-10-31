@@ -63,6 +63,9 @@ final class MacCompositionRoot {
   /// The device log (`service.name=iris-macos`) and the Mac's own records on it.
   let log: DeviceLog
   private let events: MacEvents
+  /// The server key of the saved connection, read by every ``HistoryModel`` the root makes: after a connection change the old model
+  /// sees a different key and drops its stale answers, and a memo created on another server is not inserted (TDD §5).
+  private let serverBox: ServerKeyBox
   /// The scripted engine behind ``Mode/fake``; the snapshot run feeds its levels.
   let fakeTake: FakeTakeEngine?
   /// Production only: the outbox the takes go through, and the client its uploader talks to.
@@ -101,6 +104,8 @@ final class MacCompositionRoot {
     let store = credentials ?? (isFakeLaunch ? InMemoryCredentialStore() : KeychainCredentialStore())
     log = deviceLog ?? MacTelemetry.makeDeviceLog(fake: isFakeLaunch, credentials: store)
     events = MacEvents(log: log)
+    let serverBox = ServerKeyBox(store.load()?.serverKey)
+    self.serverBox = serverBox
     if isFakeLaunch {
       let launched = Date()
       let pinned = sampleNow
@@ -127,7 +132,7 @@ final class MacCompositionRoot {
     memoStates = states
     let tapped = StreamTappingClient(base: client, ready: signal, states: stateSignal)
     api = tapped
-    history = Self.makeHistory(client: tapped, mode: mode)
+    history = Self.makeHistory(client: tapped, mode: mode, serverBox: serverBox)
     let isFake = mode == .fake
     notifier = MemoNotifier(
       poster: poster ?? (isFake ? RecordingNotificationPoster() : UserNotificationPoster()),
@@ -191,14 +196,18 @@ final class MacCompositionRoot {
     }
   }
 
-  private static func makeHistory(client: any APIClient, mode: Mode) -> HistoryModel {
-    mode == .fake
-      ? HistoryModel(client: client) : HistoryModel(client: client, hiddenStore: UserDefaultsHiddenMemoStore())
+  private static func makeHistory(client: any APIClient, mode: Mode, serverBox: ServerKeyBox) -> HistoryModel {
+    // The key is given explicitly: the client is wrapped (`StreamTappingClient`), so the model cannot read it from the client.
+    let serverKey: () -> String? = { serverBox.value }
+    return mode == .fake
+      ? HistoryModel(client: client, serverKey: serverKey)
+      : HistoryModel(client: client, hiddenStore: UserDefaultsHiddenMemoStore(), serverKey: serverKey)
   }
 
   /// What the outbox tells History, in the order it happened.
   private enum CreatedChange: Sendable {
-    case created(Memo)
+    /// `origin` is the server key the memo was created on (nil: the item was bound to none).
+    case created(Memo, origin: String?)
     /// A cancelled take: its memo is dropped and stays out of the list until its server `DELETE` settles.
     case hide(String)
     case unhide(String)
@@ -215,14 +224,14 @@ final class MacCompositionRoot {
       for await change in changes {
         guard let history = self?.history else { return }
         switch change {
-        case .created(let memo): history.insert(memo)
+        case .created(let memo, let origin): history.insert(memo, origin: origin)
         case .hide(let id): history.hide(id)
         case .unhide(let id): history.unhide(id)
         }
       }
     }
     Task {
-      await created.setHandler { changed.yield(.created($0)) }
+      await created.setServerHandler { changed.yield(.created($0, origin: $1)) }
       await created.setForgottenHandler { changed.yield(.hide($0)) }
       await created.setSettledHandler { changed.yield(.unhide($0)) }
     }
@@ -386,7 +395,8 @@ final class MacCompositionRoot {
     streamReady = ready
     memoStates = states
     api = StreamTappingClient(base: base, ready: signal, states: stateSignal)
-    history = Self.makeHistory(client: api, mode: mode)
+    serverBox.value = credentials.load()?.serverKey
+    history = Self.makeHistory(client: api, mode: mode, serverBox: serverBox)
     notifier.reset(connectionID: Self.connectionID(for: credentials.load()))
     queues = [:]
     capture?.reconnect(credentials.load())
@@ -411,4 +421,14 @@ nonisolated final class InMemoryCredentialStore: CredentialStore {
   func load() -> ConnectionCredentials? { state.withLock { $0 } }
   func save(_ credentials: ConnectionCredentials) throws { state.withLock { $0 = credentials } }
   func clear() { state.withLock { $0 = nil } }
+}
+
+/// The server key of the saved connection, shared with every ``HistoryModel`` of the root (see ``MacCompositionRoot``).
+@MainActor
+final class ServerKeyBox {
+  var value: String?
+
+  init(_ value: String?) {
+    self.value = value
+  }
 }

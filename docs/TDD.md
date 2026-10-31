@@ -1032,7 +1032,9 @@ pinned simulator in light and dark (`LiveActivitySnapshotTests`, the island thro
   mid-take leaves the record; the next launch (`RecoveringRouteManager.recover`,
   run by `MacCaptureStack.production`) puts the original back under the same
   rules as the in-process restore (only while the default is `chosen` **or** `replaced`, because a kill can land on either side of the
-  system call, and the original is still attached), else drops it. The recovery's failure is not logged with the error (it can name a
+  system call), else drops it; an original that is not attached yet (a USB or Bluetooth microphone that comes up after login)
+  keeps the record (`pending`). The restore at the end of a take clears the record only when this process changed the default, so a take
+  that picked nothing leaves a record from an earlier run (a recovery that failed or is pending) for the next launch. The recovery's failure is not logged with the error (it can name a
   port); the outcome is the `audio.input_recovery` record. A
   restore that fails keeps the record for the next launch. `routeChanges`, the directory's `changes` and the engine's
   levels, failures and mic list are broadcasts (`Broadcast`): every read is its
@@ -1059,11 +1061,15 @@ pinned simulator in light and dark (`LiveActivitySnapshotTests`, the island thro
   with no `DELETE` queued. A stop that returns a result with `failure` (the
   recorder failed, or stopping timed out after earlier segments closed) is
   `TakeEnd.partial`: the memo is sent with what closed, and the panel says the
-  recording stopped early. A create that the old server answers after the saved
-  connection changed is refused as a transport error (`ConnectionBoundClient`,
-  a connection epoch counted by `MacCaptureStack.reconnect`), so it is neither
-  recorded nor inserted into the new server's History; the outbox sends the item
-  again over the new connection (binding an item to its server is a follow-up).
+  recording stopped early. **Server binding (Wave 19 M1, the iPhone's
+  I1 design, §4):** the outbox binds every item to the server configured when it is queued (`MacCaptureStack` passes
+  `CaptureStack.Parts.serverKey` = the `ReconfigurableAPIClient`'s key, `ConnectionCredentials.serverKey`); after a connection change
+  work for another server is held back and goes out when that server is configured again, and a call made for an item that finds
+  another server configured throws `WrongServerError` instead of sending. The root's `ServerKeyBox` holds the saved connection's key
+  and is the `serverKey` of every `HistoryModel` it makes (the client is wrapped by `StreamTappingClient`, so the model cannot read
+  it): an answer that started under another server is dropped, and the created-memo log's `setServerHandler` hands `origin` to
+  `insert(_:origin:)`, so a memo created on another server is not shown. `ConnectionBoundClient` (a connection epoch counted by
+  `MacCaptureStack.reconnect`) stays as a second guard: a create answered after the switch is refused as a transport error.
   No log line carries a device uid.
 - **Notifications:** live SSE `/v1/events` for status, local notifications
   while it runs, and APNs registration for when it is asleep.
