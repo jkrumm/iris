@@ -114,6 +114,48 @@ struct StopTrackingTests {
     }
   }
 
+  // MARK: The tail behind a failed take's stop
+
+  @Test func aTailThatStopPutOnTheStreamBeforeItFailedIsInTheFinishedTake() async throws {
+    let directory = try temporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let rig = try await rig(directory, ending: .throwsAtOnce, flushesFirst: true)
+    let id = try await rig.session.start(request)
+    await rig.fake.record(seconds: 12)  // segment 0 closed, 2 s in the open one
+    await rig.recorder.fail(reason: "engine restart failed")
+
+    try await letTheTimeoutsPass(rig)
+
+    // `stop()` flushed segment 1 and said `stopped` before it threw; both sat behind the failure on the pump.
+    #expect(await rig.harness.uploader.completed == [.init(memoID: id, segmentCount: 2)], "the tail is not left out")
+    #expect(await rig.harness.uploader.uploaded.map(\.index).sorted() == [0, 1])
+    await rig.session.shutdown()
+    await rig.harness.outbox.shutdown()
+  }
+
+  @Test func theUsersStopEndsTheWaitOfAFailedTakeWhoseRecorderCouldNotBeStopped() async throws {
+    let directory = try temporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let rig = try await rig(directory, ending: .throwsAtOnce)
+    let id = try await rig.session.start(request)
+    await rig.fake.record(seconds: 12)
+    await rig.recorder.fail(reason: "engine restart failed")
+    try await waitForPhase(.failed, rig.session)
+    // `failTake` has given up on the recorder and armed the grace period (the phase flips first, while it is still stopping it).
+    for _ in 0..<400 where await !rig.session.isWaitingOutSilentRecorder(id) {
+      try await Task.sleep(for: .milliseconds(5))
+    }
+
+    // No clock advance: the user does not wait for the grace period.
+    let result = try #require(try await rig.session.stop())
+
+    #expect(result.memoID == id && result.segmentCount == 1 && result.failure == "engine restart failed")
+    await rig.harness.outbox.settled()
+    #expect(await rig.harness.uploader.completed == [.init(memoID: id, segmentCount: 1)])
+    await rig.session.shutdown()
+    await rig.harness.outbox.shutdown()
+  }
+
   // MARK: The audio session under a stop that has not returned
 
   @Test func cancellingAFailedTakeWhileItsStopIsStillRunningLeavesTheSessionActive() async throws {

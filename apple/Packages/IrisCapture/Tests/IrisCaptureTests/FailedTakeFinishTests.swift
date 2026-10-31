@@ -43,6 +43,7 @@ struct FailedTakeFinishTests {
 
     // The phase flips to failed before the recorder's stop has been tried: wait for the `complete`, not for the phase.
     for _ in 0..<400 where await harness.uploader.completed.isEmpty {
+      await harness.clock.advance(by: 11)  // the grace period the stream gets to deliver a tail first
       await harness.outbox.settled()
       try await Task.sleep(for: .milliseconds(5))
     }
@@ -67,9 +68,10 @@ struct FailedTakeFinishTests {
     let recorder = StopThrowsRecorder(base: fake.recorder)
     let session = CaptureSession(
       session: fake.session, routes: fake.routes, recorder: recorder, outbox: harness.outbox, clock: harness.clock)
-    try await session.start(request)
+    let id = try await session.start(request)
     await recorder.fail(reason: "engine restart failed")
     try await waitForFailed(session)
+    for _ in 0..<400 where await !session.isWaitingOutSilentRecorder(id) { try await Task.sleep(for: .milliseconds(5)) }
 
     await #expect(throws: CaptureError.recordingFailed("engine restart failed")) { try await session.stop() }
     await harness.outbox.settled()
