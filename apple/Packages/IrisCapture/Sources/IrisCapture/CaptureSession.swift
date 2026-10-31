@@ -516,8 +516,10 @@ public actor CaptureSession {
   /// recorder answers; its late answer finds no waiter and is ignored.
   private func stopRecorder() async throws -> Bool {
     let id = UUID()
-    let deadline = await clock.now().addingTimeInterval(stopTimeout)
+    // Registered before the first suspension: this runs on the event pump too (`failTake`), outside the gate, and a take that
+    // is cancelled and replaced while the clock is read would start under a stop nobody knows about.
     unreturnedStops.insert(id)
+    let deadline = await clock.now().addingTimeInterval(stopTimeout)
     // Owned by this call. The stop ends when the recorder answers (a hung one keeps it, harmlessly); the timer ends with the
     // race.
     Task { [recorder] in
