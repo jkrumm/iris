@@ -1,3 +1,4 @@
+import IrisCapture
 import SwiftUI
 
 @main
@@ -8,6 +9,7 @@ struct IrisApp: App {
   init() {
     IntentEvents.sink = DeviceLogIntentSink()
     DeviceLog.shared.start()
+    if !FakeCapture.isRequested() { MetricKitRelay.shared.start() }
   }
 
   var body: some Scene {

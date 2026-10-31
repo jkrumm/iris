@@ -1106,6 +1106,7 @@ the `IrisCore` dependency when R1 wires them together.
     | `intent.perform` / `intent.result` | `intent`, `process`, `handler.present`, `mode`, `can_continue_in_foreground`, `press_lag_ms`; `ok`, `error` |
     | `liveactivity.request` / `.update` / `.end` | `activity.id`, `phase`, `ok`, `error`, `push` (token or none), `dismissal` (`immediate`\|`after`), `reason` |
     | `liveactivity.snapshot` | `reason` (`launch`\|`foreground`), `count`, `states` (`id:state;…`), `age_s` (`id:seconds;…`) |
+    | `metrickit.crash` / `.hang` / `.cpu_exception` | `app.version`, `window.end`, `call_stack` (innermost frames, `binary+0xoffset`), `exception.type`, `exception.code`, `signal`, `termination.reason`, `hang_ms`, `cpu_ms` |
 
   - **The widget extension logs to `os.Logger` only.** A Personal Team has no App Group, the server URL lives in the app's
     `UserDefaults`, and the extension has no other way to reach it. `StartMemoIntent` and the Live Activity buttons are
