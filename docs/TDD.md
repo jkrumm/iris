@@ -1099,9 +1099,15 @@ pinned simulator in light and dark (`LiveActivitySnapshotTests`, the island thro
     (`MacCompositionRoot.perform`); the detail window closes and following restarts.
   - *Open detail:* reloads on each `memo.updated` and on every stream `ready` (`StreamTappingClient`; a list request that
     succeeds during an outage does not count), and a response overtaken by a newer load is dropped.
+  - *Rows match iOS (Wave 19 M1):* the list applies the iPhone list's spacing roles (`Theme.Spacing.rowVertical` and `screenMargin` as
+    row insets, `screenMargin` header insets, `sectionTop` / `sectionBottom` around the day label, the first label shortened by
+    `chipTapOverhang`, header and row minimum heights 0, the search field on `screenMargin`), so a row and its inset separator sit on
+    the same 20 pt margin as `HistoryView`'s. By design not the same: no disclosure chevron (a click opens the detail window), the
+    search field is on top (the iPhone's is a bottom bar), and `listSectionSpacing` does not exist on macOS (a plain list has none).
   - *Proof:* a menu-bar popover cannot be opened without a click and the mini has no Screen Recording grant, so
     `-IrisMacPanelWindow` shows the same panel as a regular window and `-IrisMacSnapshot <dir>` has the app write PNGs of its own
-    windows (history, detail, settings) and quit; snapshot mode only exists on the fake composition. Unit tests: `IrisMacTests`,
+    windows (history, detail, settings, the recording panel and its refused message) and quit (any further launch flag, such as `-IrisMacStalled`,
+    goes **after** `-IrisMacSnapshot <dir>`: between `-IrisMacPanelWindow` and it, the panel window is not created); snapshot mode only exists on the fake composition. Unit tests: `IrisMacTests`,
     hosted in the app (launched with `-IrisFakeData`), run by `make check-apple`.
 - **Signing:** a stable Apple Development identity. Ad-hoc signing resets TCC
   on every build (the microphone grant is keyed to the code signature). The
