@@ -10,6 +10,16 @@ import os
 public actor FileTelemetryStore: TelemetryStore {
   private let fileURL: URL
 
+  /// Readable after the first unlock, not only while the phone is unlocked: the app is launched in the background (a push, a
+  /// Live Activity) with the screen locked, and a record written then must not be lost. Complete protection would refuse it.
+  private static var writeOptions: Data.WritingOptions {
+    #if os(iOS)
+      [.atomic, .completeFileProtectionUntilFirstUserAuthentication]
+    #else
+      [.atomic]
+    #endif
+  }
+
   public init(fileURL: URL) {
     self.fileURL = fileURL
   }
@@ -20,7 +30,7 @@ public actor FileTelemetryStore: TelemetryStore {
     let fileManager = FileManager.default
     guard fileManager.fileExists(atPath: fileURL.path) else {
       try fileManager.createDirectory(at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-      try data.write(to: fileURL, options: .atomic)
+      try data.write(to: fileURL, options: Self.writeOptions)
       return
     }
     let handle = try FileHandle(forUpdating: fileURL)
@@ -53,7 +63,7 @@ public actor FileTelemetryStore: TelemetryStore {
       try removeFile()
       return
     }
-    try Self.encodeLines(remaining).write(to: fileURL, options: .atomic)
+    try Self.encodeLines(remaining).write(to: fileURL, options: Self.writeOptions)
   }
 
   public func clear() async throws {

@@ -159,6 +159,8 @@ about either is tracked. Overrides: `IRIS_DEVICE_ID`, `TEAM=<id>`, `DEVICE_SIGNI
   an `IrisCapture` `CaptureEvents` call: one `os.Logger` line in `com.jkrumm.iris` and one relayed record (`service.name=iris-ios`, trace id = the memo id
   without dashes, ordered by `seq`). Add an event there, not a bare `Logger` call, and never a token, transcript, reply or port uid in one. `service.version` is the
   `IRIS_BUILD_SHA` build setting (`scripts/device-build.sh` passes the short git sha; any other build reports `dev`). The widget extension only logs to the console (no App Group on a Personal Team).
+  Delivery is single-flight and bounded (a send ends at 20 s, the background flush holds its assertion at most 20 s), a crash file that cannot be read before the
+  first unlock costs nothing (records wait in memory), and records left behind for another server are counted in `dropped` (TDD §8).
   Headless read of a take: skills `device` and `memo-debug`.
 
 ## Validate

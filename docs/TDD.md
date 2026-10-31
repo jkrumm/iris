@@ -1180,13 +1180,27 @@ the `IrisCore` dependency when R1 wires them together.
     - A record is in the file before it is acknowledged, so a kill loses only the events still queued in memory (microseconds).
     - The stored queue of the last run is loaded before the first new record is numbered: no reused `seq`, and no acknowledgement
       deleting an older record.
-    - A torn last line is cut off before the next append, and a flush that finds one running waits for it, so a background-task
-      assertion outlives the send.
+    - A torn last line is cut off before the next append. One flush runs at a time: a flush that finds one running waits for it
+      (and runs one more pass if nobody has started another), so no batch is sent twice and an acknowledgement never removes a
+      batch another send still holds. The load of the stored queue is shared the same way: a record waits for it before it is
+      numbered, and a flush that races the launch recovery sends each stored record once.
+    - **Bounded in time.** A send is cut off after 20 s (`RelayExporter.sendTimeout`; the batch is kept and retried, the request
+      itself times out at 15 s), and the flush on backgrounding holds its background-task assertion for at most 20 s
+      (`DeviceLog.backgroundFlushBudget`), ending it also in the system's expiry handler, so a send that never answers cannot
+      hold the assertion.
+    - **Before the first unlock** the crash file is unreadable (it is written with protection class
+      `completeUntilFirstUserAuthentication`, so a background launch with the screen locked can write once the phone has been
+      unlocked since boot, never before). Then nothing is lost and nothing crashes: records stay in memory, numbered far above any
+      sequence the file can hold, delivery does not touch the file, and the next flush retries the load and merges the two.
     - Each record carries the `server.id` (a hash) of the connection it was recorded under. The transport delivers a record only
-      to that server and drops the rest: a queue written for one server is never handed to another after a switch.
-    - `dropped` reports overflow (2 000 records).
+      to that server and drops the rest, **counted in `dropped`** of the batch that goes out: a queue written for one server is
+      never handed to another after a switch, and the loss is visible. While the current server is unreachable the send fails and
+      the whole batch stays: nothing is dropped for being unreachable.
+    - `dropped` reports overflow (2 000 records) plus the records left behind for another server.
+    - `take.phase.source` is the control behind the latest take command; once that command is 60 s old, a phase change reports
+      `system` (an interruption, a failure) instead of crediting an old press.
   - **Privacy:** no transcript, reply or token: a key naming one is dropped before it is recorded, a string is cut at 240
-    characters, port uids are not logged, and a port name that can carry a person's name ("Anna's AirPods") is a short hash;
+    characters, port uids are not logged (an attribute whose key ends in `uid` is dropped as a net), and a port name that can carry a person's name ("Anna's AirPods") is a short hash;
     only the phone's own generic port names stay. An error is logged as its type (and an enum's case), never its message or payload:
     server text and file paths do not reach a record. Public repo: no real value in tests or docs.
   - **Records:**
@@ -1196,7 +1210,7 @@ the `IrisCore` dependency when R1 wires them together.
     | `app.launch` | `launch.reason` (`user`\|`background_launch`), `previous.phase` (last scene phase of the run before), `previous.exit=unknown`, `outbox.state` (`available`\|`unavailable`\|`unreadable`), `outbox.items` (only when available: never a zero for a queue that could not be read), `outbox.quarantined_files`, `mode` |
     | `outbox.state` | `reason=recovered`, the attributes of `app.launch`'s queue part, when a queue that launched closed or unreadable opens |
     | `app.lifecycle` | `scene.phase`, `reason` |
-    | `take.phase` | `phase` (`starting`\|`recording`\|`paused`\|`stopping`\|`failed`\|`stopped`), `source` (the control that asked last: `app`\|`intent`\|`island`\|`thread`), `mode`, `input.name` (generic names of the phone's own ports; any other name is a short hash), `failure` |
+    | `take.phase` | `phase` (`starting`\|`recording`\|`paused`\|`stopping`\|`failed`\|`stopped`), `source` (the control that asked last: `app`\|`intent`\|`island`\|`thread`, or `system` when no command in the last 60 s), `mode`, `input.name` (generic names of the phone's own ports; any other name is a short hash), `failure` |
     | `capture.session.error` | `call` (`setCategory`\|`setActive`\|`setActive(false)`\|`installTap`\|`engine.start`), `error.domain`, `error.code`, `error.fourcc` (`561145187` is `!rec`, `560557684` `!int`), `error.type`, `engine.running`, `session.category`, `session.mode`, `session.options`, `session.other_audio_playing`, `session.sample_rate`, `session.io_buffer_ms` |
     | `capture.tap.install` | `rate`, `channels`, `hardware_rate`, `valid`, `generation`; written to the crash file and flushed to disk *before* the call that can abort returns (a blocking write, bounded to 500 ms), so the last one before a gap in `seq` is the one that did |
     | `audio.route_change` | `reason`, `route.prev`, `route.current` (`portType:name,…`, names as for `input.name`), session snapshot |

@@ -22,7 +22,8 @@ public struct SystemTelemetryClock: TelemetryClock {
   }
 }
 
-/// Delivers one batch to the server. Throwing means "keep the data and retry later".
+/// Delivers one batch to the server. Throwing means "keep the data and retry later". A send must honour task cancellation:
+/// the exporter ends a send that outlives its time bound by cancelling it.
 public protocol TelemetryTransport: Sendable {
   func send(_ batch: TelemetryBatch) async throws
 }
