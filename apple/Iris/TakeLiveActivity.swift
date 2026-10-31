@@ -9,6 +9,20 @@ nonisolated enum ActivityDismissal: Equatable, Sendable {
   case immediate
   /// The same 15 minutes the server's `end` push uses.
   case later
+  /// A minute: the system removes the card itself, with the app suspended. For an activity nobody can move on any more.
+  case soon
+
+  /// The value of the `dismissal` attribute of `liveactivity.end`.
+  var logName: String { self == .immediate ? "immediate" : "after" }
+
+  /// How long the system keeps the card after the app ended it, `nil` for no wait.
+  var delay: TimeInterval? {
+    switch self {
+    case .immediate: nil
+    case .later: 15 * 60
+    case .soon: 60
+    }
+  }
 }
 
 /// The Live Activity of one take, as the app sees it. Every call names the memo whose activity it is for: a take can start
@@ -30,6 +44,9 @@ protocol TakeLiveActivity {
   func endClientPhaseActivities(except memoIDs: Set<String>) async
   /// Ends the handed-over activities of earlier runs that have outlived their use (``StaleActivityRule``).
   func endStaleActivities() async
+  /// The app is about to be suspended: ends every handed-over activity without a push token with a system-side dismissal
+  /// (``ActivityDismissal/soon``), because a suspended app polls nothing and no push will ever move them on.
+  func endUnreachableActivities() async
   /// `liveactivity.snapshot`: the activities the system lists right now, for the device log.
   func logSnapshot(reason: String)
 }
@@ -53,8 +70,9 @@ nonisolated struct HandedOverActivity: Equatable, Sendable {
 /// so a `processing` activity stays on the Lock Screen and in the Dynamic Island for ever (up to 8 hours) and hides the
 /// controls of the take that is running.
 nonisolated enum StaleActivityRule {
-  /// An activity this old is stale whatever the memo says (the server's `end` push is 15 minutes after done).
-  static let maxAge: TimeInterval = 60 * 60
+  /// A handed-over activity this old is stale whatever the memo says: the pipeline takes a minute or two, and the server's
+  /// `end` push is 15 minutes after done. Re-checked at launch and at every foregrounding.
+  static let maxAge: TimeInterval = 30 * 60
 
   enum Verdict: Equatable {
     case keep
@@ -129,6 +147,19 @@ struct StaleActivitySweeper {
     for activity in catalog.handedOverActivities() where StaleActivityRule.yieldsToNewTake(activity) {
       logger.info("ending activity \(activity.memoID, privacy: .public): a take is starting")
       await catalog.end(memoID: activity.memoID, finalState: nil, dismissal: .immediate)
+    }
+  }
+
+  /// The app is about to be suspended, or has been when a memo is handed over: an activity with no push token has nobody left
+  /// to end it (a suspended app polls nothing, and the server cannot push), so it ends now on what it shows and the system
+  /// removes it a minute later, with the app asleep. `memoID` limits it to one activity (the memo that was just handed over).
+  func endUnreachable(only memoID: String? = nil) async {
+    for activity in catalog.handedOverActivities()
+    where !activity.remoteUpdates && (memoID == nil || activity.memoID == memoID) {
+      logger.info("ending activity \(activity.memoID, privacy: .public): the app cannot follow it any more")
+      await catalog.end(
+        memoID: activity.memoID, finalState: LiveActivityContentState(phase: activity.phase, hasReply: false),
+        dismissal: .soon)
     }
   }
 
@@ -325,6 +356,11 @@ final class TakeLiveActivityCoordinator {
     return false  // waiting, sending, or failed with a retry coming: the outbox is still on it
   }
 
+  /// The app is going to the background: ends the activities no push will ever move on (``TakeLiveActivity/endUnreachableActivities()``).
+  func endUnreachable() async {
+    await activity.endUnreachableActivities()
+  }
+
   /// `liveactivity.snapshot` (see ``TakeLiveActivity/logSnapshot(reason:)``).
   func snapshot(reason: String) {
     activity.logSnapshot(reason: reason)
@@ -397,9 +433,16 @@ final class TakeLiveActivityCoordinator {
     /// The poll that ends a handed-over activity without a push token once its memo is finished, by memo id.
     private var followers: [String: (id: UUID, task: Task<Void, Never>)] = [:]
 
-    init(client: any APIClient, serverKey: @escaping @Sendable () -> String? = { nil }) {
+    /// Whether the app is on screen and running: a hand-over made while it is not is the last chance to end the activity.
+    private let isForeground: @MainActor () -> Bool
+
+    init(
+      client: any APIClient, serverKey: @escaping @Sendable () -> String? = { nil },
+      isForeground: @escaping @MainActor () -> Bool = { true }
+    ) {
       self.client = client
       self.serverKey = serverKey
+      self.isForeground = isForeground
       tokens = ActivityTokenRegistrar(client: client)
     }
 
@@ -462,7 +505,14 @@ final class TakeLiveActivityCoordinator {
       let hasToken = activities.removeValue(forKey: memoID)?.pushToken != nil
       await tokens.handOver(memoID)
       guard !hasToken else { return }
-      follow(memoID)
+      // Stop from the island runs with the app in the background: it is suspended in seconds, so nothing here would ever see
+      // the memo finish. The system ends the card instead.
+      if isForeground() { follow(memoID) } else { await sweeper.endUnreachable(only: memoID) }
+    }
+
+    func endUnreachableActivities() async {
+      for (_, follower) in followers { follower.task.cancel() }
+      await sweeper.endUnreachable()
     }
 
     /// No push token: the server's `end` never arrives, so this process ends the activity when the memo is finished.
@@ -483,16 +533,16 @@ final class TakeLiveActivityCoordinator {
       tokens.finish(memoID)
       let content = finalState.map { ActivityContent(state: $0, staleDate: nil) }
       let policy: ActivityUIDismissalPolicy =
-        switch dismissal {
-        case .immediate: .immediate
-        case .later: .after(Date().addingTimeInterval(15 * 60))
+        switch dismissal.delay {
+        case nil: .immediate
+        case let delay?: .after(Date().addingTimeInterval(delay))
         }
       await activity.end(content, dismissalPolicy: policy)
       DeviceLog.shared.event(
         "liveactivity.end", memoWireID: memoID,
         [
           "activity.id": .string(activity.id), "phase": .string(finalState?.phase.rawValue ?? "none"),
-          "dismissal": .string(dismissal == .immediate ? "immediate" : "after"),
+          "dismissal": .string(dismissal.logName),
         ])
     }
 
@@ -588,6 +638,7 @@ final class RecordingLiveActivity: TakeLiveActivity {
   private(set) var endedIDs: [String] = []
   private(set) var orphanSweeps = 0
   private(set) var staleSweeps = 0
+  private(set) var unreachableSweeps = 0
   /// The memos each orphan sweep spared.
   private(set) var sparedBySweeps: [Set<String>] = []
 
@@ -613,6 +664,8 @@ final class RecordingLiveActivity: TakeLiveActivity {
   }
 
   func endStaleActivities() { staleSweeps += 1 }
+
+  func endUnreachableActivities() { unreachableSweeps += 1 }
 
   private func record(_ memoID: String, _ state: LiveActivityContentState) {
     states.append(state)
@@ -665,7 +718,7 @@ final class ObservedTakeLiveActivity: TakeLiveActivity {
       "liveactivity.end", memoWireID: memoID,
       [
         "phase": .string(finalState?.phase.rawValue ?? "none"),
-        "dismissal": .string(dismissal == .immediate ? "immediate" : "after"), "fake": true,
+        "dismissal": .string(dismissal.logName), "fake": true,
       ])
   }
 
@@ -674,6 +727,8 @@ final class ObservedTakeLiveActivity: TakeLiveActivity {
   }
 
   func endStaleActivities() async { await base.endStaleActivities() }
+
+  func endUnreachableActivities() async { await base.endUnreachableActivities() }
 
   func logSnapshot(reason: String) {
     log.event("liveactivity.snapshot", ["reason": .string(reason), "count": 0, "fake": true])
