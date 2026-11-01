@@ -52,12 +52,17 @@ public struct VolumeChart: View {
 
   private var chart: some View {
     Chart {
+      // The selected period sits on a faint band (`.sel` in `stats.html`) instead of dimming the others.
+      if let selected = selectedBar {
+        RectangleMark(x: .value("Period", selected.id), width: .ratio(0.94))
+          .foregroundStyle(Theme.Ink.primary.opacity(0.06))
+          .cornerRadius(6)
+      }
       ForEach(bars) { bar in
         ForEach(VolumeSeries.allCases) { series in
           if let count = bar.counts[series], count > 0 {
-            BarMark(x: .value("Period", bar.id), y: .value("Memos", count), width: .ratio(0.62))
+            BarMark(x: .value("Period", bar.id), y: .value("Memos", count), width: .ratio(0.58))
               .foregroundStyle(by: .value("Route", series.rawValue))
-              .opacity(selectedBar?.id == bar.id ? 1 : 0.55)
           }
         }
       }

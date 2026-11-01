@@ -1024,7 +1024,7 @@ Two `StaticConfiguration` widgets in `IrisWidgets/HomeWidgets.swift`; the views,
 | Composer | Typed memo: mode picker (Auto, Journal, Hermes, Tab, Chat), text, send via `POST /v1/memos/text`; from a detail's reply it continues the memo's thread |
 | Stats | Volume per route per day / week (Swift Charts), tiles, per-route trends, from `GET /v1/stats` |
 | Thread | One conversation as a rendered document (`GET /v1/threads/:id`), opened by a History row of a chat or a continued thread (Wave 15 I2, "Thread view" below): question and answer turns, a pending answer with the step dashes, hold-to-talk and a keyboard button at the bottom |
-| Record | Wave 15 I4. **Start from any screen:** the record control is the tab bar's bottom accessory (tap: Auto; long press: a menu with Auto, Journal, Hermes, Chat and "Choose mode…", the mode sheet); memo detail and thread hide the tab bar, so they have none (their banner still shows). A take opens the full `TakeScreen` (mode, timer, level waveform, mic list, pause, Stop, discard with a confirmation); minimizing (chevron) leaves a compact **`TakeBanner`** (dot, running time, mode · mic, "N sending", Stop) pinned under the navigation bar of every screen (`.takeBanner()`), and tapping it returns to the full take (it comes and goes with an animation only while the scene is active: the device's 10 s scene-update watchdog hit an animated navigation-bar layout of a backgrounded scene when a take ended from the banner, Wave 17 D2; Stop only ever suspends the main actor, `StopOffMainTests` holds a hung recorder). `TakeModel` follows `CaptureSession.updates()` and the outbox; a pause moves the timer's start forward so it counts recorded time. Leaving the app needs no hand-over: the take's Live Activity is requested at the start, so the Lock Screen card and the Dynamic Island carry it from there |
+| Record | Wave 15 I4. **Start from any screen:** the record control is the tab bar's bottom accessory (tap: Auto; long press: a menu with Auto, Journal, Hermes, Chat and "Choose mode…", the mode sheet); memo detail and thread hide the tab bar, but that does not hide the accessory (Apple DTS, iOS 26.1: it stays across the app), so it would sit over their bottom actions and swallow taps: `DetailActionBar` and `ThreadReplyBar` register through `.hidesRecordAccessory()` into a counted `RecordAccessoryPresence` (injected by `RootView`), and `tabViewBottomAccessory(isEnabled:)` takes the control off while one is shown (iOS 26.1+; on 26.0 it stays, **not verified on a device**). Their banner still shows. A take opens the full `TakeScreen` (mode, timer, level waveform, mic list, pause, Stop, discard with a confirmation); minimizing (chevron) leaves a compact **`TakeBanner`** (dot, running time, mode · mic, "N sending", Stop: an opaque `Theme.Status.bad` disc with a `Theme.Surface.background` glyph, as the take screen's) pinned under the navigation bar of every screen (`.takeBanner()`), and tapping it returns to the full take (it comes and goes with an animation only while the scene is active: the device's 10 s scene-update watchdog hit an animated navigation-bar layout of a backgrounded scene when a take ended from the banner, Wave 17 D2; Stop only ever suspends the main actor, `StopOffMainTests` holds a hung recorder). `TakeModel` follows `CaptureSession.updates()` and the outbox; a pause moves the timer's start forward so it counts recorded time. Leaving the app needs no hand-over: the take's Live Activity is requested at the start, so the Lock Screen card and the Dynamic Island carry it from there |
 | Settings | Diagnostics (copy a memo id, animated "Copied"), Connection (server URL + device token in the Keychain; the status row is the health probe from when Settings appeared **and** `HistoryModel.link`, what History's authenticated event stream and list loads last saw: "Connected" is never shown for a server that stream cannot reach; a dropped stream reads "Unreachable" with "Server not reachable — is Tailscale on?", a 401 "Token rejected", a failed probe that traffic has since overruled "Connected"; `ConnectionStatusLine`; "Not configured" until saved), Playback (spoken replies toggle), Microphone (the active route's rule), outbox section (the queue of whole items from `OutboxService`: kind, age, state, a retry time or the reason it stalled, retry now and discard; live through the outbox's change stream). Later: default mode |
 
 ## 5. macOS app (`IrisMac`)
@@ -1308,13 +1308,31 @@ the `IrisCore` dependency when R1 wires them together.
     - A record is in the file before it is acknowledged, so a kill loses only the events still queued in memory (microseconds).
     - The stored queue of the last run is loaded before the first new record is numbered: no reused `seq`, and no acknowledgement
       deleting an older record.
-    - A torn last line is cut off before the next append, and a flush that finds one running waits for it, so a background-task
-      assertion outlives the send.
+    - A torn last line is cut off before the next append. One flush runs at a time: a flush that finds one running waits for it
+      (and runs one more pass if nobody has started another), so no batch is sent twice and an acknowledgement never removes a
+      batch another send still holds. The load of the stored queue is shared the same way: a record waits for it before it is
+      numbered, and a flush that races the launch recovery sends each stored record once.
+    - **Bounded in time.** A send is cut off after 20 s (`RelayExporter.sendTimeout`; the batch is kept and retried, the request
+      itself times out at 15 s), and the flush on backgrounding holds its background-task assertion for at most 20 s
+      (`DeviceLog.backgroundFlushBudget`), ending it also in the system's expiry handler and from a deadline task of its own, so neither a send that never
+      answers nor a flush that joined a running one (its wait is cancellation-aware) can hold the assertion past it.
+    - **Before the first unlock** the crash file is unreadable (it is written with protection class
+      `completeUntilFirstUserAuthentication`, so a background launch with the screen locked can write once the phone has been
+      unlocked since boot, never before). Then nothing is lost and nothing crashes, by one rule: **the store is read before it
+      is written.** The first record waits for the first load, so it is numbered after the stored entries. While the file has
+      not been read, this run's records are memory-only: no append, no trim, no removal by sequence (the file cannot say which
+      sequences it holds). The next successful load renumbers them above the stored maximum, persists them, and only then marks
+      the queue recovered; a failed persist leaves it unrecovered and the next flush retries. A load that finds a send holding
+      entries waits for the next flush rather than renumber under it. Sequences never come from the clock.
     - Each record carries the `server.id` (a hash) of the connection it was recorded under. The transport delivers a record only
-      to that server and drops the rest: a queue written for one server is never handed to another after a switch.
-    - `dropped` reports overflow (2 000 records).
+      to that server and drops the rest, **counted in `dropped`** of the batch that goes out: a queue written for one server is
+      never handed to another after a switch, and the loss is visible. While the current server is unreachable the send fails and
+      the whole batch stays: nothing is dropped for being unreachable.
+    - `dropped` reports overflow (2 000 records) plus the records left behind for another server.
+    - `take.phase.source` is the control behind the latest take command; once that command is 60 s old, a phase change reports
+      `system` (an interruption, a failure) instead of crediting an old press.
   - **Privacy:** no transcript, reply or token: a key naming one is dropped before it is recorded, a string is cut at 240
-    characters, port uids are not logged, and a port name that can carry a person's name ("Anna's AirPods") is a short hash;
+    characters, port uids are not logged (an attribute whose lowercased key ends in `uid` is dropped as a net: `port.uid`, `input_uid`, `portUID`, and deliberately also `fluid`), and a port name that can carry a person's name ("Anna's AirPods") is a short hash;
     only the phone's own generic port names stay. An error is logged as its type (and an enum's case), never its message or payload:
     server text and file paths do not reach a record. Public repo: no real value in tests or docs.
   - **Records:**
@@ -1324,7 +1342,7 @@ the `IrisCore` dependency when R1 wires them together.
     | `app.launch` | `launch.reason` (`user`\|`background_launch`), `previous.phase` (last scene phase of the run before), `previous.exit=unknown`, `outbox.state` (`available`\|`unavailable`\|`unreadable`), `outbox.items` (only when available: never a zero for a queue that could not be read), `outbox.quarantined_files`, `mode` |
     | `outbox.state` | `reason=recovered`, the attributes of `app.launch`'s queue part, when a queue that launched closed or unreadable opens |
     | `app.lifecycle` | `scene.phase`, `reason` |
-    | `take.phase` | `phase` (`starting`\|`recording`\|`paused`\|`stopping`\|`failed`\|`stopped`), `source` (the control that asked last: `app`\|`intent`\|`island`\|`thread`), `mode`, `input.name` (generic names of the phone's own ports; any other name is a short hash), `failure` |
+    | `take.phase` | `phase` (`starting`\|`recording`\|`paused`\|`stopping`\|`failed`\|`stopped`), `source` (the control that asked last: `app`\|`intent`\|`island`\|`thread`, or `system` when no command in the last 60 s), `mode`, `input.name` (generic names of the phone's own ports; any other name is a short hash), `failure` |
     | `capture.session.error` | `call` (`setCategory`\|`setActive`\|`setActive(false)`\|`installTap`\|`engine.start`), `error.domain`, `error.code`, `error.fourcc` (`561145187` is `!rec`, `560557684` `!int`), `error.type`, `engine.running`, `session.category`, `session.mode`, `session.options`, `session.other_audio_playing`, `session.sample_rate`, `session.io_buffer_ms` |
     | `capture.tap.install` | `rate`, `channels`, `hardware_rate`, `valid`, `generation`; written to the crash file and flushed to disk *before* the call that can abort returns (a blocking write, bounded to 500 ms), so the last one before a gap in `seq` is the one that did |
     | `audio.route_change` | `reason`, `route.prev`, `route.current` (`portType:name,…`, names as for `input.name`), session snapshot |

@@ -17,7 +17,7 @@ import Synchronization
 /// reserved and always win over a caller's attribute of the same name. Ambient attributes (`app.state`, `process`, ...)
 /// ride on every record unless the caller sets the key itself.
 ///
-/// Privacy: an attribute whose key names a token, transcript, reply, secret, password or authorization is dropped, and a
+/// Privacy: an attribute whose key names a token, transcript, reply, secret, password, authorization or port uid is dropped, and a
 /// string value is cut at ``maxValueLength``. Callers still must not pass such data; this is the net under them.
 public final class DeviceEventLog: Sendable {
   public typealias Console = @Sendable (_ category: String, _ severity: LogSeverity, _ line: String) -> Void
@@ -173,7 +173,7 @@ public final class DeviceEventLog: Sendable {
     var result: [String: AttributeValue] = [:]
     for (key, value) in attributes {
       let lowered = key.lowercased()
-      if forbiddenKeyParts.contains(where: lowered.contains) { continue }
+      if forbiddenKeyParts.contains(where: lowered.contains) || isPortIdentifier(lowered) { continue }
       if case .string(let text) = value, text.count > maxValueLength {
         result[key] = .string(String(text.prefix(maxValueLength)))
       } else {
@@ -181,6 +181,13 @@ public final class DeviceEventLog: Sendable {
       }
     }
     return result
+  }
+
+  /// An audio port's uid (`port.uid`, `route.current.uid`, `input_uid`, `portUID`) is a stable hardware identifier: never a
+  /// record's. Any key that ends in `uid` goes, whatever its separator or case; a key that merely ends that way (`fluid`) goes
+  /// too, which is the deliberate cost of a net that cannot be talked round by a spelling.
+  private static func isPortIdentifier(_ key: String) -> Bool {
+    key.hasSuffix("uid")
   }
 
   private static func describe(_ value: AttributeValue) -> String {

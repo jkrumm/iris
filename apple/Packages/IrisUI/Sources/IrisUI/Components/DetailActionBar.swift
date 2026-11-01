@@ -81,6 +81,7 @@ public struct DetailActionBar: View {
       }
     }
     .buttonStyle(.plain)
+    .hidesRecordAccessory()
   }
 
   /// A disabled action keeps its glass but its symbol drops to the faint ink.

@@ -285,4 +285,30 @@ struct MediaDownloaderTests {
     let file = try await downloader.localURL(for: wanted)
     #expect(try Data(contentsOf: file) == Data("again".utf8))
   }
+
+  @Test("the record of evicted prefixes is bounded and keeps the newest")
+  func evictionRecordIsBounded() async {
+    let evictions = MediaDownloader.Evictions()
+    for index in 0..<(MediaDownloader.Evictions.evictedLimit + 100) {
+      await evictions.schedule("memo-\(index).") {}.value
+    }
+    let mark = evictions.snapshot(for: "memo-0.m4a").mark
+    #expect(
+      !evictions.evicted("memo-0.m4a", since: mark),
+      "a download that began after the pruning is not doomed by a forgotten one")
+    await evictions.schedule("memo-new.") {}.value
+    #expect(evictions.evicted("memo-new.m4a", since: mark))
+  }
+
+  @Test("a download that began before a forgotten eviction counts as evicted: a deleted memo's file never comes back")
+  func requestOlderThanTheOldestMarkerIsDoomed() async {
+    let evictions = MediaDownloader.Evictions()
+    await evictions.schedule("memo-0.") {}.value
+    let early = evictions.snapshot(for: "memo-0.m4a").mark  // a paused request starts here
+    for index in 1...(MediaDownloader.Evictions.evictedLimit + 5) {
+      await evictions.schedule("memo-\(index).") {}.value  // memo-0's own marker is pruned meanwhile
+    }
+    #expect(evictions.evicted("memo-0.m4a", since: early))
+    #expect(evictions.evicted("memo-unrelated.m4a", since: early), "conservative: it cannot know, so it discards")
+  }
 }

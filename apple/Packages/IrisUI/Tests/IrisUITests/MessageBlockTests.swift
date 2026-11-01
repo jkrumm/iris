@@ -69,4 +69,26 @@ struct MessageBlockTests {
   func widthMismatch() {
     #expect(MessageBlock.split("| A | B |\n|-|\n| 1 | 2 |") == [.markdown("| A | B |\n|-|\n| 1 | 2 |")])
   }
+
+  @Test("a diagram keeps its identity when a table or text is put above it")
+  func stableIdentity() {
+    let plain = MessageBlock.split("```mermaid\ngraph TD\n```\nEnd").identified.map(\.id)
+    #expect(plain == ["mermaid-0", "text-0"])
+
+    let withText = MessageBlock.split("Intro\n\n```mermaid\ngraph TD\n```\nEnd").identified.map(\.id)
+    #expect(withText == ["text-0", "mermaid-0", "text-1"])
+
+    let withTable = MessageBlock.split("| a |\n|-|\n| 1 |\n\n```mermaid\ngraph TD\n```").identified.map(\.id)
+    #expect(withTable == ["table-0", "mermaid-0"])
+  }
+
+  @Test("every block of a reply has its own id")
+  func uniqueIdentity() {
+    let diagram = "```mermaid\ngraph TD\n```"
+    let table = "| a |\n|-|\n| 1 |"
+    let source = ["A", diagram, table, diagram, table, "End"].joined(separator: "\n\n")
+    let ids = MessageBlock.split(source).identified.map(\.id)
+    #expect(Set(ids).count == ids.count)
+    #expect(ids.contains("mermaid-1") && ids.contains("table-1"))
+  }
 }
