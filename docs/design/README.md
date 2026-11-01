@@ -141,3 +141,24 @@ Stats colours: Hermes blue, Journal green, Chat violet, Tabs orange, checked wit
   (white on it was 2.4:1). Not shown: the analyzer itself (it does not run in the Simulator; device proof is the owner's batch D1).
   *Open question:* the text shows in the device language only (the recognizer follows `Locale.current`); a German phone with an English memo shows garbled text. Pick the language per take (a chip next to the mode), or leave it?
 - **Not designed:** the later routing refinement for herdr-bound memos (orchestration queue, factory), and Settings beyond Diagnostics.
+
+## Round 3: widgets (Wave 19 R2)
+
+A new surface, rendered for the owner's async review (no blocking round). These are not HTML mockups: they are the snapshot PNGs of the real views, on the pinned simulator, in
+`apple/Packages/IrisUI/Tests/IrisUITests/__Snapshots__/WidgetSnapshotTests/`. The system draws the container, corner radius, wallpaper and vibrant recoloring on a device; the
+PNGs show what the widget puts in (Home Screen: 170 × 170 and 364 × 170 pt on the panel color, light and dark; Lock Screen: on a dark gradient, white ink).
+
+| Widget and family | What to look at | Renders |
+|-|-|-|
+| Last memo, small | state line (icon and word in the state color), headline up to 4 lines, route chip and age at the bottom | `lastMemoSmall.<state>-light`, `-dark` |
+| Last memo, medium | the same, plus a round record button on the right | `lastMemoMedium.<state>-light`, `-dark` |
+| Record, small | one 72 pt microphone and the word "Record"; legible at distance (StandBy) | `recordSmall.record-light`, `-dark`, `standBy.record` |
+| Last memo, Lock Screen | rectangular (state + two headline lines), inline (one line), circular (state glyph) | `lastMemoRectangular.<state>`, `lastMemoInline.<state>`, `circular.state-<state>` |
+| Record, Lock Screen | circular microphone | `circular.record` |
+| StandBy | the small widgets with no background on black | `standBy.last-memo-done`, `standBy.last-memo-needs-route`, `standBy.record` |
+| Accented / vibrant | no state color, the accent group marked | `monochrome.*` |
+| German | the same strings in German | `german.*` |
+
+States (`<state>`): `no-data` ("Open Iris", the static state when the App Group is unavailable), `idle` ("Ready", a stale in-flight memo), `processing`, `done`, `needs-route`, `failed`.
+Open questions for the owner: whether the medium widget should carry the record button (it is the only place a Home Screen user has both), and whether a failed memo should read as
+red (it does in full color, and drops to the accent group in tinted and Lock Screen renderings).
