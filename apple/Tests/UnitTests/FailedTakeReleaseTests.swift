@@ -25,7 +25,8 @@ struct FailedTakeReleaseTests {
       stack: rig.stack,
       liveActivity: TakeLiveActivityCoordinator(
         activity: RecordingLiveActivity(), stack: rig.stack, created: rig.created),
-      outbox: rig.service, microphone: nil, canRecord: true, isConfigured: { true }, requestPermission: { true })
+      outbox: rig.service, microphone: nil, canRecord: true, isConfigured: { true }, requestPermission: { true },
+      preview: nil)
   }
 
   @Test("the recorder fails, nobody stops the take: captureActive clears and the take still waits for the user")
