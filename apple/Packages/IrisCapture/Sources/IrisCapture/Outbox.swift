@@ -368,8 +368,8 @@ public actor Outbox: SegmentOutbox {
       let ours = machine.entries.values.filter { $0.key.memoID == memoID }
       var files = ours.map(\.segment.fileURL)
       // An uploaded one is on the server already: diverting it would transcribe the same audio twice.
-      for entry in ours where entry.key.index >= count && entry.state != .uploaded && !divertTail(entry.segment, now: now) {
-        files.removeAll { $0 == entry.segment.fileURL }
+      for entry in ours where entry.key.index >= count && entry.state != .uploaded {
+        if !divertTail(entry.segment, now: now) { files.removeAll { $0 == entry.segment.fileURL } }
       }
       if deletesFilesWhenDone { retire(files) }
       machine.completeSucceeded(memoID)

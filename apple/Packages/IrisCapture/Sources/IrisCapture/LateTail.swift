@@ -44,7 +44,8 @@ enum LateTail {
       take.map {
         String(
           localized: "End of \($0.title)", bundle: #bundle,
-          comment: "Queue row of a late tail: the end of a take (its title) that the server had already closed, uploaded as its own memo")
+          comment:
+            "Queue row of a late tail: the end of a take (its title) that the server had closed, sent as its own memo")
       }
       ?? String(
         localized: "End of a take", bundle: #bundle,

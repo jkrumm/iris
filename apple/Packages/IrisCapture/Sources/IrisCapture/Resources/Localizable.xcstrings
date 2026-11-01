@@ -2,7 +2,7 @@
   "sourceLanguage" : "en",
   "strings" : {
     "End of %@" : {
-      "comment" : "Queue row of a late tail: the end of a take (its title) that the server had already closed, uploaded as its own memo",
+      "comment" : "Queue row of a late tail: the end of a take (its title) that the server had closed, sent as its own memo",
       "localizations" : {
         "de" : {
           "stringUnit" : {
