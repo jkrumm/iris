@@ -80,6 +80,7 @@ struct LastMemoProvider: TimelineProvider {
   func placeholder(in context: Context) -> LastMemoEntry {
     LastMemoEntry(
       date: .now,
+      // l10n:ignore placeholder headline: a memo headline is server data
       content: .memo(.init(phase: .done, routeChip: nil, headline: "Wochenplan abgestimmt", age: .since(.now))))
   }
 

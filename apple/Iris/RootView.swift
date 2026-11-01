@@ -26,6 +26,8 @@ struct RootView: View {
 
   @State private var selection: Section
   @State private var routing: Memo?
+  /// Screens with their own bottom actions (a memo's detail, a thread) take the record control off the screen while shown.
+  @State private var accessoryPresence = RecordAccessoryPresence()
 
   init(
     history: HistoryModel, isConfigured: Bool = true, take: TakeModel, stats: StatsModel, settings: SettingsModel,
@@ -69,7 +71,8 @@ struct RootView: View {
     }
     .tint(Theme.Accent.tint)
     // The record control sits above the tab bar on every screen; a running take replaces it (the banner below).
-    .modifier(RecordAccessoryModifier(model: take))
+    .modifier(RecordAccessoryModifier(model: take, isCovered: accessoryPresence.isHidden))
+    .environment(accessoryPresence)
     // A take continues as a compact banner under each screen's navigation bar (`takeBanner()`); tapping it brings the
     // take screen back.
     .environment(take)
@@ -112,14 +115,16 @@ struct RootView: View {
   }
 }
 
-/// The record control as the tab bar's bottom accessory. `isEnabled` (iOS 26.1) hides it while a take runs; on 26.0 it stays
-/// and is disabled, since `canStart` is false then.
+/// The record control as the tab bar's bottom accessory. `isEnabled` (iOS 26.1) hides it while a take runs and while a screen
+/// with its own bottom actions is shown (`isCovered`: hiding the tab bar does not hide the accessory, and it would sit over those
+/// actions); on 26.0 it stays and is disabled while a take runs, since `canStart` is false then.
 private struct RecordAccessoryModifier: ViewModifier {
   let model: TakeModel
+  let isCovered: Bool
 
   func body(content: Content) -> some View {
     if #available(iOS 26.1, *) {
-      content.tabViewBottomAccessory(isEnabled: !model.isActive) { RecordAccessory(model: model) }
+      content.tabViewBottomAccessory(isEnabled: !model.isActive && !isCovered) { RecordAccessory(model: model) }
     } else {
       content.tabViewBottomAccessory { RecordAccessory(model: model) }
     }

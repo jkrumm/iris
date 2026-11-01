@@ -554,7 +554,7 @@ A typed reply goes through the same outbox (`ComposerModel` → `OutboxService.s
 (`mic.fill` with a `lock.fill` badge, composed because no single SF Symbol says "recording, locked"; every name checked against the 27.1 SDK). The locked recording is a tap-to-start
 take through the same `VoiceReplyCapture` port and the same `beginVoice` / `endVoice`: nothing new in the capture path. While it runs the bar shows a cross (discard, `end(cancelled: true)`), the
 timer, and the send button (`end(cancelled: false)`); a take under 0.8 s is discarded with a "too short" hint. During a hold the side buttons give way to the timer and the release hint. Accessibility
-labels: Reply by text, Reply by voice (hint while idle: double-tap to start recording, double-tap again to send; while recording: double-tap to send; the VoiceOver action toggles, so the hint never promises a hold), Record continuously (hint: tap to start, tap send when done), Discard recording, Stop and send. A lock request (`VoiceTakeLock`) only becomes a locked take once the app reports the take running, and any other way of beginning one drops it, so a locked take that fails to start never locks the next one. The too-short toast is the app target's one localized string so far (`Iris/Resources/Localizable.xcstrings`, en and de); the rest of the app target's strings are still source-language (R5 `.xcstrings` catalogs).
+labels: Reply by text, Reply by voice (hint while idle: double-tap to start recording, double-tap again to send; while recording: double-tap to send; the VoiceOver action toggles, so the hint never promises a hold), Record continuously (hint: tap to start, tap send when done), Discard recording, Stop and send. A lock request (`VoiceTakeLock`) only becomes a locked take once the app reports the take running, and any other way of beginning one drops it, so a locked take that fails to start never locks the next one. Every string of the app target is localized (see "Localization").
 
 **Reply layout and code themes** (Wave 16 I4). A thread is exchanges: a question turn and its answer, an `ExchangeDivider` hairline before every question after the first. The question is a
 card in the accent tint, the answer an open document under the Iris header; inside it headings step down (title 1.35x, 1.2x with a hairline under levels 1 and 2), a quote has an accent rule on a
@@ -676,6 +676,79 @@ follows the memos: `evict(memoID:)` removes `<memo>.*` (recording, speech, diagr
 - **Tests.** Unit: `RouteAnswerModelTests`, `SpeechPlayerTests`, `SpokenRepliesTests`, `MicRulesModelTests`, `MemoPlaybackTests`. Snapshots (light + dark): the route panel (parked + suggestion, herdr tabs, herdr unreachable,
   correction with a refusal), the mic rule list, the done card and island with Play. UI (`RoutingUITests`, `-IrisFakeCapture`): answer a pinned memo, herdr needs a tab, answer from the detail, correct a route,
   Play toggles, long-press mode picker incl. Chat, a mic rule picks the input of the next take, the spoken-replies toggle. The fake API's needs-route sample carries a reason and a suggestion, and the fake herd has two tabs.
+
+### Localization (Wave 19 R3)
+
+English is the source language, German (`de`) the only translation (the owner's phone is German). Research and the verified facts:
+`docs/research/2026-10-31-string-catalogs.md`.
+
+**Catalogs, one per target that ships text** (the extensions are separate bundles; a catalog is a resource of the target that compiles it):
+
+| Target | Catalog (`Resources/`) | Holds |
+|-|-|-|
+| `Iris` | `Iris/Resources/Localizable.xcstrings`, `InfoPlist.xcstrings` | every string of the iPhone app, the intents, the microphone prompt |
+| `IrisWidgets` | `IrisWidgets/Resources/Localizable.xcstrings` | the Live Activity, the Record control, and the intent files it compiles from `Iris/Intents` (their keys live in both catalogs) |
+| `IrisMac` | `IrisMac/Resources/Localizable.xcstrings`, `InfoPlist.xcstrings` | the Mac app and the shared `Iris/*.swift` files it compiles in |
+| `IrisUI` (package) | `Sources/IrisUI/Resources/Localizable.xcstrings` | the shared components; reached with `bundle: #bundle` |
+
+`IrisNotifications` has no literal of its own (it renders `IrisUI`). `project.yml` sets `SWIFT_EMIT_LOC_STRINGS` and
+`LOCALIZATION_PREFERS_STRING_CATALOGS` for every target (a generated project gets neither from Xcode); `de` reaches `knownRegions` from the catalogs,
+so the built bundles carry `de.lproj` (the unit test `LocalizationTests` proves it per bundle).
+
+**How a string is written.** The English text is the key; `comment:` says where it appears.
+
+| Where | Form |
+|-|-|
+| A SwiftUI view with a literal | `Text("Key", comment:)`, `Button("Key")`, `Label("Key", systemImage:)`, `.navigationTitle("Key")` (a `LocalizedStringKey`) |
+| A `String` (a model, a title parameter, a `Button(String, ...)`) | `String(localized: "Key", comment: "...")` |
+| App Intents, widget and control names | a `LocalizedStringResource` literal: `static let title: LocalizedStringResource = "Key"`, `IntentDescription("Key")`, `.displayName("Key")`, `@Parameter(title: "Key")` |
+| Inside a Swift package | `bundle: #bundle` on every one of them (`Text("Key", bundle: #bundle, comment:)`, `String(localized: "Key", bundle: #bundle)`): a bare `Text("Key")` looks in the app's bundle and shows English. `Button("Key")` and `Label("Key", ...)` have no `bundle:`; write `Button { } label: { Text("Key", bundle: #bundle) }` |
+| Data | `Text(verbatim:)`, or a plain `String` that is not a title: never in a catalog |
+
+Rules that cost a bug once: `Text(flag ? "A" : "B")` types its literals as `String` and is never localized (give the call a `comment:` or wrap each branch in `String(localized:)`);
+a `%` in a key is `%%`; a number or string interpolation becomes `%lld` / `%@` (by the interpolated type), and a translation that reorders them uses `%1$@`; a count whose noun
+changes gets plural variations in `en` and `de` (the check reads every leaf).
+Not localized, by design: memo transcripts, replies, summaries and headlines; route and tab names the server returns; error codes and messages the server sends;
+the spoken route prefixes (`hermes`, `journal`, `tagebuch`, `tab <name>`: they are what the server matches); ids, durations and numbers (formatters, locale-aware);
+logs, telemetry and accessibility identifiers.
+
+**The check** (`scripts/check-strings.ts`, `make check-strings`, in `make check` and `check-apple`, so CI on Linux runs it too) fails on: a catalog key with no translated `de`;
+a `de` value (every leaf of a plural or device variation) whose format specifiers differ from the key's, compared per argument index with type and length modifier (`%1$@ %2$lld` is not
+`%lld %@`; a plural `one` may drop an argument, no leaf may add one or change a type), and a German plural without `one` and `other`, an empty variation branch (nested ones too), one argument index given two types (`%1$@ %1$lld`), and a positional key (`%1$lld of %2$lld`: the compiler extracts `%lld of %lld`, so a positional key is never looked up); a stale key (no literal of that target names it;
+`extractionState: manual` is exempt, for keys looked up dynamically); a user-facing literal whose key is not in the catalog of every target that compiles the file, or whose interpolated
+type contradicts the key's (`%lld` vs `%@`); a bare literal for a `String` parameter named `title`, `message`, `detail`, ...; a ternary of literals or a concatenation (`Text("a" + "b")`) that
+types as `String`; in a package any literal that is not `Text(_, bundle: #bundle)` / `String(localized:, bundle: #bundle)` / `LocalizedStringResource(_, bundle: #bundle)` (`#bundle`, `.module` or `Bundle.module` as the call's own argument; a bare `LocalizedStringResource` literal, `bundle: .main` or a nested call's bundle fail; `// l10n:bundle-ok <why>` accepts a `bundle:` parameter a caller fills with `#bundle`) (a bare `Button("x")` or `.accessibilityLabel("x")` there looks in
+the app's bundle); a `NS*UsageDescription` without an `InfoPlist.xcstrings` key. Limits: a lexer, not a type checker. An interpolation's type is known only for a number or string literal,
+`.count`, `Int(..)` / `Double(..)` / `String(..)`, `.formatted(..)` a name the same file declares once with a plain type and a `let x = <those>` local; any other expression is accepted against a key of any type
+(a wrong key then misses at run time and shows English, it does not crash). It sees literals at the call site only (a `String` assembled elsewhere and passed to `Text(variable)` is
+invisible), a view initializer it does not know is unchecked (`VIEW_INITS`), fake and sample data files are exempt from the `String` rule. A literal that is really
+data is marked `// l10n:ignore <why>` on its line or the line above. Its tests are `scripts/check-strings.test.ts`.
+
+**Glossary** (keep the same word for the same thing; neutral address, no du/Sie: nouns, infinitives and short imperatives like the system apps):
+
+| English | German | Note |
+|-|-|-|
+| Memo | Memo | |
+| History | Verlauf | the tab and its screen |
+| Settings | Einstellungen | |
+| Stats | Statistik | |
+| Recording / Record | Aufnahme / Aufnehmen | `Aufnahme läuft` for the running state |
+| Reply (noun / verb) | Antwort / Antworten | |
+| Retry | Wiederholen | `Jetzt wiederholen`, `Wiederholen ab <Schritt>` |
+| Transcript | Transkript | |
+| Route / Destination | Route / Ziel | |
+| Steps | Schritte | the pipeline steps |
+| Outbox | Warteschlange | |
+| Conversation / turn | Unterhaltung / Runde | |
+| Done (user flag) / Done (pipeline state) | Erledigt / Fertig | the flag a user sets vs. a finished step, memo or Live Activity |
+| Favorite, Archive, Delete, Discard, Cancel, Undo | Favorit, Archivieren, Löschen, Verwerfen, Abbrechen, Rückgängig | |
+| Connected / Unreachable | Verbunden / Nicht erreichbar | |
+| Token, Keychain | Token, Schlüsselbund | |
+| Chat, Hermes, Journal, Tab, herdr | unchanged | product and destination names |
+
+**Verification.** `xcrun simctl launch <udid> com.jkrumm.iris -IrisFakeCapture -AppleLanguages "(de)" -AppleLocale de_DE` runs the app in German (skill `ios-verify`);
+the German screens are checked for truncation, and a UI/snapshot test is added only where a German string broke a layout. Device-only: the Control Center and Lock Screen
+names of the Record control, the Live Activity text and the Siri/Shortcuts phrases (the widget extension is localized and compile-checked; nothing there renders on the simulator).
 
 ### UI tests on the hosted runner
 
@@ -1024,7 +1097,7 @@ Two `StaticConfiguration` widgets in `IrisWidgets/HomeWidgets.swift`; the views,
 | Composer | Typed memo: mode picker (Auto, Journal, Hermes, Tab, Chat), text, send via `POST /v1/memos/text`; from a detail's reply it continues the memo's thread |
 | Stats | Volume per route per day / week (Swift Charts), tiles, per-route trends, from `GET /v1/stats` |
 | Thread | One conversation as a rendered document (`GET /v1/threads/:id`), opened by a History row of a chat or a continued thread (Wave 15 I2, "Thread view" below): question and answer turns, a pending answer with the step dashes, hold-to-talk and a keyboard button at the bottom |
-| Record | Wave 15 I4. **Start from any screen:** the record control is the tab bar's bottom accessory (tap: Auto; long press: a menu with Auto, Journal, Hermes, Chat and "Choose mode…", the mode sheet); memo detail and thread hide the tab bar, so they have none (their banner still shows). A take opens the full `TakeScreen` (mode, timer, level waveform, mic list, pause, Stop, discard with a confirmation); minimizing (chevron) leaves a compact **`TakeBanner`** (dot, running time, mode · mic, "N sending", Stop) pinned under the navigation bar of every screen (`.takeBanner()`), and tapping it returns to the full take (it comes and goes with an animation only while the scene is active: the device's 10 s scene-update watchdog hit an animated navigation-bar layout of a backgrounded scene when a take ended from the banner, Wave 17 D2; Stop only ever suspends the main actor, `StopOffMainTests` holds a hung recorder). `TakeModel` follows `CaptureSession.updates()` and the outbox; a pause moves the timer's start forward so it counts recorded time. Leaving the app needs no hand-over: the take's Live Activity is requested at the start, so the Lock Screen card and the Dynamic Island carry it from there |
+| Record | Wave 15 I4. **Start from any screen:** the record control is the tab bar's bottom accessory (tap: Auto; long press: a menu with Auto, Journal, Hermes, Chat and "Choose mode…", the mode sheet); memo detail and thread hide the tab bar, but that does not hide the accessory (Apple DTS, iOS 26.1: it stays across the app), so it would sit over their bottom actions and swallow taps: `DetailActionBar` and `ThreadReplyBar` register through `.hidesRecordAccessory()` into a counted `RecordAccessoryPresence` (injected by `RootView`), and `tabViewBottomAccessory(isEnabled:)` takes the control off while one is shown (iOS 26.1+; on 26.0 it stays, **not verified on a device**). Their banner still shows. A take opens the full `TakeScreen` (mode, timer, level waveform, mic list, pause, Stop, discard with a confirmation); minimizing (chevron) leaves a compact **`TakeBanner`** (dot, running time, mode · mic, "N sending", Stop: an opaque `Theme.Status.bad` disc with a `Theme.Surface.background` glyph, as the take screen's) pinned under the navigation bar of every screen (`.takeBanner()`), and tapping it returns to the full take (it comes and goes with an animation only while the scene is active: the device's 10 s scene-update watchdog hit an animated navigation-bar layout of a backgrounded scene when a take ended from the banner, Wave 17 D2; Stop only ever suspends the main actor, `StopOffMainTests` holds a hung recorder). `TakeModel` follows `CaptureSession.updates()` and the outbox; a pause moves the timer's start forward so it counts recorded time. Leaving the app needs no hand-over: the take's Live Activity is requested at the start, so the Lock Screen card and the Dynamic Island carry it from there |
 | Settings | Diagnostics (copy a memo id, animated "Copied"), Connection (server URL + device token in the Keychain; the status row is the health probe from when Settings appeared **and** `HistoryModel.link`, what History's authenticated event stream and list loads last saw: "Connected" is never shown for a server that stream cannot reach; a dropped stream reads "Unreachable" with "Server not reachable — is Tailscale on?", a 401 "Token rejected", a failed probe that traffic has since overruled "Connected"; `ConnectionStatusLine`; "Not configured" until saved), Playback (spoken replies toggle), Microphone (the active route's rule), outbox section (the queue of whole items from `OutboxService`: kind, age, state, a retry time or the reason it stalled, retry now and discard; live through the outbox's change stream). Later: default mode |
 
 ## 5. macOS app (`IrisMac`)
@@ -1308,13 +1381,31 @@ the `IrisCore` dependency when R1 wires them together.
     - A record is in the file before it is acknowledged, so a kill loses only the events still queued in memory (microseconds).
     - The stored queue of the last run is loaded before the first new record is numbered: no reused `seq`, and no acknowledgement
       deleting an older record.
-    - A torn last line is cut off before the next append, and a flush that finds one running waits for it, so a background-task
-      assertion outlives the send.
+    - A torn last line is cut off before the next append. One flush runs at a time: a flush that finds one running waits for it
+      (and runs one more pass if nobody has started another), so no batch is sent twice and an acknowledgement never removes a
+      batch another send still holds. The load of the stored queue is shared the same way: a record waits for it before it is
+      numbered, and a flush that races the launch recovery sends each stored record once.
+    - **Bounded in time.** A send is cut off after 20 s (`RelayExporter.sendTimeout`; the batch is kept and retried, the request
+      itself times out at 15 s), and the flush on backgrounding holds its background-task assertion for at most 20 s
+      (`DeviceLog.backgroundFlushBudget`), ending it also in the system's expiry handler and from a deadline task of its own, so neither a send that never
+      answers nor a flush that joined a running one (its wait is cancellation-aware) can hold the assertion past it.
+    - **Before the first unlock** the crash file is unreadable (it is written with protection class
+      `completeUntilFirstUserAuthentication`, so a background launch with the screen locked can write once the phone has been
+      unlocked since boot, never before). Then nothing is lost and nothing crashes, by one rule: **the store is read before it
+      is written.** The first record waits for the first load, so it is numbered after the stored entries. While the file has
+      not been read, this run's records are memory-only: no append, no trim, no removal by sequence (the file cannot say which
+      sequences it holds). The next successful load renumbers them above the stored maximum, persists them, and only then marks
+      the queue recovered; a failed persist leaves it unrecovered and the next flush retries. A load that finds a send holding
+      entries waits for the next flush rather than renumber under it. Sequences never come from the clock.
     - Each record carries the `server.id` (a hash) of the connection it was recorded under. The transport delivers a record only
-      to that server and drops the rest: a queue written for one server is never handed to another after a switch.
-    - `dropped` reports overflow (2 000 records).
+      to that server and drops the rest, **counted in `dropped`** of the batch that goes out: a queue written for one server is
+      never handed to another after a switch, and the loss is visible. While the current server is unreachable the send fails and
+      the whole batch stays: nothing is dropped for being unreachable.
+    - `dropped` reports overflow (2 000 records) plus the records left behind for another server.
+    - `take.phase.source` is the control behind the latest take command; once that command is 60 s old, a phase change reports
+      `system` (an interruption, a failure) instead of crediting an old press.
   - **Privacy:** no transcript, reply or token: a key naming one is dropped before it is recorded, a string is cut at 240
-    characters, port uids are not logged, and a port name that can carry a person's name ("Anna's AirPods") is a short hash;
+    characters, port uids are not logged (an attribute whose lowercased key ends in `uid` is dropped as a net: `port.uid`, `input_uid`, `portUID`, and deliberately also `fluid`), and a port name that can carry a person's name ("Anna's AirPods") is a short hash;
     only the phone's own generic port names stay. An error is logged as its type (and an enum's case), never its message or payload:
     server text and file paths do not reach a record. Public repo: no real value in tests or docs.
   - **Records:**
@@ -1324,7 +1415,7 @@ the `IrisCore` dependency when R1 wires them together.
     | `app.launch` | `launch.reason` (`user`\|`background_launch`), `previous.phase` (last scene phase of the run before), `previous.exit=unknown`, `outbox.state` (`available`\|`unavailable`\|`unreadable`), `outbox.items` (only when available: never a zero for a queue that could not be read), `outbox.quarantined_files`, `mode` |
     | `outbox.state` | `reason=recovered`, the attributes of `app.launch`'s queue part, when a queue that launched closed or unreadable opens |
     | `app.lifecycle` | `scene.phase`, `reason` |
-    | `take.phase` | `phase` (`starting`\|`recording`\|`paused`\|`stopping`\|`failed`\|`stopped`), `source` (the control that asked last: `app`\|`intent`\|`island`\|`thread`), `mode`, `input.name` (generic names of the phone's own ports; any other name is a short hash), `failure` |
+    | `take.phase` | `phase` (`starting`\|`recording`\|`paused`\|`stopping`\|`failed`\|`stopped`), `source` (the control that asked last: `app`\|`intent`\|`island`\|`thread`, or `system` when no command in the last 60 s), `mode`, `input.name` (generic names of the phone's own ports; any other name is a short hash), `failure` |
     | `capture.session.error` | `call` (`setCategory`\|`setActive`\|`setActive(false)`\|`installTap`\|`engine.start`), `error.domain`, `error.code`, `error.fourcc` (`561145187` is `!rec`, `560557684` `!int`), `error.type`, `engine.running`, `session.category`, `session.mode`, `session.options`, `session.other_audio_playing`, `session.sample_rate`, `session.io_buffer_ms` |
     | `capture.tap.install` | `rate`, `channels`, `hardware_rate`, `valid`, `generation`; written to the crash file and flushed to disk *before* the call that can abort returns (a blocking write, bounded to 500 ms), so the last one before a gap in `seq` is the one that did |
     | `audio.route_change` | `reason`, `route.prev`, `route.current` (`portType:name,…`, names as for `input.name`), session snapshot |

@@ -72,9 +72,9 @@ struct ComposerView: View {
   }
 
   private var counter: String {
-    let count = model.characterCount.formatted()
+    let count = model.characterCount
     guard model.isOverLimit else { return String(localized: "\(count) characters", comment: "Composer counter") }
-    let limit = CreateTextMemoRequest.maxTextCharacters.formatted()
+    let limit = CreateTextMemoRequest.maxTextCharacters
     return String(localized: "\(count) of \(limit) characters", comment: "Composer counter past the limit")
   }
 

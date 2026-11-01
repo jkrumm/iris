@@ -74,20 +74,15 @@ struct RouteConfigDestination: Identifiable {
     }
   }
 
-  /// The words that send a memo here when said first ("journal, buy milk"). Mode picks win over these.
+  /// The words that send a memo here when said first ("journal, buy milk"). Mode picks win over these. They are what the
+  /// server matches (`routing/prefix.ts`), in both languages at once, so they are not localized.
   var spokenPrefixes: [String] {
     switch kind {
     case .hermes:
-      [
-        String(localized: "hermes", comment: "Spoken route prefix"),
-        String(localized: "an hermes", comment: "Spoken route prefix"),
-      ]
+      ["hermes", "an hermes"]
     case .journal:
-      [
-        String(localized: "journal", comment: "Spoken route prefix"),
-        String(localized: "tagebuch", comment: "Spoken route prefix"),
-      ]
-    case .herdr: [String(localized: "tab <name>", comment: "Spoken route prefix, the placeholder is a tab name")]
+      ["journal", "tagebuch"]
+    case .herdr: ["tab <name>"]
     }
   }
 

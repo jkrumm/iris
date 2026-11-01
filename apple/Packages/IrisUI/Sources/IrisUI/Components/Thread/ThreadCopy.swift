@@ -10,6 +10,7 @@ public enum ThreadCopy {
   /// The same, looked up in `bundle` (a language's `.lproj` in tests, since a locale does not choose the language).
   static func turnCount(_ count: Int, in bundle: Bundle) -> String {
     String(
+      // l10n:bundle-ok the parameter is #bundle in production, a language's .lproj in tests
       localized: "\(count) turns", bundle: bundle,
       comment: "Number of turns (questions asked) of a thread, in its header")
   }

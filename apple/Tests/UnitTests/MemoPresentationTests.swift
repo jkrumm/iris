@@ -54,7 +54,7 @@ struct MemoPresentationTests {
       MemoFactory.memo("a", state: .needsRoute).rowStatus == .alert(label: "Needs route", color: Theme.Status.warn))
     #expect(
       MemoFactory.memo("a", state: .failed, failedStep: .summarize).rowStatus
-        == .alert(label: "Failed · summarize", color: Theme.Status.bad))
+        == .alert(label: "Failed · Summarize", color: Theme.Status.bad))
   }
 
   @Test("a memo the pipeline is driving says Acting next to its route")
@@ -81,13 +81,13 @@ struct MemoPresentationTests {
   func secondaryLine() {
     let failed = MemoFactory.memo(
       "a", state: .failed, failedStep: .summarize, error: "agw job failed (upstream 503)", transcript: "Prompt an Tab")
-    #expect(failed.rowSecondary == "agw job failed (upstream 503) — retry from summarize")
+    #expect(failed.rowSecondary == "agw job failed (upstream 503) — retry from Summarize")
 
     // Without a transcript the error is the headline, so the secondary line is only the hint.
     let noTranscript = Memo(
       id: "b", mode: .auto, device: "iphone", startedAt: MemoFactory.now, state: .failed, failedStep: .transcribe,
       error: "transcribe failed: 502", createdAt: MemoFactory.now, updatedAt: MemoFactory.now)
-    #expect(noTranscript.rowSecondary == "retry from transcribe")
+    #expect(noTranscript.rowSecondary == "retry from Transcribe")
 
     #expect(MemoFactory.memo("a", state: .needsRoute).rowSecondary == "Tap to decide")
 

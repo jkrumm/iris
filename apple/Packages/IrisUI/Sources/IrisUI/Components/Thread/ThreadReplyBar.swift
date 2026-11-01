@@ -50,6 +50,7 @@ public struct ThreadReplyBar: View {
     }
     .padding(.horizontal, Theme.Spacing.barInset)
     .padding(.vertical, Theme.Spacing.sm)
+    .hidesRecordAccessory()
     .animation(.snappy, value: isRecording)
     // A take the app ended on its own (a cancel on disappear) never reaches the gesture's `onEnded`.
     .onChange(of: holdStartedAt) {

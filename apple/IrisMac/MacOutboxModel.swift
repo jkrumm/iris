@@ -153,13 +153,16 @@ extension ScriptedQueue {
     let now = Date()
     return [
       QueuedItem(
+        // l10n:ignore launch-flag sample data, shaped like a stored item title
         id: "11111111-1111-4111-8111-111111111111", kind: .voiceMemo, title: "Voice memo",
         queuedAt: now.addingTimeInterval(-9 * 60),
         state: .failed(retryAt: nil, reason: "The server refused the recording (413)")),
       QueuedItem(
+        // l10n:ignore launch-flag sample data
         id: "22222222-2222-4222-8222-222222222222", kind: .typedMemo, title: "Pick up the parcel on Friday",
         queuedAt: now.addingTimeInterval(-3 * 60), state: .failed(retryAt: now.addingTimeInterval(90), reason: nil)),
       QueuedItem(
+        // l10n:ignore launch-flag sample data
         id: "33333333-3333-4333-8333-333333333333", kind: .removal, title: "Discarded memo",
         queuedAt: now.addingTimeInterval(-60), state: .waiting),
     ]

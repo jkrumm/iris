@@ -12,7 +12,8 @@ nonisolated enum TelemetryRelayError: Error {
 /// device with nothing saved keeps its records (in the crash file) until there is somewhere to send them.
 ///
 /// A record is bound to the server it was recorded for (`server.id`, set when the connection changes). One bound to another
-/// server is dropped: the records of server A are not for server B, and holding them would block the queue behind them for ever.
+/// server is dropped and counted in `dropped`: the records of server A are not for server B, and holding them would block the
+/// queue behind them for ever. While the current server is unreachable nothing is dropped: the send throws and the batch stays.
 /// A record with no `server.id` was recorded before any connection existed and goes to the first server there is.
 nonisolated struct CredentialedTelemetryTransport: TelemetryTransport {
   typealias Sender = @Sendable (_ server: URL, _ token: String, _ batch: TelemetryBatch) async throws -> Void
@@ -26,16 +27,19 @@ nonisolated struct CredentialedTelemetryTransport: TelemetryTransport {
     guard let saved = credentials.load() else { throw TelemetryRelayError.notConnected }
     let current = TelemetryBootstrap.serverID(saved.serverURL)
     var mine = batch
-    mine.logs = batch.logs.filter { record in
-      guard case .string(let bound)? = record.attributes["server.id"] else { return true }
-      return bound == current
-    }
-    mine.spans = batch.spans.filter { span in
-      guard case .string(let bound)? = span.attributes["server.id"] else { return true }
-      return bound == current
-    }
-    guard !mine.logs.isEmpty || !mine.spans.isEmpty || batch.dropped > 0 else { return }
+    mine.logs = batch.logs.filter { Self.isFor(current, $0.attributes) }
+    mine.spans = batch.spans.filter { Self.isFor(current, $0.attributes) }
+    // What is left behind is counted in `dropped`, so the server sees a gap instead of nothing. The count rides on this send; if
+    // the send fails the exporter puts the whole batch back and the next attempt counts it again, so it is never reported twice.
+    let leftBehind = (batch.logs.count - mine.logs.count) + (batch.spans.count - mine.spans.count)
+    mine.dropped = batch.dropped + leftBehind
+    guard !mine.logs.isEmpty || !mine.spans.isEmpty || mine.dropped > 0 else { return }
     try await sender(saved.serverURL, saved.token, mine)
+  }
+
+  private static func isFor(_ server: String, _ attributes: [String: AttributeValue]) -> Bool {
+    guard case .string(let bound)? = attributes["server.id"] else { return true }
+    return bound == server
   }
 }
 
