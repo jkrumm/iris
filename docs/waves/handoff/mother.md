@@ -7,7 +7,7 @@ and skim `docs/TDD.md`. Role contract: `~/.claude/skills/wave/roles/mother.md` (
 ## Status: RESUMED by the owner (2026-10-28), run through the night
 
 Wave 15 done 2026-10-29. Wave 16 done 2026-10-30 07:47. Wave 17 done 2026-10-30 20:38. Wave 18 done 2026-10-31 09:58 (`2b4c60c`).
-**Wave 19 active** (R5 polish ∥ Mac completion ∥ data-safety debt). **Paused 2026-10-31 ~14:00 for a mini update (reboot):** the lead
+**Resumed 2026-11-01:** lead `iris-w19b` (t37) resumes batch 1 from `handoff/lead.md`; watcher on `iris-w19b`. **Wave 19 active** (R5 polish ∥ Mac completion ∥ data-safety debt). **Paused 2026-10-31 ~14:00 for a mini update (reboot):** the lead
 `iris-w19` finishes batch 1 (#92 widgets, #93 live preview, #94 data safety, #95 Mac completion), pushes every branch, writes
 `handoff/lead.md` and stops. Not started: R3 German strings, I2 late tail (after #94), I3 follow-ups, D1 (owner hardware batch, only
 when he says ready). **On resume:** check `git log origin/master`, `gh pr list`, `handoff/lead.md`, `claude-account usage`; spawn a fresh
@@ -95,6 +95,8 @@ Build Iris R1–R5 (PRD §Release plan) as a self-driving loop: backlog item →
 - **One active wave at a time.** The lead never flips the next wave active unless the mother has written it.
 
 ## Lessons (do not relearn)
+
+- **Respawning a lead for the same wave:** `rd wave` goes through the factory, whose spawn key is `<repo>-w<n>` and idempotent: a second `rd wave` for Wave 19 returned the dead `iris-w19` and started nothing, and it ignores `RD_WAVE_MODEL` (role `wave`, sonnet). Spawn a lead with `cd ~/SourceRoot/software-factory && secrets-run run --env-file=.env.tpl -- factory spawn create <new key> --repo ~/SourceRoot/iris --role lead --parent iris-mother --prompt '...'` (2026-11-01: `iris-w19b`, opus, account me, pane t37).
 
 - **Quota is the fleet's real constraint.** A refused spawn ("no Claude account has room") is retried every 10 min in a background
   loop; never spill to IU API tokens. A lead or worker hitting the 5-hour limit resumes on its own at the reset; wait, don't respawn.
