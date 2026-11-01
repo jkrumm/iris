@@ -76,6 +76,7 @@ struct LateTailTests {
     await uploader.closeMemo(for: SegmentKey(memoID: take, index: 1))
     await uploader.holdCreates()
     let harness = try await OutboxHarness(record: try record(), uploader: uploader)
+    await harness.outbox.resume()
     await uploader.waitUntilCreateAttempts(1)
     // The take is delivered or being delivered; the tail's create is on the wire.
     await harness.outbox.flush()
@@ -105,8 +106,10 @@ struct LateTailTests {
     await first.closeMemo(for: SegmentKey(memoID: take, index: 1))
     await first.holdCreates()
     let before = try await OutboxHarness(record: saved, uploader: first)
+    await before.outbox.resume()
     await first.waitUntilCreateAttempts(1)
     await before.outbox.shutdown()
+    await first.releaseAll()
     #expect(exists(file(tailID, 0)))  // the second name was made; the queue file we relaunch from does not know it
 
     let second = TestUploader()
@@ -134,9 +137,12 @@ struct LateTailTests {
     await uploader.closeMemo(for: SegmentKey(memoID: take, index: 1))
     await uploader.holdCreates()
     let harness = try await OutboxHarness(record: try record(), uploader: uploader)
+    await harness.outbox.resume()
     await uploader.waitUntilCreateAttempts(1)
-    #expect(await harness.outbox.discard(tailID))
+    // `discard` waits for the create on the wire; the fake's held answer does not notice a cancel, so release it alongside.
+    let discarding = Task { await harness.outbox.discard(tailID) }
     await uploader.releaseAll()
+    #expect(await discarding.value)
     await harness.outbox.settled()
     #expect(!exists(file(tailID, 0)))
     #expect(await harness.outbox.items().allSatisfy { $0.memoID != tailID })
