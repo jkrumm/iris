@@ -1,17 +1,6 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
-    "%1$lld of %2$lld could not be sent" : {
-      "comment" : "Outbox strip title: stalled items",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%1$lld von %2$lld: Senden fehlgeschlagen"
-          }
-        }
-      }
-    },
     "%@ · %@ of audio" : {
       "localizations" : {
         "de" : {
@@ -68,6 +57,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "%lld Memos heute"
+          }
+        }
+      }
+    },
+    "%lld of %lld could not be sent" : {
+      "comment" : "Outbox strip title: stalled items",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$lld von %2$lld: Senden fehlgeschlagen"
           }
         }
       }

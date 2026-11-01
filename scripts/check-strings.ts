@@ -27,7 +27,8 @@
  * passed to `Text(variable)` is invisible; a literal with no letter is data; `Text(verbatim:)` is data; a view init this
  * script does not know is not checked (extend `VIEW_INITS`). Telemetry, logs and accessibility identifiers are not
  * user-facing and are not matched. Escape hatch for a literal that is really data: `// l10n:ignore <why>` on its line or
- * the line above. `#Preview` bodies are skipped.
+ * the line above; `// l10n:bundle-ok <why>` there accepts a package literal whose `bundle:` is a parameter, not `#bundle`.
+ * A package `bundle:` is accepted only as `#bundle`, `.module` or `Bundle.module` on the call's own argument list. `#Preview` bodies are skipped.
  */
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
@@ -322,6 +323,13 @@ function declaredClasses(src: string): Map<string, ArgClass> {
     const name = m[1] ?? "";
     seen.set(name, (seen.get(name) ?? new Set()).add(CLASS_OF_TYPE[m[2] ?? ""] ?? "other"));
   }
+  for (const m of src.matchAll(/\b(?:let|var)\s+([A-Za-z_]\w*)\s*=\s*([^\n]+)/g)) {
+    const name = m[1] ?? "";
+    seen.set(
+      name,
+      (seen.get(name) ?? new Set()).add(classify(m[2]?.trim() ?? "", new Map()) ?? "other"),
+    );
+  }
   const out = new Map<string, ArgClass>();
   for (const [name, set] of seen) {
     const only = set.size === 1 ? [...set][0] : undefined;
@@ -340,9 +348,32 @@ export function classify(expr: string, declared: Map<string, ArgClass>): ArgClas
   return name ? (declared.get(name) ?? null) : null;
 }
 
+/** The labelled arguments of one call, top level only: `(a, bundle: #bundle, f(x: 1))` -> `{bundle: "#bundle"}`. `callText` has strings blanked. */
+export function ownArgs(callText: string): Map<string, string> {
+  const out = new Map<string, string>();
+  let depth = 0;
+  let from = 1;
+  const take = (to: number) => {
+    const m = /^\s*([A-Za-z_]\w*)\s*:\s*([\s\S]*?)\s*$/.exec(callText.slice(from, to));
+    if (m) out.set(m[1] ?? "", m[2] ?? "");
+    from = to + 1;
+  };
+  for (let i = 1; i < callText.length - 1; i++) {
+    const c = callText[i];
+    if (c === "(" || c === "[" || c === "{") depth++;
+    else if (c === ")" || c === "]" || c === "}") depth--;
+    else if (c === "," && depth === 0) take(i);
+  }
+  take(callText.length - 1);
+  return out;
+}
+
+/** The only bundles a package may name: its own. Anything else (`.main`, a nested call's) looks elsewhere. */
+const OWN_BUNDLE = /^(#bundle|\.module|Bundle\.module)$/;
+
 /** The hits of one Swift file. `inPackage`: bare `Text("x")` would look in the app's bundle. */
 export function scanSwift(file: string, src: string, inPackage: boolean): Hit[] {
-  const { literals } = lex(src);
+  const { literals, text } = lex(src);
   const lines = src.split("\n");
   const hits: Hit[] = [];
   const declared = declaredClasses(src);
@@ -360,22 +391,25 @@ export function scanSwift(file: string, src: string, inPackage: boolean): Hit[] 
       lit.resourceDecl ||
       (lit.stack.some((f) => f.resource) && !lit.stack.some((f) => f.open === "(" && f.callee))
     ) {
-      add0("keyed", "LocalizedStringResource");
+      // a bare literal cannot name a bundle, so in a package it always looks in the app's
+      add0(inPackage ? "bundle" : "keyed", "LocalizedStringResource");
       continue;
     }
     const top = lit.stack[lit.stack.length - 1];
     if (!top || top.open !== "(") continue;
     const callee = top.callee;
-    const body = src.slice(top.start, (top.close ?? top.start) + 1);
+    const own = ownArgs(text.slice(top.start, (top.close ?? top.start) + 1));
     const add = (kind: Hit["kind"], form: string) =>
       hits.push({ file, line, key: lit.value, kind, form, types });
     // `"a" + "b"` is a String
     const concat =
       /^\s*\+(?![+=])/.test(src.slice(lit.end, lit.end + 8)) ||
       /(?<![+])\+\s*$/.test(src.slice(Math.max(0, lit.start - 8), lit.start));
-    const bundleOk = /\bbundle:/.test(body);
+    // `// l10n:bundle-ok <why>`: the bundle is a parameter the caller fills with `#bundle` (a test picks a language's .lproj)
+    const bundleMarked = /l10n:bundle-ok/.test(`${lines[line - 1] ?? ""}${lines[line - 2] ?? ""}`);
+    const bundleOk = bundleMarked || OWN_BUNDLE.test(own.get("bundle") ?? "");
     // `comment:` and `tableName:` exist only on the `LocalizedStringKey` overloads, so they force the localizing init
-    const localizing = /\b(bundle|comment|tableName):/.test(body);
+    const localizing = ["bundle", "comment", "tableName"].some((l) => own.has(l));
 
     // String(localized: "x") / AttributedString(localized: "x")
     if (lit.label === "localized" && (callee === "String" || callee === "AttributedString")) {
@@ -459,15 +493,21 @@ export const normalize = (key: string) => key.replace(/%%/g, "\uE001").replace(S
 export const normalizeLiteral = (value: string) => value.replace(/%/g, "\uE001");
 
 /** Argument index (1-based) -> type with its length modifier (`lld`, `@`, `f`), `%lf` read as `%f`. Substitutions are skipped. */
-export function specs(value: string): Map<number, string> {
-  const out = new Map<number, string>();
+export const specs = (value: string): Map<number, string> => specsOf(value).byIndex;
+
+/** `specs` plus the argument indexes given two different types (`%1$@ %1$lld`): the later one would overwrite the earlier. */
+export function specsOf(value: string): { byIndex: Map<number, string>; conflicts: number[] } {
+  const byIndex = new Map<number, string>();
+  const conflicts: number[] = [];
   let next = 1;
   for (const m of value.replace(/%%/g, "").matchAll(SPEC)) {
     if (m[0].startsWith("%#@")) continue;
     const index = m[1] ? Number(m[1]) : next++;
-    out.set(index, `${m[2] ?? ""}${m[3]}`.replace(/^lf$/, "f"));
+    const type = `${m[2] ?? ""}${m[3]}`.replace(/^lf$/, "f");
+    if (byIndex.has(index) && byIndex.get(index) !== type) conflicts.push(index);
+    byIndex.set(index, type);
   }
-  return out;
+  return { byIndex, conflicts };
 }
 
 /** The class a catalog type stands for, to compare with what the source interpolates. */
@@ -510,8 +550,12 @@ function leaves(loc: Node | undefined, problems: string[], path = ""): [string, 
       for (const need of ["one", "other"])
         if (!cases[need]) problems.push(`${path || "de"} plural has no "${need}" case`);
     }
-    for (const [name, sub] of Object.entries(cases))
+    if (Object.keys(cases).length === 0) problems.push(`${path}${kind} has no cases`);
+    for (const [name, sub] of Object.entries(cases)) {
+      if (!sub.stringUnit && Object.keys(sub.variations ?? {}).length === 0)
+        problems.push(`${path}${kind}.${name} is empty`);
       out.push(...leaves(sub, problems, `${path}${kind}.${name}.`));
+    }
   }
   return out;
 }
@@ -527,14 +571,25 @@ export function checkCatalog(file: string, cat: Catalog): string[] {
       continue;
     }
     for (const p of problems) errs.push(`${file}: "${key}" de ${p}`);
-    const want = specs(key);
+    // the compiler extracts `%lld of %lld`, never `%1$lld of %2$lld`: a positional key is never looked up
+    if (/%\d+\$/.test(key))
+      errs.push(
+        `${file}: "${key}" is a positional key; the source lookup is sequential (use %lld, not %1$lld)`,
+      );
+    const keySpecs = specsOf(key);
+    for (const i of keySpecs.conflicts)
+      errs.push(`${file}: "${key}" gives argument ${i} two types`);
+    const want = keySpecs.byIndex;
     for (const [path, unit] of lv) {
       if (unit.state !== "translated" || !unit.value) {
         errs.push(`${file}: "${key}" de ${path} is ${unit.state ?? "missing"} (need translated)`);
         continue;
       }
       if (unit.value.includes("%#@")) continue; // a substitution: its own variations carry the specifiers
-      const bad = specProblem(want, specs(unit.value), path.endsWith("plural.one."));
+      const got = specsOf(unit.value);
+      for (const i of got.conflicts)
+        errs.push(`${file}: "${key}" de ${path} gives argument ${i} two types`);
+      const bad = specProblem(want, got.byIndex, path.endsWith("plural.one."));
       if (bad) errs.push(`${file}: "${key}" de ${path === "value" ? "value" : path} has ${bad}`);
     }
     if (entry.extractionState === "stale") errs.push(`${file}: "${key}" is marked stale`);

@@ -5,6 +5,7 @@ import {
   keyIndex,
   normalize,
   normalizeLiteral,
+  ownArgs,
   scanSwift,
   typesFit,
 } from "./check-strings";
@@ -90,6 +91,60 @@ describe("scanSwift", () => {
       ),
     ).toEqual(["bundle:Settings", "bundle:Header", "bundle:L", "keyed:Ok"]);
     expect(keys(`.accessibilityLabel("Settings")`)).toEqual(["keyed:Settings"]);
+  });
+
+  test("in a package only #bundle / .module on the call's own arguments counts as a bundle", () => {
+    expect(
+      keys(
+        [
+          `Text("A", bundle: .main)`,
+          `Text("B", bundle: #bundle)`,
+          `Text("C", bundle: .module)`,
+          `Text("D", comment: f(bundle: #bundle))`,
+          `String(localized: "E", bundle: Bundle.main)`,
+          `String(localized: "F", bundle: bundle)`,
+          `String(localized: "G", bundle: .module, comment: "c")`,
+          `String(\n  // l10n:bundle-ok a parameter\n  localized: "H", bundle: bundle)`,
+        ].join("\n"),
+        true,
+      ),
+    ).toEqual([
+      "bundle:A",
+      "keyed:B",
+      "keyed:C",
+      "bundle:D",
+      "bundle:E",
+      "bundle:F",
+      "keyed:G",
+      "keyed:H",
+    ]);
+  });
+
+  test("a LocalizedStringResource literal in a package needs its own bundle:", () => {
+    expect(
+      keys(
+        `static let a: LocalizedStringResource = "Settings"\nstatic let b = LocalizedStringResource("Other", bundle: #bundle)`,
+        true,
+      ),
+    ).toEqual(["bundle:Settings", "keyed:Other"]);
+    expect(keys(`static let a: LocalizedStringResource = "Settings"`)).toEqual(["keyed:Settings"]);
+  });
+
+  test("ownArgs reads the top level only", () => {
+    expect([...ownArgs(`(x, bundle: #bundle, c: f(bundle: .main, d: [1, 2]))`)]).toEqual([
+      ["bundle", "#bundle"],
+      ["c", "f(bundle: .main, d: [1, 2])"],
+    ]);
+  });
+
+  test("a counter formatted to a String is an object, not the %lld the key wants", () => {
+    const hit = scan(
+      `let count = model.count.formatted()\nString(localized: "\\(count) chars")`,
+    )[0];
+    expect(hit?.types).toEqual(["obj"]);
+    expect(
+      scan(`let count = model.characterCount\nString(localized: "\\(count) chars")`)[0]?.types,
+    ).toEqual([null]);
   });
 
   test("concatenated literals in a view init or modifier are a String", () => {
@@ -203,6 +258,30 @@ describe("checkCatalog", () => {
     expect(
       run({ variations: { device: { iphone: plural("a %lld %@", "b %lld %lld") } } }).length,
     ).toBe(1);
+  });
+
+  test("a positional key is never looked up, the compiler extracts sequential ones", () => {
+    const one = (key: string) =>
+      checkCatalog("c", cat({ [key]: { localizations: { de: unit("%1$lld von %2$lld") } } }));
+    expect(one("%1$lld of %2$lld").length).toBeGreaterThan(0);
+    expect(one("%lld of %lld")).toEqual([]);
+  });
+
+  test("a repeated index with two types, in a key or a translation, is a conflict", () => {
+    const run = (key: string, de: string) =>
+      checkCatalog("c", cat({ [key]: { localizations: { de: unit(de) } } }));
+    expect(run("%@ %lld", "%1$@ %1$lld %2$@").length).toBeGreaterThan(0);
+    expect(run("%@ %@", "%1$@ %1$@ %2$@")).toEqual([]);
+  });
+
+  test("an empty variation branch fails, nested ones too", () => {
+    const run = (de: unknown) =>
+      checkCatalog("c", cat({ "%lld x": { localizations: { de: de as never } } }));
+    const plural = (one: unknown, other: unknown) => ({ variations: { plural: { one, other } } });
+    expect(run(plural(unit("%lld x"), unit("%lld x")))).toEqual([]);
+    expect(run(plural({}, unit("%lld x"))).length).toBe(1);
+    expect(run(plural({ variations: { plural: {} } }, unit("%lld x"))).length).toBeGreaterThan(0);
+    expect(run({ variations: { device: { iphone: plural(unit("%lld x"), {}) } } }).length).toBe(1);
   });
 
   test("shouldTranslate false is exempt", () => {
