@@ -213,7 +213,7 @@ describe("checkCatalog", () => {
 describe("typesFit", () => {
   const index = keyIndex({
     sourceLanguage: "en",
-    strings: { "%lld files · %@": {}, "Hello %@": {}, "Plain": {} },
+    strings: { "%lld files · %@": {}, "Hello %@": {}, Plain: {} },
   });
   test("a known interpolation class must match the key's argument class", () => {
     const cand = index.get(normalizeLiteral("\uE000 files · \uE000")) ?? [];

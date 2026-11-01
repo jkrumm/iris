@@ -297,10 +297,22 @@ const hasLetter = (s: string) => /\p{L}/u.test(s.replace(/\uE000/g, ""));
 const lineOf = (src: string, idx: number) => src.slice(0, idx).split("\n").length;
 
 const CLASS_OF_TYPE: Record<string, ArgClass> = {
-  Int: "int", Int8: "int", Int16: "int", Int32: "int", Int64: "int",
-  UInt: "int", UInt8: "int", UInt16: "int", UInt32: "int", UInt64: "int",
-  Double: "float", Float: "float", CGFloat: "float", TimeInterval: "float",
-  String: "obj", Substring: "obj",
+  Int: "int",
+  Int8: "int",
+  Int16: "int",
+  Int32: "int",
+  Int64: "int",
+  UInt: "int",
+  UInt8: "int",
+  UInt16: "int",
+  UInt32: "int",
+  UInt64: "int",
+  Double: "float",
+  Float: "float",
+  CGFloat: "float",
+  TimeInterval: "float",
+  String: "obj",
+  Substring: "obj",
 };
 
 /** Names the file declares with exactly one plain type (`count: Int`): name -> class. Any other type poisons the name. */
@@ -320,9 +332,10 @@ function declaredClasses(src: string): Map<string, ArgClass> {
 
 /** The class of an interpolated expression when the source tells, else null (see the header's limits). */
 export function classify(expr: string, declared: Map<string, ArgClass>): ArgClass | null {
-  if (/^-?\d+$/.test(expr) || /\.count$/.test(expr) || /^U?Int\d*\(/.test(expr)) return "int";
+  if (/^-?\d+$/.test(expr) || expr.endsWith(".count") || /^U?Int\d*\(/.test(expr)) return "int";
   if (/^-?\d*\.\d+$/.test(expr) || /^(Double|Float|CGFloat)\(/.test(expr)) return "float";
-  if (expr.startsWith('"') || /^String\(/.test(expr) || /\.formatted\(/.test(expr)) return "obj";
+  if (expr.startsWith('"') || expr.startsWith("String(") || /\.formatted\(/.test(expr))
+    return "obj";
   const name = /^(?:self\.)?([A-Za-z_]\w*)$/.exec(expr)?.[1];
   return name ? (declared.get(name) ?? null) : null;
 }
@@ -459,14 +472,29 @@ export function specs(value: string): Map<number, string> {
 
 /** The class a catalog type stands for, to compare with what the source interpolates. */
 const classOf = (t: string): ArgClass | "other" =>
-  /[dDuUxXoO]$/.test(t) ? "int" : /[fFeEgGaA]$/.test(t) ? "float" : /[@sSc]$/.test(t) ? "obj" : "other";
+  /[dDuUxXoO]$/.test(t)
+    ? "int"
+    : /[fFeEgGaA]$/.test(t)
+      ? "float"
+      : /[@sSc]$/.test(t)
+        ? "obj"
+        : "other";
 
 /** What is wrong with `got` (a translation's specifiers) against `want` (the key's); `allowOmit`: a plural `one` may drop arguments. */
-function specProblem(want: Map<number, string>, got: Map<number, string>, allowOmit: boolean): string | null {
+function specProblem(
+  want: Map<number, string>,
+  got: Map<number, string>,
+  allowOmit: boolean,
+): string | null {
   const show = (m: Map<number, string>) =>
-    [...m].toSorted((x, y) => x[0] - y[0]).map(([i, t]) => `${i}:%${t}`).join(" ") || "none";
-  for (const [i, t] of got) if (want.get(i) !== t) return `argument ${show(got)}, the key has ${show(want)}`;
-  if (!allowOmit && got.size !== want.size) return `argument ${show(got)}, the key has ${show(want)}`;
+    [...m]
+      .toSorted((x, y) => x[0] - y[0])
+      .map(([i, t]) => `${i}:%${t}`)
+      .join(" ") || "none";
+  for (const [i, t] of got)
+    if (want.get(i) !== t) return `argument ${show(got)}, the key has ${show(want)}`;
+  if (!allowOmit && got.size !== want.size)
+    return `argument ${show(got)}, the key has ${show(want)}`;
   return null;
 }
 
