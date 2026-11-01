@@ -1,11 +1,11 @@
-# Lead handoff — Wave 19 (active, lead `iris-w19b`)
+# Lead handoff — Wave 19 (closed, lead `iris-w19b`)
 
-## Now (2026-11-01 ~17:40)
-- **Batch 1 merged:** PR #97 → master `8325a1b` (merge commit; #92-#95 show as merged; `apple.yml` and `check` green on the batch head `107130b`). Apple-only, no deploy. Worktrees of I1/M1/R1/R2 and the batch reclaimed.
-- Reviews (agw, this session): #93 round 2 clean; #95 round 3 and #92 round 2: no new data-loss / privacy / security / crash blocker (owner-only servers), findings listed in #97's body for Left behind; #96 round 1: 6 blockers, handed to R3b.
-- **Batch 2 workers** (briefs in `~/.iris-fleet/iris-w19-briefs/{i3b,i2b,r3b}.md`, each starts by merging `origin/w19-batch-1` and its parked branch): `w19-i3b-telemetry-ui-debt` (t39), `w19-i2b-late-tail` (t3b), `w19-r3b-german` (t3c), all running; fresh spawn keys (the old `iris-w19-*` keys hold stale classic-herdr records, never re-use them). #96 is closed once R3b's PR is up.
-- **Batch 2 in review** (2026-11-01 ~18:30): PRs #98 (I2b late tail), #100 (I3b telemetry/UI), #99 (R3b German, supersedes #96, closed). agw round 1 sent back via `rd say` (#98: tail server binding, no double divert of an acknowledged segment, persisted discard, IrisCapture catalog; #100: portUID filter, assertion deadline, simpler locked-store recovery; #99: two runtime key mismatches + four checker holes). Local `w19-batch-2` worktree has the three merged plus `35c9e43` (CompositionRoot launch uses #100's off-main `recordQuarantine`); not pushed, re-merge the fixed heads before opening the batch PR.
-- Deferred to a slot after R3b: the widget-feed findings of #92 (filtered History never updates the widget, a 409 discard forgets the memo, a late first page, the credentials-switch crash) — or Left behind.
+## Closed (2026-11-01 ~18:30)
+Wave 19 is done in PLAN.md (status marker `done`, `**Left behind:**` written). Master `2001f5e`: batch 1 #97 (#94 I1, #95 M1, #93 R1, #92 R2) and batch 2 #101
+(#100 I3, #99 R3), each one green `apple.yml` run. Production `e4ece55` (no server change after it), `make verify` healthy, `make smoke` green. Carried: D1
+(owner), I2 (#98 parked on `w19-i2b-late-tail`, round 2 did not converge; design and open blockers in PLAN.md Left behind). No worker running; all worker panes
+closed. Kept branches/worktrees: `w18-i23-capture-recovery-debt`, `w19-i2-late-tail`, `w19-i2b-late-tail` (parked I2), the merged-in `w19-i3*` / `w19-r3*`
+are reclaimed. The next lead is the mother's call (her recommendation: pause until the enrolment email or the owner's feedback).
 
 ## Earlier state (previous lead, 2026-10-31)
 
