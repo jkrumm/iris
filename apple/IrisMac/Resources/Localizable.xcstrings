@@ -1,6 +1,17 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "%1$lld of %2$lld could not be sent" : {
+      "comment" : "Outbox strip title: stalled items",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$lld von %2$lld: Senden fehlgeschlagen"
+          }
+        }
+      }
+    },
     "%@ · %@ of audio" : {
       "localizations" : {
         "de" : {
@@ -94,6 +105,47 @@
                 "stringUnit" : {
                   "state" : "translated",
                   "value" : "%lld Segmente"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "%lld waiting to send" : {
+      "comment" : "Outbox strip title: items are on their way",
+      "localizations" : {
+        "de" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld wartet auf den Versand"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld warten auf den Versand"
+                }
+              }
+            }
+          }
+        },
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld waiting to send"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld waiting to send"
                 }
               }
             }
@@ -197,6 +249,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Abbrechen"
+          }
+        }
+      }
+    },
+    "Chat message" : {
+      "comment" : "Outbox item kind",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Chat-Nachricht"
           }
         }
       }
@@ -357,6 +420,28 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Geräte-Token"
+          }
+        }
+      }
+    },
+    "Discard" : {
+      "comment" : "Outbox action",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Verwerfen"
+          }
+        }
+      }
+    },
+    "Discarded memo" : {
+      "comment" : "Outbox item kind: its removal from the server is queued",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Verworfenes Memo"
           }
         }
       }
@@ -731,12 +816,34 @@
         }
       }
     },
+    "Retry %@" : {
+      "comment" : "Outbox item state",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wiederholen %@"
+          }
+        }
+      }
+    },
     "Retry from %@" : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Wiederholen ab %@"
+          }
+        }
+      }
+    },
+    "Retry now" : {
+      "comment" : "Outbox action",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Jetzt wiederholen"
           }
         }
       }
@@ -787,6 +894,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Transkripte durchsuchen"
+          }
+        }
+      }
+    },
+    "Sending" : {
+      "comment" : "Outbox item state",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wird gesendet"
           }
         }
       }
@@ -861,6 +979,17 @@
         }
       }
     },
+    "Stop trying" : {
+      "comment" : "Outbox action on a discarded memo's queued removal",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nicht mehr versuchen"
+          }
+        }
+      }
+    },
     "Summarize" : {
       "localizations" : {
         "de" : {
@@ -901,6 +1030,50 @@
         }
       }
     },
+    "The item could not be discarded because the queue cannot be opened." : {
+      "comment" : "Outbox strip: a discard did not reach the queue",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Der Eintrag konnte nicht verworfen werden, weil sich die Warteschlange nicht öffnen lässt."
+          }
+        }
+      }
+    },
+    "The queue cannot be opened right now. Nothing new is accepted until it can." : {
+      "comment" : "Outbox strip: the persistent queue is unavailable",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Die Warteschlange lässt sich gerade nicht öffnen. Bis dahin wird nichts Neues angenommen."
+          }
+        }
+      }
+    },
+    "The queue could not be saved to this Mac. Recordings wait to be sent until it can, and Iris keeps trying." : {
+      "comment" : "Outbox strip: the queue cannot be written",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Die Warteschlange konnte nicht auf diesem Mac gesichert werden. Aufnahmen warten auf den Versand, bis es klappt; Iris versucht es weiter."
+          }
+        }
+      }
+    },
+    "The queue could not be used" : {
+      "comment" : "Outbox strip title: the queue is unavailable",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Die Warteschlange ist nicht verfügbar"
+          }
+        }
+      }
+    },
     "The recording could not be saved." : {
       "localizations" : {
         "de" : {
@@ -927,6 +1100,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Die Aufnahme wurde vorzeitig beendet. Das Aufgenommene wird gesendet."
+          }
+        }
+      }
+    },
+    "The server did not accept it." : {
+      "comment" : "Outbox strip: a stalled item with no reason",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Der Server hat es nicht angenommen."
           }
         }
       }
@@ -1021,6 +1205,17 @@
         }
       }
     },
+    "Typed memo" : {
+      "comment" : "Outbox item kind",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Getipptes Memo"
+          }
+        }
+      }
+    },
     "Unarchive" : {
       "localizations" : {
         "de" : {
@@ -1087,6 +1282,28 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Sprachmemo"
+          }
+        }
+      }
+    },
+    "Voice reply" : {
+      "comment" : "Outbox item kind",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sprachantwort"
+          }
+        }
+      }
+    },
+    "Waiting" : {
+      "comment" : "Outbox item state",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wartet"
           }
         }
       }
