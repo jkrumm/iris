@@ -712,12 +712,16 @@ Not localized, by design: memo transcripts, replies, summaries and headlines; ro
 the spoken route prefixes (`hermes`, `journal`, `tagebuch`, `tab <name>`: they are what the server matches); ids, durations and numbers (formatters, locale-aware);
 logs, telemetry and accessibility identifiers.
 
-**The check** (`scripts/check-strings.ts`, `make check-strings`, in `make check` and `check-apple`, so CI on Linux runs it too) fails on: a catalog key with no translated `de`
-(plural and device variations: every leaf) or with different format specifiers than its key; a stale key (no literal of that target names it; `extractionState: manual`
-is exempt, for keys looked up dynamically); a user-facing literal whose key is not in the catalog of every target that compiles the file; a bare literal for a `String`
-parameter named `title`, `message`, `detail`, ...; a ternary of literals that types as `String`; a keyed literal in a package without `bundle:`; a `NS*UsageDescription`
-without an `InfoPlist.xcstrings` key. Limits: a lexer, not a type checker; it sees literals at the call site only (a `String` assembled elsewhere and passed to
-`Text(variable)` is invisible), a view initializer it does not know is unchecked (`VIEW_INITS`), fake and sample data files are exempt from the `String` rule. A literal that is really
+**The check** (`scripts/check-strings.ts`, `make check-strings`, in `make check` and `check-apple`, so CI on Linux runs it too) fails on: a catalog key with no translated `de`;
+a `de` value (every leaf of a plural or device variation) whose format specifiers differ from the key's, compared per argument index with type and length modifier (`%1$@ %2$lld` is not
+`%lld %@`; a plural `one` may drop an argument, no leaf may add one or change a type), and a German plural without `one` and `other`; a stale key (no literal of that target names it;
+`extractionState: manual` is exempt, for keys looked up dynamically); a user-facing literal whose key is not in the catalog of every target that compiles the file, or whose interpolated
+type contradicts the key's (`%lld` vs `%@`); a bare literal for a `String` parameter named `title`, `message`, `detail`, ...; a ternary of literals or a concatenation (`Text("a" + "b")`) that
+types as `String`; in a package any literal that is not `Text(_, bundle: #bundle)` / `String(localized:, bundle: #bundle)` (a bare `Button("x")` or `.accessibilityLabel("x")` there looks in
+the app's bundle); a `NS*UsageDescription` without an `InfoPlist.xcstrings` key. Limits: a lexer, not a type checker. An interpolation's type is known only for a number or string literal,
+`.count`, `Int(..)` / `Double(..)` / `String(..)`, `.formatted(..)` and a name the same file declares once with a plain type; any other expression is accepted against a key of any type
+(a wrong key then misses at run time and shows English, it does not crash). It sees literals at the call site only (a `String` assembled elsewhere and passed to `Text(variable)` is
+invisible), a view initializer it does not know is unchecked (`VIEW_INITS`), fake and sample data files are exempt from the `String` rule. A literal that is really
 data is marked `// l10n:ignore <why>` on its line or the line above. Its tests are `scripts/check-strings.test.ts`.
 
 **Glossary** (keep the same word for the same thing; neutral address, no du/Sie: nouns, infinitives and short imperatives like the system apps):
