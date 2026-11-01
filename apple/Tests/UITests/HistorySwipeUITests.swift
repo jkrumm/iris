@@ -6,7 +6,8 @@ final class HistorySwipeUITests: IrisUITestCase {
   @MainActor
   private func launch() -> XCUIApplication {
     let app = XCUIApplication()
-    app.launchArguments = SampleClock.arguments + ["-IrisUndoSeconds", "60"]
+    // A hosted runner spent over 80 s on the absence checks below (Wave 19): 60 s let the toast expire before Undo.
+    app.launchArguments = SampleClock.arguments + ["-IrisUndoSeconds", "600"]
     start(app)
     XCTAssertTrue(waitForPresence(app.descendants(matching: .any)["history.list"], timeout: 10))
     return app
@@ -57,11 +58,11 @@ final class HistorySwipeUITests: IrisUITestCase {
     delete.tap()
 
     XCTAssertTrue(waitForPresence(app.descendants(matching: .any)["history.toast"], timeout: 5))
+    let undo = app.buttons["Undo"]
+    XCTAssertTrue(waitForPresence(undo, timeout: 5))
     XCTAssertTrue(waitForAbsence(row(in: app), timeout: 5))
     XCTAssertTrue(staysAbsent(row(in: app), for: 1), "the deleted row came back before Undo")
 
-    let undo = app.buttons["Undo"]
-    XCTAssertTrue(waitForPresence(undo, timeout: 5))
     undo.tap()
     XCTAssertTrue(waitForPresence(row(in: app), timeout: 10))
   }

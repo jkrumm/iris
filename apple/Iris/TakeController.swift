@@ -19,6 +19,8 @@ final class TakeController {
   private let isConfigured: () -> Bool
   private let requestPermission: @Sendable () async -> Bool
   private let speech: SpeechPlayer?
+  /// The live preview's tap and recognizer; `nil` leaves the take screen without one.
+  let preview: LivePreviewSource?
   /// A take holds the microphone or is about to: set synchronously by ``claimCapture()``, cleared by ``releaseCapture(_:)``
   /// when the session has ended. No timeout.
   private(set) var captureActive = false
@@ -33,7 +35,7 @@ final class TakeController {
   init(
     stack: CaptureStack, liveActivity: TakeLiveActivityCoordinator, outbox: OutboxService, microphone: FakeMicrophone?,
     canRecord: Bool, isConfigured: @escaping () -> Bool, requestPermission: @escaping @Sendable () async -> Bool,
-    speech: SpeechPlayer? = nil
+    speech: SpeechPlayer? = nil, preview: LivePreviewSource?
   ) {
     self.stack = stack
     self.liveActivity = liveActivity
@@ -43,6 +45,7 @@ final class TakeController {
     self.isConfigured = isConfigured
     self.requestPermission = requestPermission
     self.speech = speech
+    self.preview = preview
   }
 
   /// Whether a take can be started right now (a server is saved and a recorder exists).
@@ -87,10 +90,19 @@ final class TakeController {
 
   private func sessionHoldsMicrophone() async -> Bool {
     guard let session = try? await stack.session() else { return false }
-    switch await session.current.phase {
+    let state = await session.current
+    switch state.phase {
     case .starting, .recording, .paused, .stopping: return true
-    case .idle, .failed: return false
+    case .failed: return !state.recorderReleased
+    case .idle: return false
     }
+  }
+
+  /// A snapshot of the session. A take that failed on its own and whose recorder has stopped no longer holds the microphone:
+  /// playback may resume without waiting for a Stop or Discard the user may never press.
+  func sessionUpdated(_ take: TakeState) async {
+    guard take.phase == .failed, take.recorderReleased else { return }
+    await releaseCapture(captureClaim)
   }
 
   /// The shared start: callers that joined it get the same answer, the recovery included.

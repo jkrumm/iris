@@ -19,7 +19,6 @@ nonisolated struct APIOutboxUploader: SegmentUploader {
   let created: CreatedMemoLog
   /// Where a segment goes when the server closed its memo without it (see `upload`); the capture directory's set-aside folder.
   var keeping: (any SegmentFileStore)?
-
   func create(_ item: OutboxItem) async throws {
     let id = item.memoID.wireID
     let mode = MemoMode(rawValue: item.mode) ?? .auto
@@ -33,7 +32,7 @@ nonisolated struct APIOutboxUploader: SegmentUploader {
           try await client.createTextMemo(
             CreateTextMemoRequest(id: id, mode: mode, startedAt: item.startedAt, text: text, threadId: item.threadID))
         }
-      await created.record(memo)
+      await created.record(memo, serverKey: item.serverKey)
     } catch {
       throw Self.classified(error)
     }

@@ -65,6 +65,8 @@ final class CompositionRoot: CaptureIntentHandler, PlaybackIntentHandler {
   /// Bumped when the saved connection changes; `IrisApp` restarts ``start()`` on it.
   private(set) var connectionRevision = 0
 
+  /// The newest memo for the Home / Lock Screen widgets; History feeds it (`LastMemoWidgetFeed+Memo.swift`).
+  private let widgetFeed: LastMemoWidgetFeed
   private let api: any APIClient
   let fakeAPI: FakeAPIClient?
   private let credentials: (any CredentialStore)?
@@ -123,7 +125,7 @@ final class CompositionRoot: CaptureIntentHandler, PlaybackIntentHandler {
       liveActivity = coordinator
       takeController = TakeController(
         stack: stack, liveActivity: coordinator, outbox: service, microphone: mic, canRecord: true,
-        isConfigured: { true }, requestPermission: { true }, speech: speech)
+        isConfigured: { true }, requestPermission: { true }, speech: speech, preview: .fake(tap: capture.recorder))
       history = HistoryModel(client: fake, evictMedia: { MediaDownloader.shared.evict(memoID: $0) })
       stats = StatsModel(client: fake)
       settings = SettingsModel(client: fake, queue: service)
@@ -159,7 +161,8 @@ final class CompositionRoot: CaptureIntentHandler, PlaybackIntentHandler {
       takeController = TakeController(
         stack: production.stack, liveActivity: coordinator, outbox: service, microphone: nil,
         canRecord: production.canRecord, isConfigured: { credentials.load() != nil },
-        requestPermission: { await AVAudioApplication.requestRecordPermission() }, speech: speech)
+        requestPermission: { await AVAudioApplication.requestRecordPermission() }, speech: speech,
+        preview: production.preview)
       history = HistoryModel(
         client: client, hiddenStore: UserDefaultsHiddenMemoStore(),
         evictMedia: { MediaDownloader.shared.evict(memoID: $0) })
@@ -188,6 +191,8 @@ final class CompositionRoot: CaptureIntentHandler, PlaybackIntentHandler {
       createdHere: { await outbox.created.memo(id: $0) != nil },
       takes: { [take] in TakeActivity(isOpen: take.isCapturing, started: take.takesStarted) })
     spokenReplies = reader
+    widgetFeed = LastMemoWidgetFeed.app(fake: fake)
+    widgetFeed.attach(to: history)
     history.onMemoUpdated = { id in reader.memoUpdated(id: id) }
     history.onMemoDone = { id in
       // Sampled here, on the event, not after the task hop: a take that opens in between still blocks the reply.
@@ -212,7 +217,11 @@ final class CompositionRoot: CaptureIntentHandler, PlaybackIntentHandler {
       }
     }
     Task {
-      await outbox.created.setHandler { memo in Task { @MainActor in history.insert(memo) } }
+      // The hand-off hops to the main actor, and the connection can switch meanwhile: `insert` compares the memo's server with the
+      // one History reads when it runs.
+      await outbox.created.setServerHandler { memo, origin in
+        Task { @MainActor in history.insert(memo, origin: origin) }
+      }
       await outbox.created.setForgottenHandler { id in hiddenChanged.yield(.hide(id)) }
       await outbox.created.setSettledHandler { id in hiddenChanged.yield(.unhide(id)) }
     }
@@ -428,14 +437,15 @@ final class CompositionRoot: CaptureIntentHandler, PlaybackIntentHandler {
 
   private func connectionChanged() {
     reconfigurable?.reconfigure(credentials?.load())
+    widgetFeed.reset()
     DeviceLog.shared.serverChanged(credentials?.load()?.serverURL)
     connectionRevision += 1
   }
 
   /// The real recorder, session and route manager, with the queue and the segment files in Application Support.
   private static func productionStack(
-    client: any APIClient, created: CreatedMemoLog
-  ) -> (stack: CaptureStack, canRecord: Bool) {
+    client: ReconfigurableAPIClient, created: CreatedMemoLog
+  ) -> (stack: CaptureStack, canRecord: Bool, preview: LivePreviewSource?) {
     let root = URL.applicationSupportDirectory.appending(path: "Iris", directoryHint: .isDirectory)
     let captureDirectory = root.appending(path: "capture", directoryHint: .isDirectory)
     let events = DeviceLogCaptureEvents()
@@ -447,7 +457,7 @@ final class CompositionRoot: CaptureIntentHandler, PlaybackIntentHandler {
         recorder: recorder ?? UnavailableSegmentRecorder(), clock: SystemCaptureClock(),
         store: JSONFileOutboxStore(fileURL: root.appending(path: "outbox.json"), segmentDirectory: captureDirectory),
         uploader: ObservedSegmentUploader(APIOutboxUploader(client: client, created: created, keeping: segmentFiles)),
-        events: events, segmentFiles: segmentFiles))
-    return (stack, recorder != nil)
+        events: events, segmentFiles: segmentFiles, serverKey: { client.serverKey }))
+    return (stack, recorder != nil, recorder.map { .speech(tap: $0) })
   }
 }

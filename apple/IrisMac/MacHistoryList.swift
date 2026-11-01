@@ -7,6 +7,12 @@ import SwiftUI
 struct MacHistoryList: View {
   let root: MacCompositionRoot
   @Bindable var model: HistoryModel
+  /// The iPhone list's row (`HistoryView.rowInsets`, the mockup's `.row`): 12 pt above and below, 20 pt screen margin on both sides.
+  private static let rowInsets = EdgeInsets(
+    top: Theme.Spacing.rowVertical, leading: Theme.Spacing.screenMargin, bottom: Theme.Spacing.rowVertical,
+    trailing: Theme.Spacing.screenMargin)
+  private static let headerInsets = EdgeInsets(
+    top: 0, leading: Theme.Spacing.screenMargin, bottom: 0, trailing: Theme.Spacing.screenMargin)
 
   var body: some View {
     VStack(spacing: 0) {
@@ -15,15 +21,17 @@ struct MacHistoryList: View {
         text: $model.filters.searchText
       )
       .textFieldStyle(.roundedBorder)
-      .padding(.horizontal, Theme.Spacing.lg)
+      .padding(.horizontal, Theme.Spacing.screenMargin)
       .padding(.top, Theme.Spacing.sm)
       .accessibilityIdentifier("mac.history.search")
       HistoryFilterBar(filters: $model.filters)
       List {
-        ForEach(HistoryDaySection.group(model.memos)) { section in
+        let sections = HistoryDaySection.group(model.memos)
+        ForEach(sections) { section in
           Section {
             ForEach(section.memos) { memo in
               row(memo)
+                .listRowInsets(Self.rowInsets)
                 .task { await model.loadMoreIfNeeded(current: memo) }
             }
           } header: {
@@ -31,10 +39,20 @@ struct MacHistoryList: View {
               .themeFont(.caption, weight: .semibold)
               .textCase(.uppercase)
               .foregroundStyle(Theme.Ink.muted)
+              // The first label follows the chips, whose tap area already takes the top of that gap (as on the iPhone).
+              .padding(
+                .top,
+                section.id == sections.first?.id
+                  ? Theme.Spacing.sectionTop - Theme.Spacing.chipTapOverhang : Theme.Spacing.sectionTop
+              )
+              .padding(.bottom, Theme.Spacing.sectionBottom)
+              .listRowInsets(Self.headerInsets)
           }
         }
       }
       .listStyle(.plain)
+      .environment(\.defaultMinListHeaderHeight, 0)
+      .environment(\.defaultMinListRowHeight, 0)
       .scrollContentBackground(.hidden)
       .animation(.snappy, value: model.memos.map(\.id))
       .overlay { emptyState }

@@ -63,6 +63,7 @@ struct RecordingPanelView: View {
         Button(String(localized: "Cancel", comment: "Drops the running take")) { model.cancel() }
           .accessibilityIdentifier("mac.recording.cancel")
         Button(String(localized: "Stop", comment: "Ends the running take and sends it")) { model.stop() }
+          .keyboardShortcut(.defaultAction)
           .buttonStyle(.borderedProminent)
           .tint(Theme.Status.bad)
           .accessibilityIdentifier("mac.recording.stop")
@@ -104,6 +105,7 @@ struct RecordingPanelView: View {
           .accessibilityIdentifier("mac.recording.open-settings")
         }
         Button(String(localized: "Close", comment: "Closes the recording panel's message")) { model.cancel() }
+          .keyboardShortcut(.cancelAction)
           .accessibilityIdentifier("mac.recording.close")
       }
     }
@@ -140,9 +142,16 @@ struct RecordingPanelView: View {
   }
 }
 
-/// A panel that never takes focus: the hotkey records while the user keeps typing in another app.
+/// A panel that never activates Iris: the hotkey records while the user keeps typing in another app.
+///
+/// It **can** become key (a borderless window refuses by default), but only by the user's click on it: it is shown with
+/// `orderFrontRegardless`, which changes neither the key nor the main window, so the app in front keeps its keystrokes until then.
+/// Once clicked, the panel is key without Iris becoming the active app (`.nonactivatingPanel`, set at init: the bit cannot be
+/// added or removed on a live panel), so the Microphone menu opens as a menu, Return stops the take and Escape closes a message.
+/// `becomesKeyOnlyIfNeeded` stays `false`: a click anywhere on the panel, not only on a text field, hands it the keys.
+/// What was checked on the mini and what only a MacBook can show: TDD §5, `MacTests/RecordingPanelKeyTests`.
 final class NonActivatingPanel: NSPanel {
-  override var canBecomeKey: Bool { false }
+  override var canBecomeKey: Bool { true }
   override var canBecomeMain: Bool { false }
 }
 

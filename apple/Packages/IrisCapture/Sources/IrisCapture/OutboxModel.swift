@@ -95,11 +95,14 @@ public struct OutboxDeletion: Sendable, Equatable, Codable {
   public var queuedAt: Date
   /// Why the last attempt failed, for the queue row.
   public var lastError: String?
+  /// The server the discarded memo lives on (``OutboxItem/serverKey``): the `DELETE` goes to that server only.
+  public var serverKey: String?
 
-  public init(memoID: MemoID, title: String = "", queuedAt: Date = Date()) {
+  public init(memoID: MemoID, title: String = "", queuedAt: Date = Date(), serverKey: String? = nil) {
     self.memoID = memoID
     self.title = title.isEmpty ? Self.fallbackTitle(memoID) : title
     self.queuedAt = queuedAt
+    self.serverKey = serverKey
     state = .pending
     attempts = 0
     lastError = nil
@@ -120,6 +123,7 @@ public struct OutboxDeletion: Sendable, Equatable, Codable {
     // Unknown for a record written before the row existed: the time it was read, so the row sorts last rather than first.
     queuedAt = try container.decodeIfPresent(Date.self, forKey: .queuedAt) ?? Date()
     lastError = try container.decodeIfPresent(String.self, forKey: .lastError)
+    serverKey = try container.decodeIfPresent(String.self, forKey: .serverKey)
   }
 }
 
@@ -145,10 +149,15 @@ public struct OutboxItem: Sendable, Equatable, Codable {
   /// (the app was killed, the connection dropped on the way back). Set when the create is handed out, cleared by a refusal:
   /// a discard deletes the memo on the server exactly while this holds.
   public var createMayHaveLanded: Bool
+  /// The server this item was made for (a digest of its URL, the server configured when the item is queued). Everything
+  /// queued for the memo (the create, its segments, `complete`, a `DELETE`) goes to that server only: after a switch to another
+  /// server it waits in the queue, and goes out when the first one is configured again. `nil` for an item queued before the
+  /// binding existed, or by an uploader that does not know its server: it goes to whichever server is configured.
+  public var serverKey: String?
 
   public init(
     memoID: MemoID, kind: OutboxItemKind, mode: String, threadID: String? = nil, startedAt: Date, queuedAt: Date,
-    title: String
+    title: String, serverKey: String? = nil
   ) {
     self.memoID = memoID
     self.kind = kind
@@ -157,6 +166,7 @@ public struct OutboxItem: Sendable, Equatable, Codable {
     self.startedAt = startedAt
     self.queuedAt = queuedAt
     self.title = title
+    self.serverKey = serverKey
     create = .pending
     attempts = 0
     lastError = nil
@@ -177,6 +187,7 @@ public struct OutboxItem: Sendable, Equatable, Codable {
     create = try container.decode(OutboxState.self, forKey: .create)
     attempts = try container.decode(Int.self, forKey: .attempts)
     lastError = try container.decodeIfPresent(String.self, forKey: .lastError)
+    serverKey = try container.decodeIfPresent(String.self, forKey: .serverKey)
     // Only a create that was never handed out is known not to have landed: a stalled one may have been refused or may have
     // run out of attempts after the server made the memo, and a pending one with failures behind it was sent before.
     let sentBefore =
@@ -195,6 +206,19 @@ public struct PermanentTransferError: Error, Sendable, Equatable {
   public init(_ message: String) {
     self.message = message
   }
+}
+
+/// A transfer found the connection pointing at another server than the one its item was queued for (the connection switched
+/// between the dispatch and the request). Nothing was sent; the outbox puts the transfer back, without a backoff or an attempt,
+/// and holds it until its own server is configured again.
+public struct WrongServerError: Error, Sendable, Equatable {
+  public init() {}
+}
+
+/// The server a transfer in flight belongs to, for the client to check at the moment it picks its target: the check and the
+/// swap of the connection are then one atomic step, which no check done before the call can be. `nil` outside the outbox.
+public enum OutboxTransfer {
+  @TaskLocal public static var serverKey: String?
 }
 
 /// `complete` was refused because the server holds fewer segments than the phone sent (422 `missing_segments`): a segment it

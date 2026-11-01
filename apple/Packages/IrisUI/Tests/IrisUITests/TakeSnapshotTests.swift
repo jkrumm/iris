@@ -27,16 +27,34 @@
       SnapshotSupport.assertLightAndDark(banner(paused: true, detail: "2 sending"), width: 390, height: 96)
     }
 
-    private func screen(paused: Bool, notice: String? = nil) -> some View {
+    private func screen(paused: Bool, notice: String? = nil, preview: LiveTranscriptText? = nil) -> some View {
       TakeScreen(
         isPaused: paused, start: CaptureSamples.start, frozenAt: CaptureSamples.now, modeLabel: "Auto",
-        inputName: "iPhone Microphone", levels: CaptureSamples.levels, notice: notice, labels: CaptureSamples.labels,
+        inputName: "iPhone Microphone", levels: CaptureSamples.levels, notice: notice, preview: preview,
+        labels: CaptureSamples.labels,
         onMinimize: {}, onPickInput: {}, onTogglePause: {}, onStop: {}, onDiscard: {})
     }
 
     @Test("the take screen while recording", .tags(.snapshot))
     func screenRecording() {
       SnapshotSupport.assertLightAndDark(screen(paused: false), width: 390, height: 780)
+    }
+
+    @Test(
+      "the take screen with the live transcript: settled text primary, still-changing text secondary", .tags(.snapshot))
+    func screenWithPreview() {
+      let preview = LiveTranscriptText(
+        finalized: "Remind me to call the dentist on Monday. And move the Thursday meeting to the afternoon.",
+        volatile: "Also tell Anna the")
+      SnapshotSupport.assertLightAndDark(screen(paused: false, preview: preview), width: 390, height: 780)
+    }
+
+    @Test("the take screen with a long live transcript keeps the newest lines in view", .tags(.snapshot))
+    func screenWithLongPreview() {
+      let sentence = "The quarterly numbers look better than last time, so the plan stays as it is."
+      let preview = LiveTranscriptText(
+        finalized: Array(repeating: sentence, count: 6).joined(separator: " "), volatile: "Next we should")
+      SnapshotSupport.assertLightAndDark(screen(paused: false, preview: preview), width: 390, height: 780)
     }
 
     @Test("the take screen while paused, with a notice", .tags(.snapshot))

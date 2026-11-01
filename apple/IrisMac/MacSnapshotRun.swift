@@ -95,7 +95,12 @@ struct MacSnapshotRun {
     guard let window = NSApp.windows.first(where: { $0.title == title && $0.isVisible }), let view = window.contentView,
       let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds)
     else {
-      Self.logger.error("no visible window titled \(title, privacy: .public)")
+      let windows = NSApp.windows.map {
+        "\($0.title.isEmpty ? "-" : $0.title) visible=\($0.isVisible) \($0.frame.size.debugDescription)"
+      }
+      Self.logger.error(
+        "no visible window titled \(title, privacy: .public); windows: \(windows.joined(separator: ", "), privacy: .public)"
+      )
       return
     }
     Self.logger.notice("\(title, privacy: .public): \(window.frame.debugDescription, privacy: .public)")

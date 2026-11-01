@@ -174,13 +174,15 @@ struct OutboxHarness {
     policy: OutboxPolicy = OutboxPolicy(jitter: { 0 }),
     clock: ManualClock = ManualClock(),
     uploader: TestUploader = TestUploader(),
-    deletesFilesWhenDone: Bool = true
+    deletesFilesWhenDone: Bool = true,
+    serverKey: @escaping @Sendable () -> String? = { nil }
   ) async throws {
     store = InMemoryOutboxStore(record: record)
     self.uploader = uploader
     self.clock = clock
     outbox = try await Outbox(
-      store: store, uploader: uploader, clock: clock, policy: policy, deletesFilesWhenDone: deletesFilesWhenDone)
+      store: store, uploader: uploader, clock: clock, policy: policy, deletesFilesWhenDone: deletesFilesWhenDone,
+      serverKey: serverKey)
   }
 }
 

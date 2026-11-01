@@ -210,6 +210,11 @@ never record. A build signed with a stable Apple Development identity keeps its 
 | M12 | **Offline.** WLAN/Tailscale aus, Take (15 s) aufnehmen und stoppen, WLAN wieder an. | Das Memo erscheint nach der Verbindung in der History und läuft bis „Done"; nichts doppelt. | |
 | M13 | **Beenden mitten im Take.** Take starten, nach 15 s Iris mit Cmd-Q beenden, neu starten. | Beim Start sendet der Outbox, was geschlossen war (Verlust höchstens das offene Segment, siehe I2); die History zeigt ein Memo. | |
 | M14 | **Vollbild und Spaces.** Eine App im Vollbild, dann Control-Option-M. Danach auf einen anderen Space wechseln. | Das Panel erscheint über der Vollbild-App und folgt auf den anderen Space. | |
+| M15 | **Panel bekommt Tasten, nur auf Klick.** In TextEdit tippen, Control-Option-M, **weitertippen** (die Buchstaben landen weiter in TextEdit). Dann ins Panel klicken (auf eine freie Stelle), Return drücken; danach noch einmal aufnehmen und das Mikrofon-Menü im Panel öffnen. | Solange nicht geklickt wurde, bleibt TextEdit aktiv und bekommt jede Taste. Nach dem Klick löst Return „Stop" aus, das Mikrofon-Menü öffnet sich als normales Menü, das Menü von TextEdit bleibt in der Menüleiste (Iris wird nicht zur aktiven App). Notiere, ob TextEdit nach dem Klick noch Tasten bekommt (erwartet: nein, solange das Panel Key ist) und ob Escape in der Fehlermeldung „Close" auslöst. | |
+| M16 | **Eingabe nach Kill.** Zweites Mikrofon anschließen, Take starten, im Panel das zweite Mikrofon wählen, dann Iris hart beenden (`pkill -9 Iris`). Iris neu starten. | Systemeinstellungen › Ton › Eingabe zeigt wieder das Gerät von vor dem Take (nicht das gewählte). Das abgebrochene Memo wird gesendet, was geschlossen war. |  |
+| M17 | **Hängender Upload.** Server-Token im Mac auf einen falschen Wert setzen, Take (10 s) aufnehmen und stoppen; im Menüleistensymbol das Popover öffnen. | Unter der Kopfzeile steht „1 waiting to send"/„1 of 1 could not be sent" mit Grund; „Retry now" versucht es sofort, „Discard" entfernt es (das Memo verschwindet aus der History). Richtigen Token setzen und „Retry now": das Memo läuft durch. |  |
+| M18 | **Banner nach Verbindungsabbruch.** Wlan/Tailscale aus, vom iPhone ein Memo aufnehmen, das fertig wird, Wlan wieder an. | Der Mac zeigt nach der Wiederverbindung genau einen Banner für das Memo (Route und Überschrift, kein Transkript); ein Memo, das „Failed" oder „Where should this go?" wurde, zeigt den allgemeinen Text. Kein zweiter Banner beim nächsten Wechsel. |  |
+| M19 | **Mac-Telemetrie.** Einen Take aufnehmen und stoppen. In HyperDX nach `service.name=iris-macos` und der Memo-ID ohne Bindestriche suchen (`/otel`). | `take.phase`, `capture.segment.closed`, `outbox.segment.upload`, `mac.panel` und `notify.mac` erscheinen auf einer Trace; keine Transkriptworte, kein Token, keine Geräte-ID in den Attributen. |  |
 
 ## Wave 18 I7: re-test of the three device failures (fixes built, device proof pending)
 
@@ -258,3 +263,36 @@ backgrounded, or by the hand-over itself), and a `liveactivity.snapshot` with `r
 `age_s` after step 4 is the bug; the row's `states` and `memos` fields name the activity and its memo.
 
 Rows to update after the takes: 1 (Lock Screen, Control Center), 15, 20, 21; the `source` of the island buttons is `island`, of the control `intent`.
+
+## Wave 19 R1: live preview on the take screen (device proof pending, owner's batch D1)
+
+The analyzer does not run in the Simulator, so none of this has run yet. Needs an iPhone 12 or newer on iOS 26 or later.
+
+**Preview A: German (row P1).**
+1. Das iPhone steht auf Deutsch. Iris öffnen, Aufnahme starten (Aufnahme-Knopf unten).
+2. „Bitte erinnere mich morgen an den Zahnarzttermin und verschiebe das Treffen am Donnerstag“ sagen. Auf dem Aufnahme-Bildschirm erscheint der Text unter der Pegelanzeige, noch veränderliche Wörter in grau, fertige in schwarz (hell) oder weiß (dunkel).
+3. Pause antippen, zwei Sekunden warten: der Text bleibt stehen. Fortsetzen, weitersprechen: der Text läuft weiter. Stopp antippen.
+
+Headless check: the take's `take.phase` runs `recording` › `paused` › `recording` › `stopping`, `capture.segment.closed` and the upload run as without the preview, the memo's server transcript is the truth and may differ from what the screen showed; the device log
+has no `capture.session.error`, and **no** record carries any transcript text (`category=preview` notices say only "no live preview" or an error domain and code).
+
+**Preview B: no model, no preview (row P2).** A language whose model is not installed (a second device language, or a fresh device where German was never downloaded) shows no text and no empty area; the take records, pauses and sends as usual. Iris starts no download (no progress anywhere, no new language asset on the phone after the take).
+
+**Preview C: the take does not feel it (row P3).** A five-minute take with the preview on: the microphone level keeps moving, no `capture.gap`, `segmentCount` is as long as without it, the phone is not noticeably warm, and the uploaded audio plays gapless. Compare `capture.level` cadence with a take before this wave. If a take stutters, send the device log: the preview feeds from a bounded copy and must not.
+
+**Preview D: Stop contrast (row P4).** Dark and light scheme: the red Stop disc on the take screen shows a clearly visible square (dark glyph on the light red in dark mode, light glyph on dark red in light mode).
+
+**Open questions measured here, not answered by research:** model size per language, whether the system download honours cellular / Low Data Mode (the app never triggers it), CPU and battery cost of a long take with the preview, and which of the owner's languages are installed without a download.
+
+## Wave 19 R2: widgets (owner's batch D1; paid team needed for the data rows)
+
+| Row | Check | Result |
+|-|-|-|
+| W-1 | Home Screen small and medium Record: tap with the phone unlocked opens Iris and starts a take (`Button(intent: OpenRecorderIntent())` from a widget; if the app opens but no take starts, or the extension runs the intent, switch to `widgetURL`) | not run |
+| W-2 | Lock Screen circular Record: tap on the locked phone asks for the unlock, then Iris opens and the take starts | not run |
+| W-3 | Last memo (paid team, App Group on): record a memo, watch the small / medium / rectangular / inline widget go processing, then done (or needs a route); the banner and the widget agree | not run |
+| W-4 | Last memo without the App Group (Personal Team build): the widget shows "Open Iris" and tapping opens the app, no crash | not run |
+| W-5 | A widget whose memo was deleted in the app returns to "Open Iris" within a reload | not run |
+| W-6 | StandBy (charging, landscape): the small Last memo and Record widgets are legible at distance; at night they go red-tinted | not run |
+| W-7 | Tinted Home Screen and Lock Screen: no state colors, the state line and the glyph take the accent; the inline line fits | not run |
+| W-8 | Force the app away with a memo processing for over 30 min: the widget reads "Ready", not "Processing" | not run |
