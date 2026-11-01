@@ -48,6 +48,30 @@ final class TakeUITests: IrisUITestCase {
   }
 
   @MainActor
+  func testTheLiveTranscriptAppearsWhileRecordingAndGoesWithTheTake() {
+    let app = XCUIApplication()
+    app.launchArguments = SampleClock.arguments
+    start(app)
+    XCTAssertTrue(waitForPresence(element(app, "history.list"), timeout: 10))
+
+    element(app, "record.start").tap()
+    XCTAssertTrue(waitForPresence(element(app, "take.screen"), timeout: 10))
+    // The scripted recognizer follows the fake microphone: its first words appear on the take screen.
+    let preview = element(app, "take.preview")
+    XCTAssertTrue(waitForPresence(preview, timeout: 15))
+    let words = NSPredicate(format: "value CONTAINS[c] 'Remind me'")
+    expectation(for: words, evaluatedWith: preview)
+    waitForExpectations(timeout: 15)
+
+    element(app, "take.discard").tap()
+    let confirm = app.buttons["take.discard.confirm"].firstMatch
+    XCTAssertTrue(waitForPresence(confirm, timeout: 10))
+    confirm.tap()
+    XCTAssertTrue(waitForAbsence(element(app, "take.screen"), timeout: 15))
+    XCTAssertTrue(waitForAbsence(preview, timeout: 2), "the transcript goes with the take")
+  }
+
+  @MainActor
   func testDiscardingTheTakeLeavesNothingBehind() {
     let app = XCUIApplication()
     app.launchArguments = SampleClock.arguments

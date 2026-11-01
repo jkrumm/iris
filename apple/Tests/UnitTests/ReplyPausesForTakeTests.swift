@@ -31,7 +31,7 @@ struct ReplyPausesForTakeTests {
       isConfigured: {
         probe?.sawActive = probe?.controller?.captureActive
         return isConfigured
-      }, requestPermission: { true }, speech: speech)
+      }, requestPermission: { true }, speech: speech, preview: nil)
     probe?.controller = controller
     speech.captureActive = { [weak controller] in controller?.captureActive ?? false }
     return controller

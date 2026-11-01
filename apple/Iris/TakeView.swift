@@ -12,7 +12,7 @@ struct TakeView: View {
     TakeScreen(
       isPaused: model.isPaused, start: model.timerStart ?? Date(), frozenAt: model.timerFrozenAt,
       modeLabel: model.modeTitle, inputName: model.inputName, levels: model.levels, notice: model.screenNotice,
-      labels: Self.labels, onMinimize: { model.showsFull = false },
+      preview: preview, labels: Self.labels, onMinimize: { model.showsFull = false },
       onPickInput: { Task { await model.openInputPicker() } },
       onTogglePause: { Task { await model.togglePause() } },
       onStop: { Task { await model.stop() } },
@@ -35,6 +35,13 @@ struct TakeView: View {
         .presentationDetents([.medium])
         .presentationDragIndicator(.visible)
     }
+  }
+
+  /// The live transcript, once the on-device recognizer runs for this take; nothing otherwise (an unsupported language, a model
+  /// that is not installed and a failed recognizer all look the same: no preview).
+  private var preview: LiveTranscriptText? {
+    guard model.preview.isRunning else { return nil }
+    return LiveTranscriptText(finalized: model.preview.finalized, volatile: model.preview.volatile)
   }
 
   private static var labels: TakeScreenLabels {

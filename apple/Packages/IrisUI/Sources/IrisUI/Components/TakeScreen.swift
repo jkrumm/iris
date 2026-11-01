@@ -39,6 +39,7 @@ public struct TakeScreen: View {
   private let inputName: String?
   private let levels: [Float]
   private let notice: String?
+  private let preview: LiveTranscriptText?
   private let labels: TakeScreenLabels
   private let onMinimize: () -> Void
   private let onPickInput: () -> Void
@@ -48,7 +49,8 @@ public struct TakeScreen: View {
 
   public init(
     isPaused: Bool, start: Date, frozenAt: Date? = nil, modeLabel: String, inputName: String?, levels: [Float],
-    notice: String? = nil, labels: TakeScreenLabels, onMinimize: @escaping () -> Void,
+    notice: String? = nil, preview: LiveTranscriptText? = nil, labels: TakeScreenLabels,
+    onMinimize: @escaping () -> Void,
     onPickInput: @escaping () -> Void, onTogglePause: @escaping () -> Void, onStop: @escaping () -> Void,
     onDiscard: @escaping () -> Void
   ) {
@@ -59,6 +61,7 @@ public struct TakeScreen: View {
     self.inputName = inputName
     self.levels = levels
     self.notice = notice
+    self.preview = preview
     self.labels = labels
     self.onMinimize = onMinimize
     self.onPickInput = onPickInput
@@ -83,6 +86,9 @@ public struct TakeScreen: View {
           .accessibilityIdentifier("take.timer")
         LevelWaveform(levels: levels, isActive: !isPaused)
           .frame(height: 120)
+        if let preview {
+          LiveTranscript(preview)
+        }
         if let notice {
           Text(verbatim: notice)
             .themeFont(.footnote)
@@ -187,9 +193,11 @@ public struct TakeScreen: View {
       Button(action: onStop) {
         Image(systemName: "stop.fill")
           .font(.system(size: 30, weight: .bold))
-          .foregroundStyle(Theme.Accent.onFill)
+          // The status red is a light salmon in dark mode: white on it is ~2.4:1, so the glyph takes the screen's own colour, and
+          // the fill is opaque (a translucent one lets the background through and lowers the contrast again).
+          .foregroundStyle(Theme.Surface.background)
           .frame(width: 84, height: 84)
-          .background(Theme.Status.bad.opacity(0.82), in: .circle)
+          .background(Theme.Status.bad, in: .circle)
       }
       .buttonStyle(.plain)
       .accessibilityLabel(labels.stop)
