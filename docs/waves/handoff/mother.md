@@ -9,7 +9,7 @@ and skim `docs/TDD.md`. Role contract: `~/.claude/skills/wave/roles/mother.md` (
 Wave 19 done 2026-11-01 (`2f42e24`): batch 1 #97 (I1 data safety, M1 Mac, R1 live preview, R2 widgets), batch 2 #101 (I3b telemetry/UI, R3b German).
 I2 late tail parked as PR #98 (design and open blockers in Wave 19's Left behind); D1 carried. Batches were Apple-only; deployed server `e4ece55`.
 No lead, no workers, no watcher running; the factory session `iris-mother` has no wait declared. Open PRs #99/#100 were batch members (merged via #101; close if still open).
-**Pause (the mother's recommendation, owner has not objected):** resume only on the owner's feedback (hardware batch D1 on a fresh device build of master,
+**Pause (owner decision 2026-11-01 19:30, via the software-factory program lead: finish Wave 19, then pause; start no new wave):** resume only on the owner's feedback (hardware batch D1 on a fresh device build of master,
 UI review of R1/R2 surfaces in `docs/design/README.md`) or the Apple enrolment email (then D2/S3/APNs/TestFlight). **On resume:** write Wave 20 from the
 Fleet backlog + Wave 19 Left behind, spawn a lead under a FRESH factory key (`iris-w20-lead`, see Lessons; never `rd wave`), start
 `docs/waves/handoff/mother-watch.sh 20 <lead>` in the background, `factory session wait --on workers`. Worker briefs of Wave 19: `~/.iris-fleet/iris-w19-briefs/`.
