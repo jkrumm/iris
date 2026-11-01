@@ -4,24 +4,23 @@ Rewritten 2026-10-28 at the owner's pause; status updated at the resume the same
 (the Fleet section, Waves 10–15, the Fleet backlog), `docs/PRD.md`, `docs/design/feedback-round-{1,2}.md` (binding, round 2 wins)
 and skim `docs/TDD.md`. Role contract: `~/.claude/skills/wave/roles/mother.md` (lead: `roles/lead.md`, workers: `roles/worker.md`).
 
-## Status: RESUMED by the owner (2026-10-28), run through the night
+## Status: PAUSED after Wave 19 (2026-11-01 ~18:45 CET)
 
-Wave 15 done 2026-10-29. Wave 16 done 2026-10-30 07:47. Wave 17 done 2026-10-30 20:38. Wave 18 done 2026-10-31 09:58 (`2b4c60c`).
-**Resumed 2026-11-01:** lead `iris-w19b` (t37) resumes batch 1 from `handoff/lead.md`; watcher on `iris-w19b`. **Wave 19 active** (R5 polish ∥ Mac completion ∥ data-safety debt). **Paused 2026-10-31 ~14:00 for a mini update (reboot):** the lead
-`iris-w19` finishes batch 1 (#92 widgets, #93 live preview, #94 data safety, #95 Mac completion), pushes every branch, writes
-`handoff/lead.md` and stops. Not started: R3 German strings, I2 late tail (after #94), I3 follow-ups, D1 (owner hardware batch, only
-when he says ready). **On resume:** check `git log origin/master`, `gh pr list`, `handoff/lead.md`, `claude-account usage`; spawn a fresh
-lead for Wave 19 (the spawn command below), restart the watcher (`docs/waves/handoff/mother-watch.sh <wave> <lead>`, run in the background; reason in `/tmp/iris-mother/watch.out`). The Wave 19 worker briefs are saved outside /tmp in `~/.iris-fleet/iris-w19-briefs/` (untracked); the next lead reads `handoff/lead.md` first. **After Wave 19: pause** (mother's recommendation, the owner has not
-answered) until the enrolment email (not arrived 2026-10-31) or his feedback. Owner pending: hardware batch + UI feedback on the phone
-build `b853215`, the Wave 17 I6 route-config render review, B2 mockups (keep until he approves the I5 visuals), token rotation. Quota
-12:15: iu 60% (11-04 16:00), me 67% (11-05 06:00), me2 walled until 11-01 18:00. All walled → wait for a reset, never IU API tokens.
-**Spawn:** `cd ~/SourceRoot/iris && RD_ORCHESTRATED=1 rd wave iris 'Read docs/waves/PLAN.md and ~/.claude/skills/wave/roles/lead.md. You
-are the fleet lead for the active wave (Wave <n>). Brief workers with rd fan, review, merge with rd merge, close out the wave in PLAN.md
-(the label must be exactly **Left behind:**), and stop; the mother spawns the next lead.'` The green gate refuses a spawn while the
-previous wave has `- [ ]` items: rewrite carried ones as `- (carried …)`. **Watcher:** a loop that every 5 min reads the wave's status
-marker in PLAN.md (DONE), `rd agents` for the lead (BLOCKED / GONE), master's head (STALE after 60 min unmoved) and a 90 min HEARTBEAT.
-Mini rules: every Apple build under `lockf -t 1800 /tmp/iris-apple.lock`; approve a blocked worker's prompt (`herdr agent send-keys
-<pane> enter`) only when the command is safe.
+Wave 19 done 2026-11-01 (`2f42e24`): batch 1 #97 (I1 data safety, M1 Mac, R1 live preview, R2 widgets), batch 2 #101 (I3b telemetry/UI, R3b German).
+I2 late tail parked as PR #98 (design and open blockers in Wave 19's Left behind); D1 carried. Batches were Apple-only; deployed server `e4ece55`.
+No lead, no workers, no watcher running; the factory session `iris-mother` has no wait declared. Open PRs #99/#100 were batch members (merged via #101; close if still open).
+**Pause (the mother's recommendation, owner has not objected):** resume only on the owner's feedback (hardware batch D1 on a fresh device build of master,
+UI review of R1/R2 surfaces in `docs/design/README.md`) or the Apple enrolment email (then D2/S3/APNs/TestFlight). **On resume:** write Wave 20 from the
+Fleet backlog + Wave 19 Left behind, spawn a lead under a FRESH factory key (`iris-w20-lead`, see Lessons; never `rd wave`), start
+`docs/waves/handoff/mother-watch.sh 20 <lead>` in the background, `factory session wait --on workers`. Worker briefs of Wave 19: `~/.iris-fleet/iris-w19-briefs/`.
+Quota 2026-11-01 17:40: iu 69% (11-04 16:00), me 91% (11-05 06:00), me2 reset 11-01 18:00. All walled -> wait, never IU API tokens.
+**Spawn (lead):** `cd ~/SourceRoot/software-factory && secrets-run run --env-file=.env.tpl -- factory spawn create <key> --repo ~/SourceRoot/iris --role lead
+--parent iris-mother --prompt 'Read docs/waves/PLAN.md and ~/.claude/skills/wave/roles/lead.md. You are the fleet lead for the active wave (Wave <n>). Brief
+workers with rd fan, review, merge, close out the wave in PLAN.md (the label must be exactly **Left behind:**), and stop; the mother spawns the next lead.'`;
+check `factory spawn get <key>` shows a `t…` pane. Watcher: reasons in `/tmp/iris-mother/watch.out`. The factory re-wakes the mother on every idle turn of the
+lead ("workers done: … idle"): check master + CI, re-declare the wait, end the turn; block on `gh run watch` (≤ 580 s) when a CI run is the only thing pending.
+Timestamps from `gh` are UTC (CET = UTC+1): a 2026-11-01 false "stuck CI" alarm came from mixing them.
+Mini rules: every Apple build under `lockf -t 1800 /tmp/iris-apple.lock`.
 
 ## Mission
 
