@@ -66,9 +66,10 @@ public struct TakeBanner: View {
       Button(action: onStop) {
         Image(systemName: "stop.fill")
           .font(.system(size: 13, weight: .bold))
-          .foregroundStyle(Theme.Accent.onFill)
+          // As the take screen's Stop: the status red is light in dark mode, so the glyph takes the screen colour on an opaque fill.
+          .foregroundStyle(Theme.Surface.background)
           .frame(width: 34, height: 34)
-          .background(Theme.Status.bad.opacity(0.82), in: .circle)
+          .background(Theme.Status.bad, in: .circle)
       }
       .buttonStyle(.plain)
       .accessibilityLabel(stopLabel)
