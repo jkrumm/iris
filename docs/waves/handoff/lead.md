@@ -1,4 +1,12 @@
-# Lead handoff — Wave 19 (active, paused for a mini reboot)
+# Lead handoff — Wave 19 (active, lead `iris-w19b`)
+
+## Now (2026-11-01 ~17:40)
+- **Batch 1 merged:** PR #97 → master `8325a1b` (merge commit; #92-#95 show as merged; `apple.yml` and `check` green on the batch head `107130b`). Apple-only, no deploy. Worktrees of I1/M1/R1/R2 and the batch reclaimed.
+- Reviews (agw, this session): #93 round 2 clean; #95 round 3 and #92 round 2: no new data-loss / privacy / security / crash blocker (owner-only servers), findings listed in #97's body for Left behind; #96 round 1: 6 blockers, handed to R3b.
+- **Batch 2 workers** (briefs in `~/.iris-fleet/iris-w19-briefs/{i3b,i2b,r3b}.md`, each starts by merging `origin/w19-batch-1` and its parked branch): `w19-i3b-telemetry-ui-debt` (t39), `w19-i2b-late-tail` (t3b), `w19-r3b-german` (t3c), all running; fresh spawn keys (the old `iris-w19-*` keys hold stale classic-herdr records, never re-use them). #96 is closed once R3b's PR is up.
+- Deferred to a slot after R3b: the widget-feed findings of #92 (filtered History never updates the widget, a 409 discard forgets the memo, a late first page, the credentials-switch crash) — or Left behind.
+
+## Earlier state (previous lead, 2026-10-31)
 
 State as of 2026-10-31 ~13:30. A fresh lead resumes Wave 19 from here (`docs/waves/PLAN.md` Wave 19; fleet rules in the Fleet section). Nothing is merged
 from the wave's Apple tracks yet. Every worker branch is pushed, all worktrees clean (`.claude/worktrees/w19-*`), no worker is running.
