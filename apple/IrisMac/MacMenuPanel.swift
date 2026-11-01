@@ -9,6 +9,7 @@ struct MacMenuPanel: View {
     VStack(spacing: 0) {
       header
       Divider()
+      MacOutboxStrip(model: root.outbox)
       switch root.page {
       case .history: MacHistoryList(root: root, model: root.history)
       case .settings: MacSettingsView(model: root.connectionForm, hotkey: root.hotkey)

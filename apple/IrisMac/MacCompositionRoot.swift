@@ -58,14 +58,25 @@ final class MacCompositionRoot {
   let recordingPanel: RecordingPanelController
   /// The global key that toggles a take.
   let hotkey: any TakeHotkey
+  /// The stalled-upload panel: the outbox's queue, Retry now and Discard.
+  let outbox: MacOutboxModel
+  /// The device log (`service.name=iris-macos`) and the Mac's own records on it.
+  let log: DeviceLog
+  private let events: MacEvents
+  /// The server key of the saved connection, read by every ``HistoryModel`` the root makes: after a connection change the old model
+  /// sees a different key and drops its stale answers, and a memo created on another server is not inserted (TDD §5).
+  private let serverBox: ServerKeyBox
   /// The scripted engine behind ``Mode/fake``; the snapshot run feeds its levels.
   let fakeTake: FakeTakeEngine?
   /// Production only: the outbox the takes go through, and the client its uploader talks to.
   private let capture: MacCaptureStack?
   private var hotkeyListening: Task<Void, Never>?
   private var createdListening: Task<Void, Never>?
+  private var outboxObserving: Task<Void, Never>?
   /// Signals each `ready` of the current connection's event stream (see ``StreamTappingClient``).
   private var streamReady: AsyncStream<Void>
+  /// Every memo state the current connection's event stream reports, in order (see ``StreamTappingClient``).
+  private var memoStates: AsyncStream<MemoEvent>
   /// The client of the current connection. Each connection gets its own, so a task that started on the old server can never
   /// reach the new one.
   private var api: any APIClient
@@ -84,22 +95,28 @@ final class MacCompositionRoot {
     poster: (any NotificationPoster)? = nil,
     takeEngine: (any TakeEngine)? = nil,
     permission: (any MicrophonePermission)? = nil,
-    hotkey: (any TakeHotkey)? = nil
+    hotkey: (any TakeHotkey)? = nil,
+    log deviceLog: DeviceLog? = nil
   ) {
     sampleNow = SampleData.now(arguments: arguments)
     let client: any APIClient
-    if arguments.contains(Self.fakeDataArgument) {
+    let isFakeLaunch = arguments.contains(Self.fakeDataArgument)
+    let store = credentials ?? (isFakeLaunch ? InMemoryCredentialStore() : KeychainCredentialStore())
+    log = deviceLog ?? MacTelemetry.makeDeviceLog(fake: isFakeLaunch, credentials: store)
+    events = MacEvents(log: log)
+    let serverBox = ServerKeyBox(store.load()?.serverKey)
+    self.serverBox = serverBox
+    if isFakeLaunch {
       let launched = Date()
       let pinned = sampleNow
       let fake = FakeAPIClient(now: { pinned.addingTimeInterval(Date().timeIntervalSince(launched)) })
       mode = .fake
       client = fake
       fakeAPI = fake
-      self.credentials = credentials ?? InMemoryCredentialStore()
+      self.credentials = store
       page = arguments.contains(Self.settingsArgument) ? .settings : .history
       capture = nil
     } else {
-      let store = credentials ?? KeychainCredentialStore()
       let saved = store.load()
       let reconfigurable = ReconfigurableAPIClient(credentials: saved)
       mode = .production
@@ -107,39 +124,90 @@ final class MacCompositionRoot {
       fakeAPI = nil
       self.credentials = store
       page = saved == nil ? .settings : .history
-      capture = MacCaptureStack.production(credentials: saved)
+      capture = MacCaptureStack.production(credentials: saved, log: log)
     }
     let (ready, signal) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+    let (states, stateSignal) = AsyncStream<MemoEvent>.makeStream()
     streamReady = ready
-    let tapped = StreamTappingClient(base: client, ready: signal)
+    memoStates = states
+    let tapped = StreamTappingClient(base: client, ready: signal, states: stateSignal)
     api = tapped
-    history = Self.makeHistory(client: tapped, mode: mode)
+    history = Self.makeHistory(client: tapped, mode: mode, serverBox: serverBox)
     let isFake = mode == .fake
     notifier = MemoNotifier(
       poster: poster ?? (isFake ? RecordingNotificationPoster() : UserNotificationPoster()),
       connectionID: Self.connectionID(for: isFake ? nil : self.credentials.load()), lookup: { _ in nil })
     let engine: any TakeEngine = takeEngine ?? capture?.engine ?? FakeTakeEngine()
     fakeTake = engine as? FakeTakeEngine
-    let store = self.credentials
     recording = RecordingPanelModel(
       engine: engine, permission: permission ?? (isFake ? FakeMicrophonePermission() : SystemMicrophonePermission()),
       isConfigured: { isFake || store.load() != nil })
     recordingPanel = RecordingPanelController(model: recording)
+    let queue: any QueuedItemSource
+    if let capture {
+      queue = capture.service
+    } else {
+      queue = ScriptedQueue(arguments.contains(Self.stalledArgument) ? ScriptedQueue.stalledSample : [])
+    }
+    outbox = MacOutboxModel(source: queue)
     self.hotkey = hotkey ?? (isFake ? FakeTakeHotkey() : KeyboardShortcutsHotkey())
     // Always fetched: the list's copy can be stale, and a failed refresh must not announce a memo that is still running.
     notifier.lookup = { [weak self] id in try? await self?.api.memo(id: id).memo }
-    wireNotifications()
+    // The catch-up reads the newest memos with no filter: History's filters decide what its list shows, not what is announced.
+    notifier.fetchRecent = { [weak self] in
+      guard let page = try? await self?.api.listMemos(ListMemosQuery(limit: 50)) else { return nil }
+      return page.pinned + page.items
+    }
     wireCreatedMemos()
+    wireTelemetry()
   }
 
-  private static func makeHistory(client: any APIClient, mode: Mode) -> HistoryModel {
-    mode == .fake
-      ? HistoryModel(client: client) : HistoryModel(client: client, hiddenStore: UserDefaultsHiddenMemoStore())
+  /// The Mac's take, panel, banners and queue actions on the device log. Every record is an enum or a count: nothing a person
+  /// said, nothing a server answered, no token, URL or device id.
+  private func wireTelemetry() {
+    let log = log
+    let events = events
+    recording.onCommand = { log.commandSource = $0 }
+    recording.onPhaseChange = { events.panel(phase: $0.telemetryName, failure: $0.telemetryFailure) }
+    notifier.report = { event in
+      switch event {
+      case .posted(let id, let kind): events.notification("posted", memoID: id, kind: kind.telemetryName)
+      case .withdrawn(let id, let kind): events.notification("withdrawn", memoID: id, kind: kind.telemetryName)
+      case .caughtUp(let announced, let seen):
+        events.notification("catchup", memoID: nil, kind: nil, count: announced, seen: seen)
+      }
+    }
+    outbox.report = { action, item, ok in
+      events.outboxAction(action, memoID: item.id, kind: item.kind.telemetryName, ok: ok)
+    }
+  }
+
+  /// Starts the relay (production only: the fake composition keeps its records in memory) and records the launch.
+  func startTelemetry() {
+    log.commandSource = "panel"
+    events.lifecycle(.launch)
+    guard mode == .production else { return }
+    log.start()
+    // Delivered on the main queue, so the main actor is where this runs.
+    NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: .main)
+    {
+      [events] _ in
+      MainActor.assumeIsolated { events.lifecycle(.quit) }
+    }
+  }
+
+  private static func makeHistory(client: any APIClient, mode: Mode, serverBox: ServerKeyBox) -> HistoryModel {
+    // The key is given explicitly: the client is wrapped (`StreamTappingClient`), so the model cannot read it from the client.
+    let serverKey: () -> String? = { serverBox.value }
+    return mode == .fake
+      ? HistoryModel(client: client, serverKey: serverKey)
+      : HistoryModel(client: client, hiddenStore: UserDefaultsHiddenMemoStore(), serverKey: serverKey)
   }
 
   /// What the outbox tells History, in the order it happened.
   private enum CreatedChange: Sendable {
-    case created(Memo)
+    /// `origin` is the server key the memo was created on (nil: the item was bound to none).
+    case created(Memo, origin: String?)
     /// A cancelled take: its memo is dropped and stays out of the list until its server `DELETE` settles.
     case hide(String)
     case unhide(String)
@@ -156,14 +224,14 @@ final class MacCompositionRoot {
       for await change in changes {
         guard let history = self?.history else { return }
         switch change {
-        case .created(let memo): history.insert(memo)
+        case .created(let memo, let origin): history.insert(memo, origin: origin)
         case .hide(let id): history.hide(id)
         case .unhide(let id): history.unhide(id)
         }
       }
     }
     Task {
-      await created.setHandler { changed.yield(.created($0)) }
+      await created.setServerHandler { changed.yield(.created($0, origin: $1)) }
       await created.setForgottenHandler { changed.yield(.hide($0)) }
       await created.setSettledHandler { changed.yield(.unhide($0)) }
     }
@@ -175,12 +243,11 @@ final class MacCompositionRoot {
     let presses = hotkey.presses
     // Owned by the root, which lives as long as the app.
     hotkeyListening = Task { [weak self] in
-      for await _ in presses { self?.recording.toggle() }
+      for await _ in presses {
+        self?.events.hotkey()
+        self?.recording.toggle()
+      }
     }
-  }
-
-  private func wireNotifications() {
-    history.onMemoDone = { [weak self, notifier] id in self?.announce(id, with: notifier) }
   }
 
   /// The generation is read now, not when the task runs: an event of the old server that only gets to run after a switch is dropped.
@@ -218,6 +285,8 @@ final class MacCompositionRoot {
   }
 
   static let fakeDataArgument = "-IrisFakeData"
+  /// Fakes: the outbox panel starts with a stalled upload, a waiting one and a queued removal (screenshots).
+  static let stalledArgument = "-IrisMacStalled"
   /// Opens the panel on the Settings page (screenshots).
   static let settingsArgument = "-IrisMacSettings"
   /// Opens the panel as a regular window at launch, because a menu-bar popover cannot be opened without a click
@@ -234,6 +303,8 @@ final class MacCompositionRoot {
   /// Starts following the server: the list and its event stream. Called once at launch
   /// and again on each connection change.
   func begin() {
+    // The queue is followed for the life of the app: a take made before any connection was saved can be waiting in it.
+    if outboxObserving == nil { outboxObserving = Task { [outbox] in await outbox.observe() } }
     following?.cancel()
     following = Task { [weak self] in await self?.follow() }
   }
@@ -253,19 +324,35 @@ final class MacCompositionRoot {
       }
     }
     notifier.requestPermissionIfNeeded()
+    // Banners left by an earlier run or an earlier server do not name this one's memos.
+    notifier.withdrawForeignBanners()
     // The stream does not wait for the first list request: a slow or hung list must not keep the notifications away. The stream's
     // `ready` event reloads the list on its own.
     async let list: Void = history.load()
     async let events: Void = history.observeEvents()
     async let returns: Void = countReturns(of: streamReady)
-    _ = await (list, events, returns)
+    async let states: Void = followStates(of: memoStates)
+    _ = await (list, events, returns, states)
   }
 
-  /// Every `ready` of the event stream after the first is the server coming back; an open detail reloads on it.
+  /// Every `ready` of the event stream after the first is the server coming back; an open detail reloads on it, and the
+  /// notifier catches up on what finished while the stream was down (the first `ready` of a connection is its baseline).
   private func countReturns(of ready: AsyncStream<Void>) async {
     for await _ in ready {
       guard !Task.isCancelled else { return }
       reconnects += 1
+      let generation = notifier.generation
+      // One catch-up per `ready`, on its own task: it fetches and may post, and must not hold the next `ready` back.
+      Task { [notifier] in await notifier.catchUp(generation: generation) }
+    }
+  }
+
+  /// The states the stream reports, in order: a memo that reached a kind of banner it was not announced as is delivered.
+  /// Noting a state is synchronous, so a later event can never be overtaken by an earlier one.
+  private func followStates(of states: AsyncStream<MemoEvent>) async {
+    for await event in states {
+      guard !Task.isCancelled else { return }
+      if notifier.noteState(of: event) { announce(event.id, with: notifier) }
     }
   }
 
@@ -304,13 +391,16 @@ final class MacCompositionRoot {
     let base: any APIClient =
       fakeAPI ?? ReconfigurableAPIClient(credentials: credentials.load())
     let (ready, signal) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+    let (states, stateSignal) = AsyncStream<MemoEvent>.makeStream()
     streamReady = ready
-    api = StreamTappingClient(base: base, ready: signal)
-    history = Self.makeHistory(client: api, mode: mode)
-    wireNotifications()
+    memoStates = states
+    api = StreamTappingClient(base: base, ready: signal, states: stateSignal)
+    serverBox.value = credentials.load()?.serverKey
+    history = Self.makeHistory(client: api, mode: mode, serverBox: serverBox)
     notifier.reset(connectionID: Self.connectionID(for: credentials.load()))
     queues = [:]
     capture?.reconnect(credentials.load())
+    log.serverChanged(credentials.load()?.serverURL)
     closeDetail()
     reconnects = 0
     connectionRevision += 1
@@ -331,4 +421,14 @@ nonisolated final class InMemoryCredentialStore: CredentialStore {
   func load() -> ConnectionCredentials? { state.withLock { $0 } }
   func save(_ credentials: ConnectionCredentials) throws { state.withLock { $0 = credentials } }
   func clear() { state.withLock { $0 = nil } }
+}
+
+/// The server key of the saved connection, shared with every ``HistoryModel`` of the root (see ``MacCompositionRoot``).
+@MainActor
+final class ServerKeyBox {
+  var value: String?
+
+  init(_ value: String?) {
+    self.value = value
+  }
 }

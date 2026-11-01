@@ -990,12 +990,31 @@ pinned simulator in light and dark (`LiveActivitySnapshotTests`, the island thro
   silently in Carbon; Settings shows "This key is not active" when
   `KeyboardShortcuts.isEnabled(for:)` is false.
 - **Panel:** a floating non-activating `NSPanel` (`NonActivatingPanel`:
-  `.borderless` + `.nonactivatingPanel`, `canBecomeKey` false, floating level,
-  every Space and over full-screen apps, top centre under the menu bar) for the
-  take, showing the timer (`ElapsedTimerText`), the level (`LevelWaveform`, the
-  last 36 buffers), a mic picker and Stop / Cancel. A refused microphone,
-  a missing connection or a failed start leaves a sentence in the same panel
-  (with "Open Settings" for the microphone) until closed.
+  `.borderless` + `.nonactivatingPanel`, floating level, every Space and over
+  full-screen apps, top centre under the menu bar) for the take, showing the
+  timer (`ElapsedTimerText`), the level (`LevelWaveform`, the last 36 buffers),
+  a mic picker and Stop / Cancel. A refused microphone, a missing connection or
+  a failed start leaves a sentence in the same panel (with "Open Settings" for
+  the microphone) until closed.
+  *Keys (Wave 19 M1):* `canBecomeKey` is **true** (a borderless window refuses
+  key status otherwise; `canBecomeMain` stays false) and `becomesKeyOnlyIfNeeded`
+  stays false, but the panel is shown with `orderFrontRegardless`, which changes
+  neither the key nor the main window: the app in front keeps its keystrokes
+  until the user clicks the panel. A click makes it key without making Iris the
+  active app (the `.nonactivatingPanel` bit is set at init; AppKit tags the
+  window then and never again, so it cannot be toggled on a live panel). That
+  gives the Microphone menu a key window to open from, Return = Stop
+  (`.keyboardShortcut(.defaultAction)`) and Escape = Close on a message
+  (`.cancelAction`); Cancel of a running take has no shortcut, so a stray Escape
+  cannot drop a recording. Researched (`agw research`, Apple's `NSPanel` /
+  `NSWindow` pages, philz.blog on the init-only bit, Apple DTS thread 826308) and
+  checked on the mini by `RecordingPanelKeyTests`: the panel is non-activating,
+  can be key, is not key after being shown, and after `makeKey()` it is key while
+  `NSWorkspace.frontmostApplication` is still the app in front. **Found:**
+  `NSApp.isActive` reads `true` after `makeKey()` (the research report expected
+  `false`); what that means for where the keystrokes go, and that the app behind
+  stops getting them while the panel is key (key-focus theft, by design), only a
+  person at a MacBook can show: device-checklist M15.
 - **Capture (Wave 18 M2):** the same `IrisCapture` package. macOS has no
   `AVAudioSession`: `MacAudioSessionController` is a no-op, and
   `DirectoryRouteManager` (over the `AudioDeviceDirectory` port;
@@ -1007,9 +1026,19 @@ pinned simulator in light and dark (`LiveActivitySnapshotTests`, the island thro
   The default before the first pick is kept and put back when the take ends,
   however it ends, a start that throws after the session applied a mic rule
   included (`setPreferredInput(uid: nil)`), and only while the default is still
-  the device Iris set: a default somebody else chose mid-take is left alone. A
-  crash mid-take leaves the last pick as the default (known limit; the original
-  is not persisted). `routeChanges`, the directory's `changes` and the engine's
+  the device Iris set: a default somebody else chose mid-take is left alone. The
+  original is also written down (`RecoveringRouteManager` wraps the route
+  manager; `UserDefaults`, `{original, replaced, chosen}`) **before** every pick of a
+  take changes the default (`original` is kept from the first pick, `replaced` is the default this pick replaces, `chosen` the device it sets), and
+  cleared when the restore has run. A kill
+  mid-take leaves the record; the next launch (`RecoveringRouteManager.recover`,
+  run by `MacCaptureStack.production`) puts the original back under the same
+  rules as the in-process restore (only while the default is `chosen` **or** `replaced`, because a kill can land on either side of the
+  system call), else drops it; an original that is not attached yet (a USB or Bluetooth microphone that comes up after login)
+  keeps the record (`pending`). The restore at the end of a take clears the record only when this process changed the default, so a take
+  that picked nothing leaves a record from an earlier run (a recovery that failed or is pending) for the next launch. The recovery's failure is not logged with the error (it can name a
+  port); the outcome is the `audio.input_recovery` record. A
+  restore that fails keeps the record for the next launch. `routeChanges`, the directory's `changes` and the engine's
   levels, failures and mic list are broadcasts (`Broadcast`): every read is its
   own subscription, because the capture session and the panel both listen and an
   `AsyncStream` ends for everyone when one consumer stops. Per-device mic rules are local
@@ -1034,11 +1063,15 @@ pinned simulator in light and dark (`LiveActivitySnapshotTests`, the island thro
   with no `DELETE` queued. A stop that returns a result with `failure` (the
   recorder failed, or stopping timed out after earlier segments closed) is
   `TakeEnd.partial`: the memo is sent with what closed, and the panel says the
-  recording stopped early. A create that the old server answers after the saved
-  connection changed is refused as a transport error (`ConnectionBoundClient`,
-  a connection epoch counted by `MacCaptureStack.reconnect`), so it is neither
-  recorded nor inserted into the new server's History; the outbox sends the item
-  again over the new connection (binding an item to its server is a follow-up).
+  recording stopped early. **Server binding (Wave 19 M1, the iPhone's
+  I1 design, §4):** the outbox binds every item to the server configured when it is queued (`MacCaptureStack` passes
+  `CaptureStack.Parts.serverKey` = the `ReconfigurableAPIClient`'s key, `ConnectionCredentials.serverKey`); after a connection change
+  work for another server is held back and goes out when that server is configured again, and a call made for an item that finds
+  another server configured throws `WrongServerError` instead of sending. The root's `ServerKeyBox` holds the saved connection's key
+  and is the `serverKey` of every `HistoryModel` it makes (the client is wrapped by `StreamTappingClient`, so the model cannot read
+  it): an answer that started under another server is dropped, and the created-memo log's `setServerHandler` hands `origin` to
+  `insert(_:origin:)`, so a memo created on another server is not shown. `ConnectionBoundClient` (a connection epoch counted by
+  `MacCaptureStack.reconnect`) stays as a second guard: a create answered after the switch is refused as a transport error.
   No log line carries a device uid.
 - **Notifications:** live SSE `/v1/events` for status, local notifications
   while it runs, and APNs registration for when it is asleep.
@@ -1059,25 +1092,40 @@ pinned simulator in light and dark (`LiveActivitySnapshotTests`, the island thro
   - *Live updates:* the list and `HistoryModel.observeEvents()` start at launch, independently of each other (a hung first list
     request does not hold the stream back; its `ready` event reloads the list), whether or not the popover was ever opened, and
     restart on a connection change. The list reloads on every stream reconnect.
-  - *Notifications:* only a live `memo.done` from the open stream is announced. **Known limit:** a memo that finished while the
-    stream was down (the stream has no replay) is not announced; it shows in the list after the reload. `MemoNotifier` fetches the
-    memo fresh before posting and announces it only when the server says it is result-ready (a stale or running copy is never
-    announced and not remembered). One local notification per memo, never with the transcript, the reply or the park reason: a
-    finished memo shows its route and the summary's headline ("Done." without one), a parked or failed one generic words. A
-    memo is tracked as in flight vs posted; a fetch or post that fails is tried three times in all, logged, and forgotten, so a
-    later event may try again. The permission is read again for every memo, never cached, and the system prompt runs on the
-    side: an unanswered prompt holds neither History nor the stream, and finished memos wait on it.
-  - *Connection change:* the connection gets its own client and a new `HistoryModel`; the notifier is cleared (every event and
-    fetch carries the notifier's generation from when it started and re-checks it after each await, so a task of the old server
-    posts and records nothing); a banner carries its connection id (a digest of the server URL and token, so it survives an app restart
+  - *Notifications (Wave 19 M1, `MemoNotifier`):* a banner per **transition**, for three kinds: finished (`notified`: route and
+    headline, "Done." without a summary), parked (`needs_route`) and failed. Three feeds, one record (`announced`, the kind each
+    memo was last announced as): `memo.updated` / `memo.done` payloads from the open stream (`StreamTappingClient` hands every
+    state to the root in stream order; `noteState` is synchronous, so an earlier event never overtakes a later one), the
+    `memo.done` payload (its state is on the same stream: there is no separate `History` hook), and the **catch-up** after the stream (re)connects. A state that is not a kind (a retry, a route answer) clears
+    the record, so the memo's next finish is a new banner; a repeated event or a second feed posts nothing. The event's state is
+    not the answer: the memo is fetched fresh before posting and judged by that copy. The catch-up fetches the newest 50 memos
+    **unfiltered** (History's filters hide memos from its list, not from the banners): the first one of a connection is the
+    baseline (what is finished is recorded, nothing announced), later ones announce memos that reached a kind since — ones the
+    connection saw running, and ones it never saw that started after the baseline's newest — at most five per catch-up, newest
+    first, the rest recorded. Banners never carry the transcript, the reply or the park reason: generic words for parked and
+    failed. A fetch or post that fails is tried three times, logged, forgotten. The permission is read again for every memo, and
+    the system prompt runs on the side. A memo in flight twice (an event while a catch-up delivers it) is delivered once, and looks
+    again fresh when the first delivery is through; a delivery whose memo changed state while its banner was being posted (a retry) does not
+    record its kind. Catch-ups run one at a time in the order asked, so a later fetch cannot become the baseline over an earlier one. **Limit:** a memo that finished while the *app was not running* is not announced
+    (the baseline records it); APNs for an asleep app comes later.
+  - *Connection change:* the connection gets its own client and a new `HistoryModel`; the notifier is cleared (every event, fetch and
+    catch-up carries the notifier's generation from when it started and re-checks it after each await, so a task of the old server
+    posts and records nothing; a banner the system took while the switch ran is withdrawn again, and the switch withdraws every
+    banner of another connection from Notification Center, as does launch); a banner carries its connection id (a digest of the server URL and token, so it survives an app restart
     and changes only with the saved connection) and a click on a banner of another connection is ignored; queued row actions of
     the old list are dropped, and the actions on one memo run in tap order, each on the memo as it is then, so the last tap wins on the server
     (`MacCompositionRoot.perform`); the detail window closes and following restarts.
   - *Open detail:* reloads on each `memo.updated` and on every stream `ready` (`StreamTappingClient`; a list request that
     succeeds during an outage does not count), and a response overtaken by a newer load is dropped.
+  - *Rows match iOS (Wave 19 M1):* the list applies the iPhone list's spacing roles (`Theme.Spacing.rowVertical` and `screenMargin` as
+    row insets, `screenMargin` header insets, `sectionTop` / `sectionBottom` around the day label, the first label shortened by
+    `chipTapOverhang`, header and row minimum heights 0, the search field on `screenMargin`), so a row and its inset separator sit on
+    the same 20 pt margin as `HistoryView`'s. By design not the same: no disclosure chevron (a click opens the detail window), the
+    search field is on top (the iPhone's is a bottom bar), and `listSectionSpacing` does not exist on macOS (a plain list has none).
   - *Proof:* a menu-bar popover cannot be opened without a click and the mini has no Screen Recording grant, so
     `-IrisMacPanelWindow` shows the same panel as a regular window and `-IrisMacSnapshot <dir>` has the app write PNGs of its own
-    windows (history, detail, settings) and quit; snapshot mode only exists on the fake composition. Unit tests: `IrisMacTests`,
+    windows (history, detail, settings, the recording panel and its refused message) and quit (any further launch flag, such as `-IrisMacStalled`,
+    goes **after** `-IrisMacSnapshot <dir>`: between `-IrisMacPanelWindow` and it, the panel window is not created); snapshot mode only exists on the fake composition. Unit tests: `IrisMacTests`,
     hosted in the app (launched with `-IrisFakeData`), run by `make check-apple`.
 - **Signing:** a stable Apple Development identity. Ad-hoc signing resets TCC
   on every build (the microphone grant is keyed to the code signature). The
@@ -1088,8 +1136,25 @@ pinned simulator in light and dark (`LiveActivitySnapshotTests`, the island thro
   unsigned CI and `check-apple` builds never record. The microphone prompt and a
   real take need a Mac with a microphone and a person: hands-on rows in
   `docs/spikes/device-checklist.md` ("Mac hands-on rows").
-- **Telemetry:** the Mac's take is not yet on the device log or the relay
-  (`DeviceLog` is the iOS app's); the package logs through `os.Logger` only.
+- **Outbox panel (Wave 19 M1):** a strip under the panel header on every page, only while the queue holds something or cannot
+  be opened or saved (`MacOutboxStrip` over `MacOutboxModel`). It reads the iPhone's `QueuedItemSource` (`OutboxService`, compiled
+  in; no second model of the outbox): a count ("2 of 3 could not be sent"), the first stalled item's reason, and per item the
+  iPhone Settings row (`OutboxItemRow`) with Retry now / Discard (a queued server delete says "Stop trying"). It opens by itself
+  while an item is stalled, three rows show whole and more scroll in 200 pt. A queue that cannot be opened or saved says so in
+  the same words as Settings, and a Discard that did not reach the queue says so. The strip is followed from launch to quit
+  (`begin()` starts the observation once), so a take made before a connection was saved shows. Fakes: `ScriptedQueue`
+  (`-IrisMacStalled` seeds a stalled upload, a retry backoff and a queued removal for the screenshot).
+- **Telemetry (Wave 19 M1):** the Mac is on the device log and the relay like the iPhone (§8): the iPhone's `DeviceLog`,
+  `DeviceLogCaptureEvents`, `ObservedSegmentUploader` and credentialed transport are compiled into `IrisMac`, and `MacTelemetry`
+  builds the log with `service.name=iris-macos` (crash file `telemetry.jsonl` in the app container; under `-IrisFakeData` the
+  records stay in memory). The capture session, the recorder and the uploader report through it (`take.phase`, `capture.*`,
+  `outbox.segment.upload`, `outbox.complete.sent`; trace id = memo id without dashes), `take.phase` names the control that asked
+  (`source`: `hotkey` or `panel`). Mac-only records: `mac.panel` (the panel's phase, and a failure's enum name), `mac.hotkey`,
+  `audio.input_switch` (`pick` / `restore` and whether it worked) and `audio.input_recovery` (`restored`, `dropped`, `failed`),
+  `notify.mac` (`posted`, `withdrawn`, `catchup` with the banner's kind or counts), `outbox.user_action` (`retry`, `discard` and
+  the item's kind, on the memo's trace) and `app.lifecycle` (`launch`, `quit`). **Never in a record:** a transcript, a reply, a
+  park reason, a banner text, a token, a URL, a device uid or name (a test scans the records for the memo's words). A server switch
+  rebinds the records (`server.id`), so the old server's are never sent to the new one.
 
 ## 6. Shared Swift packages
 
