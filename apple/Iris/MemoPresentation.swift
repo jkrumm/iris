@@ -73,7 +73,7 @@ extension Memo {
       .alert(label: String(localized: "Needs route", comment: "History row status"), color: Theme.Status.warn)
     case .failed:
       .alert(
-        label: failedStep.map { String(localized: "Failed · \($0.rawValue)", comment: "History row status") }
+        label: failedStep.map { String(localized: "Failed · \($0.title)", comment: "History row status") }
           ?? String(localized: "Failed", comment: "History row status"),
         color: Theme.Status.bad)
     case .notified:
@@ -105,7 +105,7 @@ extension Memo {
   var rowSecondary: String? {
     switch state {
     case .failed:
-      let retry = failedStep.map { String(localized: "retry from \($0.rawValue)", comment: "History row hint") }
+      let retry = failedStep.map { String(localized: "retry from \($0.title)", comment: "History row hint") }
       let parts = [error == rowHeadline ? nil : error, retry].compactMap { $0 }
       return parts.isEmpty ? nil : parts.joined(separator: " — ")
     case .needsRoute:

@@ -18,23 +18,6 @@
         }
       }
     },
-    "%@ · %@" : {
-      "comment" : "Lock Screen inline widget: the state, then the headline",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%1$@ · %2$@"
-          }
-        },
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%1$@ · %2$@"
-          }
-        }
-      }
-    },
     "%lld of %lld steps done" : {
       "comment" : "VoiceOver value of an in-flight History row: finished steps of all steps.",
       "localizations" : {
