@@ -1,9 +1,9 @@
 # Lead handoff — Wave 19 (active, lead `iris-w19b`)
 
-## Now (2026-11-01 ~16:50)
-- **Batch 1 = PR #97** (`w19-batch-1`: #94, #95, #93, #92 each merged in, plus two test fixes: the undo toast window for a slow runner, `FailedTakeReleaseTests` passing R1's `preview:`). `apple.yml` running. Green → `gh pr merge 97 --merge` (merge commit, as #86/#90; `rd merge` rebases and would flatten the per-PR merges), close #92-#95 as merged by #97.
+## Now (2026-11-01 ~17:40)
+- **Batch 1 merged:** PR #97 → master `8325a1b` (merge commit; #92-#95 show as merged; `apple.yml` and `check` green on the batch head `107130b`). Apple-only, no deploy. Worktrees of I1/M1/R1/R2 and the batch reclaimed.
 - Reviews (agw, this session): #93 round 2 clean; #95 round 3 and #92 round 2: no new data-loss / privacy / security / crash blocker (owner-only servers), findings listed in #97's body for Left behind; #96 round 1: 6 blockers, handed to R3b.
-- **Batch 2 workers** (briefs in `~/.iris-fleet/iris-w19-briefs/{i3b,i2b,r3b}.md`, each starts by merging `origin/w19-batch-1` and its parked branch): `w19-i3b-telemetry-ui-debt` (running), `w19-i2b-late-tail` and `w19-r3b-german` (queued by the factory for capacity). #96 is closed once R3b's PR is up.
+- **Batch 2 workers** (briefs in `~/.iris-fleet/iris-w19-briefs/{i3b,i2b,r3b}.md`, each starts by merging `origin/w19-batch-1` and its parked branch): `w19-i3b-telemetry-ui-debt` (t39), `w19-i2b-late-tail` (t3b), `w19-r3b-german` (t3c), all running; fresh spawn keys (the old `iris-w19-*` keys hold stale classic-herdr records, never re-use them). #96 is closed once R3b's PR is up.
 - Deferred to a slot after R3b: the widget-feed findings of #92 (filtered History never updates the widget, a 409 discard forgets the memo, a late first page, the credentials-switch crash) — or Left behind.
 
 ## Earlier state (previous lead, 2026-10-31)
