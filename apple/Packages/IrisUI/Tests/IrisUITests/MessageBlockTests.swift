@@ -84,7 +84,9 @@ struct MessageBlockTests {
 
   @Test("every block of a reply has its own id")
   func uniqueIdentity() {
-    let source = "A\n\n```mermaid\ngraph TD\n```\n\n| a |\n|-|\n| 1 |\n\n```mermaid\ngraph LR\n```\n\n| b |\n|-|\n| 2 |\nEnd"
+    let diagram = "```mermaid\ngraph TD\n```"
+    let table = "| a |\n|-|\n| 1 |"
+    let source = ["A", diagram, table, diagram, table, "End"].joined(separator: "\n\n")
     let ids = MessageBlock.split(source).identified.map(\.id)
     #expect(Set(ids).count == ids.count)
     #expect(ids.contains("mermaid-1") && ids.contains("table-1"))
