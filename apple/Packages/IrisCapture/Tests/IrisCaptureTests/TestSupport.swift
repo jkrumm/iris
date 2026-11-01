@@ -40,6 +40,7 @@ actor TestUploader: SegmentUploader {
   private(set) var log: [String] = []
 
   private var failuresLeft: [SegmentKey: Int] = [:]
+  private var closedKeys: Set<SegmentKey> = []
   private var completeFailuresLeft = 0
   private var missingScripts: [[Int]] = []
   private var createFailuresLeft = 0
@@ -56,6 +57,9 @@ actor TestUploader: SegmentUploader {
 
   func failNext(_ times: Int, for key: SegmentKey) { failuresLeft[key] = times }
   func failNextCompletes(_ times: Int) { completeFailuresLeft = times }
+
+  /// The server closed this segment's memo without it: every upload of the key throws `LateTailError`.
+  func closeMemo(for key: SegmentKey) { closedKeys.insert(key) }
 
   /// The next `complete` answers that the server lacks these segments (422 `missing_segments`), one script per call.
   func failNextComplete(missing scripts: [[Int]]) { missingScripts = scripts }
@@ -122,6 +126,7 @@ actor TestUploader: SegmentUploader {
     resolveWaiters()
     if isHolding { await withCheckedContinuation { held.append($0) } }
     inFlight -= 1
+    if closedKeys.contains(key) { throw LateTailError("no longer receiving") }
     if failuresLeft[key, default: 0] > 0 {
       failuresLeft[key, default: 0] -= 1
       throw UploadFailure()

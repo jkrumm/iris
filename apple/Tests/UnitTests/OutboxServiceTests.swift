@@ -276,10 +276,29 @@ struct APIOutboxUploaderTests {
     #expect(await memo.keeping.setAsideFiles().isEmpty)
   }
 
-  @Test("a segment the server's completed memo lacks is the only copy: set aside, kept, and the entry clears")
+  @Test(
+    "a segment the server's completed memo lacks is the end of the take: the outbox is told, and the file is untouched")
   func segmentTheServerLacks() async throws {
     let memo = try await ClosedMemo(held: 1)
     defer { memo.remove() }
+    await #expect(throws: LateTailError.self) { try await memo.uploader(keeping: memo.keeping).upload(memo.segment) }
+    #expect(FileManager.default.fileExists(atPath: memo.file.path))
+    #expect(await memo.keeping.setAsideFiles().isEmpty)
+  }
+
+  @Test("a memo that never received a segment is the same")
+  func segmentOfAMemoWithNone() async throws {
+    let memo = try await ClosedMemo(held: 0)
+    defer { memo.remove() }
+    await #expect(throws: LateTailError.self) { try await memo.uploader(keeping: nil).upload(memo.segment) }
+    #expect(FileManager.default.fileExists(atPath: memo.file.path))
+  }
+
+  @Test("a segment of a memo the user deleted is not uploaded anywhere: it is set aside and kept")
+  func segmentOfADeletedMemo() async throws {
+    let memo = try await ClosedMemo(held: 0)
+    defer { memo.remove() }
+    _ = try await memo.client.deleteMemo(id: memo.id.wireID)
     try await memo.uploader(keeping: memo.keeping).upload(memo.segment)
     #expect(!FileManager.default.fileExists(atPath: memo.file.path))
     let kept = await memo.keeping.setAsideFiles()
@@ -287,18 +306,11 @@ struct APIOutboxUploaderTests {
     #expect(try kept.first.map { try Data(contentsOf: $0.url) } == Data("audio".utf8))
   }
 
-  @Test("a memo that never received a segment is the same: the file is kept")
-  func segmentOfAMemoWithNone() async throws {
+  @Test("without a place to keep it the deleted memo's file stays where it is and the entry stalls")
+  func segmentNothingToKeepWith() async throws {
     let memo = try await ClosedMemo(held: 0)
     defer { memo.remove() }
-    try await memo.uploader(keeping: memo.keeping).upload(memo.segment)
-    #expect(await memo.keeping.setAsideFiles().count == 1)
-  }
-
-  @Test("without a place to keep it the file stays where it is and the entry stalls")
-  func segmentNothingToKeepWith() async throws {
-    let memo = try await ClosedMemo(held: 1)
-    defer { memo.remove() }
+    _ = try await memo.client.deleteMemo(id: memo.id.wireID)
     await #expect(throws: PermanentTransferError.self) { try await memo.uploader(keeping: nil).upload(memo.segment) }
     #expect(FileManager.default.fileExists(atPath: memo.file.path))
   }

@@ -390,6 +390,22 @@ public struct OutboxStateMachine: Sendable {
     return true
   }
 
+  // MARK: Late tails (`LateTail.swift`)
+
+  /// Whether the id can still be queued: not in the queue, not completed, not discarded.
+  func isQueueable(_ memoID: MemoID) -> Bool { items[memoID] == nil && !completedMemos.contains(memoID) }
+
+  /// The memo completed on the server (not discarded in this run): a segment of it that turns up now is a tail.
+  func isCompleted(_ memoID: MemoID) -> Bool { completedMemos.contains(memoID) && !discarded.contains(memoID) }
+
+  /// Queues a late tail: its item and its one segment, finished at once (`complete` follows the upload). The segment is held
+  /// back until a save that carries it has landed, and the item's create with it.
+  mutating func queueTail(_ item: OutboxItem, segment: ClosedSegment) {
+    guard isQueueable(item.memoID), enqueue(segment, withheld: true) else { return }
+    items[item.memoID] = item
+    memos[item.memoID] = OutboxMemo(memoID: item.memoID, segmentCount: 1, completion: .pending, attempts: 0)
+  }
+
   /// Lets a withheld segment go out.
   public mutating func release(_ key: SegmentKey) {
     withheldSegments.remove(key)
@@ -613,10 +629,11 @@ public struct OutboxStateMachine: Sendable {
   /// a take that is cancelled before its first segment never reaches the server and leaves no stuck memo behind.
   private func isCreatable(_ item: OutboxItem) -> Bool {
     guard !withheld.contains(item.memoID) else { return false }
-    return switch item.kind {
-    case .text: true
-    case .voice: memos[item.memoID] != nil || entries.keys.contains { $0.memoID == item.memoID }
-    }
+    if case .text = item.kind { return true }
+    // A late tail is created once its segment is saved, so a crash before that cannot leave a memo on the server that the
+    // queue never heard of.
+    if item.tailOf != nil, withheldSegments.contains(SegmentKey(memoID: item.memoID, index: 0)) { return false }
+    return memos[item.memoID] != nil || entries.keys.contains { $0.memoID == item.memoID }
   }
 
   /// A memo without an item has no create to wait for.
