@@ -183,9 +183,11 @@ public final class DeviceEventLog: Sendable {
     return result
   }
 
-  /// An audio port's uid (`port.uid`, `route.current.uid`, `input_uid`) is a stable hardware identifier: never a record's.
+  /// An audio port's uid (`port.uid`, `route.current.uid`, `input_uid`, `portUID`) is a stable hardware identifier: never a
+  /// record's. Any key that ends in `uid` goes, whatever its separator or case; a key that merely ends that way (`fluid`) goes
+  /// too, which is the deliberate cost of a net that cannot be talked round by a spelling.
   private static func isPortIdentifier(_ key: String) -> Bool {
-    key.split(whereSeparator: { ".-_ ".contains($0) }).last == "uid"
+    key.hasSuffix("uid")
   }
 
   private static func describe(_ value: AttributeValue) -> String {
