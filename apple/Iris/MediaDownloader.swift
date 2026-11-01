@@ -137,10 +137,13 @@ nonisolated struct MediaDownloader: Sendable {
       /// The `next` value at the time each prefix was last evicted. Bounded by ``Evictions/evictedLimit``: every purged memo adds
       /// a prefix, and ``Evictions/evicted(_:since:)`` reads all of them on every download.
       var evictedAt: [String: Int] = [:]
+      /// The newest marker that was forgotten. A download that began before it cannot tell whether its own memo was evicted in
+      /// between, so it counts as evicted (it discards its file; a re-download costs less than a deleted memo's file coming back).
+      var forgottenThrough = 0
     }
 
     /// Prefixes remembered. A download only asks about evictions newer than its own start, so the oldest can go; one that
-    /// outlived 512 evictions of other memos while on the wire (a 300 s bound) is not a case worth a lookup table.
+    /// outlived 512 evictions of other memos while on the wire (a 300 s bound) is treated as evicted (``forgottenThrough``).
     static let evictedLimit = 512
     private let state = Mutex(State())
 
@@ -152,7 +155,10 @@ nonisolated struct MediaDownloader: Sendable {
         state.evictedAt[prefix] = state.next
         if state.evictedAt.count > Self.evictedLimit {
           let oldest = state.evictedAt.sorted { $0.value < $1.value }.prefix(state.evictedAt.count - Self.evictedLimit)
-          for (key, _) in oldest { state.evictedAt[key] = nil }
+          for (key, value) in oldest {
+            state.evictedAt[key] = nil
+            state.forgottenThrough = Swift.max(state.forgottenThrough, value)
+          }
         }
         // Owned by `state` until it finishes; `finish` waits for this lock, so it always runs after the entry exists.
         let task = Task {
@@ -166,7 +172,9 @@ nonisolated struct MediaDownloader: Sendable {
 
     /// Whether an eviction covering `name` was asked for after `mark` (from ``snapshot(for:)``).
     func evicted(_ name: String, since mark: Int) -> Bool {
-      state.withLock { state in state.evictedAt.contains { name.hasPrefix($0.key) && $0.value > mark } }
+      state.withLock { state in
+        mark < state.forgottenThrough || state.evictedAt.contains { name.hasPrefix($0.key) && $0.value > mark }
+      }
     }
 
     private func finish(_ id: Int) {
