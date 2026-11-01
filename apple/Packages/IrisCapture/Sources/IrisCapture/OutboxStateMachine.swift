@@ -44,6 +44,8 @@ public struct OutboxStateMachine: Sendable {
   /// Oldest first; bounded so the persisted record does not grow without limit. Holds the memos that completed and the
   /// ones that were discarded: both refuse a late `enqueue`.
   private var completedMemos: [MemoID]
+  /// The memos the server completed (not the discarded ones), with what their late tails need. Same bound.
+  private var completedTakes: [CompletedTake]
   private let policy: OutboxPolicy
 
   /// Rebuilds the machine from persisted state. Transfers that were in flight when the app died
@@ -53,6 +55,7 @@ public struct OutboxStateMachine: Sendable {
     self.policy = policy
     nextSequence = record.nextSequence
     completedMemos = Array(record.completedMemos.suffix(Self.completedMemoLimit))
+    completedTakes = Array(record.completedTakes.suffix(Self.completedMemoLimit))
     for var entry in record.entries {
       if entry.state == .uploading { entry.state = .pending }
       entries[entry.key] = entry
@@ -91,7 +94,8 @@ public struct OutboxStateMachine: Sendable {
       items: orderedItems,
       deletions: deletions.values.sorted { $0.memoID.uuidString < $1.memoID.uuidString },
       nextSequence: nextSequence,
-      completedMemos: completedMemos
+      completedMemos: completedMemos,
+      completedTakes: completedTakes
     )
   }
 
@@ -395,8 +399,14 @@ public struct OutboxStateMachine: Sendable {
   /// Whether the id can still be queued: not in the queue, not completed, not discarded.
   func isQueueable(_ memoID: MemoID) -> Bool { items[memoID] == nil && !completedMemos.contains(memoID) }
 
-  /// The memo completed on the server (not discarded in this run): a segment of it that turns up now is a tail.
-  func isCompleted(_ memoID: MemoID) -> Bool { completedMemos.contains(memoID) && !discarded.contains(memoID) }
+  /// What a tail of this take is built from: its queue item, or once it completed on the server the part of it kept for that.
+  /// `nil` for a discarded take (never kept) and for one that completed before this was recorded.
+  func tailOrigin(of memoID: MemoID) -> CompletedTake? {
+    items[memoID].map(CompletedTake.init) ?? completedTakes.first { $0.memoID == memoID }
+  }
+
+  /// The memo completed on the server: a segment of it that turns up now is a tail. A discarded memo is not (it is refused).
+  func isCompleted(_ memoID: MemoID) -> Bool { completedTakes.contains { $0.memoID == memoID } }
 
   /// Queues a late tail: its item and its one segment, finished at once (`complete` follows the upload). The segment is held
   /// back until a save that carries it has landed, and the item's create with it.
@@ -535,6 +545,11 @@ public struct OutboxStateMachine: Sendable {
 
   /// The memo is done on the server: forget it, its segments and its item.
   public mutating func completeSucceeded(_ memoID: MemoID) {
+    if let item = items[memoID] {
+      completedTakes.removeAll { $0.memoID == memoID }
+      completedTakes.append(CompletedTake(item))
+      completedTakes.removeFirst(max(0, completedTakes.count - Self.completedMemoLimit))
+    }
     forget(memoID)
   }
 

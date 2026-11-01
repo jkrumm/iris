@@ -367,7 +367,8 @@ public actor Outbox: SegmentOutbox {
       let count = machine.memos[memoID]?.segmentCount ?? .max
       let ours = machine.entries.values.filter { $0.key.memoID == memoID }
       var files = ours.map(\.segment.fileURL)
-      for entry in ours where entry.key.index >= count && !divertTail(entry.segment, now: now) {
+      // An uploaded one is on the server already: diverting it would transcribe the same audio twice.
+      for entry in ours where entry.key.index >= count && entry.state != .uploaded && !divertTail(entry.segment, now: now) {
         files.removeAll { $0 == entry.segment.fileURL }
       }
       if deletesFilesWhenDone { retire(files) }
@@ -400,8 +401,8 @@ public actor Outbox: SegmentOutbox {
   /// be (no second file name, or the segment belongs to a tail itself): the caller keeps the segment where it is. Saved by the
   /// caller's `persist()` with nothing in between (the segment is withheld until that save has landed).
   private func divertTail(_ segment: ClosedSegment, now: Date) -> Bool {
-    let take = machine.items[segment.memoID]
-    guard take?.tailOf == nil else { return false }
+    let take = machine.tailOrigin(of: segment.memoID)
+    guard take?.isTail != true else { return false }
     let item = LateTail.item(after: take, segment: segment, now: now)
     if machine.isQueueable(item.memoID) {
       guard let linked = LateTail.link(segment, as: item.memoID) else { return false }

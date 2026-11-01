@@ -24,12 +24,18 @@ struct LateTailTests {
   }
 
   /// A take of `count` finished segments, all on disk and queued, its `create` done: what the queue file holds after a kill.
-  private func record(count: Int = 2, segments: [Int]? = nil, completed: [MemoID] = []) throws -> OutboxRecord {
+  private func record(
+    count: Int = 2, segments: [Int]? = nil, completed: [MemoID] = [], serverKey: String? = nil,
+    uploaded: Set<Int> = []
+  ) throws -> OutboxRecord {
     var item = voiceItem(take)
     item.create = .uploaded
     item.title = "Standup"
+    item.serverKey = serverKey
     let entries = try (segments ?? Array(0..<count)).enumerated().map { position, index in
-      OutboxEntry(segment: try closed(index), sequence: position, state: .pending, attempts: 0)
+      OutboxEntry(
+        segment: try closed(index), sequence: position, state: uploaded.contains(index) ? .uploaded : .pending,
+        attempts: 0)
     }
     return OutboxRecord(
       entries: entries, memos: [OutboxMemo(memoID: take, segmentCount: count, completion: .pending, attempts: 0)],
@@ -186,6 +192,45 @@ struct LateTailTests {
     await harness.outbox.enqueue(try closed(0, of: other))
     await harness.outbox.settled()
     #expect(await uploader.created.filter { $0.tailOf == other }.isEmpty)
+  }
+
+  @Test("a tail of a completed take keeps the take's server, also after a relaunch")
+  func tailKeepsTheServerOfItsCompletedTake() async throws {
+    let uploader = TestUploader()
+    let harness = try await OutboxHarness(
+      record: try record(count: 1, serverKey: "server-a"), uploader: uploader, serverKey: { "server-a" })
+    await harness.outbox.settled()
+    #expect(await uploader.completed.contains { $0.memoID == take })
+
+    let relaunched = try await OutboxHarness(
+      record: await harness.store.load(), uploader: uploader, serverKey: { "server-b" })
+    await relaunched.outbox.enqueue(try closed(1))
+    #expect(await relaunched.outbox.items().first { $0.memoID == tailID }?.serverKey == "server-a")
+    await relaunched.outbox.shutdown()
+  }
+
+  @Test("a discarded take stays discarded across a relaunch: its late segment is not made a memo")
+  func discardedTakeIsNotATailAfterRelaunch() async throws {
+    let uploader = TestUploader()
+    let harness = try await OutboxHarness(record: try record(), uploader: uploader)
+    await harness.outbox.discard(take)
+    await harness.outbox.settled()
+
+    let relaunched = try await OutboxHarness(record: await harness.store.load(), uploader: uploader)
+    await relaunched.outbox.enqueue(try closed(1))
+    await relaunched.outbox.settled()
+    #expect(await uploader.created.filter { $0.tailOf != nil }.isEmpty)
+    #expect(await relaunched.outbox.items().allSatisfy { $0.tailOf == nil })
+  }
+
+  @Test("a segment past the completed count that the server already has is not made a second memo")
+  func uploadedSegmentIsNotDiverted() async throws {
+    let uploader = TestUploader()
+    let saved = try record(count: 1, segments: [0, 1], uploaded: [1])
+    let harness = try await OutboxHarness(record: saved, uploader: uploader)
+    await harness.outbox.settled()
+    #expect(await uploader.completed.contains { $0.memoID == take && $0.segmentCount == 1 })
+    #expect(await uploader.created.filter { $0.tailOf != nil }.isEmpty)
   }
 
   @Test("a file that cannot be given a second name stays where it is and the entry backs off")

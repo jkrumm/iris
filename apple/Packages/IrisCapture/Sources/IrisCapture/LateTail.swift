@@ -39,7 +39,7 @@ enum LateTail {
   }
 
   /// The queue item of the tail: bound to the take's server, named after the take.
-  static func item(after take: OutboxItem?, segment: ClosedSegment, now: Date) -> OutboxItem {
+  static func item(after take: CompletedTake?, segment: ClosedSegment, now: Date) -> OutboxItem {
     let title = take.map { String(localized: "End of \($0.title)") } ?? String(localized: "End of a take")
     var item = OutboxItem(
       memoID: memoID(of: segment.memoID, index: segment.index), kind: .voice, mode: "transcribe",

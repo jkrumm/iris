@@ -130,6 +130,31 @@ public struct OutboxDeletion: Sendable, Equatable, Codable {
 /// One whole memo or chat message the user handed over: the queue Settings shows. A voice item's segments and
 /// completion are tracked by `OutboxEntry` / `OutboxMemo` under the same memo id; the item owns the `create` call, which
 /// must succeed before any of them goes out.
+/// The part of a take that outlives its queue item once the server completed it: what a late tail of it is built from.
+public struct CompletedTake: Sendable, Equatable, Codable {
+  public let memoID: MemoID
+  public let title: String
+  public let startedAt: Date
+  /// The server the take went to (``OutboxItem/serverKey``): its tails go there only.
+  public let serverKey: String?
+  /// The take is itself a late tail: its own late segment is never diverted again.
+  public let isTail: Bool
+
+  public init(memoID: MemoID, title: String, startedAt: Date, serverKey: String?, isTail: Bool) {
+    self.memoID = memoID
+    self.title = title
+    self.startedAt = startedAt
+    self.serverKey = serverKey
+    self.isTail = isTail
+  }
+
+  init(_ item: OutboxItem) {
+    self.init(
+      memoID: item.memoID, title: item.title, startedAt: item.startedAt, serverKey: item.serverKey,
+      isTail: item.tailOf != nil)
+  }
+}
+
 public struct OutboxItem: Sendable, Equatable, Codable {
   public let memoID: MemoID
   public var kind: OutboxItemKind
@@ -286,10 +311,14 @@ public struct OutboxRecord: Sendable, Equatable, Codable {
   /// `finishMemo` or late `enqueue` be recognised after the memo and its entries were forgotten.
   /// Added after the first release: records written without it decode to an empty list.
   public var completedMemos: [MemoID]
+  /// What a late tail needs of a take the server completed (`CompletedTake`), oldest first and capped like `completedMemos`.
+  /// A discarded take is not here: its late segment is refused, never made a memo. Records written without it decode to `[]`.
+  public var completedTakes: [CompletedTake]
 
   public init(
     entries: [OutboxEntry] = [], memos: [OutboxMemo] = [], items: [OutboxItem] = [],
-    deletions: [OutboxDeletion] = [], nextSequence: Int = 0, completedMemos: [MemoID] = []
+    deletions: [OutboxDeletion] = [], nextSequence: Int = 0, completedMemos: [MemoID] = [],
+    completedTakes: [CompletedTake] = []
   ) {
     self.entries = entries
     self.memos = memos
@@ -297,6 +326,7 @@ public struct OutboxRecord: Sendable, Equatable, Codable {
     self.deletions = deletions
     self.nextSequence = nextSequence
     self.completedMemos = completedMemos
+    self.completedTakes = completedTakes
   }
 
   public init(from decoder: any Decoder) throws {
@@ -307,6 +337,7 @@ public struct OutboxRecord: Sendable, Equatable, Codable {
     deletions = try container.decodeIfPresent([OutboxDeletion].self, forKey: .deletions) ?? []
     nextSequence = try container.decode(Int.self, forKey: .nextSequence)
     completedMemos = try container.decodeIfPresent([MemoID].self, forKey: .completedMemos) ?? []
+    completedTakes = try container.decodeIfPresent([CompletedTake].self, forKey: .completedTakes) ?? []
   }
 }
 
