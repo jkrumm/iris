@@ -1314,12 +1314,16 @@ the `IrisCore` dependency when R1 wires them together.
       numbered, and a flush that races the launch recovery sends each stored record once.
     - **Bounded in time.** A send is cut off after 20 s (`RelayExporter.sendTimeout`; the batch is kept and retried, the request
       itself times out at 15 s), and the flush on backgrounding holds its background-task assertion for at most 20 s
-      (`DeviceLog.backgroundFlushBudget`), ending it also in the system's expiry handler, so a send that never answers cannot
-      hold the assertion.
+      (`DeviceLog.backgroundFlushBudget`), ending it also in the system's expiry handler and from a deadline task of its own, so neither a send that never
+      answers nor a flush that joined a running one (its wait is cancellation-aware) can hold the assertion past it.
     - **Before the first unlock** the crash file is unreadable (it is written with protection class
       `completeUntilFirstUserAuthentication`, so a background launch with the screen locked can write once the phone has been
-      unlocked since boot, never before). Then nothing is lost and nothing crashes: records stay in memory, numbered far above any
-      sequence the file can hold, delivery does not touch the file, and the next flush retries the load and merges the two.
+      unlocked since boot, never before). Then nothing is lost and nothing crashes, by one rule: **the store is read before it
+      is written.** The first record waits for the first load, so it is numbered after the stored entries. While the file has
+      not been read, this run's records are memory-only: no append, no trim, no removal by sequence (the file cannot say which
+      sequences it holds). The next successful load renumbers them above the stored maximum, persists them, and only then marks
+      the queue recovered; a failed persist leaves it unrecovered and the next flush retries. A load that finds a send holding
+      entries waits for the next flush rather than renumber under it. Sequences never come from the clock.
     - Each record carries the `server.id` (a hash) of the connection it was recorded under. The transport delivers a record only
       to that server and drops the rest, **counted in `dropped`** of the batch that goes out: a queue written for one server is
       never handed to another after a switch, and the loss is visible. While the current server is unreachable the send fails and
@@ -1328,7 +1332,7 @@ the `IrisCore` dependency when R1 wires them together.
     - `take.phase.source` is the control behind the latest take command; once that command is 60 s old, a phase change reports
       `system` (an interruption, a failure) instead of crediting an old press.
   - **Privacy:** no transcript, reply or token: a key naming one is dropped before it is recorded, a string is cut at 240
-    characters, port uids are not logged (an attribute whose key ends in `uid` is dropped as a net), and a port name that can carry a person's name ("Anna's AirPods") is a short hash;
+    characters, port uids are not logged (an attribute whose lowercased key ends in `uid` is dropped as a net: `port.uid`, `input_uid`, `portUID`, and deliberately also `fluid`), and a port name that can carry a person's name ("Anna's AirPods") is a short hash;
     only the phone's own generic port names stay. An error is logged as its type (and an enum's case), never its message or payload:
     server text and file paths do not reach a record. Public repo: no real value in tests or docs.
   - **Records:**

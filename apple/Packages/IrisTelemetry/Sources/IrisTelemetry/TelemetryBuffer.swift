@@ -35,6 +35,12 @@ extension TelemetryBatch {
 /// Overflow drops the oldest entry and counts it; the count rides on the next drain. Persistence failures are logged
 /// and never surface to callers. At-least-once: entries stay in the store until `acknowledge`, so a crash mid-send
 /// re-sends them after `recover()`.
+///
+/// **The store is read once before it is written.** The first record waits for the first recovery attempt (so it is numbered
+/// after the stored entries). If that attempt fails (a file readable only after the first unlock), the records of this run are
+/// memory-only: no append, no trim, no removal by sequence, because the store cannot say which sequences it holds. The next
+/// successful load renumbers them above the stored maximum, persists them, and only then is the buffer recovered; a failed
+/// persist leaves it unrecovered and the next `recover()` tries again.
 public actor TelemetryBuffer {
   private let capacity: Int
   private let store: any TelemetryStore
@@ -44,13 +50,11 @@ public actor TelemetryBuffer {
   private var droppedSinceTrim = 0
   private var newestDroppedSequence: UInt64 = 0
   private var drainInFlight = false
-  private var hasRecovered = false
-  /// The recovery running now; a second caller waits for it instead of returning early (a flush must not start before the
-  /// stored queue is in, nor a record be numbered before it).
+  /// The store has been read and this run's records are in it: from here on the buffer mirrors every change.
+  private var recovered = false
+  private var hasAttempted = false
+  /// The recovery attempt running now; a second caller waits for it.
   private var recovery: Task<Void, Never>?
-  /// The last recovery could not read the store (the phone has not been unlocked since boot, so the file's protection class
-  /// refuses the read). Records stay in memory and are numbered above anything the file can hold; the next `recover()` retries.
-  private var storeUnreadable = false
 
   public init(capacity: Int, store: any TelemetryStore = InMemoryTelemetryStore()) {
     self.capacity = max(1, capacity)
@@ -92,10 +96,7 @@ public actor TelemetryBuffer {
   /// Marks a drain as delivered and removes it from the store.
   public func acknowledge(_ drain: TelemetryDrain) async {
     drainInFlight = false
-    guard let newest = drain.items.last?.sequence else { return }
-    // Nothing of this run is in a store that could not be read, and a removal by sequence would also take the older entries
-    // that recovery has not loaded yet.
-    guard !storeUnreadable else { return }
+    guard recovered, let newest = drain.items.last?.sequence else { return }
     do {
       try await store.removeThrough(sequence: newest)
     } catch {
@@ -103,73 +104,74 @@ public actor TelemetryBuffer {
     }
   }
 
-  /// Loads what a previous run left in the store. Call at launch, before recording. Concurrent calls share one load and
+  /// Loads what a previous run left in the store. Call at launch, before recording. Concurrent calls share one attempt and
   /// all return after it; once it succeeded later calls do nothing, and after a failed one (a locked file) the next call
   /// tries again. Entries beyond capacity are dropped oldest-first and counted.
   public func recover() async {
-    if hasRecovered { return }
+    if recovered { return }
     if let running = recovery {
       await running.value
       return
     }
-    let task = Task { await self.loadStore() }
+    hasAttempted = true
+    let task = Task { await self.attemptRecovery() }
     recovery = task
     await task.value
   }
 
-  private func loadStore() async {
+  private func attemptRecovery() async {
     defer { recovery = nil }
+    let loaded: [StoredEntry]
     do {
-      let loaded = try await store.load()
-      hasRecovered = true
-      if storeUnreadable {
-        // The records of this run were numbered high while the file was out of reach; the file's own are all lower.
-        storeUnreadable = false
-        await persistPending()
-      }
-      guard let newest = loaded.last?.sequence else { return }
-      let known = Set(pending.map(\.sequence))
-      pending = loaded.filter { !known.contains($0.sequence) } + pending
-      nextSequence = Swift.max(nextSequence, newest + 1)
-      enforceCapacity()
-      await trimStoreIfNeeded()
+      loaded = try await store.load()
     } catch {
       Logger.telemetry.error("Telemetry recovery failed: \(String(describing: type(of: error)), privacy: .public)")
-      markStoreUnreadable()
+      return
     }
+    // A send holds entries numbered in this run's own sequence; renumbering now would make its acknowledgement remove the
+    // wrong ones. Recovery is retried by the next flush, which starts with none in flight.
+    guard !drainInFlight else { return }
+    let base = loaded.map(\.sequence).max() ?? 0
+    // This run's records, above everything stored. Nothing is changed until they are in the store.
+    var next = base + 1
+    let mine = pending.map { item -> StoredEntry in
+      defer { next += 1 }
+      return StoredEntry(sequence: next, entry: item.entry)
+    }
+    if !mine.isEmpty {
+      do {
+        try await store.append(mine)
+      } catch {
+        Logger.telemetry.error(
+          "Telemetry store append failed: \(String(describing: type(of: error)), privacy: .public)")
+        return
+      }
+    }
+    pending = loaded + mine
+    nextSequence = next
+    // The memory-only overflow of the unread period was never in the store, so there is nothing of it to trim.
+    droppedSinceTrim = 0
+    newestDroppedSequence = 0
+    recovered = true
+    enforceCapacity()
+    await trimStoreIfNeeded()
   }
 
-  /// A store that cannot be read cannot say which sequences it holds: continue far above any a run could have written
-  /// (milliseconds since 1970 is above every counter and above any earlier run's own bump), so a later `removeThrough`
-  /// never reaches an older entry through a reused number.
-  private func markStoreUnreadable() {
-    guard !storeUnreadable else { return }
-    storeUnreadable = true
-    let base = UInt64(Swift.max(0, Date().timeIntervalSince1970 * 1000)) << 8
-    guard base > nextSequence else { return }
-    nextSequence = base
-    pending = pending.map { item in
-      defer { nextSequence += 1 }
-      return StoredEntry(sequence: nextSequence, entry: item.entry)
-    }
-  }
-
-  /// Writes what was held in memory while the store was out of reach.
-  private func persistPending() async {
-    do {
-      try await store.append(pending)
-    } catch {
-      Logger.telemetry.error("Telemetry store append failed: \(String(describing: type(of: error)), privacy: .public)")
-    }
+  /// The first record waits for the first recovery attempt, and any record for one in progress: numbering it earlier would
+  /// reuse a stored sequence.
+  private func settleRecovery() async {
+    if !hasAttempted { await recover() }
+    while let running = recovery { await running.value }
   }
 
   private func enqueue(_ entry: TelemetryEntry) async {
-    // A load in progress finishes first: a record numbered before it would reuse a stored sequence.
-    if let running = recovery { await running.value }
+    await settleRecovery()
     let item = StoredEntry(sequence: nextSequence, entry: entry)
     nextSequence += 1
     pending.append(item)
     enforceCapacity()
+    // Memory only until the store has been read (and `recovered` never goes back to false, so this holds below).
+    guard recovered else { return }
     do {
       try await store.append([item])
     } catch {
@@ -188,9 +190,9 @@ public actor TelemetryBuffer {
   }
 
   /// Keeps the store near twice the capacity while offline: overflow-dropped entries are removed in bulk. Skipped
-  /// while a drain is in flight so its entries stay on disk until acknowledged.
+  /// while a drain is in flight so its entries stay on disk until acknowledged, and until the store has been read.
   private func trimStoreIfNeeded() async {
-    guard droppedSinceTrim >= capacity, !drainInFlight else { return }
+    guard recovered, droppedSinceTrim >= capacity, !drainInFlight else { return }
     droppedSinceTrim = 0
     do {
       try await store.removeThrough(sequence: newestDroppedSequence)
