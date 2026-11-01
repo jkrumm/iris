@@ -1,4 +1,5 @@
 import Foundation
+import Synchronization
 import os
 
 /// Flushes the buffer to the server through a `TelemetryTransport`.
@@ -46,10 +47,12 @@ public actor RelayExporter {
   /// batch another send still holds.
   public func flush() async {
     if let running = inFlight {
-      await running.value
+      await Self.wait(for: running)
+      // A caller that was cancelled while it waited (the background budget ran out) gives up; the flight goes on for its owner.
+      if Task.isCancelled { return }
       // Back on the actor with no suspension until `inFlight` is set below: a flush that started meanwhile covers us.
       if let started = inFlight {
-        await started.value
+        await Self.wait(for: started)
         return
       }
     }
@@ -59,6 +62,23 @@ public actor RelayExporter {
       await task.value
     } onCancel: {
       task.cancel()
+    }
+  }
+
+  /// Waits for another caller's flight, and returns early (leaving the flight alone) when the waiting caller is cancelled.
+  /// `await task.value` alone ignores the waiter's cancellation, so a waiter with a deadline would outlive it.
+  private static func wait(for flight: Task<Void, Never>) async {
+    let resumer = WaitResumer()
+    await withTaskCancellationHandler {
+      await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+        resumer.install(continuation)
+        Task {
+          await flight.value
+          resumer.fire()
+        }
+      }
+    } onCancel: {
+      resumer.fire()
     }
   }
 
@@ -132,5 +152,35 @@ public actor RelayExporter {
   private var delayBeforeNextFlush: Duration {
     guard consecutiveFailures > 0 else { return interval }
     return min(maxBackoff, interval * (1 << min(consecutiveFailures, 10)))
+  }
+}
+
+/// Resumes one continuation exactly once, from whichever of the flight ending and the waiter's cancellation comes first, and
+/// whether that is before or after the continuation is installed.
+private final class WaitResumer: Sendable {
+  private struct State {
+    var continuation: CheckedContinuation<Void, Never>?
+    var fired = false
+  }
+
+  private let state = Mutex(State())
+
+  func install(_ continuation: CheckedContinuation<Void, Never>) {
+    let resumeNow = state.withLock { state -> Bool in
+      if state.fired { return true }
+      state.continuation = continuation
+      return false
+    }
+    if resumeNow { continuation.resume() }
+  }
+
+  func fire() {
+    let continuation = state.withLock { state -> CheckedContinuation<Void, Never>? in
+      guard !state.fired else { return nil }
+      state.fired = true
+      defer { state.continuation = nil }
+      return state.continuation
+    }
+    continuation?.resume()
   }
 }

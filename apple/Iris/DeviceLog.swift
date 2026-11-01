@@ -144,9 +144,17 @@ nonisolated final class DeviceLog: Sendable {
       let assertion = BackgroundAssertion()
       let flushing = Task { await flush(within: Self.backgroundFlushBudget) }
       assertion.begin(name: "iris.telemetry.flush") { flushing.cancel() }
-      // Ends with the flush; owned by nobody else because the flush is bounded.
+      // The deadline ends the assertion by itself: a flush that joined a running flight, or a send that ignores cancellation,
+      // must not be able to hold it past the budget.
+      let deadline = Task { @MainActor in
+        try? await Task.sleep(for: Self.backgroundFlushBudget)
+        guard !Task.isCancelled else { return }
+        flushing.cancel()
+        assertion.end()
+      }
       Task {
         await flushing.value
+        deadline.cancel()
         assertion.end()
       }
     }

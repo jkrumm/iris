@@ -186,6 +186,24 @@ struct FlushConcurrencyTests {
     #expect(await store.stored.isEmpty)
   }
 
+  @Test func aFlushThatJoinedAndIsCancelledReturnsWhileTheFlightGoesOn() async {
+    let transport = GatedTransport()
+    let buffer = TelemetryBuffer(capacity: 100)
+    let exporter = RelayExporter(
+      buffer: buffer, transport: transport, resource: Fixtures.resource, clock: ManualClock())
+    await buffer.record(span: Fixtures.span(1))
+    let owner = Task { await exporter.flush() }
+    await transport.untilAttempted(1)  // the flight is on the wire and held
+
+    let joiner = Task { await exporter.flush() }
+    joiner.cancel()
+    await joiner.value  // would never return if the wait ignored the cancellation
+
+    await transport.release()
+    await owner.value
+    #expect(names(await transport.batches) == ["span.1"], "the owner's flight was not cancelled")
+  }
+
   @Test func aSendThatNeverAnswersEndsAtItsBoundAndKeepsTheBatch() async {
     let buffer = TelemetryBuffer(capacity: 100)
     let exporter = RelayExporter(
@@ -203,13 +221,18 @@ struct FlushConcurrencyTests {
     let log = DeviceEventLog(buffer: buffer)
     log.event(
       "audio.route_change",
-      ["port.uid": "BuiltInMicrophoneDevice", "route.current.uid": "x", "input_uid": "y", "reason": "new_device"])
+      [
+        "port.uid": "BuiltInMicrophoneDevice", "route.current.uid": "x", "input_uid": "y", "portUID": "z",
+        "InputUid": "w",
+        "reason": "new_device", "uid_count": 1, "fluid": 1,
+      ])
     await log.settle()
     let record = await buffer.drain(max: 1).entries.compactMap { entry -> LogRecord? in
       if case .log(let log) = entry { return log }
       return nil
     }.first
     #expect(record?.attributes["reason"] == "new_device")
-    #expect(record?.attributes.keys.contains { $0.hasSuffix("uid") } == false)
+    #expect(record?.attributes.keys.contains { $0.lowercased().hasSuffix("uid") } == false)
+    #expect(record?.attributes["uid_count"] == 1, "only a key that ENDS in uid is dropped")
   }
 }
