@@ -22,7 +22,7 @@ help: ## List targets
 CHECK_APPLE := $(if $(shell command -v xcodebuild 2>/dev/null),check-apple)
 
 .PHONY: check
-check: check-server check-contracts guard $(CHECK_APPLE) ## Everything CI runs except e2e (check-apple joins where Xcode exists)
+check: check-server check-contracts check-strings guard $(CHECK_APPLE) ## Everything CI runs except e2e (check-apple joins where Xcode exists)
 
 .PHONY: check-server
 check-server: ## oxlint, oxfmt --check, tsc --noEmit, bun test
@@ -31,6 +31,11 @@ check-server: ## oxlint, oxfmt --check, tsc --noEmit, bun test
 	cd server && bun run format:check
 	cd server && bun run typecheck
 	cd server && bun run test
+
+.PHONY: check-strings
+check-strings: ## String catalogs: every key translated to de, none stale, no hard-coded user-facing literal (needs only bun)
+	bun test scripts/check-strings.test.ts
+	bun scripts/check-strings.ts
 
 .PHONY: check-contracts
 check-contracts: ## contracts/schema equals the TypeBox export, fixtures validate, manifest covers every route
@@ -178,8 +183,9 @@ build-apple: generate ## xcodebuild build of every app scheme (Iris incl. both e
 	$(XCB) -scheme IrisMac -destination 'platform=macOS' build
 
 .PHONY: check-apple
-check-apple: ## Theme drift, swift format lint, swift test per package, build of all schemes, IrisMacTests
+check-apple: ## Theme drift, string catalogs, swift format lint, swift test per package, build of all schemes, IrisMacTests
 	cd $(APPLE_DIR)/tools && bun install --frozen-lockfile && bun gen-theme.ts --check
+	$(MAKE) check-strings
 	$(MAKE) lint-apple
 	$(MAKE) test-packages
 	$(MAKE) build-apple
