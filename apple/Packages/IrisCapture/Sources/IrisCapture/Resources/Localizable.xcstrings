@@ -1,0 +1,40 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "End of %@" : {
+      "comment" : "Queue row of a late tail: the end of a take (its title) that the server had already closed, uploaded as its own memo",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ende von %@"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "End of %@"
+          }
+        }
+      }
+    },
+    "End of a take" : {
+      "comment" : "Queue row of a late tail whose take is not known any more",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ende einer Aufnahme"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "End of a take"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
