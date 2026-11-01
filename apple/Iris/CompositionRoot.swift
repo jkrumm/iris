@@ -318,15 +318,8 @@ final class CompositionRoot: CaptureIntentHandler, PlaybackIntentHandler {
     attributes["previous.exit"] = "unknown"
     attributes["mode"] = .string(mode == .fake ? "fake" : "production")
     log.event("app.launch", attributes)
-    // The server never hears of a file in the set-aside folder: one record each, so the data-loss case is visible at once.
-    for file in aside.recordings + aside.queueFiles {
-      log.event(
-        "capture.quarantine", severity: .warn,
-        [
-          "file": .string(file.url.lastPathComponent), "bytes": .int(file.byteCount),
-          "has_moov": .bool(file.url.pathExtension == "m4a" ? Self.hasMovieAtom(file.url) : false),
-        ])
-    }
+    // The server never hears of a file in the set-aside folder: one record each, read off the main actor.
+    await log.recordQuarantine(aside.recordings + aside.queueFiles)
   }
 
   /// The queue as the log reports it: its state, and its item count only when it could be read.
@@ -346,12 +339,6 @@ final class CompositionRoot: CaptureIntentHandler, PlaybackIntentHandler {
     let attributes = await outboxStateAttributes(aside: await outbox.setAside())
     guard lastOutboxState else { return }
     DeviceLog.shared.event("outbox.state", attributes.merging(["reason": "recovered"]) { current, _ in current })
-  }
-
-  /// A finalised m4a has a `moov` atom; one the process died while writing has none and no tool reads it.
-  private nonisolated static func hasMovieAtom(_ url: URL) -> Bool {
-    guard let data = try? Data(contentsOf: url, options: .mappedIfSafe) else { return false }
-    return data.range(of: Data("moov".utf8)) != nil
   }
 
   // MARK: CaptureIntentHandler
