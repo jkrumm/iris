@@ -52,10 +52,15 @@ public protocol SegmentFileStore: Sendable {
   func setAsideFiles() async -> [SetAsideFile]
   /// Name, size and date of files in the capture directory, for Settings; those that are no longer there are left out.
   func describe(_ urls: [URL]) async -> [SetAsideFile]
+  /// Deletes every segment file in the capture directory that belongs to this memo. Only for a take the user discarded:
+  /// nothing else deletes a take's audio.
+  func discardFiles(of memoID: MemoID) async
 }
 
 extension SegmentFileStore {
   public func listSegmentFiles() async -> [URL]? { await segmentFiles() }
+
+  public func discardFiles(of memoID: MemoID) async {}
 
   public func describe(_ urls: [URL]) async -> [SetAsideFile] {
     urls.map { SetAsideFile(url: $0, byteCount: 0, modifiedAt: nil) }
@@ -89,6 +94,15 @@ public struct DirectorySegmentFiles: SegmentFileStore {
   }
 
   public func inspect(_ url: URL) -> (byteCount: Int, duration: TimeInterval)? { inspector(url) }
+
+  /// The recorder names its files `<memo id>-<index>.m4a`.
+  public func discardFiles(of memoID: MemoID) async {
+    guard let urls = await listSegmentFiles() else { return }
+    let prefix = "\(memoID.uuidString)-"
+    for url in urls where url.lastPathComponent.hasPrefix(prefix) {
+      try? FileManager.default.removeItem(at: url)
+    }
+  }
 
   public func describe(_ urls: [URL]) async -> [SetAsideFile] {
     urls.compactMap { url in

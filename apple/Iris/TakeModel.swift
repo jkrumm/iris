@@ -102,7 +102,10 @@ final class TakeModel {
 
   private func followState() async {
     guard let updates = await controller.updates() else { return }
-    for await take in updates { apply(take) }
+    for await take in updates {
+      apply(take)
+      await controller.sessionUpdated(take)
+    }
   }
 
   private func followLevels() async {

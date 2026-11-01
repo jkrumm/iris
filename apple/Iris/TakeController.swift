@@ -87,10 +87,19 @@ final class TakeController {
 
   private func sessionHoldsMicrophone() async -> Bool {
     guard let session = try? await stack.session() else { return false }
-    switch await session.current.phase {
+    let state = await session.current
+    switch state.phase {
     case .starting, .recording, .paused, .stopping: return true
-    case .idle, .failed: return false
+    case .failed: return !state.recorderReleased
+    case .idle: return false
     }
+  }
+
+  /// A snapshot of the session. A take that failed on its own and whose recorder has stopped no longer holds the microphone:
+  /// playback may resume without waiting for a Stop or Discard the user may never press.
+  func sessionUpdated(_ take: TakeState) async {
+    guard take.phase == .failed, take.recorderReleased else { return }
+    await releaseCapture(captureClaim)
   }
 
   /// The shared start: callers that joined it get the same answer, the recovery included.

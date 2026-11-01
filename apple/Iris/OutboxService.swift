@@ -30,6 +30,7 @@ actor CreatedMemoLog {
   private var memos: [String: Memo] = [:]
   private var order: [String] = []
   private var onCreated: (@Sendable (Memo) -> Void)?
+  private var onCreatedOn: (@Sendable (Memo, String?) -> Void)?
   private var onForgotten: (@Sendable (String) -> Void)?
   private var onSettled: (@Sendable (String) -> Void)?
 
@@ -37,6 +38,12 @@ actor CreatedMemoLog {
 
   func setHandler(_ handler: (@Sendable (Memo) -> Void)?) {
     onCreated = handler
+  }
+
+  /// Like ``setHandler(_:)``, and tells which server the memo was created on (``OutboxItem/serverKey``), so a consumer that has
+  /// moved to another server by the time it acts on the event can drop it. `nil`: the item was bound to no server.
+  func setServerHandler(_ handler: (@Sendable (Memo, String?) -> Void)?) {
+    onCreatedOn = handler
   }
 
   func setForgottenHandler(_ handler: (@Sendable (String) -> Void)?) {
@@ -49,11 +56,12 @@ actor CreatedMemoLog {
     onSettled = handler
   }
 
-  func record(_ memo: Memo) {
+  func record(_ memo: Memo, serverKey: String? = nil) {
     if memos[memo.id] == nil { order.append(memo.id) }
     memos[memo.id] = memo
     while order.count > Self.limit { memos[order.removeFirst()] = nil }
     onCreated?(memo)
+    onCreatedOn?(memo, serverKey)
   }
 
   func memo(id: String) -> Memo? { memos[id] }

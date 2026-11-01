@@ -150,6 +150,15 @@ public struct OutboxStateMachine: Sendable {
     items[memoID]?.create = .pending
   }
 
+  /// The create found the connection on another server and sent nothing: back to pending with `createMayHaveLanded` as it was
+  /// before the dispatch, so a later discard does not queue a `DELETE` for a memo that was never created. (A cancelled create
+  /// keeps the flag: its request may have reached the server.)
+  public mutating func createBounced(_ memoID: MemoID) {
+    guard items[memoID]?.create == .uploading else { return }
+    items[memoID]?.create = .pending
+    if let before = flagBeforeDispatch.removeValue(forKey: memoID) { items[memoID]?.createMayHaveLanded = before }
+  }
+
   /// Puts every failed or stalled transfer of the memo back to pending with a fresh attempt count. `false` when
   /// there was nothing to retry.
   @discardableResult
@@ -228,7 +237,7 @@ public struct OutboxStateMachine: Sendable {
     discarded.insert(memoID)
     if deleteOnServer {
       deletions[memoID] = OutboxDeletion(
-        memoID: memoID, title: item?.title ?? "", queuedAt: item?.queuedAt ?? Date())
+        memoID: memoID, title: item?.title ?? "", queuedAt: item?.queuedAt ?? Date(), serverKey: item?.serverKey)
       withheldDeletions.insert(memoID)
     }
     return files
@@ -393,14 +402,35 @@ public struct OutboxStateMachine: Sendable {
     memos[memoID] = OutboxMemo(memoID: memoID, segmentCount: segmentCount, completion: .pending, attempts: 0)
   }
 
+  /// The server the work belongs to: the one its item was queued for. `nil` when it is bound to none (an item from before the
+  /// binding, an uploader that does not know its server, a bare segment queue).
+  func boundServer(of work: OutboxWork) -> String? {
+    switch work {
+    case .create(let item): item.serverKey
+    case .upload(let segment): items[segment.memoID]?.serverKey
+    case .complete(let memoID, _): items[memoID]?.serverKey
+    case .delete(let memoID): deletions[memoID]?.serverKey
+    }
+  }
+
+  /// Work bound to a server goes out only while that server is the one configured; the rest waits where it is (pending or
+  /// backed off, visible in the queue) and is handed out when its server is back. Unbound work goes to any.
+  private static func isSendable(boundTo bound: String?, to current: String?) -> Bool {
+    bound == nil || bound == current
+  }
+
   /// Hands out due work, oldest first, up to the concurrency cap, and marks it in flight: creates first (nothing else of
-  /// that memo can move before its create), then completions, then segments.
-  public mutating func dispatch(now: Date, inFlight: Int) -> [OutboxWork] {
+  /// that memo can move before its create), then completions, then segments. `serverKey` is the server configured now;
+  /// work bound to another one is not handed out.
+  public mutating func dispatch(now: Date, inFlight: Int, serverKey: String? = nil) -> [OutboxWork] {
     var capacity = policy.maxConcurrentUploads - inFlight
     var work: [OutboxWork] = []
     guard capacity > 0 else { return work }
 
-    for item in orderedItems where capacity > 0 && isCreatable(item) && isDue(item.create, now: now) {
+    for item in orderedItems
+    where capacity > 0 && isCreatable(item) && isDue(item.create, now: now)
+      && Self.isSendable(boundTo: item.serverKey, to: serverKey)
+    {
       items[item.memoID]?.create = .uploading
       flagBeforeDispatch[item.memoID] = item.createMayHaveLanded
       items[item.memoID]?.createMayHaveLanded = true
@@ -412,7 +442,9 @@ public struct OutboxStateMachine: Sendable {
     }
 
     for deletion in deletions.values.sorted(by: { $0.memoID.uuidString < $1.memoID.uuidString })
-    where capacity > 0 && !withheldDeletions.contains(deletion.memoID) && isDue(deletion.state, now: now) {
+    where capacity > 0 && !withheldDeletions.contains(deletion.memoID) && isDue(deletion.state, now: now)
+      && Self.isSendable(boundTo: deletion.serverKey, to: serverKey)
+    {
       deletions[deletion.memoID]?.state = .uploading
       work.append(.delete(deletion.memoID))
       capacity -= 1
@@ -420,7 +452,9 @@ public struct OutboxStateMachine: Sendable {
 
     for memo in memos.values.sorted(by: { $0.memoID.uuidString < $1.memoID.uuidString }) {
       guard capacity > 0 else { break }
-      guard isCreated(memo.memoID), isDue(memo.completion, now: now), allUploaded(memo) else { continue }
+      guard isCreated(memo.memoID), isDue(memo.completion, now: now), allUploaded(memo),
+        Self.isSendable(boundTo: items[memo.memoID]?.serverKey, to: serverKey)
+      else { continue }
       memos[memo.memoID]?.completion = .uploading
       completeFlagBeforeDispatch[memo.memoID] = memo.completeMayHaveLanded
       memos[memo.memoID]?.completeMayHaveLanded = true
@@ -430,6 +464,7 @@ public struct OutboxStateMachine: Sendable {
 
     let due = entries.values.filter {
       isCreated($0.key.memoID) && isDue($0.state, now: now) && !withheldSegments.contains($0.key)
+        && Self.isSendable(boundTo: items[$0.key.memoID]?.serverKey, to: serverKey)
     }
     .sorted { $0.sequence < $1.sequence }
     for entry in due.prefix(capacity) {
@@ -518,6 +553,16 @@ public struct OutboxStateMachine: Sendable {
 
   public mutating func completeCancelled(_ memoID: MemoID) {
     memos[memoID]?.completion = .pending
+  }
+
+  /// The `complete` found the connection on another server and sent nothing: pending again, `completeMayHaveLanded` as it was
+  /// (a flag left set would stop the startup sweep from adopting a tail segment into a memo whose `complete` never went out).
+  public mutating func completeBounced(_ memoID: MemoID) {
+    guard memos[memoID]?.completion == .uploading else { return }
+    memos[memoID]?.completion = .pending
+    if let before = completeFlagBeforeDispatch.removeValue(forKey: memoID) {
+      memos[memoID]?.completeMayHaveLanded = before
+    }
   }
 
   /// The earliest future retry deadline, if any.

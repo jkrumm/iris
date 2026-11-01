@@ -26,6 +26,9 @@ public actor Outbox: SegmentOutbox {
   private let uploader: any SegmentUploader
   private let clock: any CaptureClock
   private let deletesFilesWhenDone: Bool
+  /// The server the uploader sends to right now (a digest of its URL), `nil` when it is not known or not connected. Items are
+  /// bound to it when they are queued, and work bound to another server is held back (`OutboxItem.serverKey`).
+  private let serverKey: @Sendable () -> String?
 
   private var inFlight: [TransferID: Task<Void, Never>] = [:]
   private var wakeTask: Task<Void, Never>?
@@ -62,8 +65,10 @@ public actor Outbox: SegmentOutbox {
     uploader: any SegmentUploader,
     clock: any CaptureClock,
     policy: OutboxPolicy = OutboxPolicy(),
-    deletesFilesWhenDone: Bool = true
+    deletesFilesWhenDone: Bool = true,
+    serverKey: @escaping @Sendable () -> String? = { nil }
   ) async throws {
+    self.serverKey = serverKey
     self.deletesFilesWhenDone = deletesFilesWhenDone
     self.policy = policy
     self.store = store
@@ -101,6 +106,10 @@ public actor Outbox: SegmentOutbox {
   public func enqueueItem(_ item: OutboxItem) async throws -> Bool {
     // Withheld from dispatch while the save is out: another call can run `resume()` at the suspension, and the server must
     // not create a memo the caller is about to be told the queue refused.
+    // Bound to the server configured now, read here in the actor and never again: the item is the user's hand-over to this
+    // server, whatever the connection does afterwards.
+    var item = item
+    if item.serverKey == nil { item.serverKey = serverKey() }
     guard machine.enqueueItem(item, withheld: true) else { return false }
     guard await persist() else {
       // No save that carries this item landed. Take it out and say so on disk too, in case another caller's save wrote it
@@ -133,16 +142,21 @@ public actor Outbox: SegmentOutbox {
   /// transfer (it survives a relaunch and is retried until the server answers) and goes out after a `create` that was on
   /// the wire has ended, so it cannot overtake the request that makes the memo. A late segment or `complete` for that memo
   /// is a 409 the server gives; nothing of the memo is queued any more, so it is dropped, never a stall.
-  public func discard(_ memoID: MemoID) async {
+  ///
+  /// `true` when a save that no longer lists the memo has landed (its queued segment files are then deleted); `false` when the
+  /// write failed and the record on disk still names them. A caller that deletes files of its own waits for `true`.
+  @discardableResult
+  public func discard(_ memoID: MemoID) async -> Bool {
     let deleteOnServer = machine.needsServerDelete(memoID)
     let creating = inFlight[.creation(memoID)]
     for (id, task) in inFlight where id.memoID == memoID { task.cancel() }
     retire(machine.discard(memoID, deleteOnServer: deleteOnServer))
     unsavedSegments = unsavedSegments.filter { $0.key.memoID != memoID }
-    await persist()
+    let saved = await persist()
     await creating?.value
     machine.releaseDeletion(memoID)
     await resume()
+    return saved
   }
 
   /// The user stops trying to remove a discarded take's memo from the server (its `DELETE` stalled and stays in the queue until
@@ -183,7 +197,7 @@ public actor Outbox: SegmentOutbox {
     guard !isShutDown else { return }
     let now = await clock.now()
     guard !isShutDown else { return }  // shut down while the clock was answering
-    let work = machine.dispatch(now: now, inFlight: inFlight.count + starting)
+    let work = machine.dispatch(now: now, inFlight: inFlight.count + starting, serverKey: serverKey())
     if !work.isEmpty {
       // The dispatched state is saved before anything goes out: a kill with a create on the wire must leave
       // `createMayHaveLanded` on disk, or a later discard would not delete a memo the server may have.
@@ -287,15 +301,19 @@ public actor Outbox: SegmentOutbox {
     case .complete(let memoID, _): id = .completion(memoID)
     case .delete(let memoID): id = .deletion(memoID)
     }
+    let server = machine.boundServer(of: work)
     // Owned by `inFlight` and cancelled by `shutdown()`.
     inFlight[id] = Task { [uploader] in
       let outcome: Result<Void, any Error>
       do {
-        switch work {
-        case .create(let item): try await uploader.create(item)
-        case .upload(let segment): try await uploader.upload(segment)
-        case .complete(let memoID, let count): try await uploader.complete(memoID: memoID, segmentCount: count)
-        case .delete(let memoID): try await uploader.delete(memoID: memoID)
+        // The client checks the server at the moment it picks its target (`OutboxTransfer`).
+        try await OutboxTransfer.$serverKey.withValue(server) {
+          switch work {
+          case .create(let item): try await uploader.create(item)
+          case .upload(let segment): try await uploader.upload(segment)
+          case .complete(let memoID, let count): try await uploader.complete(memoID: memoID, segmentCount: count)
+          case .delete(let memoID): try await uploader.delete(memoID: memoID)
+          }
         }
         outcome = .success(())
       } catch {
@@ -310,9 +328,13 @@ public actor Outbox: SegmentOutbox {
     finishing += 1
     let now = await clock.now()
     inFlight[id] = nil
-    let cancelled = Task.isCancelled || isShutDown
+    // Nothing was sent to the wrong server: the transfer goes back as it was, like a cancelled one.
+    var wrongServer = false
+    if case .failure(let error) = outcome, error is WrongServerError { wrongServer = true }
+    let cancelled = Task.isCancelled || isShutDown || wrongServer
     switch (id, outcome) {
     case (.creation(let memoID), .success): machine.createSucceeded(memoID)
+    case (.creation(let memoID), .failure) where wrongServer: machine.createBounced(memoID)
     case (.creation(let memoID), .failure) where cancelled: machine.createCancelled(memoID)
     case (.creation(let memoID), .failure(let error)):
       Log.outbox.error("create failed: \(String(describing: error), privacy: .public)")
@@ -332,6 +354,7 @@ public actor Outbox: SegmentOutbox {
         retire(machine.entries.values.filter { $0.key.memoID == memoID }.map(\.segment.fileURL))
       }
       machine.completeSucceeded(memoID)
+    case (.completion(let memoID), .failure) where wrongServer: machine.completeBounced(memoID)
     case (.completion(let memoID), .failure) where cancelled: machine.completeCancelled(memoID)
     case (.completion(let memoID), .failure(let error as MissingSegmentsError)):
       Log.outbox.error("complete refused, the server lacks \(error.indices.count) segments: sending them again")
