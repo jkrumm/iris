@@ -11,10 +11,19 @@
  *     (SwiftUI `LocalizedStringKey` initializers), `String(localized: "..")`, `LocalizedStringResource("..")`, whose key is not
  *     in the catalog of every target that compiles the file; and a `title:` / `message:` / ... string argument given a bare
  *     literal (a `String` never reaches a catalog).
- *  4. in a Swift package: a keyed literal without `bundle:` (it would look in the app's bundle and show English).
+ *  4. in a Swift package: a keyed literal that is not `Text(_, bundle: #bundle)` / `String(localized:, bundle: #bundle)`: a
+ *     bare `Button("..")`, `.accessibilityLabel("..")` or `Text("..")` there looks in the app's bundle and shows English.
  *  5. `NS*UsageDescription` in a target's Info.plist properties without a translated `InfoPlist.xcstrings` key.
+ *  6. `Text("a" + "b")` and the like: a concatenation is a `String`, which SwiftUI never looks up.
  *
- * Limits (honest): a lexer, not a type checker. It sees literals at the call site only, so a `String` built elsewhere and
+ * Format specifiers are compared per argument index, with type and length modifier (`%lld` is not `%d`, `%1$@ %2$lld` is
+ * not `%lld %@`), on every leaf of a plural / device variation; a German plural needs `one` and `other`. A `one` leaf may
+ * drop an argument ("Eine Datei"), no leaf may add one or change a type.
+ *
+ * Limits (honest): a lexer, not a type checker. An interpolation's type is known only for an integer / float / string
+ * literal, `.count`, `Int(..)` / `Double(..)` / `String(..)`, `.formatted(..)`, and a name declared once in the same file with
+ * a plain type (`count: Int`); any other expression is accepted against a key of any type, so `\(someCall())` can pass
+ * against `%@` when the runtime wants `%lld` (the catalog entry is then missing at run time, never a crash). It sees literals at the call site only, so a `String` built elsewhere and
  * passed to `Text(variable)` is invisible; a literal with no letter is data; `Text(verbatim:)` is data; a view init this
  * script does not know is not checked (extend `VIEW_INITS`). Telemetry, logs and accessibility identifiers are not
  * user-facing and are not matched. Escape hatch for a literal that is really data: `// l10n:ignore <why>` on its line or
@@ -34,7 +43,10 @@ export type Hit = {
   /** `keyed`: must be a catalog key. `string`: a String argument, can never be localized. `bundle`: keyed, without a bundle in a package. */
   kind: "keyed" | "string" | "bundle";
   form: string;
+  /** Per interpolation: its class when the source tells (`int`, `float`, `obj`), else null. */
+  types: (ArgClass | null)[];
 };
+export type ArgClass = "int" | "float" | "obj";
 
 const VIEW_INITS = new Set([
   "Text",
@@ -124,6 +136,8 @@ type Lit = {
   start: number;
   end: number;
   value: string;
+  /** The source of each `\(..)` interpolation, in order. */
+  interps: string[];
   stack: Frame[];
   /** Label directly before the literal (`title: "x"`), if any. */
   label: string | null;
@@ -156,6 +170,7 @@ export function lex(src: string): { literals: Lit[]; text: string } {
     const closer = (multi ? '"""' : '"') + "#".repeat(hashes);
     const interp = "\\" + "#".repeat(hashes) + "(";
     let value = "";
+    const interps: string[] = [];
     while (i < n && !src.startsWith(closer, i)) {
       if (src.startsWith(interp, i)) {
         i += interp.length;
@@ -174,7 +189,7 @@ export function lex(src: string): { literals: Lit[]; text: string } {
           else if (c === ")") depth--;
           i++;
         }
-        void innerStart;
+        interps.push(src.slice(innerStart, i - 1).trim());
         continue;
       }
       if (src[i] === "\\" && hashes === 0) {
@@ -191,6 +206,7 @@ export function lex(src: string): { literals: Lit[]; text: string } {
       start,
       end: i,
       value,
+      interps,
       stack: [],
       label: null,
       first: false,
@@ -280,11 +296,43 @@ const hasLetter = (s: string) => /\p{L}/u.test(s.replace(/\uE000/g, ""));
 
 const lineOf = (src: string, idx: number) => src.slice(0, idx).split("\n").length;
 
+const CLASS_OF_TYPE: Record<string, ArgClass> = {
+  Int: "int", Int8: "int", Int16: "int", Int32: "int", Int64: "int",
+  UInt: "int", UInt8: "int", UInt16: "int", UInt32: "int", UInt64: "int",
+  Double: "float", Float: "float", CGFloat: "float", TimeInterval: "float",
+  String: "obj", Substring: "obj",
+};
+
+/** Names the file declares with exactly one plain type (`count: Int`): name -> class. Any other type poisons the name. */
+function declaredClasses(src: string): Map<string, ArgClass> {
+  const seen = new Map<string, Set<ArgClass | "other">>();
+  for (const m of src.matchAll(/\b([A-Za-z_]\w*)\s*:\s*([A-Z]\w*)/g)) {
+    const name = m[1] ?? "";
+    seen.set(name, (seen.get(name) ?? new Set()).add(CLASS_OF_TYPE[m[2] ?? ""] ?? "other"));
+  }
+  const out = new Map<string, ArgClass>();
+  for (const [name, set] of seen) {
+    const only = set.size === 1 ? [...set][0] : undefined;
+    if (only && only !== "other") out.set(name, only);
+  }
+  return out;
+}
+
+/** The class of an interpolated expression when the source tells, else null (see the header's limits). */
+export function classify(expr: string, declared: Map<string, ArgClass>): ArgClass | null {
+  if (/^-?\d+$/.test(expr) || /\.count$/.test(expr) || /^U?Int\d*\(/.test(expr)) return "int";
+  if (/^-?\d*\.\d+$/.test(expr) || /^(Double|Float|CGFloat)\(/.test(expr)) return "float";
+  if (expr.startsWith('"') || /^String\(/.test(expr) || /\.formatted\(/.test(expr)) return "obj";
+  const name = /^(?:self\.)?([A-Za-z_]\w*)$/.exec(expr)?.[1];
+  return name ? (declared.get(name) ?? null) : null;
+}
+
 /** The hits of one Swift file. `inPackage`: bare `Text("x")` would look in the app's bundle. */
 export function scanSwift(file: string, src: string, inPackage: boolean): Hit[] {
   const { literals } = lex(src);
   const lines = src.split("\n");
   const hits: Hit[] = [];
+  const declared = declaredClasses(src);
   for (const lit of literals) {
     if (lit.stack.some((f) => f.preview)) continue;
     if (!hasLetter(lit.value)) continue;
@@ -292,8 +340,9 @@ export function scanSwift(file: string, src: string, inPackage: boolean): Hit[] 
     const ignored =
       /l10n:ignore/.test(lines[line - 1] ?? "") || /l10n:ignore/.test(lines[line - 2] ?? "");
     if (ignored) continue;
+    const types = lit.interps.map((e) => classify(e, declared));
     const add0 = (kind: Hit["kind"], form: string) =>
-      hits.push({ file, line, key: lit.value, kind, form });
+      hits.push({ file, line, key: lit.value, kind, form, types });
     if (
       lit.resourceDecl ||
       (lit.stack.some((f) => f.resource) && !lit.stack.some((f) => f.open === "(" && f.callee))
@@ -306,7 +355,11 @@ export function scanSwift(file: string, src: string, inPackage: boolean): Hit[] 
     const callee = top.callee;
     const body = src.slice(top.start, (top.close ?? top.start) + 1);
     const add = (kind: Hit["kind"], form: string) =>
-      hits.push({ file, line, key: lit.value, kind, form });
+      hits.push({ file, line, key: lit.value, kind, form, types });
+    // `"a" + "b"` is a String
+    const concat =
+      /^\s*\+(?![+=])/.test(src.slice(lit.end, lit.end + 8)) ||
+      /(?<![+])\+\s*$/.test(src.slice(Math.max(0, lit.start - 8), lit.start));
     const bundleOk = /\bbundle:/.test(body);
     // `comment:` and `tableName:` exist only on the `LocalizedStringKey` overloads, so they force the localizing init
     const localizing = /\b(bundle|comment|tableName):/.test(body);
@@ -324,6 +377,14 @@ export function scanSwift(file: string, src: string, inPackage: boolean): Hit[] 
       add("keyed", `${callee}(${lit.label}:)`);
       continue;
     }
+    if (
+      concat &&
+      (lit.first || lit.label === "title" || lit.label === "label") &&
+      (VIEW_INITS.has(callee) || MODIFIERS.has(callee))
+    ) {
+      add("string", "concatenated literals");
+      continue;
+    }
     // a ternary of literals inside a view init types as String, which SwiftUI never localizes
     if (
       lit.ternary &&
@@ -339,10 +400,9 @@ export function scanSwift(file: string, src: string, inPackage: boolean): Hit[] 
       (lit.first || lit.label === "title" || lit.label === "label") &&
       (VIEW_INITS.has(callee) || MODIFIERS.has(callee))
     ) {
-      if (inPackage && callee === "Text" && !bundleOk) add("bundle", "Text(..)");
-      else if (inPackage && callee !== "Text" && VIEW_INITS.has(callee))
-        add("bundle", `${callee}(..)`);
-      else add("keyed", `${callee}(..)`);
+      // only Text takes a bundle: any other init or modifier looks in the app's bundle, so inside a package its
+      // literal must be a String(localized:, bundle:) instead
+      add(inPackage && !(callee === "Text" && bundleOk) ? "bundle" : "keyed", `${callee}(..)`);
       continue;
     }
     // a String-typed argument of our own view or model
@@ -375,48 +435,55 @@ type Entry = {
 export type Catalog = { sourceLanguage: string; strings: Record<string, Entry> };
 
 const SPEC =
-  /%(?:\d+\$)?[-+ 0#]*\d*(?:\.\d+)?(?:ll|l|h|hh|z|j|t|q)?[@dDuUxXoOfeEgGcCsSpaAF]|%#@\w+@/g;
+  /%(?:(\d+)\$)?[-+ 0#]*\d*(?:\.\d+)?(ll|l|h|hh|z|j|t|q)?([@dDuUxXoOfeEgGcCsSpaAF])|%#@\w+@/g;
 
 /**
  * A catalog key with every format specifier as one marker (`\uE000`) and `%%` as `\uE001`, so a source literal
- * (`normalizeLiteral`) with `\(n)` interpolations and a plain `%` compares equal to its key (`%lld`, `%%`).
+ * (`normalizeLiteral`) with `\(n)` interpolations and a plain `%` compares equal to its key (`%lld`, `%%`). The marker
+ * carries no type: `specs` and `classOf` do.
  */
 export const normalize = (key: string) => key.replace(/%%/g, "\uE001").replace(SPEC, "\uE000");
 export const normalizeLiteral = (value: string) => value.replace(/%/g, "\uE001");
 
-function specTypes(value: string): string[] {
-  const out: string[] = [];
-  const positional: Record<number, string> = {};
+/** Argument index (1-based) -> type with its length modifier (`lld`, `@`, `f`), `%lf` read as `%f`. Substitutions are skipped. */
+export function specs(value: string): Map<number, string> {
+  const out = new Map<number, string>();
+  let next = 1;
   for (const m of value.replace(/%%/g, "").matchAll(SPEC)) {
-    const s = m[0];
-    if (s.startsWith("%#@")) continue;
-    const p = /^%(\d+)\$/.exec(s);
-    const type = s.replace(/^%(?:\d+\$)?[-+ 0#]*\d*(?:\.\d+)?(?:ll|l|h|hh|z|j|t|q)?/, "");
-    const bucket = /[dDuUxXoO]/.test(type)
-      ? "int"
-      : /[fFeEgGaA]/.test(type)
-        ? "float"
-        : /[sSc@C]/.test(type)
-          ? "obj"
-          : type;
-    if (p) positional[Number(p[1])] = bucket;
-    else out.push(bucket);
+    if (m[0].startsWith("%#@")) continue;
+    const index = m[1] ? Number(m[1]) : next++;
+    out.set(index, `${m[2] ?? ""}${m[3]}`.replace(/^lf$/, "f"));
   }
-  const numbered = Object.keys(positional)
-    .map(Number)
-    .toSorted((a, b) => a - b)
-    .flatMap((k) => positional[k] ?? []);
-  return [...out, ...numbered].toSorted();
+  return out;
 }
 
-/** Every translated leaf of a localization: `[path, unit]`. */
-function leaves(loc: Localization | undefined, path = ""): [string, Unit][] {
+/** The class a catalog type stands for, to compare with what the source interpolates. */
+const classOf = (t: string): ArgClass | "other" =>
+  /[dDuUxXoO]$/.test(t) ? "int" : /[fFeEgGaA]$/.test(t) ? "float" : /[@sSc]$/.test(t) ? "obj" : "other";
+
+/** What is wrong with `got` (a translation's specifiers) against `want` (the key's); `allowOmit`: a plural `one` may drop arguments. */
+function specProblem(want: Map<number, string>, got: Map<number, string>, allowOmit: boolean): string | null {
+  const show = (m: Map<number, string>) =>
+    [...m].toSorted((x, y) => x[0] - y[0]).map(([i, t]) => `${i}:%${t}`).join(" ") || "none";
+  for (const [i, t] of got) if (want.get(i) !== t) return `argument ${show(got)}, the key has ${show(want)}`;
+  if (!allowOmit && got.size !== want.size) return `argument ${show(got)}, the key has ${show(want)}`;
+  return null;
+}
+
+type Node = { stringUnit?: Unit; variations?: Record<string, Record<string, Node>> };
+
+/** Every translated leaf of a localization: `[path, unit]`; `problems` gets a plural node without `one` or `other`. */
+function leaves(loc: Node | undefined, problems: string[], path = ""): [string, Unit][] {
   if (!loc) return [];
   if (loc.stringUnit) return [[path || "value", loc.stringUnit]];
   const out: [string, Unit][] = [];
   for (const [kind, cases] of Object.entries(loc.variations ?? {})) {
+    if (kind === "plural") {
+      for (const need of ["one", "other"])
+        if (!cases[need]) problems.push(`${path || "de"} plural has no "${need}" case`);
+    }
     for (const [name, sub] of Object.entries(cases))
-      out.push(...leaves(sub as Localization, `${path}${kind}.${name}.`));
+      out.push(...leaves(sub, problems, `${path}${kind}.${name}.`));
   }
   return out;
 }
@@ -425,28 +492,42 @@ export function checkCatalog(file: string, cat: Catalog): string[] {
   const errs: string[] = [];
   for (const [key, entry] of Object.entries(cat.strings)) {
     if (entry.shouldTranslate === false) continue;
-    const de = entry.localizations?.["de"];
-    const lv = leaves(de);
+    const problems: string[] = [];
+    const lv = leaves(entry.localizations?.["de"] as Node | undefined, problems);
     if (lv.length === 0) {
       errs.push(`${file}: "${key}" has no de translation`);
       continue;
     }
+    for (const p of problems) errs.push(`${file}: "${key}" de ${p}`);
+    const want = specs(key);
     for (const [path, unit] of lv) {
-      if (unit.state !== "translated" || !unit.value)
+      if (unit.state !== "translated" || !unit.value) {
         errs.push(`${file}: "${key}" de ${path} is ${unit.state ?? "missing"} (need translated)`);
-      else if (!de?.variations) {
-        const want = specTypes(key).join(",");
-        const got = specTypes(unit.value).join(",");
-        if (want !== got)
-          errs.push(
-            `${file}: "${key}" de value has format specifiers [${got}], the key has [${want}]`,
-          );
+        continue;
       }
+      if (unit.value.includes("%#@")) continue; // a substitution: its own variations carry the specifiers
+      const bad = specProblem(want, specs(unit.value), path.endsWith("plural.one."));
+      if (bad) errs.push(`${file}: "${key}" de ${path === "value" ? "value" : path} has ${bad}`);
     }
     if (entry.extractionState === "stale") errs.push(`${file}: "${key}" is marked stale`);
   }
   return errs;
 }
+
+/** Catalog keys by marker shape; each holds the class of every argument by index, to check an interpolation against. */
+export function keyIndex(cat: Catalog | null): Map<string, (ArgClass | "other")[][]> {
+  const out = new Map<string, (ArgClass | "other")[][]>();
+  for (const key of Object.keys(cat?.strings ?? {})) {
+    const byIndex = [...specs(key)].toSorted((x, y) => x[0] - y[0]).map(([, t]) => classOf(t));
+    const shape = normalize(key);
+    out.set(shape, [...(out.get(shape) ?? []), byIndex]);
+  }
+  return out;
+}
+
+/** Does some key of this shape take the argument classes the source interpolates? Unknown (null) matches any. */
+export const typesFit = (candidates: (ArgClass | "other")[][], types: (ArgClass | null)[]) =>
+  candidates.some((c) => types.every((t, i) => t === null || c[i] === t));
 
 // ---------------------------------------------------------------------------------------------------------------------
 // Project layout: which Swift files compile into which target, where its catalog lives
@@ -542,7 +623,7 @@ export function run(root: string): string[] {
 
   for (const t of all) {
     const cat = readCatalog(t.catalog);
-    const keys = new Set(Object.keys(cat?.strings ?? {}).map(normalize));
+    const keys = keyIndex(cat);
     const mine = new Set<string>();
     used.set(t.name, mine);
     for (const file of t.files) {
@@ -554,22 +635,27 @@ export function run(root: string): string[] {
           const why =
             h.form === "ternary of literals"
               ? "types as String; localize each branch with String(localized:)"
-              : "is a String; use String(localized:) or a LocalizedStringResource";
+              : h.form === "concatenated literals"
+                ? "is a String, not a key; write one literal"
+                : "is a String; use String(localized:) or a LocalizedStringResource";
           errs.push(`${where}: ${h.form} "${h.key.replace(/\uE000/g, "\\(..)")}" ${why}`);
           continue;
         }
         if (h.kind === "bundle") {
           errs.push(
-            `${where}: ${h.form} "${h.key.replace(/\uE000/g, "\\(..)")}" in a package needs Text(.., bundle: #bundle) / String(localized:, bundle: #bundle)`,
+            `${where}: ${h.form} "${h.key.replace(/\uE000/g, "\\(..)")}" in a package looks in the app's bundle; use Text(.., bundle: #bundle) or String(localized:, bundle: #bundle)`,
           );
           continue;
         }
-        mine.add(normalizeLiteral(h.key));
-        if (!keys.has(normalizeLiteral(h.key))) {
+        const shape = normalizeLiteral(h.key);
+        mine.add(shape);
+        const candidates = keys.get(shape);
+        const shown = h.key.replace(/\uE000/g, "\\(..)");
+        if (!candidates) errs.push(`${where}: ${h.form} "${shown}" is not in ${rel(t.catalog)}`);
+        else if (!typesFit(candidates, h.types))
           errs.push(
-            `${where}: ${h.form} "${h.key.replace(/\uE000/g, "\\(..)")}" is not in ${rel(t.catalog)}`,
+            `${where}: ${h.form} "${shown}" interpolates [${h.types.map((x) => x ?? "?").join(", ")}], the key in ${rel(t.catalog)} takes [${candidates.map((c) => c.join(", ")).join(" | ")}]`,
           );
-        }
       }
     }
     if (cat) {

@@ -2,9 +2,11 @@ import { describe, expect, test } from "bun:test";
 import {
   type Catalog,
   checkCatalog,
+  keyIndex,
   normalize,
   normalizeLiteral,
   scanSwift,
+  typesFit,
 } from "./check-strings";
 
 const scan = (src: string, inPackage = false) => scanSwift("X.swift", src, inPackage);
@@ -80,6 +82,38 @@ describe("scanSwift", () => {
     ).toEqual(["bundle:A", "keyed:B", "bundle:C", "keyed:D", "bundle:E"]);
   });
 
+  test("in a package a modifier or a non-Text init cannot take a bundle either", () => {
+    expect(
+      keys(
+        `Image("x").accessibilityLabel("Settings")\nSection("Header") {}\nLabel("L", systemImage: "a")\n.accessibilityLabel(Text("Ok", bundle: #bundle))`,
+        true,
+      ),
+    ).toEqual(["bundle:Settings", "bundle:Header", "bundle:L", "keyed:Ok"]);
+    expect(keys(`.accessibilityLabel("Settings")`)).toEqual(["keyed:Settings"]);
+  });
+
+  test("concatenated literals in a view init or modifier are a String", () => {
+    expect(scan(`Text("Good" + "bye")`).map((h) => h.kind)).toEqual(["string", "string"]);
+    expect(scan(`.navigationTitle("A" +\n "B")`).map((h) => h.form)).toEqual([
+      "concatenated literals",
+      "concatenated literals",
+    ]);
+    expect(keys(`Text("Good")\nlet x = a + "b"`)).toEqual(["keyed:Good"]);
+  });
+
+  test("an interpolation's class is read from the literal, .count and a declaration in the file", () => {
+    const types = (src: string) => scan(src)[0]?.types;
+    expect(types(`func f(count: Int) { Text("\\(count) x") }`)).toEqual(["int"]);
+    expect(types(`let name: String = ""\nText("\\(name) x")`)).toEqual(["obj"]);
+    expect(types(`Text("\\(items.count) x \\(3.5) \\(d.formatted())")`)).toEqual([
+      "int",
+      "float",
+      "obj",
+    ]);
+    expect(types(`var n: Int = 0\nvar n: String = ""\nText("\\(n) x")`)).toEqual([null]);
+    expect(types(`Text("\\(compute()) x")`)).toEqual([null]);
+  });
+
   test("multi-line and raw strings do not derail the lexer", () => {
     const src = `let a = """\n  Text("inside")\n  """\nlet b = #"Text("raw")"#\nText("Real")`;
     expect(keys(src)).toEqual(["keyed:Real"]);
@@ -142,7 +176,51 @@ describe("checkCatalog", () => {
     ).toEqual([]);
   });
 
+  test("positional specifiers are compared per argument index, with type and length modifier", () => {
+    const one = (key: string, de: string) =>
+      checkCatalog("c", cat({ [key]: { localizations: { de: unit(de) } } })).length;
+    expect(one("%lld %@", "%2$@ %1$lld")).toBe(0);
+    expect(one("%lld %@", "%1$@ %2$lld")).toBe(1);
+    expect(one("%lld %@", "%@ %lld")).toBe(1);
+    expect(one("%lld x", "%d x")).toBe(1);
+    expect(one("%lld x", "%1$lld x")).toBe(0);
+    expect(one("%@ x", "x")).toBe(1);
+  });
+
+  test("every plural leaf is checked against the key, and German needs one and other", () => {
+    const plural = (one: string, other: string) => ({
+      variations: { plural: { one: unit(one), other: unit(other) } },
+    });
+    const run = (de: unknown) =>
+      checkCatalog("c", cat({ "%lld files · %@": { localizations: { de: de as never } } }));
+    expect(run(plural("%lld Datei · %@", "%lld Dateien · %@"))).toEqual([]);
+    expect(run(plural("%lld Datei · %@", "%lld Dateien · %lld")).length).toBe(1);
+    expect(run(plural("%lld Datei · %lld", "%lld Dateien · %@")).length).toBe(1);
+    expect(run(plural("Eine Datei · %2$@", "%lld Dateien · %@"))).toEqual([]);
+    expect(run(plural("Eine Datei · %@", "%lld Dateien · %@")).length).toBe(1);
+    expect(run(plural("Eine Datei · %2$lld", "%lld Dateien · %@")).length).toBe(1);
+    expect(run({ variations: { plural: { other: unit("%lld Dateien · %@") } } }).length).toBe(1);
+    expect(
+      run({ variations: { device: { iphone: plural("a %lld %@", "b %lld %lld") } } }).length,
+    ).toBe(1);
+  });
+
   test("shouldTranslate false is exempt", () => {
     expect(checkCatalog("c", cat({ Iris: { shouldTranslate: false } }))).toEqual([]);
+  });
+});
+
+describe("typesFit", () => {
+  const index = keyIndex({
+    sourceLanguage: "en",
+    strings: { "%lld files · %@": {}, "Hello %@": {}, "Plain": {} },
+  });
+  test("a known interpolation class must match the key's argument class", () => {
+    const cand = index.get(normalizeLiteral("\uE000 files · \uE000")) ?? [];
+    expect(typesFit(cand, ["int", "obj"])).toBe(true);
+    expect(typesFit(cand, ["obj", "obj"])).toBe(false);
+    expect(typesFit(cand, [null, "int"])).toBe(false);
+    expect(typesFit(cand, [null, null])).toBe(true);
+    expect(typesFit(index.get("Plain") ?? [], [])).toBe(true);
   });
 });
