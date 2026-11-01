@@ -44,15 +44,41 @@ struct ServerBindingTests {
     #expect(sent.all.first?.1.logs.map(\.body) == ["for-b", "before-any-server"])
   }
 
-  @Test("a batch with nothing for the current server is acknowledged without a request")
+  @Test("a batch with nothing for the current server reports the records it leaves behind as dropped")
   func nothingForThisServer() async throws {
     let sent = Sent()
     let transport = CredentialedTelemetryTransport(credentials: credentials(b), sender: sent.sender)
     try await transport.send(
       TelemetryBatch(
         resource: TelemetryResource(serviceName: .ios, deviceName: "x", appVersion: "dev"),
-        logs: [record("for-a", server: a)]))
-    #expect(sent.all.isEmpty)
+        logs: [record("for-a", server: a), record("also-for-a", server: a)], dropped: 3))
+    #expect(sent.all.count == 1)
+    #expect(sent.all.first?.1.logs.isEmpty == true)
+    #expect(sent.all.first?.1.dropped == 5, "the overflow count plus the two records of the other server")
+  }
+
+  @Test("records left behind for another server are counted once the current server takes the batch")
+  func leftBehindIsCounted() async throws {
+    let sent = Sent()
+    let transport = CredentialedTelemetryTransport(credentials: credentials(b), sender: sent.sender)
+    try await transport.send(
+      TelemetryBatch(
+        resource: TelemetryResource(serviceName: .ios, deviceName: "x", appVersion: "dev"),
+        logs: [record("for-a", server: a), record("for-b", server: b)]))
+    #expect(sent.all.first?.1.logs.map(\.body) == ["for-b"])
+    #expect(sent.all.first?.1.dropped == 1)
+  }
+
+  @Test("an unreachable server keeps the whole batch: the send throws and nothing is counted as dropped")
+  func unreachableServerKeepsTheBatch() async {
+    let transport = CredentialedTelemetryTransport(
+      credentials: credentials(b), sender: { _, _, _ in throw URLError(.cannotConnectToHost) })
+    await #expect(throws: URLError.self) {
+      try await transport.send(
+        TelemetryBatch(
+          resource: TelemetryResource(serviceName: .ios, deviceName: "x", appVersion: "dev"),
+          logs: [record("for-a", server: a), record("for-b", server: b)]))
+    }
   }
 
   @Test("the id is stable, does not carry the address and ignores case and a trailing slash")

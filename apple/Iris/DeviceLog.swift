@@ -31,7 +31,7 @@ nonisolated final class DeviceLog: Sendable {
   }
   /// The scene phase the last run reported last (`active`, `inactive`, `background`), read before this run writes its own.
   let previousPhase: String
-  private let source = Mutex("app")
+  private let source = CommandSourceBox()
   private let take = Mutex<UUID?>(nil)
 
   private static let phaseKey = "com.jkrumm.iris.telemetry.lastPhase"
@@ -75,10 +75,12 @@ nonisolated final class DeviceLog: Sendable {
     events.event(name, memoID: memoWireID.flatMap(UUID.init(uuidString:)), severity: severity, attributes)
   }
 
-  /// Which control the next take command came from (`app`, `banner`, `island`, `intent`, `thread`): `take.phase` carries it.
+  /// Which control the last take command came from (`app`, `banner`, `island`, `intent`, `thread`): `take.phase` carries it. A
+  /// phase change no command asked for (an interruption, a failure) reports ``CommandSource/system`` once the command is
+  /// ``CommandSource/freshness`` old, instead of crediting an old press.
   var commandSource: String {
-    get { source.withLock { $0 } }
-    set { source.withLock { $0 = newValue } }
+    get { source.current() }
+    set { source.set(newValue) }
   }
 
   /// The take in progress, so an event from below the take (the audio session, the tap) joins its trace.
@@ -111,6 +113,20 @@ nonisolated final class DeviceLog: Sendable {
     await exporter.flush()
   }
 
+  /// ``flush()`` that gives up after `budget`: what is not sent stays in the crash file for the next launch or the next 10 s tick.
+  /// The background-task assertion rides on this, so a send that never answers cannot hold it.
+  func flush(within budget: Duration) async {
+    await withTaskGroup(of: Void.self) { group in
+      group.addTask { await self.flush() }
+      group.addTask { try? await Task.sleep(for: budget) }
+      await group.next()
+      group.cancelAll()
+    }
+  }
+
+  /// How long the flush on backgrounding may hold the assertion. The system allows about 30 s and kills the app after it.
+  static let backgroundFlushBudget = Duration.seconds(20)
+
   /// The scene moved: `app.lifecycle`, the ambient `app.state` for every record after it, and a flush when it left the screen.
   @MainActor
   func sceneChanged(to phase: String) {
@@ -121,24 +137,109 @@ nonisolated final class DeviceLog: Sendable {
   }
 
   #if canImport(UIKit)
-    /// The flush holds a background-task assertion, so the process is not suspended with the batch half sent.
+    /// The flush holds a background-task assertion, so the process is not suspended with the batch half sent. The assertion
+    /// ends with the flush, at ``backgroundFlushBudget``, or when the system's expiry handler runs, whichever is first.
     @MainActor
     func flushInBackgroundTask() {
-      let application = UIApplication.shared
-      let flushing = Task { await flush() }
-      let assertion = application.beginBackgroundTask(withName: "iris.telemetry.flush") { flushing.cancel() }
-      // Ends with the flush (or with the cancellation the expiry handler asks for).
+      let assertion = BackgroundAssertion()
+      let flushing = Task { await flush(within: Self.backgroundFlushBudget) }
+      assertion.begin(name: "iris.telemetry.flush") { flushing.cancel() }
+      // Ends with the flush; owned by nobody else because the flush is bounded.
       Task {
         await flushing.value
-        application.endBackgroundTask(assertion)
+        assertion.end()
       }
     }
   #else
     @MainActor
     func flushInBackgroundTask() {
-      Task { await flush() }
+      Task { await flush(within: Self.backgroundFlushBudget) }
     }
   #endif
+}
+
+#if canImport(UIKit)
+  /// One `UIApplication` background task that is ended exactly once, whether the work finished or the system ran out of time.
+  @MainActor
+  private final class BackgroundAssertion {
+    private var identifier = UIBackgroundTaskIdentifier.invalid
+
+    func begin(name: String, onExpiry: @escaping @MainActor @Sendable () -> Void) {
+      identifier = UIApplication.shared.beginBackgroundTask(withName: name) { [self] in
+        onExpiry()
+        end()
+      }
+    }
+
+    func end() {
+      guard identifier != .invalid else { return }
+      UIApplication.shared.endBackgroundTask(identifier)
+      identifier = .invalid
+    }
+  }
+#endif
+
+/// What the launch reports about each file the capture stack set aside (`capture.quarantine`). The files are read, so this is
+/// off the main actor: a recording can be megabytes, and the launch path must not wait for a disk.
+nonisolated enum QuarantineInspector {
+  /// A finalised m4a has a `moov` atom; one the process died while writing has none and no tool reads it.
+  static func hasMovieAtom(_ url: URL) -> Bool {
+    guard let data = try? Data(contentsOf: url, options: .mappedIfSafe) else { return false }
+    return data.range(of: Data("moov".utf8)) != nil
+  }
+
+  static func attributes(of file: SetAsideFile) -> [String: AttributeValue] {
+    [
+      "file": .string(file.url.lastPathComponent), "bytes": .int(file.byteCount),
+      "has_moov": .bool(file.url.pathExtension == "m4a" ? hasMovieAtom(file.url) : false),
+    ]
+  }
+}
+
+extension DeviceLog {
+  /// One `capture.quarantine` record per set-aside file: the server never hears of a file in that folder, so the data-loss case
+  /// is visible at once. The files are inspected on the cooperative pool, never the caller's actor.
+  @concurrent
+  func recordQuarantine(_ files: [SetAsideFile]) async {
+    for file in files {
+      event("capture.quarantine", severity: .warn, QuarantineInspector.attributes(of: file))
+    }
+  }
+}
+
+/// The control behind the latest take command, with the moment it was given.
+nonisolated enum CommandSource {
+  /// A phase change no recent command asked for: an interruption, a failure, the system ending a take.
+  static let system = "system"
+  /// How long a command stays the explanation of the phases that follow (a start waits for the microphone prompt).
+  static let freshness = Duration.seconds(60)
+}
+
+nonisolated final class CommandSourceBox: Sendable {
+  private struct Command {
+    let source: String
+    let at: ContinuousClock.Instant
+  }
+
+  private let latest = Mutex<Command?>(nil)
+  private let now: @Sendable () -> ContinuousClock.Instant
+
+  init(now: @escaping @Sendable () -> ContinuousClock.Instant = { .now }) {
+    self.now = now
+  }
+
+  func set(_ source: String) {
+    let command = Command(source: source, at: now())
+    latest.withLock { $0 = command }
+  }
+
+  func current() -> String {
+    let instant = now()
+    return latest.withLock { command in
+      guard let command, instant - command.at <= CommandSource.freshness else { return CommandSource.system }
+      return command.source
+    }
+  }
 }
 
 /// The console half: an `os.Logger` per area.

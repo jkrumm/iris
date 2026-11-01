@@ -285,4 +285,14 @@ struct MediaDownloaderTests {
     let file = try await downloader.localURL(for: wanted)
     #expect(try Data(contentsOf: file) == Data("again".utf8))
   }
+
+  @Test("the record of evicted prefixes is bounded and keeps the newest")
+  func evictionRecordIsBounded() async {
+    let evictions = MediaDownloader.Evictions()
+    for index in 0..<(MediaDownloader.Evictions.evictedLimit + 100) {
+      await evictions.schedule("memo-\(index).") {}.value
+    }
+    #expect(!evictions.evicted("memo-0.m4a", since: 0), "the oldest was forgotten")
+    #expect(evictions.evicted("memo-\(MediaDownloader.Evictions.evictedLimit + 99).m4a", since: 0))
+  }
 }
