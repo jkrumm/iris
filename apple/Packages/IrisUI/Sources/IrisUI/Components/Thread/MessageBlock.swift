@@ -116,17 +116,62 @@ extension MessageBlock {
         fence = opening
         lines.append(line)
       } else {
-        // Even segments of a split on backticks are outside inline code.
-        let parts = line.split(separator: "`", omittingEmptySubsequences: false).enumerated().map { index, part in
-          guard index.isMultiple(of: 2) else { return String(part) }
-          let text = String(part)
-          return pattern.stringByReplacingMatches(
-            in: text, range: NSRange(text.startIndex..., in: text), withTemplate: "\u{00A0}")
-        }
-        lines.append(parts.joined(separator: "`"))
+        lines.append(tyingUnits(inProseLine: line, pattern: pattern))
       }
     }
     return lines.joined(separator: "\n")
+  }
+
+  /// One line outside a fence. A code span is an opening run of backticks up to the next run of exactly the same length
+  /// (CommonMark): ``` `a` ``` and ``` ``a ` b`` ``` are spans, an opening run with no matching close is literal text.
+  private static func tyingUnits(inProseLine line: String, pattern: NSRegularExpression) -> String {
+    let characters = Array(line)
+    var result = ""
+    var prose = ""
+    func flush() {
+      result += pattern.stringByReplacingMatches(
+        in: prose, range: NSRange(prose.startIndex..., in: prose), withTemplate: "\u{00A0}")
+      prose = ""
+    }
+    var index = 0
+    while index < characters.count {
+      guard characters[index] == "`" else {
+        prose.append(characters[index])
+        index += 1
+        continue
+      }
+      let length = backtickRun(in: characters, at: index)
+      var search = index + length
+      var close: Int?
+      while search < characters.count {
+        if characters[search] == "`" {
+          let candidate = backtickRun(in: characters, at: search)
+          if candidate == length {
+            close = search
+            break
+          }
+          search += candidate
+        } else {
+          search += 1
+        }
+      }
+      if let close {
+        flush()
+        result += String(characters[index..<close + length])
+        index = close + length
+      } else {
+        prose += String(repeating: "`", count: length)
+        index += length
+      }
+    }
+    flush()
+    return result
+  }
+
+  private static func backtickRun(in characters: [Character], at start: Int) -> Int {
+    var end = start
+    while end < characters.count, characters[end] == "`" { end += 1 }
+    return end - start
   }
 
   // MARK: Fences

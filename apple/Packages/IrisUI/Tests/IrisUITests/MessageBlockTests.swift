@@ -3,6 +3,37 @@ import Testing
 @testable import IrisUI
 
 struct MessageBlockTests {
+  @Test("code spans keep their spaces: single, double and longer backtick runs, matched by length")
+  func codeSpansKeepSpaces() {
+    let nbsp = "\u{00A0}"
+    #expect(MessageBlock.tyingUnits(in: "run `sleep 2 s` for 2 s") == "run `sleep 2 s` for 2\(nbsp)s")
+    #expect(MessageBlock.tyingUnits(in: "run ``sleep 2 s`` for 2 s") == "run ``sleep 2 s`` for 2\(nbsp)s")
+    // A single backtick inside a double span does not end it.
+    #expect(MessageBlock.tyingUnits(in: "``a ` 2 s`` then 2 s") == "``a ` 2 s`` then 2\(nbsp)s")
+    #expect(MessageBlock.tyingUnits(in: "```x 2 s``` and 2 s") == "```x 2 s``` and 2\(nbsp)s")
+    // Two spans on a line, prose between them.
+    #expect(MessageBlock.tyingUnits(in: "`1 s` is 1 s, ``2 s`` is 2 s") == "`1 s` is 1\(nbsp)s, ``2 s`` is 2\(nbsp)s")
+  }
+
+  @Test("a backtick run with no matching close is literal text, so the prose after it is still tied")
+  func unmatchedBackticks() {
+    let nbsp = "\u{00A0}"
+    #expect(MessageBlock.tyingUnits(in: "a ` b 2 s") == "a ` b 2\(nbsp)s")
+    #expect(MessageBlock.tyingUnits(in: "``a` 2 s") == "``a` 2\(nbsp)s")
+    // A run of another length is no close either.
+    #expect(MessageBlock.tyingUnits(in: "`a`` 2 s") == "`a`` 2\(nbsp)s")
+  }
+
+  @Test("fenced code, backtick and tilde, is left alone and prose around it is tied")
+  func fencedBlocksKeepSpaces() {
+    let nbsp = "\u{00A0}"
+    #expect(
+      MessageBlock.tyingUnits(in: "1 s\n```sh\nsleep 2 s\n```\n3 s")
+        == "1\(nbsp)s\n```sh\nsleep 2 s\n```\n3\(nbsp)s")
+    #expect(
+      MessageBlock.tyingUnits(in: "~~~\nsleep 2 s\n~~~\n3 s") == "~~~\nsleep 2 s\n~~~\n3\(nbsp)s")
+  }
+
   @Test("the space between a number and its unit is a no-break space, in prose only")
   func tiesUnits() {
     let nbsp = "\u{00A0}"
