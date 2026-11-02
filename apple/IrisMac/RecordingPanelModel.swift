@@ -12,7 +12,9 @@ import os
 ///   └── dismiss ◀── failed ◀──────────┴── engine failed (partial take is kept) / start refused / stop lost the audio
 /// ```
 ///
-/// Presses and buttons are ignored while a start or a stop is running; the panel shows whenever the phase is not `idle`.
+/// Presses and buttons are ignored while a start or a stop is running, except Cancel, which abandons a start; a start that has not
+/// answered after ``startDeadline`` ends as `failed(.couldNotStart)`, so a wedged permission prompt or engine never locks the hotkey.
+/// The panel shows whenever the phase is not `idle`.
 @MainActor
 @Observable
 final class RecordingPanelModel {
@@ -64,13 +66,23 @@ final class RecordingPanelModel {
   @ObservationIgnored private let isConfigured: () -> Bool
   @ObservationIgnored private var work: Task<Void, Never>?
   @ObservationIgnored private var isBusy = false
+  @ObservationIgnored private let startDeadline: Duration
+  /// The start in flight (`.starting`), so Cancel can end it.
+  @ObservationIgnored private var startRace: StartRace?
+  /// Cleanup of an abandoned start: `engine.cancel()` may itself wait on the stalled start, so no intent awaits it.
+  @ObservationIgnored private var cleanup: Task<Void, Never>?
   @ObservationIgnored private var following: [Task<Void, Never>] = []
   private static let logger = Logger(subsystem: "com.jkrumm.iris", category: "mac-take")
 
-  init(engine: any TakeEngine, permission: any MicrophonePermission, isConfigured: @escaping () -> Bool) {
+  /// - Parameter startDeadline: how long the permission prompt plus the engine start may take before the panel gives up.
+  init(
+    engine: any TakeEngine, permission: any MicrophonePermission, isConfigured: @escaping () -> Bool,
+    startDeadline: Duration = .seconds(15)
+  ) {
     self.engine = engine
     self.permission = permission
     self.isConfigured = isConfigured
+    self.startDeadline = startDeadline
   }
 
   var isVisible: Bool { phase != .idle }
@@ -104,11 +116,15 @@ final class RecordingPanelModel {
     perform { await $0.finish() }
   }
 
-  /// The panel's Cancel button: drops the take, or closes a message.
+  /// The panel's Cancel button: drops the take, abandons a start, or closes a message.
   func cancel() {
     onCommand?("panel")
     if case .failed = phase {
       phase = .idle
+      return
+    }
+    if phase == .starting {
+      startRace?.resolve(.cancelled)
       return
     }
     perform { await $0.discard() }
@@ -132,6 +148,7 @@ final class RecordingPanelModel {
   /// Waits for the work the last intent started (tests, and the snapshot run).
   func settled() async {
     await work?.value
+    await cleanup?.value
   }
 
   // MARK: Work
@@ -164,28 +181,75 @@ final class RecordingPanelModel {
       return
     }
     phase = .starting
-    switch permission.access {
-    case .denied:
+    let access = permission.access
+    if access == .denied {
       phase = .failed(.microphoneDenied)
       return
-    case .undetermined:
-      guard await permission.request() else {
-        phase = .failed(.microphoneDenied)
-        return
-      }
-    case .granted:
-      break
     }
-    do {
-      let startedAt = try await engine.start()
+    switch await boundedStart(requestsPermission: access == .undetermined) {
+    case .started(let startedAt):
       level = 0
       recentLevels = []
       microphones = await engine.microphones()
       phase = .recording(since: startedAt)
       follow()
-    } catch {
-      Self.logger.error("take not started: \(logDescription(of: error), privacy: .public)")
+    case .failed(let failure):
+      phase = .failed(failure)
+    case .cancelled:
+      Self.logger.info("take start cancelled")
+      abandonStart()
+      phase = .idle
+    case .timedOut:
+      Self.logger.error("take not started: no answer before the deadline")
+      abandonStart()
       phase = .failed(.couldNotStart)
+    }
+  }
+
+  /// The permission question (when open) and the engine start, raced against the deadline and Cancel. The operation runs
+  /// unawaited: a call that never returns is left behind (cancelled), never waited for.
+  private func boundedStart(requestsPermission: Bool) async -> StartRace.Outcome {
+    let race = StartRace()
+    startRace = race
+    let engine = engine
+    let permission = permission
+    let operation = Task { @MainActor in
+      if requestsPermission {
+        guard await permission.request() else { return race.resolve(.failed(.microphoneDenied)) }
+      }
+      guard race.outcome == nil else { return }
+      do {
+        let startedAt = try await engine.start()
+        // Abandoned while the engine was coming up: it must not be left recording.
+        if race.outcome != nil {
+          await engine.cancel()
+        } else {
+          race.resolve(.started(startedAt))
+        }
+      } catch {
+        Self.logger.error("take not started: \(logDescription(of: error), privacy: .public)")
+        race.resolve(.failed(.couldNotStart))
+      }
+    }
+    let deadline = startDeadline
+    let timer = Task { @MainActor in
+      guard (try? await Task.sleep(for: deadline)) != nil else { return }
+      race.resolve(.timedOut)
+    }
+    let outcome = await race.wait()
+    timer.cancel()
+    operation.cancel()
+    startRace = nil
+    return outcome
+  }
+
+  /// Drops whatever a start left half-open, off the intent's path.
+  private func abandonStart() {
+    let engine = engine
+    let previous = cleanup
+    cleanup = Task {
+      await previous?.value
+      await engine.cancel()
     }
   }
 
@@ -272,5 +336,31 @@ extension RecordingPanelModel.Phase {
   /// Which failure, as the enum case's name; `nil` outside `failed`.
   var telemetryFailure: String? {
     if case .failed(let failure) = self { failure.telemetryName } else { nil }
+  }
+}
+
+/// The first answer of a start: the engine's, the deadline's or Cancel's. Later answers are ignored.
+@MainActor
+private final class StartRace {
+  enum Outcome: Sendable {
+    case started(Date)
+    case failed(RecordingPanelModel.Failure)
+    case cancelled
+    case timedOut
+  }
+
+  private(set) var outcome: Outcome?
+  private var waiter: CheckedContinuation<Outcome, Never>?
+
+  func wait() async -> Outcome {
+    if let outcome { return outcome }
+    return await withCheckedContinuation { waiter = $0 }
+  }
+
+  func resolve(_ value: Outcome) {
+    guard outcome == nil else { return }
+    outcome = value
+    waiter?.resume(returning: value)
+    waiter = nil
   }
 }

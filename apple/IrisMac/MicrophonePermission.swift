@@ -35,11 +35,14 @@ final class FakeMicrophonePermission: MicrophonePermission, @unchecked Sendable 
   private let lock = NSLock()
   private var current: MicrophoneAccess
   private let answer: Bool
+  private let hangs: Bool
   private var asked = 0
 
-  init(_ access: MicrophoneAccess = .granted, answer: Bool = true) {
+  /// - Parameter hangs: the prompt is never answered (it returns `false` only once its task is cancelled).
+  init(_ access: MicrophoneAccess = .granted, answer: Bool = true, hangs: Bool = false) {
     current = access
     self.answer = answer
+    self.hangs = hangs
   }
 
   var access: MicrophoneAccess { lock.withLock { current } }
@@ -47,10 +50,12 @@ final class FakeMicrophonePermission: MicrophonePermission, @unchecked Sendable 
   var requests: Int { lock.withLock { asked } }
 
   func request() async -> Bool {
-    lock.withLock {
-      asked += 1
-      current = answer ? .granted : .denied
+    lock.withLock { asked += 1 }
+    if hangs {
+      try? await Task.sleep(for: .seconds(3600))
+      return false
     }
+    lock.withLock { current = answer ? .granted : .denied }
     return answer
   }
 }

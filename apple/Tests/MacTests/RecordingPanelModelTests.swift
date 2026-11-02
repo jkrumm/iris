@@ -23,11 +23,13 @@ struct RecordingPanelModelTests {
   }
 
   private func harness(
-    access: MicrophoneAccess = .granted, answer: Bool = true, configured: Bool = true
+    access: MicrophoneAccess = .granted, answer: Bool = true, configured: Bool = true, promptHangs: Bool = false,
+    deadline: Duration = .seconds(15)
   ) -> Harness {
     let engine = FakeTakeEngine()
-    let permission = FakeMicrophonePermission(access, answer: answer)
-    let model = RecordingPanelModel(engine: engine, permission: permission, isConfigured: { configured })
+    let permission = FakeMicrophonePermission(access, answer: answer, hangs: promptHangs)
+    let model = RecordingPanelModel(
+      engine: engine, permission: permission, isConfigured: { configured }, startDeadline: deadline)
     let visibility = Visibility()
     model.onVisibilityChange = { visibility.changes.append($0) }
     return Harness(model: model, engine: engine, permission: permission, visibility: visibility)
@@ -103,6 +105,61 @@ struct RecordingPanelModelTests {
     let h = harness(access: .undetermined)
     h.model.toggle()
     h.model.toggle()
+    h.model.toggle()
+    await h.model.settled()
+    #expect(isRecording(h.model))
+    #expect(h.engine.calls == ["start"])
+  }
+
+  @Test("an engine start that never returns ends as a failure at the deadline, and the key works again")
+  func stalledEngineStart() async {
+    let h = harness(deadline: .milliseconds(50))
+    h.engine.hangStart(true)
+    h.model.toggle()
+    await h.model.settled()
+    #expect(h.model.phase == .failed(.couldNotStart))
+    #expect(h.engine.calls == ["start", "cancel"])
+    h.engine.hangStart(false)
+    h.model.toggle()
+    await h.model.settled()
+    #expect(isRecording(h.model))
+  }
+
+  @Test("a permission prompt nobody answers ends as a failure at the deadline, and the key works again")
+  func unansweredPermission() async {
+    let h = harness(access: .undetermined, promptHangs: true, deadline: .milliseconds(50))
+    h.model.toggle()
+    await h.model.settled()
+    #expect(h.model.phase == .failed(.couldNotStart))
+    #expect(h.engine.calls == ["cancel"])
+    let granted = FakeMicrophonePermission(.granted)
+    let again = RecordingPanelModel(engine: h.engine, permission: granted, isConfigured: { true })
+    again.toggle()
+    await again.settled()
+    #expect(again.isRecording)
+  }
+
+  @Test("Cancel while starting abandons the start: idle, no take left running, the key starts a new one")
+  func cancelWhileStarting() async {
+    let h = harness()
+    h.engine.hangStart(true)
+    h.model.toggle()
+    while h.engine.calls.isEmpty { await Task.yield() }  // the engine is stalled in its start
+    #expect(h.model.phase == .starting)
+    h.model.cancel()
+    await h.model.settled()
+    #expect(h.model.phase == .idle)
+    #expect(h.engine.calls == ["start", "cancel"])
+    h.engine.hangStart(false)
+    h.model.toggle()
+    await h.model.settled()
+    #expect(isRecording(h.model))
+    #expect(h.engine.calls == ["start", "cancel", "start"])
+  }
+
+  @Test("a start that answers within the deadline is unaffected by it")
+  func normalStartWithinDeadline() async {
+    let h = harness(access: .undetermined, deadline: .milliseconds(500))
     h.model.toggle()
     await h.model.settled()
     #expect(isRecording(h.model))

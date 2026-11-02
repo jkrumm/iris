@@ -174,6 +174,7 @@ final class FakeTakeEngine: TakeEngine, @unchecked Sendable {
     var running = false
     var startedAt = Date(timeIntervalSince1970: 0)
     var startError: (any Error)?
+    var startHangs = false
     var stopError: (any Error)?
     var end = TakeEnd.queued
     var calls: [String] = []
@@ -186,6 +187,8 @@ final class FakeTakeEngine: TakeEngine, @unchecked Sendable {
 
   /// Script hooks.
   func failStart(with error: (any Error)?) { lock.withLock { state.startError = error } }
+  /// While set, `start()` does not return until its task is cancelled (an engine bring-up that stalls).
+  func hangStart(_ hangs: Bool) { lock.withLock { state.startHangs = hangs } }
   func failStop(with error: (any Error)?) { lock.withLock { state.stopError = error } }
   func endStop(with end: TakeEnd) { lock.withLock { state.end = end } }
   func level(_ value: Float) { levelFeed.yield(value) }
@@ -201,8 +204,14 @@ final class FakeTakeEngine: TakeEngine, @unchecked Sendable {
   func microphoneChanges() -> AsyncStream<Microphones> { changeFeed.subscribe() }
 
   func start() async throws -> Date {
-    try lock.withLock {
+    let hangs = lock.withLock {
       state.calls.append("start")
+      return state.startHangs
+    }
+    if hangs {
+      try await Task.sleep(for: .seconds(3600))
+    }
+    return try lock.withLock {
       if let error = state.startError { throw error }
       state.running = true
       state.startedAt = Date()
