@@ -4,12 +4,11 @@ Rewritten 2026-10-28 at the owner's pause; status updated at the resume the same
 (the Fleet section, Waves 10–15, the Fleet backlog), `docs/PRD.md`, `docs/design/feedback-round-{1,2}.md` (binding, round 2 wins)
 and skim `docs/TDD.md`. Role contract: `~/.claude/skills/wave/roles/mother.md` (lead: `roles/lead.md`, workers: `roles/worker.md`).
 
-## Status: Wave 20 ACTIVE (resumed 2026-11-02 on the owner's word)
+## Status: PAUSED after Wave 20 (2026-11-03 ~00:40 CET)
 
-Owner 2026-11-02: before his hardware pass and UI review, find and fix what we can ourselves (stability, spacing, icons, sizes, rendering vs the mockups).
-Two read-only audits ran in the mother's session (`.artifacts/audit/`), Wave 20 written from them. Lead `iris-w20-lead`. Enrolment email still not arrived
-(Xcode lists only the Personal Team). The phone was paired but its tunnel down, so no device build of master yet. Smoke green on the new audio/agw wiring.
-History of the pause: Wave 19 done 2026-11-01 (`2f42e24`), deployed server `e4ece55`, I2 late tail parked (PR #98 closed).
+Wave 20 (pre-hardware hardening from the 2026-11-02 audits) done, master `7d3d0cc`, Apple-only, production unchanged. Lead `iris-w20-lead` stopped.
+Resume on: the owner's hardware batch D1 (device build of master once the phone tunnel is up; it was `disconnected` all of 2026-11-02), his look at
+`docs/design/fidelity/w20.md`, or the enrolment email. Wave 21 candidates: Wave 20 Left behind (contract-side row cost / candidates / filter counts, audit polish).
 **Pause (owner decision 2026-11-01 19:30, via the software-factory program lead: finish Wave 19, then pause; start no new wave):** resume only on the owner's feedback (hardware batch D1 on a fresh device build of master,
 UI review of R1/R2 surfaces in `docs/design/README.md`) or the Apple enrolment email (then D2/S3/APNs/TestFlight). **On resume:** write Wave 20 from the
 Fleet backlog + Wave 19 Left behind, spawn a lead under a FRESH factory key (`iris-w20-lead`, see Lessons; never `rd wave`), start
