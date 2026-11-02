@@ -28,12 +28,13 @@ struct HistoryTitleBlock: View {
       }
       .padding(.top, Theme.Spacing.titleTop)
       .padding(.bottom, Theme.Spacing.titleBottom)
-      if let subtitle {
-        Text(verbatim: subtitle)
-          .themeFont(.footnote)
-          .foregroundStyle(Theme.Ink.faint)
-          .padding(.bottom, Theme.Spacing.titleBottom)
-      }
+      // The slot stays when there is nothing to say: a chip filter that lists no memo of today would otherwise pull the
+      // chip row up by a line (22 pt) the moment it is tapped.
+      Text(verbatim: subtitle ?? " ")
+        .themeFont(.footnote)
+        .foregroundStyle(Theme.Ink.faint)
+        .padding(.bottom, Theme.Spacing.titleBottom)
+        .accessibilityHidden(subtitle == nil)
     }
     .padding(.horizontal, Theme.Spacing.screenMargin)
     .frame(maxWidth: .infinity, alignment: .leading)

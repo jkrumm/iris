@@ -15,11 +15,15 @@ extension Memo {
   /// The longest a transcript reads as a headline: the server's own clip for an alert (`transcriptSummary`).
   static let headlineLimit = 60
 
-  /// `text` on one line, cut to ``headlineLimit`` characters with an ellipsis when it is longer.
+  /// `text` on one line, cut to ``headlineLimit`` characters with an ellipsis when it is longer. The cut falls on a word
+  /// boundary, so a headline never ends mid-word ("Pull Reques…"); one unbroken word longer than the limit is cut inside it.
   static func clipped(_ text: String) -> String {
     let line = text.split(whereSeparator: \.isWhitespace).joined(separator: " ")
     guard line.count > headlineLimit else { return line }
-    return line.prefix(headlineLimit).trimmingCharacters(in: .whitespaces) + "…"
+    let head = line.prefix(headlineLimit)
+    let endsAtWord = line[head.endIndex].isWhitespace
+    let cut = !endsAtWord ? head.lastIndex(where: \.isWhitespace).map { head[..<$0] } ?? head : head
+    return cut.trimmingCharacters(in: .whitespaces) + "…"
   }
 
   /// A step that failed for good but that the memo does not need: `notified` with no summary (the server skips a failed
@@ -109,7 +113,16 @@ extension Memo {
       let parts = [error == rowHeadline ? nil : error, retry].compactMap { $0 }
       return parts.isEmpty ? nil : parts.joined(separator: " — ")
     case .needsRoute:
-      return String(localized: "Tap to decide", comment: "History row hint on a memo that needs a route")
+      // The list wire carries the decision model's one guess, not a candidate list: name it when there is one.
+      let name: String
+      switch routeSuggestion {
+      case "tab", "herdr": name = String(localized: "Tab", comment: "Route name for a herdr tab without a name")
+      case "hermes", "journal": name = routeSuggestion?.capitalized ?? ""
+      default: return String(localized: "Tap to decide", comment: "History row hint on a memo that needs a route")
+      }
+      return String(
+        localized: "\(name) suggested — tap to decide",
+        comment: "History row hint on a memo that needs a route: the decision model's guess, then the prompt")
     default:
       return summary?.detail.split(whereSeparator: \.isNewline).first.map(String.init)
     }

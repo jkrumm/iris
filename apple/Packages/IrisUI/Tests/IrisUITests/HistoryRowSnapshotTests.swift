@@ -10,10 +10,11 @@
   struct HistoryRowSnapshotTests {
     private func row(
       _ status: HistoryRowStatus, headline: String, secondary: String? = nil, time: String = "9:21",
-      needsAttention: Bool = false, done: Bool = false, favorite: Bool = false
+      needsAttention: Bool = false, done: Bool = false, favorite: Bool = false, thread: Bool = false
     ) -> some View {
       HistoryRow(
-        status: status, headline: headline, secondary: secondary, timeText: time, isDone: done, isFavorite: favorite
+        status: status, headline: headline, secondary: secondary, timeText: time, isDone: done, isFavorite: favorite,
+        isThread: thread
       )
       // The list's row insets (`HistoryView.rowInsets`): the row itself carries no padding.
       .padding(.horizontal, Theme.Spacing.screenMargin)
@@ -39,6 +40,25 @@
           headline: "Where does “Router bestellen und Netzwerkplan prüfen” go?", secondary: "Tap to decide",
           time: "9:48", needsAttention: true),
         width: 390, height: 120)
+    }
+
+    @Test("a parked row names the route the decision model suggested", .tags(.snapshot))
+    func needsRouteSuggested() {
+      SnapshotSupport.assertLightAndDark(
+        row(
+          .alert(label: "Needs route", color: Theme.Status.warn),
+          headline: "Where does “Router bestellen und Netzwerkplan prüfen” go?",
+          secondary: "Hermes suggested — tap to decide", time: "9:48", needsAttention: true),
+        width: 390, height: 120)
+    }
+
+    @Test("a chat row carries a speech bubble next to the time", .tags(.snapshot))
+    func chatThread() {
+      SnapshotSupport.assertLightAndDark(
+        row(
+          .settled(route: "Chat", dot: Theme.Accent.tint, duration: "14 s"),
+          headline: "Which Postgres index fits the herd snapshot query?", time: "9:46", favorite: true, thread: true),
+        width: 390, height: 100)
     }
 
     @Test("a failed row names the step and the retry", .tags(.snapshot))

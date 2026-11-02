@@ -20,6 +20,7 @@ public struct HistoryRow: View {
   private let timeText: String
   private let isDone: Bool
   private let isFavorite: Bool
+  private let isThread: Bool
 
   public init(
     status: HistoryRowStatus,
@@ -27,7 +28,8 @@ public struct HistoryRow: View {
     secondary: String? = nil,
     timeText: String,
     isDone: Bool = false,
-    isFavorite: Bool = false
+    isFavorite: Bool = false,
+    isThread: Bool = false
   ) {
     self.status = status
     self.headline = headline
@@ -35,6 +37,7 @@ public struct HistoryRow: View {
     self.timeText = timeText
     self.isDone = isDone
     self.isFavorite = isFavorite
+    self.isThread = isThread
   }
 
   public var body: some View {
@@ -42,6 +45,11 @@ public struct HistoryRow: View {
       HStack(alignment: .firstTextBaseline, spacing: Theme.Spacing.rowColumnGap) {
         statusLine
         Spacer(minLength: Theme.Spacing.rowColumnGap)
+        if isThread {
+          Image(systemName: "text.bubble")
+            .foregroundStyle(Theme.Ink.faint)
+            .accessibilityHidden(true)
+        }
         if isFavorite {
           Image(systemName: "star.fill")
             .foregroundStyle(Theme.Status.warn)
@@ -112,6 +120,12 @@ public struct HistoryRow: View {
 
   private var accessibilityValue: String {
     var parts: [String] = []
+    if isThread {
+      parts.append(
+        String(
+          localized: "Conversation", bundle: #bundle,
+          comment: "VoiceOver value of a History row that opens a chat thread."))
+    }
     if isDone {
       parts.append(
         String(

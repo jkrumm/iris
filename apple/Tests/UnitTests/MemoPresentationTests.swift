@@ -39,6 +39,36 @@ struct MemoPresentationTests {
     #expect(MemoFactory.memo("a", transcript: String(repeating: "x", count: 60)).rowHeadline.count == 60)
   }
 
+  @Test("a long headline is cut at a word boundary, never inside a word")
+  func headlineWordBoundary() {
+    let text = "Pull Request für das neue Retry-Fenster der Outbox schreiben und danach mit Hermes besprechen"
+    let clipped = Memo.clipped(text)
+    #expect(clipped == "Pull Request für das neue Retry-Fenster der Outbox schreiben…")
+    #expect(clipped.count <= Memo.headlineLimit + 1)
+    // A cut that lands exactly between two words keeps the whole last word.
+    let exact = String(repeating: "x", count: Memo.headlineLimit - 4) + " abc def"
+    #expect(Memo.clipped(exact) == String(repeating: "x", count: Memo.headlineLimit - 4) + " abc…")
+    // One unbroken word longer than the limit has no boundary to cut at.
+    #expect(Memo.clipped(String(repeating: "x", count: 80)) == String(repeating: "x", count: 60) + "…")
+  }
+
+  @Test("a parked memo's row names the route the decision model suggested, else only asks")
+  func needsRouteHint() {
+    #expect(MemoFactory.memo("a", state: .needsRoute).rowSecondary == "Tap to decide")
+    #expect(
+      MemoFactory.memo("a", state: .needsRoute, routeSuggestion: "hermes").rowSecondary
+        == "Hermes suggested — tap to decide")
+    #expect(
+      MemoFactory.memo("a", state: .needsRoute, routeSuggestion: "tab").rowSecondary == "Tab suggested — tap to decide")
+    #expect(MemoFactory.memo("a", state: .needsRoute, routeSuggestion: "nonsense").rowSecondary == "Tap to decide")
+  }
+
+  @Test("every mode has a glyph of its own")
+  func modeGlyphsAreDistinct() {
+    let modes: [MemoMode] = [.auto, .journal, .hermes, .tab, .chat, .transcribe]
+    #expect(Set(modes.map(\.composerIcon)).count == modes.count)
+  }
+
   @Test("a settled memo shows route and audio length, no cost")
   func settledStatus() {
     let memo = MemoFactory.memo("a", route: "hermes", audioSeconds: 38.4)

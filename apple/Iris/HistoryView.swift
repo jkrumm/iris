@@ -24,8 +24,8 @@ struct HistoryView: View {
   private static let rowInsets = EdgeInsets(
     top: Theme.Spacing.rowVertical, leading: Theme.Spacing.screenMargin, bottom: Theme.Spacing.rowVertical,
     trailing: Theme.Spacing.screenMargin)
-  private static let headerInsets = EdgeInsets(
-    top: 0, leading: Theme.Spacing.screenMargin, bottom: 0, trailing: Theme.Spacing.screenMargin)
+  /// The day header draws its own margin: its solid backing has to reach both screen edges.
+  private static let headerInsets = EdgeInsets()
   @State private var showingFilters = false
   @State private var composer: ComposerRequest?
 
@@ -53,7 +53,8 @@ struct HistoryView: View {
               NavigationLink(value: memo) {
                 HistoryRow(
                   status: memo.rowStatus, headline: memo.rowHeadline, secondary: memo.rowSecondary,
-                  timeText: memo.timeText, isDone: memo.done, isFavorite: memo.favorite)
+                  timeText: memo.timeText, isDone: memo.done, isFavorite: memo.favorite,
+                  isThread: memo.opensThread)
               }
               .accessibilityIdentifier("history.row")
               .listRowInsets(Self.rowInsets)
@@ -73,6 +74,10 @@ struct HistoryView: View {
                   ? Theme.Spacing.sectionTop - Theme.Spacing.chipTapOverhang : Theme.Spacing.sectionTop
               )
               .padding(.bottom, Theme.Spacing.sectionBottom)
+              .padding(.horizontal, Theme.Spacing.screenMargin)
+              .frame(maxWidth: .infinity, alignment: .leading)
+              // A pinned header is transparent by default: rows scrolled under it read through as ghost text.
+              .background(Theme.Surface.background)
               .listRowInsets(Self.headerInsets)
           }
         }
@@ -119,9 +124,12 @@ struct HistoryView: View {
       .statusBarScrim()
       .scrollEdgeEffectStyle(.hard, for: .top)
       .sheet(isPresented: $showingFilters) {
-        HistoryFilterSheet(filters: $model.filters)
-          .presentationDetents([.medium])
-          .presentationDragIndicator(.visible)
+        HistoryFilterSheet(
+          filters: $model.filters,
+          resultCount: HistoryResultCount.exact(
+            memos: model.memos.count, isSettled: model.hasLoaded && !model.isLoading)
+        )
+        .presentationDragIndicator(.visible)
       }
       .sheet(item: $composer) { request in
         BuiltOnce(make: { makeComposer(request) }) { composer in
@@ -174,7 +182,7 @@ struct HistoryView: View {
         Text("Add your server URL and device token to see your memos.", comment: "History prompt without a connection")
       } actions: {
         Button(String(localized: "Open Settings", comment: "Opens Settings → Connection"), action: onConnect)
-          .buttonStyle(.borderedProminent)
+          .buttonStyle(.primary)
           .accessibilityIdentifier("history.connect")
       }
       .accessibilityElement(children: .contain)
