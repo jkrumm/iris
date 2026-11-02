@@ -46,7 +46,7 @@ struct HistoryView: View {
           .listRowInsets(EdgeInsets())
           .listRowSeparator(.hidden)
           .listRowBackground(Color.clear)
-        let sections = HistoryDaySection.group(model.memos)
+        let sections = model.sections
         ForEach(sections) { section in
           Section {
             ForEach(section.memos) { memo in
@@ -84,7 +84,7 @@ struct HistoryView: View {
       .accessibilityIdentifier("history.list")
       .scrollContentBackground(.hidden)
       .background(Theme.Surface.background)
-      .animation(.snappy, value: model.memos.map(\.id))
+      .animation(.snappy, value: model.memoIDs)
       .overlay { emptyState }
       .takeBanner()
       .overlay(alignment: .bottom) { toastBanner }
@@ -95,10 +95,12 @@ struct HistoryView: View {
         if memo.opensThread, let route = memo.threadRoute {
           threadView(route)
         } else {
-          MemoDetailView(
-            model: makeDetail(memo), refreshToken: { model.revision(of: memo.id) },
-            onReply: { composer = .reply(to: $0) }, makeRouteAnswer: makeRouteAnswer,
-            onRouted: { model.insert($0) })
+          BuiltOnce(make: { makeDetail(memo) }) { detail in
+            MemoDetailView(
+              model: detail, refreshToken: { model.revision(of: memo.id) },
+              onReply: { composer = .reply(to: $0) }, makeRouteAnswer: makeRouteAnswer,
+              onRouted: { model.insert($0) })
+          }
         }
       }
       .navigationDestination(for: ThreadRoute.self) { route in
@@ -115,8 +117,9 @@ struct HistoryView: View {
           .presentationDragIndicator(.visible)
       }
       .sheet(item: $composer) { request in
-        ComposerView(
-          model: makeComposer(request), onSent: { model.insert($0) }, onQueued: { model.didQueue() })
+        BuiltOnce(make: { makeComposer(request) }) { composer in
+          ComposerView(model: composer, onSent: { model.insert($0) }, onQueued: { model.didQueue() })
+        }
       }
       .refreshable { await model.load() }
       .task(id: model.filters) {
@@ -134,14 +137,16 @@ struct HistoryView: View {
   }
 
   private func threadView(_ route: ThreadRoute) -> some View {
-    ThreadView(
-      model: makeThread(route),
-      refreshToken: { threadId, ids in
-        // Any event for a memo of the thread, or a new memo of it showing up in the list (another device's turn).
-        let inThread = model.memos.count { $0.threadId == threadId }
-        return ids.reduce(inThread) { $0 &+ model.revision(of: $1) }
-      },
-      makeComposer: makeComposer, onSent: { model.insert($0) })
+    BuiltOnce(make: { makeThread(route) }) { thread in
+      ThreadView(
+        model: thread,
+        refreshToken: { threadId, ids in
+          // Any event for a memo of the thread, or a new memo of it showing up in the list (another device's turn).
+          let inThread = model.memos.count { $0.threadId == threadId }
+          return ids.reduce(inThread) { $0 &+ model.revision(of: $1) }
+        },
+        makeComposer: makeComposer, onSent: { model.insert($0) })
+    }
   }
 
   /// How long the undo toast stays; UI tests stretch it (`-IrisUndoSeconds 60`) so a slow runner can still tap Undo.
@@ -193,5 +198,30 @@ struct HistoryView: View {
       .transition(.move(edge: .bottom).combined(with: .opacity))
       .accessibilityIdentifier("history.toast")
     }
+  }
+}
+
+/// A destination that builds its model once, when it first renders, and keeps it. The navigation destination and sheet closures
+/// run on every evaluation of ``HistoryView``; building there made a model (and a Keychain read) per evaluation that the
+/// destination's own `@State` then threw away. The factory is called by the first `body` only.
+private struct BuiltOnce<Model, Content: View>: View {
+  @State private var box = BuiltModel<Model>()
+  let make: () -> Model
+  @ViewBuilder let content: (Model) -> Content
+
+  var body: some View {
+    content(box.resolve(make))
+  }
+}
+
+/// What ``BuiltOnce`` keeps in its `@State`: the model, built by the first `resolve`.
+private final class BuiltModel<Model> {
+  private var model: Model?
+
+  func resolve(_ make: () -> Model) -> Model {
+    if let model { return model }
+    let built = make()
+    model = built
+    return built
   }
 }
