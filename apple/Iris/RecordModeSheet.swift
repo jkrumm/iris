@@ -28,7 +28,7 @@ struct RecordModeSheet: View {
           )
           .frame(maxWidth: .infinity)
         }
-        .buttonStyle(.borderedProminent)
+        .buttonStyle(.primary)
         .controlSize(.large)
         .disabled(!model.canStart)
         .accessibilityIdentifier("record.mode.start")

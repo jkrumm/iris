@@ -61,8 +61,12 @@ struct ComposerView: View {
               Image(systemName: "arrow.up")
               Text("Send", comment: "Sends the typed memo")
             }
+            .foregroundStyle(model.canSend ? Theme.Accent.onFill : Theme.Ink.muted)
           }
+          // A toolbar item draws its own prominent glass and ignores a custom `ButtonStyle`: the accent fill and the
+          // label colour are set on it directly, and the disabled button swaps to a quiet panel with a muted label.
           .buttonStyle(.borderedProminent)
+          .tint(model.canSend ? Theme.Accent.fill : Theme.Surface.elevated)
           .disabled(!model.canSend)
           .accessibilityIdentifier("composer.send")
         }
