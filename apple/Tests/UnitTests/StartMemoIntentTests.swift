@@ -5,108 +5,186 @@ import Testing
 
 @testable import Iris
 
-@MainActor
-@Suite("StartMemoIntent")
-struct StartMemoIntentTests {
-  private func waitFor(seconds: Double = 10, _ condition: () async -> Bool) async -> Bool {
-    for _ in 0..<Int(seconds * 100) {
-      if await condition() { return true }
-      try? await Task.sleep(for: .milliseconds(10))
+extension CaptureHandlerSuites {
+  @MainActor
+  @Suite("StartMemoIntent")
+  struct StartMemoIntentTests {
+    private func waitFor(seconds: Double = 10, _ condition: () async -> Bool) async -> Bool {
+      for _ in 0..<Int(seconds * 100) {
+        if await condition() { return true }
+        try? await Task.sleep(for: .milliseconds(10))
+      }
+      return await condition()
     }
-    return await condition()
+
+    @Test("performing the intent records a take in auto mode and requests the Live Activity")
+    func performStartsTheTakeAndTheActivity() async throws {
+      let root = CompositionRoot(arguments: ["-IrisFakeCapture"], credentials: InMemoryCredentialStore())
+      #expect(CaptureIntents.handler === root)
+      let activity = try #require(root.fakeLiveActivity)
+
+      _ = try await StartMemoIntent().perform()
+
+      let starts = await activity.starts
+      #expect(starts.count == 1)
+      #expect(starts.first?.mode == .auto)
+      #expect(await activity.phases == [.recording])
+
+      // The silent microphone feeds the take; stopping finishes the memo and the outbox sends it.
+      let result = try #require(try await root.stopMemo())
+      #expect(result.segmentCount >= 1)
+      #expect(await waitFor { await activity.handedOver })
+      let phases = await activity.phases
+      #expect(phases.first == .recording && phases.contains(.uploading) && phases.last == .processing)
+      #expect(await !activity.ended, "a sent memo's activity is left to the server's pushes, not ended")
+      #expect(await root.outbox.queuedItems().isEmpty)
+    }
+
+    @Test("the intent refuses when no server is saved")
+    func notConfigured() async {
+      let root = CompositionRoot(arguments: [], credentials: InMemoryCredentialStore())
+      await #expect(throws: StartMemoError.self) { try await root.startMemo() }
+    }
+
+    @Test("the Record control's OpenIntent starts the same take, in the foreground path")
+    func controlIntentStartsTheTake() async throws {
+      let root = CompositionRoot(arguments: ["-IrisFakeCapture"], credentials: InMemoryCredentialStore())
+      let activity = try #require(root.fakeLiveActivity)
+
+      _ = try await OpenRecorderIntent().perform()
+
+      #expect(await activity.starts.count == 1)
+      #expect(await activity.phases == [.recording])
+      #expect(root.take.failure == nil)
+      _ = try await root.stopMemo()
+    }
+
+    @Test("a control press that cannot start a take says so in the app and to the system")
+    func controlIntentFailureIsVisible() async {
+      let root = CompositionRoot(arguments: [], credentials: InMemoryCredentialStore())
+      await #expect(throws: StartMemoError.self) { _ = try await OpenRecorderIntent().perform() }
+      #expect(root.take.failure == String(localized: StartMemoError.notConfigured.localizedStringResource))
+    }
+
+    @Test("the control's intent asks for an unlock on the Lock Screen and targets the one destination")
+    func controlIntentPolicy() {
+      #expect(OpenRecorderIntent.authenticationPolicy == .requiresAuthentication)
+      // The Siri / Shortcuts start is the other road in and stays as it was: no unlock demanded by the intent itself.
+      #expect(StartMemoIntent.authenticationPolicy == .alwaysAllowed)
+      #expect(OpenRecorderIntent().target == .recorder)
+    }
+
+    @Test("a cancelled control press never starts a recording")
+    func cancelledPressStartsNothing() async throws {
+      let root = CompositionRoot(arguments: ["-IrisFakeCapture"], credentials: InMemoryCredentialStore())
+      let activity = try #require(root.fakeLiveActivity)
+
+      let press = Task { @MainActor in try await OpenRecorderIntent().perform() }
+      press.cancel()
+      await #expect(throws: CancellationError.self) { _ = try await press.value }
+
+      #expect(await activity.starts.isEmpty)
+      #expect(await root.take.state.phase == .idle)
+    }
+
+    @Test("waiting for the handler of a cold launch stops as soon as the press is cancelled")
+    func coldLaunchWaitEndsOnCancellation() async {
+      CaptureIntents.handler = nil
+      let started = ContinuousClock.now
+      let wait = Task { @MainActor in _ = try await CaptureIntents.readyHandler(timeout: .seconds(30)) }
+      try? await Task.sleep(for: .milliseconds(100))
+      wait.cancel()
+      await #expect(throws: CancellationError.self) { try await wait.value }
+      #expect(ContinuousClock.now - started < .seconds(5), "it did not run out the 30 s")
+    }
+
+    @Test("a control press with no handler throws appNotReady instead of doing nothing")
+    func controlIntentWithoutHandler() async {
+      CaptureIntents.handler = nil
+      await #expect(throws: StartMemoError.self) { _ = try await OpenRecorderIntent().perform() }
+    }
+
+    @Test("the intent says so when the app has not registered a handler")
+    func noHandler() async {
+      CaptureIntents.handler = nil
+      await #expect(throws: StartMemoError.self) { _ = try await StartMemoIntent().perform() }
+    }
+  }
+}
+
+/// What the intents report to, in order.
+@MainActor
+private final class RecordingSink: IntentEventSink {
+  private(set) var performed: [IntentRun] = []
+  private(set) var finished: [(intent: String, error: String?)] = []
+
+  func intentPerformed(_ run: IntentRun) { performed.append(run) }
+  func intentFinished(intent: String, error: String?) { finished.append((intent, error)) }
+}
+
+/// What the intents call into, counting the calls.
+@MainActor
+private final class CountingHandler: CaptureIntentHandler {
+  private(set) var calls: [String] = []
+
+  func startMemo() async throws { calls.append("start") }
+  func endTake() async throws { calls.append("end") }
+  func toggleTakePause() async { calls.append("pause") }
+  func switchTakeInput() async throws { calls.append("switch") }
+}
+
+/// Wave 20 I1: every intent that reaches the app waits (bounded) for the composition root, like the control's `OpenRecorderIntent`.
+extension CaptureHandlerSuites {
+  @MainActor
+  @Suite("Intents wait for the composition root")
+  struct IntentReadyTests {
+    private let intents: [(name: String, run: @MainActor () async throws -> Void, call: String)] = [
+      ("StartMemoIntent", { _ = try await StartMemoIntent().perform() }, "start"),
+      ("StopMemoIntent", { _ = try await StopMemoIntent().perform() }, "end"),
+      ("PauseMemoIntent", { _ = try await PauseMemoIntent().perform() }, "pause"),
+      ("SwitchInputIntent", { _ = try await SwitchInputIntent().perform() }, "switch"),
+    ]
+
+    @Test("a handler registered after the intent started is still used")
+    func handlerArrivesLate() async throws {
+      for intent in intents {
+        CaptureIntents.handler = nil
+        let handler = CountingHandler()
+        let press = Task { @MainActor in try await intent.run() }
+        try await Task.sleep(for: .milliseconds(150))
+        CaptureIntents.handler = handler
+
+        try await press.value
+        #expect(handler.calls == [intent.call], "\(intent.name) ran against the handler that arrived")
+      }
+      CaptureIntents.handler = nil
+    }
+
+    @Test("with no handler they give up with appNotReady after the bound")
+    func handlerNeverArrives() async {
+      for intent in intents {
+        CaptureIntents.handler = nil
+        let started = ContinuousClock.now
+        await #expect(throws: StartMemoError.appNotReady, "\(intent.name)") { try await intent.run() }
+        #expect(ContinuousClock.now - started >= .seconds(2.5), "\(intent.name) waited for the root first")
+      }
+    }
   }
 
-  @Test("performing the intent records a take in auto mode and requests the Live Activity")
-  func performStartsTheTakeAndTheActivity() async throws {
-    let root = CompositionRoot(arguments: ["-IrisFakeCapture"], credentials: InMemoryCredentialStore())
-    #expect(CaptureIntents.handler === root)
-    let activity = try #require(root.fakeLiveActivity)
-
-    _ = try await StartMemoIntent().perform()
-
-    let starts = await activity.starts
-    #expect(starts.count == 1)
-    #expect(starts.first?.mode == .auto)
-    #expect(await activity.phases == [.recording])
-
-    // The silent microphone feeds the take; stopping finishes the memo and the outbox sends it.
-    let result = try #require(try await root.stopMemo())
-    #expect(result.segmentCount >= 1)
-    #expect(await waitFor { await activity.handedOver })
-    let phases = await activity.phases
-    #expect(phases.first == .recording && phases.contains(.uploading) && phases.last == .processing)
-    #expect(await !activity.ended, "a sent memo's activity is left to the server's pushes, not ended")
-    #expect(await root.outbox.queuedItems().isEmpty)
-  }
-
-  @Test("the intent refuses when no server is saved")
-  func notConfigured() async {
-    let root = CompositionRoot(arguments: [], credentials: InMemoryCredentialStore())
-    await #expect(throws: StartMemoError.self) { try await root.startMemo() }
-  }
-
-  @Test("the Record control's OpenIntent starts the same take, in the foreground path")
-  func controlIntentStartsTheTake() async throws {
-    let root = CompositionRoot(arguments: ["-IrisFakeCapture"], credentials: InMemoryCredentialStore())
-    let activity = try #require(root.fakeLiveActivity)
-
-    _ = try await OpenRecorderIntent().perform()
-
-    #expect(await activity.starts.count == 1)
-    #expect(await activity.phases == [.recording])
-    #expect(root.take.failure == nil)
-    _ = try await root.stopMemo()
-  }
-
-  @Test("a control press that cannot start a take says so in the app and to the system")
-  func controlIntentFailureIsVisible() async {
-    let root = CompositionRoot(arguments: [], credentials: InMemoryCredentialStore())
-    await #expect(throws: StartMemoError.self) { _ = try await OpenRecorderIntent().perform() }
-    #expect(root.take.failure == String(localized: StartMemoError.notConfigured.localizedStringResource))
-  }
-
-  @Test("the control's intent asks for an unlock on the Lock Screen and targets the one destination")
-  func controlIntentPolicy() {
-    #expect(OpenRecorderIntent.authenticationPolicy == .requiresAuthentication)
-    // The Siri / Shortcuts start is the other road in and stays as it was: no unlock demanded by the intent itself.
-    #expect(StartMemoIntent.authenticationPolicy == .alwaysAllowed)
-    #expect(OpenRecorderIntent().target == .recorder)
-  }
-
-  @Test("a cancelled control press never starts a recording")
-  func cancelledPressStartsNothing() async throws {
-    let root = CompositionRoot(arguments: ["-IrisFakeCapture"], credentials: InMemoryCredentialStore())
-    let activity = try #require(root.fakeLiveActivity)
-
-    let press = Task { @MainActor in try await OpenRecorderIntent().perform() }
-    press.cancel()
-    await #expect(throws: CancellationError.self) { _ = try await press.value }
-
-    #expect(await activity.starts.isEmpty)
-    #expect(await root.take.state.phase == .idle)
-  }
-
-  @Test("waiting for the handler of a cold launch stops as soon as the press is cancelled")
-  func coldLaunchWaitEndsOnCancellation() async {
+  @Test("a press that never finds the root is still logged, as performed and as failed")
+  func unreadyPressIsLogged() async {
+    let previous = IntentEvents.sink
+    defer { IntentEvents.sink = previous }
+    let sink = RecordingSink()
+    IntentEvents.sink = sink
     CaptureIntents.handler = nil
-    let started = ContinuousClock.now
-    let wait = Task { @MainActor in _ = try await CaptureIntents.readyHandler(timeout: .seconds(30)) }
-    try? await Task.sleep(for: .milliseconds(100))
-    wait.cancel()
-    await #expect(throws: CancellationError.self) { try await wait.value }
-    #expect(ContinuousClock.now - started < .seconds(5), "it did not run out the 30 s")
-  }
 
-  @Test("a control press with no handler throws appNotReady instead of doing nothing")
-  func controlIntentWithoutHandler() async {
-    CaptureIntents.handler = nil
-    await #expect(throws: StartMemoError.self) { _ = try await OpenRecorderIntent().perform() }
-  }
+    await #expect(throws: StartMemoError.appNotReady) { _ = try await StopMemoIntent().perform() }
 
-  @Test("the intent says so when the app has not registered a handler")
-  func noHandler() async {
-    CaptureIntents.handler = nil
-    await #expect(throws: StartMemoError.self) { _ = try await StartMemoIntent().perform() }
+    #expect(sink.performed.map(\.intent) == ["StopMemoIntent"])
+    #expect(sink.performed.first?.handlerPresent == false)
+    #expect(sink.finished.map(\.intent) == ["StopMemoIntent"])
+    #expect(sink.finished.first?.error?.contains("appNotReady") == true)
   }
 }
 

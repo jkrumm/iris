@@ -208,6 +208,12 @@ final class TakeController {
     return session.levels
   }
 
+  /// Suspends until the capture queue is open (returns at once when it is). `false` when the wait was cancelled.
+  func waitUntilOpen() async -> Bool {
+    for await _ in await stack.openings() { return true }
+    return false
+  }
+
   func queueChanges() async -> AsyncStream<Void> { await outbox.changes() }
 
   func queuedItems() async -> [QueuedItem] { await outbox.queuedItems() }

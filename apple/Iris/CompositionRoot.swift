@@ -185,6 +185,7 @@ final class CompositionRoot: CaptureIntentHandler, PlaybackIntentHandler {
     // Every playback start reads the take controller's capture flag at the moment it starts. Weak: the controller owns the
     // player, not the other way round.
     speech.captureActive = { [weak controller = takeController] in controller?.captureActive ?? false }
+    speech.player.captureActive = speech.captureActive
     let reader = SpokenReplies(
       store: fake ? InMemorySpokenRepliesStore() : UserDefaultsSpokenRepliesStore(), speech: speech, client: api,
       media: { fake ? FakeMediaSource() : Self.mediaSource(for: saved?.load()) },

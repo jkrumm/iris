@@ -103,8 +103,19 @@ final class TakeModel {
     }
   }
 
+  /// The stream `make` asks the controller for, waiting for the capture queue to open while it is closed (an unreadable
+  /// outbox at launch, a reset, the first unlock): it opens later through any caller, and this wakes on that, no polling.
+  /// `nil` only when the task is cancelled.
+  private func streamOnceOpen<Stream>(_ make: (TakeController) async -> Stream?) async -> Stream? {
+    while !Task.isCancelled {
+      if let stream = await make(controller) { return stream }
+      guard await controller.waitUntilOpen() else { return nil }
+    }
+    return nil
+  }
+
   private func followState() async {
-    guard let updates = await controller.updates() else { return }
+    guard let updates = await streamOnceOpen({ await $0.updates() }) else { return }
     for await take in updates {
       apply(take)
       await controller.sessionUpdated(take)
@@ -112,7 +123,7 @@ final class TakeModel {
   }
 
   private func followLevels() async {
-    guard let stream = await controller.levels() else { return }
+    guard let stream = await streamOnceOpen({ await $0.levels() }) else { return }
     for await level in stream where state.phase == .recording {
       levels.removeFirst()
       levels.append(min(max(level, 0.08), 1))

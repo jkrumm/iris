@@ -84,13 +84,16 @@ struct ThreadView: View {
       if scenePhase != .active { cancelVoice() }
     }
     .sheet(item: $composer) { request in
-      ComposerView(
-        model: makeComposer(request),
-        onSent: { memo in
-          model.didSend(memo)
-          onSent(memo)
-        },
-        onQueued: { model.didQueue() })
+      BuiltOnce(make: { makeComposer(request) }) { composer in
+        ComposerView(
+          model: composer,
+          onSent: { memo in
+            model.didSend(memo)
+            onSent(memo)
+          },
+          onQueued: { model.didQueue() })
+      }
+      .id(request.id)
     }
     .fullScreenCover(item: $zoomed) { item in
       ZoomableImageView(

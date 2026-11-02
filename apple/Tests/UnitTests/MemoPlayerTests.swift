@@ -135,3 +135,91 @@ struct MemoMediaSourceTests {
     #expect(source.speech(for: MemoFactory.memo("abc")) == nil)
   }
 }
+
+private final class RecordingSession: PlaybackAudioSession {
+  struct Refused: Error {}
+
+  private(set) var activations = 0
+  private(set) var deactivations = 0
+  /// How many deactivations throw before one goes through.
+  var refusals = 0
+
+  func activate() throws { activations += 1 }
+
+  func deactivate() throws {
+    deactivations += 1
+    if refusals > 0 {
+      refusals -= 1
+      throw Refused()
+    }
+  }
+}
+
+/// Wave 20 I1: a clip that was played hands the audio session back when playback is over, unless a take has the microphone.
+@MainActor
+@Suite("MemoPlayer audio session")
+struct MemoPlayerSessionTests {
+  private func loaded(_ session: RecordingSession) async -> MemoPlayer {
+    let player = MemoPlayer(duration: 3, session: session)
+    await player.load(FakeMediaSource().audio(for: MemoFactory.memo("p", audioSeconds: 3)))
+    return player
+  }
+
+  @Test("playing claims the session once, tearing down gives it back")
+  func teardownReleases() async {
+    let session = RecordingSession()
+    let player = await loaded(session)
+    player.play()
+    #expect(session.activations == 1 && session.deactivations == 0)
+    player.pause()
+    #expect(session.deactivations == 0, "a pause keeps the session: the clip resumes")
+    player.teardown()
+    player.teardown()
+    #expect(session.deactivations == 1, "once, however often it is torn down")
+  }
+
+  @Test("a deactivation the system refuses is retried by the next release")
+  func refusedReleaseIsRetried() async {
+    let session = RecordingSession()
+    session.refusals = 1
+    let player = await loaded(session)
+    player.play()
+    player.teardown()
+    #expect(session.deactivations == 1, "it tried, and was refused")
+    player.teardown()
+    #expect(session.deactivations == 2, "the claim was kept, so it tries again")
+    player.teardown()
+    #expect(session.deactivations == 2, "and stops once it went through")
+  }
+
+  @Test("a clip that never played never touches the session")
+  func unplayedClipLeavesTheSessionAlone() async {
+    let session = RecordingSession()
+    let player = await loaded(session)
+    player.teardown()
+    #expect(session.activations == 0 && session.deactivations == 0)
+  }
+
+  @Test("while a take holds the microphone the session is not given back")
+  func takeKeepsTheSession() async {
+    let session = RecordingSession()
+    let player = await loaded(session)
+    var capturing = false
+    player.captureActive = { capturing }
+    player.play()
+    capturing = true
+    player.teardown()
+    #expect(session.deactivations == 0)
+  }
+
+  @Test("loading the next clip over a playing one keeps the session through the swap")
+  func replacingAClipKeepsTheSession() async {
+    let session = RecordingSession()
+    let player = await loaded(session)
+    player.play()
+    await player.load(FakeMediaSource().audio(for: MemoFactory.memo("q", audioSeconds: 3)))
+    #expect(session.deactivations == 0)
+    player.teardown()
+    #expect(session.deactivations == 1)
+  }
+}

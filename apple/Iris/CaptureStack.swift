@@ -68,6 +68,8 @@ actor CaptureStack {
   private var reset: Task<OutboxResetOutcome, any Error>?
   /// The queue file is being renamed: `open()` refuses until it has moved.
   private var isMoving = false
+  /// Streams waiting for the queue to open (``openings()``), keyed so a cancelled one can leave.
+  private var openListeners: [UUID: AsyncStream<Void>.Continuation] = [:]
   private let logger = Logger(subsystem: "com.jkrumm.iris", category: "capture")
 
   init(_ parts: Parts) {
@@ -76,6 +78,27 @@ actor CaptureStack {
 
   /// The route manager the session records through (the microphone list of the take screen reads it).
   nonisolated var routes: any RouteManager { parts.routes }
+
+  /// Yields once, as soon as the queue is open (at once when it already is), then finishes. A caller that found the queue
+  /// closed waits here instead of polling: whoever opens it next (a start, a reset, a refresh, the first unlock) wakes it.
+  func openings() -> AsyncStream<Void> {
+    let (stream, continuation) = AsyncStream.makeStream(of: Void.self, bufferingPolicy: .bufferingNewest(1))
+    guard built == nil else {
+      continuation.yield()
+      continuation.finish()
+      return stream
+    }
+    let id = UUID()
+    openListeners[id] = continuation
+    continuation.onTermination = { [weak self] _ in
+      Task { await self?.removeListener(id) }
+    }
+    return stream
+  }
+
+  private func removeListener(_ id: UUID) {
+    openListeners[id] = nil
+  }
 
   func outbox() async throws -> Outbox { try await open().outbox }
 
@@ -174,6 +197,12 @@ actor CaptureStack {
       // The first caller that gets here keeps the stack; a later one finds it and returns the same.
       if let built { return built }
       built = opened
+      let listeners = openListeners
+      openListeners = [:]
+      for listener in listeners.values {
+        listener.yield()
+        listener.finish()
+      }
       return opened
     }
   }

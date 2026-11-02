@@ -46,7 +46,7 @@ struct HistoryView: View {
           .listRowInsets(EdgeInsets())
           .listRowSeparator(.hidden)
           .listRowBackground(Color.clear)
-        let sections = HistoryDaySection.group(model.memos)
+        let sections = model.sections
         ForEach(sections) { section in
           Section {
             ForEach(section.memos) { memo in
@@ -84,7 +84,7 @@ struct HistoryView: View {
       .accessibilityIdentifier("history.list")
       .scrollContentBackground(.hidden)
       .background(Theme.Surface.background)
-      .animation(.snappy, value: model.memos.map(\.id))
+      .animation(.snappy, value: model.memoIDs)
       .overlay { emptyState }
       .takeBanner()
       .overlay(alignment: .bottom) { toastBanner }
@@ -95,10 +95,13 @@ struct HistoryView: View {
         if memo.opensThread, let route = memo.threadRoute {
           threadView(route)
         } else {
-          MemoDetailView(
-            model: makeDetail(memo), refreshToken: { model.revision(of: memo.id) },
-            onReply: { composer = .reply(to: $0) }, makeRouteAnswer: makeRouteAnswer,
-            onRouted: { model.insert($0) })
+          BuiltOnce(make: { makeDetail(memo) }) { detail in
+            MemoDetailView(
+              model: detail, refreshToken: { model.revision(of: memo.id) },
+              onReply: { composer = .reply(to: $0) }, makeRouteAnswer: makeRouteAnswer,
+              onRouted: { model.insert($0) })
+          }
+          .id(memo.id)
         }
       }
       .navigationDestination(for: ThreadRoute.self) { route in
@@ -115,8 +118,10 @@ struct HistoryView: View {
           .presentationDragIndicator(.visible)
       }
       .sheet(item: $composer) { request in
-        ComposerView(
-          model: makeComposer(request), onSent: { model.insert($0) }, onQueued: { model.didQueue() })
+        BuiltOnce(make: { makeComposer(request) }) { composer in
+          ComposerView(model: composer, onSent: { model.insert($0) }, onQueued: { model.didQueue() })
+        }
+        .id(request.id)
       }
       .refreshable { await model.load() }
       .task(id: model.filters) {
@@ -134,14 +139,17 @@ struct HistoryView: View {
   }
 
   private func threadView(_ route: ThreadRoute) -> some View {
-    ThreadView(
-      model: makeThread(route),
-      refreshToken: { threadId, ids in
-        // Any event for a memo of the thread, or a new memo of it showing up in the list (another device's turn).
-        let inThread = model.memos.count { $0.threadId == threadId }
-        return ids.reduce(inThread) { $0 &+ model.revision(of: $1) }
-      },
-      makeComposer: makeComposer, onSent: { model.insert($0) })
+    BuiltOnce(make: { makeThread(route) }) { thread in
+      ThreadView(
+        model: thread,
+        refreshToken: { threadId, ids in
+          // Any event for a memo of the thread, or a new memo of it showing up in the list (another device's turn).
+          let inThread = model.memos.count { $0.threadId == threadId }
+          return ids.reduce(inThread) { $0 &+ model.revision(of: $1) }
+        },
+        makeComposer: makeComposer, onSent: { model.insert($0) })
+    }
+    .id(route.id)
   }
 
   /// How long the undo toast stays; UI tests stretch it (`-IrisUndoSeconds 60`) so a slow runner can still tap Undo.

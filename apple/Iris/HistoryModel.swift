@@ -8,8 +8,12 @@ import os
 @Observable
 final class HistoryModel {
   /// Open `needs_route` memos, newest first. They sit above `items` and are never paged.
-  private(set) var pinned: [Memo] = []
-  private(set) var items: [Memo] = []
+  private(set) var pinned: [Memo] = [] {
+    didSet { regroup() }
+  }
+  private(set) var items: [Memo] = [] {
+    didSet { regroup() }
+  }
   private(set) var loadFailed = false
   private(set) var hasLoaded = false
   private(set) var isLoading = false
@@ -35,6 +39,17 @@ final class HistoryModel {
   private(set) var revisions: [String: Int] = [:]
 
   var memos: [Memo] { pinned + items }
+
+  /// ``memos`` grouped into day sections, rebuilt when the list changes rather than by every evaluation of the view.
+  private(set) var sections: [HistoryDaySection] = []
+  /// The ids of ``memos`` in order: what the list animates on, so a reorder animates and a flag change does not.
+  private(set) var memoIDs: [String] = []
+
+  private func regroup() {
+    let all = memos
+    sections = HistoryDaySection.group(all)
+    memoIDs = all.map(\.id)
+  }
 
   private let client: any APIClient
   /// The key of the server `client` talks to now. A response is merged only when it is still the same server it was asked of:

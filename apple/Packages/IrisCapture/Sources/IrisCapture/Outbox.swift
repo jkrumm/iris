@@ -245,6 +245,14 @@ public actor Outbox: SegmentOutbox {
     for task in inFlight.values { task.cancel() }
     for observer in observers.values { observer.finish() }
     observers = [:]
+    // Nothing will settle or save for these any more: a caller blocked in `settled()` or on a coalesced `persist()` must not
+    // wait forever. A `persist()` waiter learns whether its own state reached the disk.
+    let flushing = flushWaiters
+    flushWaiters = []
+    for waiter in flushing { waiter.continuation.resume(returning: savedThrough >= waiter.generation) }
+    let idle = idleWaiters
+    idleWaiters = []
+    for waiter in idle { waiter.resume() }
   }
 
   /// Why the last save failed, or `nil` when the queue on disk is current.
