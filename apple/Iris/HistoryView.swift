@@ -101,6 +101,7 @@ struct HistoryView: View {
               onReply: { composer = .reply(to: $0) }, makeRouteAnswer: makeRouteAnswer,
               onRouted: { model.insert($0) })
           }
+          .id(memo.id)
         }
       }
       .navigationDestination(for: ThreadRoute.self) { route in
@@ -120,6 +121,7 @@ struct HistoryView: View {
         BuiltOnce(make: { makeComposer(request) }) { composer in
           ComposerView(model: composer, onSent: { model.insert($0) }, onQueued: { model.didQueue() })
         }
+        .id(request.id)
       }
       .refreshable { await model.load() }
       .task(id: model.filters) {
@@ -147,6 +149,7 @@ struct HistoryView: View {
         },
         makeComposer: makeComposer, onSent: { model.insert($0) })
     }
+    .id(route.id)
   }
 
   /// How long the undo toast stays; UI tests stretch it (`-IrisUndoSeconds 60`) so a slow runner can still tap Undo.
@@ -198,30 +201,5 @@ struct HistoryView: View {
       .transition(.move(edge: .bottom).combined(with: .opacity))
       .accessibilityIdentifier("history.toast")
     }
-  }
-}
-
-/// A destination that builds its model once, when it first renders, and keeps it. The navigation destination and sheet closures
-/// run on every evaluation of ``HistoryView``; building there made a model (and a Keychain read) per evaluation that the
-/// destination's own `@State` then threw away. The factory is called by the first `body` only.
-private struct BuiltOnce<Model, Content: View>: View {
-  @State private var box = BuiltModel<Model>()
-  let make: () -> Model
-  @ViewBuilder let content: (Model) -> Content
-
-  var body: some View {
-    content(box.resolve(make))
-  }
-}
-
-/// What ``BuiltOnce`` keeps in its `@State`: the model, built by the first `resolve`.
-private final class BuiltModel<Model> {
-  private var model: Model?
-
-  func resolve(_ make: () -> Model) -> Model {
-    if let model { return model }
-    let built = make()
-    model = built
-    return built
   }
 }
