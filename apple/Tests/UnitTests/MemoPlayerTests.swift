@@ -137,11 +137,22 @@ struct MemoMediaSourceTests {
 }
 
 private final class RecordingSession: PlaybackAudioSession {
+  struct Refused: Error {}
+
   private(set) var activations = 0
   private(set) var deactivations = 0
+  /// How many deactivations throw before one goes through.
+  var refusals = 0
 
   func activate() throws { activations += 1 }
-  func deactivate() throws { deactivations += 1 }
+
+  func deactivate() throws {
+    deactivations += 1
+    if refusals > 0 {
+      refusals -= 1
+      throw Refused()
+    }
+  }
 }
 
 /// Wave 20 I1: a clip that was played hands the audio session back when playback is over, unless a take has the microphone.
@@ -165,6 +176,20 @@ struct MemoPlayerSessionTests {
     player.teardown()
     player.teardown()
     #expect(session.deactivations == 1, "once, however often it is torn down")
+  }
+
+  @Test("a deactivation the system refuses is retried by the next release")
+  func refusedReleaseIsRetried() async {
+    let session = RecordingSession()
+    session.refusals = 1
+    let player = await loaded(session)
+    player.play()
+    player.teardown()
+    #expect(session.deactivations == 1, "it tried, and was refused")
+    player.teardown()
+    #expect(session.deactivations == 2, "the claim was kept, so it tries again")
+    player.teardown()
+    #expect(session.deactivations == 2, "and stops once it went through")
   }
 
   @Test("a clip that never played never touches the session")

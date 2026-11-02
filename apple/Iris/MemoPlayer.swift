@@ -83,7 +83,7 @@ final class MemoPlayer {
       guard current == generation else { return }
       attach(AVPlayer(url: file))
     } catch is CancellationError {
-      return
+      if current == generation { releaseSession() }
     } catch {
       logger.error("media load failed: \(String(describing: error), privacy: .public)")
       if current == generation { releaseSession() }
@@ -132,6 +132,7 @@ final class MemoPlayer {
     if item.status == .failed {
       logger.error("playback failed: \(String(describing: item.error), privacy: .public)")
       pause()
+      releaseSession()
     } else if isPlaying, duration > 0, position >= duration - 0.05 {
       pause()
       releaseSession()
@@ -159,12 +160,15 @@ final class MemoPlayer {
   /// down), unless a take holds the microphone: its session is not ours to release.
   private func releaseSession() {
     guard holdsSession else { return }
-    holdsSession = false
-    guard !captureActive() else { return }
+    guard !captureActive() else {
+      holdsSession = false
+      return
+    }
     do {
       try session.deactivate()
+      holdsSession = false
     } catch {
-      // Another player of the app is still audible: the session stays active for it, and its own end releases it.
+      // Another player of the app may still be audible, or the system refused: the claim is kept, so the next release retries.
       logger.notice("audio session not released: \(String(describing: error), privacy: .public)")
     }
   }
