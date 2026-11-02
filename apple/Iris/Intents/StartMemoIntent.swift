@@ -30,6 +30,19 @@ enum CaptureIntents {
     try Task.checkCancellation()
     return handler
   }
+
+  /// Runs `body` as the named intent against the handler, waiting for it first. The wait is inside ``IntentEvents/run``, so a
+  /// press whose root never shows up still logs `intent.perform` and `intent.result` (with `handler=false` and `appNotReady`):
+  /// those lines are how a cold-start press is diagnosed. `handlerPresent` is whether the root was ready when the press came.
+  static func run<Result>(
+    _ intent: some AppIntent, named name: String, timeout: Duration = .seconds(3),
+    _ body: (any CaptureIntentHandler) async throws -> Result
+  ) async throws -> Result {
+    try await IntentEvents.run(intent, named: name, handlerPresent: handler != nil) {
+      guard let handler = try await readyHandler(timeout: timeout) else { throw StartMemoError.appNotReady }
+      return try await body(handler)
+    }
+  }
 }
 
 enum StartMemoError: Error, CustomLocalizedStringResourceConvertible {
@@ -60,11 +73,7 @@ struct StartMemoIntent: AudioRecordingIntent, LiveActivityIntent {
 
   @MainActor
   func perform() async throws -> some IntentResult {
-    let handler = try await CaptureIntents.readyHandler()
-    try await IntentEvents.run(self, named: "StartMemoIntent", handlerPresent: handler != nil) {
-      guard let handler else { throw StartMemoError.appNotReady }
-      try await handler.startMemo()
-    }
+    try await CaptureIntents.run(self, named: "StartMemoIntent") { try await $0.startMemo() }
     return .result()
   }
 }
@@ -99,11 +108,7 @@ struct OpenRecorderIntent: OpenIntent {
 
   @MainActor
   func perform() async throws -> some IntentResult {
-    let handler = try await CaptureIntents.readyHandler()
-    try await IntentEvents.run(self, named: "OpenRecorderIntent", handlerPresent: handler != nil) {
-      guard let handler else { throw StartMemoError.appNotReady }
-      try await handler.startMemo()
-    }
+    try await CaptureIntents.run(self, named: "OpenRecorderIntent") { try await $0.startMemo() }
     return .result()
   }
 }
