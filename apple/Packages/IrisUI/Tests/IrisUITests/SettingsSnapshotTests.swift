@@ -37,9 +37,12 @@
         OutboxItemRow(
           systemImage: "waveform", title: "Voice memo · 14 s", detail: "Recorded 8:02", status: .failed,
           statusText: "Retry in 40 s")
+        OutboxItemRow(
+          systemImage: "square.and.pencil", title: "Typed memo", detail: "Typed memo · 27 seconds ago", status: .failed,
+          statusText: "Retry in 10 seconds")
       }
       .padding(Theme.Spacing.lg)
-      SnapshotSupport.assertLightAndDark(rows, width: 390, height: 190)
+      SnapshotSupport.assertLightAndDark(rows, width: 390, height: 280)
     }
   }
 #endif

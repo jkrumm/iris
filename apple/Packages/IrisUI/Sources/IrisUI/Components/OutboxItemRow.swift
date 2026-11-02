@@ -33,16 +33,19 @@ public struct OutboxItemRow: View {
           Text(verbatim: detail)
             .themeFont(.footnote)
             .foregroundStyle(Theme.Ink.muted)
-            .lineLimit(1)
+            .lineLimit(2)
+            .fixedSize(horizontal: false, vertical: true)
+        }
+        // The status has a line of its own: beside the detail it took the width and cut the detail to "27 sec…".
+        HStack(spacing: Theme.Spacing.xs) {
+          if status == .sending { ProgressView().controlSize(.small) }
+          Text(verbatim: statusText)
+            .themeFont(.footnote)
+            .foregroundStyle(status == .failed ? Theme.Status.warn : Theme.Ink.muted)
+            .fixedSize(horizontal: false, vertical: true)
         }
       }
-      Spacer(minLength: Theme.Spacing.sm)
-      HStack(spacing: Theme.Spacing.xs) {
-        if status == .sending { ProgressView().controlSize(.small) }
-        Text(verbatim: statusText)
-          .themeFont(.footnote)
-          .foregroundStyle(status == .failed ? Theme.Status.warn : Theme.Ink.muted)
-      }
+      Spacer(minLength: 0)
     }
     .accessibilityElement(children: .combine)
   }

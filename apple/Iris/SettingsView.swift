@@ -28,6 +28,8 @@ struct SettingsView: View {
         .padding(.horizontal, Theme.Spacing.screenMargin)
       }
       .accessibilityIdentifier("settings.view")
+      // The Record accessory floats over the scroll's end: the last footnote stops above it.
+      .contentMargins(.bottom, Theme.Spacing.gutter, for: .scrollContent)
       .takeBanner()
       .background(Theme.Surface.background)
       .toolbarVisibility(.hidden, for: .navigationBar)
@@ -299,12 +301,19 @@ struct SettingsView: View {
         HStack(spacing: Theme.Spacing.lg) {
           if canRetry {
             Button(String(localized: "Retry now", comment: "Outbox action")) { Task { await model.retry(item) } }
+              .frame(minHeight: Theme.Spacing.tapTarget)
+              .contentShape(.rect)
               .accessibilityIdentifier("settings.outbox.retry")
           }
           if item.canDiscard {
-            Button(discardTitle(of: item), role: .destructive) {
+            // The theme's `status-bad`, not the system red a `.destructive` role paints.
+            Button {
               Task { await model.discard(item) }
+            } label: {
+              Text(discardTitle(of: item)).foregroundStyle(Theme.Status.bad)
             }
+            .frame(minHeight: Theme.Spacing.tapTarget)
+            .contentShape(.rect)
             .accessibilityIdentifier("settings.outbox.discard")
           }
         }
