@@ -175,6 +175,10 @@ final class FakeTakeEngine: TakeEngine, @unchecked Sendable {
     var startedAt = Date(timeIntervalSince1970: 0)
     var startError: (any Error)?
     var startHangs = false
+    var startStalled = false
+    var stall: CheckedContinuation<Void, Never>?
+    var microphonesHeld = false
+    var microphonesWaiting: CheckedContinuation<Void, Never>?
     var stopError: (any Error)?
     var end = TakeEnd.queued
     var calls: [String] = []
@@ -189,6 +193,25 @@ final class FakeTakeEngine: TakeEngine, @unchecked Sendable {
   func failStart(with error: (any Error)?) { lock.withLock { state.startError = error } }
   /// While set, `start()` does not return until its task is cancelled (an engine bring-up that stalls).
   func hangStart(_ hangs: Bool) { lock.withLock { state.startHangs = hangs } }
+  /// While set, `start()` ignores cancellation and returns only after ``releaseStart()`` (an engine call stuck in the system).
+  func stallStart(_ stalls: Bool) { lock.withLock { state.startStalled = stalls } }
+  func releaseStart() {
+    let waiting = lock.withLock {
+      defer { state.stall = nil }
+      return state.stall
+    }
+    waiting?.resume()
+  }
+  /// While set, `microphones()` waits for ``releaseMicrophones()``: a panel that is finishing a start.
+  func holdMicrophones(_ held: Bool) { lock.withLock { state.microphonesHeld = held } }
+  var isHoldingMicrophones: Bool { lock.withLock { state.microphonesWaiting != nil } }
+  func releaseMicrophones() {
+    let waiting = lock.withLock {
+      defer { state.microphonesWaiting = nil }
+      return state.microphonesWaiting
+    }
+    waiting?.resume()
+  }
   func failStop(with error: (any Error)?) { lock.withLock { state.stopError = error } }
   func endStop(with end: TakeEnd) { lock.withLock { state.end = end } }
   func level(_ value: Float) { levelFeed.yield(value) }
@@ -200,13 +223,25 @@ final class FakeTakeEngine: TakeEngine, @unchecked Sendable {
 
   var levels: AsyncStream<Float> { levelFeed.subscribe() }
   func failures() -> AsyncStream<Void> { failureFeed.subscribe() }
-  func microphones() async -> Microphones { lock.withLock { state.mics } }
+  func microphones() async -> Microphones {
+    if lock.withLock({ state.microphonesHeld }) {
+      await withCheckedContinuation { continuation in
+        lock.withLock { state.microphonesWaiting = continuation }
+      }
+    }
+    return lock.withLock { state.mics }
+  }
   func microphoneChanges() -> AsyncStream<Microphones> { changeFeed.subscribe() }
 
   func start() async throws -> Date {
-    let hangs = lock.withLock {
+    let (hangs, stalls) = lock.withLock {
       state.calls.append("start")
-      return state.startHangs
+      return (state.startHangs, state.startStalled)
+    }
+    if stalls {
+      await withCheckedContinuation { continuation in
+        lock.withLock { state.stall = continuation }
+      }
     }
     if hangs {
       try await Task.sleep(for: .seconds(3600))

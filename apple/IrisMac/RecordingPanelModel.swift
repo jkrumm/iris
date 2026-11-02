@@ -8,12 +8,15 @@ import os
 ///
 /// ```
 /// idle ── toggle ──▶ starting ──▶ recording ── toggle / Stop ──▶ stopping ──▶ idle
-///   ▲                   │             │ Cancel ───────────────────────────────▶ idle
-///   └── dismiss ◀── failed ◀──────────┴── engine failed (partial take is kept) / start refused / stop lost the audio
+///   ▲                 │  │            │ Cancel ───────────────────────────────▶ idle
+///   │      Cancel ────┘  └─ deadline / start refused ─▶ failed ◀── engine failed (partial take is kept) / stop lost the audio
+///   └── dismiss ◀───────────────────────────────────────┘
 /// ```
 ///
-/// Presses and buttons are ignored while a start or a stop is running, except Cancel, which abandons a start; a start that has not
-/// answered after ``startDeadline`` ends as `failed(.couldNotStart)`, so a wedged permission prompt or engine never locks the hotkey.
+/// Presses and buttons are ignored while a start or a stop is running, except Cancel, which abandons a start (also one that has
+/// just succeeded: the take is discarded, never shown as recording). A start that has not answered by its deadline (the engine
+/// ``startDeadline``, the permission prompt ``permissionDeadline``) ends as `failed(.couldNotStart)`, so a wedged prompt or engine
+/// never locks the hotkey.
 /// The panel shows whenever the phase is not `idle`.
 @MainActor
 @Observable
@@ -67,22 +70,30 @@ final class RecordingPanelModel {
   @ObservationIgnored private var work: Task<Void, Never>?
   @ObservationIgnored private var isBusy = false
   @ObservationIgnored private let startDeadline: Duration
+  @ObservationIgnored private let permissionDeadline: Duration
+  /// Cancel was pressed during `.starting`; `begin()` checks it before the take is shown as recording.
+  @ObservationIgnored private var cancelRequested = false
   /// The start in flight (`.starting`), so Cancel can end it.
   @ObservationIgnored private var startRace: StartRace?
-  /// Cleanup of an abandoned start: `engine.cancel()` may itself wait on the stalled start, so no intent awaits it.
+  /// Cleanup of an abandoned start: it waits for the abandoned operation to end, then cancels what that start left open.
+  /// `engine.cancel()` acts on the engine's current take, so a new start waits for this (inside its own deadline) and no intent
+  /// awaits it directly: a start that never returns must not hold the panel.
   @ObservationIgnored private var cleanup: Task<Void, Never>?
   @ObservationIgnored private var following: [Task<Void, Never>] = []
   private static let logger = Logger(subsystem: "com.jkrumm.iris", category: "mac-take")
 
-  /// - Parameter startDeadline: how long the permission prompt plus the engine start may take before the panel gives up.
+  /// - Parameters:
+  ///   - startDeadline: how long the engine start may take before the panel gives up.
+  ///   - permissionDeadline: the same for the permission prompt, longer: a first-run user reads the dialog.
   init(
     engine: any TakeEngine, permission: any MicrophonePermission, isConfigured: @escaping () -> Bool,
-    startDeadline: Duration = .seconds(15)
+    startDeadline: Duration = .seconds(15), permissionDeadline: Duration = .seconds(60)
   ) {
     self.engine = engine
     self.permission = permission
     self.isConfigured = isConfigured
     self.startDeadline = startDeadline
+    self.permissionDeadline = permissionDeadline
   }
 
   var isVisible: Bool { phase != .idle }
@@ -124,6 +135,8 @@ final class RecordingPanelModel {
       return
     }
     if phase == .starting {
+      // Also when the race is decided and `begin()` is finishing up: it checks the flag before showing the take.
+      cancelRequested = true
       startRace?.resolve(.cancelled)
       return
     }
@@ -180,75 +193,91 @@ final class RecordingPanelModel {
       phase = .failed(.notConfigured)
       return
     }
+    cancelRequested = false
     phase = .starting
     let access = permission.access
     if access == .denied {
       phase = .failed(.microphoneDenied)
       return
     }
-    switch await boundedStart(requestsPermission: access == .undetermined) {
+    let (outcome, operation) = await boundedStart(requestsPermission: access == .undetermined)
+    switch outcome {
     case .started(let startedAt):
+      guard !cancelRequested else { return await dropStartedTake() }
       level = 0
       recentLevels = []
       microphones = await engine.microphones()
+      guard !cancelRequested else { return await dropStartedTake() }
       phase = .recording(since: startedAt)
       follow()
     case .failed(let failure):
       phase = .failed(failure)
     case .cancelled:
       Self.logger.info("take start cancelled")
-      abandonStart()
+      abandonStart(operation)
       phase = .idle
     case .timedOut:
       Self.logger.error("take not started: no answer before the deadline")
-      abandonStart()
+      abandonStart(operation)
       phase = .failed(.couldNotStart)
     }
   }
 
+  /// Cancel won against a start that had already succeeded: the take is dropped through the normal path.
+  private func dropStartedTake() async {
+    Self.logger.info("take start cancelled")
+    await engine.cancel()
+    phase = .idle
+  }
+
   /// The permission question (when open) and the engine start, raced against the deadline and Cancel. The operation runs
-  /// unawaited: a call that never returns is left behind (cancelled), never waited for.
-  private func boundedStart(requestsPermission: Bool) async -> StartRace.Outcome {
+  /// unawaited: a call that never returns is left behind (cancelled), never waited for. It first waits for the cleanup of an
+  /// earlier abandoned start, so the engine is never started while that start's late `cancel` is still to come.
+  private func boundedStart(requestsPermission: Bool) async -> (StartRace.Outcome, Task<Bool, Never>) {
     let race = StartRace()
     startRace = race
     let engine = engine
     let permission = permission
-    let operation = Task { @MainActor in
+    let earlier = cleanup
+    let engineDeadline = startDeadline
+    race.arm(requestsPermission ? permissionDeadline : engineDeadline)
+    // Reports only: whatever a start leaves open is torn down by the one owner, `abandonStart`. The result says whether the
+    // engine was asked to start, i.e. whether there is anything to tear down.
+    let operation = Task { @MainActor () -> Bool in
+      await earlier?.value
+      guard race.outcome == nil else { return false }
       if requestsPermission {
-        guard await permission.request() else { return race.resolve(.failed(.microphoneDenied)) }
-      }
-      guard race.outcome == nil else { return }
-      do {
-        let startedAt = try await engine.start()
-        // Abandoned while the engine was coming up: it must not be left recording.
-        if race.outcome != nil {
-          await engine.cancel()
-        } else {
-          race.resolve(.started(startedAt))
+        guard await permission.request() else {
+          race.resolve(.failed(.microphoneDenied))
+          return false
         }
-      } catch {
-        Self.logger.error("take not started: \(logDescription(of: error), privacy: .public)")
-        race.resolve(.failed(.couldNotStart))
+        guard race.outcome == nil else { return false }
+        race.arm(engineDeadline)
       }
-    }
-    let deadline = startDeadline
-    let timer = Task { @MainActor in
-      guard (try? await Task.sleep(for: deadline)) != nil else { return }
-      race.resolve(.timedOut)
+      do {
+        race.resolve(.started(try await engine.start()))
+      } catch {
+        // A Cancel or the deadline ends the start by cancelling this task: that is not an error.
+        if race.outcome == nil {
+          Self.logger.error("take not started: \(logDescription(of: error), privacy: .public)")
+          race.resolve(.failed(.couldNotStart))
+        }
+      }
+      return true
     }
     let outcome = await race.wait()
-    timer.cancel()
     operation.cancel()
     startRace = nil
-    return outcome
+    return (outcome, operation)
   }
 
-  /// Drops whatever a start left half-open, off the intent's path.
-  private func abandonStart() {
+  /// Drops whatever the abandoned start leaves open, once it has ended (its late return included), off the intent's path.
+  private func abandonStart(_ operation: Task<Bool, Never>) {
     let engine = engine
     let previous = cleanup
     cleanup = Task {
       await previous?.value
+      guard await operation.value else { return }
       await engine.cancel()
     }
   }
@@ -351,6 +380,17 @@ private final class StartRace {
 
   private(set) var outcome: Outcome?
   private var waiter: CheckedContinuation<Outcome, Never>?
+  private var timer: Task<Void, Never>?
+
+  /// (Re)starts the deadline; the first answer, whichever it is, stops it.
+  func arm(_ deadline: Duration) {
+    guard outcome == nil else { return }
+    timer?.cancel()
+    timer = Task { [weak self] in
+      guard (try? await Task.sleep(for: deadline)) != nil else { return }
+      self?.resolve(.timedOut)
+    }
+  }
 
   func wait() async -> Outcome {
     if let outcome { return outcome }
@@ -360,6 +400,8 @@ private final class StartRace {
   func resolve(_ value: Outcome) {
     guard outcome == nil else { return }
     outcome = value
+    timer?.cancel()
+    timer = nil
     waiter?.resume(returning: value)
     waiter = nil
   }
