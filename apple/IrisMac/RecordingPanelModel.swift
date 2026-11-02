@@ -73,6 +73,8 @@ final class RecordingPanelModel {
   @ObservationIgnored private let permissionDeadline: Duration
   /// Cancel was pressed during `.starting`; `begin()` checks it before the take is shown as recording.
   @ObservationIgnored private var cancelRequested = false
+  /// Counts the newer sources of the microphone list (a switch, a device change), so a slow first load never overwrites them.
+  @ObservationIgnored private var microphonesRevision = 0
   /// The start in flight (`.starting`), so Cancel can end it.
   @ObservationIgnored private var startRace: StartRace?
   /// Cleanup of an abandoned start: it waits for the abandoned operation to end, then cancels what that start left open.
@@ -154,8 +156,13 @@ final class RecordingPanelModel {
       } catch {
         Self.logger.error("microphone not switched: \(logDescription(of: error), privacy: .public)")
       }
-      model.microphones = await model.engine.microphones()
+      model.set(microphones: await model.engine.microphones())
     }
+  }
+
+  private func set(microphones list: Microphones) {
+    microphonesRevision += 1
+    microphones = list
   }
 
   /// Waits for the work the last intent started (tests, and the snapshot run).
@@ -203,13 +210,13 @@ final class RecordingPanelModel {
     let (outcome, operation) = await boundedStart(requestsPermission: access == .undetermined)
     switch outcome {
     case .started(let startedAt):
-      guard !cancelRequested else { return await dropStartedTake() }
+      // Nothing between here and `.recording` suspends: Stop and Cancel are live from the moment the take shows.
+      guard !cancelRequested else { return dropStartedTake(operation) }
       level = 0
       recentLevels = []
-      microphones = await engine.microphones()
-      guard !cancelRequested else { return await dropStartedTake() }
       phase = .recording(since: startedAt)
       follow()
+      loadMicrophones()
     case .failed(let failure):
       phase = .failed(failure)
     case .cancelled:
@@ -223,11 +230,25 @@ final class RecordingPanelModel {
     }
   }
 
-  /// Cancel won against a start that had already succeeded: the take is dropped through the normal path.
-  private func dropStartedTake() async {
+  /// Cancel won against a start that had already succeeded: the take is dropped through the cleanup chain (a new start waits
+  /// for it), never awaited on the intent's path.
+  private func dropStartedTake(_ operation: Task<Bool, Never>) {
     Self.logger.info("take start cancelled")
-    await engine.cancel()
+    abandonStart(operation)
     phase = .idle
+  }
+
+  /// The microphone list of a take that just started, off the intent's path: a call that hangs costs the list, not the take.
+  /// Owned by the take (`following`), so it ends with it.
+  private func loadMicrophones() {
+    let engine = engine
+    let revision = microphonesRevision
+    following.append(
+      Task { [weak self] in
+        let mics = await engine.microphones()
+        guard !Task.isCancelled, let self, microphonesRevision == revision else { return }
+        microphones = mics
+      })
   }
 
   /// The permission question (when open) and the engine start, raced against the deadline and Cancel. The operation runs
@@ -324,7 +345,7 @@ final class RecordingPanelModel {
       },
       Task { [weak self] in
         for await mics in changes {
-          self?.microphones = mics
+          self?.set(microphones: mics)
         }
       },
       Task { [weak self] in
