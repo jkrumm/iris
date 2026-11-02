@@ -1,9 +1,11 @@
 import SwiftUI
 
-/// A capsule toggle for the quick filters and the filter sheet. The title arrives localized.
+/// A capsule toggle for the quick filters and the filter sheet. The title arrives localized; `dot` is the optional
+/// colour dot of a route or state chip.
 public struct FilterChip: View {
   private let title: String
   private let systemImage: String?
+  private let dot: Color?
   private let isOn: Bool
   private let size: Size
   private let action: () -> Void
@@ -27,11 +29,13 @@ public struct FilterChip: View {
   }
 
   public init(
-    title: String, systemImage: String? = nil, isOn: Bool, size: Size = .standard, action: @escaping () -> Void
+    title: String, systemImage: String? = nil, dot: Color? = nil, isOn: Bool, size: Size = .standard,
+    action: @escaping () -> Void
   ) {
     self.size = size
     self.title = title
     self.systemImage = systemImage
+    self.dot = dot
     self.isOn = isOn
     self.action = action
   }
@@ -41,6 +45,13 @@ public struct FilterChip: View {
       HStack(spacing: Theme.Spacing.xs) {
         if let systemImage {
           Image(systemName: systemImage)
+            .accessibilityHidden(true)
+        }
+        if let dot {
+          // The state or route colour; on the filled chip it is the label colour, which the fill always contrasts with.
+          Circle()
+            .fill(isOn ? Theme.Accent.onFill : dot)
+            .frame(width: 8, height: 8)
             .accessibilityHidden(true)
         }
         Text(verbatim: title)

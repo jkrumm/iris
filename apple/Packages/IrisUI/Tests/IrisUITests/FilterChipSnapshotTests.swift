@@ -19,6 +19,22 @@
       SnapshotSupport.assertLightAndDark(row, width: 390, height: 64)
     }
 
+    @Test("route and state chips carry a colour dot, white on the filled chip", .tags(.snapshot))
+    func dots() {
+      let flow = ChipFlowLayout(
+        lineSpacing: Theme.Spacing.sm - (Theme.Spacing.tapTarget - Theme.Spacing.chipHeightLarge)
+      ) {
+        FilterChip(title: "Hermes", dot: Theme.Accent.tint, isOn: true, size: .regular) {}
+        FilterChip(title: "Journal", dot: Theme.Status.good, isOn: false, size: .regular) {}
+        FilterChip(title: "Tabs", dot: Theme.Ink.secondary, isOn: false, size: .regular) {}
+        FilterChip(title: "Needs route", dot: Theme.Status.warn, isOn: false, size: .regular) {}
+        FilterChip(title: "Failed", dot: Theme.Status.bad, isOn: false, size: .regular) {}
+        FilterChip(title: "Done", dot: Theme.Status.good, isOn: true, size: .regular) {}
+      }
+      .padding(Theme.Spacing.xl)
+      SnapshotSupport.assertLightAndDark(flow, width: 340, height: 140)
+    }
+
     @Test("sheet chips wrap onto the next line", .tags(.snapshot))
     func wrapped() {
       let flow = ChipFlowLayout(

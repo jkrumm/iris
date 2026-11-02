@@ -50,6 +50,26 @@ struct IrisParagraphStyle: StructuredText.ParagraphStyle {
   }
 }
 
+/// The marker column of every list: the same width and the same leading edge for a number ("1.") and a bullet, so an
+/// ordered list and a bullet list in one answer indent alike (trailing-aligned, a bullet sat 23 pt right of a number).
+private let listMarkerWidth = FontScaled<CGFloat>.fontScaled(1.5)
+
+struct IrisOrderedListMarker: StructuredText.OrderedListMarker {
+  func makeBody(configuration: Configuration) -> some View {
+    Text("\(configuration.ordinal).")
+      .monospacedDigit()
+      .textual.frame(minWidth: listMarkerWidth, alignment: .leading)
+  }
+}
+
+struct IrisBulletListMarker: StructuredText.UnorderedListMarker {
+  func makeBody(configuration: Configuration) -> some View {
+    SwiftUI.Image(systemName: "circle.fill")
+      .textual.fontScale(0.33)
+      .textual.frame(minWidth: listMarkerWidth, alignment: .leading)
+  }
+}
+
 /// Headings of a reply: one step above the body at the top, a hairline under the first two levels.
 struct IrisHeadingStyle: StructuredText.HeadingStyle {
   /// Font scale per level (1...6): h1 to h3 step above the body, h4 to h6 are body size and told apart by weight and colour.
@@ -101,7 +121,7 @@ struct IrisBlockQuoteStyle: StructuredText.BlockQuoteStyle {
 }
 
 /// A fenced block: the language on a header line, then the code on the JetBrains editor surface, scrolling sideways
-/// instead of wrapping.
+/// instead of wrapping. A fade on the trailing edge says there is more to scroll to.
 struct IrisCodeBlockStyle: StructuredText.CodeBlockStyle {
   func makeBody(configuration: Configuration) -> some View {
     VStack(alignment: .leading, spacing: 0) {
@@ -113,14 +133,7 @@ struct IrisCodeBlockStyle: StructuredText.CodeBlockStyle {
           .padding(.horizontal, Theme.Spacing.md)
           .padding(.top, Theme.Spacing.sm)
       }
-      Overflow {
-        configuration.label
-          .textual.lineSpacing(.fontScaled(0.39))
-          .textual.fontScale(0.8125)
-          .fixedSize(horizontal: false, vertical: true)
-          .monospaced()
-          .padding(Theme.Spacing.md)
-      }
+      OverflowingCode(label: configuration.label)
     }
     .frame(maxWidth: .infinity, alignment: .leading)
     .background(CodeColors.background)
@@ -132,6 +145,41 @@ struct IrisCodeBlockStyle: StructuredText.CodeBlockStyle {
   }
 }
 
+/// The code lines in Textual's sideways scroll, with a fade over the trailing edge while lines run past it.
+private struct OverflowingCode: View {
+  let label: StructuredText.CodeBlockStyleConfiguration.Label
+  /// How far the code reaches past the visible edge, in points; 0 when it all fits or the end is in view.
+  @State private var hiddenTrailing: CGFloat = 0
+  private static let fadeWidth = Theme.Spacing.gutter
+
+  var body: some View {
+    Overflow { state in
+      label
+        .textual.lineSpacing(.fontScaled(0.39))
+        .textual.fontScale(0.8125)
+        .fixedSize(horizontal: false, vertical: true)
+        .monospaced()
+        .padding(Theme.Spacing.md)
+        .onGeometryChange(for: CGFloat.self) { proxy in
+          guard let container = state.containerWidth else { return 0 }
+          return max(0, proxy.frame(in: .scrollView).maxX - container)
+        } action: {
+          hiddenTrailing = $0
+        }
+    }
+    .overlay(alignment: .trailing) {
+      if hiddenTrailing > 1 {
+        LinearGradient(
+          colors: [CodeColors.background.opacity(0), CodeColors.background], startPoint: .leading, endPoint: .trailing
+        )
+        .frame(width: Self.fadeWidth)
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+      }
+    }
+  }
+}
+
 extension View {
   /// The structured look of an assistant reply: headings, quotes, code on JetBrains colors.
   func irisMarkdown() -> some View {
@@ -139,5 +187,7 @@ extension View {
       .textual.blockQuoteStyle(IrisBlockQuoteStyle())
       .textual.codeBlockStyle(IrisCodeBlockStyle())
       .textual.highlighterTheme(.iris)
+      .textual.orderedListMarker(IrisOrderedListMarker())
+      .textual.unorderedListMarker(IrisBulletListMarker())
   }
 }

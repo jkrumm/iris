@@ -91,8 +91,87 @@ extension MessageBlock {
       let joined = text.joined(separator: "\n")
       text = []
       guard !joined.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-      blocks.append(.markdown(joined))
+      blocks.append(.markdown(MessageBlock.tyingUnits(in: joined)))
     }
+  }
+
+  // MARK: Number and unit
+
+  private static let unitPattern: NSRegularExpression? = {
+    let units = "ms|sec|secs|s|min|mins|h|hr|hrs|days?|weeks?|KB|MB|GB|TB|kB|KiB|MiB|GiB|B|Hz|kHz|MHz|GHz|px|pt"
+    return try? NSRegularExpression(pattern: "(?<=\\d) (?=%|(?:\(units))\\b)")
+  }()
+
+  /// Replaces the space between a number and its unit ("2 s", "38 MB", "12 %") with a no-break space, so a line never wraps
+  /// between them. Code (fenced or inline) is left as written: its spaces are the author's.
+  static func tyingUnits(in markdown: String) -> String {
+    guard let pattern = unitPattern else { return markdown }
+    var fence: Fence?
+    var lines: [String] = []
+    for line in markdown.split(separator: "\n", omittingEmptySubsequences: false).map(String.init) {
+      if let open = fence {
+        if closes(line, fence: open) { fence = nil }
+        lines.append(line)
+      } else if let opening = opening(line) {
+        fence = opening
+        lines.append(line)
+      } else {
+        lines.append(tyingUnits(inProseLine: line, pattern: pattern))
+      }
+    }
+    return lines.joined(separator: "\n")
+  }
+
+  /// One line outside a fence. A code span is an opening run of backticks up to the next run of exactly the same length
+  /// (CommonMark): ``` `a` ``` and ``` ``a ` b`` ``` are spans, an opening run with no matching close is literal text.
+  private static func tyingUnits(inProseLine line: String, pattern: NSRegularExpression) -> String {
+    let characters = Array(line)
+    var result = ""
+    var prose = ""
+    func flush() {
+      result += pattern.stringByReplacingMatches(
+        in: prose, range: NSRange(prose.startIndex..., in: prose), withTemplate: "\u{00A0}")
+      prose = ""
+    }
+    var index = 0
+    while index < characters.count {
+      guard characters[index] == "`" else {
+        prose.append(characters[index])
+        index += 1
+        continue
+      }
+      let length = backtickRun(in: characters, at: index)
+      var search = index + length
+      var close: Int?
+      while search < characters.count {
+        if characters[search] == "`" {
+          let candidate = backtickRun(in: characters, at: search)
+          if candidate == length {
+            close = search
+            break
+          }
+          search += candidate
+        } else {
+          search += 1
+        }
+      }
+      if let close {
+        flush()
+        result += String(characters[index..<close + length])
+        index = close + length
+      } else {
+        prose += String(repeating: "`", count: length)
+        index += length
+      }
+    }
+    flush()
+    return result
+  }
+
+  private static func backtickRun(in characters: [Character], at start: Int) -> Int {
+    var end = start
+    while end < characters.count, characters[end] == "`" { end += 1 }
+    return end - start
   }
 
   // MARK: Fences

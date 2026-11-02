@@ -16,6 +16,8 @@ struct StatsView: View {
         .padding(.horizontal, Theme.Spacing.screenMargin)
       }
       .accessibilityIdentifier("stats.view")
+      // The Record accessory floats over the scroll's end: the last footnote stops above it.
+      .contentMargins(.bottom, Theme.Spacing.gutter, for: .scrollContent)
       .takeBanner()
       .background(Theme.Surface.background)
       .toolbarVisibility(.hidden, for: .navigationBar)

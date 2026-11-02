@@ -44,7 +44,7 @@ struct ThreadView: View {
           ForEach(Array(model.turns.enumerated()), id: \.element.id) { index, turn in
             VStack(alignment: .leading, spacing: Theme.Spacing.inset) {
               // A question after an answer opens a new exchange.
-              if index > 0, case .user = turn.content { ExchangeDivider() }
+              if index > 0, case .user = turn.content { ExchangeDivider(title: day(turn.date)) }
               view(for: turn)
             }
             .id(turn.id)
@@ -121,6 +121,11 @@ struct ThreadView: View {
             .themeFont(.footnote)
             .foregroundStyle(Theme.Ink.muted)
         }
+        if let first = model.turns.first?.date {
+          Text(verbatim: "· \(HistoryDaySection.title(of: first))")
+            .themeFont(.footnote)
+            .foregroundStyle(Theme.Ink.muted)
+        }
       }
       Text(verbatim: model.title)
         .themeFont(.title, weight: .bold)
@@ -193,9 +198,12 @@ struct ThreadView: View {
     Task { await model.endVoice(cancelled: true) }
   }
 
+  /// The clock time only ("5:28 AM"): the day sits in the header and the exchange dividers.
   private func time(_ date: Date?) -> String {
-    guard let date else { return "" }
-    return Calendar.current.isDateInToday(date)
-      ? date.formatted(date: .omitted, time: .shortened) : date.formatted(date: .abbreviated, time: .shortened)
+    date?.formatted(date: .omitted, time: .shortened) ?? ""
+  }
+
+  private func day(_ date: Date?) -> String? {
+    date.map { HistoryDaySection.title(of: $0) }
   }
 }

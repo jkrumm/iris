@@ -35,6 +35,11 @@ struct HistoryDaySection: Identifiable {
   }
 
   func title(now: Date = Date(), calendar: Calendar = .current) -> String {
+    Self.title(of: day, now: now, calendar: calendar)
+  }
+
+  /// "Today", "Yesterday", else "Mon 2 Nov": a day's name wherever one is shown (History's headers, a thread's dividers).
+  static func title(of day: Date, now: Date = Date(), calendar: Calendar = .current) -> String {
     if calendar.isDate(day, inSameDayAs: now) { return String(localized: "Today", comment: "History day header") }
     if let yesterday = calendar.date(byAdding: .day, value: -1, to: now), calendar.isDate(day, inSameDayAs: yesterday) {
       return String(localized: "Yesterday", comment: "History day header")

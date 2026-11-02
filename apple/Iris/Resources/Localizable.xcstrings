@@ -41,6 +41,17 @@
         }
       }
     },
+    "%@ suggested — tap to decide" : {
+      "comment" : "History row hint on a memo that needs a route: the decision model's guess, then the prompt",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ vorgeschlagen — zum Entscheiden tippen"
+          }
+        }
+      }
+    },
     "%@ · %@ of audio" : {
       "localizations" : {
         "de" : {
@@ -2178,6 +2189,28 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Liste teilen oder kopieren"
+          }
+        }
+      }
+    },
+    "Show %lld memos" : {
+      "comment" : "Closes the filter sheet; the number of memos that match",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld Memos anzeigen"
+          }
+        }
+      }
+    },
+    "Show 1 memo" : {
+      "comment" : "Closes the filter sheet; one memo matches",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "1 Memo anzeigen"
           }
         }
       }

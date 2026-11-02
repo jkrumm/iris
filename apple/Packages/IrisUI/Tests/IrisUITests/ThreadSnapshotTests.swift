@@ -132,12 +132,28 @@
       Self.assert(view, width: 390, height: 140)
     }
 
+    @Test("a code block that runs past the edge fades out on the trailing side", .tags(.snapshot))
+    func codeBlockOverflow() {
+      let code =
+        "```swift\ncatch let error as StepError where error.isTransient && attempt < maxAttempts { retry(step) }\n```"
+      let view = MessageContentView(markdown: code).padding(Theme.Spacing.lg)
+      Self.assert(view, width: 390, height: 140)
+    }
+
+    @Test("an ordered and a bullet list share one indent, a number keeps its unit", .tags(.snapshot))
+    func lists() {
+      let markdown =
+        "Steps:\n\n1. Upload the segments\n2. Complete after *2 s* of silence\n\nThen:\n\n- Transcribe\n- Route"
+      let view = MessageContentView(markdown: markdown).padding(Theme.Spacing.lg)
+      Self.assert(view, width: 390, height: 260)
+    }
+
     @Test("a second exchange opens with a divider", .tags(.snapshot))
     func exchanges() {
       let view = VStack(alignment: .leading, spacing: Theme.Spacing.lg) {
         UserTurnView(text: "Explain how the step runner retries a failed step.", time: "9:41 AM")
         AssistantTurnView(markdown: "It retries a **transient** failure twice, then fails the step.", time: "9:41 AM")
-        ExchangeDivider()
+        ExchangeDivider(title: "Today")
         UserTurnView(text: "And a hang guard, is that retried too?", time: "9:44 AM")
         PendingTurnView(progress: StepProgress(completed: 2, total: 5), caption: "Asking Hermes…")
       }
