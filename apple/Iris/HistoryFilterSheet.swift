@@ -42,7 +42,7 @@ struct HistoryFilterSheet: View {
         Text("Show memos", comment: "Closes the filter sheet")
           .frame(maxWidth: .infinity)
       }
-      .buttonStyle(.glassProminent)
+      .buttonStyle(.primary)
       .controlSize(.large)
       .padding(.top, Theme.Spacing.sheetInset - Theme.Spacing.md)
       .accessibilityIdentifier("history.filter.show")
