@@ -489,10 +489,10 @@ struct SettingsLinkRow: View {
 }
 
 extension View {
-  /// The status-bar region of a screen without a navigation bar, filled with the screen background, so content that
-  /// scrolls up under the clock is hidden instead of printed over it.
+  /// The status-bar region of a screen without a navigation bar, filled solid with the screen background, so content
+  /// that scrolls up under the clock is hidden instead of printed over it (no ghost text, no system blur).
   func statusBarScrim() -> some View {
-    safeAreaInset(edge: .top, spacing: 0) { Color.clear.frame(height: 0).background(Theme.Surface.background) }
+    safeAreaInset(edge: .top, spacing: 0) { Color.clear.frame(height: 0).floatingBarBackdrop(edge: .top) }
   }
 
   /// The padding of a row inside a settings card (`rowx`: 13 / 14 in the mockup; the scale has 12 / 14).

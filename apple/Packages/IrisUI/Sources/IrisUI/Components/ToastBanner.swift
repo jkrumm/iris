@@ -30,6 +30,8 @@ public struct ToastBanner: View {
     }
     .padding(.horizontal, Theme.Spacing.lg)
     .padding(.vertical, Theme.Spacing.md)
+    // Glass alone lets the list read through; the solid panel under it keeps the text legible on iOS 26 and 27.
+    .background(Theme.Surface.panel, in: .rect(cornerRadius: Theme.Radius.floating * 2))
     .glassEffect(.regular, in: .rect(cornerRadius: Theme.Radius.floating * 2))
     .accessibilityElement(children: .contain)
   }

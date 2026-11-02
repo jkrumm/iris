@@ -55,6 +55,7 @@ struct MemoDetailView: View {
         failureToast
         actions
       }
+      .floatingBarBackdrop(edge: .bottom)
     }
     .navigationTitle(String(localized: "Memo", comment: "Navigation title of the memo detail"))
     .reportsScreen("memo.detail")

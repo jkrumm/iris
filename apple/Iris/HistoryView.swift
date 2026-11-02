@@ -107,8 +107,14 @@ struct HistoryView: View {
       .safeAreaInset(edge: .bottom, spacing: 0) {
         HistorySearchBar(
           text: $model.filters.searchText, filterCount: model.filters.sheetFilterCount,
-          onFilter: { showingFilters = true })
+          onFilter: { showingFilters = true }
+        )
+        // Solid down to the screen edge: the Record accessory and the tab bar (also the minimized one under a take banner)
+        // are glass over this, not over the rows.
+        .floatingBarBackdrop(edge: .bottom)
       }
+      .statusBarScrim()
+      .scrollEdgeEffectStyle(.hard, for: .top)
       .sheet(isPresented: $showingFilters) {
         HistoryFilterSheet(filters: $model.filters)
           .presentationDetents([.medium])

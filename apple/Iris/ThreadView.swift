@@ -72,7 +72,10 @@ struct ThreadView: View {
         failureToast
         replyBar.disabled(!model.canReply)
       }
+      .floatingBarBackdrop(edge: .bottom)
     }
+    // Solid behind the status bar and the inline navigation bar: scrolled text never ghosts through the glass.
+    .statusBarScrim()
     .navigationTitle(String(localized: "Conversation", comment: "Navigation title of a thread"))
     .reportsScreen("thread")
     .navigationBarTitleDisplayMode(.inline)
