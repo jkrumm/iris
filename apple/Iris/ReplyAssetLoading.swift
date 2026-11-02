@@ -4,7 +4,7 @@ import IrisUI
 
 /// Fetches a reply's images through the same authenticated, disk-cached media path as the audio: the request comes
 /// from the media source for the connection saved right now, and an asset id never changes content, so the file is kept.
-struct MediaAssetLoader: ReplyAssetLoader {
+nonisolated struct MediaAssetLoader: ReplyAssetLoader {
   enum LoadError: Error {
     case unavailable
   }
@@ -12,6 +12,9 @@ struct MediaAssetLoader: ReplyAssetLoader {
   let source: @MainActor @Sendable () -> any MemoMediaSource
   let downloader: MediaDownloader
 
+  /// `@concurrent`: with approachable concurrency a plain `nonisolated async` function runs on its caller's actor, which is
+  /// the main actor here, and the file read would stay on it.
+  @concurrent
   func data(for ref: ReplyAssetRef) async throws -> Data {
     guard let request = await source().asset(memoID: ref.memoID, assetID: ref.assetID) else {
       throw LoadError.unavailable
