@@ -126,37 +126,39 @@ struct ConnectionTests {
   }
 }
 
-@MainActor
-@Suite("CompositionRoot")
-struct CompositionRootTests {
-  @Test("-IrisFakeCapture keeps the app on fakes: configured, no form, no Keychain")
-  func fake() {
-    let root = CompositionRoot(arguments: ["-IrisFakeCapture"], credentials: InMemoryCredentialStore())
-    #expect(root.mode == .fake && root.isConfigured && !root.opensOnSettings)
-    #expect(root.connectionForm == nil && root.fakeCapture != nil)
-  }
+extension CaptureHandlerSuites {
+  @MainActor
+  @Suite("CompositionRoot")
+  struct CompositionRootTests {
+    @Test("-IrisFakeCapture keeps the app on fakes: configured, no form, no Keychain")
+    func fake() {
+      let root = CompositionRoot(arguments: ["-IrisFakeCapture"], credentials: InMemoryCredentialStore())
+      #expect(root.mode == .fake && root.isConfigured && !root.opensOnSettings)
+      #expect(root.connectionForm == nil && root.fakeCapture != nil)
+    }
 
-  @Test("without it the app is production, and with nothing saved it opens on Settings and loads nothing")
-  func unconfigured() async {
-    let root = CompositionRoot(arguments: [], credentials: InMemoryCredentialStore())
-    #expect(root.mode == .production && !root.isConfigured && root.opensOnSettings)
-    #expect(root.connectionForm != nil && root.fakeCapture == nil)
-    #expect(root.settings.connection == .notConfigured)
-    await root.start()
-    #expect(!root.history.hasLoaded && !root.history.loadFailed)
-  }
+    @Test("without it the app is production, and with nothing saved it opens on Settings and loads nothing")
+    func unconfigured() async {
+      let root = CompositionRoot(arguments: [], credentials: InMemoryCredentialStore())
+      #expect(root.mode == .production && !root.isConfigured && root.opensOnSettings)
+      #expect(root.connectionForm != nil && root.fakeCapture == nil)
+      #expect(root.settings.connection == .notConfigured)
+      await root.start()
+      #expect(!root.history.hasLoaded && !root.history.loadFailed)
+    }
 
-  @Test("a saved connection starts configured; saving one later reconfigures and bumps the revision")
-  func configured() throws {
-    let saved = try #require(ConnectionCredentials(urlText: "https://iris.example.com", token: "t"))
-    let root = CompositionRoot(arguments: [], credentials: InMemoryCredentialStore(saved))
-    #expect(root.isConfigured && !root.opensOnSettings && root.connectionRevision == 0)
+    @Test("a saved connection starts configured; saving one later reconfigures and bumps the revision")
+    func configured() throws {
+      let saved = try #require(ConnectionCredentials(urlText: "https://iris.example.com", token: "t"))
+      let root = CompositionRoot(arguments: [], credentials: InMemoryCredentialStore(saved))
+      #expect(root.isConfigured && !root.opensOnSettings && root.connectionRevision == 0)
 
-    let empty = CompositionRoot(arguments: [], credentials: InMemoryCredentialStore())
-    let form = try #require(empty.connectionForm)
-    form.urlText = "https://iris.example.com"
-    form.tokenText = "t"
-    form.save()
-    #expect(empty.isConfigured && empty.connectionRevision == 1)
+      let empty = CompositionRoot(arguments: [], credentials: InMemoryCredentialStore())
+      let form = try #require(empty.connectionForm)
+      form.urlText = "https://iris.example.com"
+      form.tokenText = "t"
+      form.save()
+      #expect(empty.isConfigured && empty.connectionRevision == 1)
+    }
   }
 }

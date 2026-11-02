@@ -2,6 +2,28 @@ import AVFoundation
 import Observation
 import os
 
+/// The audio session as playback needs it: claimed when a clip starts, handed back when playback is over. Behind a port so the
+/// player's hold on the session can be tested; the system session is the only production adapter.
+protocol PlaybackAudioSession {
+  func activate() throws
+  /// Gives the session up and tells other apps they may resume (music that was playing before the clip).
+  func deactivate() throws
+}
+
+struct SystemPlaybackSession: PlaybackAudioSession {
+  func activate() throws {
+    try AVAudioSession.sharedInstance().setCategory(.playback)
+    try AVAudioSession.sharedInstance().setActive(true)
+  }
+
+  func deactivate() throws {
+    let session = AVAudioSession.sharedInstance()
+    // A take reconfigures the shared session to record (`.playAndRecord`): then it is the take's, whoever asks.
+    guard session.category == .playback else { return }
+    try session.setActive(false, options: .notifyOthersOnDeactivation)
+  }
+}
+
 /// One AVPlayer behind the detail screen: the recording or the spoken reply. It publishes what the player bar draws
 /// (`position`, `duration`, `isPlaying`) and takes what it sends (toggle, seek, skip back). The position follows a
 /// periodic time observer that lives from ``load(_:)`` until ``teardown()`` (the view calls it when it goes away).
@@ -23,12 +45,24 @@ final class MemoPlayer {
   /// Bumped by every load and teardown; a download that finds it changed belongs to a request that is gone.
   private var generation = 0
   private let downloader: MediaDownloader
+  private let session: any PlaybackAudioSession
+  /// This player claimed the audio session and has not handed it back.
+  private var holdsSession = false
+  /// Whether a take holds the microphone or is about to (``TakeController``'s flag, bound by the composition root for the
+  /// shared speech player). The player never gives the session up while it is true: the take's session is not the player's to
+  /// release. A player nobody bound (a detail's recording) is covered by ``SystemPlaybackSession``, which leaves a session
+  /// that is no longer `.playback` alone.
+  var captureActive: () -> Bool = { false }
   private let logger = Logger(subsystem: "com.jkrumm.iris", category: "player")
 
   /// `duration` is the length the memo says; the item replaces it once AVFoundation knows the real one.
-  init(duration: Double = 0, downloader: MediaDownloader = .shared) {
+  init(
+    duration: Double = 0, downloader: MediaDownloader = .shared,
+    session: any PlaybackAudioSession = SystemPlaybackSession()
+  ) {
     self.duration = duration
     self.downloader = downloader
+    self.session = session
   }
 
   isolated deinit {
@@ -38,8 +72,9 @@ final class MemoPlayer {
   /// Fetches `request` (a file URL is used as is, anything else is downloaded with its headers) and points the player
   /// at the file. Nil clears the player. A newer load or a teardown while this one downloads wins.
   func load(_ request: MediaRequest?) async {
-    teardown()
-    guard let request else { return }
+    guard let request else { return teardown() }
+    // A clip replacing another keeps the session through the download: the next one is about to play.
+    reset()
     let current = generation
     isLoading = true
     defer { if current == generation { isLoading = false } }
@@ -48,14 +83,20 @@ final class MemoPlayer {
       guard current == generation else { return }
       attach(AVPlayer(url: file))
     } catch is CancellationError {
-      return
+      if current == generation { releaseSession() }
     } catch {
       logger.error("media load failed: \(String(describing: error), privacy: .public)")
+      if current == generation { releaseSession() }
     }
   }
 
-  /// Pauses and drops the player and its time observer. Safe to call twice.
+  /// Pauses, drops the player and its time observer, and gives the audio session back. Safe to call twice.
   func teardown() {
+    reset()
+    releaseSession()
+  }
+
+  private func reset() {
     generation += 1
     pause()
     if let timeObserver {
@@ -91,8 +132,10 @@ final class MemoPlayer {
     if item.status == .failed {
       logger.error("playback failed: \(String(describing: item.error), privacy: .public)")
       pause()
+      releaseSession()
     } else if isPlaying, duration > 0, position >= duration - 0.05 {
       pause()
+      releaseSession()
     }
   }
 
@@ -103,14 +146,31 @@ final class MemoPlayer {
   func play() {
     guard let player, !isPlaying else { return }
     do {
-      try AVAudioSession.sharedInstance().setCategory(.playback)
-      try AVAudioSession.sharedInstance().setActive(true)
+      try session.activate()
+      holdsSession = true
     } catch {
       logger.error("audio session failed: \(String(describing: error), privacy: .public)")
     }
     if duration > 0, position >= duration { seek(to: 0) }
     player.play()
     isPlaying = true
+  }
+
+  /// Hands the session back with `.notifyOthersOnDeactivation` once playback is over (the clip ended, or the player is torn
+  /// down), unless a take holds the microphone: its session is not ours to release.
+  private func releaseSession() {
+    guard holdsSession else { return }
+    guard !captureActive() else {
+      holdsSession = false
+      return
+    }
+    do {
+      try session.deactivate()
+      holdsSession = false
+    } catch {
+      // Another player of the app may still be audible, or the system refused: the claim is kept, so the next release retries.
+      logger.notice("audio session not released: \(String(describing: error), privacy: .public)")
+    }
   }
 
   func pause() {

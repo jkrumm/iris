@@ -23,11 +23,14 @@ struct RecordingPanelModelTests {
   }
 
   private func harness(
-    access: MicrophoneAccess = .granted, answer: Bool = true, configured: Bool = true
+    access: MicrophoneAccess = .granted, answer: Bool = true, configured: Bool = true, promptHangs: Bool = false,
+    deadline: Duration = .seconds(15), permissionDeadline: Duration = .seconds(60)
   ) -> Harness {
     let engine = FakeTakeEngine()
-    let permission = FakeMicrophonePermission(access, answer: answer)
-    let model = RecordingPanelModel(engine: engine, permission: permission, isConfigured: { configured })
+    let permission = FakeMicrophonePermission(access, answer: answer, hangs: promptHangs)
+    let model = RecordingPanelModel(
+      engine: engine, permission: permission, isConfigured: { configured }, startDeadline: deadline,
+      permissionDeadline: permissionDeadline)
     let visibility = Visibility()
     model.onVisibilityChange = { visibility.changes.append($0) }
     return Harness(model: model, engine: engine, permission: permission, visibility: visibility)
@@ -41,7 +44,7 @@ struct RecordingPanelModelTests {
     h.model.toggle()
     await h.model.settled()
     #expect(isRecording(h.model) && h.model.isVisible)
-    #expect(h.model.microphones.current?.uid == FakeAudioDeviceDirectory.builtIn.uid)
+    #expect(await eventually { h.model.microphones.current?.uid == FakeAudioDeviceDirectory.builtIn.uid })
     h.model.toggle()
     await h.model.settled()
     #expect(h.model.phase == .idle)
@@ -103,6 +106,124 @@ struct RecordingPanelModelTests {
     let h = harness(access: .undetermined)
     h.model.toggle()
     h.model.toggle()
+    h.model.toggle()
+    await h.model.settled()
+    #expect(isRecording(h.model))
+    #expect(h.engine.calls == ["start"])
+  }
+
+  @Test("an engine start that never returns ends as a failure at the deadline, and the key works again")
+  func stalledEngineStart() async {
+    let h = harness(deadline: .milliseconds(50))
+    h.engine.hangStart(true)
+    h.model.toggle()
+    await h.model.settled()
+    #expect(h.model.phase == .failed(.couldNotStart))
+    #expect(h.engine.calls == ["start", "cancel"])
+    h.engine.hangStart(false)
+    h.model.toggle()
+    await h.model.settled()
+    #expect(isRecording(h.model))
+  }
+
+  @Test(
+    "a permission prompt nobody answers ends as a failure at the deadline, and the key works again on the same model")
+  func unansweredPermission() async {
+    let h = harness(
+      access: .undetermined, promptHangs: true, deadline: .milliseconds(50), permissionDeadline: .milliseconds(50))
+    h.model.toggle()
+    await h.model.settled()
+    #expect(h.model.phase == .failed(.couldNotStart))
+    #expect(h.engine.calls.isEmpty)  // the engine was never asked, so there is nothing to cancel
+    h.permission.setHangs(false)
+    h.model.toggle()
+    await h.model.settled()
+    #expect(h.model.isRecording)
+    #expect(h.engine.calls == ["start"])
+  }
+
+  @Test("Cancel while starting abandons the start: idle, no take left running, the key starts a new one")
+  func cancelWhileStarting() async {
+    let h = harness()
+    h.engine.hangStart(true)
+    h.model.toggle()
+    #expect(await eventually { !h.engine.calls.isEmpty })  // the engine is stalled in its start
+    #expect(h.model.phase == .starting)
+    h.model.cancel()
+    await h.model.settled()
+    #expect(h.model.phase == .idle)
+    #expect(h.engine.calls == ["start", "cancel"])
+    h.engine.hangStart(false)
+    h.model.toggle()
+    await h.model.settled()
+    #expect(isRecording(h.model))
+    #expect(h.engine.calls == ["start", "cancel", "start"])
+  }
+
+  @Test("a stalled start that returns late never cancels the next take: the new start waits for the cleanup")
+  func lateReturnDoesNotCancelTheNextTake() async {
+    let h = harness(deadline: .milliseconds(300))
+    h.engine.stallStart(true)
+    h.model.toggle()
+    #expect(await eventually { h.model.phase == .failed(.couldNotStart) })
+    h.model.toggle()
+    #expect(await eventually { h.model.phase == .starting })
+    #expect(h.engine.calls == ["start"])  // the second start waits for the first one's cleanup
+    h.engine.releaseStart()
+    await h.model.settled()
+    #expect(isRecording(h.model))
+    #expect(h.engine.calls == ["start", "cancel", "start"])
+  }
+
+  @Test("a cleanup that is still pending at the deadline fails the next start visibly instead of starting")
+  func pendingCleanupFailsTheNextStart() async {
+    let h = harness(deadline: .milliseconds(60))
+    h.engine.stallStart(true)
+    h.model.toggle()
+    #expect(await eventually { h.model.phase == .failed(.couldNotStart) })
+    h.model.toggle()
+    #expect(await eventually { h.model.phase == .starting })
+    try? await Task.sleep(for: .milliseconds(250))  // past the deadline, the cleanup still pending
+    #expect(h.model.phase == .failed(.couldNotStart))
+    #expect(h.engine.calls == ["start"])
+    h.engine.releaseStart()
+    await h.model.settled()
+    #expect(h.engine.calls == ["start", "cancel"])
+  }
+
+  @Test("the permission prompt has its own, longer bound than the engine start")
+  func permissionPromptOutlivesTheStartDeadline() async {
+    let h = harness(
+      access: .undetermined, promptHangs: true, deadline: .milliseconds(40), permissionDeadline: .milliseconds(400))
+    h.model.toggle()
+    try? await Task.sleep(for: .milliseconds(200))
+    #expect(h.model.phase == .starting)  // past the engine deadline, still within the prompt's
+    await h.model.settled()
+    #expect(h.model.phase == .failed(.couldNotStart))
+  }
+
+  @Test("a microphone list that never loads costs the list, not the take: Stop ends it and the key works again")
+  func hungMicrophoneListDoesNotWedgeTheTake() async {
+    let h = harness()
+    h.engine.holdMicrophones(true)
+    h.model.toggle()
+    await h.model.settled()
+    #expect(h.model.isRecording)
+    #expect(await eventually { h.engine.isHoldingMicrophones })
+    h.model.stop()
+    await h.model.settled()
+    #expect(h.model.phase == .idle)
+    #expect(h.engine.calls == ["start", "stop"])
+    h.engine.holdMicrophones(false)
+    h.model.toggle()
+    await h.model.settled()
+    #expect(h.model.isRecording)
+    h.engine.releaseMicrophones()
+  }
+
+  @Test("a start that answers within the deadline is unaffected by it")
+  func normalStartWithinDeadline() async {
+    let h = harness(access: .undetermined, deadline: .milliseconds(500))
     h.model.toggle()
     await h.model.settled()
     #expect(isRecording(h.model))

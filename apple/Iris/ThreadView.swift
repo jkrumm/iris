@@ -72,7 +72,10 @@ struct ThreadView: View {
         failureToast
         replyBar.disabled(!model.canReply)
       }
+      .floatingBarBackdrop(edge: .bottom)
     }
+    // Solid behind the status bar and the inline navigation bar: scrolled text never ghosts through the glass.
+    .statusBarScrim()
     .navigationTitle(String(localized: "Conversation", comment: "Navigation title of a thread"))
     .reportsScreen("thread")
     .navigationBarTitleDisplayMode(.inline)
@@ -84,13 +87,16 @@ struct ThreadView: View {
       if scenePhase != .active { cancelVoice() }
     }
     .sheet(item: $composer) { request in
-      ComposerView(
-        model: makeComposer(request),
-        onSent: { memo in
-          model.didSend(memo)
-          onSent(memo)
-        },
-        onQueued: { model.didQueue() })
+      BuiltOnce(make: { makeComposer(request) }) { composer in
+        ComposerView(
+          model: composer,
+          onSent: { memo in
+            model.didSend(memo)
+            onSent(memo)
+          },
+          onQueued: { model.didQueue() })
+      }
+      .id(request.id)
     }
     .fullScreenCover(item: $zoomed) { item in
       ZoomableImageView(

@@ -42,7 +42,7 @@
       .padding(Theme.Spacing.lg)
     }
 
-    @Test("the bottom actions on a finished memo: retry is disabled", .tags(.snapshot))
+    @Test("the bottom actions on a finished memo: no retry button, play and reply only", .tags(.snapshot))
     func actionsDone() {
       SnapshotSupport.assertLightAndDark(actions(canPlay: true, retry: false), width: 390, height: 96)
     }

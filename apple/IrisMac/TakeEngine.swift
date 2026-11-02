@@ -174,6 +174,9 @@ final class FakeTakeEngine: TakeEngine, @unchecked Sendable {
     var running = false
     var startedAt = Date(timeIntervalSince1970: 0)
     var startError: (any Error)?
+    var startHangs = false
+    var startGate: Gate?
+    var microphonesGate: Gate?
     var stopError: (any Error)?
     var end = TakeEnd.queued
     var calls: [String] = []
@@ -186,6 +189,16 @@ final class FakeTakeEngine: TakeEngine, @unchecked Sendable {
 
   /// Script hooks.
   func failStart(with error: (any Error)?) { lock.withLock { state.startError = error } }
+  /// While set, `start()` does not return until its task is cancelled (an engine bring-up that stalls).
+  func hangStart(_ hangs: Bool) { lock.withLock { state.startHangs = hangs } }
+  /// While set, `start()` ignores cancellation and returns only after ``releaseStart()`` (an engine call stuck in the system).
+  /// The release may come before or after the wait.
+  func stallStart(_ stalls: Bool) { lock.withLock { state.startGate = stalls ? Gate() : nil } }
+  func releaseStart() { lock.withLock { state.startGate }?.release() }
+  /// While set, `microphones()` waits for ``releaseMicrophones()`` (before or after it).
+  func holdMicrophones(_ held: Bool) { lock.withLock { state.microphonesGate = held ? Gate() : nil } }
+  var isHoldingMicrophones: Bool { lock.withLock { state.microphonesGate }?.isWaiting ?? false }
+  func releaseMicrophones() { lock.withLock { state.microphonesGate }?.release() }
   func failStop(with error: (any Error)?) { lock.withLock { state.stopError = error } }
   func endStop(with end: TakeEnd) { lock.withLock { state.end = end } }
   func level(_ value: Float) { levelFeed.yield(value) }
@@ -197,12 +210,22 @@ final class FakeTakeEngine: TakeEngine, @unchecked Sendable {
 
   var levels: AsyncStream<Float> { levelFeed.subscribe() }
   func failures() -> AsyncStream<Void> { failureFeed.subscribe() }
-  func microphones() async -> Microphones { lock.withLock { state.mics } }
+  func microphones() async -> Microphones {
+    await lock.withLock { state.microphonesGate }?.wait()
+    return lock.withLock { state.mics }
+  }
   func microphoneChanges() -> AsyncStream<Microphones> { changeFeed.subscribe() }
 
   func start() async throws -> Date {
-    try lock.withLock {
+    let (hangs, gate) = lock.withLock {
       state.calls.append("start")
+      return (state.startHangs, state.startGate)
+    }
+    await gate?.wait()
+    if hangs {
+      try await Task.sleep(for: .seconds(3600))
+    }
+    return try lock.withLock {
       if let error = state.startError { throw error }
       state.running = true
       state.startedAt = Date()
@@ -238,4 +261,32 @@ final class FakeTakeEngine: TakeEngine, @unchecked Sendable {
 func logDescription(of error: any Error) -> String {
   let bridged = error as NSError
   return "\(type(of: error)) (\(bridged.domain) \(bridged.code))"
+}
+
+/// A one-shot gate for the fakes: `wait()` returns once `release()` has been called, whichever came first. Ignores cancellation.
+final class Gate: @unchecked Sendable {
+  private let lock = NSLock()
+  private var released = false
+  private var waiter: CheckedContinuation<Void, Never>?
+
+  var isWaiting: Bool { lock.withLock { waiter != nil } }
+
+  func wait() async {
+    await withCheckedContinuation { continuation in
+      let ready = lock.withLock {
+        if !released { waiter = continuation }
+        return released
+      }
+      if ready { continuation.resume() }
+    }
+  }
+
+  func release() {
+    let waiting = lock.withLock {
+      released = true
+      defer { waiter = nil }
+      return waiter
+    }
+    waiting?.resume()
+  }
 }

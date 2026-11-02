@@ -12,7 +12,8 @@ public struct DetailRetryOption: Identifiable, Equatable, Sendable {
 }
 
 /// The detail screen's bottom actions: icon-only play (reply speech), reply and retry on one glass group. Retry is
-/// a menu of steps whose plain tap restarts from `primaryRetryID`; it is disabled while `retryOptions` is empty.
+/// a menu of steps whose plain tap restarts from `primaryRetryID`; it is absent while `retryOptions` is empty. The symbols are
+/// all outline glyphs at one weight; each glass circle sits on a solid disc so nothing reads through it.
 public struct DetailActionBar: View {
   private let isPlayingReply: Bool
   private let canPlayReply: Bool
@@ -47,7 +48,7 @@ public struct DetailActionBar: View {
     GlassEffectContainer(spacing: Theme.Spacing.barGap) {
       HStack(spacing: Theme.Spacing.barGap) {
         Button(action: onPlayReply) {
-          icon(isPlayingReply ? "stop.fill" : "speaker.wave.2.fill", isEnabled: canPlayReply)
+          icon(isPlayingReply ? "stop" : "speaker.wave.2", isEnabled: canPlayReply)
         }
         .disabled(!canPlayReply)
         .accessibilityLabel(
@@ -57,27 +58,29 @@ public struct DetailActionBar: View {
         )
         .accessibilityIdentifier("detail.action.play")
 
-        Button(action: onReply) { icon("arrowshape.turn.up.left.fill", isEnabled: canReply) }
+        Button(action: onReply) { icon("arrowshape.turn.up.left", isEnabled: canReply) }
           .disabled(!canReply)
           .accessibilityLabel(
             Text("Reply", bundle: #bundle, comment: "VoiceOver label of the button that answers the memo")
           )
           .accessibilityIdentifier("detail.action.reply")
 
-        Menu {
-          ForEach(retryOptions) { option in
-            Button(option.title) { onRetry(option.id) }
+        // A memo with nothing to restart (a done one) has no retry button at all: a ghost circle reads as broken.
+        if !retryOptions.isEmpty {
+          Menu {
+            ForEach(retryOptions) { option in
+              Button(option.title) { onRetry(option.id) }
+            }
+          } label: {
+            icon("arrow.clockwise", isEnabled: true)
+          } primaryAction: {
+            if let primaryRetryID { onRetry(primaryRetryID) }
           }
-        } label: {
-          icon("arrow.clockwise", isEnabled: !retryOptions.isEmpty)
-        } primaryAction: {
-          if let primaryRetryID { onRetry(primaryRetryID) }
+          .accessibilityLabel(
+            Text("Retry", bundle: #bundle, comment: "VoiceOver label of the button that retries a failed memo")
+          )
+          .accessibilityIdentifier("detail.action.retry")
         }
-        .disabled(retryOptions.isEmpty)
-        .accessibilityLabel(
-          Text("Retry", bundle: #bundle, comment: "VoiceOver label of the button that retries a failed memo")
-        )
-        .accessibilityIdentifier("detail.action.retry")
       }
     }
     .buttonStyle(.plain)
@@ -90,6 +93,7 @@ public struct DetailActionBar: View {
       .font(.system(size: 20, weight: .semibold))
       .foregroundStyle(isEnabled ? Theme.Ink.primary : Theme.Ink.faint)
       .frame(width: 56, height: 56)
+      .background(Theme.Surface.panel, in: .circle)
       .glassEffect(.regular.interactive(), in: .circle)
   }
 }

@@ -52,17 +52,26 @@ public struct MemoPlayerBar: View {
       .accessibilityIdentifier("detail.player.toggle")
 
       VStack(spacing: Theme.Spacing.xs) {
-        Slider(value: $draft, in: 0...max(duration, 1)) { editing in
+        ThinScrubber(value: $draft, upperBound: max(duration, 1)) { editing in
           isScrubbing = editing
           if !editing { onSeek(draft) }
         }
-        .tint(Theme.Accent.tint)
+        .accessibilityElement()
         .accessibilityLabel(Text("Position", bundle: #bundle, comment: "VoiceOver label of the player's timeline"))
         .accessibilityValue(
           Text(
             "\(PlayerTime.string(shown)) of \(PlayerTime.string(duration))", bundle: #bundle,
             comment: "VoiceOver value of the player's timeline: elapsed of total, both as m:ss")
         )
+        .accessibilityAdjustableAction { direction in
+          let step = max(duration / 20, 1)
+          switch direction {
+          case .increment: draft = min(draft + step, max(duration, 1))
+          case .decrement: draft = max(draft - step, 0)
+          @unknown default: return
+          }
+          onSeek(draft)
+        }
         .accessibilityIdentifier("detail.player.slider")
         HStack {
           Text(verbatim: PlayerTime.string(shown))
@@ -99,6 +108,55 @@ public struct MemoPlayerBar: View {
   }
 
   private var shown: Double { isScrubbing ? draft : position }
+}
+
+/// The timeline: a thin divider track, an accent fill up to a small thumb. Dragging anywhere on it scrubs; `onEditing`
+/// reports the start and the end of a drag. The system `Slider` has a large white pill thumb that reads as a placeholder.
+private struct ThinScrubber: View {
+  @Binding var value: Double
+  let upperBound: Double
+  let onEditing: (Bool) -> Void
+  @State private var isDragging = false
+
+  private static let trackHeight: CGFloat = 3
+  private static let thumbSize: CGFloat = 12
+  private static let height: CGFloat = 28
+
+  var body: some View {
+    GeometryReader { proxy in
+      let travel = max(proxy.size.width - Self.thumbSize, 1)
+      let x = Self.thumbSize / 2 + travel * min(max(value / upperBound, 0), 1)
+      ZStack(alignment: .leading) {
+        Capsule().fill(Theme.divider).frame(height: Self.trackHeight)
+        Capsule().fill(Theme.Accent.fill).frame(width: x, height: Self.trackHeight)
+        Circle().fill(Theme.Accent.fill).frame(width: Self.thumbSize, height: Self.thumbSize)
+          .offset(x: x - Self.thumbSize / 2)
+      }
+      .frame(maxHeight: .infinity)
+      .contentShape(.rect)
+      .gesture(
+        DragGesture(minimumDistance: 0)
+          .onChanged { drag in
+            if !isDragging {
+              isDragging = true
+              onEditing(true)
+            }
+            value = Self.value(at: drag.location.x, travel: travel, upperBound: upperBound)
+          }
+          .onEnded { drag in
+            value = Self.value(at: drag.location.x, travel: travel, upperBound: upperBound)
+            isDragging = false
+            onEditing(false)
+          }
+      )
+    }
+    .frame(height: Self.height)
+  }
+
+  private static func value(at x: CGFloat, travel: CGFloat, upperBound: Double) -> Double {
+    let fraction = min(max((x - thumbSize / 2) / travel, 0), 1)
+    return Double(fraction) * upperBound
+  }
 }
 
 /// `m:ss`, or `h:mm:ss` from an hour on.

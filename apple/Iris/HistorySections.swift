@@ -18,20 +18,20 @@ struct HistoryDaySection: Identifiable {
   var id: ID { ID(day: day, occurrence: occurrence) }
 
   static func group(_ memos: [Memo], calendar: Calendar = .current) -> [HistoryDaySection] {
-    var sections: [HistoryDaySection] = []
-    var runs: [Date: Int] = [:]
+    // Runs are filled in place and turned into sections once: no array is copied per row.
+    var runs: [(day: Date, occurrence: Int, memos: [Memo])] = []
+    var occurrences: [Date: Int] = [:]
     for memo in memos {
       let day = calendar.startOfDay(for: memo.createdAt)
-      if let last = sections.last, last.day == day {
-        sections[sections.count - 1] = HistoryDaySection(
-          day: day, occurrence: last.occurrence, memos: last.memos + [memo])
+      if let last = runs.indices.last, runs[last].day == day {
+        runs[last].memos.append(memo)
       } else {
-        let occurrence = runs[day, default: 0]
-        runs[day] = occurrence + 1
-        sections.append(HistoryDaySection(day: day, occurrence: occurrence, memos: [memo]))
+        let occurrence = occurrences[day, default: 0]
+        occurrences[day] = occurrence + 1
+        runs.append((day, occurrence, [memo]))
       }
     }
-    return sections
+    return runs.map { HistoryDaySection(day: $0.day, occurrence: $0.occurrence, memos: $0.memos) }
   }
 
   func title(now: Date = Date(), calendar: Calendar = .current) -> String {

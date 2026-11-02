@@ -88,3 +88,38 @@ struct HistorySectionsTests {
     #expect(HistoryDaySection.subtitle(for: [], now: MemoFactory.now, calendar: calendar) == nil)
   }
 }
+
+@MainActor
+@Suite("HistoryModel sections")
+struct HistoryModelSectionsTests {
+  @Test("the model keeps the day sections and row ids of its list, grouped once per change")
+  func sectionsFollowTheList() async {
+    let client = FakeAPIClient(now: { MemoFactory.now })
+    for memo in [
+      MemoFactory.memo("parked", age: 90_000, state: .needsRoute), MemoFactory.memo("a", age: 10),
+      MemoFactory.memo("b", age: 20),
+    ] {
+      await client.seed(MemoFactory.detail(memo))
+    }
+    let model = HistoryModel(client: client)
+    #expect(model.sections.isEmpty && model.memoIDs.isEmpty)
+
+    await model.load()
+    #expect(model.memoIDs == ["parked", "a", "b"])
+    #expect(model.sections.flatMap(\.memos).map(\.id) == model.memoIDs, "the sections are the list, in order")
+    #expect(Set(model.sections.map(\.id)).count == model.sections.count)
+
+    let memoA = model.memos[1]
+    await model.toggleFavorite(memoA)
+    #expect(model.sections.flatMap(\.memos).first { $0.id == "a" }?.favorite == true, "a flag change reaches the rows")
+    #expect(model.memoIDs == ["parked", "a", "b"], "and does not look like a reorder")
+  }
+
+  @Test("a long list groups in one pass and keeps list order inside a day")
+  func longListKeepsOrder() {
+    let memos = (0..<2_000).map { MemoFactory.memo("m\($0)", age: TimeInterval($0)) }
+    let sections = HistoryDaySection.group(memos)
+    #expect(sections.flatMap(\.memos).map(\.id) == memos.map(\.id))
+    #expect(sections.count <= 2, "two thousand seconds span at most two calendar days")
+  }
+}

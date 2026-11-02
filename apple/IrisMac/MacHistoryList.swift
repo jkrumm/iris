@@ -52,7 +52,8 @@ struct MacHistoryList: View {
       }
       .listStyle(.plain)
       .environment(\.defaultMinListHeaderHeight, 0)
-      .environment(\.defaultMinListRowHeight, 0)
+      // Not 0: AppKit logs "Negative values for setRowHeight: not allowed (0.000)" for a zero minimum at first layout.
+      .environment(\.defaultMinListRowHeight, 1)
       .scrollContentBackground(.hidden)
       .animation(.snappy, value: model.memos.map(\.id))
       .overlay { emptyState }
