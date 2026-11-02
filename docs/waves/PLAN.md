@@ -1253,6 +1253,42 @@ TestFlight). Mother's recommendation stands: the fleet pauses after this wave un
 the old `iris-w19-*` keys, never reuse them (check `factory spawn get <key>` shows a `t…` pane after every fan). Batches land with `gh pr merge --merge` (a merge
 commit keeps the per-PR merges; `rd merge` rebases and would flatten them).
 
+## Wave 20 — pre-hardware hardening: stability audit ∥ visual polish against the mockups            <!-- status: active -->
+Mother's plan 2026-11-02 (owner asked: fix what we can find ourselves before his hardware pass and UI review). Source: two read-only audits of
+`master` `2379746`, reports in `~/SourceRoot/iris/.artifacts/audit/{code,ui-fidelity}.md` on the mini (gitignored, absolute path from worktrees; screenshots beside them);
+every item below names its findings by number, read the report section before starting. Production smoke green 2026-11-02 (`e13831b9`, real
+summary). Tracks: **I** (`apple/**` iOS + package code) ∥ **M** (`apple/IrisMac/**`) ∥ **U** (`apple/**` view code, visual only). Fleet rules hold:
+one `xcodebuild` under `lockf -t 1800 /tmp/iris-apple.lock`; Apple PRs ride `w20-batch-N`; review convergence after round 2 (only data-loss,
+privacy, security and crash blockers). U items: before/after screenshots (light, dark, one German) on the pinned simulator, re-record the
+snapshot references they change, and add the after renders to `docs/design/fidelity/w20.md` for the owner's async look. No new features, no
+server change. The binding design is `feedback-round-2.md` (cost is fine everywhere; duration and cost in one chip).
+- [ ] **I1. Stability (code audit 1-3, 5-8):** the take UI re-follows `CaptureSession.updates()` / `levels()` once the outbox opens (today a nil at
+      `RootView`'s first `.task` ends the follow for the process: no take screen, banner or meter while the mic runs; test it with an outbox that
+      opens late); `StartMemoIntent` and the Live Activity Stop / Pause / Switch intents wait for `CaptureIntents.handler` like
+      `OpenRecorderIntent` (bounded, 3 s); `MediaAssetLoader` reads off the main actor; History's `makeDetail` / `makeComposer` / `makeThread`
+      factories stop rebuilding models (and reading the Keychain) per body evaluation; `HistoryView` groups once per change, not per body, no
+      O(n²) copy; `Outbox.shutdown()` resumes its `settled()` / `persist()` waiters; `MemoPlayer` deactivates its session with
+      `.notifyOthersOnDeactivation` when playback ends. Tests per behavioural item. Load `apple-capture-notes` and `swift-concurrency-pro`.
+- [ ] **M1. Mac panel cannot wedge (code audit 4, UI audit Mac log):** `RecordingPanelModel.begin()` is bounded (a stalled engine start or an
+      unanswered permission prompt ends as a visible failure, `isBusy` cleared, hotkey and Cancel live again); fix the panel's `Negative values
+      for setRowHeight` log. Tests on `FakeTakeEngine`.
+- [ ] **U1. Floating bars and accent (UI top-15 #1-5, #7, #8):** an opaque-enough scrim / solid backing under every floating glass bar (History
+      search + Record + tab stack, detail action circles, thread reply bar, banner) and under the status bar on History and Thread, so scrolled
+      text never reads through; the detail scrubber is a thin track with a small thumb (not the system white pill); every primary button takes
+      `Theme.Accent.fill` (filter sheet "Show memos", "Start recording", composer Send incl. a readable disabled state); detail action symbols
+      share one weight, a done memo's retry is hidden or clearly disabled. iOS 26 draws glass differently: keep the fix on public API so the
+      device check in D1 holds.
+- [ ] **U2. Rows, sheets, chips (UI top-15 #6, #9-15):** outbox row status line without truncation, theme-coloured Discard, 44 pt actions;
+      History rows as the mockup (cost on done rows, needs-route candidates, a thread marker on chat rows); filter sheet back to the mockup
+      (counts, state dots, the "When" group, live "Show N memos", no dead space); route sheet title centred; no 22 pt jump of the chip row when a
+      chip filter is active; distinct mode glyphs for Journal / Hermes / Chat and one icon rule for the composer chips; thread polish (short
+      timestamps, a code-block overflow cue, list indent, a no-break space between number and unit); Diagnostics id never wraps mid-id, the
+      Settings footnote clears the Record accessory. U2 starts after U1 merges (shared History files).
+- (carried) **D1. Owner hardware batch** (Wave 19 Left behind, verbatim) on a device build of the Wave 20 merge; adds: the U1 scrims on iOS 26.6
+      glass, the code audit's cold-start intent case (Siri "start memo" right after a reboot). Needs the phone tunnel up (`devicectl` showed
+      `tunnel: disconnected` 2026-11-02: wired or unlocked on the network).
+- (carried) **D2.** Enrolment email (not arrived 2026-11-02; Xcode lists only the Personal Team).
+
 ## Fleet backlog (for the long-running fleet: mother → lead → workers)
 
 Not waves of this chain. The fleet's mother turns these into active waves, one at a time,
