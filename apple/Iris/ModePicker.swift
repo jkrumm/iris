@@ -30,12 +30,16 @@ extension MemoMode {
     }
   }
 
-  var composerIcon: String? {
+  /// One rule: every mode has a glyph of its own, so no chip of the row is bare and no two chips share one. Chat is the
+  /// same speech bubble as the Chats chip on History.
+  var composerIcon: String {
     switch self {
     case .auto, .unknown: "sparkles"
+    case .journal: "book.closed"
+    case .hermes: "paperplane"
     case .tab: "terminal"
+    case .chat: "bubble.left"
     case .transcribe: "text.alignleft"
-    default: nil
     }
   }
 

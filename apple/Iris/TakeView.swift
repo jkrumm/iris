@@ -155,7 +155,7 @@ struct RecordAccessory: View {
     .disabled(!model.canStart)
     .contextMenu {
       ForEach(MemoMode.voiceModes, id: \.self) { mode in
-        Button(mode.composerTitle, systemImage: mode.composerIcon ?? "waveform") {
+        Button(mode.composerTitle, systemImage: mode.composerIcon) {
           Task { await model.start(mode: mode) }
         }
       }

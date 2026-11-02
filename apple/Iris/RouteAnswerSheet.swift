@@ -54,23 +54,38 @@ struct RouteAnswerSheet: View {
         .padding(.vertical, Theme.Spacing.sectionTop)
       }
       .background(Theme.Surface.background)
-      .navigationTitle(
-        model.kind == .answer
-          ? String(localized: "Where should this go?", comment: "Route sheet title for a parked memo")
-          : String(localized: "Correct the route", comment: "Route sheet title for a finished memo")
-      )
+      .navigationTitle(title)
       .navigationBarTitleDisplayMode(.inline)
       .toolbar {
+        // The system title sits against a text "Cancel" pill as wide as itself; with a round close button on the leading edge
+        // and a principal title the heading is the one centred element of the bar.
+        ToolbarItem(placement: .principal) {
+          Text(verbatim: title)
+            .themeFont(.callout, weight: .semibold)
+            .foregroundStyle(Theme.Ink.primary)
+            .accessibilityAddTraits(.isHeader)
+        }
         ToolbarItem(placement: .cancellationAction) {
-          Button(String(localized: "Cancel", comment: "Closes the route sheet")) { dismiss() }
-            .disabled(model.isSubmitting)
-            .accessibilityIdentifier("route.cancel")
+          Button {
+            dismiss()
+          } label: {
+            Image(systemName: "xmark")
+              .accessibilityLabel(String(localized: "Cancel", comment: "Closes the route sheet"))
+          }
+          .disabled(model.isSubmitting)
+          .accessibilityIdentifier("route.cancel")
         }
       }
       .interactiveDismissDisabled(model.isSubmitting)
     }
     .accessibilityIdentifier("route.sheet")
     .task(id: model.destination) { await model.loadHerd() }
+  }
+
+  private var title: String {
+    model.kind == .answer
+      ? String(localized: "Where should this go?", comment: "Route sheet title for a parked memo")
+      : String(localized: "Correct the route", comment: "Route sheet title for a finished memo")
   }
 
   private func select(_ raw: String) {
