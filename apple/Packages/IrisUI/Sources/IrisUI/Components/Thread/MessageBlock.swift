@@ -91,8 +91,42 @@ extension MessageBlock {
       let joined = text.joined(separator: "\n")
       text = []
       guard !joined.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-      blocks.append(.markdown(joined))
+      blocks.append(.markdown(MessageBlock.tyingUnits(in: joined)))
     }
+  }
+
+  // MARK: Number and unit
+
+  private static let unitPattern: NSRegularExpression? = {
+    let units = "ms|sec|secs|s|min|mins|h|hr|hrs|days?|weeks?|KB|MB|GB|TB|kB|KiB|MiB|GiB|B|Hz|kHz|MHz|GHz|px|pt"
+    return try? NSRegularExpression(pattern: "(?<=\\d) (?=%|(?:\(units))\\b)")
+  }()
+
+  /// Replaces the space between a number and its unit ("2 s", "38 MB", "12 %") with a no-break space, so a line never wraps
+  /// between them. Code (fenced or inline) is left as written: its spaces are the author's.
+  static func tyingUnits(in markdown: String) -> String {
+    guard let pattern = unitPattern else { return markdown }
+    var fence: Fence?
+    var lines: [String] = []
+    for line in markdown.split(separator: "\n", omittingEmptySubsequences: false).map(String.init) {
+      if let open = fence {
+        if closes(line, fence: open) { fence = nil }
+        lines.append(line)
+      } else if let opening = opening(line) {
+        fence = opening
+        lines.append(line)
+      } else {
+        // Even segments of a split on backticks are outside inline code.
+        let parts = line.split(separator: "`", omittingEmptySubsequences: false).enumerated().map { index, part in
+          guard index.isMultiple(of: 2) else { return String(part) }
+          let text = String(part)
+          return pattern.stringByReplacingMatches(
+            in: text, range: NSRange(text.startIndex..., in: text), withTemplate: "\u{00A0}")
+        }
+        lines.append(parts.joined(separator: "`"))
+      }
+    }
+    return lines.joined(separator: "\n")
   }
 
   // MARK: Fences

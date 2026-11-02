@@ -3,6 +3,20 @@ import Testing
 @testable import IrisUI
 
 struct MessageBlockTests {
+  @Test("the space between a number and its unit is a no-break space, in prose only")
+  func tiesUnits() {
+    let nbsp = "\u{00A0}"
+    #expect(
+      MessageBlock.tyingUnits(in: "It took *2 s* and 38 MB, 12 % more")
+        == "It took *2\(nbsp)s* and 38\(nbsp)MB, 12\(nbsp)% more")
+    #expect(MessageBlock.tyingUnits(in: "2,5 min and 40 ms") == "2,5\(nbsp)min and 40\(nbsp)ms")
+    // A word that merely starts like a unit, a number with no unit, and code are left alone.
+    #expect(MessageBlock.tyingUnits(in: "3 stories and 2 of them") == "3 stories and 2 of them")
+    #expect(MessageBlock.tyingUnits(in: "run `sleep 2 s` now") == "run `sleep 2 s` now")
+    #expect(MessageBlock.tyingUnits(in: "```\nwait 2 s\n```\nthen 2 s") == "```\nwait 2 s\n```\nthen 2\(nbsp)s")
+    #expect(MessageBlock.split("took 2 s") == [.markdown("took 2\(nbsp)s")])
+  }
+
   @Test("plain markdown stays one block")
   func plain() {
     #expect(MessageBlock.split("Hello **world**\n\n- a\n- b") == [.markdown("Hello **world**\n\n- a\n- b")])
