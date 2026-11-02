@@ -135,3 +135,9 @@ final class ToastTimers {
     return condition()
   }
 }
+
+/// Every suite that reads or writes a process-wide hook the composition root sets (`CaptureIntents.handler`,
+/// `IntentEvents.sink`) is nested here: `.serialized` on a parent runs its child suites one after another, so a test that
+/// waits for "no handler" never overlaps another test that builds a `CompositionRoot`.
+@Suite(.serialized)
+struct CaptureHandlerSuites {}
