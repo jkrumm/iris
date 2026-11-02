@@ -60,8 +60,9 @@ struct StartMemoIntent: AudioRecordingIntent, LiveActivityIntent {
 
   @MainActor
   func perform() async throws -> some IntentResult {
-    try await IntentEvents.run(self, named: "StartMemoIntent", handlerPresent: CaptureIntents.handler != nil) {
-      guard let handler = CaptureIntents.handler else { throw StartMemoError.appNotReady }
+    let handler = try await CaptureIntents.readyHandler()
+    try await IntentEvents.run(self, named: "StartMemoIntent", handlerPresent: handler != nil) {
+      guard let handler else { throw StartMemoError.appNotReady }
       try await handler.startMemo()
     }
     return .result()

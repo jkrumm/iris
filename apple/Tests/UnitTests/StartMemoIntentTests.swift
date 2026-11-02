@@ -110,6 +110,54 @@ struct StartMemoIntentTests {
   }
 }
 
+/// What the intents call into, counting the calls.
+@MainActor
+private final class CountingHandler: CaptureIntentHandler {
+  private(set) var calls: [String] = []
+
+  func startMemo() async throws { calls.append("start") }
+  func endTake() async throws { calls.append("end") }
+  func toggleTakePause() async { calls.append("pause") }
+  func switchTakeInput() async throws { calls.append("switch") }
+}
+
+/// Wave 20 I1: every intent that reaches the app waits (bounded) for the composition root, like the control's `OpenRecorderIntent`.
+@MainActor
+@Suite("Intents wait for the composition root", .serialized)
+struct IntentReadyTests {
+  private let intents: [(name: String, run: @MainActor () async throws -> Void, call: String)] = [
+    ("StartMemoIntent", { _ = try await StartMemoIntent().perform() }, "start"),
+    ("StopMemoIntent", { _ = try await StopMemoIntent().perform() }, "end"),
+    ("PauseMemoIntent", { _ = try await PauseMemoIntent().perform() }, "pause"),
+    ("SwitchInputIntent", { _ = try await SwitchInputIntent().perform() }, "switch"),
+  ]
+
+  @Test("a handler registered after the intent started is still used")
+  func handlerArrivesLate() async throws {
+    for intent in intents {
+      CaptureIntents.handler = nil
+      let handler = CountingHandler()
+      let press = Task { @MainActor in try await intent.run() }
+      try await Task.sleep(for: .milliseconds(150))
+      CaptureIntents.handler = handler
+
+      try await press.value
+      #expect(handler.calls == [intent.call], "\(intent.name) ran against the handler that arrived")
+    }
+    CaptureIntents.handler = nil
+  }
+
+  @Test("with no handler they give up with appNotReady after the bound")
+  func handlerNeverArrives() async {
+    for intent in intents {
+      CaptureIntents.handler = nil
+      let started = ContinuousClock.now
+      await #expect(throws: StartMemoError.appNotReady, "\(intent.name)") { try await intent.run() }
+      #expect(ContinuousClock.now - started >= .seconds(2.5), "\(intent.name) waited for the root first")
+    }
+  }
+}
+
 @MainActor
 @Suite("Live Activity phases of a take")
 struct TakeLiveActivityTests {
