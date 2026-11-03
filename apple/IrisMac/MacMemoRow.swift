@@ -85,11 +85,8 @@ struct MacMemoRow: View {
     }
   }
 
-  /// `.m.hl` tints the row that needs the user; a hover lifts any row.
-  private var background: Color {
-    if memo.isOpenNeedsRoute { return Theme.Accent.tint.opacity(hovering ? 0.22 : 0.14) }
-    return hovering ? Theme.Surface.subtle : .clear
-  }
+  /// Plain rows: a hover lifts one. A memo that needs a route is marked by its orange dot, not a persistent box.
+  private var background: Color { hovering ? Theme.Surface.subtle : .clear }
 
   private var meta: (dot: Color, text: String) {
     switch memo.rowStatus {

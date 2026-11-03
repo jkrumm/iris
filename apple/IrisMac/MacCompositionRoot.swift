@@ -149,7 +149,8 @@ final class MacCompositionRoot {
     recording = RecordingPanelModel(
       engine: engine, permission: permission ?? (isFake ? FakeMicrophonePermission() : SystemMicrophonePermission()),
       isConfigured: { isFake || store.load() != nil })
-    recordingPanel = RecordingPanelController(model: recording)
+    let takeHotkey: any TakeHotkey = hotkey ?? (isFake ? FakeTakeHotkey() : KeyboardShortcutsHotkey())
+    recordingPanel = RecordingPanelController(model: recording, shortcut: { takeHotkey.shortcutDescription })
     let queue: any QueuedItemSource
     if let capture {
       queue = capture.service
@@ -157,7 +158,7 @@ final class MacCompositionRoot {
       queue = ScriptedQueue(arguments.contains(Self.stalledArgument) ? ScriptedQueue.stalledSample : [])
     }
     outbox = MacOutboxModel(source: queue)
-    self.hotkey = hotkey ?? (isFake ? FakeTakeHotkey() : KeyboardShortcutsHotkey())
+    self.hotkey = takeHotkey
     // Always fetched: the list's copy can be stale, and a failed refresh must not announce a memo that is still running.
     notifier.lookup = { [weak self] id in try? await self?.api.memo(id: id).memo }
     // The catch-up reads the newest memos with no filter: History's filters decide what its list shows, not what is announced.

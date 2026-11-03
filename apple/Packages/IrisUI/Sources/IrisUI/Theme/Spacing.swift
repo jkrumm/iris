@@ -83,3 +83,20 @@ extension Theme.Spacing {
   public static let menuButtonVertical = snug
   public static let menuButtonHorizontal = cozy
 }
+
+/// The Mac recording panel (`mac.html`, variant `panel`: `.panel`, `.panel .hd`, `.lvl`, `.ft`, `.btn`).
+extension Theme.Spacing {
+  /// `.panel` is 360 wide in the mockup; the real strings (German, a long microphone name) need more, and nothing may clip.
+  public static let panelWidth: CGFloat = 420
+  /// `.panel` radius 26, padding 16 / 18, gap 12.
+  public static let panelRadius: CGFloat = 26
+  public static let panelVertical = lg
+  public static let panelHorizontal: CGFloat = 18
+  public static let panelGap = md
+  /// `.panel .lvl` height.
+  public static let panelLevelHeight: CGFloat = 38
+  /// `.panel .btn` height 34, padding 14; `.panel .ft .chip` height 30.
+  public static let panelButtonHeight: CGFloat = 34
+  public static let panelButtonInset = inset
+  public static let panelChipHeight = chipHeight
+}

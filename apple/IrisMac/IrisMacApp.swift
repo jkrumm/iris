@@ -52,8 +52,34 @@ private struct MenuBarLabel: View {
   @Environment(\.openWindow) private var openWindow
   @Environment(\.dismissWindow) private var dismissWindow
 
+  /// The waveform; while a take runs, white on a red rounded square (`.extra.rec` in the mockup). A coloured image, not a
+  /// template, because the menu bar tints templates itself.
+  @ViewBuilder private var icon: some View {
+    if root.recording.isRecording {
+      Image(nsImage: Self.recordingIcon)
+    } else {
+      Image(systemName: "waveform")
+    }
+  }
+
+  private static let recordingIcon: NSImage = {
+    let size = NSSize(width: 26, height: 18)
+    let image = NSImage(size: size, flipped: false) { rect in
+      NSColor.systemRed.setFill()
+      NSBezierPath(roundedRect: rect, xRadius: 5, yRadius: 5).fill()
+      let symbol = NSImage(systemSymbolName: "waveform", accessibilityDescription: nil)?
+        .withSymbolConfiguration(.init(pointSize: 12, weight: .semibold).applying(.init(paletteColors: [.white])))
+      guard let symbol else { return true }
+      let origin = NSPoint(x: (rect.width - symbol.size.width) / 2, y: (rect.height - symbol.size.height) / 2)
+      symbol.draw(at: origin, from: .zero, operation: .sourceOver, fraction: 1)
+      return true
+    }
+    image.isTemplate = false
+    return image
+  }()
+
   var body: some View {
-    Image(systemName: "waveform")
+    icon
       .accessibilityLabel(String(localized: "Iris", comment: "Menu bar item title"))
       .onChange(of: root.detailRequest) {
         openWindow(id: Self.detailWindowID)

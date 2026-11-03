@@ -62,7 +62,7 @@ final class RecordingPanelModel {
   /// Told which control a command came from, before it runs: `hotkey` or `panel` (the device log's `source`).
   @ObservationIgnored var onCommand: ((String) -> Void)?
 
-  static let waveformBars = 36
+  static let waveformBars = 48
 
   @ObservationIgnored private let engine: any TakeEngine
   @ObservationIgnored private let permission: any MicrophonePermission

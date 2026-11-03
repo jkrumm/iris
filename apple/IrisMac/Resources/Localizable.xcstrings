@@ -11,6 +11,16 @@
         }
       }
     },
+    "%@ to stop" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ zum Stoppen"
+          }
+        }
+      }
+    },
     "%@ · %@ of audio" : {
       "localizations" : {
         "de" : {
@@ -612,6 +622,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Mikrofon"
+          }
+        }
+      }
+    },
+    "min" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Min."
           }
         }
       }

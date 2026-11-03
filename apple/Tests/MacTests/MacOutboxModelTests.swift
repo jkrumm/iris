@@ -79,6 +79,14 @@ struct MacOutboxModelTests {
     #expect(queue.discarded.isEmpty && model.items.count == 1)
   }
 
+  @Test("a take still recording is not waiting: the strip stays hidden for it")
+  func recordingIsNotWaiting() async {
+    var recording = Self.sending
+    recording.state = .recording
+    let (model, _) = await model([recording])
+    #expect(model.waiting.isEmpty && !model.needsAttention)
+  }
+
   @Test("a Discard that cannot reach the queue says so and drops nothing")
   func discardThatFails() async {
     let (model, queue) = await model([Self.stalled])

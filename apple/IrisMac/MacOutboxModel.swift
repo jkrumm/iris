@@ -28,13 +28,16 @@ final class MacOutboxModel {
     self.source = source
   }
 
+  /// What is genuinely queued: a take that is still recording is not waiting for anything, its own panel shows it.
+  var waiting: [QueuedItem] { items.filter { $0.state != .recording } }
+
   /// Items the app has stopped retrying on its own: they wait for the user.
   var stalled: [QueuedItem] {
-    items.filter { if case .failed(nil, _) = $0.state { true } else { false } }
+    waiting.filter { if case .failed(nil, _) = $0.state { true } else { false } }
   }
 
   /// Something the user should see: items waiting, or a queue that cannot be read or saved.
-  var needsAttention: Bool { !items.isEmpty || isUnavailable || saveFailure != nil }
+  var needsAttention: Bool { !waiting.isEmpty || isUnavailable || saveFailure != nil }
 
   /// Follows the queue for as long as the task lives: every change of the outbox refreshes the list.
   func observe() async {
