@@ -61,3 +61,35 @@ extension View {
     modifier(ThemeFontModifier(role: role, weight: weight))
   }
 }
+
+extension Theme {
+  /// The macOS type scale of the desktop app, in the sizes of Apple's macOS HIG (Typography: body 13, subheadline and
+  /// footnote 11, title 3 about 17-20) and of ntfy-mac's windows. macOS has no Dynamic Type, so these are fixed point
+  /// sizes; the basalt roles above are the iPhone's and read oversized on a Mac.
+  public enum MacTextRole: CaseIterable, Sendable {
+    /// 11 pt: metadata lines, section labels, badges, timestamps.
+    case caption
+    /// 13 pt: list rows, body text, form labels, buttons.
+    case body
+    /// 15 pt: a reply's lead text, an empty state's title.
+    case lead
+    /// 18 pt: the detail's headline.
+    case title
+
+    var size: CGFloat {
+      switch self {
+      case .caption: 11
+      case .body: 13
+      case .lead: 15
+      case .title: 18
+      }
+    }
+  }
+}
+
+extension View {
+  /// Applies a macOS text role (fixed size, the system font).
+  public func macFont(_ role: Theme.MacTextRole, weight: Font.Weight = .regular) -> some View {
+    font(.system(size: role.size, weight: weight))
+  }
+}

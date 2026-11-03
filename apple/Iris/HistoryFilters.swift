@@ -16,6 +16,8 @@ struct HistoryFilters: Hashable {
   private(set) var quick: QuickFilter?
   private(set) var route: RouteDestination?
   private(set) var state: MemoState?
+  /// The thread kind the list is narrowed to besides the Chats chip: the Mac sidebar's Hermes threads. Never set on the iPhone.
+  private(set) var kind: ThreadKind?
   var searchText = ""
 
   /// The state the server is asked for. The Needs route chip and the sheet's Needs route state are one filter.
@@ -24,10 +26,10 @@ struct HistoryFilters: Hashable {
   /// How many sheet filters are on, for the badge on the filter button.
   var sheetFilterCount: Int { (route == nil ? 0 : 1) + (effectiveState == nil ? 0 : 1) }
 
-  var isFiltering: Bool { quick != nil || sheetFilterCount > 0 || trimmedSearch != nil }
+  var isFiltering: Bool { quick != nil || kind != nil || sheetFilterCount > 0 || trimmedSearch != nil }
 
   /// The server alone can decide membership: `kind` and `q` are not on the wire memo.
-  var needsServerMatching: Bool { quick == .chats || trimmedSearch != nil }
+  var needsServerMatching: Bool { quick == .chats || kind != nil || trimmedSearch != nil }
 
   private var trimmedSearch: String? {
     let trimmed = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -37,6 +39,10 @@ struct HistoryFilters: Hashable {
   mutating func toggle(_ filter: QuickFilter) {
     quick = quick == filter ? nil : filter
     if quick == .needsRoute { state = nil }
+  }
+
+  mutating func setKind(_ newKind: ThreadKind?) {
+    kind = newKind
   }
 
   mutating func toggleRoute(_ destination: RouteDestination) {
@@ -70,7 +76,7 @@ struct HistoryFilters: Hashable {
   func query(cursor: String? = nil) -> ListMemosQuery {
     ListMemosQuery(
       limit: Self.pageSize, cursor: cursor, q: trimmedSearch, route: route, state: effectiveState,
-      favorite: quick == .favorites, archived: quick == .archived, kind: quick == .chats ? .chat : nil)
+      favorite: quick == .favorites, archived: quick == .archived, kind: kind ?? (quick == .chats ? .chat : nil))
   }
 
   /// The flag, route and state half of the filter, for a memo the client already holds (an SSE update, an

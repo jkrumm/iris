@@ -100,3 +100,49 @@ extension Theme.Spacing {
   public static let panelButtonInset = inset
   public static let panelChipHeight = chipHeight
 }
+
+/// The Mac desktop app (main window, Settings, onboarding). Values follow the macOS HIG for lists and forms (a compact row is
+/// about 40 pt, a content margin 20 pt, a sidebar 200-240 pt wide) and ntfy-mac's `HistoryWindow` / `SettingsWindow`
+/// (`/Users/jkrumm/SourceRoot/ntfy-mac/App/Sources/`: 220 pt sidebar, 340 pt list, 20 pt detail margins).
+extension Theme.Spacing {
+  /// The three columns of the main window: sidebar, list and the least the detail may shrink to.
+  public static let windowSidebarMin: CGFloat = 190
+  public static let windowSidebarIdeal: CGFloat = 220
+  public static let windowListMin: CGFloat = 300
+  public static let windowListIdeal: CGFloat = 340
+  public static let windowDetailMin: CGFloat = 420
+  /// The main window's opening size.
+  public static let windowWidth: CGFloat = 1100
+  public static let windowHeight: CGFloat = 720
+  /// A compact list row: vertical padding and the gap between its two lines.
+  public static let macRowVertical: CGFloat = 5
+  public static let macRowLineGap = hair
+  /// The list's smallest row (a headline line, the status line and their padding). The macOS `List` keeps a fixed 24 pt row and
+  /// clips the second line unless both the list (`defaultMinListRowHeight`) and the row (`frame(minHeight:)`) carry a minimum.
+  public static let macRowMinHeight: CGFloat = 44
+  /// The detail pane: margin around the content, gap between its sections, and the readable width of a text column.
+  public static let macDetailMargin: CGFloat = 24
+  public static let macSectionGap: CGFloat = 20
+  public static let macReadableWidth: CGFloat = 680
+  /// Section label to its content, and the gap between a header's lines.
+  public static let macLabelGap = snug
+  public static let macHeaderGap = snug
+  /// A transcript's or reply's line spacing (13 pt text, about 1.4 line height).
+  public static let macLineSpacing: CGFloat = 3
+  /// A bar under the detail's header (the route answer): inset inside it and its corner radius.
+  public static let macBarInset = cozy
+  public static let macBarRadius: CGFloat = 8
+  /// The inline metadata chip: padding and height.
+  public static let macChipHorizontal = snug
+  public static let macChipVertical = hair
+  /// A Settings tab's form width, and the onboarding window (`≈ 480 x 420`).
+  public static let macSettingsWidth: CGFloat = 460
+  public static let macSettingsHeight: CGFloat = 330
+  public static let macOnboardingWidth: CGFloat = 480
+  public static let macOnboardingHeight: CGFloat = 420
+  /// The onboarding window's margin and gap between its blocks.
+  public static let macOnboardingInset: CGFloat = 32
+  public static let macOnboardingGap: CGFloat = 16
+  /// A status dot's diameter next to a route or state.
+  public static let macDot: CGFloat = 7
+}
