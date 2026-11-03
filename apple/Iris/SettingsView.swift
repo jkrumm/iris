@@ -297,7 +297,7 @@ struct SettingsView: View {
         statusText: statusText(of: item.state)
       )
       .accessibilityIdentifier("settings.outbox.row")
-      if canRetry || item.canDiscard {
+      if canRetry || item.offersDiscard {
         HStack(spacing: Theme.Spacing.lg) {
           if canRetry {
             Button(String(localized: "Retry now", comment: "Outbox action")) { Task { await model.retry(item) } }
@@ -305,7 +305,7 @@ struct SettingsView: View {
               .contentShape(.rect)
               .accessibilityIdentifier("settings.outbox.retry")
           }
-          if item.canDiscard {
+          if item.offersDiscard {
             // The theme's `status-bad`, not the system red a `.destructive` role paints.
             Button {
               Task { await model.discard(item) }
@@ -328,7 +328,7 @@ struct SettingsView: View {
           Task { await model.retry(item) }
         }
       }
-      if item.canDiscard {
+      if item.offersDiscard {
         Button(discardTitle(of: item), systemImage: "trash", role: .destructive) {
           Task { await model.discard(item) }
         }

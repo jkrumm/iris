@@ -27,6 +27,11 @@ struct MacMemoDetailPane: View {
     .background(Theme.Surface.background)
     .toolbar { toolbar }
     .task(id: root.windowHistory.revision(of: model.memoID) + root.reconnects) { await model.load() }
+    // A memo opened from the popover or a banner may be past the window's filter or pages: the list takes it in, so its actions find it.
+    .task(id: model.memo?.id) {
+      guard let memo = model.memo else { return }
+      await root.ensureHeld(memo)
+    }
     .accessibilityIdentifier("mac.detail")
   }
 
@@ -121,6 +126,7 @@ struct MacMemoDetailPane: View {
         ) { actions.toggleArchived(memo) }
         if memo.state.isDeletable {
           Button(String(localized: "Delete", comment: "Context menu"), systemImage: "trash") { actions.delete(memo) }
+            .disabled(root.deletingIDs.contains(memo.id))
         }
       }
     }

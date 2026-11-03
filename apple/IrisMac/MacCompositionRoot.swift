@@ -73,6 +73,8 @@ final class MacCompositionRoot {
   private(set) var windowRequest = 0
   /// Bumped to open the onboarding window (the popover's connect prompt, and once at launch while nothing is saved).
   private(set) var onboardingRequest = 0
+  /// Memos whose Delete is queued and has not run yet: the toolbar's Delete is off for them, and a second tap does nothing.
+  private(set) var deletingIDs: Set<String> = []
   /// Bumped to open the Settings scene.
   private(set) var settingsRequest = 0
   /// The Settings tab that shows (the snapshot run switches it).
@@ -419,6 +421,9 @@ final class MacCompositionRoot {
     showMainWindow(source: source)
   }
 
+  func beginDelete(_ id: String) -> Bool { deletingIDs.insert(id).inserted }
+  func endDelete(_ id: String) { deletingIDs.remove(id) }
+
   /// Opens (or raises) the main window as it is.
   func showMainWindow(source: String = "menu") {
     windowRequest += 1
@@ -472,6 +477,23 @@ final class MacCompositionRoot {
     return AuthenticatedMediaSource(baseURL: saved.serverURL, bearerToken: saved.token)
   }
 
+  /// Makes the main window's list hold `memo`, which it may not (a popover row or a banner opened a memo past the window's filter or
+  /// loaded pages): the scope goes to All memos (Archive for an archived memo, which All hides), the search is cleared, the first
+  /// page loads, and the memo is inserted into the list. Its actions resolve the memo in the list when they run, so it must be there.
+  /// A load that finishes after the insert replaces the list, so the insert is repeated until it sticks (bounded).
+  func ensureHeld(_ memo: Memo) async {
+    guard isConfigured, !windowHistory.memos.contains(where: { $0.id == memo.id }) else { return }
+    windowHistory.filters.searchText = ""
+    scope = memo.archived ? .archive : .all
+    await windowHistory.load()
+    for _ in 0..<5 {
+      guard !windowHistory.memos.contains(where: { $0.id == memo.id }) else { return }
+      windowHistory.insert(memo)
+      try? await Task.sleep(for: .milliseconds(100))
+      while windowHistory.isLoading, !Task.isCancelled { try? await Task.sleep(for: .milliseconds(50)) }
+    }
+  }
+
   /// The model that answers a parked memo (or corrects a finished one) from the detail pane. `onStale` reloads the memo. One per
   /// memo and state, kept until another is asked for: the views ask on every render and must get the same model.
   func routeAnswerModel(for memo: Memo, onStale: @escaping () -> Void = {}) -> RouteAnswerModel {
@@ -485,6 +507,8 @@ final class MacCompositionRoot {
   /// memo, kept until another memo is asked for or the connection changes.
   func detailModel(for id: String) -> MacMemoDetailModel {
     if let cached = detailCache, cached.memoID == id { return cached }
+    // A new detail model is a new pane: the route model's `onStale` belongs to the old pane, so it goes too.
+    routeCache = nil
     let model = MacMemoDetailModel(
       memoID: id, memo: (windowHistory.memos + history.memos).first { $0.id == id }, client: api,
       pasteboard: MacPasteboard())
@@ -510,6 +534,7 @@ final class MacCompositionRoot {
     scope?.apply(to: &windowHistory.filters)
     notifier.reset(connectionID: Self.connectionID(for: credentials.load()))
     queues = [:]
+    deletingIDs = []
     detailCache = nil
     routeCache = nil
     capture?.reconnect(credentials.load())

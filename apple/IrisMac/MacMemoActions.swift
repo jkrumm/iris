@@ -15,21 +15,31 @@ struct MacMemoActions {
   func toggleDone(_ memo: Memo) { act(memo) { await $0.toggleDone($1) } }
   func toggleFavorite(_ memo: Memo) { act(memo) { await $0.toggleFavorite($1) } }
   func toggleArchived(_ memo: Memo) { act(memo) { await $0.toggleArchived($1) } }
+  /// Delete is queued at the tap: the selection goes at once (the deleted memo leaves the list, so the detail has nothing to show),
+  /// and a second tap for the same memo does nothing while the first is waiting or running.
   func delete(_ memo: Memo) {
-    guard memo.state.isDeletable else { return }
+    guard memo.state.isDeletable, root.beginDelete(memo.id) else { return }
+    if root.selectedMemoID == memo.id { root.selectedMemoID = nil }
     act(memo) { [root] model, current in
-      // The deleted memo leaves the list, so the detail pane has nothing to show for it: cleared when the delete runs, not
-      // before (a delete dropped by a connection change never clears the new connection's selection).
-      if root.selectedMemoID == current.id { root.selectedMemoID = nil }
+      defer { root.endDelete(current.id) }
       await model.delete(current)
+    } onDropped: { [root] in
+      root.endDelete(memo.id)
     }
   }
 
-  /// `memo` is the caller's copy (the row's, or the detail's): the list's own copy wins when it has one, else the action runs on
-  /// the caller's, because the window's list is filtered and paged and need not hold a memo opened from the popover or a banner.
-  private func act(_ memo: Memo, _ action: @escaping @MainActor (HistoryModel, Memo) async -> Void) {
+  /// Queues the action for the memo; it resolves the memo in the list when it runs, on the memo as it is then (the list must hold it:
+  /// see ``MacCompositionRoot/ensureHeld(_:)``). A memo the list no longer holds is skipped.
+  private func act(
+    _ memo: Memo, _ action: @escaping @MainActor (HistoryModel, Memo) async -> Void,
+    onDropped: (@MainActor () -> Void)? = nil
+  ) {
     root.perform(on: model, memoID: memo.id) { model in
-      await action(model, model.memos.first(where: { $0.id == memo.id }) ?? memo)
+      guard let current = model.memos.first(where: { $0.id == memo.id }) else {
+        onDropped?()
+        return
+      }
+      await action(model, current)
     }
   }
 }

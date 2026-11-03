@@ -29,8 +29,17 @@ nonisolated struct QueuedItem: Identifiable, Equatable, Sendable {
   var queuedAt: Date
   var state: State
 
-  /// A take that is still being recorded is ended by its own controls: dropping its row would leave the recorder running.
-  var canDiscard: Bool { state != .recording }
+  /// Whether the row offers Discard (Settings and the Mac panel use this one rule, and the outbox refuses what it does not offer).
+  /// A take that is still being recorded is ended by its own controls: dropping its row would leave the recorder running. A queued
+  /// server delete that is waiting or running is already discarded; only one whose attempt failed has something to stop.
+  var offersDiscard: Bool {
+    switch (kind, state) {
+    case (_, .recording): false
+    case (.removal, .failed): true
+    case (.removal, _): false
+    default: true
+    }
+  }
 }
 
 extension QueuedItem.Kind {

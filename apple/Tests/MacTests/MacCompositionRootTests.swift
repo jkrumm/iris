@@ -153,27 +153,51 @@ struct MacCompositionRootTests {
   }
 
   @Test(
-    "an action on a memo the filtered window list does not hold runs on the detail's copy; Delete clears the selection once queued"
-  )
-  func actionsOnAMemoOutsideTheList() async throws {
+    "a memo opened from outside becomes held by the window list, and its actions then run: two toggles toggle twice")
+  func openedMemoBecomesHeld() async throws {
     let root = fakeRoot()
     let fake = try #require(root.fakeAPI)
     root.begin()
     #expect(await loadedWindow(root))
     root.scope = .favorites
+    root.windowHistory.filters.searchText = "nothing says this"
     #expect(await eventually { !root.windowHistory.isLoading })
     await root.windowHistory.load()
     let memo = try await fake.memo(id: Self.finished).memo
     #expect(!root.windowHistory.memos.contains { $0.id == memo.id })
+
+    await root.ensureHeld(memo)
+    #expect(root.scope == .all && root.windowHistory.filters.searchText.isEmpty)
+    #expect(root.windowHistory.memos.contains { $0.id == memo.id })
+
+    let initial = memo.favorite
+    let actions = MacMemoActions(root: root, model: root.windowHistory)
+    actions.toggleFavorite(memo)
+    actions.toggleFavorite(memo)
+    #expect(
+      await eventually { await fake.calls.filter { if case .setFlags = $0 { true } else { false } }.count == 2 })
+    #expect(await eventually { await fake.memos[Self.finished]?.memo.favorite == initial })
+  }
+
+  @Test("Delete clears the selection at the tap, is off while queued, runs once, and frees the memo when done")
+  func deleteIsQueuedOnce() async throws {
+    let root = fakeRoot()
+    let fake = try #require(root.fakeAPI)
+    root.begin()
+    #expect(await loadedWindow(root))
+    let memo = try await fake.memo(id: Self.finished).memo
+    let gate = await fake.hold(.deleteMemo)
+    root.show(memo.id)
     let actions = MacMemoActions(root: root, model: root.windowHistory)
 
-    actions.toggleFavorite(memo)
-    #expect(await eventually { await fake.memos[Self.finished]?.memo.favorite == true })
-
-    root.show(Self.finished)
     actions.delete(memo)
+    #expect(root.selectedMemoID == nil && root.deletingIDs == [memo.id], "cleared and marked at the tap")
+    actions.delete(memo)
+    await gate.waitUntilHeld()
+    gate.release()
     #expect(await eventually { await fake.memos[Self.finished]?.memo.deletedAt != nil })
-    #expect(root.selectedMemoID == nil)
+    #expect(await eventually { root.deletingIDs.isEmpty })
+    #expect(await fake.calls.filter { if case .deleteMemo = $0 { true } else { false } }.count == 1)
   }
 
   @Test("Delete on a memo that cannot be deleted keeps the selection")
@@ -186,7 +210,7 @@ struct MacCompositionRootTests {
     memo.state = .received
     root.show(memo.id)
     MacMemoActions(root: root, model: root.windowHistory).delete(memo)
-    #expect(root.selectedMemoID == memo.id)
+    #expect(root.selectedMemoID == memo.id && root.deletingIDs.isEmpty)
   }
 
   @Test("the detail and route models are one per memo until another is asked for or the connection changes")
@@ -196,7 +220,12 @@ struct MacCompositionRootTests {
     #expect(root.detailModel(for: "a") === first && root.detailModel(for: "b") !== first)
     let memo = Memo(
       id: "a", mode: .auto, device: "d", startedAt: .now, state: .needsRoute, createdAt: .now, updatedAt: .now)
-    #expect(root.routeAnswerModel(for: memo) === root.routeAnswerModel(for: memo))
+    let route = root.routeAnswerModel(for: memo)
+    #expect(root.routeAnswerModel(for: memo) === route)
+    // A → B → A is a new pane: the route model (and its `onStale`) goes with the detail model.
+    _ = root.detailModel(for: "b")
+    _ = root.detailModel(for: "a")
+    #expect(root.routeAnswerModel(for: memo) !== route)
     let before = root.detailModel(for: "a")
     switchServer(root)
     #expect(root.detailModel(for: "a") !== before)

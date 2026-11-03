@@ -83,17 +83,6 @@ final class MacOutboxModel {
   }
 }
 
-extension QueuedItem {
-  /// Whether the row offers Discard: a take being recorded ends by its own controls, and a queued server delete that is still
-  /// waiting or running is already discarded; only one whose attempt failed has something to stop ("Stop trying").
-  var offersDiscard: Bool {
-    guard canDiscard else { return false }
-    guard kind == .removal else { return true }
-    if case .failed = state { return true }
-    return false
-  }
-}
-
 /// A queue the test and fake compositions script: nothing touches the outbox or the disk. `retry` moves the item to
 /// `.sending`, `discard` removes it, and every change is told to whoever listens.
 nonisolated final class ScriptedQueue: QueuedItemSource {

@@ -113,8 +113,8 @@ struct CancelledTakeTests {
     await gate.waitUntilHeld()
     #expect(await rig.service.queuedItems().map(\.kind) == [.removal])
 
-    // The row is running, not failed: a repeated discard counts as done and leaves it to finish.
-    #expect(await rig.service.discardQueued(id: id.wireID))
+    // The row is running, not failed: a repeated discard is refused and leaves it to finish.
+    #expect(await !rig.service.discardQueued(id: id.wireID), "refused: the delete is running")
     #expect(await rig.service.pendingDeletionIDs() == [id.wireID])
 
     gate.release()
