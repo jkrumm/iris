@@ -33,7 +33,7 @@ struct MacCompositionRootTests {
   @Test("the fake composition loads the sample memos from launch, with no Keychain")
   func loadsHistory() async {
     let root = fakeRoot()
-    #expect(root.mode == .fake && root.isConfigured && root.page == .history)
+    #expect(root.mode == .fake && root.isConfigured && root.page == .home)
     root.begin()
     #expect(await eventually { !root.history.memos.isEmpty })
     #expect(root.history.memos.contains { $0.id == Self.finished })
@@ -100,21 +100,21 @@ struct MacCompositionRootTests {
     #expect(fakeRoot(extra: [MacCompositionRoot.settingsArgument]).page == .settings)
   }
 
-  @Test("production with nothing saved opens on Settings and counts as not configured")
+  @Test("production with nothing saved opens on the home page (connect prompt) and counts as not configured")
   func notConfigured() {
     let root = MacCompositionRoot(arguments: [], credentials: InMemoryCredentialStore())
-    #expect(root.mode == .production && !root.isConfigured && root.page == .settings)
+    #expect(root.mode == .production && !root.isConfigured && root.page == .home)
   }
 
-  @Test("production with a saved connection opens on History")
+  @Test("production with a saved connection opens on the home page")
   func configured() throws {
     let store = InMemoryCredentialStore()
     try store.save(try #require(ConnectionCredentials(urlText: "https://iris.example.com", token: "t")))
     let root = MacCompositionRoot(arguments: [], credentials: store)
-    #expect(root.isConfigured && root.page == .history)
+    #expect(root.isConfigured && root.page == .home)
   }
 
-  @Test("saving the connection stores it, bumps the revision and moves the panel to History")
+  @Test("saving the connection stores it, bumps the revision and stays on Settings")
   func saving() {
     let store = InMemoryCredentialStore()
     let root = fakeRoot(credentials: store, extra: [MacCompositionRoot.settingsArgument])
@@ -122,7 +122,7 @@ struct MacCompositionRootTests {
     root.connectionForm.tokenText = "token"
     root.connectionForm.save()
     #expect(store.load()?.token == "token" && root.connectionRevision == 1)
-    #expect(root.isConfigured && root.page == .history)
+    #expect(root.isConfigured && root.page == .settings)
     root.connectionForm.urlText = "http://iris.example.com"
     root.connectionForm.save()
     #expect(root.connectionForm.failure == .insecure && root.connectionRevision == 1)

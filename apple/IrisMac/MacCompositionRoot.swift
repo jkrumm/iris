@@ -7,6 +7,8 @@ import Synchronization
 
 /// The page the menu-bar panel shows.
 enum MacPanelPage: Equatable {
+  /// The popover's home: Record, the newest memos, the menu lines. Also the connect prompt while nothing is saved.
+  case home
   case history
   case settings
 }
@@ -39,6 +41,11 @@ final class MacCompositionRoot {
   /// The editable connection (server URL + token).
   @ObservationIgnored private(set) lazy var connectionForm = ConnectionModel(store: credentials) {
     [unowned self] in connectionChanged()
+  }
+  /// Probes a server with the values typed in Settings, before or after saving them.
+  @ObservationIgnored private(set) lazy var connectionTest = ConnectionTester { [fakeAPI] credentials in
+    if let fakeAPI { return fakeAPI }
+    return URLSessionAPIClient(baseURL: credentials.serverURL, bearerToken: credentials.token)
   }
   /// Bumped when the saved connection changes.
   private(set) var connectionRevision = 0
@@ -114,7 +121,7 @@ final class MacCompositionRoot {
       client = fake
       fakeAPI = fake
       self.credentials = store
-      page = arguments.contains(Self.settingsArgument) ? .settings : .history
+      page = arguments.contains(Self.settingsArgument) ? .settings : .home
       capture = nil
     } else {
       let saved = store.load()
@@ -123,7 +130,7 @@ final class MacCompositionRoot {
       client = reconfigurable
       fakeAPI = nil
       self.credentials = store
-      page = saved == nil ? .settings : .history
+      page = .home
       capture = MacCaptureStack.production(credentials: saved, log: log)
     }
     let (ready, signal) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
@@ -404,7 +411,6 @@ final class MacCompositionRoot {
     closeDetail()
     reconnects = 0
     connectionRevision += 1
-    page = isConfigured ? .history : .settings
     begin()
   }
 

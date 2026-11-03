@@ -11,6 +11,9 @@ struct MacSnapshotRun {
   static let argument = "-IrisMacSnapshot"
   private static let logger = Logger(subsystem: "com.jkrumm.iris", category: "snapshot")
 
+  /// The panel window's title as the app localizes it (the scene is declared with `String(localized:)`).
+  private static let panelTitle = String(localized: "Iris panel", comment: "Window title of the verification panel")
+
   let directory: URL
   let root: MacCompositionRoot
   /// The memo the detail panel is opened on.
@@ -30,7 +33,12 @@ struct MacSnapshotRun {
       Self.logger.error("snapshot directory not created: \(String(describing: error), privacy: .public)")
     }
     try? await Task.sleep(for: .seconds(4))
-    write(windowTitled: "Iris panel", as: "history")
+    root.page = .home
+    try? await Task.sleep(for: .seconds(1))
+    write(windowTitled: Self.panelTitle, as: "menu")
+    root.page = .history
+    try? await Task.sleep(for: .seconds(1))
+    write(windowTitled: Self.panelTitle, as: "history")
     root.openDetail(detailMemoID)
     try? await Task.sleep(for: .seconds(2))
     // The detail window of an app that was launched in the background is not drawn until the app is active (a click), so the
@@ -47,7 +55,7 @@ struct MacSnapshotRun {
     offscreen.close()
     root.page = .settings
     try? await Task.sleep(for: .seconds(1))
-    write(windowTitled: "Iris panel", as: "settings")
+    write(windowTitled: Self.panelTitle, as: "settings")
     await writeRecordingPanel()
     await writeRefusedPanel()
     NSApp.terminate(nil)

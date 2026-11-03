@@ -253,6 +253,16 @@
         }
       }
     },
+    "Back" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zurück"
+          }
+        }
+      }
+    },
     "Cancel" : {
       "localizations" : {
         "de" : {
@@ -666,16 +676,6 @@
         }
       }
     },
-    "Not connected" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Nicht verbunden"
-          }
-        }
-      }
-    },
     "Not done" : {
       "localizations" : {
         "de" : {
@@ -702,6 +702,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Benachrichtigen"
+          }
+        }
+      }
+    },
+    "Open history" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Verlauf öffnen"
           }
         }
       }
@@ -742,16 +752,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Optional · das Memo wird auch ohne ihn fertig"
-          }
-        }
-      }
-    },
-    "Page" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Seite"
           }
         }
       }
@@ -802,6 +802,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Wird empfangen"
+          }
+        }
+      }
+    },
+    "Record" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aufnehmen"
           }
         }
       }
@@ -888,6 +898,16 @@
         }
       }
     },
+    "Saved — connected" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gespeichert — verbunden"
+          }
+        }
+      }
+    },
     "Saving…" : {
       "localizations" : {
         "de" : {
@@ -945,6 +965,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Einstellungen"
+          }
+        }
+      }
+    },
+    "Settings…" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Einstellungen…"
           }
         }
       }
@@ -1036,6 +1066,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Zum Entscheiden tippen"
+          }
+        }
+      }
+    },
+    "Test connection" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Verbindung testen"
+          }
+        }
+      }
+    },
+    "Testing…" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wird getestet …"
           }
         }
       }
