@@ -1,6 +1,16 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "%@ is not available on the server right now. Pick another destination." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ ist auf dem Server gerade nicht verfügbar. Ein anderes Ziel wählen."
+          }
+        }
+      }
+    },
     "%@ suggested — tap to decide" : {
       "localizations" : {
         "de" : {
@@ -88,46 +98,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "%1$lld von %2$lld: Senden fehlgeschlagen"
-          }
-        }
-      }
-    },
-    "%lld segments" : {
-      "localizations" : {
-        "en" : {
-          "variations" : {
-            "plural" : {
-              "one" : {
-                "stringUnit" : {
-                  "state" : "translated",
-                  "value" : "%lld segment"
-                }
-              },
-              "other" : {
-                "stringUnit" : {
-                  "state" : "translated",
-                  "value" : "%lld segments"
-                }
-              }
-            }
-          }
-        },
-        "de" : {
-          "variations" : {
-            "plural" : {
-              "one" : {
-                "stringUnit" : {
-                  "state" : "translated",
-                  "value" : "%lld Segment"
-                }
-              },
-              "other" : {
-                "stringUnit" : {
-                  "state" : "translated",
-                  "value" : "%lld Segmente"
-                }
-              }
-            }
           }
         }
       }
@@ -243,6 +213,16 @@
         }
       }
     },
+    "All memos" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Alle Memos"
+          }
+        }
+      }
+    },
     "Archive" : {
       "localizations" : {
         "de" : {
@@ -263,12 +243,12 @@
         }
       }
     },
-    "Back" : {
+    "Asking Hermes…" : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Zurück"
+            "value" : "Hermes wird gefragt …"
           }
         }
       }
@@ -344,6 +324,36 @@
         }
       }
     },
+    "Continue" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Fortfahren"
+          }
+        }
+      }
+    },
+    "Conversation" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Unterhaltung"
+          }
+        }
+      }
+    },
+    "Conversations" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Unterhaltungen"
+          }
+        }
+      }
+    },
     "Copied" : {
       "localizations" : {
         "de" : {
@@ -360,6 +370,46 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Kopieren"
+          }
+        }
+      }
+    },
+    "Copy reply" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Antwort kopieren"
+          }
+        }
+      }
+    },
+    "Copy transcript" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Transkript kopieren"
+          }
+        }
+      }
+    },
+    "Cost" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kosten"
+          }
+        }
+      }
+    },
+    "Could not change the login item." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Der Anmeldeobjekt konnte nicht geändert werden."
           }
         }
       }
@@ -384,12 +434,32 @@
         }
       }
     },
+    "Could not load the audio" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Das Audio konnte nicht geladen werden"
+          }
+        }
+      }
+    },
     "Could not load the memo" : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Das Memo ließ sich nicht laden"
+          }
+        }
+      }
+    },
+    "Could not reach the server. Try again." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Der Server ist nicht erreichbar. Erneut versuchen."
           }
         }
       }
@@ -546,12 +616,32 @@
         }
       }
     },
-    "History" : {
+    "General" : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Verlauf"
+            "value" : "Allgemein"
+          }
+        }
+      }
+    },
+    "Hermes" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hermes"
+          }
+        }
+      }
+    },
+    "Hermes threads" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hermes-Threads"
           }
         }
       }
@@ -586,12 +676,32 @@
         }
       }
     },
-    "Memo" : {
+    "Journal" : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Memo"
+            "value" : "Journal"
+          }
+        }
+      }
+    },
+    "Launch Iris at login" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Iris beim Anmelden starten"
+          }
+        }
+      }
+    },
+    "Library" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bibliothek"
           }
         }
       }
@@ -626,16 +736,6 @@
         }
       }
     },
-    "min" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Min."
-          }
-        }
-      }
-    },
     "Needs a route" : {
       "localizations" : {
         "de" : {
@@ -652,16 +752,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Route nötig"
-          }
-        }
-      }
-    },
-    "No memo matches these filters." : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Kein Memo passt zu diesen Filtern."
           }
         }
       }
@@ -696,12 +786,32 @@
         }
       }
     },
+    "Not connected" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nicht verbunden"
+          }
+        }
+      }
+    },
     "Not done" : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Nicht erledigt"
+          }
+        }
+      }
+    },
+    "Not now" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nicht jetzt"
           }
         }
       }
@@ -726,12 +836,22 @@
         }
       }
     },
-    "Open history" : {
+    "Only logged: nothing is sent again." : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Verlauf öffnen"
+            "value" : "Wird nur protokolliert: nichts wird erneut gesendet."
+          }
+        }
+      }
+    },
+    "Open Iris" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Iris öffnen"
           }
         }
       }
@@ -772,6 +892,36 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Optional · das Memo wird auch ohne ihn fertig"
+          }
+        }
+      }
+    },
+    "Play recording" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aufnahme abspielen"
+          }
+        }
+      }
+    },
+    "Play reply" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Antwort abspielen"
+          }
+        }
+      }
+    },
+    "Press it anywhere to start and stop a voice memo." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Drücke sie überall, um ein Sprachmemo zu starten und zu stoppen."
           }
         }
       }
@@ -826,12 +976,32 @@
         }
       }
     },
+    "Receiving the recording…" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aufnahme wird empfangen …"
+          }
+        }
+      }
+    },
     "Record" : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Aufnehmen"
+          }
+        }
+      }
+    },
+    "Record a voice memo with one key. Iris transcribes it, sends it where it belongs and tells you when it is done." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nimm ein Sprachmemo mit einer Taste auf. Iris transkribiert es, schickt es an den richtigen Ort und meldet sich, wenn es fertig ist."
           }
         }
       }
@@ -852,6 +1022,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Antwort"
+          }
+        }
+      }
+    },
+    "Retry" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wiederholen"
           }
         }
       }
@@ -908,6 +1088,26 @@
         }
       }
     },
+    "Route…" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Route …"
+          }
+        }
+      }
+    },
+    "Running" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Läuft"
+          }
+        }
+      }
+    },
     "Save" : {
       "localizations" : {
         "de" : {
@@ -948,6 +1148,26 @@
         }
       }
     },
+    "Select a memo to read it." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wähle ein Memo aus, um es zu lesen."
+          }
+        }
+      }
+    },
+    "Send it somewhere else" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Anderswohin senden"
+          }
+        }
+      }
+    },
     "Sending" : {
       "comment" : "Outbox item state",
       "localizations" : {
@@ -955,16 +1175,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Wird gesendet"
-          }
-        }
-      }
-    },
-    "Server answered with an error" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Server antwortet mit einem Fehler"
           }
         }
       }
@@ -979,6 +1189,16 @@
         }
       }
     },
+    "Server answered with an error" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Server antwortet mit einem Fehler"
+          }
+        }
+      }
+    },
     "Server not reachable — is Tailscale on?" : {
       "localizations" : {
         "de" : {
@@ -989,12 +1209,12 @@
         }
       }
     },
-    "Settings" : {
+    "Set Up Iris" : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Einstellungen"
+            "value" : "Iris einrichten"
           }
         }
       }
@@ -1029,6 +1249,26 @@
         }
       }
     },
+    "Status" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Status"
+          }
+        }
+      }
+    },
+    "Step" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Schritt"
+          }
+        }
+      }
+    },
     "Steps" : {
       "localizations" : {
         "de" : {
@@ -1049,6 +1289,26 @@
         }
       }
     },
+    "Stop recording" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aufnahme beenden"
+          }
+        }
+      }
+    },
+    "Stop reply" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Antwort stoppen"
+          }
+        }
+      }
+    },
     "Stop trying" : {
       "comment" : "Outbox action on a discarded memo's queued removal",
       "localizations" : {
@@ -1056,6 +1316,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Nicht mehr versuchen"
+          }
+        }
+      }
+    },
+    "Suggested" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vorgeschlagen"
           }
         }
       }
@@ -1080,12 +1350,32 @@
         }
       }
     },
+    "Summary" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zusammenfassung"
+          }
+        }
+      }
+    },
     "Tab" : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Tab"
+          }
+        }
+      }
+    },
+    "Tabs" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tabs"
           }
         }
       }
@@ -1225,6 +1515,36 @@
         }
       }
     },
+    "This memo no longer exists." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dieses Memo gibt es nicht mehr."
+          }
+        }
+      }
+    },
+    "This memo was already routed. It has been refreshed." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dieses Memo wurde bereits geroutet. Es wurde aktualisiert."
+          }
+        }
+      }
+    },
+    "Time" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zeit"
+          }
+        }
+      }
+    },
     "Today" : {
       "localizations" : {
         "de" : {
@@ -1281,6 +1601,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Transkribiert"
+          }
+        }
+      }
+    },
+    "Transcribing…" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wird transkribiert …"
           }
         }
       }
@@ -1398,6 +1728,16 @@
         }
       }
     },
+    "Welcome to Iris" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Willkommen bei Iris"
+          }
+        }
+      }
+    },
     "Where should this go?" : {
       "localizations" : {
         "de" : {
@@ -1408,12 +1748,92 @@
         }
       }
     },
+    "Working…" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wird bearbeitet …"
+          }
+        }
+      }
+    },
     "Yesterday" : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Gestern"
+          }
+        }
+      }
+    },
+    "You" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Du"
+          }
+        }
+      }
+    },
+    "blocked" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "blockiert"
+          }
+        }
+      }
+    },
+    "done" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "fertig"
+          }
+        }
+      }
+    },
+    "herdr has no live tab to send this to." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "herdr hat keinen aktiven Tab, an den das gehen könnte."
+          }
+        }
+      }
+    },
+    "herdr is not reachable, so a tab cannot be picked." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "herdr ist nicht erreichbar, daher lässt sich kein Tab wählen."
+          }
+        }
+      }
+    },
+    "idle" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "untätig"
+          }
+        }
+      }
+    },
+    "min" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Min."
           }
         }
       }
@@ -1448,12 +1868,32 @@
         }
       }
     },
+    "working" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "arbeitet"
+          }
+        }
+      }
+    },
     "−%lld %% faster" : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "−%lld %% schneller"
+          }
+        }
+      }
+    },
+    "Could not load the conversation" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Die Unterhaltung konnte nicht geladen werden"
           }
         }
       }

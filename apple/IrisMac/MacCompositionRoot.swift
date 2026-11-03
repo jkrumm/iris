@@ -5,21 +5,20 @@ import CryptoKit
 import Observation
 import Synchronization
 
-/// The page the menu-bar panel shows.
-enum MacPanelPage: Equatable {
-  /// The popover's home: Record, the newest memos, the menu lines. Also the connect prompt while nothing is saved.
-  case home
-  case history
-  case settings
+/// The tabs of the Settings scene.
+enum MacSettingsTab: Hashable {
+  case connection
+  case recording
+  case general
 }
 
 /// The one place that decides which adapters the Mac app runs on. Launch arguments are read here, once.
 ///
 /// - `-IrisFakeData` (screenshots, tests): the fake API client with the sample memos, an in-memory credential store (an
 ///   unsigned build has no Keychain, `-34018`) and a poster that records instead of notifying.
-/// - Otherwise: production. The server URL and device token come from the panel's Settings page (token in the Keychain),
-///   and each connection gets its own ``ReconfigurableAPIClient``. With nothing saved the
-///   panel opens on its home page with a connect prompt and nothing loads.
+/// - Otherwise: production. The server URL and device token come from the Settings scene or the onboarding window (token in the
+///   Keychain), and each connection gets its own ``ReconfigurableAPIClient``. With nothing saved the popover shows a connect
+///   prompt, the onboarding window opens at launch and nothing loads.
 ///
 /// - The capture side (Wave 18 M2): under `-IrisFakeData` a scripted ``FakeTakeEngine`` and permission, no microphone and no
 ///   hotkey registration; otherwise ``MacCaptureStack`` (the outbox on the Mac's audio devices, uploading over the saved
@@ -36,8 +35,13 @@ final class MacCompositionRoot {
   }
 
   let mode: Mode
-  /// The memo list of the current connection; a connection change replaces it, so nothing of the old server stays.
+  /// The popover's memo list (always unfiltered: the newest memos, the needs-route count) of the current connection; a
+  /// connection change replaces it, so nothing of the old server stays.
   private(set) var history: HistoryModel
+  /// The main window's own list: the sidebar scope and the search narrow it, so it never fights the popover's. It loads and follows
+  /// events only while the window is open (``windowDidAppear()``); events come over a client of its own, so the popover's
+  /// stream tap counts no second `ready`.
+  private(set) var windowHistory: HistoryModel
   /// The editable connection (server URL + token).
   @ObservationIgnored private(set) lazy var connectionForm = ConnectionModel(store: credentials) {
     [unowned self] in connectionChanged()
@@ -49,13 +53,32 @@ final class MacCompositionRoot {
   }
   /// Bumped when the saved connection changes.
   private(set) var connectionRevision = 0
-  var page: MacPanelPage
-  /// The memo the detail panel shows; nil until a row is opened.
-  private(set) var detailMemoID: String?
-  /// Bumped by every ``openDetail(_:)``; the always-present menu-bar label opens the detail window when it changes.
-  private(set) var detailRequest = 0
-  /// Bumped when the detail window must close (the connection moved to another server).
-  private(set) var detailDismissals = 0
+  /// The main window's sidebar selection. Choosing one narrows ``windowHistory`` to it (the search text stays); the sidebar's list
+  /// can deselect, which keeps the current scope.
+  var scope: MacLibraryScope? = .all {
+    didSet {
+      guard let scope else {
+        self.scope = oldValue
+        return
+      }
+      var filters = windowHistory.filters
+      scope.apply(to: &filters)
+      guard filters != windowHistory.filters else { return }
+      windowHistory.filters = filters
+    }
+  }
+  /// The memo the main window shows in its detail column; nil until one is selected.
+  var selectedMemoID: String?
+  /// Bumped by every ``show(_:)``; the always-present menu-bar label opens the main window when it changes.
+  private(set) var windowRequest = 0
+  /// Bumped to open the onboarding window (the popover's connect prompt, and once at launch while nothing is saved).
+  private(set) var onboardingRequest = 0
+  /// Memos whose Delete is queued and has not run yet: the toolbar's Delete is off for them, and a second tap does nothing.
+  private(set) var deletingIDs: Set<String> = []
+  /// Bumped to open the Settings scene.
+  private(set) var settingsRequest = 0
+  /// The Settings tab that shows (the snapshot run switches it).
+  var settingsTab = MacSettingsTab.connection
   /// Times the server came back after the stream had been down; an open detail reloads on each.
   private(set) var reconnects = 0
 
@@ -91,6 +114,15 @@ final class MacCompositionRoot {
   /// The fake server behind ``Mode/fake``; tests push events through it.
   let fakeAPI: FakeAPIClient?
   private let sampleNow: Date
+  /// What ``windowHistory`` talks to: the connection's client without the stream tap (its events come mirrored, below).
+  private var baseAPI: any APIClient
+  /// Every event of the current connection's one stream, mirrored for the main window's list.
+  private var windowEvents: AsyncStream<ServerEvent>
+  /// The detail pane's model and the route answer's, one each (see ``detailModel(for:)``).
+  @ObservationIgnored private var detailCache: MacMemoDetailModel?
+  @ObservationIgnored private var routeCache: RouteAnswerModel?
+  /// The main window is on screen: its list takes the mirrored events.
+  private var isWindowOpen = false
   private var following: Task<Void, Never>?
   /// The last queued action per memo; the next one waits for it.
   private var queues: [String: (token: UUID, task: Task<Void, Never>)] = [:]
@@ -121,7 +153,6 @@ final class MacCompositionRoot {
       client = fake
       fakeAPI = fake
       self.credentials = store
-      page = arguments.contains(Self.settingsArgument) ? .settings : .home
       capture = nil
     } else {
       let saved = store.load()
@@ -130,16 +161,17 @@ final class MacCompositionRoot {
       client = reconfigurable
       fakeAPI = nil
       self.credentials = store
-      page = .home
       capture = MacCaptureStack.production(credentials: saved, log: log)
     }
-    let (ready, signal) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
-    let (states, stateSignal) = AsyncStream<MemoEvent>.makeStream()
-    streamReady = ready
-    memoStates = states
-    let tapped = StreamTappingClient(base: client, ready: signal, states: stateSignal)
+    let tap = TappedConnection(base: client)
+    streamReady = tap.ready
+    memoStates = tap.states
+    windowEvents = tap.events
+    let tapped = tap.client
     api = tapped
+    baseAPI = client
     history = Self.makeHistory(client: tapped, mode: mode, serverBox: serverBox)
+    windowHistory = Self.makeHistory(client: client, mode: mode, serverBox: serverBox)
     let isFake = mode == .fake
     notifier = MemoNotifier(
       poster: poster ?? (isFake ? RecordingNotificationPoster() : UserNotificationPoster()),
@@ -230,11 +262,14 @@ final class MacCompositionRoot {
     // Owned by the root, which lives as long as the app. Reads `history` per change: the model of the current connection.
     createdListening = Task { [weak self] in
       for await change in changes {
-        guard let history = self?.history else { return }
-        switch change {
-        case .created(let memo, let origin): history.insert(memo, origin: origin)
-        case .hide(let id): history.hide(id)
-        case .unhide(let id): history.unhide(id)
+        // Both lists: the popover's and the main window's.
+        guard let lists = self.map({ [$0.history, $0.windowHistory] }) else { return }
+        for history in lists {
+          switch change {
+          case .created(let memo, let origin): history.insert(memo, origin: origin)
+          case .hide(let id): history.hide(id)
+          case .unhide(let id): history.unhide(id)
+          }
         }
       }
     }
@@ -277,7 +312,7 @@ final class MacCompositionRoot {
     let token = UUID()
     let task = Task { [weak self] in
       await previous?.value
-      guard let self, revision == connectionRevision, model === history else { return }
+      guard let self, revision == connectionRevision, model === history || model === windowHistory else { return }
       await action(model)
       if let memoID, queues[memoID]?.token == token { queues[memoID] = nil }
     }
@@ -295,20 +330,7 @@ final class MacCompositionRoot {
   static let fakeDataArgument = "-IrisFakeData"
   /// Fakes: the outbox panel starts with a stalled upload, a waiting one and a queued removal (screenshots).
   static let stalledArgument = "-IrisMacStalled"
-  /// Back to the home page. Its newest-memos list is the unfiltered one: History's filters and search are dropped (and the list
-  /// reloaded without them), so the home page never shows a narrowed list.
-  func goHome() {
-    page = .home
-    guard history.filters != HistoryFilters() else { return }
-    history.filters = HistoryFilters()
-    guard isConfigured else { return }
-    let history = history
-    Task { await history.load() }
-  }
-
-  /// Opens the panel on the Settings page (screenshots).
-  static let settingsArgument = "-IrisMacSettings"
-  /// Opens the panel as a regular window at launch, because a menu-bar popover cannot be opened without a click
+  /// Opens the popover as a regular window at launch, because a menu-bar popover cannot be opened without a click
   /// (screenshots).
   static let panelWindowArgument = "-IrisMacPanelWindow"
 
@@ -333,13 +355,13 @@ final class MacCompositionRoot {
   private func follow() async {
     if let fakeAPI { await SampleData.seed(fakeAPI, now: sampleNow) }
     guard isConfigured else { return }
-    let history = history
+    let lists = [history, windowHistory]
     // Opens the outbox and sends what an earlier run left in it (a take made offline, or cut short by a quit). Then the hidden
     // ids of discarded takes whose server `DELETE` is no longer queued are let go (an outbox that cannot be opened says nothing).
     Task {
       await capture?.service.resume()
       if let pending = await capture?.service.pendingDeletionIDs() {
-        history.reconcileHidden(pendingDeletions: pending)
+        for list in lists { list.reconcileHidden(pendingDeletions: pending) }
       }
     }
     notifier.requestPermissionIfNeeded()
@@ -351,7 +373,8 @@ final class MacCompositionRoot {
     async let events: Void = history.observeEvents()
     async let returns: Void = countReturns(of: streamReady)
     async let states: Void = followStates(of: memoStates)
-    _ = await (list, events, returns, states)
+    async let window: Void = followWindow(of: windowEvents)
+    _ = await (list, events, returns, states, window)
   }
 
   /// Every `ready` of the event stream after the first is the server coming back; an open detail reloads on it, and the
@@ -388,47 +411,158 @@ final class MacCompositionRoot {
   /// A clicked banner: opens the memo unless the banner is of another connection (posted before a server switch).
   func openFromNotification(_ id: String, connection: String) {
     guard connection == notifier.connectionID else { return }
-    openDetail(id)
+    show(id, source: "notification")
   }
 
-  /// Shows `id` in the detail panel: a row, or a clicked notification banner.
-  func openDetail(_ id: String) {
-    detailMemoID = id
-    detailRequest += 1
+  /// Shows `id` in the main window (`source`: `menu` or `notification`, for the device log). Selects the memo and asks the menu-bar label
+  /// to open (or raise) the window.
+  func show(_ id: String, source: String = "menu") {
+    selectedMemoID = id
+    showMainWindow(source: source)
   }
 
-  /// The model behind the detail panel for `id`: the list's copy of the memo shows at once, the first load brings the steps.
+  func beginDelete(_ id: String) -> Bool { deletingIDs.insert(id).inserted }
+  func endDelete(_ id: String) { deletingIDs.remove(id) }
+
+  /// Opens (or raises) the main window as it is.
+  func showMainWindow(source: String = "menu") {
+    windowRequest += 1
+    events.window("main", action: "request", source: source)
+  }
+
+  /// A window or scene appeared or closed (`main`, `settings`, `onboarding`), for the device log.
+  func noteWindow(_ name: String, _ action: String) {
+    events.window(name, action: action)
+  }
+
+  /// Opens the onboarding window (the popover's connect prompt).
+  func showOnboarding(source: String = "menu") {
+    onboardingRequest += 1
+    events.window("onboarding", action: "request", source: source)
+  }
+
+  /// Opens the Settings scene.
+  func showSettings(source: String = "menu") {
+    settingsRequest += 1
+    events.window("settings", action: "request", source: source)
+  }
+
+  /// Nothing is saved on a real install: the app has nothing to show until the onboarding window has taken a connection.
+  var needsOnboarding: Bool { mode == .production && !isConfigured }
+
+  /// The main window is on screen: its list follows the mirrored events until ``windowDidDisappear()``. The window's own
+  /// `.task(id: filters)` loads the first page; the stream's `ready` reloads it.
+  func windowDidAppear() {
+    isWindowOpen = true
+  }
+
+  func windowDidDisappear() {
+    isWindowOpen = false
+  }
+
+  /// Hands the stream's events to the window's list while the window is open; the popover's list consumes the same events itself.
+  private func followWindow(of events: AsyncStream<ServerEvent>) async {
+    for await event in events {
+      guard !Task.isCancelled else { return }
+      guard isWindowOpen else { continue }
+      await windowHistory.handle(event)
+    }
+  }
+
+  /// The Mac window's media: a recording or the spoken reply downloaded with the device token (fake clips under `-IrisFakeData`).
+  var mediaSource: any MemoMediaSource {
+    _ = connectionRevision
+    if mode == .fake { return FakeMediaSource() }
+    guard let saved = credentials.load() else { return UnavailableMediaSource() }
+    return AuthenticatedMediaSource(baseURL: saved.serverURL, bearerToken: saved.token)
+  }
+
+  /// Makes the main window's list hold `memo`, which it may not (a popover row or a banner opened a memo past the window's filter or
+  /// loaded pages): the scope goes to All memos (Archive for an archived memo, which All hides), the search is cleared, the first
+  /// page loads, and the memo is inserted into the list. Its actions resolve the memo in the list when they run, so it must be there.
+  /// A load that finishes after the insert replaces the list, so the insert is repeated until it sticks (bounded).
+  func ensureHeld(_ memo: Memo) async {
+    guard isConfigured, !windowHistory.memos.contains(where: { $0.id == memo.id }) else { return }
+    windowHistory.filters.searchText = ""
+    scope = memo.archived ? .archive : .all
+    await windowHistory.load()
+    for _ in 0..<5 {
+      guard !windowHistory.memos.contains(where: { $0.id == memo.id }) else { return }
+      windowHistory.insert(memo)
+      try? await Task.sleep(for: .milliseconds(100))
+      while windowHistory.isLoading, !Task.isCancelled { try? await Task.sleep(for: .milliseconds(50)) }
+    }
+  }
+
+  /// The model that answers a parked memo (or corrects a finished one) from the detail pane. `onStale` reloads the memo. One per
+  /// memo and state, kept until another is asked for: the views ask on every render and must get the same model.
+  func routeAnswerModel(for memo: Memo, onStale: @escaping () -> Void = {}) -> RouteAnswerModel {
+    if let cached = routeCache, cached.memo.id == memo.id, cached.memo.state == memo.state { return cached }
+    let model = RouteAnswerModel(memo: memo, client: api, onStale: onStale)
+    routeCache = model
+    return model
+  }
+
+  /// The model behind the detail pane for `id`: the list's copy of the memo shows at once, the first load brings the steps. One per
+  /// memo, kept until another memo is asked for or the connection changes.
   func detailModel(for id: String) -> MacMemoDetailModel {
-    MacMemoDetailModel(
-      memoID: id, memo: history.memos.first { $0.id == id }, client: api, pasteboard: MacPasteboard())
+    if let cached = detailCache, cached.memoID == id { return cached }
+    // A new detail model is a new pane: the route model's `onStale` belongs to the old pane, so it goes too.
+    routeCache = nil
+    let model = MacMemoDetailModel(
+      memoID: id, memo: (windowHistory.memos + history.memos).first { $0.id == id }, client: api,
+      pasteboard: MacPasteboard())
+    detailCache = model
+    return model
   }
 
-  /// The saved connection changed: everything that belongs to the old server goes (its list, the open detail and the window,
+  /// The saved connection changed: everything that belongs to the old server goes (its lists, the selected memo,
   /// what was announced), the client points at the new one, and following starts over.
   private func connectionChanged() {
     following?.cancel()
     let base: any APIClient =
       fakeAPI ?? ReconfigurableAPIClient(credentials: credentials.load())
-    let (ready, signal) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
-    let (states, stateSignal) = AsyncStream<MemoEvent>.makeStream()
-    streamReady = ready
-    memoStates = states
-    api = StreamTappingClient(base: base, ready: signal, states: stateSignal)
+    let tap = TappedConnection(base: base)
+    streamReady = tap.ready
+    memoStates = tap.states
+    windowEvents = tap.events
+    api = tap.client
+    baseAPI = base
     serverBox.value = credentials.load()?.serverKey
     history = Self.makeHistory(client: api, mode: mode, serverBox: serverBox)
+    windowHistory = Self.makeHistory(client: base, mode: mode, serverBox: serverBox)
+    scope?.apply(to: &windowHistory.filters)
     notifier.reset(connectionID: Self.connectionID(for: credentials.load()))
     queues = [:]
+    deletingIDs = []
+    detailCache = nil
+    routeCache = nil
     capture?.reconnect(credentials.load())
     log.serverChanged(credentials.load()?.serverURL)
-    closeDetail()
+    selectedMemoID = nil
     reconnects = 0
     connectionRevision += 1
     begin()
   }
+}
 
-  private func closeDetail() {
-    detailMemoID = nil
-    detailDismissals += 1
+/// One connection's client wrapped in the stream tap, with the three streams the tap feeds: `ready` (the stream connected), the memo
+/// states in order, and every event (mirrored to the main window's list). A new connection gets a new one, so nothing of the old
+/// server's stream reaches the new consumers.
+private struct TappedConnection {
+  let client: StreamTappingClient
+  let ready: AsyncStream<Void>
+  let states: AsyncStream<MemoEvent>
+  let events: AsyncStream<ServerEvent>
+
+  init(base: any APIClient) {
+    let (ready, readySignal) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+    let (states, stateSignal) = AsyncStream<MemoEvent>.makeStream()
+    let (events, eventSignal) = AsyncStream<ServerEvent>.makeStream()
+    self.ready = ready
+    self.states = states
+    self.events = events
+    client = StreamTappingClient(base: base, ready: readySignal, states: stateSignal, mirror: eventSignal)
   }
 }
 

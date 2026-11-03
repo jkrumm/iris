@@ -483,7 +483,12 @@ struct QueuePersistenceTests {
       id: "r", kind: .voiceMemo, title: "Voice memo", queuedAt: MemoFactory.now, state: .recording)
     let failed = QueuedItem(
       id: "f", kind: .typedMemo, title: "Typed", queuedAt: MemoFactory.now, state: .failed(retryAt: nil, reason: nil))
-    #expect(!recording.canDiscard && failed.canDiscard)
+    #expect(!recording.offersDiscard && failed.offersDiscard)
+    var removal = QueuedItem(
+      id: "d", kind: .removal, title: "Discarded memo", queuedAt: MemoFactory.now, state: .sending)
+    #expect(!removal.offersDiscard, "a delete that is running is already discarded")
+    removal.state = .failed(retryAt: MemoFactory.now, reason: nil)
+    #expect(removal.offersDiscard, "one whose attempt failed can be stopped")
 
     let source = RecordingQueue()
     let model = SettingsModel(client: client, queue: source)

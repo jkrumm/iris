@@ -175,8 +175,12 @@ nonisolated final class OutboxService: QueuedItemSource {
       logger.error("discard of \(id, privacy: .public) not applied, the outbox cannot be opened")
       return false
     }
-    // A row that is a stalled server `DELETE` has nothing to discard but the attempt itself.
-    if await outbox.queue().first(where: { $0.id == memoID })?.isDeletion == true {
+    // A row the user cannot discard is refused, not silently "done": a waiting or running server `DELETE` (the discard that queued
+    // it may have just returned) must not be abandoned, or the memo survives on the server.
+    let row = await outbox.queue().first(where: { $0.id == memoID })
+    if let row, !QueuedItem(row).offersDiscard { return false }
+    // A stalled server `DELETE` has nothing to discard but the attempt itself.
+    if let row, row.isDeletion {
       await outbox.abandonDeletion(memoID)
       await created.settle(memoID.wireID)
       return true

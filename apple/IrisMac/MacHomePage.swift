@@ -1,3 +1,4 @@
+import AppKit
 import IrisCore
 import IrisUI
 import SwiftUI
@@ -16,17 +17,23 @@ struct MacHomePage: View {
       recent
       MacMenuDivider()
       MacMenuLine(
-        title: String(localized: "Open history", comment: "Menu line: opens the history page"),
-        id: "mac.menu.history",
-        hint: "⌘H"  // l10n:ignore key hint
-      ) { root.page = .history }
-      .keyboardShortcut("h")
+        title: String(localized: "Open Iris", comment: "Menu line: opens the main window"),
+        id: "mac.menu.open",
+        hint: "⌘O"  // l10n:ignore key hint
+      ) { root.showMainWindow() }
+      .keyboardShortcut("o")
       MacMenuLine(
-        title: String(localized: "Settings…", comment: "Menu line: opens the settings page"),
+        title: String(localized: "Settings…", comment: "Menu line: opens the settings window"),
         id: "mac.menu.settings",
         hint: "⌘,"  // l10n:ignore key hint
-      ) { root.page = .settings }
+      ) { root.showSettings() }
       .keyboardShortcut(",")
+      MacMenuLine(
+        title: String(localized: "Quit Iris", comment: "Quits the menu-bar app"),
+        id: "mac.menu.quit",
+        hint: "⌘Q"  // l10n:ignore key hint
+      ) { NSApplication.shared.terminate(nil) }
+      .keyboardShortcut("q")
       MacConnectionLine(root: root)
     }
     .padding(Theme.Spacing.menuInset)
@@ -80,9 +87,9 @@ struct MacHomePage: View {
           .themeFont(.footnote)
           .foregroundStyle(Theme.Ink.muted)
           .multilineTextAlignment(.center)
-        Button(String(localized: "Open Settings", comment: "Opens Settings → Connection")) { root.page = .settings }
+        Button(String(localized: "Set Up Iris", comment: "Opens the onboarding window")) { root.showOnboarding() }
           .buttonStyle(.borderedProminent)
-          .accessibilityIdentifier("mac.history.connect")
+          .accessibilityIdentifier("mac.menu.connect")
       }
       .frame(maxWidth: .infinity)
       .padding(Theme.Spacing.menuInset)

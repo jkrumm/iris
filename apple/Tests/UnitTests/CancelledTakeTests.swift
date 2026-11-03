@@ -104,6 +104,24 @@ struct CancelledTakeTests {
     #expect(await waitFor { await rig.service.queuedItems().isEmpty }, "an acknowledged delete leaves the queue")
   }
 
+  @Test("a second discard of the same take, while the delete the first one queued is on the wire, does not abandon it")
+  func secondDiscardKeepsThePendingDelete() async throws {
+    let rig = OutboxRig(client: client)
+    let (session, id) = try await createdTake(rig)
+    let gate = await client.hold(.deleteMemo)
+    await session.cancel()
+    await gate.waitUntilHeld()
+    #expect(await rig.service.queuedItems().map(\.kind) == [.removal])
+
+    // The row is running, not failed: a repeated discard is refused and leaves it to finish.
+    #expect(await !rig.service.discardQueued(id: id.wireID), "refused: the delete is running")
+    #expect(await rig.service.pendingDeletionIDs() == [id.wireID])
+
+    gate.release()
+    #expect(await waitFor { await deleted(id) }, "the memo is still deleted on the server")
+    #expect(await waitFor { await rig.service.queuedItems().isEmpty })
+  }
+
   @Test("a segment that was on the wire when the take was cancelled is dropped on its 409, not stalled")
   func inFlightSegmentIsDroppedOnConflict() async throws {
     let gate = UploadGate()

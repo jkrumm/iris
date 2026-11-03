@@ -74,6 +74,14 @@ struct MacEvents {
       ["action": .string(action), "kind": .string(kind), "ok": .bool(ok)])
   }
 
+  /// `mac.window`: a window or scene of the desktop app opened or closed (`main`, `settings`, `onboarding`) and what asked for it
+  /// (`menu`, `notification`, `launch`, `shortcut`). Names only: never the memo that is shown.
+  func window(_ name: String, action: String, source: String? = nil) {
+    var attributes: [String: AttributeValue] = ["window": .string(name), "action": .string(action)]
+    if let source { attributes["source"] = .string(source) }
+    log.event("mac.window", attributes)
+  }
+
   /// `app.lifecycle`: launch and quit of the menu-bar app (it has no scene phases).
   func lifecycle(_ phase: MacLifecyclePhase) {
     // A quit is durable: the process is going, and the crash file is what the next launch sends.

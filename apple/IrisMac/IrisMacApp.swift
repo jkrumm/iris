@@ -1,9 +1,12 @@
 import AppKit
+import IrisUI
 import SwiftUI
 
 @main
 struct IrisMacApp: App {
   @State private var root: MacCompositionRoot
+  /// ⌘Tab and the Dock while a real window is open.
+  private let activation = MacActivationPolicy()
 
   init() {
     let root = MacCompositionRoot()
@@ -13,9 +16,13 @@ struct IrisMacApp: App {
     root.startTelemetry()
     // The list and the event stream run from launch, popover open or not: a notification per finished memo needs them.
     root.begin()
-    if root.mode == .fake, let snapshot = MacSnapshotRun(arguments: ProcessInfo.processInfo.arguments, root: root) {
-      Task { await snapshot.run() }
-    }
+    activation.install()
+    // The screenshot proof exists in Debug builds only (it reaches for a private window capture), and only on the fake composition.
+    #if DEBUG
+      if root.mode == .fake, let snapshot = MacSnapshotRun(arguments: ProcessInfo.processInfo.arguments, root: root) {
+        Task { await snapshot.run() }
+      }
+    #endif
   }
 
   var body: some Scene {
@@ -26,13 +33,25 @@ struct IrisMacApp: App {
     }
     .menuBarExtraStyle(.window)
 
-    // The memo detail: one window, reused by the next memo that is opened.
-    Window(String(localized: "Memo", comment: "Window title of the memo detail"), id: MenuBarLabel.detailWindowID) {
-      MacMemoDetailPanel(root: root)
+    // The main window: sidebar, memo list and the selected memo. Opened by the popover, a clicked banner and onboarding.
+    Window(String(localized: "Iris", comment: "Main window title"), id: MacWindowID.main) {
+      MacMainWindow(root: root)
     }
-    .defaultSize(width: 560, height: 700)
+    .defaultSize(width: Theme.Spacing.windowWidth, height: Theme.Spacing.windowHeight)
     .windowResizability(.contentMinSize)
     .defaultLaunchBehavior(.suppressed)
+
+    // First launch with nothing saved, and the popover's connect prompt.
+    Window(String(localized: "Welcome to Iris", comment: "Onboarding window title"), id: MacWindowID.onboarding) {
+      MacOnboardingView(root: root, model: root.connectionForm, tester: root.connectionTest)
+    }
+    .windowResizability(.contentSize)
+    .defaultLaunchBehavior(.suppressed)
+
+    // ⌘, : the native tabbed Settings window.
+    Settings {
+      MacSettingsView(root: root)
+    }
 
     // The panel as a regular window, only for screenshots: a menu-bar popover cannot be opened without a click.
     Window(String(localized: "Iris panel", comment: "Window title of the verification panel"), id: "panel") {
@@ -44,13 +63,12 @@ struct IrisMacApp: App {
   }
 }
 
-/// The menu-bar icon. It is the one view that always exists, so it opens the detail window when a row or a clicked
-/// notification asks for a memo.
+/// The menu-bar icon. It is the one view that always exists, so it opens the windows when the popover, a clicked notification
+/// or the onboarding asks for one, and the onboarding window at launch while nothing is saved.
 private struct MenuBarLabel: View {
-  static let detailWindowID = "memo"
   let root: MacCompositionRoot
   @Environment(\.openWindow) private var openWindow
-  @Environment(\.dismissWindow) private var dismissWindow
+  @Environment(\.openSettings) private var openSettings
 
   /// The waveform; while a take runs, white on a red rounded square (`.extra.rec` in the mockup). A coloured image, not a
   /// template, because the menu bar tints templates itself.
@@ -81,10 +99,21 @@ private struct MenuBarLabel: View {
   var body: some View {
     icon
       .accessibilityLabel(String(localized: "Iris", comment: "Menu bar item title"))
-      .onChange(of: root.detailRequest) {
-        openWindow(id: Self.detailWindowID)
-        NSApp.activate()
+      .task {
+        guard root.needsOnboarding else { return }
+        root.showOnboarding(source: "launch")
       }
-      .onChange(of: root.detailDismissals) { dismissWindow(id: Self.detailWindowID) }
+      .onChange(of: root.windowRequest) { open(MacWindowID.main) }
+      .onChange(of: root.onboardingRequest) { open(MacWindowID.onboarding) }
+      .onChange(of: root.settingsRequest) {
+        // An accessory app has no active window to host the scene: activate first.
+        NSApp.activate()
+        openSettings()
+      }
+  }
+
+  private func open(_ id: String) {
+    openWindow(id: id)
+    NSApp.activate()
   }
 }

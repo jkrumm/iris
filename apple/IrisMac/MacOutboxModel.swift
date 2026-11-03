@@ -21,6 +21,9 @@ final class MacOutboxModel {
   @ObservationIgnored private let source: any QueuedItemSource
   /// Counts refreshes: one whose answer arrives after a later one started is stale and is dropped.
   @ObservationIgnored private var refreshes = 0
+  /// Items whose Discard is on its way: a second tap on the same row waits for the first, so it never reaches the queue while
+  /// the first one is still working on it.
+  @ObservationIgnored private var discarding: Set<String> = []
   /// Told what the user did to a queued item (the device log's `outbox.user_action`).
   @ObservationIgnored var report: (_ action: String, _ item: QueuedItem, _ ok: Bool) -> Void = { _, _, _ in }
 
@@ -71,7 +74,8 @@ final class MacOutboxModel {
 
   /// Drops an item from the queue, with what was recorded for it (a queued server delete: stops trying).
   func discard(_ item: QueuedItem) async {
-    guard item.canDiscard else { return }
+    guard item.offersDiscard, discarding.insert(item.id).inserted else { return }
+    defer { discarding.remove(item.id) }
     let reached = await source.discardQueued(id: item.id)
     discardFailed = !reached
     report("discard", item, reached)

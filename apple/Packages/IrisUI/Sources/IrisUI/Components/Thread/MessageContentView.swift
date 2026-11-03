@@ -8,11 +8,17 @@ public struct MessageContentView: View {
   private let blocks: [MessageBlock]
   private let mermaid: [Int: MermaidAsset]
   private let onOpenImage: (CGImage) -> Void
+  private let textRole: Theme.TextRole
 
-  public init(markdown: String, mermaid: [Int: MermaidAsset] = [:], onOpenImage: @escaping (CGImage) -> Void = { _ in })
-  {
+  /// `textRole` is the body size of the text blocks (headings, code and lists scale from it): the iPhone's 16 pt `.callout`, the
+  /// Mac passes `.footnote` (13 pt).
+  public init(
+    markdown: String, mermaid: [Int: MermaidAsset] = [:], textRole: Theme.TextRole = .callout,
+    onOpenImage: @escaping (CGImage) -> Void = { _ in }
+  ) {
     blocks = MessageBlockCache.blocks(for: markdown)
     self.mermaid = mermaid
+    self.textRole = textRole
     self.onOpenImage = onOpenImage
   }
 
@@ -47,7 +53,7 @@ public struct MessageContentView: View {
       .textual.textSelection(.enabled)
       .textual.paragraphStyle(IrisParagraphStyle())
       .textual.listItemSpacing(IrisParagraphStyle.listItemSpacing)
-      .themeFont(.callout)
+      .themeFont(textRole)
       .foregroundStyle(Theme.Ink.primary)
       .frame(maxWidth: .infinity, alignment: .leading)
   }

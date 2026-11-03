@@ -177,7 +177,7 @@ Without these, a device round shows only that a row fails, never why. Wave 17 D2
 ## Mac hands-on rows (Wave 18 M2, owner's MacBook)
 
 What the mini proved: the panel, the model and the take path on fakes (`IrisMacTests`, `IrisCaptureTests`), screenshots of the real floating panel and of the
-refused-microphone message (`IrisMac -IrisFakeData -IrisMacPanelWindow -IrisMacSnapshot <dir>`: `recording.png`, `recording-refused.png`, `settings.png`). What it
+refused-microphone message (`IrisMac -IrisFakeData -IrisMacPanelWindow -IrisMacSnapshot <dir>`: `recording.png`, `recording-refused.png`, `settings-connection.png`). What it
 cannot prove: the microphone prompt, a real hotkey press, a real take. The mini has no microphone and nobody to answer a TCC prompt.
 
 **Signing (why it matters).** macOS keys the microphone grant to the code signature. An ad-hoc or unsigned build gets a new identity on every build, so Iris would

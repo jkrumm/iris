@@ -1,4 +1,5 @@
 import Foundation
+import Synchronization
 import Testing
 
 @testable import IrisMac
@@ -79,6 +80,39 @@ struct MacOutboxModelTests {
     #expect(queue.discarded.isEmpty && model.items.count == 1)
   }
 
+  @Test(
+    "a queued server delete offers Stop trying only once its attempt has failed; a waiting or running one counts as discarded"
+  )
+  func removalDiscardOnlyWhenFailed() async {
+    var removal = QueuedItem(
+      id: "44444444-4444-4444-8444-444444444444", kind: .removal, title: "Discarded memo", queuedAt: Date(),
+      state: .waiting)
+    #expect(!removal.offersDiscard)
+    removal.state = .sending
+    #expect(!removal.offersDiscard)
+    let (model, queue) = await model([removal])
+    await model.discard(removal)
+    #expect(queue.discarded.isEmpty, "a delete that is waiting or running is not abandoned")
+    removal.state = .failed(retryAt: Date().addingTimeInterval(30), reason: nil)
+    #expect(removal.offersDiscard)
+    removal.state = .failed(retryAt: nil, reason: "refused")
+    #expect(removal.offersDiscard)
+  }
+
+  @Test("a second tap on Discard while the first is still working on the row never reaches the queue")
+  func discardIsSingleFlight() async {
+    let queue = GatedDiscardQueue(ScriptedQueue([Self.stalled]))
+    let model = MacOutboxModel(source: queue)
+    await model.refresh()
+    let first = Task { await model.discard(Self.stalled) }
+    #expect(await eventually { queue.calls == 1 })
+    await model.discard(Self.stalled)
+    #expect(queue.calls == 1, "the second tap found the first one still running")
+    queue.open()
+    await first.value
+    #expect(queue.calls == 1 && queue.inner.discarded == [Self.stalled.id])
+  }
+
   @Test("a take still recording is not waiting: the strip stays hidden for it")
   func recordingIsNotWaiting() async {
     var recording = Self.sending
@@ -117,5 +151,28 @@ struct MacOutboxModelTests {
     #expect(await eventually { model.items.count == 1 })
     queue.set([])
     #expect(await eventually { model.items.isEmpty })
+  }
+}
+
+/// A queue whose `discardQueued` waits at the door until ``open()``, so a test can tap Discard again while the first is in flight.
+private final class GatedDiscardQueue: QueuedItemSource {
+  let inner: ScriptedQueue
+  private let count = Mutex(0)
+  private let door = AsyncStream<Void>.makeStream()
+
+  init(_ inner: ScriptedQueue) { self.inner = inner }
+
+  var calls: Int { count.withLock { $0 } }
+  func open() { door.continuation.yield() }
+
+  func queuedItems() async -> [QueuedItem] { await inner.queuedItems() }
+  func isAvailable() async -> Bool { await inner.isAvailable() }
+  func changes() async -> AsyncStream<Void> { await inner.changes() }
+  func retry(id: String) async { await inner.retry(id: id) }
+  func discard(id: String) async { _ = await discardQueued(id: id) }
+  func discardQueued(id: String) async -> Bool {
+    count.withLock { $0 += 1 }
+    for await _ in door.stream { break }
+    return await inner.discardQueued(id: id)
   }
 }

@@ -1207,19 +1207,22 @@ Two `StaticConfiguration` widgets in `IrisWidgets/HomeWidgets.swift`; the views,
     memos, an in-memory credential store (an unsigned build has no Keychain, `-34018`) and a notification poster that
     records; otherwise production, with the iPhone's `ReconfigurableAPIClient`, `ConnectionModel` and `KeychainCredentialStore`
     (same sources, compiled into both targets). With nothing saved the panel opens on its home page with a connect prompt and nothing loads.
-  - *Panel:* a 360 pt wide `.window` popover (`docs/design/mockups/mac.html`, variant `menu`) with three pages (`MacPanelPage`).
-    Home fits its content: the title with a Record button (the same toggle as the hotkey, showing the recorded key), the newest five
-    memos as compact rows (`MacMemoRow`: headline on one line, time, status dot and route; a context menu for done / favorite /
-    archive / delete, the undo toast shows on every page), the menu lines "Open history" and "Settings…", and the connection line
-    (`MacConnectionStatus`, from `HistoryModel.link`); with nothing saved it shows a connect prompt. Home always shows the
-    unfiltered list: going back drops History's filters (`goHome`). History is the same row on the same `HistoryModel` with a plain
-    search field, Mac-sized filter chips and day sections. Settings holds the connection form with Save and Test connection
-    (`ConnectionTester`: `/health`, then `/v1/whoami`, on the typed values), the recording key and Quit.
-  - *Detail panel:* one `Window` ("Memo"), reused by the next memo opened; it opens from a row or a clicked notification banner
-    (the always-present menu-bar label observes `detailRequest`). `MacMemoDetailView` composes the `IrisUI` pieces (`StepWaterfall`,
-    `DetailSectionLabel`, `detailCard`, `RouteChip`) over `MacMemoDetailModel`: steps with the stats baselines, transcript and
-    reply with Copy as plain text, retry from the waterfall. Not yet: the recording and spoken-reply players (the iOS `MemoPlayer`
-    configures an `AVAudioSession`, which macOS does not have) and the route sheet for a parked memo.
+  - *Panel:* a 360 pt wide `.window` popover (`docs/design/mockups/mac.html`, variant `menu`), the quick-access surface and one page
+    (`MacHomePage`): the title with a Record button (the same toggle as the hotkey, showing the recorded key), the newest five
+    memos as compact rows (`MacMemoRow`: headline on one line, time, status dot and route; a click opens the main window on that
+    memo, a context menu for done / favorite / archive / delete, the undo toast), the lines Open Iris, Settings… and Quit Iris, and the
+    connection line (`MacConnectionStatus`, from `HistoryModel.link`); with nothing saved it shows a connect prompt that opens the
+    onboarding window. Its list is always the unfiltered `root.history`.
+  - *Desktop windows:* History, the memo detail and Settings are windows of a desktop app, not popover pages (the owner's review of the
+    first version: an iOS view ported to the Mac reads oversized and boxed). The main window "Iris" is a `NavigationSplitView`: sidebar
+    (library and conversation filters over `HistoryFilters`), a native `List` of compact rows on the window's own `HistoryModel`
+    (day sections, search in the toolbar, Delete, Space plays), and a document-style detail (`MacMemoDetailPane`: headline, one
+    metadata line, the route answer bar for a parked memo, reply, summary, transcript, a steps table, a thread's conversation read
+    only; actions in the toolbar). Settings is the native tabbed `Settings` scene (Connection, Recording, General) and the onboarding
+    window takes a first connection (Test connection must pass). Type is the macOS scale (11 / 13 / 15 / 18 pt, `Theme.MacTextRole`);
+    colours, route dots and wording stay Iris's. `MacActivationPolicy` shows the app in the Dock and ⌘Tab while such a window is open.
+    Playback uses a bare `AVPlayer` (`MacAudioPlayer`; macOS has no `AVAudioSession`). Not on the Mac: Mermaid images (shown as code),
+    replying inside a thread. The window's list takes the popover's one event stream by mirror (`StreamTappingClient.mirror`), not a second connection.
   - *Live updates:* the list and `HistoryModel.observeEvents()` start at launch, independently of each other (a hung first list
     request does not hold the stream back; its `ready` event reloads the list), whether or not the popover was ever opened, and
     restart on a connection change. The list reloads on every stream reconnect.
@@ -1245,17 +1248,17 @@ Two `StaticConfiguration` widgets in `IrisWidgets/HomeWidgets.swift`; the views,
     banner of another connection from Notification Center, as does launch); a banner carries its connection id (a digest of the server URL and token, so it survives an app restart
     and changes only with the saved connection) and a click on a banner of another connection is ignored; queued row actions of
     the old list are dropped, and the actions on one memo run in tap order, each on the memo as it is then, so the last tap wins on the server
-    (`MacCompositionRoot.perform`); the detail window closes and following restarts.
+    (`MacCompositionRoot.perform`); the main window's list is replaced, its selection clears and following restarts.
   - *Open detail:* reloads on each `memo.updated` and on every stream `ready` (`StreamTappingClient`; a list request that
     succeeds during an outage does not count), and a response overtaken by a newer load is dropped.
-  - *Rows match iOS (Wave 19 M1):* the list applies the iPhone list's spacing roles (`Theme.Spacing.rowVertical` and `screenMargin` as
+  - *Rows match iOS (Wave 19 M1; the popover's History page this describes is gone, the main window uses the macOS scale):* the list applies the iPhone list's spacing roles (`Theme.Spacing.rowVertical` and `screenMargin` as
     row insets, `screenMargin` header insets, `sectionTop` / `sectionBottom` around the day label, the first label shortened by
     `chipTapOverhang`, header and row minimum heights 0, the search field on `screenMargin`), so a row and its inset separator sit on
     the same 20 pt margin as `HistoryView`'s. By design not the same: no disclosure chevron (a click opens the detail window), the
     search field is on top (the iPhone's is a bottom bar), and `listSectionSpacing` does not exist on macOS (a plain list has none).
   - *Proof:* a menu-bar popover cannot be opened without a click and the mini has no Screen Recording grant, so
     `-IrisMacPanelWindow` shows the same panel as a regular window and `-IrisMacSnapshot <dir>` has the app write PNGs of its own
-    windows (history, detail, settings, the recording panel and its refused message) and quit (any further launch flag, such as `-IrisMacStalled`,
+    windows (the popover, the main window in four states, the Settings tabs, onboarding, the recording panel and its refused message) and quit (any further launch flag, such as `-IrisMacStalled`,
     goes **after** `-IrisMacSnapshot <dir>`: between `-IrisMacPanelWindow` and it, the panel window is not created); snapshot mode only exists on the fake composition. Unit tests: `IrisMacTests`,
     hosted in the app (launched with `-IrisFakeData`), run by `make check-apple`.
 - **Signing:** a stable Apple Development identity. Ad-hoc signing resets TCC
