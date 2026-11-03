@@ -89,13 +89,13 @@ struct MacOutboxStrip: View {
       )
       .accessibilityIdentifier("mac.outbox.row")
       let canRetry = item.state.canRetry
-      if canRetry || item.canDiscard {
+      if canRetry || item.offersDiscard {
         HStack(spacing: Theme.Spacing.lg) {
           if canRetry {
             Button(String(localized: "Retry now", comment: "Outbox action")) { Task { await model.retry(item) } }
               .accessibilityIdentifier("mac.outbox.retry")
           }
-          if item.canDiscard {
+          if item.offersDiscard {
             Button(item.discardTitle, role: .destructive) { Task { await model.discard(item) } }
               .accessibilityIdentifier("mac.outbox.discard")
           }

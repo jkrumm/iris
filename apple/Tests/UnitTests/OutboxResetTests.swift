@@ -262,6 +262,13 @@ struct OutboxResetTests {
     #expect(
       await waitFor { await rig.service.queuedItems().contains { $0.kind == .removal && $0.title == "Voice memo" } },
       "the pending delete is a row of the queue")
+    // "Stop trying" is for a delete whose attempt failed; one still running or waiting already counts as discarded.
+    #expect(
+      await waitFor {
+        await rig.service.queuedItems().contains { item in
+          if case .failed = item.state { item.kind == .removal } else { false }
+        }
+      }, "the refused delete has failed")
 
     await rig.service.discard(id: id.wireID)  // "Stop trying"
     #expect(await rig.service.queuedItems().isEmpty)

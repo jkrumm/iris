@@ -17,9 +17,12 @@ struct IrisMacApp: App {
     // The list and the event stream run from launch, popover open or not: a notification per finished memo needs them.
     root.begin()
     activation.install()
-    if root.mode == .fake, let snapshot = MacSnapshotRun(arguments: ProcessInfo.processInfo.arguments, root: root) {
-      Task { await snapshot.run() }
-    }
+    // The screenshot proof exists in Debug builds only (it reaches for a private window capture), and only on the fake composition.
+    #if DEBUG
+      if root.mode == .fake, let snapshot = MacSnapshotRun(arguments: ProcessInfo.processInfo.arguments, root: root) {
+        Task { await snapshot.run() }
+      }
+    #endif
   }
 
   var body: some Scene {

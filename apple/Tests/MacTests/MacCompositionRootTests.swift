@@ -1,5 +1,6 @@
 import Foundation
 import IrisCore
+import Synchronization
 import Testing
 
 @testable import IrisMac
@@ -121,6 +122,84 @@ struct MacCompositionRootTests {
     #expect(root.scope == .hermesThreads, "a deselect keeps the scope")
     root.scope = .all
     #expect(root.windowHistory.filters.quick == nil && root.windowHistory.filters.kind == nil)
+  }
+
+  /// The window's list loads from its own view; a test loads it (the sample memos are seeded by `begin()`, so the first loads may be empty).
+  private func loadedWindow(_ root: MacCompositionRoot) async -> Bool {
+    await eventually {
+      await root.windowHistory.load()
+      return !root.windowHistory.memos.isEmpty
+    }
+  }
+
+  @Test("actions from the main window's list run, and are dropped after a connection change")
+  func windowActionsRun() async {
+    let root = fakeRoot()
+    let fake = root.fakeAPI
+    root.begin()
+    #expect(await loadedWindow(root))
+    let ran = Mutex(0)
+    root.perform(on: root.windowHistory) { _ in ran.withLock { $0 += 1 } }
+    #expect(await eventually { ran.withLock { $0 } == 1 })
+
+    let stale = root.windowHistory
+    let old = root.history
+    switchServer(root)
+    root.perform(on: stale) { _ in ran.withLock { $0 += 1 } }
+    root.perform(on: old) { _ in ran.withLock { $0 += 1 } }
+    try? await Task.sleep(for: .milliseconds(200))
+    #expect(ran.withLock { $0 } == 1, "an action of the old connection never runs")
+    _ = fake
+  }
+
+  @Test(
+    "an action on a memo the filtered window list does not hold runs on the detail's copy; Delete clears the selection once queued"
+  )
+  func actionsOnAMemoOutsideTheList() async throws {
+    let root = fakeRoot()
+    let fake = try #require(root.fakeAPI)
+    root.begin()
+    #expect(await loadedWindow(root))
+    root.scope = .favorites
+    #expect(await eventually { !root.windowHistory.isLoading })
+    await root.windowHistory.load()
+    let memo = try await fake.memo(id: Self.finished).memo
+    #expect(!root.windowHistory.memos.contains { $0.id == memo.id })
+    let actions = MacMemoActions(root: root, model: root.windowHistory)
+
+    actions.toggleFavorite(memo)
+    #expect(await eventually { await fake.memos[Self.finished]?.memo.favorite == true })
+
+    root.show(Self.finished)
+    actions.delete(memo)
+    #expect(await eventually { await fake.memos[Self.finished]?.memo.deletedAt != nil })
+    #expect(root.selectedMemoID == nil)
+  }
+
+  @Test("Delete on a memo that cannot be deleted keeps the selection")
+  func undeletableKeepsSelection() async throws {
+    let root = fakeRoot()
+    let fake = try #require(root.fakeAPI)
+    root.begin()
+    #expect(await loadedWindow(root))
+    var memo = try await fake.memo(id: Self.finished).memo
+    memo.state = .received
+    root.show(memo.id)
+    MacMemoActions(root: root, model: root.windowHistory).delete(memo)
+    #expect(root.selectedMemoID == memo.id)
+  }
+
+  @Test("the detail and route models are one per memo until another is asked for or the connection changes")
+  func modelsAreCached() throws {
+    let root = fakeRoot()
+    let first = root.detailModel(for: "a")
+    #expect(root.detailModel(for: "a") === first && root.detailModel(for: "b") !== first)
+    let memo = Memo(
+      id: "a", mode: .auto, device: "d", startedAt: .now, state: .needsRoute, createdAt: .now, updatedAt: .now)
+    #expect(root.routeAnswerModel(for: memo) === root.routeAnswerModel(for: memo))
+    let before = root.detailModel(for: "a")
+    switchServer(root)
+    #expect(root.detailModel(for: "a") !== before)
   }
 
   @Test("the sidebar scopes map onto the shared filters, and the needs-route badge is the popover's pinned count")

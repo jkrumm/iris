@@ -27,6 +27,8 @@ final class MacMemoDetailModel {
   /// The conversation a chat or continued-thread memo belongs to (`GET /v1/threads/:id`), read only; nil for any other memo or
   /// while it loads. A failed read leaves the memo's own transcript and reply on screen.
   private(set) var thread: ThreadDetail?
+  /// The conversation could not be read: the view says so and shows the memo's own transcript and reply instead.
+  private(set) var threadFailed = false
   private(set) var baselines = StepBaselines()
   private(set) var isRetrying = false
   private(set) var loadFailed = false
@@ -114,15 +116,20 @@ final class MacMemoDetailModel {
   private func loadThread(of memo: Memo, generation current: Int) async {
     guard memo.opensThread, let threadId = memo.threadId else {
       thread = nil
+      threadFailed = false
       return
     }
     do {
       let fresh = try await client.thread(id: threadId)
       guard !Task.isCancelled, current == generation else { return }
       thread = fresh
+      threadFailed = false
     } catch is CancellationError {
       return
     } catch {
+      guard current == generation else { return }
+      // A conversation already on screen stays; only a thread that never loaded is reported.
+      if thread == nil { threadFailed = true }
       logger.error("thread load failed: \(String(describing: error), privacy: .public)")
     }
   }

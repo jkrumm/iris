@@ -55,11 +55,15 @@ struct MacConnectionForm: View {
         }
       }
       Section {
+        // One row: what a test or save since the last edit found, else what the link says (the two would read "Connected" twice).
         LabeledContent(String(localized: "Status", comment: "Settings: the connection status row")) {
-          status
+          if tester.outcome != nil {
+            MacTestResultLine(outcome: tester.outcome)
+          } else {
+            status
+          }
         }
         .accessibilityIdentifier("mac.settings.status")
-        MacTestResultLine(outcome: tester.outcome)
       }
       Section {
         HStack {

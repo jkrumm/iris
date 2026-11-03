@@ -285,7 +285,10 @@ final class HistoryModel {
 
   /// Removes the row at once; the toast offers the undo for as long as the server keeps the memo.
   func delete(_ memo: Memo) async {
-    guard let before = held(memo.id), before.state.isDeletable else { return }
+    // A memo the list does not hold (the Mac detail pane opened it from a notification, past the filter or the loaded pages)
+    // is deleted as the caller has it.
+    let before = held(memo.id) ?? memo
+    guard before.state.isDeletable else { return }
     lifecycle[before.id, default: 0] += 1
     let started = lifecycle[before.id]
     remove(before.id)
@@ -391,7 +394,8 @@ final class HistoryModel {
 
   /// Applies the flags to the row first and rolls it back (position included) when the server refuses.
   private func update(_ memo: Memo, done: Bool? = nil, favorite: Bool? = nil, archived: Bool? = nil) async {
-    guard let before = held(memo.id) else { return }
+    // The list's copy when it has one, else the caller's (see ``delete(_:)``): `place` then shows it only where the filters allow.
+    let before = held(memo.id) ?? memo
     var after = before
     after.done = done ?? after.done
     after.favorite = favorite ?? after.favorite

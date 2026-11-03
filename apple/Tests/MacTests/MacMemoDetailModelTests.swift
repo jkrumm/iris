@@ -114,4 +114,17 @@ struct MacMemoDetailModelTests {
     await plain.load()
     #expect(plain.thread == nil)
   }
+
+  @Test("a conversation that cannot be read is reported, not left loading; a later success clears it")
+  func threadFailure() async {
+    let api = FakeAPIClient()
+    await SampleData.seed(api)
+    await api.enqueueFailure(.transport(.notConnectedToInternet), for: .thread)
+    let chat = MacMemoDetailModel(
+      memoID: SampleData.chatThreadID, client: api, pasteboard: RecordingPasteboard())
+    await chat.load()
+    #expect(chat.memo?.opensThread == true && chat.thread == nil && chat.threadFailed)
+    await chat.load()
+    #expect(chat.thread != nil && !chat.threadFailed)
+  }
 }

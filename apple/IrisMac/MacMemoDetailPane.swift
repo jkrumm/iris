@@ -34,6 +34,12 @@ struct MacMemoDetailPane: View {
     if let memo = model.memo {
       VStack(alignment: .leading, spacing: Theme.Spacing.macSectionGap) {
         MacMemoHeader(memo: memo, totals: totals)
+        if let failure = player.failure, player.failedMemoID == memo.id {
+          Label(failure, systemImage: "speaker.slash")
+            .macFont(.body)
+            .foregroundStyle(Theme.Status.bad)
+            .accessibilityIdentifier("mac.detail.player-failure")
+        }
         if memo.state == .needsRoute {
           MacRouteAnswerBar(model: root.routeAnswerModel(for: memo, onStale: reload), onRouted: routed)
             .id(memo.id)

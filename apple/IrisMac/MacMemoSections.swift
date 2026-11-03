@@ -10,13 +10,13 @@ struct MacMemoSections: View {
   var body: some View {
     if let memo = model.memo {
       VStack(alignment: .leading, spacing: Theme.Spacing.macSectionGap) {
-        if memo.opensThread {
-          conversation(memo)
-        } else {
-          reply(memo)
-        }
+        // A thread memo shows the conversation, of which its own reply and transcript are a turn; while the conversation cannot
+        // be read, they are all there is.
+        let showsOwnTurn = !memo.opensThread || model.threadFailed
+        if memo.opensThread { conversation }
+        if showsOwnTurn { reply(memo) }
         summary(memo)
-        if !memo.opensThread { transcript(memo) }
+        if showsOwnTurn { transcript(memo) }
         steps(memo)
       }
     }
@@ -61,18 +61,28 @@ struct MacMemoSections: View {
 
   // MARK: Conversation
 
-  @ViewBuilder private func conversation(_ memo: Memo) -> some View {
-    MacSection(String(localized: "Conversation", comment: "Section label of a thread's turns")) {
-      if let thread = model.thread {
-        VStack(alignment: .leading, spacing: Theme.Spacing.macSectionGap) {
-          ForEach(thread.messages, id: \.self) { message in
-            turn(message)
+  @ViewBuilder private var conversation: some View {
+    if model.thread != nil || !model.threadFailed {
+      MacSection(String(localized: "Conversation", comment: "Section label of a thread's turns")) {
+        if let thread = model.thread {
+          VStack(alignment: .leading, spacing: Theme.Spacing.macSectionGap) {
+            ForEach(thread.messages, id: \.self) { message in
+              turn(message)
+            }
           }
+          .accessibilityIdentifier("mac.detail.conversation")
+        } else {
+          ProgressView().controlSize(.small)
         }
-        .accessibilityIdentifier("mac.detail.conversation")
-      } else {
-        ProgressView().controlSize(.small)
       }
+    } else {
+      Label(
+        String(localized: "Could not load the conversation", comment: "Detail: a thread could not be read"),
+        systemImage: "exclamationmark.triangle"
+      )
+      .macFont(.body)
+      .foregroundStyle(Theme.Status.warn)
+      .accessibilityIdentifier("mac.detail.conversation-error")
     }
   }
 

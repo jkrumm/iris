@@ -17,15 +17,19 @@ struct MacMemoActions {
   func toggleArchived(_ memo: Memo) { act(memo) { await $0.toggleArchived($1) } }
   func delete(_ memo: Memo) {
     guard memo.state.isDeletable else { return }
-    // The deleted memo leaves the list, so the detail pane has nothing to show for it.
-    if root.selectedMemoID == memo.id { root.selectedMemoID = nil }
-    act(memo) { await $0.delete($1) }
+    act(memo) { [root] model, current in
+      // The deleted memo leaves the list, so the detail pane has nothing to show for it: cleared when the delete runs, not
+      // before (a delete dropped by a connection change never clears the new connection's selection).
+      if root.selectedMemoID == current.id { root.selectedMemoID = nil }
+      await model.delete(current)
+    }
   }
 
+  /// `memo` is the caller's copy (the row's, or the detail's): the list's own copy wins when it has one, else the action runs on
+  /// the caller's, because the window's list is filtered and paged and need not hold a memo opened from the popover or a banner.
   private func act(_ memo: Memo, _ action: @escaping @MainActor (HistoryModel, Memo) async -> Void) {
     root.perform(on: model, memoID: memo.id) { model in
-      guard let current = model.memos.first(where: { $0.id == memo.id }) else { return }
-      await action(model, current)
+      await action(model, model.memos.first(where: { $0.id == memo.id }) ?? memo)
     }
   }
 }

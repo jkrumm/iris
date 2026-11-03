@@ -1887,6 +1887,16 @@
           }
         }
       }
+    },
+    "Could not load the conversation" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Die Unterhaltung konnte nicht geladen werden"
+          }
+        }
+      }
     }
   },
   "version" : "1.0"

@@ -19,7 +19,9 @@ final class MacAudioPlayer {
   private(set) var current: (memoID: String, clip: MacClip)?
   private(set) var isPlaying = false
   private(set) var isLoading = false
+  /// Why the last clip did not play, and the memo it was for; cleared by the next start.
   private(set) var failure: String?
+  private(set) var failedMemoID: String?
 
   private var player: AVPlayer?
   private var endObserver: (any NSObjectProtocol)?
@@ -49,6 +51,7 @@ final class MacAudioPlayer {
     current = (memoID, clip)
     isLoading = true
     failure = nil
+    failedMemoID = nil
     Task {
       do {
         let url = try await downloader.localURL(for: request)
@@ -60,6 +63,7 @@ final class MacAudioPlayer {
         guard started == generation else { return }
         logger.error("clip not loaded: \(String(describing: error), privacy: .public)")
         failure = String(localized: "Could not load the audio", comment: "Detail: playback failed")
+        failedMemoID = memoID
         stop()
       }
     }

@@ -103,7 +103,7 @@ extension Theme.Spacing {
 
 /// The Mac desktop app (main window, Settings, onboarding). Values follow the macOS HIG for lists and forms (a compact row is
 /// about 40 pt, a content margin 20 pt, a sidebar 200-240 pt wide) and ntfy-mac's `HistoryWindow` / `SettingsWindow`
-/// (`/Users/jkrumm/SourceRoot/ntfy-mac/App/Sources/`: 220 pt sidebar, 340 pt list, 20 pt detail margins).
+/// (220 pt sidebar, 340 pt list, 20 pt detail margins).
 extension Theme.Spacing {
   /// The three columns of the main window: sidebar, list and the least the detail may shrink to.
   public static let windowSidebarMin: CGFloat = 190

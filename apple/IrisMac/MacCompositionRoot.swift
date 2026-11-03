@@ -116,6 +116,9 @@ final class MacCompositionRoot {
   private var baseAPI: any APIClient
   /// Every event of the current connection's one stream, mirrored for the main window's list.
   private var windowEvents: AsyncStream<ServerEvent>
+  /// The detail pane's model and the route answer's, one each (see ``detailModel(for:)``).
+  @ObservationIgnored private var detailCache: MacMemoDetailModel?
+  @ObservationIgnored private var routeCache: RouteAnswerModel?
   /// The main window is on screen: its list takes the mirrored events.
   private var isWindowOpen = false
   private var following: Task<Void, Never>?
@@ -158,13 +161,11 @@ final class MacCompositionRoot {
       self.credentials = store
       capture = MacCaptureStack.production(credentials: saved, log: log)
     }
-    let (ready, signal) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
-    let (states, stateSignal) = AsyncStream<MemoEvent>.makeStream()
-    let (mirrored, mirrorSignal) = AsyncStream<ServerEvent>.makeStream()
-    streamReady = ready
-    memoStates = states
-    windowEvents = mirrored
-    let tapped = StreamTappingClient(base: client, ready: signal, states: stateSignal, mirror: mirrorSignal)
+    let tap = TappedConnection(base: client)
+    streamReady = tap.ready
+    memoStates = tap.states
+    windowEvents = tap.events
+    let tapped = tap.client
     api = tapped
     baseAPI = client
     history = Self.makeHistory(client: tapped, mode: mode, serverBox: serverBox)
@@ -259,11 +260,14 @@ final class MacCompositionRoot {
     // Owned by the root, which lives as long as the app. Reads `history` per change: the model of the current connection.
     createdListening = Task { [weak self] in
       for await change in changes {
-        guard let history = self?.history else { return }
-        switch change {
-        case .created(let memo, let origin): history.insert(memo, origin: origin)
-        case .hide(let id): history.hide(id)
-        case .unhide(let id): history.unhide(id)
+        // Both lists: the popover's and the main window's.
+        guard let lists = self.map({ [$0.history, $0.windowHistory] }) else { return }
+        for history in lists {
+          switch change {
+          case .created(let memo, let origin): history.insert(memo, origin: origin)
+          case .hide(let id): history.hide(id)
+          case .unhide(let id): history.unhide(id)
+          }
         }
       }
     }
@@ -306,7 +310,7 @@ final class MacCompositionRoot {
     let token = UUID()
     let task = Task { [weak self] in
       await previous?.value
-      guard let self, revision == connectionRevision, model === history else { return }
+      guard let self, revision == connectionRevision, model === history || model === windowHistory else { return }
       await action(model)
       if let memoID, queues[memoID]?.token == token { queues[memoID] = nil }
     }
@@ -349,13 +353,13 @@ final class MacCompositionRoot {
   private func follow() async {
     if let fakeAPI { await SampleData.seed(fakeAPI, now: sampleNow) }
     guard isConfigured else { return }
-    let history = history
+    let lists = [history, windowHistory]
     // Opens the outbox and sends what an earlier run left in it (a take made offline, or cut short by a quit). Then the hidden
     // ids of discarded takes whose server `DELETE` is no longer queued are let go (an outbox that cannot be opened says nothing).
     Task {
       await capture?.service.resume()
       if let pending = await capture?.service.pendingDeletionIDs() {
-        history.reconcileHidden(pendingDeletions: pending)
+        for list in lists { list.reconcileHidden(pendingDeletions: pending) }
       }
     }
     notifier.requestPermissionIfNeeded()
@@ -468,16 +472,24 @@ final class MacCompositionRoot {
     return AuthenticatedMediaSource(baseURL: saved.serverURL, bearerToken: saved.token)
   }
 
-  /// The model that answers a parked memo (or corrects a finished one) from the detail pane. `onStale` reloads the memo.
+  /// The model that answers a parked memo (or corrects a finished one) from the detail pane. `onStale` reloads the memo. One per
+  /// memo and state, kept until another is asked for: the views ask on every render and must get the same model.
   func routeAnswerModel(for memo: Memo, onStale: @escaping () -> Void = {}) -> RouteAnswerModel {
-    RouteAnswerModel(memo: memo, client: api, onStale: onStale)
+    if let cached = routeCache, cached.memo.id == memo.id, cached.memo.state == memo.state { return cached }
+    let model = RouteAnswerModel(memo: memo, client: api, onStale: onStale)
+    routeCache = model
+    return model
   }
 
-  /// The model behind the detail pane for `id`: the list's copy of the memo shows at once, the first load brings the steps.
+  /// The model behind the detail pane for `id`: the list's copy of the memo shows at once, the first load brings the steps. One per
+  /// memo, kept until another memo is asked for or the connection changes.
   func detailModel(for id: String) -> MacMemoDetailModel {
-    MacMemoDetailModel(
+    if let cached = detailCache, cached.memoID == id { return cached }
+    let model = MacMemoDetailModel(
       memoID: id, memo: (windowHistory.memos + history.memos).first { $0.id == id }, client: api,
       pasteboard: MacPasteboard())
+    detailCache = model
+    return model
   }
 
   /// The saved connection changed: everything that belongs to the old server goes (its lists, the selected memo,
@@ -486,13 +498,11 @@ final class MacCompositionRoot {
     following?.cancel()
     let base: any APIClient =
       fakeAPI ?? ReconfigurableAPIClient(credentials: credentials.load())
-    let (ready, signal) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
-    let (states, stateSignal) = AsyncStream<MemoEvent>.makeStream()
-    let (mirrored, mirrorSignal) = AsyncStream<ServerEvent>.makeStream()
-    streamReady = ready
-    memoStates = states
-    windowEvents = mirrored
-    api = StreamTappingClient(base: base, ready: signal, states: stateSignal, mirror: mirrorSignal)
+    let tap = TappedConnection(base: base)
+    streamReady = tap.ready
+    memoStates = tap.states
+    windowEvents = tap.events
+    api = tap.client
     baseAPI = base
     serverBox.value = credentials.load()?.serverKey
     history = Self.makeHistory(client: api, mode: mode, serverBox: serverBox)
@@ -500,12 +510,34 @@ final class MacCompositionRoot {
     scope?.apply(to: &windowHistory.filters)
     notifier.reset(connectionID: Self.connectionID(for: credentials.load()))
     queues = [:]
+    detailCache = nil
+    routeCache = nil
     capture?.reconnect(credentials.load())
     log.serverChanged(credentials.load()?.serverURL)
     selectedMemoID = nil
     reconnects = 0
     connectionRevision += 1
     begin()
+  }
+}
+
+/// One connection's client wrapped in the stream tap, with the three streams the tap feeds: `ready` (the stream connected), the memo
+/// states in order, and every event (mirrored to the main window's list). A new connection gets a new one, so nothing of the old
+/// server's stream reaches the new consumers.
+private struct TappedConnection {
+  let client: StreamTappingClient
+  let ready: AsyncStream<Void>
+  let states: AsyncStream<MemoEvent>
+  let events: AsyncStream<ServerEvent>
+
+  init(base: any APIClient) {
+    let (ready, readySignal) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+    let (states, stateSignal) = AsyncStream<MemoEvent>.makeStream()
+    let (events, eventSignal) = AsyncStream<ServerEvent>.makeStream()
+    self.ready = ready
+    self.states = states
+    self.events = events
+    client = StreamTappingClient(base: base, ready: readySignal, states: stateSignal, mirror: eventSignal)
   }
 }
 
