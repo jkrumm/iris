@@ -1,4 +1,5 @@
 import AppKit
+import IrisCapture
 import Foundation
 import os
 import SwiftUI
@@ -10,6 +11,9 @@ import SwiftUI
 struct MacSnapshotRun {
   static let argument = "-IrisMacSnapshot"
   private static let logger = Logger(subsystem: "com.jkrumm.iris", category: "snapshot")
+
+  /// The panel window's title as the app localizes it (the scene is declared with `String(localized:)`).
+  private static let panelTitle = String(localized: "Iris panel", comment: "Window title of the verification panel")
 
   let directory: URL
   let root: MacCompositionRoot
@@ -30,7 +34,12 @@ struct MacSnapshotRun {
       Self.logger.error("snapshot directory not created: \(String(describing: error), privacy: .public)")
     }
     try? await Task.sleep(for: .seconds(4))
-    write(windowTitled: "Iris panel", as: "history")
+    root.page = .home
+    try? await Task.sleep(for: .seconds(1))
+    write(windowTitled: Self.panelTitle, as: "menu")
+    root.page = .history
+    try? await Task.sleep(for: .seconds(1))
+    write(windowTitled: Self.panelTitle, as: "history")
     root.openDetail(detailMemoID)
     try? await Task.sleep(for: .seconds(2))
     // The detail window of an app that was launched in the background is not drawn until the app is active (a click), so the
@@ -46,15 +55,26 @@ struct MacSnapshotRun {
     write(windowTitled: "Iris detail snapshot", as: "detail")
     offscreen.close()
     root.page = .settings
+    // The form filled in and probed, so the result line is in the picture.
+    root.connectionForm.urlText = "https://iris.example.com"
+    root.connectionForm.tokenText = "token"
+    try? await Task.sleep(for: .milliseconds(300))
+    root.connectionTest.test(urlText: root.connectionForm.urlText, tokenText: root.connectionForm.tokenText)
+    await root.connectionTest.settled()
     try? await Task.sleep(for: .seconds(1))
-    write(windowTitled: "Iris panel", as: "settings")
+    write(windowTitled: Self.panelTitle, as: "settings")
     await writeRecordingPanel()
+    // A long microphone name must truncate, not push Stop out of the panel.
+    let long = InputPort(
+      uid: "fake-long", name: "Yeti Nano Professional Studio Condenser Microphone (USB)", kind: .usb)
+    root.fakeTake?.setMicrophones(Microphones(inputs: [FakeAudioDeviceDirectory.builtIn, long], current: long))
+    await writeRecordingPanel(as: "recording-longmic")
     await writeRefusedPanel()
     NSApp.terminate(nil)
   }
 
   /// The real floating panel while a take records: the hotkey's path (`toggle`), a scripted level, the panel's own window.
-  private func writeRecordingPanel() async {
+  private func writeRecordingPanel(as name: String = "recording") async {
     root.recording.toggle()
     await root.recording.settled()
     for level in Self.levels {
@@ -62,7 +82,7 @@ struct MacSnapshotRun {
       try? await Task.sleep(for: .milliseconds(40))
     }
     try? await Task.sleep(for: .seconds(1.5))
-    write(windowTitled: RecordingPanelController.title, as: "recording")
+    write(windowTitled: RecordingPanelController.title, as: name)
     root.recording.cancel()
     await root.recording.settled()
   }

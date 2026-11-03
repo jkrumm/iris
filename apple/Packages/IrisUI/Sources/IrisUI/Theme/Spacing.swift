@@ -50,3 +50,53 @@ extension Theme.Spacing {
   public static let cardInsetHorizontal = inset
   public static let cardInsetVertical = md
 }
+
+/// The Mac menu-bar popover (`mac.html`, variant `menu`: `.menu`, `.menu .top`, `.menu .m`, `.menu .ln`, `.menu .st`).
+extension Theme.Spacing {
+  /// `.menu` width (340) plus room for the German strings; every page of the popover is this wide.
+  public static let menuWidth: CGFloat = 360
+  /// Height of the History and Settings pages (the home page fits its content).
+  public static let menuPageHeight: CGFloat = 520
+  /// `.menu` padding and the gap between its children.
+  public static let menuInset = md
+  public static let menuGap = hair
+  /// `.menu .top` padding: 4 above, 10 below, 6 at the sides.
+  public static let menuHeaderTop = xs
+  public static let menuHeaderBottom = cozy
+  public static let menuHeaderSide = snug
+  /// `.menu .m`: padding 9 / 10, column gap 10, line gap 1, radius 12.
+  public static let menuRowVertical: CGFloat = 9
+  public static let menuRowHorizontal = cozy
+  public static let menuRowLineGap: CGFloat = 1
+  public static let menuRowRadius: CGFloat = 12
+  /// `.menu .ln`: padding 7 / 10, radius 8.
+  public static let menuLineVertical: CGFloat = 7
+  public static let menuLineRadius: CGFloat = 8
+  /// `.menu hr`: 6 above and below and at the sides.
+  public static let menuDivider = snug
+  /// `.menu .st`: padding 6 / 10 / 2.
+  public static let menuFooterTop = snug
+  public static let menuFooterBottom = hair
+  /// A Mac chip's height (the quick-filter row in the popover's history page).
+  public static let menuChipHeight: CGFloat = 26
+  /// The Record button's padding (`.btn.sm`).
+  public static let menuButtonVertical = snug
+  public static let menuButtonHorizontal = cozy
+}
+
+/// The Mac recording panel (`mac.html`, variant `panel`: `.panel`, `.panel .hd`, `.lvl`, `.ft`, `.btn`).
+extension Theme.Spacing {
+  /// `.panel` is 360 wide in the mockup; the real strings (German, a long microphone name) need more, and nothing may clip.
+  public static let panelWidth: CGFloat = 420
+  /// `.panel` radius 26, padding 16 / 18, gap 12.
+  public static let panelRadius: CGFloat = 26
+  public static let panelVertical = lg
+  public static let panelHorizontal: CGFloat = 18
+  public static let panelGap = md
+  /// `.panel .lvl` height.
+  public static let panelLevelHeight: CGFloat = 38
+  /// `.panel .btn` height 34, padding 14; `.panel .ft .chip` height 30.
+  public static let panelButtonHeight: CGFloat = 34
+  public static let panelButtonInset = inset
+  public static let panelChipHeight = chipHeight
+}

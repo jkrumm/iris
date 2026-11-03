@@ -7,6 +7,8 @@ import Synchronization
 
 /// The page the menu-bar panel shows.
 enum MacPanelPage: Equatable {
+  /// The popover's home: Record, the newest memos, the menu lines. Also the connect prompt while nothing is saved.
+  case home
   case history
   case settings
 }
@@ -17,7 +19,7 @@ enum MacPanelPage: Equatable {
 ///   unsigned build has no Keychain, `-34018`) and a poster that records instead of notifying.
 /// - Otherwise: production. The server URL and device token come from the panel's Settings page (token in the Keychain),
 ///   and each connection gets its own ``ReconfigurableAPIClient``. With nothing saved the
-///   panel opens on Settings and nothing loads.
+///   panel opens on its home page with a connect prompt and nothing loads.
 ///
 /// - The capture side (Wave 18 M2): under `-IrisFakeData` a scripted ``FakeTakeEngine`` and permission, no microphone and no
 ///   hotkey registration; otherwise ``MacCaptureStack`` (the outbox on the Mac's audio devices, uploading over the saved
@@ -39,6 +41,11 @@ final class MacCompositionRoot {
   /// The editable connection (server URL + token).
   @ObservationIgnored private(set) lazy var connectionForm = ConnectionModel(store: credentials) {
     [unowned self] in connectionChanged()
+  }
+  /// Probes a server with the values typed in Settings, before or after saving them.
+  @ObservationIgnored private(set) lazy var connectionTest = ConnectionTester { [fakeAPI] credentials in
+    if let fakeAPI { return fakeAPI }
+    return URLSessionAPIClient(baseURL: credentials.serverURL, bearerToken: credentials.token)
   }
   /// Bumped when the saved connection changes.
   private(set) var connectionRevision = 0
@@ -114,7 +121,7 @@ final class MacCompositionRoot {
       client = fake
       fakeAPI = fake
       self.credentials = store
-      page = arguments.contains(Self.settingsArgument) ? .settings : .history
+      page = arguments.contains(Self.settingsArgument) ? .settings : .home
       capture = nil
     } else {
       let saved = store.load()
@@ -123,7 +130,7 @@ final class MacCompositionRoot {
       client = reconfigurable
       fakeAPI = nil
       self.credentials = store
-      page = saved == nil ? .settings : .history
+      page = .home
       capture = MacCaptureStack.production(credentials: saved, log: log)
     }
     let (ready, signal) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
@@ -142,7 +149,8 @@ final class MacCompositionRoot {
     recording = RecordingPanelModel(
       engine: engine, permission: permission ?? (isFake ? FakeMicrophonePermission() : SystemMicrophonePermission()),
       isConfigured: { isFake || store.load() != nil })
-    recordingPanel = RecordingPanelController(model: recording)
+    let takeHotkey: any TakeHotkey = hotkey ?? (isFake ? FakeTakeHotkey() : KeyboardShortcutsHotkey())
+    recordingPanel = RecordingPanelController(model: recording, shortcut: { takeHotkey.shortcutDescription })
     let queue: any QueuedItemSource
     if let capture {
       queue = capture.service
@@ -150,7 +158,7 @@ final class MacCompositionRoot {
       queue = ScriptedQueue(arguments.contains(Self.stalledArgument) ? ScriptedQueue.stalledSample : [])
     }
     outbox = MacOutboxModel(source: queue)
-    self.hotkey = hotkey ?? (isFake ? FakeTakeHotkey() : KeyboardShortcutsHotkey())
+    self.hotkey = takeHotkey
     // Always fetched: the list's copy can be stale, and a failed refresh must not announce a memo that is still running.
     notifier.lookup = { [weak self] id in try? await self?.api.memo(id: id).memo }
     // The catch-up reads the newest memos with no filter: History's filters decide what its list shows, not what is announced.
@@ -260,7 +268,7 @@ final class MacCompositionRoot {
   /// never act on the new server.
   ///
   /// Actions on one memo (`memoID`) run one after the other in the order they were made, so the last tap is the last request the
-  /// server sees; a later action looks the memo up again when it runs (see ``MacHistoryList``), it does not act on a copy from tap time.
+  /// server sees; a later action looks the memo up again when it runs (see ``MacMemoRow``), it does not act on a copy from tap time.
   func perform(
     on model: HistoryModel, memoID: String? = nil, _ action: @escaping @MainActor (HistoryModel) async -> Void
   ) {
@@ -287,6 +295,17 @@ final class MacCompositionRoot {
   static let fakeDataArgument = "-IrisFakeData"
   /// Fakes: the outbox panel starts with a stalled upload, a waiting one and a queued removal (screenshots).
   static let stalledArgument = "-IrisMacStalled"
+  /// Back to the home page. Its newest-memos list is the unfiltered one: History's filters and search are dropped (and the list
+  /// reloaded without them), so the home page never shows a narrowed list.
+  func goHome() {
+    page = .home
+    guard history.filters != HistoryFilters() else { return }
+    history.filters = HistoryFilters()
+    guard isConfigured else { return }
+    let history = history
+    Task { await history.load() }
+  }
+
   /// Opens the panel on the Settings page (screenshots).
   static let settingsArgument = "-IrisMacSettings"
   /// Opens the panel as a regular window at launch, because a menu-bar popover cannot be opened without a click
@@ -404,7 +423,6 @@ final class MacCompositionRoot {
     closeDetail()
     reconnects = 0
     connectionRevision += 1
-    page = isConfigured ? .history : .settings
     begin()
   }
 

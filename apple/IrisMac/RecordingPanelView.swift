@@ -6,8 +6,12 @@ import SwiftUI
 /// The floating panel's content: the running time, the level, the microphone and Stop / Cancel while a take records, and a
 /// short message when it could not start or lost something.
 struct RecordingPanelView: View {
-  static let width: CGFloat = 360
+  static let width = Theme.Spacing.panelWidth
+  /// `.panel .tm`: 54 pt, light. The type scale stops at 30, so the one display size of this panel is named here.
+  private static let timerSize: CGFloat = 54
   let model: RecordingPanelModel
+  /// The recorded key ("⌃⌥M"); nil when none is set. Read when the view draws.
+  var shortcut: () -> String? = { nil }
   /// Told the content's size whenever it changes (a message is taller than the running take), so the panel follows it.
   var onResize: (CGSize) -> Void = { _ in }
 
@@ -21,10 +25,11 @@ struct RecordingPanelView: View {
       case .failed(let failure): message(for: failure)
       }
     }
-    .padding(Theme.Spacing.lg)
+    .padding(.horizontal, Theme.Spacing.panelHorizontal)
+    .padding(.vertical, Theme.Spacing.panelVertical)
     .frame(width: Self.width, alignment: .leading)
-    .background(.regularMaterial, in: .rect(cornerRadius: Theme.Radius.floating))
-    .overlay { RoundedRectangle(cornerRadius: Theme.Radius.floating).stroke(Theme.Surface.hairline) }
+    .background(.regularMaterial, in: .rect(cornerRadius: Theme.Spacing.panelRadius))
+    .overlay { RoundedRectangle(cornerRadius: Theme.Spacing.panelRadius).stroke(Theme.Surface.hairline) }
     .onGeometryChange(for: CGSize.self) {
       $0.size
     } action: {
@@ -37,62 +42,131 @@ struct RecordingPanelView: View {
     HStack(spacing: Theme.Spacing.sm) {
       ProgressView().controlSize(.small)
       Text(verbatim: title)
-        .themeFont(.body)
+        .themeFont(.subheadline)
         .foregroundStyle(Theme.Ink.secondary)
     }
   }
 
   private func recording(since: Date) -> some View {
-    VStack(alignment: .leading, spacing: Theme.Spacing.md) {
-      HStack(spacing: Theme.Spacing.sm) {
-        Image(systemName: "circle.fill")
-          .font(.system(size: 10, weight: .bold))
-          .foregroundStyle(Theme.Status.bad)
-          .accessibilityHidden(true)
+    VStack(alignment: .leading, spacing: Theme.Spacing.panelGap) {
+      header
+      HStack(alignment: .firstTextBaseline, spacing: Theme.Spacing.xs) {
         ElapsedTimerText(start: since)
-          .themeFont(.title3, weight: .semibold)
+          .font(.system(size: Self.timerSize, weight: .light))
+          .tracking(-1)
           .foregroundStyle(Theme.Ink.primary)
+          .lineLimit(1)
           .accessibilityIdentifier("mac.recording.time")
-        LevelWaveform(levels: model.recentLevels)
-          .frame(height: Theme.Spacing.xl)
-          .accessibilityIdentifier("mac.recording.level")
+        Text("min", comment: "Unit after the running time in the recording panel")
+          .themeFont(.subheadline)
+          .foregroundStyle(Theme.Ink.faint)
       }
+      LevelWaveform(levels: model.recentLevels)
+        .frame(height: Theme.Spacing.panelLevelHeight)
+        .accessibilityIdentifier("mac.recording.level")
       HStack(spacing: Theme.Spacing.sm) {
         microphonePicker
         Spacer(minLength: Theme.Spacing.sm)
-        Button(String(localized: "Cancel", comment: "Drops the running take")) { model.cancel() }
-          .accessibilityIdentifier("mac.recording.cancel")
-        Button(String(localized: "Stop", comment: "Ends the running take and sends it")) { model.stop() }
-          .keyboardShortcut(.defaultAction)
-          .buttonStyle(.borderedProminent)
-          .tint(Theme.Status.bad)
-          .accessibilityIdentifier("mac.recording.stop")
+        cancelButton.layoutPriority(1)
+        stopButton.layoutPriority(1)
       }
     }
   }
 
-  private var microphonePicker: some View {
-    Picker(
-      String(localized: "Microphone", comment: "Recording panel microphone picker"),
-      selection: Binding(
-        get: { model.microphones.current?.uid ?? "" },
-        set: { model.select(microphone: $0) })
-    ) {
-      ForEach(model.microphones.inputs, id: \.uid) { input in
-        Text(verbatim: input.name).tag(input.uid)
+  /// `.panel .hd`: the red "RECORDING" and the key that stops it.
+  private var header: some View {
+    HStack(spacing: Theme.Spacing.sm) {
+      Circle().fill(Theme.Status.bad).frame(width: Theme.Spacing.sm, height: Theme.Spacing.sm)
+        .accessibilityHidden(true)
+      Text("Recording", comment: "Recording panel header while a take runs")
+        .textCase(.uppercase)
+        .tracking(0.5)
+        .foregroundStyle(Theme.Status.bad)
+        .fontWeight(.semibold)
+      Spacer(minLength: Theme.Spacing.sm)
+      if let key = shortcut() {
+        Text("\(key) to stop", comment: "Recording panel: the key that stops the take, e.g. ⌃⌥M")
+          .foregroundStyle(Theme.Ink.faint)
+          .lineLimit(1)
       }
     }
-    .pickerStyle(.menu)
-    .labelsHidden()
-    .fixedSize()
-    .disabled(model.microphones.inputs.count < 2)
+    .themeFont(.footnote, weight: .medium)
+  }
+
+  private var stopButton: some View {
+    Button {
+      model.stop()
+    } label: {
+      HStack(spacing: Theme.Spacing.snug) {
+        Image(systemName: "stop.fill").accessibilityHidden(true)
+        Text("Stop", comment: "Ends the running take and sends it")
+      }
+      .themeFont(.subheadline, weight: .semibold)
+      .foregroundStyle(Theme.Accent.onFill)
+      .padding(.horizontal, Theme.Spacing.panelButtonInset)
+      .frame(height: Theme.Spacing.panelButtonHeight)
+      .background(Theme.Status.bad, in: .capsule)
+      .contentShape(.capsule)
+    }
+    .buttonStyle(.plain)
+    .keyboardShortcut(.defaultAction)
+    .accessibilityIdentifier("mac.recording.stop")
+  }
+
+  /// Drops the take (nothing is sent); an icon, so the row never outgrows the panel.
+  private var cancelButton: some View {
+    Button {
+      model.cancel()
+    } label: {
+      Image(systemName: "xmark")
+        .themeFont(.footnote, weight: .semibold)
+        .foregroundStyle(Theme.Ink.secondary)
+        .frame(width: Theme.Spacing.panelButtonHeight, height: Theme.Spacing.panelButtonHeight)
+        .background(Theme.Surface.subtle, in: .circle)
+        .overlay { Circle().strokeBorder(Theme.Surface.border, lineWidth: 0.5) }
+        .contentShape(.circle)
+    }
+    .buttonStyle(.plain)
+    .help(String(localized: "Cancel", comment: "Drops the running take"))
+    .accessibilityLabel(String(localized: "Cancel", comment: "Drops the running take"))
+    .accessibilityIdentifier("mac.recording.cancel")
+  }
+
+  /// `.panel .ft .chip`: the microphone, truncated when its name is long.
+  private var microphonePicker: some View {
+    let inputs = model.microphones.inputs
+    return Menu {
+      ForEach(inputs, id: \.uid) { input in
+        Button(input.name) { model.select(microphone: input.uid) }
+      }
+    } label: {
+      HStack(spacing: Theme.Spacing.snug) {
+        Image(systemName: "mic").accessibilityHidden(true)
+        Text(verbatim: model.microphones.current?.name ?? "")
+          .lineLimit(1)
+          .truncationMode(.tail)
+        Image(systemName: "chevron.down").themeFont(.micro, weight: .semibold).accessibilityHidden(true)
+      }
+      .themeFont(.footnote, weight: .medium)
+      .foregroundStyle(Theme.Ink.secondary)
+      .padding(.horizontal, Theme.Spacing.cozy)
+      .frame(height: Theme.Spacing.panelChipHeight)
+      .background(Theme.Surface.subtle, in: .capsule)
+      .overlay { Capsule().strokeBorder(Theme.Surface.border, lineWidth: 0.5) }
+      .contentShape(.capsule)
+    }
+    .menuStyle(.button)
+    .buttonStyle(.plain)
+    .menuIndicator(.hidden)
+    .disabled(inputs.count < 2)
+    .accessibilityLabel(String(localized: "Microphone", comment: "Recording panel microphone picker"))
     .accessibilityIdentifier("mac.recording.microphone")
   }
 
   private func message(for failure: RecordingPanelModel.Failure) -> some View {
     VStack(alignment: .leading, spacing: Theme.Spacing.md) {
       Text(verbatim: Self.text(for: failure))
-        .themeFont(.body)
+        .themeFont(.subheadline)
         .foregroundStyle(Theme.Ink.primary)
         .fixedSize(horizontal: false, vertical: true)
         .accessibilityIdentifier("mac.recording.message")
@@ -161,10 +235,12 @@ final class RecordingPanelController {
   static let title = "Iris recording"
 
   private let model: RecordingPanelModel
+  private let shortcut: () -> String?
   private(set) var panel: NSPanel?
 
-  init(model: RecordingPanelModel) {
+  init(model: RecordingPanelModel, shortcut: @escaping () -> String? = { nil }) {
     self.model = model
+    self.shortcut = shortcut
     model.onVisibilityChange = { [weak self] visible in
       if visible { self?.show() } else { self?.hide() }
     }
@@ -182,7 +258,7 @@ final class RecordingPanelController {
   }
 
   private func makePanel() -> NSPanel {
-    let view = RecordingPanelView(model: model) { [weak self] size in
+    let view = RecordingPanelView(model: model, shortcut: shortcut) { [weak self] size in
       guard let self, let panel = self.panel, panel.isVisible else { return }
       self.place(panel, size: size)
     }

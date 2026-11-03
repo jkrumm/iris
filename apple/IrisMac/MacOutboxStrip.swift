@@ -17,9 +17,9 @@ struct MacOutboxStrip: View {
         if model.isUnavailable { notice(Self.unavailableText, id: "mac.outbox.unavailable") }
         if model.saveFailure != nil { notice(Self.saveFailureText, id: "mac.outbox.savefailed") }
         if model.discardFailed { notice(Self.discardFailedText, id: "mac.outbox.discardfailed") }
-        if expanded && !model.items.isEmpty {
+        if expanded && !model.waiting.isEmpty {
           // A few rows show whole; a long queue scrolls in a fixed height so it never pushes History out of the popover.
-          if model.items.count <= Self.rowsBeforeScrolling {
+          if model.waiting.count <= Self.rowsBeforeScrolling {
             rows
           } else {
             ScrollView { rows }
@@ -42,7 +42,7 @@ struct MacOutboxStrip: View {
 
   private var rows: some View {
     VStack(alignment: .leading, spacing: Theme.Spacing.md) {
-      ForEach(model.items) { item in row(item) }
+      ForEach(model.waiting) { item in row(item) }
     }
     .frame(maxWidth: .infinity, alignment: .leading)
   }
@@ -56,7 +56,7 @@ struct MacOutboxStrip: View {
           .foregroundStyle(model.stalled.isEmpty ? Theme.Ink.muted : Theme.Status.warn)
           .accessibilityHidden(true)
         VStack(alignment: .leading, spacing: Theme.Spacing.hair) {
-          Text(verbatim: Self.title(count: model.items.count, stalled: model.stalled.count))
+          Text(verbatim: Self.title(count: model.waiting.count, stalled: model.stalled.count))
             .themeFont(.subheadline, weight: .medium)
             .foregroundStyle(Theme.Ink.primary)
             .accessibilityIdentifier("mac.outbox.title")
@@ -69,7 +69,7 @@ struct MacOutboxStrip: View {
           }
         }
         Spacer(minLength: Theme.Spacing.sm)
-        if !model.items.isEmpty {
+        if !model.waiting.isEmpty {
           Image(systemName: expanded ? "chevron.up" : "chevron.down")
             .foregroundStyle(Theme.Ink.faint)
             .accessibilityHidden(true)
@@ -148,10 +148,9 @@ struct MacOutboxStrip: View {
 }
 
 extension QueuedItem {
-  /// What it is and how long it has waited: "Voice memo · 4 min ago".
+  /// How long it has waited ("4 min ago"); the title already says what it is.
   fileprivate var detailLine: String {
-    let age = queuedAt.formatted(.relative(presentation: .named, unitsStyle: .abbreviated))
-    return "\(kind.title) · \(age)"
+    queuedAt.formatted(.relative(presentation: .named, unitsStyle: .abbreviated))
   }
 
   /// A queued server delete is not discarded, the app stops trying to send it.
