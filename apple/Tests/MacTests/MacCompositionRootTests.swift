@@ -416,9 +416,14 @@ struct MacCompositionRootTests {
     await gate.waitUntilHeld()
     #expect(root.history.memos.isEmpty)
 
+    // `ready` reloads the list and starts the notifier's baseline catch-up, though the first list request is still out. The
+    // baseline records what is finished already; a memo's finish is announced only as a transition after it, so wait for it
+    // (the two race otherwise: a `memo.done` noted before the baseline fetch lands is announced, one after it is not).
     fake.emit(.ready)
-    fake.emit(.memoDone(MemoEvent(id: Self.finished, state: .notified, at: .now)))
     #expect(await eventually { !root.history.memos.isEmpty })
+    #expect(await eventually { root.notifier.hasBaseline })
+    try await fake.advance(Self.finished, to: .acted)
+    try await fake.advance(Self.finished, to: .notified)
     #expect(await eventually { await poster.posted.map(\.memoID) == [Self.finished] })
     gate.release()
   }
