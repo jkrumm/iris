@@ -10,50 +10,88 @@ final class ConnectionTester {
   enum Outcome: Equatable {
     case testing
     case connected
-    /// Saved and the probe against what was saved passed.
+    /// The probe against the values that were just saved passed.
     case savedConnected
     case rejected
+    /// The request never got an answer (network, Tailscale, a gateway in front of a server that is down).
     case unreachable
+    /// The server answered, but not with what a healthy Iris server says.
+    case serverError
     /// The typed values are not a usable address and token.
     case invalid
   }
 
   private(set) var outcome: Outcome?
   private let makeClient: @Sendable (ConnectionCredentials) -> any APIClient
-  private var generation = 0
+  /// The values the shown outcome is about: a field edit that normalizes to the same pair (Save trims whitespace) keeps it.
+  private var probed: ConnectionCredentials?
+  private var probing: Task<Void, Never>?
 
   init(makeClient: @escaping @Sendable (ConnectionCredentials) -> any APIClient) {
     self.makeClient = makeClient
   }
 
-  /// Forgets the last result: the fields changed, so it no longer describes them.
+  /// Forgets the last result and abandons a probe in flight: the fields changed, so it no longer describes them.
   func reset() {
-    generation += 1
+    probing?.cancel()
+    probing = nil
+    probed = nil
     outcome = nil
   }
 
-  func test(urlText: String, tokenText: String, afterSave: Bool = false) async {
-    generation += 1
-    let current = generation
+  /// Called when a field is edited: resets unless the fields still mean the pair the outcome is about.
+  func fieldsChanged(urlText: String, tokenText: String) {
+    if case .success(let credentials) = ConnectionCredentials.validate(urlText: urlText, token: tokenText),
+      credentials == probed
+    {
+      return
+    }
+    reset()
+  }
+
+  /// Starts a probe of the typed values. `saved` marks one run right after Save, whose success reads "Saved — connected".
+  func test(urlText: String, tokenText: String, saved: Bool = false) {
+    probing?.cancel()
+    probing = nil
     guard case .success(let credentials) = ConnectionCredentials.validate(urlText: urlText, token: tokenText) else {
+      probed = nil
       outcome = .invalid
       return
     }
+    probed = credentials
     outcome = .testing
-    let result = await Self.probe(makeClient(credentials))
-    guard current == generation else { return }
-    outcome = result == .connected && afterSave ? .savedConnected : result
+    let client = makeClient(credentials)
+    probing = Task {
+      guard let result = await Self.probe(client), !Task.isCancelled else { return }
+      outcome = result == .connected && saved ? .savedConnected : result
+    }
   }
 
-  private static func probe(_ client: any APIClient) async -> Outcome {
+  /// Returns once the probe in flight has finished or been abandoned.
+  func settled() async {
+    await probing?.value
+  }
+
+  /// nil: cancelled, nothing to say.
+  private static func probe(_ client: any APIClient) async -> Outcome? {
     do {
       _ = try await client.health()
       _ = try await client.whoami()
       return .connected
-    } catch APIError.unauthorized {
-      return .rejected
+    } catch is CancellationError {
+      return nil
+    } catch let error as APIError {
+      return outcome(for: error)
     } catch {
       return .unreachable
+    }
+  }
+
+  private static func outcome(for error: APIError) -> Outcome {
+    switch error {
+    case .unauthorized: .rejected
+    case .transport, .unexpectedStatus(502...504): .unreachable
+    default: .serverError
     }
   }
 }

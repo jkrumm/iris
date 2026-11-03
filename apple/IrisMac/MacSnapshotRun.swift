@@ -54,6 +54,12 @@ struct MacSnapshotRun {
     write(windowTitled: "Iris detail snapshot", as: "detail")
     offscreen.close()
     root.page = .settings
+    // The form filled in and probed, so the result line is in the picture.
+    root.connectionForm.urlText = "https://iris.example.com"
+    root.connectionForm.tokenText = "token"
+    try? await Task.sleep(for: .milliseconds(300))
+    root.connectionTest.test(urlText: root.connectionForm.urlText, tokenText: root.connectionForm.tokenText)
+    await root.connectionTest.settled()
     try? await Task.sleep(for: .seconds(1))
     write(windowTitled: Self.panelTitle, as: "settings")
     await writeRecordingPanel()

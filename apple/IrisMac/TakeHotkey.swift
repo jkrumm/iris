@@ -11,6 +11,8 @@ protocol TakeHotkey {
   /// The key is registered with the system. False when the user cleared it or another app holds the combination (Carbon
   /// refuses a duplicate silently), so Settings can say so.
   var isRegistered: Bool { get }
+  /// The recorded key as the system writes it ("⌃⌥M"); nil when none is set.
+  var shortcutDescription: String? { get }
 }
 
 extension KeyboardShortcuts.Name {
@@ -45,6 +47,8 @@ struct KeyboardShortcutsHotkey: TakeHotkey {
   }
 
   var isRegistered: Bool { KeyboardShortcuts.isEnabled(for: name) }
+
+  var shortcutDescription: String? { KeyboardShortcuts.getShortcut(for: name)?.description }
 }
 
 /// A key the test presses.
@@ -53,6 +57,7 @@ final class FakeTakeHotkey: TakeHotkey {
   let presses: AsyncStream<Void>
   private let sink: AsyncStream<Void>.Continuation
   var isRegistered = true
+  var shortcutDescription: String? = "⌃⌥M"
 
   init() {
     (presses, sink) = AsyncStream.makeStream(of: Void.self)

@@ -20,7 +20,7 @@ struct MacSettingsView: View {
 
   var body: some View {
     VStack(alignment: .leading, spacing: Theme.Spacing.md) {
-      MacPageHeader(title: String(localized: "Settings", comment: "Panel page")) { root.page = .home }
+      MacPageHeader(title: String(localized: "Settings", comment: "Panel page")) { root.goHome() }
       DetailSectionLabel(String(localized: "Connection", comment: "Settings section"))
       TextField(
         String(localized: "Server URL", comment: "Settings connection field"), text: $model.urlText,
@@ -44,13 +44,13 @@ struct MacSettingsView: View {
         Button(String(localized: "Save", comment: "Saves the server URL and device token")) {
           model.save()
           guard model.failure == nil else { return }
-          Task { await tester.test(urlText: model.urlText, tokenText: model.tokenText, afterSave: true) }
+          tester.test(urlText: model.urlText, tokenText: model.tokenText, saved: true)
         }
         .keyboardShortcut(.defaultAction)
         .disabled(!model.canSave)
         .accessibilityIdentifier("mac.settings.save")
         Button(String(localized: "Test connection", comment: "Probes the typed server URL and token without saving")) {
-          Task { await tester.test(urlText: model.urlText, tokenText: model.tokenText) }
+          tester.test(urlText: model.urlText, tokenText: model.tokenText)
         }
         .disabled(!model.canSave || tester.outcome == .testing)
         .accessibilityIdentifier("mac.settings.test")
@@ -62,8 +62,8 @@ struct MacSettingsView: View {
       }
     }
     .textFieldStyle(.roundedBorder)
-    .onChange(of: model.urlText) { tester.reset() }
-    .onChange(of: model.tokenText) { tester.reset() }
+    .onChange(of: model.urlText) { tester.fieldsChanged(urlText: model.urlText, tokenText: model.tokenText) }
+    .onChange(of: model.tokenText) { tester.fieldsChanged(urlText: model.urlText, tokenText: model.tokenText) }
     .padding(Theme.Spacing.menuInset)
     .frame(height: Theme.Spacing.menuPageHeight, alignment: .top)
     .accessibilityIdentifier("mac.settings")
@@ -103,6 +103,12 @@ struct MacSettingsView: View {
           localized: "Server not reachable — is Tailscale on?", comment: "Connection hint: the server cannot be reached"
         ),
         Theme.Status.bad
+      )
+    case .serverError:
+      (
+        String(
+          localized: "Server answered with an error", comment: "Connection test: the server answered, not healthy"),
+        Theme.Ink.muted
       )
     case .invalid:
       (String(localized: "Enter an https address and a token.", comment: "Settings connection error"), Theme.Status.bad)

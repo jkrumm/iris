@@ -1206,11 +1206,15 @@ Two `StaticConfiguration` widgets in `IrisWidgets/HomeWidgets.swift`; the views,
   - *Composition:* `MacCompositionRoot` picks the adapters once. `-IrisFakeData` runs the fake API with the sample
     memos, an in-memory credential store (an unsigned build has no Keychain, `-34018`) and a notification poster that
     records; otherwise production, with the iPhone's `ReconfigurableAPIClient`, `ConnectionModel` and `KeychainCredentialStore`
-    (same sources, compiled into both targets). With nothing saved the panel opens on Settings and nothing loads.
-  - *Panel:* a 460 × 560 `.window` popover. Header: the connection line (`MacConnectionStatus`, from `HistoryModel.link`) and a
-    History / Settings switch. History is the iOS list on the same `HistoryModel`: `HistoryRow` and `HistoryRowBackground` from
-    `IrisUI`, day sections, filter chips, search, a context menu for done / favorite / archive / delete (with the undo toast).
-    Settings holds the connection form and Quit.
+    (same sources, compiled into both targets). With nothing saved the panel opens on its home page with a connect prompt and nothing loads.
+  - *Panel:* a 360 pt wide `.window` popover (`docs/design/mockups/mac.html`, variant `menu`) with three pages (`MacPanelPage`).
+    Home fits its content: the title with a Record button (the same toggle as the hotkey, showing the recorded key), the newest five
+    memos as compact rows (`MacMemoRow`: headline on one line, time, status dot and route; a context menu for done / favorite /
+    archive / delete, the undo toast shows on every page), the menu lines "Open history" and "Settings…", and the connection line
+    (`MacConnectionStatus`, from `HistoryModel.link`); with nothing saved it shows a connect prompt. Home always shows the
+    unfiltered list: going back drops History's filters (`goHome`). History is the same row on the same `HistoryModel` with a plain
+    search field, Mac-sized filter chips and day sections. Settings holds the connection form with Save and Test connection
+    (`ConnectionTester`: `/health`, then `/v1/whoami`, on the typed values), the recording key and Quit.
   - *Detail panel:* one `Window` ("Memo"), reused by the next memo opened; it opens from a row or a clicked notification banner
     (the always-present menu-bar label observes `detailRequest`). `MacMemoDetailView` composes the `IrisUI` pieces (`StepWaterfall`,
     `DetailSectionLabel`, `detailCard`, `RouteChip`) over `MacMemoDetailModel`: steps with the stats baselines, transcript and

@@ -1,6 +1,5 @@
 import IrisCore
 import IrisUI
-import KeyboardShortcuts
 import SwiftUI
 
 /// The popover's home (`mac.html` `.menu`): the title with the Record button, the newest memos, the two menu lines and the
@@ -59,8 +58,8 @@ struct MacHomePage: View {
             ? String(localized: "Stop", comment: "Stops the take")
             : String(localized: "Record", comment: "Starts a take from the menu-bar panel")
         )
-        if !root.recording.isRecording, let shortcut = KeyboardShortcuts.getShortcut(for: .toggleTake) {
-          Text(verbatim: shortcut.description).fontWeight(.medium).opacity(0.7)
+        if !root.recording.isRecording, let shortcut = root.hotkey.shortcutDescription {
+          Text(verbatim: shortcut).fontWeight(.medium).opacity(0.7)
         }
       }
       .themeFont(.footnote, weight: .semibold)

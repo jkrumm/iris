@@ -16,7 +16,28 @@ struct MacMenuPanel: View {
     }
     .frame(width: Theme.Spacing.menuWidth)
     .background(Theme.Surface.background)
+    .overlay(alignment: .bottom) { toastBanner }
+    // On every page: a delete from the home page's context menu has its undo here too.
+    .task(id: root.history.toast?.id) {
+      guard let id = root.history.toast?.id, (try? await Task.sleep(for: .seconds(5))) != nil else { return }
+      root.history.dismissToast(id: id)
+    }
     .accessibilityIdentifier("mac.panel")
+  }
+}
+
+extension MacMenuPanel {
+  @ViewBuilder fileprivate var toastBanner: some View {
+    if let toast = root.history.toast {
+      ToastBanner(
+        message: toast.message,
+        actionTitle: toast.kind.isUndo ? String(localized: "Undo", comment: "Undoes a delete") : nil,
+        action: { root.perform(on: root.history) { await $0.undoDelete() } }
+      )
+      .padding(Theme.Spacing.sm)
+      .transition(.move(edge: .bottom).combined(with: .opacity))
+      .accessibilityIdentifier("mac.history.toast")
+    }
   }
 }
 

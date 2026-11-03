@@ -95,6 +95,20 @@ struct MacCompositionRootTests {
     #expect(root.detailMemoID == "b" && root.detailRequest == before + 2)
   }
 
+  @Test("going home drops History's filters and reloads the unfiltered list")
+  func homeIsUnfiltered() async {
+    let root = fakeRoot()
+    root.begin()
+    #expect(await eventually { !root.history.memos.isEmpty })
+    let all = root.history.memos.count
+    root.page = .history
+    root.history.filters.searchText = "no memo says this"
+    #expect(await eventually { root.history.filters.isFiltering })
+    root.goHome()
+    #expect(root.page == .home && root.history.filters == HistoryFilters())
+    #expect(await eventually { root.history.memos.count == all })
+  }
+
   @Test("-IrisMacSettings opens the panel on Settings")
   func settingsPage() {
     #expect(fakeRoot(extra: [MacCompositionRoot.settingsArgument]).page == .settings)

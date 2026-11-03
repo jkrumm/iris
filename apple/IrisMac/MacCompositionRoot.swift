@@ -19,7 +19,7 @@ enum MacPanelPage: Equatable {
 ///   unsigned build has no Keychain, `-34018`) and a poster that records instead of notifying.
 /// - Otherwise: production. The server URL and device token come from the panel's Settings page (token in the Keychain),
 ///   and each connection gets its own ``ReconfigurableAPIClient``. With nothing saved the
-///   panel opens on Settings and nothing loads.
+///   panel opens on its home page with a connect prompt and nothing loads.
 ///
 /// - The capture side (Wave 18 M2): under `-IrisFakeData` a scripted ``FakeTakeEngine`` and permission, no microphone and no
 ///   hotkey registration; otherwise ``MacCaptureStack`` (the outbox on the Mac's audio devices, uploading over the saved
@@ -267,7 +267,7 @@ final class MacCompositionRoot {
   /// never act on the new server.
   ///
   /// Actions on one memo (`memoID`) run one after the other in the order they were made, so the last tap is the last request the
-  /// server sees; a later action looks the memo up again when it runs (see ``MacHistoryList``), it does not act on a copy from tap time.
+  /// server sees; a later action looks the memo up again when it runs (see ``MacMemoRow``), it does not act on a copy from tap time.
   func perform(
     on model: HistoryModel, memoID: String? = nil, _ action: @escaping @MainActor (HistoryModel) async -> Void
   ) {
@@ -294,6 +294,17 @@ final class MacCompositionRoot {
   static let fakeDataArgument = "-IrisFakeData"
   /// Fakes: the outbox panel starts with a stalled upload, a waiting one and a queued removal (screenshots).
   static let stalledArgument = "-IrisMacStalled"
+  /// Back to the home page. Its newest-memos list is the unfiltered one: History's filters and search are dropped (and the list
+  /// reloaded without them), so the home page never shows a narrowed list.
+  func goHome() {
+    page = .home
+    guard history.filters != HistoryFilters() else { return }
+    history.filters = HistoryFilters()
+    guard isConfigured else { return }
+    let history = history
+    Task { await history.load() }
+  }
+
   /// Opens the panel on the Settings page (screenshots).
   static let settingsArgument = "-IrisMacSettings"
   /// Opens the panel as a regular window at launch, because a menu-bar popover cannot be opened without a click

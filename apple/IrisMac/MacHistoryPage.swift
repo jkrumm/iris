@@ -10,7 +10,7 @@ struct MacHistoryPage: View {
 
   var body: some View {
     VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
-      MacPageHeader(title: String(localized: "History", comment: "Panel page")) { root.page = .home }
+      MacPageHeader(title: String(localized: "History", comment: "Panel page")) { root.goHome() }
       MacOutboxStrip(model: root.outbox)
       search
       chips
@@ -25,10 +25,6 @@ struct MacHistoryPage: View {
         guard (try? await Task.sleep(for: .milliseconds(300))) != nil else { return }
       }
       await model.load()
-    }
-    .task(id: model.toast?.id) {
-      guard let id = model.toast?.id, (try? await Task.sleep(for: .seconds(5))) != nil else { return }
-      model.dismissToast(id: id)
     }
   }
 
@@ -85,7 +81,6 @@ struct MacHistoryPage: View {
     .scrollIndicators(.automatic)
     .animation(.snappy, value: model.memoIDs)
     .overlay { emptyState }
-    .overlay(alignment: .bottom) { toastBanner }
     .accessibilityIdentifier("mac.history.list")
   }
 
@@ -105,19 +100,6 @@ struct MacHistoryPage: View {
 
   private func emptyLabel(_ text: String) -> some View {
     Text(verbatim: text).themeFont(.footnote).foregroundStyle(Theme.Ink.faint)
-  }
-
-  @ViewBuilder private var toastBanner: some View {
-    if let toast = model.toast {
-      ToastBanner(
-        message: toast.message,
-        actionTitle: toast.kind.isUndo ? String(localized: "Undo", comment: "Undoes a delete") : nil,
-        action: { root.perform(on: model) { await $0.undoDelete() } }
-      )
-      .padding(Theme.Spacing.sm)
-      .transition(.move(edge: .bottom).combined(with: .opacity))
-      .accessibilityIdentifier("mac.history.toast")
-    }
   }
 }
 
