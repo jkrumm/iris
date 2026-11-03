@@ -4,11 +4,17 @@ Rewritten 2026-10-28 at the owner's pause; status updated at the resume the same
 (the Fleet section, Waves 10–15, the Fleet backlog), `docs/PRD.md`, `docs/design/feedback-round-{1,2}.md` (binding, round 2 wins)
 and skim `docs/TDD.md`. Role contract: `~/.claude/skills/wave/roles/mother.md` (lead: `roles/lead.md`, workers: `roles/worker.md`).
 
-## Status: PAUSED after Wave 20 (2026-11-03 ~00:40 CET)
+## Status: PAUSED after the Mac desktop rework (2026-11-03 ~11:00 CET)
 
-Wave 20 (pre-hardware hardening from the 2026-11-02 audits) done, master `7d3d0cc`, Apple-only, production unchanged. Lead `iris-w20-lead` stopped.
-Resume on: the owner's hardware batch D1 (device build of master once the phone tunnel is up; it was `disconnected` all of 2026-11-02), his look at
-`docs/design/fidelity/w20.md`, or the enrolment email. Wave 21 candidates: Wave 20 Left behind (contract-side row cost / candidates / filter counts, audit polish).
+Wave 20 done (`7d3d0cc`). Then, in-session with the owner (not a fleet wave): #107 (menu popover per the `menu` mockup, Test connection, recording
+panel per the `panel` mockup, red status item while recording) and #108 (Mac as a desktop app: three-column main window, native Settings scene,
+onboarding window, popover reduced to quick access), master `3150958`. Installed 2026-11-03 on the iPhone (`make device`, Personal Team profile, rebuild
+by ~11-10) and on the MacBook (`~/Applications/Iris.app`: built Release on the mini with the mini's Apple Development identity, entitlements without
+`application-groups`, rsynced over `ssh iumac`; no quarantine bit, so Gatekeeper lets the un-notarized app run). First real Mac take worked end to end
+(memo `afb122fa`). Resume on the owner's feedback on the Mac and iPhone apps. Known follow-ups: `MacCompositionRoot.ensureHeld` polls (bounded
+retries) instead of an awaited insert; a Mac take is always mode `auto` (a mode picker needs a `TakeEngine` change); `RecordingPanelKeyTests.
+keyDoesNotMoveTheFrontmostApp` fails locally on the mini only (CI green); Mermaid replies render as code on the Mac; Mac threads are read-only.
+Older candidates: Wave 20 Left behind (contract-side row cost / candidates / filter counts, audit polish), D1 hardware batch, D2 enrolment.
 **Pause (owner decision 2026-11-01 19:30, via the software-factory program lead: finish Wave 19, then pause; start no new wave):** resume only on the owner's feedback (hardware batch D1 on a fresh device build of master,
 UI review of R1/R2 surfaces in `docs/design/README.md`) or the Apple enrolment email (then D2/S3/APNs/TestFlight). **On resume:** write Wave 20 from the
 Fleet backlog + Wave 19 Left behind, spawn a lead under a FRESH factory key (`iris-w20-lead`, see Lessons; never `rd wave`), start
