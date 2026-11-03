@@ -4,11 +4,13 @@ import IrisCore
 /// An `APIClient` that forwards to `base` and tells `ready` each time the event stream says `ready`: the stream connected,
 /// at launch and after every drop. A list request that succeeds while the stream is down is not that, so only this signal
 /// says the server is back with its stream (the open detail reloads on it). Every `memo.updated` / `memo.done` payload (id and
-/// state) is handed to `states` in stream order, for the notifier's transitions.
+/// state) is handed to `states` in stream order, for the notifier's transitions. Every event is also handed to `mirror`, so the
+/// main window's list can follow the one stream without a second connection.
 nonisolated struct StreamTappingClient: APIClient {
   let base: any APIClient
   let ready: AsyncStream<Void>.Continuation
   var states: AsyncStream<MemoEvent>.Continuation?
+  var mirror: AsyncStream<ServerEvent>.Continuation?
 
   func health() async throws -> Health { try await base.health() }
   func whoami() async throws -> Whoami { try await base.whoami() }
@@ -51,6 +53,7 @@ nonisolated struct StreamTappingClient: APIClient {
     let upstream = base.events()
     let ready = ready
     let states = states
+    let mirror = mirror
     return AsyncThrowingStream { continuation in
       let forwarding = Task {
         do {
@@ -59,6 +62,7 @@ nonisolated struct StreamTappingClient: APIClient {
             case .ready: ready.yield()
             case .memoUpdated(let update), .memoDone(let update): states?.yield(update)
             }
+            mirror?.yield(event)
             continuation.yield(event)
           }
           continuation.finish()

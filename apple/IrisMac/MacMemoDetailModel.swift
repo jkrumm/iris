@@ -13,9 +13,9 @@ struct MacPasteboard: Pasteboard {
   }
 }
 
-/// One memo open in the detail panel: its steps, the stats baselines the step durations are judged against, Copy and
-/// retry. The iOS `MemoDetailModel` also owns the recording and spoken-reply players, which wait on a macOS-safe
-/// `MemoPlayer` (it configures an `AVAudioSession`), so playback is not part of this panel yet.
+/// One memo open in the main window's detail pane: its steps, the stats baselines the step durations are judged against, the
+/// conversation of a thread memo, Copy and retry. The iOS `MemoDetailModel` also owns the recording and spoken-reply players,
+/// which configure an `AVAudioSession`; on the Mac the window owns one ``MacAudioPlayer`` and the pane drives it.
 @Observable
 final class MacMemoDetailModel {
   enum CopyTarget: Equatable {
@@ -24,6 +24,9 @@ final class MacMemoDetailModel {
 
   /// `nil` until the memo is known: the list had it when the panel opened, else the first ``load()`` brings it.
   private(set) var detail: MemoDetail?
+  /// The conversation a chat or continued-thread memo belongs to (`GET /v1/threads/:id`), read only; nil for any other memo or
+  /// while it loads. A failed read leaves the memo's own transcript and reply on screen.
+  private(set) var thread: ThreadDetail?
   private(set) var baselines = StepBaselines()
   private(set) var isRetrying = false
   private(set) var loadFailed = false
@@ -88,6 +91,7 @@ final class MacMemoDetailModel {
       guard !Task.isCancelled, current == generation else { return }
       detail = fresh
       loadFailed = false
+      await loadThread(of: fresh.memo, generation: current)
     } catch is CancellationError {
       return
     } catch {
@@ -104,6 +108,22 @@ final class MacMemoDetailModel {
     } catch {
       // No baseline means no faster/slower tags, which is the honest state.
       logger.error("stats load failed: \(String(describing: error), privacy: .public)")
+    }
+  }
+
+  private func loadThread(of memo: Memo, generation current: Int) async {
+    guard memo.opensThread, let threadId = memo.threadId else {
+      thread = nil
+      return
+    }
+    do {
+      let fresh = try await client.thread(id: threadId)
+      guard !Task.isCancelled, current == generation else { return }
+      thread = fresh
+    } catch is CancellationError {
+      return
+    } catch {
+      logger.error("thread load failed: \(String(describing: error), privacy: .public)")
     }
   }
 

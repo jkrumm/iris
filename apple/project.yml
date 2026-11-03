@@ -156,6 +156,13 @@ targets:
       - Iris/WaterfallBuilder.swift
       - Iris/ReplyMarkdown.swift
       - Iris/Pasteboard.swift
+      # The desktop app: the route answer, the media download behind Play, the thread read.
+      - Iris/RouteAnswerModel.swift
+      - Iris/MediaDownloader.swift
+      - Iris/MemoMediaSource.swift
+      - Iris/FakeDiagramImage.swift
+      - Iris/Memo+Thread.swift
+      - Iris/ThreadRoute.swift
       # The capture side: the outbox stack, its API uploader and the created-memo log are the iPhone's, compiled in as they are.
       - Iris/CaptureStack.swift
       - Iris/APIOutboxUploader.swift

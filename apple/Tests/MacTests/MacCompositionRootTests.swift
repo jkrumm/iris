@@ -33,7 +33,7 @@ struct MacCompositionRootTests {
   @Test("the fake composition loads the sample memos from launch, with no Keychain")
   func loadsHistory() async {
     let root = fakeRoot()
-    #expect(root.mode == .fake && root.isConfigured && root.page == .home)
+    #expect(root.mode == .fake && root.isConfigured && !root.needsOnboarding)
     root.begin()
     #expect(await eventually { !root.history.memos.isEmpty })
     #expect(root.history.memos.contains { $0.id == Self.finished })
@@ -86,57 +86,127 @@ struct MacCompositionRootTests {
     #expect(recent.contains { $0.id == Self.finished })
   }
 
-  @Test("opening a memo selects it for the detail panel and asks the app to open the window")
-  func opensDetail() {
+  @Test("a popover click selects the memo for the main window and asks the app to open it")
+  func opensWindow() {
     let root = fakeRoot()
-    let before = root.detailRequest
-    root.openDetail("a")
-    root.openDetail("b")
-    #expect(root.detailMemoID == "b" && root.detailRequest == before + 2)
+    let before = root.windowRequest
+    root.show("a")
+    root.show("b")
+    #expect(root.selectedMemoID == "b" && root.windowRequest == before + 2)
   }
 
-  @Test("going home drops History's filters and reloads the unfiltered list")
-  func homeIsUnfiltered() async {
+  @Test("Open Iris opens the window as it is, without changing the selection")
+  func opensWindowAsIs() {
+    let root = fakeRoot()
+    root.show("a")
+    let before = root.windowRequest
+    root.showMainWindow()
+    #expect(root.selectedMemoID == "a" && root.windowRequest == before + 1)
+  }
+
+  @Test("the window's list is its own: a sidebar scope narrows it and leaves the popover's list unfiltered")
+  func windowListIsSeparate() async {
     let root = fakeRoot()
     root.begin()
     #expect(await eventually { !root.history.memos.isEmpty })
-    let all = root.history.memos.count
-    root.page = .history
-    root.history.filters.searchText = "no memo says this"
-    #expect(await eventually { root.history.filters.isFiltering })
-    root.goHome()
-    #expect(root.page == .home && root.history.filters == HistoryFilters())
-    #expect(await eventually { root.history.memos.count == all })
+    #expect(root.windowHistory !== root.history)
+    root.scope = .favorites
+    #expect(root.windowHistory.filters.quick == .favorites)
+    #expect(root.history.filters == HistoryFilters())
+    root.windowHistory.filters.searchText = "journal"
+    root.scope = .hermesThreads
+    #expect(root.windowHistory.filters.kind == .hermes && root.windowHistory.filters.quick == nil)
+    #expect(root.windowHistory.filters.searchText == "journal", "a scope change keeps the search")
+    root.scope = nil
+    #expect(root.scope == .hermesThreads, "a deselect keeps the scope")
+    root.scope = .all
+    #expect(root.windowHistory.filters.quick == nil && root.windowHistory.filters.kind == nil)
   }
 
-  @Test("-IrisMacSettings opens the panel on Settings")
-  func settingsPage() {
-    #expect(fakeRoot(extra: [MacCompositionRoot.settingsArgument]).page == .settings)
+  @Test("the sidebar scopes map onto the shared filters, and the needs-route badge is the popover's pinned count")
+  func scopesMapOntoFilters() async {
+    var filters = HistoryFilters()
+    MacLibraryScope.needsRoute.apply(to: &filters)
+    #expect(filters.effectiveState == .needsRoute)
+    MacLibraryScope.archive.apply(to: &filters)
+    #expect(filters.query().archived == true && filters.effectiveState == nil)
+    MacLibraryScope.chats.apply(to: &filters)
+    #expect(filters.query().kind == .chat)
+    MacLibraryScope.hermesThreads.apply(to: &filters)
+    #expect(filters.query().kind == .hermes && filters.needsServerMatching)
+    let root = fakeRoot()
+    root.begin()
+    #expect(await eventually { !root.history.pinned.isEmpty })
+    #expect(root.history.pinned.allSatisfy { $0.state == .needsRoute })
   }
 
-  @Test("production with nothing saved opens on the home page (connect prompt) and counts as not configured")
+  @Test("the window list loads its first page and finds the sample memos")
+  func windowListLoads() async {
+    let root = fakeRoot()
+    root.begin()
+    root.windowDidAppear()
+    // The sample memos are seeded by `begin()`, so the first loads may be empty.
+    #expect(
+      await eventually {
+        await root.windowHistory.load()
+        return root.windowHistory.memos.contains { $0.id == Self.finished }
+      })
+    root.windowDidDisappear()
+  }
+
+  @Test("onboarding is for a real install with nothing saved; a saved connection and the fake composition skip it")
+  func onboardingGate() throws {
+    #expect(MacCompositionRoot(arguments: [], credentials: InMemoryCredentialStore()).needsOnboarding)
+    #expect(
+      !MacCompositionRoot(arguments: [], credentials: try savedConnection("https://iris.example.com", "t"))
+        .needsOnboarding)
+    #expect(!fakeRoot().needsOnboarding)
+  }
+
+  @Test("the onboarding, Settings and main window requests each count once")
+  func windowRequests() {
+    let root = fakeRoot()
+    root.showOnboarding()
+    root.showSettings()
+    #expect(root.onboardingRequest == 1 && root.settingsRequest == 1 && root.windowRequest == 0)
+  }
+
+  @Test("saving from onboarding stores the connection, then the main window can open")
+  func onboardingSaves() {
+    let store = InMemoryCredentialStore()
+    let root = MacCompositionRoot(arguments: [], credentials: store)
+    #expect(root.needsOnboarding)
+    root.connectionForm.urlText = "https://iris.example.com"
+    root.connectionForm.tokenText = "token"
+    root.connectionForm.save()
+    #expect(store.load()?.token == "token" && !root.needsOnboarding)
+    root.showMainWindow(source: "onboarding")
+    #expect(root.windowRequest == 1)
+  }
+
+  @Test("production with nothing saved counts as not configured")
   func notConfigured() {
     let root = MacCompositionRoot(arguments: [], credentials: InMemoryCredentialStore())
-    #expect(root.mode == .production && !root.isConfigured && root.page == .home)
+    #expect(root.mode == .production && !root.isConfigured)
   }
 
-  @Test("production with a saved connection opens on the home page")
+  @Test("production with a saved connection is configured")
   func configured() throws {
     let store = InMemoryCredentialStore()
     try store.save(try #require(ConnectionCredentials(urlText: "https://iris.example.com", token: "t")))
     let root = MacCompositionRoot(arguments: [], credentials: store)
-    #expect(root.isConfigured && root.page == .home)
+    #expect(root.isConfigured)
   }
 
-  @Test("saving the connection stores it, bumps the revision and stays on Settings")
+  @Test("saving the connection stores it and bumps the revision")
   func saving() {
     let store = InMemoryCredentialStore()
-    let root = fakeRoot(credentials: store, extra: [MacCompositionRoot.settingsArgument])
+    let root = fakeRoot(credentials: store)
     root.connectionForm.urlText = "https://iris.example.com"
     root.connectionForm.tokenText = "token"
     root.connectionForm.save()
     #expect(store.load()?.token == "token" && root.connectionRevision == 1)
-    #expect(root.isConfigured && root.page == .settings)
+    #expect(root.isConfigured)
     root.connectionForm.urlText = "http://iris.example.com"
     root.connectionForm.save()
     #expect(root.connectionForm.failure == .insecure && root.connectionRevision == 1)
@@ -174,15 +244,15 @@ struct MacCompositionRootTests {
     let root = fakeRoot()
     let banner = root.notifier.connectionID
     root.openFromNotification(Self.finished, connection: banner)
-    #expect(root.detailMemoID == Self.finished)
+    #expect(root.selectedMemoID == Self.finished)
 
     root.openFromNotification("other", connection: banner)
     switchServer(root)
-    #expect(root.detailMemoID == nil)
+    #expect(root.selectedMemoID == nil)
     root.openFromNotification(Self.finished, connection: banner)
-    #expect(root.detailMemoID == nil)
+    #expect(root.selectedMemoID == nil)
     root.openFromNotification(Self.finished, connection: root.notifier.connectionID)
-    #expect(root.detailMemoID == Self.finished)
+    #expect(root.selectedMemoID == Self.finished)
   }
 
   private func savedConnection(_ url: String, _ token: String) throws -> InMemoryCredentialStore {
@@ -202,7 +272,7 @@ struct MacCompositionRootTests {
       arguments: [], credentials: try savedConnection("https://iris.example.com", "t1"))
     #expect(restarted.notifier.connectionID == banner)
     restarted.openFromNotification(Self.finished, connection: banner)
-    #expect(restarted.detailMemoID == Self.finished)
+    #expect(restarted.selectedMemoID == Self.finished)
 
     let otherToken = MacCompositionRoot(
       arguments: [], credentials: try savedConnection("https://iris.example.com", "t2"))
@@ -210,7 +280,7 @@ struct MacCompositionRootTests {
       arguments: [], credentials: try savedConnection("https://other.example.com", "t1"))
     #expect(otherToken.notifier.connectionID != banner && otherServer.notifier.connectionID != banner)
     otherServer.openFromNotification(Self.finished, connection: banner)
-    #expect(otherServer.detailMemoID == nil)
+    #expect(otherServer.selectedMemoID == nil)
     #expect(!banner.contains("t1") && !banner.contains("iris"))
   }
 
@@ -276,21 +346,21 @@ struct MacCompositionRootTests {
     #expect(await eventually { await fake.memos[id]?.memo.favorite == initial })
   }
 
-  @Test("a connection change replaces the list, closes the detail and forgets what was announced")
+  @Test("a connection change replaces both lists, clears the selection and forgets what was announced")
   func switchingServers() async {
     let poster = RecordingNotificationPoster()
     let root = fakeRoot(poster: poster)
     root.begin()
     #expect(await eventually { !root.history.memos.isEmpty })
     let before = root.history
-    root.openDetail(Self.finished)
-    let dismissals = root.detailDismissals
+    let windowBefore = root.windowHistory
+    root.show(Self.finished)
 
     root.connectionForm.urlText = "https://other.example.com"
     root.connectionForm.tokenText = "token"
     root.connectionForm.save()
-    #expect(root.history !== before)
-    #expect(root.detailMemoID == nil && root.detailDismissals == dismissals + 1)
+    #expect(root.history !== before && root.windowHistory !== windowBefore)
+    #expect(root.selectedMemoID == nil)
     #expect(await eventually { !root.history.memos.isEmpty })
   }
 

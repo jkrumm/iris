@@ -99,4 +99,19 @@ struct MacMemoDetailModelTests {
     await slow.value
     #expect(model.memo?.state != .failed, "the overtaken load put the failed memo back")
   }
+
+  @Test("a chat memo loads its conversation, read only; a plain memo has none")
+  func loadsThread() async throws {
+    let api = FakeAPIClient()
+    await SampleData.seed(api)
+    let chat = MacMemoDetailModel(
+      memoID: SampleData.chatThreadID, client: api, pasteboard: RecordingPasteboard())
+    await chat.load()
+    #expect(chat.memo?.opensThread == true)
+    let thread = try #require(chat.thread)
+    #expect(thread.messages.contains { $0.role == .user } && thread.messages.contains { $0.role == .assistant })
+    let plain = await model()
+    await plain.load()
+    #expect(plain.thread == nil)
+  }
 }
