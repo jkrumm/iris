@@ -64,6 +64,13 @@ async function probe(base: string) {
   const id = list.items[0]?.id;
   assert(id, "GET /memos?limit=1 returns the memo send-memo created");
 
+  // The fake Hermes reports a kind, a headline and two tool names, like the `iris` skill's block and the stream would.
+  const memo = (await (await call(`/memos/${id}`)).json()) as HermesMemo;
+  assert(memo.state === "notified", `the memo is notified (got ${memo.state})`);
+  assertHermesResult(memo);
+  const steps = memo.steps.map((step) => step.step).join(",");
+  assert(steps === "transcribe,act,notify", `pipeline is transcribe, act, notify (got ${steps})`);
+
   const register = await call("/devices/register", {
     method: "POST",
     headers: json,
@@ -90,66 +97,7 @@ async function probe(base: string) {
   assert(type?.startsWith("audio/mpeg"), `/speech is audio/mpeg (got ${type})`);
   assert((await speech.arrayBuffer()).byteLength > 0, "/speech has bytes");
 
-  const herd = (await (await call("/herd")).json()) as { tabs?: { id: string }[] };
-  assert(herd.tabs && herd.tabs.length >= 2, "GET /herd returns tabs");
-  assert(
-    herd.tabs.some((t) => t.id.includes(":")) && herd.tabs.some((t) => t.id.startsWith("tb")),
-    `GET /herd lists both worlds (classic w:t ids and hc tb ids), got ${herd.tabs.map((t) => t.id).join(", ")}`,
-  );
   out(`e2e: R1 endpoints ok for memo ${id}`);
-}
-
-/** Parks a memo (mode tab with four live tabs asks "which tab?"), answers it with hermes, then corrects it after act. */
-async function probeRoute(base: string) {
-  const call = (path: string, init: RequestInit = {}) =>
-    fetch(`${base}/v1${path}`, {
-      ...init,
-      headers: { authorization: `Bearer ${TOKEN}`, "content-type": "application/json" },
-    });
-  const route = (id: string, destination: string) =>
-    call(`/memos/${id}/route`, { method: "POST", body: JSON.stringify({ destination }) });
-
-  const park = Bun.spawn(
-    [
-      "bun",
-      "scripts/send-memo.ts",
-      "fixtures/audio/de-90s.m4a",
-      "--url",
-      base,
-      "--token",
-      TOKEN,
-      "--mode",
-      "tab",
-    ],
-    { cwd: ROOT, stdout: "ignore", stderr: "ignore" },
-  );
-  assert((await park.exited) === 2, "send-memo --mode tab parks at needs_route (exit 2)");
-
-  const list = (await (await call("/memos?limit=1")).json()) as { pinned: { id: string }[] };
-  const id = list.pinned[0]?.id;
-  assert(id, "GET /memos?limit=1 pins the parked memo");
-  const parked = (await (await call(`/memos/${id}`)).json()) as {
-    state: string;
-    routeReason?: string;
-  };
-  assert(parked.state === "needs_route", `memo parks at needs_route (got ${parked.state})`);
-  assert(
-    parked.routeReason === "which tab?",
-    `routeReason explains the park (got ${parked.routeReason})`,
-  );
-
-  const noTab = await route(id, "herdr");
-  assert(noTab.status === 400, `answering herdr without a tab 400 (got ${noTab.status})`);
-
-  const answer = await route(id, "hermes");
-  assert(answer.status === 202, `answering hermes 202 (got ${answer.status})`);
-  const done = await call(`/memos/${id}/result?wait=30`);
-  const result = (await done.json()) as { state: string };
-  assert(result.state === "notified", `answered memo reaches notified (got ${result.state})`);
-
-  const again = await route(id, "hermes");
-  assert(again.status === 200, `correction after act 200 (got ${again.status})`);
-  out(`e2e: route answer and correction ok for memo ${id}`);
 }
 
 /** A typed memo skips transcribe: it reaches notified with no ingest or transcribe rows. */
@@ -188,7 +136,7 @@ async function probeTyped(base: string) {
   assert(detail.typed === true, `typed memo carries typed: true (got ${detail.typed})`);
   assert(detail.segmentCount === 0, `typed memo has no segments (got ${detail.segmentCount})`);
   const steps = detail.steps.map((step) => step.step).join(",");
-  assert(steps === "route,act,summarize,notify", `no ingest/transcribe rows (got ${steps})`);
+  assert(steps === "act,notify", `no ingest/transcribe rows (got ${steps})`);
   out(`e2e: typed memo ok for memo ${id}`);
 }
 
@@ -198,8 +146,26 @@ interface TypedMemo {
   state: string;
   route: string | null;
   threadId?: string;
+  kind?: string;
+  actions?: string[];
   summary: { headline: string; detail: string; spoken: string } | null;
   steps: { step: string }[];
+}
+
+type HermesMemo = TypedMemo;
+
+/** A memo that went through the fake Hermes: kind, headline and the two tool names are on it, and it was not routed. */
+function assertHermesResult(memo: HermesMemo) {
+  assert(memo.kind === "note", `the memo carries Hermes's kind (got ${memo.kind})`);
+  assert(
+    memo.summary?.headline === "Headline",
+    `the summary is Hermes's headline (got ${memo.summary?.headline})`,
+  );
+  assert(
+    memo.actions?.join() === "fake_search,fake_write",
+    `the memo lists the tools Hermes used (got ${memo.actions?.join()})`,
+  );
+  assert(memo.route === null, `a new memo has no route (got ${memo.route})`);
 }
 
 /** Sends `text` as a typed memo in `mode`, requires `notified`, and returns the memo it created. */
@@ -235,43 +201,6 @@ async function sendTyped(
   return (await (await call(`/memos/${id}`)).json()) as TypedMemo;
 }
 
-/** Mode journal: routed to the (fake) journal destination, summarized from the template. */
-async function probeJournal(base: string) {
-  const memo = await sendTyped(base, "Heute war ein guter Tag.", "journal");
-  assert(memo.route === "journal", `mode journal routes to journal (got ${memo.route})`);
-  assert(
-    memo.summary?.headline === "Saved to journal",
-    `journal summary is the template (got ${memo.summary?.headline})`,
-  );
-  assert(memo.summary.detail.startsWith("Heute"), "journal summary detail is the memo text");
-  out("e2e: journal memo ok");
-}
-
-/** "tab server" names a fake tab; the prefix wins over the decider (mode `tab` alone parks, see probeRoute). */
-async function probeTab(base: string) {
-  const memo = await sendTyped(base, "tab server Starte die Tests.", "auto");
-  assert(memo.route === "herdr", `a tab prefix routes to herdr (got ${memo.route})`);
-  const { summary } = memo;
-  assert(summary, "tab memo has a summary");
-  assert(
-    summary.headline.startsWith("Sent to"),
-    `tab summary is the template (got ${summary.headline})`,
-  );
-  assert(
-    summary.detail === "Starte die Tests.",
-    `the delivered text has the prefix cut (got ${summary.detail})`,
-  );
-  out("e2e: tab memo ok");
-}
-
-/** Auto with no prefix and three destinations: the fake decider (hermes, 0.9) routes it. */
-async function probeDecide(base: string) {
-  const memo = await sendTyped(base, "Wie wird morgen das Wetter?", "auto");
-  assert(memo.route === "hermes", `the fake decider routes to hermes (got ${memo.route})`);
-  assert(memo.summary?.headline === "Headline", "hermes summary comes from the summarizer");
-  out("e2e: decided memo ok");
-}
-
 /** Mode transcribe: a recording ends notified after transcribe and notify alone, with the transcript and no route, reply or summary. */
 async function probeTranscribe(base: string) {
   const send = Bun.spawn(
@@ -305,6 +234,10 @@ async function probeTranscribe(base: string) {
   assert(memo.route === null, `transcribe memo has no route (got ${memo.route})`);
   assert(memo.replyText === null, "transcribe memo has no reply");
   assert(memo.summary === null, "transcribe memo has no summary");
+  assert(
+    memo.kind === undefined && memo.actions === undefined,
+    "transcribe memo has no kind or actions",
+  );
   const steps = memo.steps.map((step) => step.step).join(",");
   assert(steps === "transcribe,notify", `only transcribe and notify ran (got ${steps})`);
 
@@ -316,22 +249,33 @@ async function probeTranscribe(base: string) {
   out("e2e: transcribe memo ok");
 }
 
-/** A chat memo is a Hermes thread: it reaches notified and carries the thread id. */
-async function probeChat(base: string) {
+/** Every memo is a Hermes thread: a typed memo in the default mode reaches notified with Hermes's result and a thread id. */
+async function probeHermesThread(base: string) {
   const memo = await sendTyped(
     base,
     "Was ist der Unterschied zwischen Mutex und Semaphor?",
-    "chat",
+    "hermes",
   );
-  assert(memo.mode === "chat", `chat memo keeps mode chat (got ${memo.mode})`);
-  assert(memo.route === "hermes", `chat memo routes to hermes (got ${memo.route})`);
+  assert(memo.mode === "hermes", `memo keeps mode hermes (got ${memo.mode})`);
+  assertHermesResult(memo);
   const { threadId } = memo;
   assert(
     typeof threadId === "string" && threadId !== "",
-    `chat memo carries a threadId (got ${threadId})`,
+    `memo carries a threadId (got ${threadId})`,
   );
-  out("e2e: chat memo ok");
+  out("e2e: hermes memo ok");
   await probeThreads(base, threadId);
+  await probeLegacyModes(base);
+}
+
+/** The installed app still sends the older modes: they are stored as received and go to Hermes like any other. */
+async function probeLegacyModes(base: string) {
+  for (const mode of ["auto", "chat", "journal", "tab"]) {
+    const memo = await sendTyped(base, "Notiere das bitte.", mode);
+    assert(memo.mode === mode, `a ${mode} memo keeps its mode (got ${memo.mode})`);
+    assertHermesResult(memo);
+  }
+  out("e2e: legacy modes ok");
 }
 
 interface ThreadWire {
@@ -342,22 +286,21 @@ interface ThreadWire {
 
 /** Continues the chat memo's thread, then lists the threads and reads this one back with the conversation Iris recorded. */
 async function probeThreads(base: string, threadId: string) {
-  const continued = await sendTyped(base, "Und wann nehme ich welchen?", "chat", threadId);
+  const continued = await sendTyped(base, "Und wann nehme ich welchen?", "hermes", threadId);
   assert(
     continued.threadId === threadId,
     `the reply stays in the thread (got ${continued.threadId})`,
   );
-  assert(continued.route === "hermes", `a thread reply routes to hermes (got ${continued.route})`);
 
   const call = (path: string) =>
     fetch(`${base}/v1${path}`, { headers: { authorization: `Bearer ${TOKEN}` } });
-  const list = (await (await call("/threads?kind=chat")).json()) as {
+  const list = (await (await call("/threads")).json()) as {
     items: ThreadWire[];
     nextCursor: string | null;
   };
   const listed = list.items.find((t) => t.id === threadId);
-  assert(listed, `GET /threads?kind=chat lists the thread (got ${JSON.stringify(list.items)})`);
-  assert(listed.kind === "chat", `the thread is a chat (got ${listed.kind})`);
+  assert(listed, `GET /threads lists the thread (got ${JSON.stringify(list.items)})`);
+  assert(listed.kind === "hermes", `the thread is a hermes thread (got ${listed.kind})`);
   assert(list.items[0]?.id === threadId, "the continued thread is the newest update");
 
   const lastMemo = (await (await call("/memos?limit=1")).json()) as { items: { id: string }[] };
@@ -432,12 +375,8 @@ async function main() {
   );
   assert((await send.exited) === 0, "send-memo reached notified (exit 0)");
   await probe(base);
-  await probeRoute(base);
   await probeTyped(base);
-  await probeJournal(base);
-  await probeTab(base);
-  await probeDecide(base);
-  await probeChat(base);
+  await probeHermesThread(base);
   await probeTranscribe(base);
 }
 

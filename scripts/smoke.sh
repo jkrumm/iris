@@ -17,6 +17,6 @@ AUDIO="${AUDIO:-fixtures/audio/de-90s.m4a}"
 TOKEN=$(secrets-run read op://mini/iris/device-tokens | /usr/bin/tr ',' '\n' | /usr/bin/awk -F= '$2 == "smoke" {print $1}')
 [[ -n "$TOKEN" ]] || { print -u2 "smoke: no 'smoke' device in op://mini/iris/device-tokens"; exit 2; }
 
-# `--mode hermes` is pinned on purpose: with journal and herdr registered, an `auto` memo could be
-# routed into the real brain (a commit and a push) or typed into a live agent tab.
-IRIS_TOKEN="$TOKEN" exec bun scripts/send-memo.ts "$AUDIO" --mode hermes --wait "${SMOKE_WAIT:-600}"
+# Hermes is the only destination (send-memo's default mode); a real run prints the memo's `kind` and `actions`: a missing
+# `kind` means the reply carried no valid ```iris block (`hermes.meta_invalid` in the server log).
+IRIS_TOKEN="$TOKEN" exec bun scripts/send-memo.ts "$AUDIO" --wait "${SMOKE_WAIT:-600}"
