@@ -3,9 +3,10 @@ import IrisUI
 import SwiftUI
 
 /// The sections under the detail's header, without boxes: a small uppercase label, the content, spacing between. A thread memo shows
-/// the conversation (read only) in place of its own reply and transcript, which are a turn of it.
+/// the conversation (read only) in place of its own reply and transcript, which are a turn of it. Details close the pane: the
+/// step table and the ids in a disclosure group, collapsed unless the memo failed.
 struct MacMemoSections: View {
-  let model: MacMemoDetailModel
+  @Bindable var model: MacMemoDetailModel
 
   var body: some View {
     if let memo = model.memo {
@@ -18,7 +19,7 @@ struct MacMemoSections: View {
         actionsLine(memo)
         summary(memo)
         if showsOwnTurn { transcript(memo) }
-        steps(memo)
+        details(memo)
       }
     }
   }
@@ -126,18 +127,49 @@ struct MacMemoSections: View {
     }
   }
 
-  // MARK: Steps
+  // MARK: Details
 
-  private func steps(_ memo: Memo) -> some View {
-    MacSection(String(localized: "Steps", comment: "Section label of the step waterfall")) {
-      if memo.state.isResultReady {
-        table(memo, now: .now)
-      } else {
-        // A running step's time grows with the clock.
-        TimelineView(.periodic(from: .now, by: 1)) { context in
-          table(memo, now: context.date)
+  private func details(_ memo: Memo) -> some View {
+    DisclosureGroup(isExpanded: $model.isWaterfallExpanded) {
+      VStack(alignment: .leading, spacing: Theme.Spacing.macSectionGap) {
+        if memo.state.isResultReady {
+          table(memo, now: .now)
+        } else {
+          // A running step's time grows with the clock.
+          TimelineView(.periodic(from: .now, by: 1)) { context in
+            table(memo, now: context.date)
+          }
         }
+        ids(memo)
       }
+      .padding(.top, Theme.Spacing.macLabelGap)
+    } label: {
+      Text(verbatim: String(localized: "Details", comment: "Section label of the memo detail: steps, cost, ids"))
+        .macFont(.caption, weight: .semibold)
+        .textCase(.uppercase)
+        .foregroundStyle(Theme.Ink.muted)
+        .accessibilityAddTraits(.isHeader)
+    }
+    .accessibilityIdentifier("mac.detail.details")
+  }
+
+  /// The ids to quote when something is wrong, and the device.
+  private func ids(_ memo: Memo) -> some View {
+    Grid(alignment: .leading, horizontalSpacing: Theme.Spacing.lg, verticalSpacing: Theme.Spacing.snug) {
+      idRow(String(localized: "Memo ID", comment: "Detail: label of the memo's id"), memo.id)
+      if let threadId = memo.threadId {
+        idRow(String(localized: "Thread ID", comment: "Detail: label of the thread's id"), threadId)
+      }
+      idRow(String(localized: "Device", comment: "Detail: label of the recording device"), memo.device)
+    }
+    .macFont(.caption)
+    .accessibilityIdentifier("mac.detail.ids")
+  }
+
+  private func idRow(_ title: String, _ value: String) -> some View {
+    GridRow {
+      Text(verbatim: title).foregroundStyle(Theme.Ink.muted)
+      Text(verbatim: value).monospaced().foregroundStyle(Theme.Ink.secondary).textSelection(.enabled)
     }
   }
 

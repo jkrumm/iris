@@ -2,7 +2,7 @@ import IrisCore
 import IrisUI
 import SwiftUI
 
-/// The main window's detail column: one memo laid out like a document. The headline and one quiet metadata line, then the reply, summary, transcript and steps as plain sections with small uppercase labels. Actions
+/// The main window's detail column: one memo laid out like a document. The headline and one quiet metadata line, then the reply, summary and transcript as plain sections with small uppercase labels, and Details (steps, ids) in a disclosure group. Actions
 /// sit in the window toolbar. It reloads when `refreshToken` changes (the window's list bumps it on a `memo.updated` event).
 struct MacMemoDetailPane: View {
   let root: MacCompositionRoot
@@ -174,7 +174,7 @@ struct MacMemoDetailPane: View {
   }
 }
 
-/// The headline (18 pt semibold, selectable) and one quiet line under it: what it is, when, how long, what it cost, which device.
+/// The headline (18 pt semibold, selectable) and one quiet line under it: what it is, when, how long, what it cost.
 private struct MacMemoHeader: View {
   let memo: Memo
   let totals: WaterfallBuilder.Totals?
@@ -206,7 +206,6 @@ private struct MacMemoHeader: View {
       memo.createdAt.formatted(date: .abbreviated, time: .shortened),
       memo.audioSeconds.map(DurationText.string(seconds:)),
       totals?.costUsd.map { StepText.dollars($0) },
-      memo.device,
     ]
     .compactMap { $0 }.joined(separator: " · ")
   }

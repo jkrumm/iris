@@ -18,7 +18,7 @@ final class MemoDetailUITests: IrisUITestCase {
     XCTAssertTrue(waitForPresence(app.descendants(matching: .any)["memo.detail"], timeout: 10))
   }
 
-  /// The waterfall starts collapsed to its total line; a tap on the line opens the steps.
+  /// Details start collapsed to their line; a tap on it opens the steps and the ids.
   @MainActor
   private func expandSteps(in app: XCUIApplication) {
     let toggle = app.buttons["detail.steps.toggle"]
@@ -27,17 +27,20 @@ final class MemoDetailUITests: IrisUITestCase {
   }
 
   @MainActor
-  func testTheWaterfallIsCollapsedToItsTotalAndOpensOnTap() {
+  func testDetailsAreCollapsedAndOpenOnTap() {
     let app = launch()
     openRow(containing: "Wochenplan abgestimmt", in: app)
 
     let toggle = app.buttons["detail.steps.toggle"]
     XCTAssertTrue(waitForPresence(toggle, timeout: 10))
-    XCTAssertTrue(toggle.label.contains("Total"), "the line reads the total time and cost: \(toggle.label)")
+    XCTAssertTrue(toggle.label.contains("Details"), "the line is the Details line: \(toggle.label)")
     XCTAssertTrue(waitForAbsence(app.staticTexts["Act · Hermes"], timeout: 2), "collapsed by default")
+
+    XCTAssertTrue(waitForAbsence(app.descendants(matching: .any)["detail.ids"], timeout: 2), "the ids are in Details")
 
     toggle.tap()
     XCTAssertTrue(waitForPresence(app.staticTexts["Act · Hermes"], timeout: 5))
+    XCTAssertTrue(waitForPresence(app.descendants(matching: .any)["detail.ids"], timeout: 5))
     app.buttons["detail.steps.toggle"].tap()
     XCTAssertTrue(waitForAbsence(app.staticTexts["Act · Hermes"], timeout: 5))
   }

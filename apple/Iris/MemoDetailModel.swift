@@ -15,7 +15,7 @@ final class MemoDetailModel {
   /// The owner's own open or close of the waterfall; nil until the first tap.
   private var waterfallChoice: Bool?
 
-  /// The step rows show under the waterfall's total line: collapsed until the owner opens them, except for a failed
+  /// Details (the step rows and the ids) show under their line: collapsed until the owner opens them, except for a failed
   /// memo, whose failed step (and its retry) is what the owner came for. A tap wins over that default.
   var isWaterfallExpanded: Bool {
     get { waterfallChoice ?? (memo.state == .failed) }
@@ -93,6 +93,11 @@ final class MemoDetailModel {
   func totalValue(now: Date) -> String? {
     guard let totals = WaterfallBuilder.totals(for: detail, now: now) else { return nil }
     return StepText.metric(milliseconds: totals.milliseconds, costUsd: totals.costUsd)
+  }
+
+  /// What the run cost, summed over the steps that report a cost (the header's meta line); nil while none does.
+  var totalCostUsd: Double? {
+    WaterfallBuilder.totals(for: detail, now: .now)?.costUsd
   }
 
   // MARK: Copy

@@ -832,6 +832,16 @@
         }
       }
     },
+    "Details" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Details"
+          }
+        }
+      }
+    },
     "Device token" : {
       "localizations" : {
         "de" : {
@@ -1118,6 +1128,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Memo gelöscht"
+          }
+        }
+      }
+    },
+    "Memo ID" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Memo-ID"
           }
         }
       }
@@ -1864,16 +1884,6 @@
         }
       }
     },
-    "Steps" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Schritte"
-          }
-        }
-      }
-    },
     "Stop and send" : {
       "localizations" : {
         "de" : {
@@ -2158,6 +2168,16 @@
         }
       }
     },
+    "Thread ID" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Unterhaltungs-ID"
+          }
+        }
+      }
+    },
     "Today" : {
       "localizations" : {
         "de" : {
@@ -2174,26 +2194,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Token abgelehnt"
-          }
-        }
-      }
-    },
-    "Total" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Gesamt"
-          }
-        }
-      }
-    },
-    "Total so far" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Bisher gesamt"
           }
         }
       }
