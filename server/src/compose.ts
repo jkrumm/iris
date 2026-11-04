@@ -3,17 +3,10 @@ import { join } from "node:path";
 import { createFsAssetStore } from "./adapters/assets-fs.js";
 import { createPeleRenderer } from "./adapters/diagram-pele.js";
 import { createFsSpeechCache } from "./adapters/speech-fs.js";
-import { createAgwClient } from "./adapters/agw-client.js";
-import { createAgwSummarizer } from "./adapters/agw.js";
-import { createAgwDecider } from "./adapters/agw-decider.js";
 import { createAudioDoorClient } from "./adapters/audio-door-client.js";
 import { createAudioDoorSpeaker } from "./adapters/audio-door-speaker.js";
 import { createAudioDoorTranscriber, ffmpegCombiner } from "./adapters/audio-door.js";
-import { createHcDestination, createHcHerd, createHcTransport } from "./adapters/hc.js";
-import { mergeHerds, preferHc } from "./adapters/herdr-worlds.js";
-import { createHerdrDestination, createHerdrHerd } from "./adapters/herdr.js";
 import { createHermesDestination } from "./adapters/hermes.js";
-import { createJournalDestination } from "./adapters/journal.js";
 import { createSqliteStatsStore } from "./adapters/sqlite-stats.js";
 import type { env as parsedEnv } from "./env.js";
 import { parseDeviceTokens } from "./http/auth.js";
@@ -21,24 +14,18 @@ import { selectNotifier } from "./notify/select.js";
 import type { AudioCombiner } from "./ports/audio.js";
 import type { Clock } from "./ports/clock.js";
 import type { DeviceStore } from "./ports/devices.js";
-import type { Decider } from "./ports/decider.js";
-import { hasChoice, registeredDestinations, type Destinations } from "./ports/destination.js";
+import type { Destination } from "./ports/destination.js";
 import {
   fakeAssetStore,
-  fakeDecider,
   fakeDiagramRenderer,
   fakeDestination,
-  fakeHerd,
   fakeNotifier,
   fakeSpeaker,
   fakeSpeechCache,
-  fakeSummarizer,
   fakeTranscriber,
 } from "./ports/fakes.js";
-import type { Herd, HerdTab } from "./ports/herd.js";
 import type { Notifier } from "./ports/notifier.js";
 import type { Speaker } from "./ports/speaker.js";
-import type { Summarizer } from "./ports/summarizer.js";
 import type { Transcriber } from "./ports/transcriber.js";
 import { fakeOtlpExporter } from "./telemetry/fakes.js";
 import { log } from "./telemetry/log.js";
@@ -54,14 +41,8 @@ export type ComposeEnv = Partial<
     | "OTEL_EXPORTER_OTLP_ENDPOINT"
     | "AUDIO_DOOR_URL"
     | "AUDIO_DOOR_TOKEN"
-    | "AGW_URL"
-    | "AGW_API_SECRET"
     | "HERMES_URL"
     | "HERMES_TOKEN"
-    | "HERDR_SOCKET"
-    | "HC_BIN"
-    | "HC_SOCKET"
-    | "BRAIN_DIR"
     | "APNS_KEY_P8"
     | "APNS_KEY_ID"
     | "APNS_TEAM_ID"
@@ -73,32 +54,16 @@ export type ComposeEnv = Partial<
 const MP3_FRAME = new Uint8Array(417);
 MP3_FRAME.set([0xff, 0xfb, 0x90, 0x00]);
 
-// Both worlds, as in production while classic herdr lives: `w1:t1` ids are classic tabs, `tb…` ids are hc `herdr.tab` labels.
-const TABS: HerdTab[] = [
-  { id: "w1:t1", repo: "example-app", label: "server", agentState: "working", lastActivity: null },
-  { id: "w2:t1", repo: "example-infra", label: "1", agentState: "idle", lastActivity: null },
-  { id: "w3:t1", repo: "example-docs", label: "2", agentState: "blocked", lastActivity: null },
-  { id: "tbfake0001", repo: "example-core", label: "wave", agentState: "idle", lastActivity: null },
-];
-
 /** Every downstream port as a deterministic in-memory fake (`IRIS_FAKES=1`, see `make e2e`). */
 const fakePorts = () => ({
   transcriber: fakeTranscriber(),
-  // All three, so the fake decider has a real choice (it answers hermes unless a memo pins a mode).
-  destinations: {
-    journal: fakeDestination({ threads: false }),
-    herdr: fakeDestination({ threads: false }),
-    // Only Hermes keeps conversations: this fake reports a thread, and (like Hermes) names its session after the memo.
-    hermes: fakeDestination({ sessionPerMemo: true }),
-  } satisfies Destinations,
-  decider: fakeDecider(),
-  summarizer: fakeSummarizer(),
+  // Like Hermes: a session per memo, and (as the `iris` skill would) a kind, a headline and two tool names.
+  destination: fakeDestination({ sessionPerMemo: true }),
   notifier: fakeNotifier(),
   speaker: fakeSpeaker({ result: { bytes: MP3_FRAME } }),
   speechCache: fakeSpeechCache(),
   assets: fakeAssetStore(),
   diagrams: fakeDiagramRenderer(),
-  herd: fakeHerd({ tabs: TABS }),
   otlp: fakeOtlpExporter(),
 });
 
@@ -147,72 +112,25 @@ export function compose(deps: {
       ? createAudioDoorClient({ baseUrl: env.AUDIO_DOOR_URL, token: env.AUDIO_DOOR_TOKEN })
       : undefined;
 
-  // The host needs its URL and its bearer together; triage and decide share the one client.
-  const agw =
-    env.AGW_URL && env.AGW_API_SECRET
-      ? createAgwClient({ baseUrl: env.AGW_URL, secret: env.AGW_API_SECRET })
-      : undefined;
-
-  // The herdr destination and the herd serve both worlds until classic herdr is retired: hc when `HC_BIN` and `HC_SOCKET` are set,
-  // classic when `HERDR_SOCKET` is. A tab id belongs to one of them, hc is preferred for a delivery.
-  const hcTransport =
-    env.HC_BIN && env.HC_SOCKET
-      ? createHcTransport({ bin: env.HC_BIN, socket: env.HC_SOCKET })
-      : undefined;
-  const classicDestination = env.HERDR_SOCKET
-    ? createHerdrDestination({ socketPath: env.HERDR_SOCKET })
-    : undefined;
-  const hcDestination = hcTransport ? createHcDestination({ transport: hcTransport }) : undefined;
-  const herdrDestination =
-    hcDestination && classicDestination
-      ? preferHc({ hc: hcDestination, classic: classicDestination })
-      : (hcDestination ?? classicDestination);
-
   const ports = {
     transcriber: choose<Transcriber>("transcribe", fakes?.transcriber, () =>
       audioDoor ? createAudioDoorTranscriber({ client: audioDoor }) : undefined,
     ),
-    // Only destinations with an act adapter are routing choices. Each is optional on its own; `act`
-    // is degraded only when none is registered.
-    destinations: choose<Destinations>("act", fakes?.destinations, () => {
-      const registered: Destinations = {
-        ...(env.BRAIN_DIR && {
-          journal: createJournalDestination({ brainDir: env.BRAIN_DIR, clock }),
-        }),
-        ...(herdrDestination && { herdr: herdrDestination }),
-        ...(env.HERMES_URL &&
-          env.HERMES_TOKEN && {
-            hermes: createHermesDestination({ baseUrl: env.HERMES_URL, token: env.HERMES_TOKEN }),
-          }),
-      };
-      return registeredDestinations(registered).length > 0 ? registered : undefined;
-    }),
-    summarizer: choose<Summarizer>("summarize", fakes?.summarizer, () =>
-      agw ? createAgwSummarizer({ client: agw }) : undefined,
+    // Hermes is the one destination; `act` is degraded without it.
+    destination: choose<Destination>("act", fakes?.destination, () =>
+      env.HERMES_URL && env.HERMES_TOKEN
+        ? createHermesDestination({ baseUrl: env.HERMES_URL, token: env.HERMES_TOKEN })
+        : undefined,
     ),
     speaker: choose<Speaker>("speech", fakes?.speaker, () =>
       audioDoor ? createAudioDoorSpeaker({ client: audioDoor }) : undefined,
     ),
-    herd: choose<Herd>("herd", fakes?.herd, () => {
-      const worlds = [
-        ...(hcTransport ? [createHcHerd({ transport: hcTransport })] : []),
-        ...(env.HERDR_SOCKET ? [createHerdrHerd({ socketPath: env.HERDR_SOCKET })] : []),
-      ];
-      return worlds.length > 0 ? mergeHerds(worlds) : undefined;
-    }),
     // Always present, never degraded.
     combiner: deps.combiner ?? ffmpegCombiner,
     speechCache: fakes?.speechCache ?? createFsSpeechCache(join(dataDir, "speech")),
     assets: fakes?.assets ?? createFsAssetStore(join(dataDir, "assets")),
     diagrams: fakes?.diagrams ?? createPeleRenderer(),
   };
-
-  // Not a `choose`: the decider only matters once there is a real choice (two or more destinations).
-  const decider: Decider | undefined =
-    fakes?.decider ?? (agw ? createAgwDecider({ client: agw }) : undefined);
-  if (hasChoice(registeredDestinations(ports.destinations ?? {})) && !decider) {
-    degraded.push("decide");
-  }
 
   // APNs when all four APNS_* are set, else the log stand-in (intended until enrolment, so not `degraded`).
   const selected: {
@@ -228,7 +146,7 @@ export function compose(deps: {
   const telemetry = createTelemetryRelay({ exporter: fakes?.otlp ?? { send: exportOtlp } });
 
   return {
-    ports: { ...ports, decider },
+    ports,
     stats: createSqliteStatsStore({ db, clock }),
     telemetry,
     degraded,

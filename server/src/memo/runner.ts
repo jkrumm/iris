@@ -6,9 +6,8 @@ import { MemoError } from "./errors.js";
 import { memoEvent, type MemoEvents } from "./events.js";
 import {
   advance,
-  isOptionalStep,
+  canRetryFrom,
   nextStep,
-  stepIndex,
   stepsOf,
   STEPS,
   type HandlerStep,
@@ -16,13 +15,10 @@ import {
   type MemoPatch,
   type MemoState,
   type Step,
-  type StepOutcome,
 } from "./memo.js";
 import type { MemoStore } from "./store.js";
 
 export interface StepResult {
-  /** `route` and `act`: park the memo in `needs_route` instead of advancing it. */
-  outcome?: StepOutcome;
   usage?: unknown;
   costUsd?: number;
   /** Memo data columns to write atomically with the step completion. */
@@ -59,8 +55,9 @@ export interface Runner {
   /** Resolves once no memo is in flight and no `driveAll` is running. Never throws. */
   idle(): Promise<void>;
   /**
-   * Resets a failed memo to before `from` and drives it in the background. Returns the reset memo. A `notified` memo
-   * whose optional `from` step failed retries too (its result is filled in later).
+   * Resets a failed memo to before `from` and drives it in the background. Returns the reset memo. `from` is a step of the
+   * memo's pipeline (`stepsOf`), at or before the one that failed; an old memo that failed at `route` or `summarize` retries from
+   * `act` or `notify`.
    */
   retry(params: { id: string; from: Step }): Memo;
 }
@@ -198,16 +195,6 @@ export function createRunner(deps: {
       result = await attempt({ memo, step, handler });
     } catch (err) {
       const error = errorMessage(err);
-      if (isOptionalStep(step)) {
-        // The step stays failed on the timeline; the memo carries on without its result.
-        if (!store.skipStep({ id: memo.id, step, from: memo.state, error })) {
-          log("runner.lost_skip", { memo_id: memo.id, step, from: memo.state, error });
-          return false;
-        }
-        log("step.skipped", { memo_id: memo.id, step, error });
-        publish(memo.id, step);
-        return true;
-      }
       store.markStepFailed({ id: memo.id, step, error });
       publish(memo.id, step);
       return false;
@@ -215,9 +202,9 @@ export function createRunner(deps: {
     if (result === null) return false;
     let to: MemoState;
     try {
-      to = advance({ state: memo.state, step, mode: memo.mode, outcome: result.outcome });
+      to = advance({ state: memo.state, step, mode: memo.mode });
     } catch (err) {
-      // A handler that asks for something its step cannot do is a real failure, optional step or not.
+      // A memo whose state the step cannot run from is a real failure.
       store.markStepFailed({ id: memo.id, step, error: errorMessage(err) });
       publish(memo.id, step);
       return false;
@@ -344,21 +331,14 @@ export function createRunner(deps: {
           `cannot retry from ${from}: mode ${memo.mode} has no such step`,
         );
       }
-      // A finished memo retries only an optional step that failed on the way.
-      const skippedOptional =
-        memo.state === "notified" &&
-        isOptionalStep(from) &&
-        store.listStepRecords(id).some((r) => r.step === from && r.status === "failed");
-      if (!skippedOptional) {
-        if (memo.state !== "failed" || !memo.failedStep) {
-          throw new MemoError("bad_state", `memo ${id} is ${memo.state}, only failed memos retry`);
-        }
-        if (stepIndex(from) > stepIndex(memo.failedStep)) {
-          throw new MemoError(
-            "bad_request",
-            `cannot retry from ${from}: failed at ${memo.failedStep}`,
-          );
-        }
+      if (memo.state !== "failed" || !memo.failedStep) {
+        throw new MemoError("bad_state", `memo ${id} is ${memo.state}, only failed memos retry`);
+      }
+      if (!canRetryFrom({ from, failedStep: memo.failedStep, mode: memo.mode })) {
+        throw new MemoError(
+          "bad_request",
+          `cannot retry from ${from}: failed at ${memo.failedStep}`,
+        );
       }
       if (!store.resetForRetry({ id, from })) {
         throw new MemoError("bad_state", `memo ${id} is no longer failed`);

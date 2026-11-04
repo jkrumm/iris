@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { parkMemo, seedMemo } from "../memo/test-support.js";
+import { legacyParkedMemo, seedMemo } from "../memo/test-support.js";
 import { call, fakeHandlers, MAC, PHONE, testApp } from "./test-support.js";
 
 const bytes = (n = 4) => new Uint8Array(n).fill(7);
@@ -93,7 +93,7 @@ describe("POST /v1/memos/text", () => {
       steps: { step: string }[];
       segmentCount: number;
     };
-    expect(detail.steps.map((s) => s.step)).toEqual(["route", "act", "summarize", "notify"]);
+    expect(detail.steps.map((s) => s.step)).toEqual(["act", "notify"]);
     expect(detail.segmentCount).toBe(0);
     expect(detail).toMatchObject({ typed: true });
   });
@@ -345,58 +345,111 @@ describe("POST /v1/memos/:id/retry", () => {
     expect(await res.json()).toMatchObject({ id });
   });
 
-  it("ends a memo whose summarize failed as notified, and retries its summarize", async () => {
+  it("fails an act, then retries it with the data of act and later steps cleared", async () => {
     let broken = true;
     const { app } = testApp({
       handlers: {
-        route: async () => ({ patch: { route: "hermes" } }),
-        act: async () => ({ patch: { replyText: "Erledigt." } }),
-        summarize: async () => {
-          if (broken) throw new Error("402 payment required");
-          return { patch: { summary: { headline: "H", detail: "D", spoken: "S" } } };
+        act: async () => {
+          if (broken) throw new Error("hermes down");
+          return {
+            patch: {
+              replyText: "Erledigt.",
+              kind: "note",
+              actions: ["web_search"],
+              summary: { headline: "H", detail: "", spoken: "S" },
+            },
+          };
         },
         notify: async () => ({}),
       },
     });
-    const created = await createText(app);
-    const { id } = (await created.json()) as { id: string };
-    const res = await call(app, { path: `/v1/memos/${id}/result?wait=5` });
-    expect(res.status).toBe(200);
-    expect(await res.json()).toMatchObject({
-      state: "notified",
-      failedStep: null,
-      error: null,
-      summary: null,
-    });
-    const detail = await call(app, { path: `/v1/memos/${id}` });
-    expect(await detail.json()).toMatchObject({
-      steps: expect.arrayContaining([
-        expect.objectContaining({
-          step: "summarize",
-          status: "failed",
-          error: "402 payment required",
-        }),
-      ]),
-    });
+    const { id } = (await (await createText(app)).json()) as { id: string };
+    const failed = await call(app, { path: `/v1/memos/${id}/result?wait=5` });
+    expect(await failed.json()).toMatchObject({ state: "failed", failedStep: "act" });
 
     broken = false;
     const retry = await call(app, {
       method: "POST",
       path: `/v1/memos/${id}/retry`,
-      json: { from: "summarize" },
+      json: { from: "act" },
     });
     expect(retry.status).toBe(202);
-    expect(await retry.json()).toMatchObject({ state: "acted", summary: null });
     const done = await call(app, { path: `/v1/memos/${id}/result?wait=5` });
-    expect(await done.json()).toMatchObject({ state: "notified", summary: { headline: "H" } });
-
-    // nothing failed any more: a second retry is a conflict
+    expect(await done.json()).toMatchObject({
+      state: "notified",
+      kind: "note",
+      actions: ["web_search"],
+      summary: { headline: "H" },
+    });
     const again = await call(app, {
       method: "POST",
       path: `/v1/memos/${id}/retry`,
-      json: { from: "summarize" },
+      json: { from: "act" },
     });
     expect(again.status).toBe(409);
+  });
+
+  it("400s a step outside the memo's pipeline, including the retired route and summarize", async () => {
+    const { app, store } = testApp();
+    const { id } = seedMemo(store, "transcribed");
+    store.markStepFailed({ id, step: "act", error: "boom" });
+    for (const from of ["route", "summarize", "ingest"]) {
+      const res = await call(app, {
+        method: "POST",
+        path: `/v1/memos/${id}/retry`,
+        json: { from },
+      });
+      expect([from, res.status]).toEqual([from, 400]);
+    }
+    // a typed memo has no transcribe step to retry from
+    const typed = await call(app, {
+      method: "POST",
+      path: "/v1/memos/text",
+      json: { id: newId(), mode: "auto", startedAt: "2026-01-01T00:00:00.000Z", text: "x" },
+    });
+    expect(typed.status).toBe(202);
+  });
+
+  it.each([
+    ["route", "act"],
+    ["summarize", "notify"],
+  ] as const)("retries an old failed(%s) memo from %s", async (failedStep, from) => {
+    const ran: string[] = [];
+    const { app, store, runner } = testApp({
+      handlers: {
+        act: async () => {
+          ran.push("act");
+          return {};
+        },
+        notify: async () => {
+          ran.push("notify");
+          return {};
+        },
+      },
+    });
+    const { id } = seedMemo(store, "transcribed");
+    store.markStepFailed({ id, step: failedStep, error: "old failure" });
+    expect(store.getMemo(id)).toMatchObject({ state: "failed", failedStep });
+
+    if (from === "act") {
+      // failed at act: notify comes after the failure, so it cannot be retried from
+      const wrong = await call(app, {
+        method: "POST",
+        path: `/v1/memos/${id}/retry`,
+        json: { from: "notify" },
+      });
+      expect(wrong.status).toBe(400);
+    }
+
+    const res = await call(app, {
+      method: "POST",
+      path: `/v1/memos/${id}/retry`,
+      json: { from },
+    });
+    expect(res.status).toBe(202);
+    await runner.idle();
+    expect(store.getMemo(id)?.state).toBe("notified");
+    expect(ran).toEqual(from === "act" ? ["act", "notify"] : ["notify"]);
   });
 
   it("400s a missing from instead of defaulting it", async () => {
@@ -482,10 +535,11 @@ describe("GET /v1/memos/:id/result", () => {
       patch: {
         transcript: "hello",
         audioSeconds: 2.5,
-        route: "hermes",
         destinationRef: "session-1",
         replyText: "done",
         summary,
+        kind: "note",
+        actions: ["web_search", "terminal"],
       },
     });
     store.transition({ id, from: "transcribed", to: "needs_route" });
@@ -493,10 +547,11 @@ describe("GET /v1/memos/:id/result", () => {
     expect(await res.json()).toMatchObject({
       transcript: "hello",
       audioSeconds: 2.5,
-      route: "hermes",
       destinationRef: "session-1",
       replyText: "done",
       summary,
+      kind: "note",
+      actions: ["web_search", "terminal"],
     });
   });
 
@@ -524,191 +579,160 @@ describe("GET /v1/memos/:id/result", () => {
   });
 });
 
-const route = (app: ReturnType<typeof testApp>["app"], id: string, json: unknown) =>
-  call(app, { method: "POST", path: `/v1/memos/${id}/route`, json });
-
-describe("POST /v1/memos/:id/route", () => {
-  it("answers a parked memo with 202, routes it and lets the pipeline finish", async () => {
-    const { app, store, runner } = testApp({ handlers: fakeHandlers });
-    const id = parkMemo(store, { reason: "journal not available" });
-    const parked = await call(app, { path: `/v1/memos/${id}` });
-    expect(await parked.json()).toMatchObject({
-      state: "needs_route",
-      routeReason: "journal not available",
-    });
-
-    const res = await route(app, id, { destination: "hermes" });
-    expect(res.status).toBe(202);
-    const body = await res.json();
-    expect(body).toMatchObject({ id, state: "routed", route: "hermes" });
-    expect(body).not.toHaveProperty("routeReason");
-    await runner.idle();
-    expect(store.getMemo(id)?.state).toBe("notified");
-    expect(store.listRouteDecisions(id).at(-1)).toMatchObject({ source: "answer" });
-  });
-
-  it("409s a second answer while the first is still driving", async () => {
-    let release!: () => void;
-    const gate = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    const { app, store, runner } = testApp({
-      handlers: {
-        ...fakeHandlers,
-        act: async () => {
-          await gate;
-          return {};
-        },
-      },
-    });
-    const id = parkMemo(store, { reason: "decide refused" });
-    expect((await route(app, id, { destination: "hermes" })).status).toBe(202);
-    const again = await route(app, id, { destination: "hermes" });
-    expect(again.status).toBe(409);
-    expect(await again.json()).toMatchObject({ error: "bad_state" });
-    release();
-    await runner.idle();
-  });
-
-  it("400s an unregistered destination, a missing or stray tab and an unknown destination", async () => {
-    const { app, store } = testApp({ handlers: fakeHandlers });
-    const id = parkMemo(store, { reason: "decide refused" });
-    const unavailable = await route(app, id, { destination: "journal" });
-    expect(unavailable.status).toBe(400);
-    expect(await unavailable.json()).toEqual({
-      error: "bad_request",
-      message: "journal not available",
-    });
-    for (const json of [
-      { destination: "hermes", tab: "w1:t1" },
-      { destination: "nope" },
-      { destination: "hermes", tab: "" },
-      {},
-    ]) {
-      expect([json, (await route(app, id, json)).status]).toEqual([json, 400]);
-    }
-    const wrongTab = testApp({ destinations: ["hermes", "herdr"] });
-    const parked = parkMemo(wrongTab.store, { reason: "decide refused" });
-    expect((await route(wrongTab.app, parked, { destination: "herdr" })).status).toBe(400);
-    expect((await route(wrongTab.app, parked, { destination: "herdr", tab: "w1:t1" })).status).toBe(
-      202,
-    );
-    expect(store.getMemo(id)?.state).toBe("needs_route");
-  });
-
-  it("records a correction after act with 200 and leaves the memo unchanged", async () => {
+describe("removed routes", () => {
+  it("404s POST /memos/:id/route and GET /herd", async () => {
     const { app, store } = testApp();
     const { id } = seedMemo(store, "notified");
-    const before = await (await call(app, { path: `/v1/memos/${id}` })).json();
-    const res = await route(app, id, { destination: "hermes" });
-    expect(res.status).toBe(200);
-    expect(await res.json()).toMatchObject({ id, state: "notified" });
-    expect(store.getMemo(id)?.updatedAt).toBe((before as { updatedAt: string }).updatedAt);
-    expect(store.listRouteDecisions(id)).toMatchObject([{ source: "correction" }]);
-  });
-
-  it("409s the other states, 404s unknown memos, 401s without a token", async () => {
-    const { app, store } = testApp();
-    for (const state of ["receiving", "received", "transcribed", "routed"] as const) {
-      const { id } = seedMemo(store, state);
-      expect([state, (await route(app, id, { destination: "hermes" })).status]).toEqual([
-        state,
-        409,
-      ]);
-    }
-    const failed = seedMemo(store, "transcribed");
-    store.markStepFailed({ id: failed.id, step: "route", error: "boom" });
-    expect((await route(app, failed.id, { destination: "hermes" })).status).toBe(409);
-    expect((await route(app, newId(), { destination: "hermes" })).status).toBe(404);
-    const anon = await call(app, {
+    const route = await call(app, {
       method: "POST",
-      path: `/v1/memos/${failed.id}/route`,
-      headers: {},
+      path: `/v1/memos/${id}/route`,
       json: { destination: "hermes" },
     });
-    expect(anon.status).toBe(401);
+    expect(route.status).toBe(404);
+    expect((await call(app, { path: "/v1/herd" })).status).toBe(404);
+  });
+});
+
+describe("memo kind and actions on the wire", () => {
+  it("omits kind and actions while empty and carries them once set", async () => {
+    const { app, store } = testApp();
+    const { id } = seedMemo(store, "transcribed");
+    const plain = (await (await call(app, { path: `/v1/memos/${id}` })).json()) as Record<
+      string,
+      unknown
+    >;
+    expect(plain).not.toHaveProperty("kind");
+    expect(plain).not.toHaveProperty("actions");
+
+    store.markStepStarted({ id, step: "act" });
+    store.completeStep({
+      id,
+      step: "act",
+      from: "transcribed",
+      to: "acted",
+      patch: { kind: "note", actions: ["web_search", "terminal"] },
+    });
+    const set = (await (await call(app, { path: `/v1/memos/${id}` })).json()) as Record<
+      string,
+      unknown
+    >;
+    expect(set).toMatchObject({ kind: "note", actions: ["web_search", "terminal"] });
+    expect(set).not.toHaveProperty("routeReason");
+    expect(set).not.toHaveProperty("routeSuggestion");
+    const listed = (await (await call(app, { path: "/v1/memos" })).json()) as {
+      items: Record<string, unknown>[];
+    };
+    expect(listed.items[0]).toMatchObject({ kind: "note" });
   });
 
-  it("lists a parked memo with its reason and suggestion", async () => {
+  it("lists a legacy needs_route memo as a plain item, with no pinned section", async () => {
     const { app, store } = testApp();
-    parkMemo(store, { reason: "low confidence (0.62)", destination: "hermes" });
-    const res = await call(app, { path: "/v1/memos" });
-    const { items, pinned } = (await res.json()) as {
-      items: Record<string, unknown>[];
-      pinned: Record<string, unknown>[];
+    const id = legacyParkedMemo(store);
+    const body = (await (await call(app, { path: "/v1/memos" })).json()) as {
+      items: { id: string; state: string }[];
     };
-    expect(items).toEqual([]);
-    expect(pinned[0]).toMatchObject({
-      state: "needs_route",
-      routeReason: "low confidence (0.62)",
-      routeSuggestion: "hermes",
-    });
+    expect(body).not.toHaveProperty("pinned");
+    expect(body.items).toEqual([expect.objectContaining({ id, state: "needs_route" })]);
   });
 });
 
 describe("GET /v1/memos filters", () => {
   const list = async (app: ReturnType<typeof testApp>["app"], query = "") => {
     const res = await call(app, { path: `/v1/memos${query}` });
-    return {
-      res,
-      body: (await res.json()) as { items: { id: string }[]; pinned: { id: string }[] },
-    };
+    return { res, body: (await res.json()) as { items: { id: string }[] } };
   };
 
-  it("searches, filters and pins over HTTP", async () => {
-    const { app, store } = testApp();
-    const hit = seedMemo(store, "notified").id;
+  /** Moves a transcribed memo through act with the given kind and transcript. */
+  const acted = (
+    store: ReturnType<typeof testApp>["store"],
+    patch: { kind?: string; transcript?: string },
+  ) => {
+    const { id } = seedMemo(store, "transcribed");
+    if (patch.transcript !== undefined) {
+      store.completeStep({
+        id,
+        step: "transcribe",
+        from: "transcribed",
+        to: "transcribed",
+        patch: { transcript: patch.transcript },
+      });
+    }
+    store.markStepStarted({ id, step: "act" });
     store.completeStep({
-      id: hit,
-      step: "transcribe",
-      from: "notified",
-      to: "notified",
-      patch: { transcript: "Trag den Termin in den Kalender ein", route: "hermes" },
+      id,
+      step: "act",
+      from: "transcribed",
+      to: "acted",
+      patch: patch.kind === undefined ? {} : { kind: patch.kind },
     });
-    seedMemo(store, "notified");
-    const parked = parkMemo(store, { reason: "unsure" }, "Kalender Termin");
+    return id;
+  };
 
-    const found = await list(app, "?q=Kalend&route=hermes&state=notified");
-    expect(found.body.items.map((m) => m.id)).toEqual([hit]);
-    expect(found.body.pinned).toEqual([]);
-
-    const all = await list(app, "?q=kalender");
-    expect(all.body.items.map((m) => m.id)).toEqual([hit]);
-    expect(all.body.pinned.map((m) => m.id)).toEqual([parked]);
-
-    const onlyParked = await list(app, "?state=needs_route");
-    expect(onlyParked.body.items).toEqual([]);
-    expect(onlyParked.body.pinned.map((m) => m.id)).toEqual([parked]);
-  });
-
-  it("sends pinned as an empty array on later pages", async () => {
+  it("searches and filters by kind and state over HTTP", async () => {
     const { app, store } = testApp();
+    const hit = acted(store, { kind: "note", transcript: "Trag den Termin in den Kalender ein" });
+    acted(store, { kind: "task", transcript: "Kalender anderes" });
     seedMemo(store, "notified");
-    seedMemo(store, "notified");
-    parkMemo(store, { reason: "unsure" });
-    const first = await list(app, "?limit=1");
-    expect(first.body.pinned).toHaveLength(1);
-    const cursor = (
-      (await (await call(app, { path: "/v1/memos?limit=1" })).json()) as {
-        nextCursor: string;
-      }
-    ).nextCursor;
-    const second = await list(app, `?limit=1&cursor=${cursor}`);
-    expect(second.body.pinned).toEqual([]);
+
+    const found = await list(app, "?q=Kalend&kind=note&state=acted");
+    expect(found.body.items.map((m) => m.id)).toEqual([hit]);
+    expect((await list(app, "?q=kalender")).body.items).toHaveLength(2);
+    expect((await list(app, "?state=notified")).body.items).toHaveLength(1);
   });
 
-  it("answers 400 for an unknown route or state and an over-long q", async () => {
+  it("matches the kind exactly after normalising it", async () => {
+    const { app, store } = testApp();
+    const note = acted(store, { kind: "note" });
+    acted(store, { kind: "notebook" });
+    const untyped = acted(store, {});
+
+    expect((await list(app, "?kind=note")).body.items.map((m) => m.id)).toEqual([note]);
+    expect((await list(app, "?kind=%20Note%20")).body.items.map((m) => m.id)).toEqual([note]);
+    expect((await list(app, "?kind=NOTE")).body.items.map((m) => m.id)).toEqual([note]);
+    expect((await list(app, "?kind=nothing")).body.items).toEqual([]);
+    expect((await list(app, "?kind=")).body.items).toEqual([]);
+    expect((await list(app, "?kind=%20%20")).body.items).toEqual([]);
+    expect((await list(app)).body.items.map((m) => m.id)).toContain(untyped);
+  });
+
+  it("keeps only memos in a thread with thread=true", async () => {
+    const { app, store } = testApp();
+    const { id } = seedMemo(store, "transcribed");
+    store.markStepStarted({ id, step: "act" });
+    store.completeStep({
+      id,
+      step: "act",
+      from: "transcribed",
+      to: "acted",
+      patch: { thread: { id, kind: "hermes", title: "t" } },
+    });
+    const plain = seedMemo(store, "notified").id;
+
+    expect((await list(app, "?thread=true")).body.items.map((m) => m.id)).toEqual([id]);
+    expect((await list(app)).body.items.map((m) => m.id).toSorted()).toEqual(
+      [id, plain].toSorted(),
+    );
+  });
+
+  it("answers 400 for an unknown state, a bad thread value and an over-long q", async () => {
     const { app } = testApp();
     for (const query of [
-      "?route=nope",
       "?state=nope",
-      `?q=${"x".repeat(201)}`,
-      "?route=",
       "?state=",
+      "?thread=yes",
+      "?thread=1",
+      `?q=${"x".repeat(201)}`,
     ]) {
       const { res } = await list(app, query);
       expect([query, res.status]).toEqual([query, 400]);
     }
-    expect((await list(app, "?route=herdr")).res.status).toBe(200);
+  });
+
+  it("ignores the removed route param", async () => {
+    const { app, store } = testApp();
+    const id = seedMemo(store, "notified").id;
+    const { res, body } = await list(app, "?route=nope");
+    expect(res.status).toBe(200);
+    expect(body.items.map((m) => m.id)).toEqual([id]);
   });
 });

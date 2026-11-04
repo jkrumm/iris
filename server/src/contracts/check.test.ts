@@ -91,29 +91,29 @@ describe("checkContracts", () => {
 
   it("fails on a fixture that matches no schema and a schema without a fixture", () => {
     writeFileSync(join(root, "fixtures/nothing.like.this.json"), "{}\n");
-    rmSync(join(root, "fixtures/herd.response.json"));
-    rmSync(join(root, "fixtures/herd.response.empty.json"));
+    rmSync(join(root, "fixtures/stats.response.json"));
+    rmSync(join(root, "fixtures/stats.response.empty.json"));
     const found = problems();
     expect(found).toContainEqual(
       expect.stringContaining("fixtures/nothing.like.this.json: no schema"),
     );
     expect(found).toContainEqual(
-      expect.stringContaining("schema/herd.response.json: has no fixture"),
+      expect.stringContaining("schema/stats.response.json: has no fixture"),
     );
   });
 
   it("fails when the manifest drops a route the app serves", () => {
     edit("manifest.json", (text) => {
       const manifest = JSON.parse(text);
-      manifest.routes = manifest.routes.filter((r: { path: string }) => r.path !== "/v1/herd");
+      manifest.routes = manifest.routes.filter((r: { path: string }) => r.path !== "/v1/stats");
       return JSON.stringify(manifest);
     });
     const found = problems();
     expect(found).toContainEqual(
-      expect.stringContaining("route GET /v1/herd exists but is not in the manifest"),
+      expect.stringContaining("route GET /v1/stats exists but is not in the manifest"),
     );
     expect(found).toContainEqual(
-      expect.stringContaining("schema herd.response is not referenced by any route"),
+      expect.stringContaining("schema stats.response is not referenced by any route"),
     );
   });
 
@@ -134,9 +134,9 @@ describe("checkContracts", () => {
   });
 
   it("fails on an unknown schema reference and on a malformed manifest", () => {
-    edit("manifest.json", (t) => t.replace('"schema": "herd.response"', '"schema": "herd.nope"'));
+    edit("manifest.json", (t) => t.replace('"schema": "stats.response"', '"schema": "stats.nope"'));
     expect(problems()).toContainEqual(
-      expect.stringContaining("references unknown schema herd.nope"),
+      expect.stringContaining("references unknown schema stats.nope"),
     );
 
     writeFileSync(join(root, "manifest.json"), JSON.stringify({ routes: [] }));

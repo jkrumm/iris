@@ -44,7 +44,7 @@ describe("getThread", () => {
 });
 
 describe("listThreads", () => {
-  it("lists the newest update first, ties by id descending, and filters by kind", () => {
+  it("lists the newest update first and ties by id descending", () => {
     const ctx = testStore();
     addThread(ctx, { id: "old", updatedAt: "2026-01-01T00:00:00.000Z" });
     addThread(ctx, { id: "chat", kind: "chat", updatedAt: "2026-01-03T00:00:00.000Z" });
@@ -52,12 +52,6 @@ describe("listThreads", () => {
     addThread(ctx, { id: "tie-b", updatedAt: "2026-01-02T00:00:00.000Z" });
 
     expect(ids(ctx.store.listThreads({ limit: 10 }))).toEqual(["chat", "tie-b", "tie-a", "old"]);
-    expect(ids(ctx.store.listThreads({ limit: 10, kind: "chat" }))).toEqual(["chat"]);
-    expect(ids(ctx.store.listThreads({ limit: 10, kind: "hermes" }))).toEqual([
-      "tie-b",
-      "tie-a",
-      "old",
-    ]);
   });
 
   it("pages with a cursor on (updated_at, id) and ends with a null cursor", () => {

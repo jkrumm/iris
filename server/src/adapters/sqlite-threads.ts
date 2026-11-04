@@ -73,18 +73,16 @@ export function createSqliteThreadStore(params: {
       return row ? toThread(row) : null;
     },
 
-    listThreads({ kind, limit, cursor }) {
+    listThreads({ limit, cursor }) {
       const after = cursor == null ? null : decodeCursor(cursor);
       const rows = db
         .query<ThreadRow, (string | number | null)[]>(
           `SELECT ${THREAD_SELECT} FROM threads
-           WHERE ${NOT_ALL_DELETED} AND (? IS NULL OR kind = ?)
+           WHERE ${NOT_ALL_DELETED}
              AND (? IS NULL OR updated_at < ? OR (updated_at = ? AND id < ?))
            ORDER BY updated_at DESC, id DESC LIMIT ?`,
         )
         .all(
-          kind ?? null,
-          kind ?? null,
           after?.updatedAt ?? null,
           after?.updatedAt ?? null,
           after?.updatedAt ?? null,

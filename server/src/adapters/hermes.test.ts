@@ -1,6 +1,13 @@
 import { describe, expect, it } from "bun:test";
+import { captureLogs } from "../memo/test-support.js";
+import type { MemoMode } from "../memo/memo.js";
 import { transientKind } from "../ports/transient.js";
-import { CHAT_SYSTEM_MESSAGE, createHermesDestination } from "./hermes.js";
+import {
+  createHermesDestination,
+  IRIS_SYSTEM_MESSAGE,
+  parseIrisBlock,
+  systemMessage,
+} from "./hermes.js";
 
 const MEMO_ID = "0f8fad5b-d9cb-469f-a165-70867728950e";
 const BASE_URL = "http://127.0.0.1:1234/v1";
@@ -24,6 +31,8 @@ const runCompleted = frame("run.completed", {
   usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 },
 });
 const done = frame("done", {});
+const toolStarted = (data: Record<string, unknown>) => frame("tool.started", data);
+const irisBlock = (json: string) => `\n\n\`\`\`iris\n${json}\n\`\`\``;
 
 function sseResponse(chunks: string[], status = 200): Response {
   const encoder = new TextEncoder();
@@ -67,7 +76,7 @@ function fakeHermes(opts: {
 }
 
 const deliver = (d: ReturnType<typeof fakeHermes>["destination"]) =>
-  d.deliver({ memoId: MEMO_ID, transcript: "buy milk" });
+  d.deliver({ memoId: MEMO_ID, transcript: "buy milk", mode: "auto" });
 
 describe("hermes destination", () => {
   it("creates the session, streams the chat and returns the final reply with usage", async () => {
@@ -93,6 +102,7 @@ describe("hermes destination", () => {
       ref: MEMO_ID,
       replyText: "Done, milk is on the list.",
       thread: { id: MEMO_ID, kind: "hermes", title: "buy milk" },
+      meta: { kind: null, summary: null, actions: [] },
       usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
     });
 
@@ -102,7 +112,10 @@ describe("hermes destination", () => {
     expect(create?.url).toBe("http://127.0.0.1:1234/api/sessions");
     expect(JSON.parse(String(create?.init.body))).toEqual({ id: MEMO_ID, source: "iris" });
     expect(chat?.url).toBe(`http://127.0.0.1:1234/api/sessions/${MEMO_ID}/chat/stream`);
-    expect(JSON.parse(String(chat?.init.body))).toEqual({ message: "buy milk" });
+    expect(JSON.parse(String(chat?.init.body))).toEqual({
+      message: "buy milk",
+      system_message: IRIS_SYSTEM_MESSAGE,
+    });
     for (const call of calls) {
       expect((call.init.headers as Record<string, string>)["Authorization"]).toBe(
         "Bearer test-token",
@@ -110,38 +123,34 @@ describe("hermes destination", () => {
     }
   });
 
-  it("opens a chat session with source iris-chat and sends the no-side-effects system message", async () => {
-    const { calls, destination } = fakeHermes({
-      chat: () => sseResponse([completed("a monad is..."), done]),
-    });
-    const delivery = await destination.deliver({
-      memoId: MEMO_ID,
-      transcript: "what is a monad?",
-      chat: true,
-    });
-    expect(delivery.ref).toBe(MEMO_ID);
-    expect(JSON.parse(String(calls[0]?.init.body))).toEqual({
-      id: MEMO_ID,
-      source: "iris-chat",
-    });
-    expect(JSON.parse(String(calls[1]?.init.body))).toEqual({
-      message: "what is a monad?",
-      system_message: CHAT_SYSTEM_MESSAGE,
-    });
-    expect(CHAT_SYSTEM_MESSAGE).toContain("NO actions with side effects");
+  it("sends the system message for the mode the owner picked, on a new session", async () => {
+    const sent: Record<MemoMode, string> = {} as Record<MemoMode, string>;
+    for (const mode of ["auto", "hermes", "chat", "journal", "tab"] as const) {
+      const { calls, destination } = fakeHermes({
+        chat: () => sseResponse([completed("ok"), done]),
+      });
+      await destination.deliver({ memoId: MEMO_ID, transcript: "x", mode });
+      expect(JSON.parse(String(calls[0]?.init.body))).toEqual({ id: MEMO_ID, source: "iris" });
+      sent[mode] = JSON.parse(String(calls[1]?.init.body)).system_message;
+    }
+    expect(sent.auto).toBe(IRIS_SYSTEM_MESSAGE);
+    expect(sent.hermes).toBe(IRIS_SYSTEM_MESSAGE);
+    expect(sent.chat).toBe(`${IRIS_SYSTEM_MESSAGE}\nThe owner picked: Chat.`);
+    expect(sent.journal).toBe(`${IRIS_SYSTEM_MESSAGE}\nThe owner picked: Journal.`);
+    expect(sent.tab).toBe(`${IRIS_SYSTEM_MESSAGE}\nThe owner picked: Tab.`);
   });
 
-  it("names the thread: the session id, its kind and a title from the transcript", async () => {
+  it("names the thread: the session id, kind hermes and a title from the transcript", async () => {
     const { destination } = fakeHermes({ chat: () => sseResponse([completed("ok"), done]) });
     const long = `${"word ".repeat(30)}end`;
-    const chat = await destination.deliver({ memoId: MEMO_ID, transcript: long, chat: true });
-    expect(chat.thread).toEqual({
+    const first = await destination.deliver({ memoId: MEMO_ID, transcript: long, mode: "chat" });
+    expect(first.thread).toEqual({
       id: MEMO_ID,
-      kind: "chat",
+      kind: "hermes",
       title: `${"word ".repeat(11)}word…`,
     });
-    const plain = await destination.deliver({ memoId: MEMO_ID, transcript: " a\n b " });
-    expect(plain.thread).toEqual({ id: MEMO_ID, kind: "hermes", title: "a b" });
+    const plain = await deliver(destination);
+    expect(plain.thread).toEqual({ id: MEMO_ID, kind: "hermes", title: "buy milk" });
   });
 
   it("reassembles frames split across chunks and omits usage when run.completed has none", async () => {
@@ -335,33 +344,202 @@ describe("hermes destination, transient failures", () => {
 describe("hermes destination, continuing a thread", () => {
   const THREAD = "b6d2e8a4-3f91-4c07-9a52-7e1d0c4f8b63";
 
-  it("chats into the thread's session without creating one", async () => {
+  it("chats into the thread's session without creating one, sending the system message again", async () => {
     const { calls, destination } = fakeHermes({ chat: () => sseResponse([completed("ok"), done]) });
     const delivery = await destination.deliver({
       memoId: MEMO_ID,
       transcript: "and then?",
+      mode: "auto",
       threadId: THREAD,
     });
     expect(calls.map((c) => c.url)).toEqual([
       `http://127.0.0.1:1234/api/sessions/${THREAD}/chat/stream`,
     ]);
-    expect(JSON.parse(String(calls[0]?.init.body))).toEqual({ message: "and then?" });
+    expect(JSON.parse(String(calls[0]?.init.body))).toEqual({
+      message: "and then?",
+      system_message: IRIS_SYSTEM_MESSAGE,
+    });
     expect(delivery).toMatchObject({ ref: THREAD, thread: { id: THREAD, kind: "hermes" } });
   });
 
-  it("sends the no-side-effects instruction again on every turn of a chat thread", async () => {
+  it("adds the picked-mode line on a continuation too", async () => {
     const { calls, destination } = fakeHermes({ chat: () => sseResponse([completed("ok"), done]) });
-    const delivery = await destination.deliver({
+    await destination.deliver({
       memoId: MEMO_ID,
       transcript: "and then?",
-      chat: true,
+      mode: "chat",
       threadId: THREAD,
     });
     expect(calls).toHaveLength(1);
     expect(JSON.parse(String(calls[0]?.init.body))).toEqual({
       message: "and then?",
-      system_message: CHAT_SYSTEM_MESSAGE,
+      system_message: systemMessage("chat"),
     });
-    expect(delivery.thread?.kind).toBe("chat");
+  });
+});
+
+describe("systemMessage", () => {
+  it("is the Iris message, plus the owner's pick for chat, journal and tab only", () => {
+    expect(IRIS_SYSTEM_MESSAGE).toContain("```iris");
+    expect(systemMessage("auto")).toBe(IRIS_SYSTEM_MESSAGE);
+    expect(systemMessage("hermes")).toBe(IRIS_SYSTEM_MESSAGE);
+    expect(systemMessage("transcribe")).toBe(IRIS_SYSTEM_MESSAGE);
+    expect(systemMessage("chat")).toBe(`${IRIS_SYSTEM_MESSAGE}\nThe owner picked: Chat.`);
+    expect(systemMessage("journal")).toBe(`${IRIS_SYSTEM_MESSAGE}\nThe owner picked: Journal.`);
+    expect(systemMessage("tab")).toBe(`${IRIS_SYSTEM_MESSAGE}\nThe owner picked: Tab.`);
+  });
+});
+
+const FENCE = (json: string) => "```iris\n" + json + "\n```";
+const valid = JSON.stringify({
+  kind: "Task",
+  headline: "Buy milk",
+  spoken: "Milk is on the list.",
+});
+
+describe("parseIrisBlock", () => {
+  it("reads a valid block and cuts the fence and the whitespace before it from the reply", () => {
+    expect(parseIrisBlock(`Done.\n\n${FENCE(valid)}`)).toEqual({
+      reply: "Done.",
+      meta: {
+        kind: "task",
+        summary: { headline: "Buy milk", detail: "", spoken: "Milk is on the list." },
+      },
+    });
+  });
+
+  it("takes the last of two fences and cuts only that one", () => {
+    const first = JSON.stringify({ kind: "a", headline: "First", spoken: "1" });
+    const result = parseIrisBlock(`x\n${FENCE(first)}\nmid\n${FENCE(valid)}`);
+    expect(result.meta?.kind).toBe("task");
+    expect(result.meta?.summary?.headline).toBe("Buy milk");
+    expect(result.reply).toBe(`x\n${FENCE(first)}\nmid`);
+  });
+
+  it("ignores extra keys and keeps the text after the fence", () => {
+    const json = JSON.stringify({ kind: "note", headline: "H", spoken: "S", extra: 1 });
+    const result = parseIrisBlock(`before\n${FENCE(json)}\nafter`);
+    expect(result.meta).toEqual({
+      kind: "note",
+      summary: { headline: "H", detail: "", spoken: "S" },
+    });
+    expect(result.reply).toBe("before\nafter");
+  });
+
+  it("clips the headline to 60 code points and normalises the kind", () => {
+    const json = JSON.stringify({
+      kind: "  Task Item  ",
+      headline: `  ${"ä".repeat(80)}  `,
+      spoken: "S",
+    });
+    const { meta } = parseIrisBlock(FENCE(json));
+    expect(meta?.kind).toBe("task item");
+    expect([...(meta?.summary?.headline ?? "")]).toHaveLength(60);
+    expect(meta?.summary?.headline.endsWith("…")).toBe(true);
+    const long = parseIrisBlock(
+      FENCE(JSON.stringify({ kind: "k".repeat(40), headline: "H", spoken: "" })),
+    );
+    expect([...(long.meta?.kind ?? "")]).toHaveLength(24);
+  });
+
+  it("leaves the summary out for a blank headline and the kind null for a blank kind", () => {
+    expect(
+      parseIrisBlock(FENCE(JSON.stringify({ kind: "note", headline: "   ", spoken: "S" }))).meta,
+    ).toEqual({ kind: "note", summary: null });
+    expect(
+      parseIrisBlock(FENCE(JSON.stringify({ kind: " ", headline: "H", spoken: "S" }))).meta?.kind,
+    ).toBeNull();
+  });
+
+  it("returns no meta and the reply as is without a fence", () => {
+    expect(parseIrisBlock("just text\n")).toEqual({
+      reply: "just text\n",
+      meta: null,
+      invalid: "missing_block",
+    });
+  });
+
+  it("strips an invalid block anyway and says why", () => {
+    expect(parseIrisBlock(`Hi\n${FENCE("{nope")}`)).toEqual({
+      reply: "Hi",
+      meta: null,
+      invalid: "invalid_json",
+    });
+    expect(parseIrisBlock(`Hi\n${FENCE(JSON.stringify({ kind: "k", headline: "h" }))}`)).toEqual({
+      reply: "Hi",
+      meta: null,
+      invalid: "invalid_shape: spoken",
+    });
+  });
+});
+
+describe("hermes destination, the iris block and tools", () => {
+  const run = async (chunks: string[]) => {
+    const { destination } = fakeHermes({ chat: () => sseResponse(chunks) });
+    return deliver(destination);
+  };
+
+  it("returns the parsed meta and the reply without the block", async () => {
+    const delivery = await run([completed(`Added.${irisBlock(valid)}`), runCompleted, done]);
+    expect(delivery.replyText).toBe("Added.");
+    expect(delivery.meta).toEqual({
+      kind: "task",
+      summary: { headline: "Buy milk", detail: "", spoken: "Milk is on the list." },
+      actions: [],
+    });
+  });
+
+  it("collects tool names from tool.started frames: deduplicated, first-seen order, names only", async () => {
+    const delivery = await run([
+      toolStarted({ tool_name: "web_search", args: { q: "secret query" } }),
+      toolStarted({ tool_name: "write_file", preview: "secret" }),
+      toolStarted({ tool_name: "web_search" }),
+      completed("ok"),
+      done,
+    ]);
+    expect(delivery.meta?.actions).toEqual(["web_search", "write_file"]);
+    expect(JSON.stringify(delivery.meta)).not.toContain("secret");
+  });
+
+  it("keeps at most 12 actions", async () => {
+    const frames = Array.from({ length: 20 }, (_, i) => toolStarted({ tool_name: `tool_${i}` }));
+    const delivery = await run([...frames, completed("ok"), done]);
+    expect(delivery.meta?.actions).toEqual(Array.from({ length: 12 }, (_, i) => `tool_${i}`));
+  });
+
+  it("ignores a tool frame without a tool name", async () => {
+    const delivery = await run([
+      toolStarted({ tool_name: 7 }),
+      toolStarted({ name: "x" }),
+      toolStarted({ tool_name: "ok_tool" }),
+      completed("ok"),
+      done,
+    ]);
+    expect(delivery.meta?.actions).toEqual(["ok_tool"]);
+  });
+
+  it("logs hermes.meta_invalid with a reason and never the reply", async () => {
+    const secret = "very secret reply";
+    const cases: [string, string][] = [
+      [`${secret}`, "missing_block"],
+      [`${secret}${irisBlock("{broken")}`, "invalid_json"],
+      [
+        `${secret}${irisBlock(JSON.stringify({ kind: "k", spoken: "s" }))}`,
+        "invalid_shape: headline",
+      ],
+    ];
+    for (const [content, reason] of cases) {
+      const { result, lines } = await captureLogs(() => run([completed(content), done]));
+      expect(result.meta).toEqual({ kind: null, summary: null, actions: [] });
+      const invalid = lines.filter((l) => l["event"] === "hermes.meta_invalid");
+      expect(invalid).toHaveLength(1);
+      expect(invalid[0]).toMatchObject({ memo_id: MEMO_ID, reason });
+      expect(JSON.stringify(lines)).not.toContain(secret);
+    }
+  });
+
+  it("does not log meta_invalid for a valid block", async () => {
+    const { lines } = await captureLogs(() => run([completed(`ok${irisBlock(valid)}`), done]));
+    expect(lines.some((l) => l["event"] === "hermes.meta_invalid")).toBe(false);
   });
 });

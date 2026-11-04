@@ -1,18 +1,17 @@
 import { createHash } from "node:crypto";
 import type { AudioStore } from "../ports/audio.js";
 import type { Clock } from "../ports/clock.js";
-import type { DestinationName } from "../ports/destination.js";
 import { log } from "../telemetry/log.js";
 import { MemoError } from "./errors.js";
 import { memoEvent, type MemoEvents, type MemoListener } from "./events.js";
 import {
   continuedThread,
-  isCorrectable,
   isDeletable,
   isResultReady,
-  isRoutableMode,
   isTyped,
   MEMO_MODES,
+  normalizeKind,
+  runsAct,
   type Memo,
   type MemoFlags,
   type MemoMode,
@@ -20,13 +19,12 @@ import {
   type Step,
   type StepRecord,
   type Thread,
-  type ThreadKind,
   type ThreadMessage,
   purgeAt,
   threadMessages,
 } from "./memo.js";
 import type { Runner } from "./runner.js";
-import type { AnswerDecision, MemoStore } from "./store.js";
+import type { MemoStore } from "./store.js";
 
 export interface MemoDetail {
   memo: Memo;
@@ -59,7 +57,7 @@ export interface MemoService {
   };
   /**
    * A memo typed instead of spoken: created in `transcribed` with `transcript = text` and driven from
-   * `route`. Idempotent by id: the same body returns the memo, any other body (or device) is a conflict.
+   * `act` (`notify` in mode `transcribe`). Idempotent by id: the same body returns the memo, any other body (or device) is a conflict.
    */
   createTextMemo(params: {
     id: string;
@@ -73,22 +71,13 @@ export interface MemoService {
   complete(params: { id: string; segmentCount: number }): Memo;
   retry(params: { id: string; from: Step }): Memo;
   /**
-   * The user's answer to routing. `needs_route`: routes the memo, publishes `routed` and drives it on
-   * (`accepted: true`; a second answer is `bad_state` because the memo has left `needs_route`). After
-   * `act` (acted / summarized / notified): only logs a `correction`, the memo is unchanged. Any other state is `bad_state`.
-   */
-  route(params: { id: string; destination: DestinationName; tab?: string | undefined }): {
-    memo: Memo;
-    accepted: boolean;
-  };
-  /**
    * Sets the given flags (at least one). `bad_state` on a soft-deleted memo. Publishes a flag-change `memo.updated`
    * (`flagChange`: the pipeline did not move, so no `memo.done`, alert or Live Activity push goes with it).
    */
   setFlags(params: { id: string } & MemoFlags): Memo;
   /**
    * Soft delete: the memo stays readable and restorable until `purgeAt`, then the purger removes it. Only settled
-   * memos (`notified`, `failed`, `needs_route`) and a memo still `receiving` (a cancelled take; its segments and
+   * memos (`notified`, `failed`, and an old `needs_route`) and a memo still `receiving` (a cancelled take; its segments and
    * `complete` are refused with `bad_state` from then on) can be deleted, else `bad_state`. Repeatable: a second call returns
    * the memo with its first `deletedAt` and publishes nothing.
    */
@@ -96,27 +85,25 @@ export interface MemoService {
   /** Undo of `delete`: `bad_state` when the memo is not deleted, `not_found` once its undo window is over (purged or about to be). */
   restore(id: string): Memo;
   get(id: string): MemoDetail;
+  /** `kind` is the memo kind as the client typed it; it is normalised like the stored one (an empty result for text with nothing left). */
   list(params: {
     limit?: number;
     cursor?: string | null | undefined;
     q?: string | undefined;
-    route?: DestinationName | undefined;
+    kind?: string | undefined;
     state?: MemoState | undefined;
     favorite?: boolean | undefined;
     archived?: boolean | undefined;
-    kind?: ThreadKind | undefined;
+    thread?: boolean | undefined;
   }): {
     memos: Memo[];
-    pinned: Memo[];
-    pinnedTruncated: boolean;
     nextCursor: string | null;
   };
   /** Newest `updated_at` first; the same limit and cursor rules as `list`. */
-  listThreads(params: {
-    kind?: ThreadKind | undefined;
-    limit?: number;
-    cursor?: string | null | undefined;
-  }): { threads: Thread[]; nextCursor: string | null };
+  listThreads(params: { limit?: number; cursor?: string | null | undefined }): {
+    threads: Thread[];
+    nextCursor: string | null;
+  };
   /** The thread, its memos and the conversation they make up (Iris's own record, no downstream read); 404 when unknown. */
   getThread(id: string): ThreadDetail;
   /** `ready: false` means the wait timed out or was aborted; `memo` is then the current state. */
@@ -175,10 +162,10 @@ export function createMemoService(deps: {
   audio: AudioStore;
   clock: Clock;
   maxSegmentBytes: number;
-  /** The destinations with an act adapter; an answer may only pick one of these. Default: none. */
-  destinations?: readonly DestinationName[] | undefined;
+  /** Hermes is registered: a thread can only be continued then. Default: no. */
+  hermes?: boolean | undefined;
 }): MemoService {
-  const { store, runner, events, audio, clock, maxSegmentBytes, destinations = [] } = deps;
+  const { store, runner, events, audio, clock, maxSegmentBytes, hermes = false } = deps;
 
   const writing = new Map<string, Promise<unknown>>();
   const serialized = async (key: string, work: () => Promise<void>) => {
@@ -192,8 +179,7 @@ export function createMemoService(deps: {
   };
 
   /**
-   * A thread to continue must exist, and Hermes (the only destination that keeps threads) must be registered: a turn
-   * accepted now could only fail at route. A replay of an existing memo is judged by its stored thread instead
+   * A thread to continue must exist, and Hermes must be registered: a turn accepted now could only fail at act. A replay of an existing memo is judged by its stored thread instead
    * (`assertSameThread`).
    */
   const assertCanContinue = (params: { id: string; threadId: string | undefined }) => {
@@ -202,7 +188,7 @@ export function createMemoService(deps: {
     if (!store.getThread(threadId)) {
       throw new MemoError("not_found", `thread ${threadId} not found`);
     }
-    if (!destinations.includes("hermes")) {
+    if (!hermes) {
       throw new MemoError(
         "destination_unavailable",
         "hermes is not available, so a thread cannot be continued",
@@ -212,7 +198,7 @@ export function createMemoService(deps: {
 
   /** A thread continues in Hermes, which a transcribe-only memo never reaches. */
   const assertNoThreadInTranscribe = (params: { mode: MemoMode; threadId: string | undefined }) => {
-    if (!isRoutableMode(params.mode) && params.threadId !== undefined) {
+    if (!runsAct(params.mode) && params.threadId !== undefined) {
       throw new MemoError("bad_request", "mode transcribe cannot continue a thread");
     }
   };
@@ -354,60 +340,10 @@ export function createMemoService(deps: {
       if (params.from === "transcribe") {
         const memo = store.getMemo(params.id);
         if (memo && isTyped(memo)) {
-          throw new MemoError("bad_request", "a typed memo has no recording, retry from route");
+          throw new MemoError("bad_request", "a typed memo has no recording, retry from act");
         }
       }
       return runner.retry(params);
-    },
-
-    route({ id, destination, tab }) {
-      const memo = mustGet(id);
-      assertLive(memo);
-      // Like a typed memo's retry from transcribe: the request names something this memo does not have.
-      if (!isRoutableMode(memo.mode)) {
-        throw new MemoError("bad_request", "a transcribe memo has no route to answer or correct");
-      }
-      const isAnswer = memo.state === "needs_route";
-      if (!isAnswer && !isCorrectable(memo.state)) {
-        throw new MemoError(
-          "bad_state",
-          `memo ${id} is ${memo.state}, only parked or acted memos take a route`,
-        );
-      }
-      if (isAnswer && !destinations.includes(destination)) {
-        throw new MemoError("bad_request", `${destination} not available`);
-      }
-      if ((destination === "herdr") !== (tab !== undefined)) {
-        throw new MemoError("bad_request", "tab is required for herdr and only for herdr");
-      }
-      const decision: AnswerDecision = {
-        source: isAnswer ? "answer" : "correction",
-        destination,
-        tab: tab ?? null,
-        confidence: null,
-        model: null,
-        costUsd: null,
-        reason: null,
-        outcome: "routed",
-      };
-      const written = isAnswer
-        ? store.answerRoute({ id, decision })
-        : store.recordCorrection({ id, decision });
-      if (!written) throw new MemoError("bad_state", `memo ${id} changed state, route not applied`);
-      log("route.decided", {
-        memo: id,
-        source: decision.source,
-        destination,
-        confidence: null,
-        outcome: "routed",
-        reason: null,
-        ...(!isAnswer && { corrected: true }),
-      });
-      if (isAnswer) {
-        events.publish(memoEvent({ memo: mustGet(id), step: "route", clock }));
-        void drive(id);
-      }
-      return { memo: mustGet(id), accepted: isAnswer };
     },
 
     setFlags({ id, done, favorite, archived }) {
@@ -461,22 +397,23 @@ export function createMemoService(deps: {
       };
     },
 
-    list({ limit = DEFAULT_LIMIT, cursor, q, route, state, favorite, archived, kind }) {
+    list({ limit = DEFAULT_LIMIT, cursor, q, kind, state, favorite, archived, thread }) {
+      // A kind with nothing left after normalising names no memo: the filter still applies, and matches none.
+      const wanted = kind === undefined ? undefined : (normalizeKind(kind) ?? "");
       return store.listMemos({
         limit: Math.min(Math.max(Math.floor(limit), 1), MAX_LIMIT),
         cursor,
         q,
-        route,
+        kind: wanted,
         state,
         favorite,
         archived,
-        kind,
+        thread,
       });
     },
 
-    listThreads({ kind, limit = DEFAULT_LIMIT, cursor }) {
+    listThreads({ limit = DEFAULT_LIMIT, cursor }) {
       return store.listThreads({
-        kind,
         limit: Math.min(Math.max(Math.floor(limit), 1), MAX_LIMIT),
         cursor,
       });

@@ -186,4 +186,22 @@ export const MIGRATIONS: readonly string[] = [
   `
   ALTER TABLE memos ADD COLUMN reply_assets_failed INTEGER NOT NULL DEFAULT 0;
   `,
+  // Hermes decides (docs/TDD.md §3 "Hermes decides"): the memo keeps what Hermes called it (`kind`) and the tool names of the turn
+  // (`actions_json`, a JSON array). Memos parked at `needs_route` become `failed(act)`, so Retry from Act delivers them; a memo that
+  // was mid-pipeline in a state the new pipeline has no step for moves back to the state its next step starts from. `route_decisions`
+  // stays as history and is never written again.
+  `
+  ALTER TABLE memos ADD COLUMN kind TEXT;
+  ALTER TABLE memos ADD COLUMN actions_json TEXT;
+  CREATE INDEX memos_kind ON memos (kind) WHERE kind IS NOT NULL;
+
+  INSERT OR REPLACE INTO memo_steps (memo_id, step, status, started_at, finished_at, error, attempts)
+  SELECT id, 'act', 'failed', updated_at, updated_at, 'parked before routing moved to Hermes', 1
+  FROM memos WHERE state = 'needs_route' AND done = 0 AND deleted_at IS NULL;
+  UPDATE memos SET state = 'failed', failed_step = 'act', error = 'parked before routing moved to Hermes'
+  WHERE state = 'needs_route' AND done = 0 AND deleted_at IS NULL;
+
+  UPDATE memos SET state = 'transcribed' WHERE state = 'routed';
+  UPDATE memos SET state = 'acted' WHERE state = 'summarized';
+  `,
 ];

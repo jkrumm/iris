@@ -1,24 +1,22 @@
 import { describe, expect, it } from "bun:test";
 import { fakeAudio } from "../memo/test-support.js";
 import { createStepHandlers } from "../pipeline/steps.js";
-import type { DestinationName } from "../ports/destination.js";
-import { fakeDestination, fakeNotifier, fakeSummarizer } from "../ports/fakes.js";
+import { fakeDestination, fakeNotifier } from "../ports/fakes.js";
 import { call, MAC, PHONE, testApp } from "./test-support.js";
 
 const newId = () => crypto.randomUUID();
 const START = "2026-01-01T00:00:00.000Z";
 
 /** The whole server with the real step handlers over a fake Hermes (a session per memo, `threadId` continues one). */
-function setup(destinations: DestinationName[] = ["hermes"]) {
+function setup(options: { hermes?: boolean } = {}) {
   const hermes = fakeDestination({ sessionPerMemo: true });
   const ctx = testApp({
-    destinations,
+    hermes: options.hermes ?? true,
     handlers: (store) =>
       createStepHandlers({
         store,
         audio: fakeAudio(),
-        destinations: { hermes },
-        summarizer: fakeSummarizer(),
+        destination: hermes,
         notifier: fakeNotifier(),
       }),
   });
@@ -66,7 +64,7 @@ describe("GET /v1/threads", () => {
       },
       {
         id: first,
-        kind: "chat",
+        kind: "hermes",
         title: "first thread",
         createdAt: expect.any(String),
         updatedAt: expect.any(String),
@@ -75,7 +73,7 @@ describe("GET /v1/threads", () => {
     ]);
   });
 
-  it("filters by kind and pages with a cursor", async () => {
+  it("pages with a cursor", async () => {
     const ctx = setup();
     const say3 = async (mode: string, text: string) => {
       const id = await say(ctx, { mode, text });
@@ -85,11 +83,6 @@ describe("GET /v1/threads", () => {
     const oldChat = await say3("chat", "memo 0");
     const task = await say3("auto", "memo 1");
     const newChat = await say3("chat", "memo 2");
-
-    const chats = (await (await call(ctx.app, { path: "/v1/threads?kind=chat" })).json()) as {
-      items: { id: string }[];
-    };
-    expect(chats.items.map((t) => t.id)).toEqual([newChat, oldChat]);
 
     const page1 = (await (await call(ctx.app, { path: "/v1/threads?limit=2" })).json()) as {
       items: { id: string }[];
@@ -108,13 +101,24 @@ describe("GET /v1/threads", () => {
     expect(await res.json()).toEqual({ items: [], nextCursor: null });
   });
 
-  it("answers 400 for an unknown kind or a malformed cursor", async () => {
-    const { app } = setup();
-    for (const path of ["/v1/threads?kind=other", "/v1/threads?cursor=garbage"]) {
-      const res = await call(app, { path });
-      expect(res.status).toBe(400);
-      expect(((await res.json()) as { error: string }).error).toBe("bad_request");
-    }
+  it("answers 400 for a malformed cursor", async () => {
+    const res = await call(setup().app, { path: "/v1/threads?cursor=garbage" });
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { error: string }).error).toBe("bad_request");
+  });
+
+  it("lists every thread without a kind filter", async () => {
+    const ctx = setup();
+    const chat = await say(ctx, { mode: "chat", text: "a" });
+    ctx.clock.advance(1000);
+    const task = await say(ctx, { mode: "auto", text: "b" });
+    const body = (await (await call(ctx.app, { path: "/v1/threads" })).json()) as {
+      items: { id: string; kind: string }[];
+    };
+    expect(body.items.map((t) => [t.id, t.kind])).toEqual([
+      [task, "hermes"],
+      [chat, "hermes"],
+    ]);
   });
 
   it("needs a device token", async () => {
@@ -138,7 +142,7 @@ describe("GET /v1/threads/:id", () => {
       messages: { memoId: string; role: string; content: string; createdAt: string }[];
     };
     expect(body).not.toHaveProperty("hermesAvailable");
-    expect(body.thread).toMatchObject({ id: first, kind: "chat", lastMemoId: second });
+    expect(body.thread).toMatchObject({ id: first, kind: "hermes", lastMemoId: second });
     expect(body.memos.map((m) => m.id)).toEqual([first, second]);
     expect(body.memos.every((m) => m.threadId === first)).toBe(true);
     expect(body.messages).toEqual([
@@ -213,24 +217,56 @@ describe("continuing a thread", () => {
     await ctx.runner.idle();
 
     const delivery = ctx.hermes.calls.at(-1);
-    expect(delivery).toMatchObject({ transcript: "and a semaphore?", chat: true, threadId: first });
+    expect(delivery).toMatchObject({
+      transcript: "and a semaphore?",
+      mode: "chat",
+      threadId: first,
+    });
     const after = ctx.store.getThread(first);
     expect(after?.lastMemoId).toBe(created.id);
     expect(after?.updatedAt).not.toBe(before?.updatedAt);
     expect(ctx.store.getMemo(created.id)).toMatchObject({
       state: "notified",
-      route: "hermes",
+      route: null,
       threadId: first,
       destinationRef: first,
     });
   });
 
-  it("forces the route to Hermes whatever the mode says", async () => {
+  it("keeps the mode a continuation was sent with and the thread a hermes one", async () => {
     const ctx = setup();
     const first = await say(ctx, { mode: "auto" });
     const id = await say(ctx, { mode: "journal", text: "more", threadId: first });
-    expect(ctx.store.getMemo(id)?.route).toBe("hermes");
+    expect(ctx.store.getMemo(id)).toMatchObject({ mode: "journal", route: null });
+    expect(ctx.hermes.calls.at(-1)).toMatchObject({ mode: "journal", threadId: first });
     expect(ctx.store.getThread(first)?.kind).toBe("hermes");
+  });
+
+  it.each(["auto", "journal", "hermes", "tab", "chat", "transcribe"] as const)(
+    "accepts mode %s on both create routes and stores it as received",
+    async (mode) => {
+      const ctx = setup();
+      const typedId = newId();
+      const typed = await postText(ctx, { id: typedId, mode });
+      expect(typed.status).toBe(202);
+      const recId = newId();
+      const rec = await call(ctx.app, {
+        method: "POST",
+        path: "/v1/memos",
+        json: { id: recId, mode, startedAt: START },
+      });
+      expect(rec.status).toBe(201);
+      await ctx.runner.idle();
+      expect(ctx.store.getMemo(typedId)?.mode).toBe(mode);
+      expect(ctx.store.getMemo(recId)?.mode).toBe(mode);
+    },
+  );
+
+  it("starts a hermes-kind thread for a chat memo", async () => {
+    const ctx = setup();
+    const id = await say(ctx, { mode: "chat" });
+    expect(ctx.store.getThread(id)?.kind).toBe("hermes");
+    expect(ctx.store.getMemo(id)).toMatchObject({ mode: "chat", state: "notified" });
   });
 
   it("answers 404 for an unknown thread, on both create routes, and stores nothing", async () => {
@@ -250,10 +286,10 @@ describe("continuing a thread", () => {
   });
 
   it("answers 409 destination_unavailable while hermes is not registered, on both create routes, and stores nothing", async () => {
-    const ctx = setup(["journal"]);
+    const ctx = setup({ hermes: false });
     ctx.db
       .query(
-        `INSERT INTO threads (id, kind, title, created_at, updated_at) VALUES ('t', 'chat', 'title', ?, ?)`,
+        `INSERT INTO threads (id, kind, title, created_at, updated_at) VALUES ('t', 'hermes', 'title', ?, ?)`,
       )
       .run(START, START);
     const text = await postText(ctx, { threadId: "t" });

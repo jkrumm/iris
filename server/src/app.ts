@@ -5,7 +5,6 @@ import { deviceAuth } from "./http/auth.js";
 import { deviceRoutes } from "./http/devices.js";
 import { httpErrors } from "./http/errors.js";
 import { eventRoutes } from "./http/events.js";
-import { herdRoutes } from "./http/herd.js";
 import { mediaRoutes } from "./http/media.js";
 import { memoRoutes } from "./http/memos.js";
 import { threadRoutes } from "./http/threads.js";
@@ -13,7 +12,6 @@ import { HealthResponse, WhoamiResponse } from "./http/schemas.js";
 import { statsRoutes } from "./http/stats.js";
 import { telemetryRoutes } from "./http/telemetry.js";
 import type { DeviceStore } from "./ports/devices.js";
-import type { Herd } from "./ports/herd.js";
 import type { StatsStore } from "./ports/stats.js";
 import type { TelemetryRelay } from "./telemetry/relay.js";
 
@@ -23,7 +21,6 @@ export interface AppDeps {
   /** Unset routes answer 503 `unavailable`; their subsystem is then listed in `degraded`. */
   devices?: DeviceStore | undefined;
   media?: MemoMedia | undefined;
-  herd?: Herd | undefined;
   telemetry?: TelemetryRelay | undefined;
   stats?: StatsStore | undefined;
   /** Names of optional subsystems that are not configured; surfaced on /health. */
@@ -38,7 +35,7 @@ export interface AppDeps {
 export function createApp(deps: AppDeps) {
   const degraded = deps.degraded ?? [];
   const auth = deviceAuth(deps.deviceTokens);
-  const { memos, stats, devices, media, herd, telemetry } = deps;
+  const { memos, stats, devices, media, telemetry } = deps;
   return new Elysia()
     .use(httpErrors)
     .get(
@@ -61,7 +58,6 @@ export function createApp(deps: AppDeps) {
         .use(deviceRoutes({ devices, memos, auth }))
         .use(telemetryRoutes({ telemetry, auth }))
         .use(mediaRoutes({ media, auth }))
-        .use(herdRoutes({ herd, auth }))
         .use(statsRoutes({ stats, auth }))
         .use(eventRoutes({ memos, auth, keepaliveMs: deps.sseKeepaliveMs })),
     );

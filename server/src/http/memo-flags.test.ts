@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import { PURGE_AFTER_MS } from "../memo/memo.js";
 import { createPurger } from "../memo/purge.js";
-import { parkMemo, seedMemo } from "../memo/test-support.js";
+import { legacyParkedMemo, seedMemo } from "../memo/test-support.js";
 import { fakeSpeechCache } from "../ports/fakes.js";
 import { call, fakeHandlers, MAC, testApp } from "./test-support.js";
 
@@ -25,8 +25,8 @@ const complete = (app: Ctx["app"], id: string, segmentCount = 1) =>
   call(app, { method: "POST", path: `/v1/memos/${id}/complete`, json: { segmentCount } });
 const list = async (app: Ctx["app"], query = "") => {
   const res = await call(app, { path: `/v1/memos${query}` });
-  const body = (await res.json()) as { items: { id: string }[]; pinned: { id: string }[] };
-  return { res, items: body.items.map((m) => m.id), pinned: body.pinned.map((m) => m.id) };
+  const body = (await res.json()) as { items: { id: string }[] };
+  return { res, items: body.items.map((m) => m.id) };
 };
 
 describe("memo wire shape", () => {
@@ -132,11 +132,10 @@ describe("DELETE /v1/memos/:id", () => {
     const { app, store, clock } = testApp();
     const failed = seedMemo(store, "transcribed").id;
     store.markStepFailed({ id: failed, step: "route", error: "boom" });
-    const parked = parkMemo(store, { reason: "unsure" });
+    const parked = legacyParkedMemo(store);
     for (const id of [failed, parked]) expect((await del(app, id)).status).toBe(200);
-    expect((await list(app)).pinned).toEqual([]);
 
-    const running = seedMemo(store, "routed").id;
+    const running = seedMemo(store, "acted").id;
     const refused = await del(app, running);
     expect(refused.status).toBe(409);
     expect(((await refused.json()) as Json)["error"]).toBe("bad_state");
@@ -233,7 +232,7 @@ describe("DELETE /v1/memos/:id while receiving (a cancelled take)", () => {
 
   it("still refuses a memo that is past receiving and mid-pipeline", async () => {
     const { app, store } = testApp();
-    for (const state of ["received", "transcribed", "routed", "acted", "summarized"] as const) {
+    for (const state of ["received", "transcribed", "acted"] as const) {
       const { id } = seedMemo(store, state);
       const res = await del(app, id);
       expect(res.status).toBe(409);
@@ -304,52 +303,50 @@ describe("GET /v1/memos flag filters", () => {
     expect((await list(app, "?kind=chat")).items).toEqual([]);
   });
 
-  it("filters by the thread kind", async () => {
+  it("filters by the memo kind", async () => {
     const { app, store } = testApp();
-    const { id } = seedMemo(store, "routed");
+    const { id } = seedMemo(store, "transcribed");
     store.markStepStarted({ id, step: "act" });
     store.completeStep({
       id,
       step: "act",
-      from: "routed",
+      from: "transcribed",
       to: "acted",
-      patch: { thread: { id, kind: "chat", title: "hi" } },
+      patch: { kind: "note" },
     });
     seedMemo(store, "notified");
-    expect((await list(app, "?kind=chat")).items).toEqual([id]);
-    expect((await list(app, "?kind=hermes")).items).toEqual([]);
+    expect((await list(app, "?kind=note")).items).toEqual([id]);
+    expect((await list(app, "?kind=chat")).items).toEqual([]);
   });
 
   it("answers 400 for an unknown value", async () => {
     const { app } = testApp();
-    for (const query of ["?favorite=false", "?favorite=1", "?archived=yes", "?kind=thread"]) {
+    for (const query of ["?favorite=false", "?favorite=1", "?archived=yes"]) {
       const res = await call(app, { path: `/v1/memos${query}` });
       expect([query, res.status]).toEqual([query, 400]);
     }
   });
 
-  it("stops pinning a needs_route memo once it is done, and keeps it in the list", async () => {
+  it("keeps a legacy needs_route memo in the list, done or not", async () => {
     const { app, store } = testApp();
-    const parked = parkMemo(store, { reason: "unsure" });
-    expect((await list(app)).pinned).toEqual([parked]);
+    const parked = legacyParkedMemo(store);
+    expect((await list(app)).items).toEqual([parked]);
     await patch(app, parked, { done: true });
-    const after = await list(app);
-    expect(after.pinned).toEqual([]);
-    expect(after.items).toEqual([parked]);
+    expect((await list(app)).items).toEqual([parked]);
   });
 });
 
 describe("threads and flags", () => {
   it("leaves a deleted memo out of the thread detail", async () => {
     const { app, store } = testApp();
-    const first = seedMemo(store, "routed").id;
-    const second = seedMemo(store, "routed").id;
+    const first = seedMemo(store, "transcribed").id;
+    const second = seedMemo(store, "transcribed").id;
     for (const id of [first, second]) {
       store.markStepStarted({ id, step: "act" });
       store.completeStep({
         id,
         step: "act",
-        from: "routed",
+        from: "transcribed",
         to: "acted",
         patch: { thread: { id: "session", kind: "hermes", title: "t" } },
       });
