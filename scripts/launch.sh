@@ -59,18 +59,6 @@ fi
 
 # Templates can't expand $HOME.
 export IRIS_DATA="$HOME/.iris/data"
-# Registers the herdr destination and the herd; left unset when herdr is not running, so neither is half-registered.
-[[ -S "$HOME/.config/herdr/herdr.sock" ]] && export HERDR_SOCKET="$HOME/.config/herdr/herdr.sock"
-# The herdr-core world beside it: registers the same destination and the herd's hc half. HC_SOCKET is the core's socket, so the
-# adapter never spawns `hc` (which would start a core under this job) while the launchd core is down.
-HC_BIN_PATH="$HOME/.local/bin/hc"
-if [[ -x "$HC_BIN_PATH" ]]; then
-  export HC_BIN="$HC_BIN_PATH"
-  export HC_SOCKET="$HOME/.local/state/herdr-core/default/default.sock"
-fi
-# Registers the journal destination; left unset when the checkout is missing, so the server still boots.
-[[ -d "$HOME/SourceRoot/brain" ]] && export BRAIN_DIR="$HOME/SourceRoot/brain"
-
 # The audio door's caller token: the `iris=<token>` line of the local caller-token file (0600, not 1Password).
 # Whitespace and a CR from a CRLF edit are stripped before the empty check. Never echoed. A missing file or line starts degraded (`transcribe` and `speech` in /health), the reason goes to stderr.
 DOOR_TOKENS="$HOME/.agent-workflows/data/door-tokens"

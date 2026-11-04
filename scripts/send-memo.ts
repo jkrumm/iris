@@ -5,17 +5,18 @@
  * `--text "<text>"` sends a typed memo instead (POST /v1/memos/text, no audio file).
  * `--thread <id>` continues that thread (a Hermes session) instead of starting one.
  *
- *   IRIS_TOKEN=<device-token> bun scripts/send-memo.ts <audio-file> [--url ..] [--mode auto]
- *   IRIS_TOKEN=<device-token> bun scripts/send-memo.ts --text "kauf Milch" [--url ..] [--mode auto]
+ *   IRIS_TOKEN=<device-token> bun scripts/send-memo.ts <audio-file> [--url ..] [--mode hermes]
+ *   IRIS_TOKEN=<device-token> bun scripts/send-memo.ts --text "kauf Milch" [--url ..] [--mode hermes]
  *
- * Exit codes: 0 notified, 1 failed, 2 timeout / needs_route / usage error.
+ * Modes: hermes (default), transcribe, and the older auto|chat|journal|tab, which the server treats as hermes plus a hint line.
+ * Exit codes: 0 notified, 1 failed, 2 timeout / needs_route (an old row) / usage error.
  */
 import { mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
 
-const MODES = ["auto", "journal", "hermes", "tab", "chat", "transcribe"] as const;
+const MODES = ["hermes", "transcribe", "auto", "chat", "journal", "tab"] as const;
 type Mode = (typeof MODES)[number];
 
 const DEFAULT_URL = "http://127.0.0.1:7730";
@@ -52,7 +53,7 @@ class ApiError extends Error {
 }
 
 export const USAGE = `usage: IRIS_TOKEN=<token> bun scripts/send-memo.ts <audio-file> | --text "<text>"
-  [--url <base>] [--token <token>] [--mode auto|journal|hermes|tab|chat|transcribe] [--wait <seconds>] [--thread <id>]
+  [--url <base>] [--token <token>] [--mode hermes|transcribe|auto|chat|journal|tab] [--wait <seconds>] [--thread <id>]
   env: IRIS_URL (default ${DEFAULT_URL}), IRIS_TOKEN (required)`;
 
 function parseSource(params: { text: string | undefined; positionals: string[] }): Source {
@@ -92,7 +93,7 @@ export function parseCliArgs(argv: string[], env: Record<string, string | undefi
   const token = values.token ?? env["IRIS_TOKEN"];
   if (!token) throw new UsageError("IRIS_TOKEN (or --token) is required");
 
-  const mode = values.mode ?? "auto";
+  const mode = values.mode ?? "hermes";
   if (!MODES.includes(mode as Mode))
     throw new UsageError(`--mode must be one of ${MODES.join("|")}`);
 
@@ -180,6 +181,9 @@ export interface MemoWire {
   transcript?: string | null;
   replyText?: string | null;
   summary?: { headline?: string; detail?: string } | null;
+  /** What Hermes called the memo and the tools it used; omitted by the server when none. */
+  kind?: string;
+  actions?: string[];
   steps?: StepWire[];
 }
 
@@ -215,6 +219,8 @@ export function formatSummary(memo: MemoWire): string {
     `audio       ${memo.audioSeconds ?? "-"}s`,
     `transcript  ${clip(memo.transcript)}`,
     `reply       ${clip(memo.replyText)}`,
+    `kind        ${memo.kind ?? "-"}`,
+    `actions     ${memo.actions?.join(", ") || "-"}`,
     `summary     ${clip(memo.summary?.headline)}`,
     `detail      ${clip(memo.summary?.detail)}`,
     `steps       ${timings || "-"}`,
