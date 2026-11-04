@@ -165,7 +165,7 @@ struct FixtureConformanceTests {
   @Test("Stats carry kind, null for an unclassified memo, and costPerKind")
   func statsKind() throws {
     let stats = try IrisJSON.makeDecoder().decode(Stats.self, from: Contracts.fixtureData("stats.response"))
-    #expect(stats.perDay.map(\.kind) == ["task", nil, "note", "question"])
+    #expect(stats.perDay.map(\.kind) == [nil, "task", "note", "question"])
     #expect(stats.costPerKind.map(\.kind) == [nil, "note", "question", "task"])
     let encoded = String(decoding: try IrisJSON.makeEncoder().encode(stats), as: UTF8.self)
     #expect(encoded.contains("costPerKind") && !encoded.contains("costPerRoute") && !encoded.contains("\"route\""))
