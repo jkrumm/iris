@@ -1379,7 +1379,14 @@ train, `agw review` on every PR). TDD §3 and §4 and AGENTS.md change in the sa
 - (carried) **D1** hardware batch: waits for Wave 22's first TestFlight build.
 
 ## Wave 22 — less chrome ∥ the paid Apple team: APNs, TestFlight, Sparkle            <!-- status: pending -->
-Mother's sketch 2026-11-04 (PRD "Direction 2026-11-04"); the lead writes the briefs once Wave 21 is done. Research, recipes and the unverified
+Mother's sketch 2026-11-04 (PRD "Direction 2026-11-04"); the lead writes the briefs once Wave 21 is done.
+**Overnight 2026-11-04 → 05 (mother): start right after Wave 21 merges, do not wait for the owner.** Owner items (1)-(3) are done and seeded;
+(4) the Developer ID certificate and (1) the App Store Connect app record + internal group happen in a guided session on 2026-11-05. Gates:
+U1 runs in full. P2 builds everything up to the upload (script, export options, poller hook, weekly rebuild) and proves a signed `.ipa` export
+headless with the Team key (`make testflight UPLOAD=0`); the real upload waits for the app record. M2 builds Sparkle (SPM, EdDSA key in the
+mini's keychain, the private key's 1Password backup queued for the owner session), `SUFeedURL`, "Check for Updates…", `make mac-release` with
+an `IDENTITY` switch, and proves the release flow with the Apple Development identity minus notarization; Developer ID signing, notarization and
+the MacBook proof wait for the certificate. Record each gate as an open line in the lead handoff, never as a finished item. Research, recipes and the unverified
 list: `docs/research/2026-11-04-apple-paid-team.md` (read it whole before P or M).
 **Owner batch first (only the Account Holder can do these; one `ask-human.sh` round, nothing else in this wave blocks on him):** (1) App Store
 Connect: the app record for `com.jkrumm.iris` (+ `.widgets`, `.notifications` App IDs with App Group and Push), an internal TestFlight group
