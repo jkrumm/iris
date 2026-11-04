@@ -123,7 +123,6 @@ public struct ListThreadsQuery: Codable, Hashable, Sendable {
 
   public var queryItems: [URLQueryItem] {
     var items: [URLQueryItem] = []
-    if let kind { items.append(URLQueryItem(name: "kind", value: kind.rawValue)) }
     if let limit { items.append(URLQueryItem(name: "limit", value: String(limit))) }
     if let cursor { items.append(URLQueryItem(name: "cursor", value: cursor)) }
     return items

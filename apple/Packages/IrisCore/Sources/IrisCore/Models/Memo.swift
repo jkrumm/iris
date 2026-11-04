@@ -77,6 +77,10 @@ public struct Memo: Codable, Hashable, Sendable, Identifiable {
   public var routeReason: String?
   /// The decision model's best guess on a low-confidence park; same presence rule as `routeReason`.
   public var routeSuggestion: String?
+  /// What the memo is (Hermes decides, e.g. "task", "note"); omitted (never `null`) when not classified.
+  public var kind: String?
+  /// The tools Hermes ran for the memo; empty when none, never `null` on the wire, omitted then.
+  public var actions: [String]
   /// User flags (swipe actions), always on the wire. None of them changes the pipeline; `done` dims a row, and a `done`
   /// `needs_route` memo is no longer pinned.
   public var done: Bool
@@ -115,6 +119,8 @@ public struct Memo: Codable, Hashable, Sendable, Identifiable {
     threadId: String? = nil,
     routeReason: String? = nil,
     routeSuggestion: String? = nil,
+    kind: String? = nil,
+    actions: [String] = [],
     isTyped: Bool = false,
     done: Bool = false,
     favorite: Bool = false,
@@ -142,6 +148,8 @@ public struct Memo: Codable, Hashable, Sendable, Identifiable {
     self.threadId = threadId
     self.routeReason = routeReason
     self.routeSuggestion = routeSuggestion
+    self.kind = kind
+    self.actions = actions
     self.isTyped = isTyped
     self.done = done
     self.favorite = favorite
@@ -155,7 +163,7 @@ public struct Memo: Codable, Hashable, Sendable, Identifiable {
   private enum CodingKeys: String, CodingKey {
     case id, mode, device, startedAt, state, failedStep, error, segmentCount, audioSeconds, transcript, route
     case destinationRef, replyText, replyBlocks, summary, threadId, routeReason, routeSuggestion, createdAt, updatedAt
-    case done, favorite, archived, deletedAt, purgeAt
+    case done, favorite, archived, deletedAt, purgeAt, kind, actions
     case isTyped = "typed"
   }
 
@@ -179,6 +187,8 @@ public struct Memo: Codable, Hashable, Sendable, Identifiable {
     threadId = try container.decodeIfPresent(String.self, forKey: .threadId)
     routeReason = try container.decodeIfPresent(String.self, forKey: .routeReason)
     routeSuggestion = try container.decodeIfPresent(String.self, forKey: .routeSuggestion)
+    kind = try container.decodeIfPresent(String.self, forKey: .kind)
+    actions = try container.decodeIfPresent([String].self, forKey: .actions) ?? []
     isTyped = try container.decodeIfPresent(Bool.self, forKey: .isTyped) ?? false
     // Always sent by a server with flags; a missing key (an older server) reads as unset.
     done = try container.decodeIfPresent(Bool.self, forKey: .done) ?? false
@@ -218,6 +228,8 @@ public struct Memo: Codable, Hashable, Sendable, Identifiable {
     try container.encodeIfPresent(purgeAt, forKey: .purgeAt)
     try container.encode(createdAt, forKey: .createdAt)
     try container.encode(updatedAt, forKey: .updatedAt)
+    try container.encodeIfPresent(kind, forKey: .kind)
+    if !actions.isEmpty { try container.encode(actions, forKey: .actions) }
   }
 }
 
@@ -347,8 +359,8 @@ public struct MemoPage: Codable, Hashable, Sendable {
   public func encode(to encoder: any Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
     try container.encode(items, forKey: .items)
-    try container.encode(pinned, forKey: .pinned)
-    try container.encode(pinnedTruncated, forKey: .pinnedTruncated)
+    if !pinned.isEmpty { try container.encode(pinned, forKey: .pinned) }
+    if pinnedTruncated { try container.encode(true, forKey: .pinnedTruncated) }
     try container.encode(nextCursor, forKey: .nextCursor)
   }
 }
