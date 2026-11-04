@@ -292,6 +292,10 @@ export function createSqliteMemoStore(params: { db: Database; clock: Clock }): M
         id,
       );
     }
+    // `route` is the destination of a memo from before Hermes decided: re-running into Hermes must not keep the stale chip.
+    if (cleared.includes("act")) {
+      db.query("UPDATE memos SET route = NULL WHERE id = ?").run(id);
+    }
     // `act` set the memo's own session; a memo created to continue a thread keeps its thread (its `thread_id` is never its id).
     if (cleared.includes("act")) {
       db.query("UPDATE memos SET thread_id = NULL WHERE id = ? AND thread_id = id").run(id);
@@ -451,7 +455,13 @@ export function createSqliteMemoStore(params: { db: Database; clock: Clock }): M
       ];
       const args: (string | number)[] = [];
       if (favorite) filters.push("memos.favorite = 1");
-      if (thread) filters.push("memos.thread_id IS NOT NULL");
+      // A conversation: a thread with at least two live memos (a continued one). Every acted memo has a session of its own.
+      if (thread) {
+        filters.push(
+          `memos.thread_id IN (SELECT thread_id FROM memos WHERE thread_id IS NOT NULL AND deleted_at IS NULL
+             GROUP BY thread_id HAVING count(*) >= 2)`,
+        );
+      }
       if (kind !== undefined) {
         filters.push("memos.kind = ?");
         args.push(kind);

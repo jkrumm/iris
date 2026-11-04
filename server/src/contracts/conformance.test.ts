@@ -844,7 +844,11 @@ describe("request fixtures are accepted by the server", () => {
       items: { id: string }[];
     };
     expect(byKind.items.map((m) => m.id)).toEqual([id]);
-    expect((await call(app, { path: "/v1/memos?thread=true" })).status).toBe(200);
+    // A memo alone in its session is no conversation.
+    const threaded = (await (await call(app, { path: "/v1/memos?thread=true" })).json()) as {
+      items: unknown[];
+    };
+    expect(threaded.items).toEqual([]);
   });
 
   it("activity-token accepts its fixture, and the server rejects non-hex tokens", async () => {

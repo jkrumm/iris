@@ -403,6 +403,8 @@ export function advance(params: { state: MemoState; step: Step; mode: MemoMode }
 export const KIND_MAX = 24;
 /** Longest headline kept from Hermes's block, in code points (the alert and Live Activity limit). */
 export const HEADLINE_MAX = 60;
+/** Longest summary detail line, in code points (agw `triage`'s `detail` cap, and the clipped transcript `notify` falls back to). */
+export const DETAIL_MAX = 240;
 /** The most tool names a memo keeps. */
 export const ACTIONS_MAX = 12;
 

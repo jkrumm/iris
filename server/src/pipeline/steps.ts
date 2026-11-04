@@ -2,6 +2,7 @@ import { createKeyedQueue } from "../memo/keyed-queue.js";
 import {
   clipCodePoints,
   continuedThread,
+  DETAIL_MAX,
   HEADLINE_MAX,
   type HandlerStep,
   type Memo,
@@ -23,8 +24,6 @@ import { getActiveSpan } from "../telemetry/otel.js";
 // How long a turn waits for the turn ahead of it in the same Hermes thread: the size of a hang guard, since a turn has
 // an idle watchdog but no wall-clock cap.
 const THREAD_WAIT_MS = 1_800_000;
-
-const DETAIL_MAX = 240;
 
 /** What notify announces when neither triage nor Hermes gave a headline: the transcript clipped to one, nothing is stored. */
 function transcriptSummary(transcript: string): Summary {

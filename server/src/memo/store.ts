@@ -60,7 +60,7 @@ export interface MemoStore extends ThreadStore {
    * History, newest first. `q` searches the transcript and the summary headline (case, umlaut and prefix
    * insensitive, terms ANDed), `kind` (the memo's kind, exact; the caller normalises it) and `state` filter exactly; all
    * combine. Soft-deleted memos never appear; archived ones only with `archived`, which then lists nothing else. `favorite`
-   * keeps the favorites, `thread` the memos that belong to a thread. `nextCursor` is null on the last page; cursors stay
+   * keeps the favorites, `thread` the memos of a conversation (a thread with at least two live memos: one that was continued; a memo alone in its session is none). `nextCursor` is null on the last page; cursors stay
    * valid as memos are added.
    */
   listMemos(params: {
