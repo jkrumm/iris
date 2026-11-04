@@ -20,12 +20,12 @@ make format       # oxfmt
 1. Port in `server/src/ports/<name>.ts` (small interface, no vendor types), fake in `ports/fakes.ts`.
 2. Adapter in `server/src/adapters/<name>.ts`, tested against a fake HTTP/unix server, never the real downstream.
 3. Optional env var in `env.ts` (empty = unset); choose it in `compose()` (`src/compose.ts`: real adapter, plus its fake in `fakePorts`) and pass it on from `index.ts`. A port that is left out means
-   no handler: the memo waits at the step's input state (`transcribed` without `act`) and `/health` lists the step in `degraded` (`transcribe`, `act`, `speech`, `otel`, `fakes`, `device-tokens`).
+   no handler: the memo waits at the step's input state (`transcribed` without `act`) and `/health` lists the step in `degraded` (`transcribe`, `act`, `summarize`, `speech`, `otel`, `fakes`, `device-tokens`); `summarize` is the exception, it always has a handler and a failure is skipped (`OPTIONAL_STEPS`).
 
 ## Add or change a step
 
-`server/src/pipeline/steps.ts` (`createStepHandlers`) holds the three handlers (`transcribe`, `act`, `notify`), a pure function of (memo, ports). A new step also needs its place in `stepsOf(mode)` and the transition table in `memo/memo.ts` (`route` / `summarize` are retired names: they only read old rows). Return the patch the step owns;
-`MemoStore.completeStep` writes it with the state change in one transaction. Handlers are idempotent (`act` is at-least-once). What Hermes reports (`kind`, `actions`, `summary`) arrives as `Delivery.meta` from the destination (`adapters/hermes.ts`: the ```iris block parser and the `tool.started` frames); change the contract there and in `IRIS_SYSTEM_MESSAGE`. Add the new
+`server/src/pipeline/steps.ts` (`createStepHandlers`) holds the four handlers (`transcribe`, `act`, `summarize`, `notify`), a pure function of (memo, ports). A new step also needs its place in `stepsOf(mode)` and the transition table in `memo/memo.ts` (`route` is a retired name: it only reads old rows). Return the patch the step owns;
+`MemoStore.completeStep` writes it with the state change in one transaction. Handlers are idempotent (`act` is at-least-once). What Hermes reports (`kind`, `headline`, `actions`) arrives as `Delivery.meta` from the destination (`adapters/hermes.ts`: the ```iris block parser and the `tool.started` frames); change the contract there and in `IRIS_SYSTEM_MESSAGE`. Add the new
 column through an append-only migration in `adapters/sqlite-migrations.ts`, never edit an old entry. Every step gets a child span of
 `withRootSpan("memo")` from the runner; do not open your own root.
 
