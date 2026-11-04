@@ -23,9 +23,11 @@ actually uses: simple, stable, a clean front-end for one Hermes agent.
   what it is and does it with its skills: an answer or a chat, a captured task or GitHub issue, a note in the brain, a prompt into a
   Herdr tab. Evidence: 16 of 27 `auto` memos in production parked at `needs_route` on low `decide` confidence (0.25-0.77). Iris drops
   `decide`, `needs_route`, spoken prefixes, the journal and herdr destinations and the route answer UI.
-- **Two modes:** Hermes (the default, one press) and Transcribe (text only, no agent).
-- **Hermes reports back in a structured way:** a short free-form kind (dynamic categories instead of a fixed route list), the headline and the
-  spoken line, plus the tools it used. Iris shows these; Hermes' prompts and skills get better over time on the Hermes side.
+- **Two modes, three visible buttons:** a large Hermes button (robot, the default), a smaller Transcribe button (text only, no agent) and a
+  Text button. No hidden long-press mode choice.
+- **Hermes reports back in a structured way:** a short free-form kind (dynamic categories instead of a fixed route list) and a headline,
+  plus the tools it used. The summary and the spoken line stay with agw `triage` over transcript + final reply only. Hermes also hands
+  agent work to the software factory, not only to Herdr tabs. Iris shows these; Hermes' prompts and skills get better over time on the Hermes side.
 - **Less chrome:** no title block on top of the screens (the tab bar says where you are); the step waterfall moves to a collapsed Details
   section at the end of the memo. Stats stay.
 - **The paid Apple team is live:** APNs (alerts, Live Activity push), App Groups (widgets), and updates without admin rights on both devices:

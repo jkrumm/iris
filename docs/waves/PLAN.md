@@ -1335,28 +1335,33 @@ train, `agw review` on every PR). TDD §3 and §4 and AGENTS.md change in the sa
       states the contract for turns from Iris: the turn is a transcript of the owner's voice memo (German or English, speech-to-text errors
       likely); decide what it is and act with the existing skills (answer/chat; `capture` for tasks and GitHub issues; `obsidian` for a note
       into the brain `Inbox/` with brain-sync's lock, replacing Iris's journal destination: same folder, frontmatter and title rules as
-      `iris/server/src/adapters/journal.ts`, read it; `herdr` for "tell tab X"; research via `agw-research`); a side effect only when the memo
+      `iris/server/src/adapters/journal.ts`, read it; `herdr` for "tell tab X"; agent work through the software factory (`factory spawn` / `rd wave`, the owner asked by voice: that is the
+      "only when the owner asks" of its role) as a first-class path, read `~/SourceRoot/software-factory/AGENTS.md`; research via `agw-research`); a side effect only when the memo
       asks for one; then end the reply with exactly one fenced block ```` ```iris ```` holding `{"kind": "<1-3 word label>", "headline": "<= 60
-      chars>", "spoken": "<one sentence>"}`. Lift the obsidian skill's "do not write journal entries" line for Iris notes only. Validate with
+      chars>"}` (owner 2026-11-04: the spoken line and the real summary stay with agw `triage`). Lift the obsidian skill's "do not write journal entries" line for Iris notes only. Validate with
       `/hermes-validate` on six German and English sample transcripts (a question, a todo, a GitHub issue for a named repo, a note, a tab
       prompt, plain chat): right skill, block present and valid. Commit in hermes-agent, restart the gateway its way.
 - [ ] **S1. One destination (server + contracts + IrisCore):** modes `hermes` (default) and `transcribe`; `auto`, `chat`, `journal` and `tab`
       stay accepted on the wire as legacy aliases of `hermes` for one release (the installed app sends them), a non-`hermes` alias is passed to
-      Hermes as one hint line ("the owner picked Journal"). Pipeline `transcribe → act → notify` (no `route`, no `summarize` step for new memos;
-      old memos keep their rows and render). Delete the routing-only modules above, `/herd`, the decider and journal env (`BRAIN_DIR`,
+      Hermes as one hint line ("the owner picked Journal"). Pipeline `transcribe → act → summarize → notify` (no `route` step for new memos; old memos keep their rows
+      and render). **`summarize` stays** (owner 2026-11-04: agw `triage` writes the better summary) and stays optional; it already sends only
+      the transcript and the final reply, never tool traffic: keep it that way, `destination` is always `hermes`. Delete the routing-only modules above, `/herd`, the decider and journal env (`BRAIN_DIR`,
       `AGW_*` stays only if anything else still uses it: check), `HC_*` / `HERDR_SOCKET` from `env.ts`, `compose()` and `launch.sh`. **Hermes
       result:** the Hermes adapter parses the ```` ```iris ```` block (zod, lenient: missing or invalid = no block, logged `hermes.meta_invalid`),
-      strips it from `reply_text`, stores `kind` (lower-case, trimmed, ≤ 24 chars) and the `Summary` (`headline`, `spoken`) on the memo; it also
+      strips it from `reply_text`, stores `kind` (lower-case, trimmed, ≤ 24 chars) and `hermes_headline` (the fallback when `summarize` fails); it also
       keeps the `tool.started` names from the session stream (deduplicated, ≤ 12, names only, no arguments) as `actions`. Wire: `kind?` and
       `actions?` on the memo (omitted when empty), `routeReason` / `routeSuggestion` / `pinned` / `pinnedTruncated` and `?route=` gone, `?kind=`
-      filters by the new kind (the thread-kind filter becomes `?thread=true`). `notify`'s headline: `summary.headline ?? ` the clipped
-      transcript (as today). Stats per `kind` instead of per route (`null` = `transcribe` or none). **Migration** (append-only): open
+      filters by the new kind (the thread-kind filter becomes `?thread=true`). `notify`'s headline: `summary.headline ?? hermes_headline ??` the clipped
+      transcript. Stats per `kind` instead of per route (`null` = `transcribe` or none). **Migration** (append-only): open
       `needs_route` memos become `failed` at step `act` with error "parked before routing moved to Hermes", so [Retry from Act] delivers them;
       `route_decisions` stays as history, never written again. `make contracts`, fixtures for every variant the app decodes, `make e2e`,
       `send-memo.ts` modes, `smoke.sh` without `--mode hermes`. `MemoMode` in Swift: `hermes`, `transcribe`, unknown values decode to `hermes`.
       Hermes sees no `source` (it folds unknown sources to `api_server`), so **every** turn carries a short `system_message` naming the Iris turn and the H1 contract (replacing the chat-only no-side-effects message; `chat: true`, `CHAT_SYSTEM_MESSAGE` and thread kind `chat` go, threads are one kind). Deploy after H1 is live, `make verify`, `make smoke` (real Hermes, block parsed: check the memo's `kind`).
-- [ ] **A1. iOS + Mac follow the server (after S1):** the record control: tap = Hermes, long press = Transcribe (no mode sheet); the composer
-      offers the same two; delete `RouteAnswer*`, `RouteConfig{Destination,DestinationView,Entry,ReviewView}` + its UI test, `RecordModeSheet`,
+- [ ] **A1. iOS + Mac follow the server (after S1):** **three buttons, no hidden gestures** (owner 2026-11-04): the bottom record control
+      becomes a row of a large primary **Hermes** button (robot symbol, the default, starts a Hermes take), a smaller **Transcribe** button
+      and a smaller **Text** button (opens the composer, which offers Hermes and Transcribe as two send targets); the long-press mode sheet goes.
+      Render the row (light, dark, German) for the owner's async look before the rest. The Lock Screen control and `StartMemoIntent` stay
+      Hermes; a second control "Transcribe" is added. The Mac popover gets the same Hermes + Transcribe pair (the hotkey stays Hermes); delete `RouteAnswer*`, `RouteConfig{Destination,DestinationView,Entry,ReviewView}` + its UI test, `RecordModeSheet`,
       `MacRouteAnswerBar`, `MacRouteDestination`, "Wrong route?", the route card, the Route swipe, pinned rows, the Needs-route filter chip, sheet
       group and Mac sidebar entry, the `needsRoute` Live Activity phase and the `MEMO_NEEDS_ROUTE` category. `RouteChip` shows the memo's `kind`
       (neutral colour, a known kind may keep a colour); History filters by kind from the kinds present in the loaded pages; the detail shows
