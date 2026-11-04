@@ -1,12 +1,11 @@
-# Lead handoff — Wave 20 (closed, lead `iris-w20-lead`)
+# Lead handoff — Wave 21 (lead `iris-w21-lead`, active)
 
-## Closed (2026-11-03 ~00:40)
-Wave 20 is done in PLAN.md (status marker `done`, `**Left behind:**` written). Master `7d3d0cc`: batch 1 #105 (#103 I1, #102 M1, #104 U1) and U2 #106,
-each one green `apple.yml` run. No server change; `make verify` healthy. Carried: D1 (owner hardware batch, now on a device build of `7d3d0cc`), D2 (enrolment).
-No worker running; all Wave 20 worktrees and panes reclaimed. Kept: the parked I2 branches `w19-i2-late-tail`, `w19-i2b-late-tail`, `w18-i23-capture-recovery-debt`.
-Briefs (gitignored) in `.artifacts/w20-briefs/`. The next lead is the mother's call.
-
-## Lessons
-- `factory session wait --on workers` wakes at once while a worker idles on its own lock monitor; wait in the foreground on branch pushes / `gh run view` instead.
-- Screenshot walks and hung tests can hold `/tmp/iris-apple.lock` for 20-30 min: one walk per acquisition, per-test time limits, `timeout 1500` around test runs.
-- Fanning the next U item on master + the open batch branch saves the batch's CI hour; GitHub then marks members merged by the batch on its own.
+## In flight (2026-11-04 evening)
+- **H1** `w21-h1-iris-skill` in hermes-agent (pane t128): skill `iris`, the ```iris block, brain notes via obsidian; the worker fast-forwards
+  hermes-agent master itself to validate live, then pushes master. hermes-agent master had 10 unpushed commits (clean, loopback-only); the lead
+  pushed them before fanning.
+- **S1** `w21-s1-hermes-decides` in iris (pane t129): server + contracts + IrisCore (compat only, `MemoMode` not reduced). Merge only after H1 is
+  live (master deploys).
+- **A1** after S1 merges.
+Briefs (gitignored): `.artifacts/w21-briefs/`. Master `apple.yml` is red since #108 on a flaky `HistorySwipeUITests.testSwipeRightMarksTheRowDone`
+(287 s); the PR run was green.
