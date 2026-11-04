@@ -120,30 +120,6 @@ struct URLSessionAPIClientTests {
     #expect(try jsonValue(requests[1].body) == jsonValue(Contracts.fixtureData("memos.retry.request")))
   }
 
-  @Test("routeMemo posts the destination and tab to /route and decodes 202 and 200 alike")
-  func routeMemo() async throws {
-    for status in [202, 200] {
-      let server = StubServer { _ in try .json(status, fixture: "memos.route.response") }
-      let memo = try await server.makeClient().routeMemo(
-        id: memoID, request: RouteRequest(destination: .herdr, tab: "w1:t1"))
-
-      #expect(memo.state == .routed)
-      #expect(memo.route == "hermes")
-      let request = try #require(server.request)
-      #expect(request.method == "POST")
-      #expect(request.url.path == "/v1/memos/\(memoID)/route")
-      #expect(try jsonValue(request.body) == jsonValue(Contracts.fixtureData("memos.route.request.herdr")))
-    }
-  }
-
-  @Test("routeMemo without a tab omits the key")
-  func routeMemoNoTab() async throws {
-    let server = StubServer { _ in try .json(202, fixture: "memos.route.response") }
-    _ = try await server.makeClient().routeMemo(id: memoID, request: RouteRequest(destination: .hermes))
-    let request = try #require(server.request)
-    #expect(try jsonValue(request.body) == jsonValue(Contracts.fixtureData("memos.route.request")))
-  }
-
   @Test("routeMemo maps a 409 to the server error")
   func routeMemoConflict() async throws {
     let server = StubServer { _ in try .json(409, fixture: "error.bad-state") }
@@ -165,39 +141,37 @@ struct URLSessionAPIClientTests {
       request.queryItems == [URLQueryItem(name: "limit", value: "20"), URLQueryItem(name: "cursor", value: "41")])
   }
 
-  @Test("listMemos decodes pinnedTruncated, true only when the pinned set was cut")
-  func listMemosPinnedTruncated() async throws {
-    let cut = StubServer { _ in try .json(fixture: "memos.list.response.pinned-truncated") }
-    #expect(try await cut.makeClient().listMemos(ListMemosQuery(limit: 20)).pinnedTruncated)
-
-    let whole = StubServer { _ in try .json(fixture: "memos.list.response.pinned") }
-    #expect(try await whole.makeClient().listMemos(ListMemosQuery(limit: 20)).pinnedTruncated == false)
-  }
-
-  @Test("listMemos sends q, route and state and decodes the pinned memos")
+  @Test("listMemos sends q and state (the retired route filter is not sent) and decodes a page without pinned")
   func listMemosSearch() async throws {
-    let server = StubServer { _ in try .json(fixture: "memos.list.response.pinned") }
+    let server = StubServer { _ in try .json(fixture: "memos.list.response") }
     let query = ListMemosQuery(limit: 20, q: "kalender termin", route: .hermes, state: .notified)
     let page = try await server.makeClient().listMemos(query)
 
-    #expect(page.pinned.map(\.state) == [.needsRoute])
-    #expect(page.items.count == 2)
+    #expect(page.pinned.isEmpty && !page.pinnedTruncated)
+    #expect(page.items.count == 3)
     let request = try #require(server.request)
     #expect(
       request.queryItems == [
         URLQueryItem(name: "limit", value: "20"), URLQueryItem(name: "q", value: "kalender termin"),
-        URLQueryItem(name: "route", value: "hermes"), URLQueryItem(name: "state", value: "notified"),
+        URLQueryItem(name: "state", value: "notified"),
       ])
   }
 
-  @Test("listMemos sends the favorite, archived and kind filters")
+  @Test("listMemos sends the favorite, archived, kind and thread filters; a legacy ThreadKind becomes thread=true")
   func listMemosFilters() async throws {
     let server = StubServer { _ in try .json(fixture: "memos.list.response.empty") }
     _ = try await server.makeClient().listMemos(ListMemosQuery(favorite: true, archived: true, kind: .chat))
     #expect(
       server.request?.queryItems == [
         URLQueryItem(name: "favorite", value: "true"), URLQueryItem(name: "archived", value: "true"),
-        URLQueryItem(name: "kind", value: "chat"),
+        URLQueryItem(name: "thread", value: "true"),
+      ])
+
+    let kinded = StubServer { _ in try .json(fixture: "memos.list.response.empty") }
+    _ = try await kinded.makeClient().listMemos(ListMemosQuery(memoKind: "note", thread: true))
+    #expect(
+      kinded.request?.queryItems == [
+        URLQueryItem(name: "kind", value: "note"), URLQueryItem(name: "thread", value: "true"),
       ])
   }
 
@@ -259,8 +233,10 @@ struct URLSessionAPIClientTests {
     let server = StubServer { _ in try .json(fixture: "memos.detail.response") }
     let detail = try await server.makeClient().memo(id: memoID)
 
-    #expect(detail.steps.map(\.step) == [.transcribe, .route, .act, .summarize, .notify])
-    #expect(detail.memo.summary?.headline == "Wochenplan abgestimmt, Release am Donnerstag")
+    #expect(detail.steps.map(\.step) == [.transcribe, .act, .notify])
+    #expect(detail.memo.summary?.headline == "Wochenplan notiert, Release am Donnerstag")
+    #expect(detail.memo.kind == "task")
+    #expect(detail.memo.actions == ["todo_add", "calendar_search"])
     #expect(server.request?.url.path == "/v1/memos/\(memoID)")
   }
 
@@ -280,7 +256,7 @@ struct URLSessionAPIClientTests {
       try jsonValue(#require(textServer.request).body) == jsonValue(Contracts.fixtureData("memos.text.request.thread")))
   }
 
-  @Test("listThreads sends kind, limit and cursor as query items")
+  @Test("listThreads sends limit and cursor as query items and no kind")
   func listThreads() async throws {
     let server = StubServer { _ in try .json(fixture: "threads.list.response") }
     let page = try await server.makeClient().listThreads(ListThreadsQuery(kind: .chat, limit: 20, cursor: "abc"))
@@ -292,8 +268,7 @@ struct URLSessionAPIClientTests {
     #expect(request.url.path == "/v1/threads")
     #expect(
       request.queryItems == [
-        URLQueryItem(name: "kind", value: "chat"), URLQueryItem(name: "limit", value: "20"),
-        URLQueryItem(name: "cursor", value: "abc"),
+        URLQueryItem(name: "limit", value: "20"), URLQueryItem(name: "cursor", value: "abc"),
       ])
   }
 
@@ -366,29 +341,24 @@ struct URLSessionAPIClientTests {
     #expect(try jsonValue(request.body) == jsonValue(fixture))
   }
 
-  @Test("herd decodes the live tabs")
-  func herd() async throws {
-    let server = StubServer { _ in try .json(fixture: "herd.response") }
-    let herd = try await server.makeClient().herd()
-    #expect(herd.tabs.map(\.id) == ["w1:t2", "w3:t1"])
-    #expect(herd.tabs[1].lastActivity == nil)
-    #expect(server.request?.url.path == "/v1/herd")
-  }
-
   @Test("stats decodes the aggregates and sends days as a query item")
   func stats() async throws {
     let server = StubServer { _ in try .json(fixture: "stats.response") }
     let stats = try await server.makeClient().stats(StatsQuery(days: 7))
     #expect(stats.days == 7)
-    #expect(stats.perDay.contains(StatsDayCount(date: "2026-03-12", route: "unrouted", count: 1)))
+    #expect(stats.perDay.contains(StatsDayCount(date: "2026-03-12", kind: nil, count: 1)))
+    #expect(stats.perDay.contains { $0.kind == "task" && $0.route == "task" })
+    #expect(stats.perDay.contains { $0.kind == nil && $0.route == "unrouted" })
     #expect(
       stats.stepMedians.map(\.step) == [
-        .transcribe, .transcribe, .transcribe, .transcribe, .route, .act, .summarize, .notify,
+        .transcribe, .transcribe, .transcribe, .transcribe, .act, .act, .notify, .notify,
       ])
     #expect(
-      stats.stepMedians.first { $0.step == .transcribe && $0.route == "hermes" }
-        == StatsStepMedian(step: .transcribe, route: "hermes", medianMs: 4120, samples: 3))
-    #expect(stats.costPerRoute.first { $0.route == "hermes" }?.costUsd == 0.0421)
+      stats.stepMedians.first { $0.step == .transcribe && $0.kind == "task" }
+        == StatsStepMedian(step: .transcribe, kind: "task", medianMs: 4120, samples: 3))
+    #expect(stats.costPerKind.first { $0.kind == "task" }?.costUsd == 0.0421)
+    #expect(stats.costPerRoute == stats.costPerKind)
+    #expect(stats.costPerKind.first?.kind == nil && stats.costPerKind.first?.route == "unrouted")
     #expect(server.request?.url.path == "/v1/stats")
     #expect(server.request?.queryItems == [URLQueryItem(name: "days", value: "7")])
   }
