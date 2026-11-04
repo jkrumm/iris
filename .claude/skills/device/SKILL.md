@@ -7,7 +7,7 @@ description: Put Iris on the paired iPhone — make device (build, sign, install
 
 Hardware-only rows live in `docs/spikes/device-checklist.md`; spike briefs in `docs/spikes/`. Everything below ran on 2026-10-30 against the
 owner's iPhone 15 (`iPhone15,4`, iOS 26.6.1, Developer Mode on, paired over the CoreDevice network tunnel) unless a line says **unverified**.
-Wrap every command that touches Xcode or the phone in `lockf -t 900 /tmp/iris-apple.lock …` (one Apple job at a time on the mini).
+Wrap every command that touches Xcode or the phone in `lockf -t 1800 /tmp/iris-apple.lock …` (one Apple job at a time on the mini).
 
 ```bash
 lockf -t 900 /tmp/iris-apple.lock make device          # ran: generate, signed build, install, launch, screenshot -> .artifacts/device-<time>.png
@@ -19,9 +19,11 @@ xcrun devicectl device process launch --device $D --terminate-existing --console
 xcrun devicectl device capture screenshot --device $D --destination out.png   # ran (Xcode 27): the screenshot route
 ```
 
-- Signing: `DEVICE_SIGNING=personal` (default, free Personal Team) or `paid`; `TEAM=<id>` and `IRIS_DEVICE_ID` override. Team and phone resolve at runtime
-  (`scripts/device-lib.sh`). A Personal Team signs without `aps-environment` and the App Group; details, limits and the gated list: AGENTS.md "Device".
-  Do not rename bundle ids (10 App IDs per 7 days). Install over the same bundle id keeps the app's data (Keychain, outbox).
+- Signing: `DEVICE_SIGNING=paid` (default; the paid team, headless with the ASC Team key read through `secrets-run`, key file 0600 and deleted on exit) or
+  `personal` (fallback: free team, no Push/App Groups); `TEAM=<id>` and `IRIS_DEVICE_ID` override. The phone resolves at runtime (`scripts/device-lib.sh`);
+  the flags, the key lifecycle and the Personal Team limits: AGENTS.md "Device". Do not rename bundle ids. Install over the same bundle id keeps the app's data (Keychain, outbox).
+- APNs proof after `make device`: `GET`-less check is the register response (`hasApnsToken`); send a typed memo (`scripts/send-memo.ts` or `POST /v1/memos/text`, mode `hermes`,
+  the iphone token from `secrets-run`), then `~/Library/Logs/iris.log` must show `notify.apns_*` success lines for that memo and no `notify.no_token`. The phone must be unlocked for the banner screenshot.
 - First install: iOS refuses to launch until the developer is trusted on the phone (Settings > General > VPN & Device Management); that is an owner step.
 - `pymobiledevice3` **does not work** here: `usbmux list` is empty (the phone is on a network tunnel) and an RSD tunnel needs root. Use `devicectl`.
 - Logs: `os.Logger` subsystem `com.jkrumm.iris`; **no headless route** (ran 2026-10-30): `/usr/bin/log collect --device*` says "Must be root to collect logs from attached device" (`log` is a zsh builtin: use the full

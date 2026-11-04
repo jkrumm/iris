@@ -1015,9 +1015,16 @@ Two `StaticConfiguration` widgets in `IrisWidgets/HomeWidgets.swift`; the views,
 
 ### Notifications
 
-- **Registration:** `registerForRemoteNotifications()` on every launch, with
-  the token sent via `devices/register`. The push-to-start token comes from
-  `Activity<MemoAttributes>.pushToStartTokenUpdates`.
+- **Registration** (`PushRegistrar`, `PushAppDelegate`; built Wave 21 P1): once a connection is saved (never on a first launch before it) the app
+  registers the `MEMO_DONE` category (no actions yet; the content extension declares it), asks for alert, sound and badge once, and calls
+  `registerForRemoteNotifications()` on every launch. The hex token goes through `devices/register` with `apnsEnv`: `sandbox` on a Debug build
+  (`#if DEBUG`; Xcode development builds talk to the sandbox host), `production` on Release (TestFlight, Wave 22). It is sent again only when
+  the token, the environment or the server changes, and a failed send is retried on the next foreground. The simulator has no APNs: the failure is
+  an info-level `push.register_failed` and nothing else. Events (`push.authorization|token|registered|register_failed`) never carry the token.
+  The push-to-start token comes from `Activity<MemoAttributes>.pushToStartTokenUpdates`.
+- **Device signing:** `make device` signs with the paid team by default, headless (`-allowProvisioningUpdates` with the App Store Connect Team key
+  from `op://mini/apple-developer`, written to a 0600 temp file for the build only), so `aps-environment` and the App Group are in the build.
+  `DEVICE_SIGNING=personal` stays as the free-team fallback without both entitlements (AGENTS.md "Device").
 - **Categories:**
   - `MEMO_DONE`: [Play] [Reply by voice] [Open];
   - `MEMO_NEEDS_ROUTE`: up to 3 route actions from the payload;
