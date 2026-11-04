@@ -92,6 +92,9 @@ final class MacCompositionRoot {
   let outbox: MacOutboxModel
   /// The device log (`service.name=iris-macos`) and the Mac's own records on it.
   let log: DeviceLog
+  /// "Check for Updates…" and Sparkle's schedule. Nil unless the launch passed an engine (`IrisMacApp` does, outside `-IrisFakeData`),
+  /// so fake runs, snapshots and tests never start an updater.
+  let updater: Updater?
   private let events: MacEvents
   /// The server key of the saved connection, read by every ``HistoryModel`` the root makes: after a connection change the old model
   /// sees a different key and drops its stale answers, and a memo created on another server is not inserted (TDD §5).
@@ -135,8 +138,10 @@ final class MacCompositionRoot {
     takeEngine: (any TakeEngine)? = nil,
     permission: (any MicrophonePermission)? = nil,
     hotkey: (any TakeHotkey)? = nil,
-    log deviceLog: DeviceLog? = nil
+    log deviceLog: DeviceLog? = nil,
+    updateEngine: (any UpdateEngine)? = nil
   ) {
+    updater = updateEngine.map(Updater.init(engine:))
     sampleNow = SampleData.now(arguments: arguments)
     let client: any APIClient
     let isFakeLaunch = arguments.contains(Self.fakeDataArgument)

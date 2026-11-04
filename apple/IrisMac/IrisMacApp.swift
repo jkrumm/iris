@@ -9,7 +9,9 @@ struct IrisMacApp: App {
   private let activation = MacActivationPolicy()
 
   init() {
-    let root = MacCompositionRoot()
+    // Sparkle only on a real launch: fake runs (screenshots, tests) get no updater, no network, no window.
+    let isFake = ProcessInfo.processInfo.arguments.contains(MacCompositionRoot.fakeDataArgument)
+    let root = MacCompositionRoot(updateEngine: isFake ? nil : SparkleUpdateEngine())
     _root = State(initialValue: root)
     root.installNotificationClicks()
     root.installHotkey()
