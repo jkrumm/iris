@@ -11,9 +11,9 @@ Generic TypeScript is `rules/typescript.md` (dotfiles); Elysia is `rules/elysia.
   `src/adapters/`. `app.ts` is a pure composition (no env, no fs); `compose.ts` is the only place a port is chosen (fake, real or absent), and `index.ts` wires its result into the process.
   `process.env` is read only in `env.ts`. Tests inject fakes and use in-memory SQLite, HTTP via `app.handle(new Request())`; no
   `mock.module`, no `spyOn`.
-- **The memo state machine is pure** (`memo/memo.ts`): states `receiving → received → transcribed → routed | needs_route → acted →
-  summarized → notified`, `failed(step)` as a side state. Transitions go through `MemoStore.completeStep` (one transaction: CAS, step
-  row, patch). A step handler is a function of (memo, ports) and must be idempotent; `act` is at-least-once (documented in AGENTS.md).
+- **The memo state machine is pure** (`memo/memo.ts`): states `receiving → received → transcribed → acted → notified`
+  (mode `transcribe` skips `acted`), `failed(step)` as a side state. Hermes decides what a memo is; the server has no routing, and `routed`, `summarized`, `needs_route` and the `route` / `summarize` steps exist only so old rows read. Transitions go through `MemoStore.completeStep` (one transaction: CAS, step
+  row, patch). A step handler is a function of (memo, ports) and must be idempotent; `act` is at-least-once (documented in AGENTS.md): a retry posts another turn into the same Hermes session. A missing Hermes leaves the memo at `transcribed`, never parked.
 - **The wire format is the contract.** Every request and response shape is a pure TypeBox schema in `http/schemas.ts` (no Transform;
   integers are `t.Number({multipleOf: 1})`). A route change means `make contracts`, updated `contracts/fixtures`, a `manifest.json`
   entry, `make check-contracts`. Wire JSON is camelCase; errors are `{error: <code>, message}` through the single `MemoError` mapping.

@@ -1,7 +1,7 @@
 # iris — Agent Instructions
 
-Voice channel into the agent platform. A memo recorded on a phone is uploaded as 10 s segments, transcribed, routed to Hermes,
-summarized and notified. A public monorepo: `server/` (Bun + Elysia + `bun:sqlite`, runs on the mini), `apple/` (iOS app, Mac app, packages),
+Voice channel into the agent platform. A memo recorded on a phone is uploaded as 10 s segments, transcribed, handed to Hermes (which decides what it is and acts)
+and notified. A public monorepo: `server/` (Bun + Elysia + `bun:sqlite`, runs on the mini), `apple/` (iOS app, Mac app, packages),
 `contracts/` (the wire contract both sides test against). **`docs/TDD.md` is the design, `docs/PRD.md` is the product, `docs/waves/PLAN.md` is
 the implementation chain** (foundation waves, then the fleet backlog). Read the TDD section named by a rule before changing that area.
 
@@ -52,30 +52,25 @@ Never start dev servers for a human to look at; simulators are fine, shut them d
 - `server/src/app.ts` — `createApp({deviceTokens, memos, stats?, degraded?, sseKeepaliveMs?})`: mounts routes, no env/fs.
 - `server/src/index.ts` — entry point: SQLite, audio-fs, runner, service, then `compose()` for the downstream ports,
   listen, background `driveAll`, signals, DB close, OTel flush.
-- `server/src/memo/` — domain: `memo.ts` (states, steps, transitions, `RoutableMode` / `isRoutableMode`: the modes with a route step, i.e. all but `transcribe`), `store.ts` (port), `runner.ts`
+- `server/src/memo/` — domain: `memo.ts` (states, steps, transitions, `runsAct`: every mode but `transcribe` hands the memo to Hermes; `normalizeKind` / `normalizeActions`), `store.ts` (port), `runner.ts`
   (idempotent step runner, concurrency-bounded `driveAll`, `idle()`), `service.ts` (`MemoService`, what HTTP calls), `media.ts`
-  (`MemoMedia`: the combined recording and the spoken result, both disk-cached and single-flight), `speech-text.ts` (`speechVariant`: the markdown-free, length-capped text `/speech` synthesizes, TDD §3), `events.ts` (in-process
+  (`MemoMedia`: the combined recording and the spoken result, both disk-cached and single-flight), `speech-text.ts` (`speechVariant`: the markdown-free, length-capped text `/speech` synthesizes, TDD §3), `keyed-queue.ts` (one Hermes thread's turns run one at a time), `events.ts` (in-process
   pub/sub), `purge.ts` (the purger: removes soft-deleted memos' files and rows after the 10-minute undo window), `errors.ts` (`MemoError` codes, `configured()` for optional subsystems), `test-support.ts` (fake audio, seeded and parked memos).
-- `server/src/pipeline/steps.ts` — `createStepHandlers`: the five step handlers, each a pure function
-  of (memo, ports); a handler is registered only when its port is provided (`route` and `act` need at least one registered destination;
-  `act` dispatches on `memo.route`).
-- `server/src/routing/` — `prefix.ts` (`parsePrefix`, pure), `route.ts` (`route`: mode → prefix → only destination → `Decider`, always
-  returns a `RouteDecision`, never throws; a spoken or mode `tab` is resolved against the herd to a tab id), `index.ts`.
-- `server/src/adapters/` — `sqlite.ts` (+ `sqlite-migrations.ts`, `PRAGMA user_version`; migration 7 adds the `memo_fts` FTS5 index behind history search), `sqlite-devices.ts`
+- `server/src/pipeline/steps.ts` — `createStepHandlers`: the three step handlers (`transcribe`, `act`, `notify`), each a pure function
+  of (memo, ports); a handler is registered only when its port is provided (`act` needs the Hermes destination).
+- `server/src/adapters/` — `sqlite.ts` (+ `sqlite-migrations.ts`, `PRAGMA user_version`; migration 7 adds the `memo_fts` FTS5 index behind history search, 14 the Hermes-decides columns), `sqlite-devices.ts`
   (`DeviceStore`, same db), `sqlite-threads.ts` (`ThreadStore`: the thread read queries, composed into the memo store), `sqlite-stats.ts` (`StatsStore`: read-only aggregates behind `GET /stats`), `audio-fs.ts` (segments + `combined.m4a`), `speech-fs.ts` (`<id>.mp3` + `<id>.txt`), `assets-fs.ts` (`<id>/<asset id>` reply assets), `diagram-pele.ts` (`DiagramRenderer`: Pele + resvg-js; migration 11 adds `reply_assets`),
-  and the downstream adapters (`audio-door-client.ts`: the one door client, URL + bearer + `agw-run-id` + hang guard, no redirects; `audio-door.ts`: the transcriber + the ffmpeg combiner; `audio-door-speaker.ts`, Hermes, agw (`agw-client.ts`: the one agent-workflows host client, URL + bearer + `x-agw-purpose` / `x-agw-caller` / `x-agw-project` (all `iris`) + `agw-run-id` + hang guard (an aborted request), no redirects; `agw.ts`: the `triage` summarizer;
-  `agw-decider.ts`: the `decide` call),
-  `herdr.ts` over the unix socket: the `Herd` and the `herdr` `Destination` (classic herdr), `hc.ts` (the same two over herdr-core's `hc connect`), `herdr-worlds.ts` (`mergeHerds`, `preferHc`: both worlds behind the one port; TODO(Wave 7) drop classic), log notifier), and the APNs pair: `notifier-apns.ts` (`Notifier` over an `ApnsTransport`)
+  and the downstream adapters (`audio-door-client.ts`: the one door client, URL + bearer + `agw-run-id` + hang guard, no redirects; `audio-door.ts`: the transcriber + the ffmpeg combiner; `audio-door-speaker.ts`; `hermes.ts`: the one `Destination` (session, turn over SSE, the ```iris block, tool names); log notifier), and the APNs pair: `notifier-apns.ts` (`Notifier` over an `ApnsTransport`)
   and `apns-node.ts` (the transport on `@parse/node-apn`; `apns-test-support.ts` generates test keys and certs).
 - `server/src/ports/` — `audio.ts` (`AudioStore`, `AudioCombiner`, `Recording`), `clock.ts` (system, fixed and manual clocks),
   `transcriber.ts`, `speaker.ts` (+ `SpeechCache`), `devices.ts` (`DeviceStore`: devices, APNs tokens, Live Activity tokens), `diagram.ts` (`DiagramRenderer`), `assets.ts` (`AssetStore`),
-  `stats.ts` (`StatsStore`), `herd.ts`, `destination.ts` (+ `Destinations`, the registry of act adapters), `decider.ts`, `summarizer.ts`, `notifier.ts` (`notify` + best-effort `phase`),
+  `stats.ts` (`StatsStore`), `destination.ts` (`Destination`: the Hermes port, `Delivery` + `DeliveryMeta`), `notifier.ts` (`notify` + best-effort `phase`),
   `apns.ts` (`ApnsTransport`), `fakes.ts` (in-memory fakes of the ports, incl. `fakeApnsTransport`).
 - `server/src/notify/` — `payloads.ts` (pure alert / Live Activity builders), `phases.ts` (`bindPhaseUpdates`: memo events →
-  `notifier.phase`), `needs-route.ts` (`bindNeedsRouteAlerts`: entering `needs_route` → `notifier.needsRoute`), `select.ts` (`selectNotifier`: APNs or log, plus the transport's `close`),
+  `notifier.phase`), `select.ts` (`selectNotifier`: APNs or log, plus the transport's `close`),
   `lifecycle.ts` (`createNotifyLifecycle`: stop / idle / close for shutdown).
 - `server/src/http/` — `auth.ts` (device-token guard), `memos.ts`, `devices.ts`, `media.ts` (audio + speech, `Range`; reply assets),
-  `threads.ts` (`/threads`), `herd.ts`, `stats.ts`, `events.ts` and `telemetry.ts` (route plugins; `telemetry.ts` reads and validates its own body), `schemas.ts` (every request/response shape as pure TypeBox, exported for the
+  `threads.ts` (`/threads`), `stats.ts`, `events.ts` and `telemetry.ts` (route plugins; `telemetry.ts` reads and validates its own body), `schemas.ts` (every request/response shape as pure TypeBox, exported for the
   contracts), `errors.ts` (the one `MemoError` → status mapping), `serialize.ts` (the one wire-shape mapping, camelCase),
   `test-support.ts` (in-memory app for `app.handle` tests).
 - `server/src/telemetry/` — `otel.ts`, `otel-format.ts`, `log.ts`, copied from research-gateway
@@ -102,19 +97,18 @@ All under `/v1`, `Authorization: Bearer <token>`. Errors: `{error: <code>, messa
 
 | Route | Result |
 |-|-|
-| `POST /memos` `{id, mode: auto\|journal\|hermes\|tab\|chat\|transcribe, startedAt, threadId?}` | 201 memo; 200 if it exists for this device; 409 other device or another `threadId` on the replay; `threadId` continues that thread (delivered into its Hermes session, route forced to hermes), 404 when unknown |
-| `POST /memos/text` `{id, mode, startedAt, text, threadId?}` | 202 memo created in `transcribed` (`transcript` = trimmed text, driven from `route`; a replay too); memo carries `typed: true`; any mode incl. `chat`; 400 empty, over 20 000 code points, or no/unknown `mode`; 409 another body (incl. `threadId`), device or a recorded memo with that id; 404 unknown `threadId` |
+| `POST /memos` `{id, mode: hermes\|transcribe\|auto\|chat\|journal\|tab, startedAt, threadId?}` | 201 memo; 200 if it exists for this device; 409 other device or another `threadId` on the replay; `threadId` continues that thread (delivered into its Hermes session), 404 when unknown; the mode is stored as received (`auto`, `chat`, `journal`, `tab` are what the installed app still sends: Hermes gets them as a hint line) |
+| `POST /memos/text` `{id, mode, startedAt, text, threadId?}` | 202 memo created in `transcribed` (`transcript` = trimmed text, driven from `act`; a replay too); memo carries `typed: true`; any mode; 400 empty, over 20 000 code points, or no/unknown `mode`; 409 another body (incl. `threadId`), device or a recorded memo with that id; 404 unknown `threadId` |
 | `PUT /memos/:id/segments/:n` raw `audio/mp4` bytes | 200, idempotent by sha256 (same sha no-op, different sha 409); 413 over `IRIS_MAX_SEGMENT_BYTES`; 409 after `complete` |
 | `POST /memos/:id/complete` `{segmentCount}` | 202 memo (repeat too); 422 `missing_segments` + `missing: [...]` |
-| `POST /memos/:id/retry` `{from}` | 202 memo; 409 unless `failed`, or `notified` with `from: "summarize"` when its `summarize` step failed (re-runs summarize, then notify, which re-sends the alert: same collapse id, so it replaces the banner); 400 `from: "transcribe"` on a typed memo, and a `from` the memo's mode has no step for (mode `transcribe`: only `transcribe`, `notify`) |
-| `POST /memos/:id/route` `{destination: hermes\|journal\|herdr, tab?}` | `needs_route`: 202 memo, routed and driven on (400 `<dest> not available` when unregistered; `tab` iff herdr); after `act` (`acted`/`summarized`/`notified`): 200 memo, a `correction` is only logged; other states and a second answer 409; 400 for a memo in mode `transcribe` (it has no route to answer or correct); 404 unknown |
-| `GET /memos?limit&cursor&q&route&state&favorite&archived&kind` | `{items, pinned, pinnedTruncated, nextCursor}`, newest first; `q` = FTS5 over transcript + headline (prefix, case/umlaut-insensitive), `route` / `state` exact, `favorite=true`, `archived=true` (only archived; hidden otherwise), `kind=chat\|hermes` (thread kind) (unknown 400); soft-deleted memos never listed; open `needs_route` memos (not `done`) are never in `items`, the first page pins them in `pinned` (≤ 50; `pinnedTruncated` true when more matched, false on later pages), later pages `[]`; a `done` one is paged in `items` |
+| `POST /memos/:id/retry` `{from}` | 202 memo; 409 unless `failed`; 400 `from: "transcribe"` on a typed memo, and a `from` that is not a step of the memo's pipeline (`transcribe`, `act`, `notify`; mode `transcribe`: only `transcribe`, `notify`) or lies after the step that failed; an old memo that failed at `route` / `summarize` retries from `act` / `notify` |
+| `GET /memos?limit&cursor&q&state&favorite&archived&kind&thread` | `{items, nextCursor}`, newest first; `q` = FTS5 over transcript + headline (prefix, case/umlaut-insensitive), `state` exact, `kind` = the memo's kind, exact after the same normalisation as the stored one (`GET /memos?kind=%20Note` finds `note`), `thread=true` the memos that belong to a thread, `favorite=true`, `archived=true` (only archived; hidden otherwise); soft-deleted memos never listed; old `needs_route` memos are paged like any other |
 | `GET /memos/:id` | memo + `steps` timeline + `segmentCount`; 404 unknown. A soft-deleted memo is returned too (with `deletedAt` / `purgeAt`); 404 once purged |
 | `PATCH /memos/:id` `{done?, favorite?, archived?}` | 200 memo; ≥ 1 boolean, an empty body, unknown key or non-boolean 400; 409 `bad_state` on a soft-deleted memo; 404 unknown; publishes `memo.updated` |
-| `DELETE /memos/:id` | soft delete: 200 memo with `deletedAt` + `purgeAt` (10 min later); only `notified` / `failed` / `needs_route` / `receiving` (a cancelled take: its later segment and `complete` are 409 `bad_state`, no pipeline) else 409 `bad_state`; a repeat is idempotent; a segment write still in flight is refused and its file removed right after it lands (recorded segments stay for a restore); the purger then removes audio, speech and rows (`memo.purged`) |
+| `DELETE /memos/:id` | soft delete: 200 memo with `deletedAt` + `purgeAt` (10 min later); only `notified` / `failed` / `receiving` (a cancelled take: its later segment and `complete` are 409 `bad_state`, no pipeline) else 409 `bad_state`; a repeat is idempotent; a segment write still in flight is refused and its file removed right after it lands (recorded segments stay for a restore); the purger then removes audio, speech and rows (`memo.purged`) |
 | `POST /memos/:id/restore` | 200 memo, `deletedAt` cleared; 409 when not deleted; 404 once purged |
-| `GET /memos/:id/result?wait=<s>` | 200 once result-ready, else 202 after the wait (0..600, default 0) |
-| `GET /threads?kind=chat\|hermes&limit&cursor` | `{items: Thread[], nextCursor}`, newest `updatedAt` first; `Thread = {id, kind, title, createdAt, updatedAt, lastMemoId}` |
+| `GET /memos/:id/result?wait=<s>` | 200 once result-ready (`notified`, `failed`, or an old `needs_route` row), else 202 after the wait (0..600, default 0) |
+| `GET /threads?limit&cursor` | `{items: Thread[], nextCursor}`, newest `updatedAt` first; `Thread = {id, kind, title, createdAt, updatedAt, lastMemoId}` (`kind` is `hermes` for every new thread, `chat` only on old rows) |
 | `GET /threads/:id` | `{thread, memos (oldest first), messages: [{memoId, role: user\|assistant, content, createdAt}]}`: the conversation is built from the memos' transcripts and replies (Iris's own record, no Hermes read); 404 unknown |
 | `POST /devices/register` `{name, platform: ios\|macos, apnsToken?, apnsEnv?, pushToStartToken?}` | 200 `{device, name, platform, apnsEnv, hasApnsToken, hasPushToStartToken, registeredAt}`; upsert by the authenticated device |
 | `POST /telemetry` `{resource, spans, logs, dropped}` (the Swift `TelemetryBatch`) | 202 `{accepted: {spans, logs}}`; exported in the background as OTLP with `service.name=iris-ios\|iris-macos`, the memo trace id kept; 413 over 256 KiB, 400 over 500 spans+logs, a schema violation or a bad timestamp |
@@ -122,14 +116,13 @@ All under `/v1`, `Authorization: Bearer <token>`. Errors: `{error: <code>, messa
 | `GET /memos/:id/audio` | `audio/mp4`, concatenated on first request and cached; `Range` → 206 / 416; 404; 409 while `receiving` or soft-deleted |
 | `GET /memos/:id/assets/:assetId` | a rendered Mermaid file of the reply (ids in the memo's `replyBlocks`): `image/svg+xml` (CSP `default-src 'none'`) or `image/png`, immutable cache; 404 unknown memo or asset; 409 when soft-deleted |
 | `GET /memos/:id/speech` | `audio/mpeg` TTS of the speech-ready variant (`speechVariant`: cleaned reply, or `summary.spoken` + "details on screen" past 600 chars; else `summary.spoken`), cached; 404; 409 with neither or when soft-deleted; 503 without the audio door (`AUDIO_DOOR_URL` + `AUDIO_DOOR_TOKEN`) |
-| `GET /herd` | `{tabs: [{id, repo, label, agentState, lastActivity}]}` from herdr-core and classic herdr, both worlds merged (hc tab ids are `tb…`, classic `w2:t1`); 503 without `HC_BIN` + `HC_SOCKET` / `HERDR_SOCKET` or when any configured world is unreachable |
-| `GET /stats?days=<n>` | `{days, from, to, perDay, perWeek, stepMedians (per step and route, with n), costPerRoute}` over the last `n` local days (default 30, 1..365 else 400); read-only SQL/JS aggregates, `null` route = `unrouted` |
+| `GET /stats?days=<n>` | `{days, from, to, perDay, perWeek, stepMedians (per step and kind, with n), costPerKind}` over the last `n` local days (default 30, 1..365 else 400); read-only SQL/JS aggregates, `null` kind = mode `transcribe`, no ```iris block, or an old memo |
 | `GET /events` | SSE: `ready`, `memo.updated` per state change (and per flag change, delete or restore, without `memo.done`), plus `memo.done` when result-ready, `: keepalive` every 15 s |
 
 Codes: not_found 404, conflict / bad_state / destination_unavailable 409, missing_segments 422, too_large 413, bad_request 400, unavailable 503.
 Wire JSON is camelCase.
-States: `receiving → received → transcribed → routed | needs_route → acted → summarized → notified`,
-with `failed(step)` as a side state.
+States: `receiving → received → transcribed → acted → notified`, with `failed(step)` as a side state. `routed`, `summarized` and
+`needs_route` are only read (old rows); the migration moved every open one on.
 
 
 ## Device (the paired iPhone)
@@ -190,8 +183,8 @@ the real-domain literals live in untracked `~/.config/iris/guard-extra.txt`). Us
 
 `make e2e` (`scripts/e2e.ts`, CI after `check`, needs ffmpeg) boots `server/src/index.ts` on a free port with
 `IRIS_FAKES=1` and a temp `IRIS_DATA`, runs `send-memo.ts` on the smoke recording (must reach `notified`), then probes
-`/devices/register`, `/activity-token`, `/audio` (Range 206), `/speech` (audio/mpeg), `/herd` and the threads flow (a chat memo, a reply into its thread
-with `send-memo.ts --thread`, then `/threads` and `/threads/:id` with both turns). The server is always killed.
+`/devices/register`, `/activity-token`, `/audio` (Range 206), `/speech` (audio/mpeg) and the threads flow (a hermes memo, a reply into its thread
+with `send-memo.ts --thread`, then `/threads` and `/threads/:id` with both turns); every memo must reach `notified` with the fake Hermes's `kind`, `summary.headline` and `actions`. The server is always killed.
 
 **`IRIS_FAKES=1`** (boolean-ish, empty = off) builds every port from `compose()`'s fakes, ignoring downstream env, and keeps the
 real ffmpeg combiner. `/health` is `degraded` with `"fakes"`, boot logs `server.fakes_mode`, and `scripts/launch.sh`
@@ -206,9 +199,9 @@ in-memory SQLite and fake ports, no `mock.module` / `spyOn`, HTTP via `app.handl
 
 **Harness:** `bun scripts/send-memo.ts <audio-file>` is the end-to-end driver. It splits the file into
 10 s m4a segments with ffmpeg, then creates, uploads, completes and long-polls a memo like the phone
-does, and prints transcript, reply, summary, step timings and cost. Env: `IRIS_URL` (default
-`http://127.0.0.1:7730`), `IRIS_TOKEN` (required); flags `--url --token --mode auto|journal|hermes|tab|chat|transcribe
---wait <s>`. Exit 0 `notified`, 1 `failed`, 2 timeout, `needs_route` or usage error. Its tests
+does, and prints transcript, reply, `kind`, `actions`, summary, step timings and cost. Env: `IRIS_URL` (default
+`http://127.0.0.1:7730`), `IRIS_TOKEN` (required); flags `--url --token --mode hermes|transcribe|auto|chat|journal|tab
+--wait <s>` (default `hermes`). Exit 0 `notified`, 1 `failed`, 2 timeout, `needs_route` (an old row) or usage error. Its tests
 (`bun test scripts`, fake in-process server) run via the repo root; lint and format cover `scripts/`.
 
 ## Deploy
@@ -232,18 +225,16 @@ Push to master deploys. LaunchAgent `com.jkrumm.iris` (KeepAlive, `ExitTimeOut` 
   (`http://127.0.0.1:7792/v1`) and `launch.sh` reads the `iris=<token>` line of `~/.agent-workflows/data/door-tokens` (0600, local, owned by
   agent-workflows) into `AUDIO_DOOR_TOKEN` without echoing it; a missing file or line starts degraded (`transcribe`, `speech`) and says why on stderr.
   Rotate it by editing that file and restarting both LaunchAgents. `APNS_*` is unset (no `op://` ref yet, so not in `.env.mini.tpl`; add both at enrolment), so the log notifier runs.
-- `HERMES_URL` is composed in `launch.sh` from `HERMES_HOST` + `HERMES_PORT`. The journal takes brain-sync's mkdir lock exactly as `brain/brain-sync.sh` does (own pid in `<lockDir>/pid`; a live pid or a pidless lock under 60 s waits, a dead pid or an older pidless lock is reclaimed; release only while the pid is still ours). It pushes the brain checkout over HTTPS with the mini's headless credential helper (no prompt); `launch.sh` exports `BRAIN_DIR` only when the checkout exists.
-- agent-workflows host calls (`POST /triage`, `POST /decide`, synchronous) carry `x-agw-purpose: iris`, `x-agw-caller: iris` and `x-agw-project: iris` (constants in `agw-client.ts`; the run record and the ledger book the spend as caller `iris`, project `iris`; a malformed value is a host 400) and `Authorization: Bearer <AGW_API_SECRET>`; `AGW_API_SECRET` is `op://mini/agent-workflows/API_SECRET` in `.env.local.tpl` (in `headless.refs`). Every answer, errors included, has `agw-run-id`, logged and set on the span as `agw.run_id`. 400, 401 and 502 `INVALID_OUTPUT` are final (any other 502 is transient); 500, 503 and network errors are transient (the runner's retries); the step error carries status, host code and run id, never the body (`agw.error_body` logs the code and the body length, `agw.response_unreadable` the parser message); a 5xx whose body stalls past the guard is a hang guard failure; the hang guard (30 min) aborts the request and is not transient. `costUsd` null is stored as null, never 0. `make verify` also probes `GET http://127.0.0.1:7791/health`.
-
+- `HERMES_URL` is composed in `launch.sh` from `HERMES_HOST` + `HERMES_PORT`. Hermes is the only destination: no brain checkout, herdr or agent-workflows host call is left in this server (the audio door is agent-workflows' `audio` process and stays).
 
 ## Verify & Monitor
 
 - `make verify` — exit 0 iff `GET /health` answers `status: ok` (public; `{status, degraded[], inflight}`) and the audio door's
   `GET http://127.0.0.1:7792/health` does too (the downstream check).
-  `degraded` lists `otel`, `device-tokens` and steps without a downstream (`transcribe`, `act` (no destination at all), `summarize`, and `decide` when two or more destinations have no decider).
+  `degraded` lists `otel`, `device-tokens` and steps without a downstream (`transcribe`, `act` (no `HERMES_*`), `speech`).
 - `make smoke` — a real German 96 s recording (`fixtures/audio/de-90s.m4a`) through the pipeline to
-  `notified`; it pins `--mode hermes`, because an `auto` memo could land in the real brain or a live tab. `IRIS_URL=https://iris.mini.<domain> make smoke` goes through the tailnet door. Uses the
-  `smoke` device token; the memo shows up in a Hermes session named by the memo id.
+  `notified` in the default mode (`hermes`). `IRIS_URL=https://iris.mini.<domain> make smoke` goes through the tailnet door. Uses the
+  `smoke` device token; the memo shows up in a Hermes session named by the memo id. It prints the memo's `kind` and `actions`: no `kind` means the reply had no valid ```iris block (`hermes.meta_invalid` in `make logs`).
 - `make logs` (bounded tail of `~/Library/Logs/iris{.log,.err}` and `iris-deploy.log`),
   `make launchd-status`, `make launchd-restart` (refuses while `inflight > 0`, `FORCE=1` overrides).
 - Traces and logs: HyperDX, `service.name=iris-server`, trace id = memo UUID without dashes. Root span
@@ -275,56 +266,33 @@ Push to master deploys. LaunchAgent `com.jkrumm.iris` (KeepAlive, `ExitTimeOut` 
   across devices on purpose (the Mac shows the phone's memos). Ownership is checked only on create.
 - **Segments** are idempotent by sha256 (same bytes no-op, different bytes 409, the stored file is
   never overwritten) and rejected (409) after `complete`.
-- **`needs_route`** is parked (the runner does not resume it) and counts as result-ready.
-- **Step results live on the memo row** (`audio_seconds`, `transcript`, `route`, `destination_ref`,
-  `reply_text`, `summary_json`), written by `MemoStore.completeStep` in one transaction with the state
+- **Step results live on the memo row** (`audio_seconds`, `transcript`, `destination_ref`,
+  `reply_text`, `summary_json`, `kind`, `actions_json`; `route` is only on old rows), written by `MemoStore.completeStep` in one transaction with the state
   change and the done row; a lost compare-and-set writes nothing. `resetForRetry` clears the columns of
   the re-run steps and later. A store error in `completeStep` is bookkeeping, not a step failure: it
   propagates and the drive failure is logged.
-- **Downstream env** (all optional, empty = unset): `AUDIO_DOOR_URL` (https or a loopback host, else the start fails) + `AUDIO_DOOR_TOKEN` (both, for `transcribe` and `speech`), `AGW_URL` (https or a loopback host) + `AGW_API_SECRET` (both, for `triage` and `decide`), `HERMES_URL` +
-  `HERMES_TOKEN`, `HERDR_SOCKET`, `HC_BIN` + `HC_SOCKET` and `BRAIN_DIR` (`launch.sh` sets each on the mini only when it exists: the classic herdr socket, `~/.local/bin/hc` with the core's socket, `~/SourceRoot/brain`; a herdr started after iris needs `make launchd-restart`). Each of
-  `BRAIN_DIR` (journal), `HERDR_SOCKET` or `HC_BIN` (herdr, also the herd) and `HERMES_*` registers its destination on its own; a missing one is not
-  `degraded`, `act` is only when none is registered. Without the rest, `/health` lists `transcribe` /
-  `summarize` / `act` / `speech` / `herd` in `degraded`; the first park memos before that step, `summarize` never does: it always has a handler (journal and herdr use a template; a hermes memo without a summarizer fails the step, which is skipped, see **Summarize is optional**), the last two
-  answer 503 `unavailable`.
-- **Chat mode and threads** (TDD §3 act, data model): mode `chat` routes to hermes (source `mode`, never prefix or `decide`); `act` passes `chat: true` to
-  `Destination.deliver`, and the Hermes adapter then opens its session with `source: "iris-chat"` and sends a no-side-effects `system_message` on every turn
-  (Hermes' per-turn ephemeral system prompt, not stored). Hermes maps unknown `source` values to `api_server`, so `threads.kind` (`chat|hermes`) is the
-  marker, not Hermes. The Hermes adapter names the thread in its `Delivery.thread` (`{id, kind, title}`, id = session id = `destination_ref`); `act` persists it
+- **Downstream env** (all optional, empty = unset): `AUDIO_DOOR_URL` (https or a loopback host, else the start fails) + `AUDIO_DOOR_TOKEN` (both, for `transcribe` and `speech`) and `HERMES_URL` +
+  `HERMES_TOKEN` (both, for `act`). Without the first pair `/health` lists `transcribe` and `speech` in `degraded`; without the second `act`: a memo then waits at `transcribed` until Hermes is configured and the server restarts. `speech` answers 503 `unavailable`.
+- **Hermes decides** (TDD §3 "Hermes decides"; supersedes the routing, answering-a-park, summarize-optional and chat-mode design of Waves 3-17, kept only as the TDD's "Retired 2026-11-04" paragraph): Iris no longer classifies. Every mode but `transcribe` runs `transcribe → act → notify`
+  (typed: `act → notify`); `act` hands the transcript to Hermes, which decides what the memo is and acts with its own skills. Every turn, a new session or a `threadId` continuation, carries the `system_message` `IRIS_SYSTEM_MESSAGE`
+  (`adapters/hermes.ts`; the turn comes from Iris, load `skill_view('iris')`, end the reply with one ```iris block) plus, for the legacy modes `chat` / `journal` / `tab`, the line `The owner picked: Chat.` / `Journal.` / `Tab.`
+  (`auto` and `hermes` add nothing; the mode is stored as received). The session `source` is `iris`. The block is `{kind, headline, spoken}`: the **last** ```iris fence of the final reply is parsed with zod (extra keys ignored; no fence, bad JSON or a missing key = no block, logged
+  `hermes.meta_invalid` with the reason, never the content) and cut out of `reply_text` either way. `kind` (trimmed, lower-case, 24 code points) is the memo's `kind` column; `headline` (60 code points) and `spoken` are its `Summary` (`detail` stays `""`), so `notify`
+  announces the headline and `/speech` speaks `spoken`; without a block `notify` falls back to the transcript clipped to 60 and `kind` is null. `actions` are the tool names of the turn from the session stream's `tool.started` frames (field `tool_name`),
+  deduplicated in first-seen order, ≤ 12, never arguments. `kind`, `actions` and `summary` are written by `completeStep` of `act`; a retry from `act` clears them. Memos whose `route` is set (before 2026-11-04) keep rendering from their rows; `stepsOf(mode)` is the pipeline for them too, so a
+  `failed(route|summarize)` memo retries from `act` or `notify` (a retry from `act` delivers to Hermes whatever its old route was). Migration 14 turned every open `needs_route` memo into `failed(act)` ("parked before routing moved to Hermes"; Retry from Act delivers it), moved `routed` back to `transcribed` and `summarized` to `acted`;
+  `route_decisions` stays as history and is never written. Hermes is the only destination, so the herdr, herdr-core, journal, agent-workflows `decide`/`triage` and decider code and their env (`HERDR_SOCKET`, `HC_*`, `BRAIN_DIR`, `AGW_*`) are gone; the `iris` skill in hermes-agent owns what they did.
+- **Threads** (TDD §3 act, data model): every Hermes session is a thread (`threads.kind` `hermes`; old `chat` rows stay). The Hermes adapter names it in `Delivery.thread` (`{id, kind, title}`, id = session id = `destination_ref`); `act` persists it
   (`patch.thread`: `completeStep` upserts the `threads` row and sets the `act`-owned `memos.thread_id`). The memo wire carries `threadId`, omitted when null.
-  Continuing a thread: `threadId` on either create route (404 unknown thread, 409 `destination_unavailable` while hermes is not registered, 409 on a replay naming another; `continuedThread` in `memo.ts` tells a continuation from a memo's own
-  session, whose id is the memo id), the route step forces `hermes`, `deliver({threadId})` talks into the existing session and `chat` comes from the thread's kind. Turns into one thread run one at a time (`memo/keyed-queue.ts` in the `act` handler; the second waits, at most 30 min: then `act` fails "thread <id> is busy" naming the memo ahead and its task never runs, the line stays ordered; a waiter parked there releases its `driveAll` slot through the handler's `whileWaiting` and takes one again when its turn comes; herdr's per-pane queue holds at most 8 deliveries (`maxPaneQueue`), the ninth fails "herdr pane <id> queue is full", not transient). `/threads/:id`
+  Continuing a thread: `threadId` on either create route (404 unknown thread, 409 `destination_unavailable` while Hermes is not configured, 409 on a replay naming another; `continuedThread` in `memo.ts` tells a continuation from a memo's own
+  session, whose id is the memo id), `deliver({threadId})` talks into the existing session. Turns into one thread run one at a time (`memo/keyed-queue.ts` in the `act` handler; the second waits, at most 30 min: then `act` fails "thread <id> is busy" naming the memo ahead and its task never runs, the line stays ordered; a waiter parked there releases its `driveAll` slot through the handler's `whileWaiting` and takes one again when its turn comes). `/threads/:id`
   builds its conversation from the thread's memos (transcript = user, `reply_text` = assistant), never from Hermes. Swift: `MemoMode` decodes an unknown value to `.unknown`.
 - **Mode `transcribe`** (TDD §3 state machine): the pipeline is `transcribe` → `notify` (`memo.ts` `stepsOf(mode)`; `nextStep`, `advance` and `stateBefore` take the mode), the memo ends
-  `notified` with the transcript and NULL `route`, `reply_text` and `summary`, with no route, act or summarize row on the timeline and no `route_decisions`; the alert headline is the
+  `notified` with the transcript and NULL `kind`, `reply_text` and `summary`, with no act row on the timeline; the alert headline is the
   transcript's start. A typed memo in this mode runs `notify` only; `threadId` with it is 400; `POST /retry` from a step the mode lacks is 400. Swift: `MemoMode.transcribe`, offered by
   `MemoMode.voiceModes` (and, as a typed memo, the composer); `PipelineSteps.applicable(to:)` gives such a memo two steps.
-- **Routing** (`routing/`, TDD §3 step 3), in order: a mode other than `auto` wins (source `mode`); a spoken prefix within the first 6 words
-  (`journal|tagebuch`, `an hermes|hermes`, `tab <name>`; case and diacritics folded; the name may be several words, the longest live tab or repo label wins) routes (`prefix`); `memo.transcript` stays the raw speech-to-text and `act` / `summarize` cut the prefix again via `deliveredTranscript` by the `prefix_words` count the decision row recorded;
-  with fewer than two registered destinations the only one wins (`default`, confidence 1, no spend); two or more (production since Wave 11: journal, herdr, hermes; `IRIS_FAKES` registers all three) turn the decider on; otherwise `Decider` (agw `decide`, the host client's hang guard): confidence ≥ 0.8 routes, else `needs_route`. A mode or prefix
-  naming an unregistered destination (an unset `BRAIN_DIR`, `HC_BIN` + `HC_SOCKET` / `HERDR_SOCKET` or `HERMES_*`), a refusal, an unknown choice, herdr without a live tab, low confidence and a missing
-  decider (`decide` in `/health` `degraded`, only with ≥ 2 destinations) park at `needs_route`. A decide infrastructure failure (transport error, hang-guard
-  timeout, off-schema answer) throws; a hang guard is a plain error, never `TransientError` (`hangGuardFailure`, TDD §3 Retries), so the route step fails after one window and `POST /retry {from: route}` recovers it. With no destination at all neither `route`
-  nor `act` is registered and the memo waits at `transcribed`. Every outcome is one `route_decisions` row written by `completeStep` with the step
-  (`patch.routeDecision`); the park reason is the latest row's `reason` (`store.listRouteDecisions`), a low-confidence park keeps the model's guess
-  in `destination`. Because the transcript is never rewritten, a retry from `route` routes by the same prefix again.
-  A spoken tab name (`tab <name>`, one word) matches a tab label or a workspace label (case and diacritics folded) on the live herd and stores the
-  tab id; none or several matches park naming the spoken name, an unreadable herd parks as "herd unavailable". Mode `tab` has no name: the only live tab, else
-  "which tab?"; so does herdr as the only registered destination (source `default`). A multi-word tab name cannot be spoken (one-word limit of the prefix). `act` passes the routing decision's tab to `Destination.deliver({tab})`; a route with no tab, or a tab that has vanished by then (`TabGoneError`, also herdr's `pane_not_found` on a write), parks the memo
-  at `needs_route` again (a decision row, reason "tab <id> is gone", the routing decision's source), `act` being the second step that may park.
-  `summarize` for journal and herdr is a template (no model call, no summarizer needed).
-- **Answering a park** (`POST /memos/:id/route`, `MemoService.route`): `store.answerRoute` is one transaction (`needs_route` → `routed` compare-and-set,
-  `memos.route` set, an `answer` decision row), then `memo.updated` (`routed`, step `route`) is published and the runner drives on with `act`. A second answer
-  while the first drives is 409 `bad_state` (the memo left `needs_route`), which is the idempotency story. After `act`, `store.recordCorrection` only appends a
-  `correction` row (log `route.decided {source: "correction", corrected: true}`), no re-act, no event. `act` and `summarize` still cut a spoken prefix after an answer
-  (`deliveredTranscript` looks for any `prefix` row), so a prefix park answered with another destination delivers the text without the prefix word. The
-  destinations an answer may pick are the registered ones (`createMemoService({destinations})`, from `compose()`); `tab` is not checked against the herd.
-  While `needs_route` the memo wire shape carries `routeReason` (latest decision's `reason`) and, for a low-confidence park, `routeSuggestion` (its `destination`);
-  derived by the store's `SELECT`, omitted (never null) in every other state. Elysia's `t.UnionEnum` defaults a missing value to its first member, so `RouteBody.destination` and `RetryBody.from` set `default: undefined` (a missing field is a 400).
-- **Summarize is optional** (`OPTIONAL_STEPS` in `memo/memo.ts`): when `summarize` fails for good (after the runner's automatic retries; agw `triage` error, a 402, no summarizer for a hermes route), `runner.runStep` calls `store.skipStep`: the step row stays `failed` (error and attempts kept), the memo moves `acted` → `summarized` (not `failed`, `failedStep`/`error` stay null), `notify` runs and the memo ends `notified` with `summary` null, a `step.skipped` log line and a `memo.updated` (step `summarize`). Every other step still fails the memo. `notify` announces `memo.summary ?? ` the delivered transcript clipped to a 60-character headline (`transcriptSummary` in `pipeline/steps.ts`, not stored; the payload builders still take a `Summary`); that is the one place transcript text reaches an alert. `POST /retry {from: "summarize"}` also works on such a `notified` memo (`resetForRetry`: `notified` with a failed `summarize` row), resets it to `acted`, re-runs summarize and notify. `/speech` on a reply with no summary speaks the clipped cleaned reply (`speechVariant`), no 409. History and `memo.summary` null: clients show the transcript. Repair: `repairFailedSummaries` (`adapters/sqlite-repair.ts`, run at boot in `index.ts` after the store opens) moves `failed(summarize)` memos with a reply to `notified` (no push, step row kept), after `VACUUM INTO <IRIS_DATA>/iris.db.bak-<timestamp>`; nothing to repair, no backup; idempotent.
 - **`act` is at-least-once:** a crash or restart mid-`act` replays the step, which posts a second turn
-  into the same Hermes session; a retry from `act` after a failed Enter re-types the transcript into the herdr tab (the text from the first attempt is
-  already in the pane). The herdr destination serialises deliveries per pane. Shutdown keeps the window small: `app.stop(true)`, `runner.stop()` (the
+  into the same Hermes session (and, if the first turn already acted, repeats its side effect). Shutdown keeps the window small: `app.stop(true)`, `runner.stop()` (the
   running step finishes, no further step or queued memo starts), `notifyLifecycle.stop()`, `await runner.idle()` + the in-flight
   Live Activity pushes under one 30 s drain deadline (`shutdown.drain_timeout` logs the in-flight memo ids), the APNs transport `close()`, `db.close()`, then a separate 2 s OTel
   flush deadline. The LaunchAgent's `ExitTimeOut` is 60 s to cover it.
@@ -349,13 +317,6 @@ Push to master deploys. LaunchAgent `com.jkrumm.iris` (KeepAlive, `ExitTimeOut` 
   attribution is gone). A 401 (`{error:{message:'unauthorized'}}`, an unknown or rotated token) is a plain, non-transient failure.
 - **Speech request** to the door: `POST /audio/speech {input, response_format: "mp3"}`.
   No `model` or `voice`: the door owns both and detects the language. A non-2xx is 503 `unavailable`.
-- **herdr-core (`hc`)** (parallel track P3 of the classic-herdr retirement, dotfiles `docs/waves/PLAN.md`): `adapters/hc.ts` spawns `hc connect` per request (JSON-RPC lines on stdin/stdout, killed after the answer), `terminal.list {labels: {"herdr.tab": <id>}}` finds the tab and `terminal.send {terminal, text}` pastes the transcript and presses Enter (waits for ~3 s of typing quiet, refuses a blocked agent; 30 s hang guard, listing 5 s). A hc tab is the `herdr.tab` label shared by terminals (unlabelled terminals are hidden workers, `machine/tN` is a linked machine: both skipped); name and repo come from the app's `where` label (`<space> / <tab>`), else the cwd; the agent is the one terminal that reports status, else the only one, else ambiguous (`unavailable`). A tab with no live terminal, `not_found`, `finished` is `TabGoneError`; `blocked` is `unavailable`. `preferHc` delivers through hc first and falls back to classic when hc does not know the tab or is down (hc's own error stands when classic does not know it either). **Never start a core from iris:** any `hc` call starts one when none runs, and it would inherit iris's environment. `HC_SOCKET` is required with `HC_BIN` (neither alone registers hc): the transport spawns only after a connection to that socket is accepted (a file left by a dead core would still make `hc` start a core: verified) and gives the child that variable alone. A core that dies between the probe and the spawn can still be replaced by the child (hc has no flag against it; KeepAlive makes it a restart, the scrubbed environment keeps iris secrets out). `GET /herd` fails when any configured world fails (routing resolves "the only live tab" against it, so a partial list would pick the wrong agent). A delivery re-lists the tab inside the terminal's queue turn and sends only if the terminal is still in it. A lost `terminal.send` answer is the usual at-least-once `act` (a retry types the transcript again). Verified 2026-10-31 on a scratch core (own session, state dir and LaunchAgent, torn down) with `cat` as the target: a two-line transcript arrived as one paste.
-- **herdr:** one connection per request, newline-delimited JSON, `session.snapshot`, `pane.send_text`, `pane.send_keys` (verified on herdr 0.9.3,
-  protocol 22; request shapes in the `adapters/herdr.ts` header). Delivery types the transcript into the tab's agent pane and presses `enter` (the agent's
-  answer stays in its terminal, `replyText` is empty). At most 8 deliveries wait per pane; the ninth fails "herdr pane <id> queue is full" (503, not transient).
-  A HerdTab is a tab of a non-separator workspace (labels starting `── ` are sidebar dividers), `repo` is the workspace
-  label, `agentState` is the tab's `agent_status` (unknown values become `unknown`). The snapshot has no timestamps, so
-  `lastActivity` is always null. A 5 s hang guard, a refused connection or a bad answer is 503.
 - **Schemas** in `http/schemas.ts` are the contract source: routes use them for `body` / `query` / `params` / `response`,
   and `schemas.test.ts` fails if a Transform sneaks in (the two `t.Numeric` query params are the exception). Elysia's
   own `t.Integer` is a Transform, so integers are `t.Number({multipleOf: 1})`.
@@ -371,11 +332,7 @@ Push to master deploys. LaunchAgent `com.jkrumm.iris` (KeepAlive, `ExitTimeOut` 
   Transient failures (status 0, 408, 429, 5xx, 403 ExpiredProviderToken) throw a `TransientError`, so the runner retries notify twice (2 s, 8 s) and then fails it for `POST /retry`
   (a retry re-sends both pushes; the alert carries `apns-collapse-id` = memo id, so a re-send replaces the banner instead of duplicating it). `phase` (Live Activity `update`, priority 5) is bound to memo events by
   `bindPhaseUpdates`: not for `receiving` or `notified`, serialised per memo, latest state wins, errors logged only.
-  **Needs-route alert:** `bindNeedsRouteAlerts` calls `notifier.needsRoute({memo, reason})` once when a memo enters `needs_route` (skipped when it was already
-  answered): one alert, priority 10, `category: MEMO_NEEDS_ROUTE`, `thread-id: memo`, `mutable-content: 1`, `apns-collapse-id` = memo id, title "Where should this go?",
-  body the park reason (never transcript or reply). Alert only: the Live Activity `needsRoute` update is the phase binding's, so nothing is sent twice. Best effort, never
-  throws (`notify.needs_route_failed`, `notify.apns_*`); no alert token logs `notify.no_token`; the log notifier logs `notify.needs_route_log`. It is part of the
-  shutdown drain (`createNotifyLifecycle({alerts})`). The finished memo's `MEMO_DONE` alert has the same collapse id and replaces the banner.
+  The alert carries `category: MEMO_DONE` only (the `MEMO_NEEDS_ROUTE` alert and `notifier.needsRoute` are gone with the park).
 - **APNs transport:** node-apn builds the ES256 JWT with `jsonwebtoken` and regenerates it when its `iat` is 3300 s (55 min)
   old, checked per request (Apple: not <20, not >60 min); it retries 408/429/5xx and ExpiredProviderToken 3x. We cap in-flight
   streams at 10 (Bun ignores `peerMaxConcurrentStreams`) and send the first request per environment alone (Apple allows one
@@ -383,10 +340,9 @@ Push to master deploys. LaunchAgent `com.jkrumm.iris` (KeepAlive, `ExitTimeOut` 
   honours it over the URL, so a test server needs `address` and `port` both. Not verified: real Apple hosts and GOAWAY JSON.
   node-apn emits a harmless `MaxListenersExceededWarning` (one `timeout` listener per stream on the session) above 10 streams.
 - **Live Activity contract (Swift side):** payload `aps` is `{timestamp, event, "content-state"}` (+ `dismissal-date` on `end`,
-  now + 15 min). `ContentState` is plain camelCase Codable: `phase` (`processing` | `needsRoute` | `done` | `failed`),
-  `routeChip?`, `headline?` (≤ 60), `hasReply`. `inputName` is never sent: the client keeps it device-side and must declare it
-  optional. Alerts carry the route chip + headline only (never transcript or reply), `category: MEMO_DONE` (or `MEMO_NEEDS_ROUTE`: generic title,
-  the park reason as body), `thread-id: memo`, `mutable-content: 1` and a top-level `memo` id.
+  now + 15 min). `ContentState` is plain camelCase Codable: `phase` (`processing` | `done` | `failed` on the wire; the Swift enum keeps `needsRoute` until Wave 21 A1),
+  `routeChip?` (the memo's `kind`, capitalised), `headline?` (≤ 60), `hasReply`. `inputName` is never sent: the client keeps it device-side and must declare it
+  optional. Alerts carry the kind chip (title, "Iris" without a kind) + headline only (never transcript or reply), `category: MEMO_DONE`, `thread-id: memo`, `mutable-content: 1` and a top-level `memo` id.
 - **Bookkeeping failures** (`completeStep` throws after a handler ran) log `runner.bookkeeping_failed`
   and propagate; the step row stays `running` and the memo keeps its state until the next `driveAll`.
 - A stored `summary_json` that fails the zod `Summary` schema reads as `null` with a `memo.summary_invalid` log.
@@ -427,7 +383,7 @@ Push to master deploys. LaunchAgent `com.jkrumm.iris` (KeepAlive, `ExitTimeOut` 
   memo detail and thread hide the tab bar, which does not hide the accessory (Apple DTS, iOS 26.1), so their bottom bars (`DetailActionBar`, `ThreadReplyBar`) register through `.hidesRecordAccessory()` (`RecordAccessoryPresence`, counted, injected by `RootView`) and `isEnabled:` takes the control off while one is shown; on 26.0 it stays (the banner still shows). A take bound to a thread (the thread's hold-to-talk) is not shown by the banner. The Live Activity views are IrisUI's (`LiveActivityPanel`, `Island*`, `ActivityStageDashes`; plain `ActivityPresentation` values, no IrisCore) and the widget maps `ContentState` onto them;
   Stop / mic swap / pause are `LiveActivityIntent`s (`StopMemoIntent`, `SwitchInputIntent`, `PauseMemoIntent`) that call the same `TakeController`. The step progress of a processing memo is the four stages record, upload, process, done from the phase alone (`ContentState` has no step field; per-step progress needs the server to push one). A new take's activity says "N earlier memos are still sending" in `headline` (client phases only).
 - **Live preview** (Wave 19 R1, TDD §4 "Live preview"): the take screen shows the on-device transcript as it is spoken (`SpeechTranscriber`, iOS 26), display only: never uploaded, stored, logged or put into telemetry; the server transcript is the truth. `PreviewTap` (IrisCapture) is an additive, bounded, read-only stream of the samples the recorder accepts; `LivePreviewModel` (`TakeModel.preview`) consumes a `LivePreviewEngine` (production `SpeechAnalyzerPreviewEngine`, fake `FakeLivePreviewEngine`) handed to `TakeController` as a `LivePreviewSource` (`nil` = none). Absent language or model (checked at runtime: supported and in `installedLocales`), a failing analyzer, or no source: no preview, the take goes on; the app never starts a model download. The analyzer does not run in the Simulator, so only the fake is tested there; no `NSSpeechRecognitionUsageDescription` (that is `SFSpeechRecognizer`). Never log or store what it hears.
-- **Routing on iOS** (Wave 16 I3, TDD §4 "Routing on iOS"): `ModePicker` is the one mode chip row (composer, and the record control's long-press menu → "Choose mode…" → `RecordModeSheet`; voice takes offer Auto, Journal, Hermes, Chat, Transcribe). `RouteAnswerModel` / `RouteAnswerSheet`
+- **Routing on iOS** (Wave 16 I3, TDD §4 "Routing on iOS"; the server no longer serves `/route` or `/herd` since Wave 21 S1, the UI below goes in Wave 21 A1): `ModePicker` is the one mode chip row (composer, and the record control's long-press menu → "Choose mode…" → `RecordModeSheet`; voice takes offer Auto, Journal, Hermes, Chat, Transcribe). `RouteAnswerModel` / `RouteAnswerSheet`
   answer a parked memo and correct a finished one through `POST /v1/memos/:id/route` (pinned History row swipe action, detail card, "Wrong route?"; one `routeAnswerSheet(item:make:onRouted:)` modifier, hosted by `RootView` for rows and by the detail for itself, never by `HistoryView`; herdr needs a tab from `GET /v1/herd`; 400 `<dest> not available` and 409 are sentences on the sheet). `SpeechPlayer` is the one spoken-reply player (`Memo.isSpeakable`, notified + a reply + not deleted, is the one rule: the media sources, hence Play and `PlayReplyIntent`, and `SpokenReplies`): the detail's Play,
   `PlayReplyIntent` (an `AudioPlaybackIntent` in `Iris/Intents`, compiled into the widget; the done Live Activity has a Play button, compile-checked only) and spoken replies (Settings toggle, `SpokenReplies`: foreground only, memos this device created, once each; the take sample is taken when `memo.done` arrives, not after the task hop); it never interrupts: while a reply or the open detail's recording plays or any take is open (`TakeModel.isCapturing`) the memo is skipped for good, no queue (Wave 17 I3). The other direction (Wave 18 I1): `TakeController.captureActive` is one synchronous flag, set before a start awaits anything (a thread's hold-to-talk too, `OutboxVoiceReplyCapture.claim`) and cleared only after the session has ended; a start also pauses the reply, the open detail's recording and any speech still downloading (`SpeechPlayer.pauseForTake()`). Every playback start reads the flag at the moment it starts (`SpeechPlayer.captureActive`); nothing resumes by itself. Settings → Microphone edits the active route's mic rule (`MicRulesModel` over `RouteManager`;
   `RouteSnapshot.outputNames` is display only). The fake API's needs-route sample has a reason + suggestion and `SampleData.herd` has two tabs.
