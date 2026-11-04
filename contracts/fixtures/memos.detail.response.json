@@ -14,7 +14,7 @@
   "replyText": "Alles notiert. Montag: Pull Requests prüfen. Mittwoch: Feature-Freeze. Donnerstag: Release. Die Datenbankmigration bleibt als offener Punkt.",
   "summary": {
     "headline": "Wochenplan notiert, Release am Donnerstag",
-    "detail": "",
+    "detail": "Der Plan für die Woche steht: Montag Review der offenen Pull Requests, Mittwoch Feature-Freeze, Donnerstag Release. Offen bleibt nur die Migration der Datenbank.",
     "spoken": "Der Wochenplan steht. Release ist am Donnerstag, offen ist nur noch die Datenbankmigration."
   },
   "done": false,
@@ -47,6 +47,20 @@
         "totalTokens": 2052
       },
       "costUsd": 0.0412,
+      "attempts": 1
+    },
+    {
+      "step": "summarize",
+      "status": "done",
+      "startedAt": "2026-03-14T09:21:12.260Z",
+      "finishedAt": "2026-03-14T09:21:17.930Z",
+      "error": null,
+      "usage": {
+        "inputTokens": 910,
+        "outputTokens": 148,
+        "totalTokens": 1058
+      },
+      "costUsd": 0.0021,
       "attempts": 1
     },
     {

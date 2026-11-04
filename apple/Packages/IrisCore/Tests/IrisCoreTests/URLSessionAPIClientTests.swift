@@ -233,7 +233,7 @@ struct URLSessionAPIClientTests {
     let server = StubServer { _ in try .json(fixture: "memos.detail.response") }
     let detail = try await server.makeClient().memo(id: memoID)
 
-    #expect(detail.steps.map(\.step) == [.transcribe, .act, .notify])
+    #expect(detail.steps.map(\.step) == [.transcribe, .act, .summarize, .notify])
     #expect(detail.memo.summary?.headline == "Wochenplan notiert, Release am Donnerstag")
     #expect(detail.memo.kind == "task")
     #expect(detail.memo.actions == ["todo_add", "calendar_search"])
