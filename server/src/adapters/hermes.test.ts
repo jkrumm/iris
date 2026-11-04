@@ -398,6 +398,14 @@ const valid = JSON.stringify({
 });
 
 describe("parseIrisBlock", () => {
+  it("finds a block written on one line, and not a tag that merely starts with iris", () => {
+    const json = '{"kind":"task","headline":"x","spoken":"y"}';
+    const one = parseIrisBlock(`Done. \`\`\`iris ${json}\`\`\``);
+    expect(one.meta?.kind).toBe("task");
+    expect(one.reply).toBe("Done.");
+    expect(parseIrisBlock(`Done.\n\`\`\`irisfoo\n${json}\n\`\`\``).invalid).toBe("missing_block");
+  });
+
   it("reads a valid block and cuts the fence and the whitespace before it from the reply", () => {
     expect(parseIrisBlock(`Done.\n\n${FENCE(valid)}`)).toEqual({
       reply: "Done.",

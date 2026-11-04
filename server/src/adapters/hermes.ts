@@ -48,8 +48,8 @@ export function systemMessage(mode: MemoMode): string {
 
 const IrisBlock = z.object({ kind: z.string(), headline: z.string(), spoken: z.string() });
 
-// Optional newline after the tag so a block written on one line is still found; the body ends at the next fence.
-const IRIS_FENCE = /```iris[ \t]*\r?\n([\s\S]*?)```/g;
+// The tag must stand alone (not ```irisfoo); the block may start on the next line or right after the tag on one line.
+const IRIS_FENCE = /```iris(?=[\s{])[ \t]*\r?\n?([\s\S]*?)```/g;
 
 export interface IrisBlockResult {
   /** The reply without the last ```iris fence and the whitespace before it. */

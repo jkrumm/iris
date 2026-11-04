@@ -1,5 +1,5 @@
 import { t } from "elysia";
-import type { Memo, MemoState, Summary } from "../memo/memo.js";
+import { HEADLINE_MAX, type Memo, type MemoState, type Summary } from "../memo/memo.js";
 import type { ApnsMessage } from "../ports/apns.js";
 
 // Pure payload builders: no clock, no network. The headline comes from the summary Hermes reported; without one, `notify` passes a
@@ -11,7 +11,6 @@ export const MAX_PAYLOAD_BYTES = 4096;
 /** How long an ended Live Activity stays on the Lock Screen. */
 export const DISMISS_AFTER_MS = 15 * 60 * 1000;
 
-const HEADLINE_MAX = 60;
 const ALERT_BODY_MAX = 200;
 const ROUTE_CHIP_MAX = 30;
 
