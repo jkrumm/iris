@@ -4,22 +4,21 @@ Rewritten 2026-10-28 at the owner's pause; status updated at the resume the same
 (the Fleet section, Waves 10–15, the Fleet backlog), `docs/PRD.md`, `docs/design/feedback-round-{1,2}.md` (binding, round 2 wins)
 and skim `docs/TDD.md`. Role contract: `~/.claude/skills/wave/roles/mother.md` (lead: `roles/lead.md`, workers: `roles/worker.md`).
 
-## Status: PAUSED after the Mac desktop rework (2026-11-03 ~11:00 CET)
+## Status: RESUMED 2026-11-04 — "Hermes decides" (owner voice brief, PRD "Direction 2026-11-04")
 
-Wave 20 done (`7d3d0cc`). Then, in-session with the owner (not a fleet wave): #107 (menu popover per the `menu` mockup, Test connection, recording
-panel per the `panel` mockup, red status item while recording) and #108 (Mac as a desktop app: three-column main window, native Settings scene,
-onboarding window, popover reduced to quick access), master `3150958`. Installed 2026-11-03 on the iPhone (`make device`, Personal Team profile, rebuild
-by ~11-10) and on the MacBook (`~/Applications/Iris.app`: built Release on the mini with the mini's Apple Development identity, entitlements without
-`application-groups`, rsynced over `ssh iumac`; no quarantine bit, so Gatekeeper lets the un-notarized app run). First real Mac take worked end to end
-(memo `afb122fa`). Resume on the owner's feedback on the Mac and iPhone apps. Known follow-ups: `MacCompositionRoot.ensureHeld` polls (bounded
-retries) instead of an awaited insert; a Mac take is always mode `auto` (a mode picker needs a `TakeEngine` change); `RecordingPanelKeyTests.
-keyDoesNotMoveTheFrontmostApp` fails locally on the mini only (CI green); Mermaid replies render as code on the Mac; Mac threads are read-only.
-Older candidates: Wave 20 Left behind (contract-side row cost / candidates / filter counts, audit polish), D1 hardware batch, D2 enrolment.
-**Pause (owner decision 2026-11-01 19:30, via the software-factory program lead: finish Wave 19, then pause; start no new wave):** resume only on the owner's feedback (hardware batch D1 on a fresh device build of master,
-UI review of R1/R2 surfaces in `docs/design/README.md`) or the Apple enrolment email (then D2/S3/APNs/TestFlight). **On resume:** write Wave 20 from the
-Fleet backlog + Wave 19 Left behind, spawn a lead under a FRESH factory key (`iris-w20-lead`, see Lessons; never `rd wave`), start
-`docs/waves/handoff/mother-watch.sh 20 <lead>` in the background, `factory session wait --on workers`. Worker briefs of Wave 19: `~/.iris-fleet/iris-w19-briefs/`.
-Quota 2026-11-01 17:40: iu 69% (11-04 16:00), me 91% (11-05 06:00), me2 reset 11-01 18:00. All walled -> wait, never IU API tokens.
+Owner direction: Iris gets simpler and stable; routing moves to Hermes (16 of 27 `auto` memos parked on low `decide` confidence), two modes
+(Hermes, Transcribe), Hermes answers with a structured ```` ```iris ```` block (kind, headline, spoken) and Iris records its tool names; no title
+block on top of the screens, the step waterfall goes into a collapsed Details section; the paid Apple team is in (enrolment done), updates
+without admin rights: TestFlight internal on the iPhone, Developer ID + Sparkle in `~/Applications` on the Mac
+(`docs/research/2026-11-04-apple-paid-team.md`). **Wave 21 active** (H hermes-agent ∥ S server, then A apple), **Wave 22 sketched** (U less
+chrome ∥ P APNs + TestFlight ∥ M Sparkle), its owner batch (ASC app record + internal group, Team API key, APNs key, Developer ID certificate,
+refs + `make secrets-seed`) was asked in chat 2026-11-04. The mini's Xcode still lists only the Personal Team (2026-11-04 19:50): the Team API key
+replaces an Xcode account login for headless signing. Folded into Wave 21 and obsolete now: the Mac mode picker (Mac takes stay default mode),
+route-name inconsistencies, needs-route candidates. Still open from 2026-11-03: `MacCompositionRoot.ensureHeld` polls; Mermaid as code on the
+Mac; Mac threads read-only; `RecordingPanelKeyTests.keyDoesNotMoveTheFrontmostApp` fails locally only. The iPhone's Personal Team build expires
+~2026-11-10 (rebuild with `make device` until TestFlight runs). Quota 2026-11-04 19:55: iu 1 % (7d), me 95 % (11-05 06:00), me2 77 %.
+
+Previous pause (2026-11-03, after the Mac desktop rework #107/#108, master `3150958`): see git history of this file.
 **Spawn (lead):** `cd ~/SourceRoot/software-factory && secrets-run run --env-file=.env.tpl -- factory spawn create <key> --repo ~/SourceRoot/iris --role lead
 --parent iris-mother --prompt 'Read docs/waves/PLAN.md and ~/.claude/skills/wave/roles/lead.md. You are the fleet lead for the active wave (Wave <n>). Brief
 workers with rd fan, review, merge, close out the wave in PLAN.md (the label must be exactly **Left behind:**), and stop; the mother spawns the next lead.'`;

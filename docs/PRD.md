@@ -1,6 +1,6 @@
 # Iris — Product Requirements
 
-Status: v1.1, 2026-10-27 (mockup feedback, round 1, folded in: `design/feedback-round-1.md`). Owner: Johannes Krumm (the only user). Companion:
+Status: v1.2, 2026-11-04 (direction "Hermes decides" added; round-1 mockup feedback folded in 2026-10-27: `design/feedback-round-1.md`). Owner: Johannes Krumm (the only user). Companion:
 [`TDD.md`](TDD.md) holds how it is built.
 
 ## TLDR
@@ -13,6 +13,24 @@ and a button plays the answer. I rarely open the app. When I do, it shows the
 history and the Hermes threads, and I can continue any of them by voice. The
 MacBook gets the same flow from the menu bar. Later, Iris becomes where agents
 reach me, replacing Slack `#agents`.
+
+## Direction 2026-11-04 (owner): Hermes decides, Iris gets simpler
+
+Supersedes the R2 routing requirements below wherever they conflict. After two weeks of test cycles the owner wants Iris to be the thing he
+actually uses: simple, stable, a clean front-end for one Hermes agent.
+
+- **Routing moves to Hermes.** Iris no longer classifies a memo. Every memo except a plain transcription goes to Hermes, and Hermes decides
+  what it is and does it with its skills: an answer or a chat, a captured task or GitHub issue, a note in the brain, a prompt into a
+  Herdr tab. Evidence: 16 of 27 `auto` memos in production parked at `needs_route` on low `decide` confidence (0.25-0.77). Iris drops
+  `decide`, `needs_route`, spoken prefixes, the journal and herdr destinations and the route answer UI.
+- **Two modes:** Hermes (the default, one press) and Transcribe (text only, no agent).
+- **Hermes reports back in a structured way:** a short free-form kind (dynamic categories instead of a fixed route list), the headline and the
+  spoken line, plus the tools it used. Iris shows these; Hermes' prompts and skills get better over time on the Hermes side.
+- **Less chrome:** no title block on top of the screens (the tab bar says where you are); the step waterfall moves to a collapsed Details
+  section at the end of the memo. Stats stay.
+- **The paid Apple team is live:** APNs (alerts, Live Activity push), App Groups (widgets), and updates without admin rights on both devices:
+  TestFlight on the iPhone, Developer ID + Sparkle on the Mac (`research/2026-11-04-apple-paid-team.md`). Internal for now; a public future
+  stays open, so nothing ties Iris to this estate's hostnames.
 
 ## Problem
 

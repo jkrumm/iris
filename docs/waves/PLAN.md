@@ -411,7 +411,7 @@ The foundation chain (Waves 1–9) is complete. The fleet takes over: a mother (
 memory) turns the backlog below into Wave 10+ sections, one active at a time, each executed by a lead that fans out
 workers. The mother writes the next wave here.
 
-**Status: resumed 2026-10-28** (owner; runs through the night). Waves 10–14 are done; Wave 15 is active. Quota is the
+**Status: resumed 2026-11-04** on the owner's direction (PRD "Direction 2026-11-04"): Waves 10–20 done, Wave 21 active, Wave 22 sketched. Quota is the
 constraint: Max accounts only, wait for a reset when all are walled, never IU API tokens. Mother memory: `docs/waves/handoff/mother.md`.
 
 **Fleet gate (every wave):** each worker runs its cheap check; the lead runs `make check` at every merge (`rd merge`),
@@ -1319,6 +1319,78 @@ stalled/reset outbox states, German take screen).
 pushes instead. A worker's before+after screenshot walk held `/tmp/iris-apple.lock` ~30 min and starved the others into lockf timeouts, and a hung IrisMac test
 held it 18 min at 0 % CPU: briefs now carry one walk per lock acquisition and per-test limits (`-test-timeouts-enabled YES
 -maximum-test-execution-time-allowance 120`, `timeout 1500`). U2 was fanned on master + `origin/w20-batch-1` to skip the batch's CI hour.
+
+## Wave 21 — Hermes decides: routing out of Iris (server ∥ Hermes skills, then iOS + Mac)            <!-- status: active -->
+Mother's plan 2026-11-04 from the owner's voice brief (PRD "Direction 2026-11-04", binding). Iris stops classifying memos: every memo except mode
+Transcribe goes to Hermes, which decides and acts with its own skills. Production evidence: 16 of 27 `auto` memos parked at `needs_route` on
+low `decide` confidence. Code map of what goes (paths, line counts): the Explore report summarized here: server ~1,500 source lines + ~2,900 test
+lines are routing-only (`routing/`, `ports/decider.ts`, `adapters/agw-decider.ts`, `adapters/journal.ts`, the herdr/hc `Destination` halves,
+`notify/needs-route.ts`, `POST /memos/:id/route`, `route_decisions`, pinned list, `?route=`); Apple ~1,250 lines (`RouteAnswer*`, `RouteConfig*`
+review, `RecordModeSheet`, `MacRouteAnswerBar`, `MacRouteDestination`, Needs-route filter/sidebar/pinned, the `needsRoute` Live Activity phase,
+`MEMO_NEEDS_ROUTE`). Tracks: **H** (`~/SourceRoot/hermes-agent`, its own public repo, direct to master) ∥ **S** (`server/**`, `contracts/**`,
+`scripts/**`, the `IrisCore` models + client in the same PR), then **A** (`apple/**` iOS + Mac) after S merges. Fleet rules hold (lock, batch
+train, `agw review` on every PR). TDD §3 and §4 and AGENTS.md change in the same PRs; the TDD keeps the old routing design only as one
+"Retired 2026-11-04" paragraph.
+- [ ] **H1. Hermes owns the decision (hermes-agent):** an `iris` skill (or a SOUL.md section, whichever `/hermes-validate` keeps stable) that
+      states the contract for turns from Iris: the turn is a transcript of the owner's voice memo (German or English, speech-to-text errors
+      likely); decide what it is and act with the existing skills (answer/chat; `capture` for tasks and GitHub issues; `obsidian` for a note
+      into the brain `Inbox/` with brain-sync's lock, replacing Iris's journal destination: same folder, frontmatter and title rules as
+      `iris/server/src/adapters/journal.ts`, read it; `herdr` for "tell tab X"; research via `agw-research`); a side effect only when the memo
+      asks for one; then end the reply with exactly one fenced block ```` ```iris ```` holding `{"kind": "<1-3 word label>", "headline": "<= 60
+      chars>", "spoken": "<one sentence>"}`. Lift the obsidian skill's "do not write journal entries" line for Iris notes only. Validate with
+      `/hermes-validate` on six German and English sample transcripts (a question, a todo, a GitHub issue for a named repo, a note, a tab
+      prompt, plain chat): right skill, block present and valid. Commit in hermes-agent, restart the gateway its way.
+- [ ] **S1. One destination (server + contracts + IrisCore):** modes `hermes` (default) and `transcribe`; `auto`, `chat`, `journal` and `tab`
+      stay accepted on the wire as legacy aliases of `hermes` for one release (the installed app sends them), a non-`hermes` alias is passed to
+      Hermes as one hint line ("the owner picked Journal"). Pipeline `transcribe → act → notify` (no `route`, no `summarize` step for new memos;
+      old memos keep their rows and render). Delete the routing-only modules above, `/herd`, the decider and journal env (`BRAIN_DIR`,
+      `AGW_*` stays only if anything else still uses it: check), `HC_*` / `HERDR_SOCKET` from `env.ts`, `compose()` and `launch.sh`. **Hermes
+      result:** the Hermes adapter parses the ```` ```iris ```` block (zod, lenient: missing or invalid = no block, logged `hermes.meta_invalid`),
+      strips it from `reply_text`, stores `kind` (lower-case, trimmed, ≤ 24 chars) and the `Summary` (`headline`, `spoken`) on the memo; it also
+      keeps the `tool.started` names from the session stream (deduplicated, ≤ 12, names only, no arguments) as `actions`. Wire: `kind?` and
+      `actions?` on the memo (omitted when empty), `routeReason` / `routeSuggestion` / `pinned` / `pinnedTruncated` and `?route=` gone, `?kind=`
+      filters by the new kind (the thread-kind filter becomes `?thread=true`). `notify`'s headline: `summary.headline ?? ` the clipped
+      transcript (as today). Stats per `kind` instead of per route (`null` = `transcribe` or none). **Migration** (append-only): open
+      `needs_route` memos become `failed` at step `act` with error "parked before routing moved to Hermes", so [Retry from Act] delivers them;
+      `route_decisions` stays as history, never written again. `make contracts`, fixtures for every variant the app decodes, `make e2e`,
+      `send-memo.ts` modes, `smoke.sh` without `--mode hermes`. `MemoMode` in Swift: `hermes`, `transcribe`, unknown values decode to `hermes`.
+      Hermes sees no `source` (it folds unknown sources to `api_server`), so **every** turn carries a short `system_message` naming the Iris turn and the H1 contract (replacing the chat-only no-side-effects message; `chat: true`, `CHAT_SYSTEM_MESSAGE` and thread kind `chat` go, threads are one kind). Deploy after H1 is live, `make verify`, `make smoke` (real Hermes, block parsed: check the memo's `kind`).
+- [ ] **A1. iOS + Mac follow the server (after S1):** the record control: tap = Hermes, long press = Transcribe (no mode sheet); the composer
+      offers the same two; delete `RouteAnswer*`, `RouteConfig{Destination,DestinationView,Entry,ReviewView}` + its UI test, `RecordModeSheet`,
+      `MacRouteAnswerBar`, `MacRouteDestination`, "Wrong route?", the route card, the Route swipe, pinned rows, the Needs-route filter chip, sheet
+      group and Mac sidebar entry, the `needsRoute` Live Activity phase and the `MEMO_NEEDS_ROUTE` category. `RouteChip` shows the memo's `kind`
+      (neutral colour, a known kind may keep a colour); History filters by kind from the kinds present in the loaded pages; the detail shows
+      `actions` as one quiet line under the reply ("Hermes used: capture, github"). Old memos with a `route` and no `kind` show the route name.
+      Stats series per kind. Mac takes: no change (always the default mode). Snapshots re-recorded, `make uitest ONLY=` for History, detail,
+      composer and the record control; strings `de` included (`make check-strings`).
+- (carried) **D1** hardware batch: waits for Wave 22's first TestFlight build.
+
+## Wave 22 — less chrome ∥ the paid Apple team: APNs, TestFlight, Sparkle            <!-- status: pending -->
+Mother's sketch 2026-11-04 (PRD "Direction 2026-11-04"); the lead writes the briefs once Wave 21 is done. Research, recipes and the unverified
+list: `docs/research/2026-11-04-apple-paid-team.md` (read it whole before P or M).
+**Owner batch first (only the Account Holder can do these; one `ask-human.sh` round, nothing else in this wave blocks on him):** (1) App Store
+Connect: the app record for `com.jkrumm.iris` (+ `.widgets`, `.notifications` App IDs with App Group and Push), an internal TestFlight group
+with automatic distribution and himself in it; (2) a **Team** App Store Connect API key (Admin), `.p8` + key id + issuer id into
+`op://mini/iris/*`; (3) an APNs key (Sandbox & Production), `.p8` + key id + team id into `op://mini/iris/*`; (4) a **Developer ID
+Application** certificate (+ private key) exported into 1Password; (5) the refs into `dotfiles-private/headless.refs`, `make secrets-seed`.
+- [ ] **U1. Less chrome (iOS + Mac):** no title block: drop `HistoryTitleBlock` and `ScreenTitle` (History, Stats, Settings, Diagnostics); the
+      compose button moves into History's bottom search bar row; content starts under the status-bar scrim. Memo detail order: header (headline,
+      kind chip, one meta line) → reply → player → transcript → **Details** (collapsed: step waterfall, cost, attempts, ids, [Retry from step]).
+      A failed memo opens Details. Same order on the Mac detail pane. Before/after renders (light, dark, German) into
+      `docs/design/fidelity/w22.md` for the owner's async look; snapshots re-recorded.
+- [ ] **P1. Paid signing + APNs live:** `DEVICE_SIGNING=paid` the default, App Groups on for all three iOS targets and the widget feed live;
+      `APNS_*` in `.env.mini.tpl` from the owner's refs, `notifier.selected` = apns; `apnsEnv` follows the build channel (Debug device build
+      `sandbox`, TestFlight `production`), registered by the app. Live Activity remote updates and the result alert reach the phone.
+- [ ] **P2. `make testflight` + the update loop:** archive, export with the Team key (`method app-store-connect`, `destination upload`),
+      `CFBundleVersion` from `git rev-list --count HEAD`; the deploy poller (`mini-deploy.sh`) uploads a build when `apple/**` changed on a green
+      master, plus a weekly rebuild when nothing changed (90-day expiry). Check `xcrun altool --help` and headless cloud signing first (both
+      unverified). The phone updates itself through TestFlight; `make device` stays for debugging.
+- [ ] **M2. Mac releases without admin:** Developer ID + Hardened Runtime (audio-input entitlement), non-sandboxed, Sparkle 2.10.x (≥ 2.9.6,
+      SPM), EdDSA key (private in the mini's keychain + 1Password backup), notarize + staple with the Team key, appcast and archive as GitHub
+      Release assets of this repo (`SUFeedURL` = the `releases/latest/download/appcast.xml` URL), `make mac-release` from the same poller on an
+      `IrisMac` change. Prove on the MacBook: install by drag into `~/Applications`, first launch without Open Anyway, one Sparkle update with no
+      admin prompt, `xattr -l` shows no quarantine on the updated bundle. A "Check for Updates…" item in the popover and Settings > General.
+- (carried) **D1** hardware batch on the first TestFlight build (adds: an APNs alert, a Live Activity push update, the widget feed).
 
 ## Fleet backlog (for the long-running fleet: mother → lead → workers)
 
