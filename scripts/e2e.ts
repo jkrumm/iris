@@ -64,12 +64,15 @@ async function probe(base: string) {
   const id = list.items[0]?.id;
   assert(id, "GET /memos?limit=1 returns the memo send-memo created");
 
-  // The fake Hermes reports a kind, a headline and two tool names, like the `iris` skill's block and the stream would.
+  // The fake Hermes reports a kind, a headline and two tool names, like the `iris` skill's block and the stream would; the fake summarizer writes the summary.
   const memo = (await (await call(`/memos/${id}`)).json()) as HermesMemo;
   assert(memo.state === "notified", `the memo is notified (got ${memo.state})`);
   assertHermesResult(memo);
   const steps = memo.steps.map((step) => step.step).join(",");
-  assert(steps === "transcribe,act,notify", `pipeline is transcribe, act, notify (got ${steps})`);
+  assert(
+    steps === "transcribe,act,summarize,notify",
+    `pipeline is transcribe, act, summarize, notify (got ${steps})`,
+  );
 
   const register = await call("/devices/register", {
     method: "POST",
@@ -136,7 +139,7 @@ async function probeTyped(base: string) {
   assert(detail.typed === true, `typed memo carries typed: true (got ${detail.typed})`);
   assert(detail.segmentCount === 0, `typed memo has no segments (got ${detail.segmentCount})`);
   const steps = detail.steps.map((step) => step.step).join(",");
-  assert(steps === "act,notify", `no ingest/transcribe rows (got ${steps})`);
+  assert(steps === "act,summarize,notify", `no ingest/transcribe rows (got ${steps})`);
   out(`e2e: typed memo ok for memo ${id}`);
 }
 
@@ -154,12 +157,12 @@ interface TypedMemo {
 
 type HermesMemo = TypedMemo;
 
-/** A memo that went through the fake Hermes: kind, headline and the two tool names are on it, and it was not routed. */
+/** A memo that went through the fake Hermes: its kind and the two tool names are on it, the summary is the summarizer's, and it was not routed. */
 function assertHermesResult(memo: HermesMemo) {
   assert(memo.kind === "note", `the memo carries Hermes's kind (got ${memo.kind})`);
   assert(
-    memo.summary?.headline === "Headline",
-    `the summary is Hermes's headline (got ${memo.summary?.headline})`,
+    memo.summary?.headline === "Headline" && memo.summary.detail === "Detail",
+    `the summary is the summarizer's, not Hermes's headline (got ${JSON.stringify(memo.summary)})`,
   );
   assert(
     memo.actions?.join() === "fake_search,fake_write",

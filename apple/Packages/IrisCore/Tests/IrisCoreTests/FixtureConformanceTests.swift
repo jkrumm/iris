@@ -145,11 +145,11 @@ struct FixtureConformanceTests {
     #expect(task.memo.kind == "task")
     #expect(task.memo.actions == ["todo_add", "calendar_search"])
     #expect(task.memo.route == nil)
-    #expect(task.memo.summary?.detail == "")
+    #expect(task.memo.summary?.detail.isEmpty == false)
 
     let bare = try decoder.decode(
       MemoDetail.self, from: Contracts.fixtureData("memos.detail.response.hermes-no-block"))
-    #expect(bare.memo.kind == nil && bare.memo.actions.isEmpty && bare.memo.summary == nil)
+    #expect(bare.memo.kind == nil && bare.memo.actions.isEmpty && bare.memo.summary != nil)
     let encoded = String(decoding: try IrisJSON.makeEncoder().encode(bare), as: UTF8.self)
     #expect(!encoded.contains("\"kind\"") && !encoded.contains("\"actions\""))
   }
