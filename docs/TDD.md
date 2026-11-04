@@ -18,9 +18,9 @@ Iris has three deliverables in one monorepo:
 - **Capture:** the phone records 10 s segments and uploads them while I am
   still talking.
 - **Processing:** the server concatenates, transcribes (the agent-workflows
-  audio door, Voxtral), routes (spoken prefix, then agent-workflows `decide`), acts
-  (journal, herdr or Hermes), summarizes (`triage`) and notifies (APNs: Live
-  Activity update plus a rich alert).
+  audio door, Voxtral), hands the transcript to Hermes, which decides what the memo is and acts with its skills
+  (`act`; it reports a `kind`, a headline, a spoken line and the tools it used), and notifies (APNs: Live
+  Activity update plus a rich alert). A plain transcription skips Hermes.
 - **Tracing:** one trace per memo, keyed by the memo UUID, spans all three
   runtimes.
 - **Verification:** agents build, run, screenshot and test both apps on the
@@ -34,9 +34,9 @@ Iris has three deliverables in one monorepo:
 
 | # | Decision | Why | Rejected |
 |-|-|-|-|
-| D1 | A server on the mini, not Hermes direct | The phone can reach neither agw (loopback) nor Hermes `:8642` (VPS-only grant, privileged bearer) nor herdr (socket). Credentials stay on the mini | Apps talking to Hermes/Collie directly |
+| D1 | A server on the mini, not Hermes direct | The phone cannot reach Hermes `:8642` (VPS-only grant, privileged bearer) and the audio door is loopback. Credentials stay on the mini | Apps talking to Hermes directly |
 | D2 | Iris owns the memo record; Hermes owns conversations | History must survive a Hermes reset and cover non-Hermes memos. Mirrors Argo | Hermes sessions as the only store |
-| D3 | Routing: prefix → `decide` → ask. Three destinations | Hermes's skills already route todos, notes and work. A second full router would pay twice | `decide` on every intent; an LLM router |
+| D3 | Routing is Hermes' job (changed 2026-11-04) | Hermes' skills already route todos, notes, work and answers, and Iris's own router parked 16 of 27 `auto` memos. Iris sends every memo but a plain transcription to Hermes and shows its structured report (`kind`, headline, spoken, tools) | A prefix → `decide` → ask router in Iris (retired, §Pipeline steps) |
 | D4 | 10 s segments, uploaded during the take | A crash loses ≤ 10 s, the upload is done at [Stop], and a mic switch is a segment rollover | One file at [Stop] (loses everything on a crash, slow); shorter (request churn) |
 | D5 | `AVAudioEngine` tap → `AVAssetWriter` (AAC, fragmented m4a) per segment; the server decodes and re-encodes on concat | Continuous buffers plus edit lists make the concatenated decode gapless. `AVAudioRecorder` stop/start drops audio | `ffmpeg -c copy` concat (priming gaps); PCM segments (too large on cellular) |
 | D6 | APNs via `@parse/node-apn` on Bun `node:http2`, streams capped at 10 | Maintained and pure JS; `apns2` is broken on Bun (undici). Bun ignores `peerMaxConcurrentStreams`, so cap in-flight streams ourselves | `apns2`, the abandoned `apn`, a Go/Swift sidecar |
@@ -60,10 +60,7 @@ Iris has three deliverables in one monorepo:
  MacBook (Iris for macOS, menu bar) ─────────────────┘                                              │
           ▲                                                                                         ├─> audio door 127.0.0.1:7792  STT · TTS
           └──────────── APNs (alert · liveactivity) <───────────────────────────────────────────────┤
-                                                                                                    ├─> agw host 127.0.0.1:7791       decide · triage
                                                                                                     ├─> Hermes :8642 (mini tailnet IP)  sessions
-                                                                                                    ├─> herdr-core `hc connect` (+ classic socket)  terminal.list · terminal.send
-                                                                                                    ├─> ~/SourceRoot/brain/Inbox  (brain-sync lock)
                                                                                                     ├─> ~/.iris/data  (SQLite · audio)
                                                                                                     └─> otel.<domain>  OTLP traces + logs
 ```
@@ -106,70 +103,39 @@ The server is a few deep modules behind ports, in email-gateway's style.
 | Module | Owns | Public interface |
 |-|-|-|
 | `memo/` | The state machine, `MemoStore` (SQLite), the step runner | `createMemo`, `putSegment`, `complete`, `get`, `list`, `retry`, `events` (an async iterator) |
-| `pipeline/` | One file per step; each step is a pure function of (memo, ports) | `steps: Record<Step, StepFn>` |
-| `routing/` | Prefix parser, the `decide` call, confidence policy; the decision log is written by `MemoStore.completeStep` | `route({memoId, mode, transcript, destinations, herd?, decider?}) → RouteDecision`, `parsePrefix` |
+| `pipeline/` | One file per step; each step is a pure function of (memo, ports) | `createStepHandlers({store, audio, transcriber?, destination?, replyAssets?, notifier})`: `transcribe`, `act`, `notify` |
 | `devices/` | Device tokens, APNs and push-to-start tokens, Live Activity tokens | `authenticate`, `register`, `tokensFor` |
 | `notify/` | Payload building (alert, Live Activity), APNs transport | `Notifier` port |
 | `telemetry/` | `otel.ts`, `otel-format.ts`, `log.ts`, `relay.ts` (the client relay) | `withRootSpan`, `withSpan`, `log`, `relay`, `OtlpExporter` |
 
-**Shipped through Wave 11:** `memo/`, `pipeline/` (`steps.ts`), `notify/`, `telemetry/`, `http/`, `adapters/`, `ports/`, `routing/`. The
-journal, herdr and hermes destinations are all registered in `compose()`; `devices/` is the `DeviceStore` port plus `adapters/sqlite-devices.ts`; `GET /v1/stats` is the read-only `StatsStore` port plus `adapters/sqlite-stats.ts`. The module and
+**Shipped:** `memo/`, `pipeline/` (`steps.ts`), `notify/`, `telemetry/`, `http/`, `adapters/`, `ports/`. Routing is not a module any more: Hermes decides (§Pipeline steps, Retired 2026-11-04). `devices/` is the `DeviceStore` port plus `adapters/sqlite-devices.ts`; `GET /v1/stats` is the read-only `StatsStore` port plus `adapters/sqlite-stats.ts`. The module and
 file map of the code is in `AGENTS.md` §Layout.
 
-Ports, each with a production adapter and an in-memory fake (shipped: `Transcriber`, `Speaker`, `Summarizer`, `Destination` (hermes, journal, herdr),
-`Notifier`, `Herd`, `DeviceStore`, `StatsStore` (SQLite only, no fake), `AudioStore`, `AudioCombiner`, `Clock`, `Decider`, `DiagramRenderer` (Pele + resvg-js), `AssetStore` (reply asset files); `Ids` is unused). `Destinations` is the registry
-of the registered act adapters (`Partial<Record<"hermes" | "journal" | "herdr", Destination>>`; each is registered by its own env, see §Configuration):
-- `Transcriber`
-- `Speaker`
-- `Decider` (`decide`, adapter `adapters/agw-decider.ts`)
-- `Summarizer` (`triage`)
-- `Herd`
-- `Destination` (journal | herdr | hermes)
-- `Notifier`
-- `Clock`
-- `Ids`
+Ports, each with a production adapter and an in-memory fake (shipped: `Transcriber`, `Speaker`, `Destination` (Hermes, the only one; `fakeDestination` answers `done`, kind `note`, two actions),
+`Notifier`, `DeviceStore`, `StatsStore` (SQLite only, no fake), `AudioStore`, `AudioCombiner`, `Clock`, `DiagramRenderer` (Pele + resvg-js), `AssetStore` (reply asset files); `Ids` is unused).
+`Destination.deliver({memoId, transcript, mode, threadId?}) → Delivery {ref, replyText, usage?, costUsd?, thread?, meta?}` with `meta = {kind, summary, actions}`. There is no registry: `compose()` chooses the one destination
+from `HERMES_URL` + `HERMES_TOKEN` and records `act` in `degraded` when it is missing; under `IRIS_FAKES` it is `fakeDestination({sessionPerMemo: true})`.
 
 ### Memo state machine
 
 ```
-receiving ──complete──> received ──> transcribed ──> routed ──> acted ──> summarized ──> notified (terminal)
-                                          └──> needs_route ──POST /route (answer)──> routed
-                                                  ^
-                           routed ──act: tab gone──┘
+receiving ──complete──> received ──> transcribed ──act──> acted ──notify──> notified (terminal)
 any step ──error──> failed(step)   ──retry(from)──> <step>
-acted ──summarize fails for good──> summarized (step row failed, memo not failed) ──> notified
-mode transcribe:  received ──> transcribed ──notify──> notified   (no route, act or summarize; never needs_route)
-notified (summarize step failed) ──retry(from: summarize)──> acted
+typed memo:       created transcribed ──act──> acted ──> notified
+mode transcribe:  received ──> transcribed ──notify──> notified   (no act)
 ```
 
-- **Mode `transcribe` (Wave 17 S2):** the owner picks "just the transcript" up front. The pipeline of such a memo is `ingest`, `transcribe`,
-  `notify`: `memo/memo.ts` keeps one transition table and `stepsOf(mode)` / `nextStep({state, mode})` / `advance({..., mode})` /
-  `stateBefore({step, mode})` read it per mode, with `notify` running from `transcribed` instead of `summarized`. The steps it does not
-  have are absent, not skipped: no `route`/`act`/`summarize` rows on the timeline (`GET /memos/:id` `steps` holds `transcribe` and `notify`;
-  the waterfall only draws rows that exist, and Stats keys the two steps under `unrouted`, as it does for any memo without a route), no
-  `route_decisions` row, `route`, `reply_text` and `summary` stay NULL, the state is never `needs_route`, and the registered destinations
-  are irrelevant (a server with none still finishes the memo; `route()` throws for this mode, which the pipeline never asks). The memo ends in
-  the ordinary terminal `notified`, so `isResultReady`, `/result` and `memo.done` need no special case. `notify` announces the transcript clipped
-  to a 60-character headline (§12), the alert title is the generic "Iris" (no route chip). A typed memo (`POST /memos/text`, created
-  `transcribed` with the text as transcript) in this mode runs only `notify` and ends at once. A `threadId` with this mode is 400
-  `bad_request` (a thread continues in Hermes, which this mode never reaches). `POST /retry {from}` is accepted for `transcribe` and `notify`
-  only (400 for a step the mode lacks); a failed `notify` resets to `transcribed`.
-- **Parking:** only `route` and `act` may park a memo in `needs_route` (a handler result `outcome: "needs_route"`; any other step
-  that asks to fails). `act` parks when the herdr tab it was routed to has vanished. The answer is the same `POST /route`, which routes it back
-  to `act`.
-- **Optional steps (built, Wave 16):** `summarize` is the only one (`OPTIONAL_STEPS`, `memo/memo.ts`). The summary is an extra, so a
-  permanent failure of the step (the runner's automatic retries used up, a plain error such as agw `triage` answering with a permanent error such as a 402 or a 502 `INVALID_OUTPUT`, or
-  a hermes memo with no summarizer) does not fail the memo: `MemoStore.skipStep` marks the step row `failed` (error and attempts stay, so the
-  waterfall shows it failed) and compare-and-sets the memo `acted` → `summarized` in one transaction, with `failed_step` and `error` null.
-  `notify` runs next and the memo ends in the ordinary terminal state `notified` (`isResultReady` and `/result`, `memo.done` need no change)
-  with `summary` null. `notify` announces the delivered transcript clipped to a 60-character headline instead (not stored; §12). Every other
-  step still fails the memo. `POST /retry {from: "summarize"}` is accepted for a `notified` memo whose `summarize` row is `failed` (any other
-  `notified` memo stays 409): it resets to `acted` like a failed memo, re-runs summarize and then notify. Notify re-sends: the alert carries the
-  memo id as collapse id, so the banner is replaced by the real headline (the Live Activity `end` goes to a token that has already ended, a 410
-  that clears nothing the memo needs). Repair of data from before: memos in `failed(summarize)` with a non-empty reply are moved to `notified` by
-  `repairFailedSummaries` at boot (no push, step row kept); it first writes `<IRIS_DATA>/iris.db.bak-<timestamp>` with `VACUUM INTO`, only when
-  there is something to repair, and is idempotent (repaired memos no longer match). It is a boot repair, not a migration, because a migration
-  cannot take a backup first. Delete the backup once production runs cleanly. One-way: a rollback to a build before this change fails summary-less `notified` memos at `notify` if they are driven again.
+- **Pipeline per mode:** `stepsOf(mode)` in `memo/memo.ts` is the pipeline for every memo: `ingest → transcribe → act → notify` for every mode but `transcribe` (`runsAct(mode)`), `ingest → transcribe → notify` for mode `transcribe`;
+  a typed memo (`POST /memos/text`, created `transcribed`) starts at `act` (`notify` in mode `transcribe`). `nextStep`, `advance({state, step, mode})` and `stateBefore({step, mode})` read one transition table per mode; `stateBefore` throws
+  `IllegalTransitionError` for a step outside the mode's pipeline. The state is the last finished step. The modes on the wire are unchanged (`auto|journal|hermes|tab|chat|transcribe`, stored as received); Hermes decides what the memo is, so only `transcribe` differs.
+- **Waiting for Hermes:** `act` has a handler only when a `Destination` is composed. Without one the memo stays `transcribed` (a degraded start, `/health` lists `act`) and the runner drives it once the server runs with Hermes configured. A memo that stays `transcribed`
+  is therefore either waiting for a configured Hermes or has no running runner; a memo that failed there is `failed(act)`.
+- **Mode `transcribe` (Wave 17 S2):** the owner picks "just the transcript" up front. The steps it does not have are absent, not skipped: no `act` row on the timeline (`GET /memos/:id` `steps` holds `transcribe` and `notify`;
+  the waterfall only draws rows that exist), `reply_text`, `summary`, `kind` and `actions` stay empty and the server needs no Hermes to finish the memo. The memo ends in the ordinary terminal `notified`, so `isResultReady`, `/result` and `memo.done`
+  need no special case. `notify` announces the transcript clipped to a 60-code-point headline, the alert title is the generic "Iris" (no kind chip). A typed memo in this mode runs only `notify` and ends at once. A `threadId` with this mode is 400
+  `bad_request` (a thread continues in Hermes, which this mode never reaches).
+- **Old rows:** `routed`, `summarized`, `needs_route` and the steps `route` / `summarize` are no longer produced; `STEPS` and `MEMO_STATES` keep them so old rows read. Migration 14 settled the open ones (§Data model). `isResultReady` is
+  terminal or an old `needs_route`; `isDeletable` still includes `needs_route`.
 - **Idempotent steps:** each step is keyed by `(memo_id, step, attempt)`. On
   boot and on every `complete`, the runner drives each non-terminal memo from
   its last finished step.
@@ -178,12 +144,9 @@ notified (summarize step failed) ──retry(from: summarize)──> acted
   | Step | Timeout |
   |-|-|
   | STT | 300 s |
-  | decide | hang guard (30 min) |
   | Hermes | 180 s |
-  | triage | hang guard (30 min) |
   | APNs | 10 s |
 
-- **herdr pane queue (built):** deliveries to one pane run one at a time, at most 8 in line per pane (the running one included, `maxPaneQueue`). The ninth fails at once as `unavailable` with `herdr pane <id> queue is full: 8 deliveries already in line`; that is not a `TransientError`, so the step fails after one try (`POST /retry` queues it again) and nothing is typed into the pane.
 - **Retries (built):** a transient failure is retried in-process twice, after 2 s and then 8 s (three tries in all; the delays go
   through an injected `Sleep`, so tests never wait), before the step goes `failed`. Adapters mark a transient failure with a
   `TransientError` (`ports/transient.ts`, the one place that classifies: an HTTP 5xx, a timeout or abort, a connection error such as
@@ -191,20 +154,16 @@ notified (summarize step failed) ──retry(from: summarize)──> acted
   throw) fails at once. A `TransientError` is `before_send` when the request provably never reached the destination (connection
   refused, DNS) and `after_send` otherwise (a timeout, a reset, a 5xx, an unrecognised `fetch failed`: it may have been delivered).
 
-  **A hang guard is not transient.** The 30-minute guard of a model call (the agw host client behind decide and triage, an aborted request) and the
-  idle watchdogs (Hermes: no response, or a stream gone idle, within the idle window) mean the downstream is wedged, so a retry would only
-  wait out the same window again (~90 minutes for three tries). They throw a plain error (`hangGuardFailure` in `ports/transient.ts`): the step fails after one window and `POST /retry` is the decision. A short request
+  **A hang guard is not transient.** The idle watchdogs of Hermes (no response, or a stream gone idle, within the idle window) mean the downstream is wedged, so a retry would only
+  wait out the same window again. They throw a plain error (`hangGuardFailure` in `ports/transient.ts`): the step fails after one window and `POST /retry` is the decision. A short request
   timeout that means "try again" (the 30 s Hermes session create) stays transient, as do 5xx and connection errors. The audio-door STT timeout (30 minutes, `timeoutMs` in the adapter) is a hang guard too: one window, then `hangGuardFailure`. The speech timeout (2 minutes) is not retried either: `/speech` is a request, not a step, and answers 503.
 
   | Step | Retried on |
   |-|-|
-  | transcribe, route (decide), summarize, notify | every transient failure |
+  | transcribe, notify | every transient failure |
   | act | `before_send` only: Hermes may already have run the turn after a timeout or 5xx, so those fail and `POST /retry` is the (human) decision |
 
-  `decide` and `triage` are one synchronous request to the agent-workflows host (no submit/poll), so there is no half-created job to guard:
-  a 500, a 503 and a network error are transient and retried like any other step; a 400, a 401 and a 502 `INVALID_OUTPUT` (the model failed
-  twice) are final. The hang guard aborts the request, which cancels the host's run and the provider call (no `Idempotency-Key`, so the
-  host treats a gone client as a cancel; `POST /runs/<id>/cancel` is not used). `stop()` (shutdown) during a backoff cuts the wait short and runs nothing more: the step stays `running`, not `failed`,
+  `stop()` (shutdown) during a backoff cuts the wait short and runs nothing more: the step stays `running`, not `failed`,
   and the next boot's `driveAll` re-runs it from `attempts` 1. Each try bumps
   `memo_steps.attempts`; while the runner waits to retry, the row stays `running` with `error` set to the failure it is retrying
   (clients read `status`, never `error != null`, as failure), and the error clears on success. No `memo.updated` event goes out for a
@@ -212,6 +171,8 @@ notified (summarize step failed) ──retry(from: summarize)──> acted
   span (attribute `attempt`) and each wait a `memo.retry_wait` span under the `memo` root, and each retry logs `step.retry`
   (`memo_id`, `step`, `attempt` = the try about to start, `delay_ms`, `error`). `POST /retry` still resets the row, so the re-run
   starts at `attempts` 1.
+- **Retry rules:** `POST /retry` works on `failed` memos only and only for a step of the memo's pipeline (`stepsOf(mode)`); a retry from `act` posts a second turn into the same Hermes session (`act` is at-least-once).
+  An old `failed(route)` memo counts as failed at `act` and an old `failed(summarize)` as failed at `notify` (`canRetryFrom`), so they retry from `act` / `notify`. There is no optional step any more: a failed `notify` or `act` fails the memo.
 - **Retention:** audio is deleted 30 days after `notified`; rows are kept.
 
 ### Data model (SQLite, WAL, append-only migrations in `server/src/adapters/sqlite-migrations.ts`, `PRAGMA user_version`)
@@ -220,17 +181,19 @@ Shipped (Waves 5, 10 and 12). Step results are columns on `memos`, not a separat
 
 | Table | Columns (key ones) |
 |-|-|
-| `memos` | `seq` (autoincrement), `id` (uuid, client-minted), `mode` (auto/journal/hermes/tab/chat/transcribe), `device` (authenticated device name), `state`, `failed_step`, `error`, `started_at`, `segment_count`, `audio_seconds`, `transcript`, `route`, `destination_ref`, `reply_text`, `summary_json`, `thread_id` (the Hermes session the memo belongs to: set by `act`, or at creation for a memo that continues a thread; NULL before then), `done` (0/1), `favorite` (0/1), `archived_at` (nullable ISO), `deleted_at` (nullable ISO; the soft delete), `created_at`, `updated_at` |
+| `memos` | `seq` (autoincrement), `id` (uuid, client-minted), `mode` (auto/journal/hermes/tab/chat/transcribe), `device` (authenticated device name), `state`, `failed_step`, `error`, `started_at`, `segment_count`, `audio_seconds`, `transcript`, `route` (legacy, null on new memos), `destination_ref`, `reply_text`, `summary_json`, `kind` (Hermes' normalised kind, migration 14), `actions_json` (tool names, migration 14), `thread_id` (the Hermes session the memo belongs to: set by `act`, or at creation for a memo that continues a thread; NULL before then), `done` (0/1), `favorite` (0/1), `archived_at` (nullable ISO), `deleted_at` (nullable ISO; the soft delete), `created_at`, `updated_at` |
 | `segments` | `memo_id`, `idx`, `bytes`, `sha256`, `received_at`: PK (`memo_id`, `idx`) |
 | `memo_steps` | `memo_id`, `step`, `status`, `started_at`, `finished_at`, `error`, `usage_json`, `cost_usd`, `attempts` (INTEGER NOT NULL DEFAULT 1: tries used, see Retries; on the wire as `attempts` ≥ 1): PK (`memo_id`, `step`); `POST /retry` deletes the rows from the step on, so the re-run counts from 1 |
 | `devices` | `device` (PK, the token-map name), `name` (display label), `platform` (ios/macos), `apns_token`, `apns_env` (sandbox/production), `push_to_start_token`, `last_seen_at`, `updated_at` |
 | `activity_tokens` | `memo_id` (PK, cascades), `token`, `updated_at` |
-| `threads` | `id` (PK, the Hermes session id), `kind` (chat/hermes), `title` (the first ~60 characters of the first transcript, whitespace collapsed), `created_at`, `updated_at`, `last_memo_id`. The destination names the thread in its `Delivery` (`thread: {id, kind, title}`; Hermes: the session id, `chat` or `hermes`, the first ~60 characters of the transcript); `act` persists what it gets, upserting the row and setting `memos.thread_id` in the transaction of `completeStep` (`patch.thread`; `thread_id` is an `act`-owned column). An existing thread keeps its kind and title and moves `updated_at` / `last_memo_id`. A retry from `act` clears `thread_id` when it is the memo's own session (equal to the memo id) until the re-run sets it again, and keeps it for a memo created to continue a thread (its `thread_id` is never its own id: `continuedThread` in `memo.ts`); the thread row stays. The migration backfilled one `hermes` thread per distinct `destination_ref` of an existing hermes memo. `GET /v1/threads` and `/v1/threads/:id` read it (§HTTP API); the queries sit behind the `ThreadStore` port (`adapters/sqlite-threads.ts`, composed into the memo store) |
+| `threads` | `id` (PK, the Hermes session id), `kind` (hermes; chat on old rows), `title` (the first ~60 characters of the first transcript, whitespace collapsed), `created_at`, `updated_at`, `last_memo_id`. The destination names the thread in its `Delivery` (`thread: {id, kind, title}`; Hermes: the session id, `hermes`, the first ~60 characters of the transcript); `act` persists what it gets, upserting the row and setting `memos.thread_id` in the transaction of `completeStep` (`patch.thread`; `thread_id` is an `act`-owned column). An existing thread keeps its kind and title and moves `updated_at` / `last_memo_id`. A retry from `act` clears `thread_id` when it is the memo's own session (equal to the memo id) until the re-run sets it again, and keeps it for a memo created to continue a thread (its `thread_id` is never its own id: `continuedThread` in `memo.ts`); the thread row stays. The migration backfilled one `hermes` thread per distinct `destination_ref` of an existing hermes memo. `GET /v1/threads` and `/v1/threads/:id` read it (§HTTP API); the queries sit behind the `ThreadStore` port (`adapters/sqlite-threads.ts`, composed into the memo store) |
 | `memo_fts` | FTS5 virtual table, external content over the view `memo_search` (`seq`, `transcript`, headline = `summary_json.$.headline`; a malformed `summary_json` indexes as no headline), `content_rowid = seq`, tokenizer `unicode61 remove_diacritics 2`. Triggers on `memos` (insert, delete, update of `transcript` / `summary_json`) keep it in step; migration 7 backfills with `rebuild`. Read by `GET /v1/memos?q` only |
 | `reply_assets` | One row per rendered file of a reply's Mermaid blocks (migration 11): `memo_id` (cascades), `id` (uuid, never reused), `block_index`, `format` (svg/png), `scheme` (light/dark), `width`, `height` (points): PK (`memo_id`, `id`). The bytes are files under `<IRIS_DATA>/assets/<memo_id>/<id>`. Rows are written only by the commit of the reply they were rendered for (or the backfill). `memos.reply_assets_failed` (migration 13) marks a reply whose Mermaid blocks all failed to render (§Reply assets) |
-| `route_decisions` | `id` (autoincrement), `memo_id` (cascades), `created_at`, `source` (mode/prefix/decide/default/answer/correction), `destination` (nullable), `tab`, `confidence`, `model`, `cost_usd`, `reason`, `outcome` (routed/needs_route), `prefix_words` (nullable; source `prefix`: the leading transcript words the spoken prefix covers). One row per route outcome, written in the transaction of the step's `completeStep`; read with `listRouteDecisions(memoId)`. `answer` (written with the `needs_route` → `routed` move, `memos.route` set in the same transaction) and `correction` (logged after `act`, the memo is untouched) rows come from `POST /v1/memos/:id/route` |
+| `route_decisions` | History of the retired routing, kept for old memos and never written: `id`, `memo_id` (cascades), `created_at`, `source`, `destination`, `tab`, `confidence`, `model`, `cost_usd`, `reason`, `outcome`, `prefix_words`. Nothing reads it |
 
-**Indexes.** Besides the keys, `memos(state)`, `memos(thread_id)`, a partial `memos(deleted_at)`, `route_decisions(memo_id, id)`, and (one migration, for the stats reads' `>=` filters) `memos(created_at)` and `memo_steps(started_at)`.
+**Indexes.** Besides the keys, `memos(state)`, `memos(kind)`, `memos(thread_id)`, a partial `memos(deleted_at)`, `route_decisions(memo_id, id)`, and (one migration, for the stats reads' `>=` filters) `memos(created_at)` and `memo_steps(started_at)`.
+
+**Hermes decides (migration 14, Wave 21 S1).** The 14th entry (`PRAGMA user_version` 14) adds `memos.kind` (TEXT, the normalised kind Hermes reported), `memos.actions_json` (a JSON array of tool names, NULL before `act`) and the index `memos_kind`. It also settles the memos the routing left behind: every open `needs_route` memo (`done = 0`, not soft-deleted) becomes `failed` with `failed_step = 'act'` and the error `parked before routing moved to Hermes`, plus a `memo_steps` row `act`/`failed` with that error (`started_at` = `finished_at` = `updated_at`), so the owner retries it from `act`; `routed` becomes `transcribed` and `summarized` becomes `acted`. `route_decisions` stays as history and is never written; `memos.route` stays, null on new memos. `completeStep` writes `patch.kind`, `patch.actions` (as JSON) and the summary; `resetForRetry({id, from})` (failed memos only) clears the data columns of `from` and every later step of the full timeline: `transcribe` clears `audio_seconds` and `transcript`, `act` clears `destination_ref`, `reply_text`, `summary_json`, `kind`, `actions_json`, plus `thread_id` and the reply assets. Steps and states from before the change (`route`, `summarize`, `routed`, `summarized`, `needs_route`) stay in `STEPS` and `MEMO_STATES` so old rows still read.
 
 **Memo flags and soft delete (Wave 13).** One append-only migration (the last entry) adds `done`, `favorite` (`INTEGER NOT NULL DEFAULT 0`), `archived_at`
 and `deleted_at` (nullable ISO text, like the other time columns) and a partial index on `deleted_at`. None of them touches the state machine or the runner:
@@ -242,7 +205,7 @@ PURGE_AFTER_MS` it removes the audio files (segments and the combined recording,
 then the rows (`MemoStore.purge`: `memos`, which cascades `memo_steps`, `segments`, `route_decisions`, `reply_assets` and `activity_tokens`; the FTS triggers drop the index
 entry) and logs `memo.purged` with `memo_id`. Files before rows, so a failed removal (`memo.purge_failed`) leaves the memo for the next pass instead of
 orphaning files. A thread whose `last_memo_id` was the purged memo points at its newest remaining memo, and a thread left with no memos is deleted.
-The sweep runs behind the shutdown drain (`purger.stop()` / `idle()` next to the runner's). Reads: a soft-deleted memo is in neither `items` nor `pinned` of
+The sweep runs behind the shutdown drain (`purger.stop()` / `idle()` next to the runner's). Reads: a soft-deleted memo is not in `items` of
 `GET /memos`; thread detail leaves it out of `memos` / `messages`, the thread list hides a thread whose memos are all deleted, and a thread's `lastMemoId`
 never names a deleted memo (it falls back to the newest live one, null when none). `restore` of a memo past its `purge_at` is 404 even before the sweep got
 to it, so a restore never races the file removal. The memo `Memo` domain type carries `done`, `favorite`, `archivedAt`, `deletedAt`; the wire derives
@@ -258,7 +221,7 @@ split on whitespace, words without a letter or digit are dropped (text with none
 quotes doubled) and prefix-matched (`"kalend"*`), terms are ANDed. SQLite's own `changes` counts trigger writes in `bun:sqlite`, so
 `createMemo` / `createTextMemo` read `changes > 0`, not `=== 1`, to tell a new row from a conflict.
 
-Planned for R3, not built: `memos.target_tab` / `language` / `route_source`. Device tokens are not stored: the token map lives in `IRIS_DEVICE_TOKENS`.
+Planned for R3, not built: `memos.target_tab` / `language`. Device tokens are not stored: the token map lives in `IRIS_DEVICE_TOKENS`.
 
 ### HTTP API (`/v1`, bearer = device token; `/health` is public)
 
@@ -269,38 +232,36 @@ Shipped; the authoritative list is `contracts/manifest.json` and the table in `A
 | `POST /v1/devices/register` | `{name, platform, apnsToken?, apnsEnv?, pushToStartToken?}`; upsert by the authenticated device |
 | `POST /v1/telemetry` | The client span/log relay (§8): `{resource: {serviceName: iris-ios\|iris-macos, deviceName, appVersion}, spans, logs, dropped}`. 202 `{accepted: {spans, logs}}`; 413 over 256 KiB; 400 for a schema violation, a timestamp that is not a date, or more than 500 spans and logs together; 503 when the relay is not wired. The records are exported in the background, so an unreachable collector never changes the answer |
 | `POST /v1/memos` | `{id, mode, startedAt, threadId?}`, idempotent. `threadId` continues that thread (404 when unknown; see Threads below); a replay naming another thread is 409 |
-| `POST /v1/memos/text` | `{id, mode, startedAt, text, threadId?}`: a typed memo. `text` is trimmed, 1 to 20 000 characters, counted as Unicode code points (else 400). A missing or unknown `mode` is 400. Created directly in `transcribed` with `transcript = text` and driven from `route`: 202 + memo, on a replay too. Idempotent by id: the same body returns the memo, another body (a different `threadId` included), another device or a recorded memo with that id is 409 `conflict`; an unknown `threadId` is 404 |
+| `POST /v1/memos/text` | `{id, mode, startedAt, text, threadId?}`: a typed memo. `text` is trimmed, 1 to 20 000 characters, counted as Unicode code points (else 400). A missing or unknown `mode` is 400. Created directly in `transcribed` with `transcript = text` and driven from `act`: 202 + memo, on a replay too. Idempotent by id: the same body returns the memo, another body (a different `threadId` included), another device or a recorded memo with that id is 409 `conflict`; an unknown `threadId` is 404 |
 | `PUT /v1/memos/:id/segments/:n` | Raw m4a bytes, idempotent by `n` (same sha → 200, different → 409) |
 | `POST /v1/memos/:id/complete` | `{segmentCount}`. A 422 lists the missing indices |
 | `PUT /v1/memos/:id/activity-token` | The Live Activity push token for this memo (204) |
-| `POST /v1/memos/:id/retry` | `{from: Step}`, only for a `failed` memo, or `from: "summarize"` on a `notified` memo whose summarize step failed (§Memo state machine, Optional steps); 400 `bad_request` for `from: "transcribe"` on a typed memo and for a step the memo's mode lacks (mode `transcribe`) |
-| `POST /v1/memos/:id/route` | `{destination: hermes\|journal\|herdr, tab?}` (`tab` iff herdr). `needs_route`: the destination must be registered (else 400 "<dest> not available"); writes an `answer` decision, moves the memo to `routed` (compare-and-set) and drives it on: 202 + memo. After `act` (`acted`/`summarized`/`notified`): records a `correction` decision, no re-act, memo unchanged: 200. Any other state 409 `bad_state`, so a second answer while the first drives is a 409. A memo in mode `transcribe` has no route to answer or correct: 400 `bad_request`, before the state is looked at, so no decision row is ever written for it |
-| `GET /v1/memos?limit&cursor&q&route&state&favorite&archived&kind` | History, paged, newest first: `{items, pinned, pinnedTruncated, nextCursor}`. `q` (≤ 200 characters) searches transcript and summary headline (see Data model); `route` (hermes\|journal\|herdr) and `state` (any memo state) filter exactly; `favorite=true` keeps the favorites, `archived=true` lists **only** archived memos (without it archived memos are hidden), `kind=chat\|hermes` keeps the memos whose thread has that kind (the Chats chip); `favorite` and `archived` accept only `true` (omit them to switch off); all combine, an unknown value is 400. Soft-deleted memos are never listed or pinned. `items` never holds an **open** `needs_route` memo (one with `done` false), so the seq cursor stays stable when one leaves that state; the first page (no `cursor`) instead carries `pinned`: every open `needs_route` memo matching the filters, newest first, at most 50. `pinned` is always present, `[]` on later pages. `pinnedTruncated` is always present too: `true` on the first page when more than 50 open `needs_route` memos match (the oldest are left out of `pinned`), `false` otherwise and on every later page. `state=needs_route` answers from `pinned` plus, paged in `items`, the `done` ones. A `done` `needs_route` memo is no longer an open question: it is not pinned and sits in `items` at its seq position (the client dims it); marking one done after page 1 is the same case as answering it, so the de-duplication rule below covers it. `pinned` is not paged: the 50 cap is deliberate (a parked memo is an open question for the user, not an archive), `pinnedTruncated` is how a client learns the cap bit, and a `cursor` always yields `pinned: []`. Clients that read only `items` no longer see parked memos in the default list. A memo answered after page 1 leaves `needs_route` and appears in `items` at its seq position, so a later page can repeat a memo already in `pinned`: clients de-duplicate by memo id across `pinned` and every page (pinned first, then items whose id is not present yet) |
+| `POST /v1/memos/:id/retry` | `{from: Step}`, only for a `failed` memo (else 409), and only a step of the memo's pipeline (`stepsOf(mode)`; 400 `bad_request` otherwise, including `from: "transcribe"` on a typed memo, `act` on a mode `transcribe` memo, and the retired `route` / `summarize`). An old `failed(route)` memo counts as failed at `act` and an old `failed(summarize)` as failed at `notify`, so they retry from `act` / `notify` |
+| `GET /v1/memos?limit&cursor&q&state&favorite&archived&kind&thread` | History, paged, newest first: `{items, nextCursor}`. `q` (≤ 200 characters) searches transcript and summary headline (see Data model); `state` (any memo state) filters exactly; `kind` (a free string) keeps the memos of that kind, exact after the same normalisation as the stored kind (trim, lower-case, cut to 24 code points; text with nothing left matches nothing); `thread=true` keeps the memos that belong to a thread (a Hermes session); `favorite=true` keeps the favorites, `archived=true` lists **only** archived memos (without it archived memos are hidden); `favorite`, `archived` and `thread` accept only `true` (omit them to switch off); all combine, an unknown `state` is 400. Soft-deleted memos are never listed. There is no `route` filter, no `pinned` and no `pinnedTruncated`; an old `needs_route` memo is an ordinary item at its seq position |
 | `GET /v1/memos/:id` | Memo + step timeline. Also a soft-deleted memo (with `deletedAt` / `purgeAt`, so undo works); 404 after the purge |
 | `PATCH /v1/memos/:id` | `{done?, favorite?, archived?}`: booleans, at least one; an empty body, an unknown key or a non-boolean is 400 (the route rejects unknown keys itself, Elysia strips them before validation). 200 memo; 404 unknown; 409 `bad_state` on a soft-deleted memo. Allowed in every pipeline state. Publishes `memo.updated` |
-| `DELETE /v1/memos/:id` | Soft delete: 200 memo with `deletedAt` and `purgeAt`. Only settled memos (`notified`, `failed`, `needs_route`) and a memo still `receiving` (a cancelled take: the client creates the memo at its first closed segment), else 409 `bad_state`. A deleted `receiving` memo takes no more segments and no `complete` (both 409 `bad_state`, like every write to a deleted memo), so the pipeline never starts; a segment write still in flight when the delete lands is refused and its file removed right after the write (no row names it; the segments already recorded stay for a restore within the undo window), the purger removes the rest. A repeat is idempotent (200, the first `deletedAt`, no event); 404 unknown. `retry` and `route` on a deleted memo are 409 `bad_state`. Publishes `memo.updated` |
+| `DELETE /v1/memos/:id` | Soft delete: 200 memo with `deletedAt` and `purgeAt`. Only settled memos (`notified`, `failed`, and an old `needs_route`) and a memo still `receiving` (a cancelled take: the client creates the memo at its first closed segment), else 409 `bad_state`. A deleted `receiving` memo takes no more segments and no `complete` (both 409 `bad_state`, like every write to a deleted memo), so the pipeline never starts; a segment write still in flight when the delete lands is refused and its file removed right after the write (no row names it; the segments already recorded stay for a restore within the undo window), the purger removes the rest. A repeat is idempotent (200, the first `deletedAt`, no event); 404 unknown. `retry` on a deleted memo is 409 `bad_state`. Publishes `memo.updated` |
 | `POST /v1/memos/:id/restore` | Undo: 200 memo (`deletedAt` cleared, flags kept); 409 `bad_state` when the memo is not deleted; 404 once it is purged or past `purgeAt`. Publishes `memo.updated` |
 | `GET /v1/memos/:id/result?wait=<s>` | Long-poll until result-ready (≤ 600 s) |
-| `GET /v1/threads?kind=chat\|hermes&limit&cursor` | `{items: Thread[], nextCursor}`, newest `updatedAt` first; `Thread = {id, kind, title, createdAt, updatedAt, lastMemoId}`. The cursor is the last row's `(updated_at, id)`, so it stays valid as threads are added or updated. A malformed cursor or unknown `kind` is 400 |
+| `GET /v1/threads?limit&cursor` | `{items: Thread[], nextCursor}`, newest `updatedAt` first; `Thread = {id, kind, title, createdAt, updatedAt, lastMemoId}`. The cursor is the last row's `(updated_at, id)`, so it stays valid as threads are added or updated. A malformed cursor is 400. `Thread.kind` stays on the shape (`hermes`; `chat` on old rows) but is no longer a filter |
 | `GET /v1/threads/:id` | `{thread, memos, messages}`: the memos that ran in the thread (oldest first) and the conversation built from them, `messages: [{memoId, role: user\|assistant, content (markdown), createdAt}]`: per memo its `transcript` (`user`, dated by the memo's `createdAt`) and its `reply_text` (`assistant`, dated by the end of its `act` step; omitted while empty). Iris's own record: Hermes is not consulted, so the response never depends on it. Read in a fixed number of queries (the thread, its memos, the `act` finish times), however long the thread is. Unknown thread 404 |
 | `GET /v1/memos/:id/audio` | The concatenated audio for the scrubber (`Range`); 409 `bad_state` for a soft-deleted memo |
 | `GET /v1/memos/:id/speech` | TTS of the speech-ready variant of the answer (below), cached as an mp3; 409 `bad_state` for a soft-deleted memo |
 | `GET /v1/memos/:id/assets/:assetId` | One rendered file of a reply's Mermaid block (ids from the memo's `replyBlocks`): `image/svg+xml` (with `content-security-policy: default-src 'none'; style-src 'unsafe-inline'`) or `image/png`, `cache-control: private, max-age=31536000, immutable` (an id is never reused), `x-content-type-options: nosniff`; 404 for an unknown memo or asset, 409 `bad_state` for a soft-deleted memo, 503 without media |
 | `GET /v1/events` | SSE: `ready`, `memo.updated`, `memo.done` (for the Mac and the foreground iOS app) |
-| `GET /v1/herd` | herdr tabs `{id, repo, label, agentState, lastActivity}` (snapshot; `lastActivity` is always null) |
-| `GET /v1/stats?days=<n>` | `days` 1..365, default 30, else 400 `bad_request`. `{days, from, to, perDay: [{date, route, count}], perWeek: [{weekStart, count}], stepMedians: [{step, route, medianMs, samples}], costPerRoute: [{route, costUsd, memos}]}`. Read-only aggregates over `memos` (by `created_at`) and `memo_steps` (both filter columns are indexed); no table of its own, no spend; 503 when the app is composed without a `StatsStore`. The window is the last `days` **local days of the server** (today included, `from`/`to` are `YYYY-MM-DD`); `date` and Monday-start `weekStart` use the same zone, and the first week only counts the days inside the window. A null `route` is reported as `unrouted`. `stepMedians` is the baseline of the memo detail waterfall's faster/slower hint, **per step and route** (a step's speed depends on where the memo went): `done` step records whose `started_at` is in the window, grouped by step and the memo's route (`unrouted` as above), in pipeline order then route (integer ms; even counts average the two middle values and round, no other interpolation; a pair without samples is absent). `samples` is the n behind each median. **The client owns the minimum-n threshold**, the server does not send a `minSamples`: the threshold is a presentation choice (a hint wants more evidence than a plain number, and it may differ per surface), changing it must not need a server deploy or a contract change, and the server stays a plain aggregate that reports n honestly. `costPerRoute` sums `memo_steps.cost_usd` per route (routing-decision spend is on the `route` step row), `memos` counts the memos once. The memo detail waterfall compares its step durations to `stepMedians`. Day bucketing and medians run in the adapter, not with SQLite's `localtime`, so the window and the days share the process time zone |
+| `GET /v1/stats?days=<n>` | `days` 1..365, default 30, else 400 `bad_request`. `{days, from, to, perDay: [{date, kind, count}], perWeek: [{weekStart, count}], stepMedians: [{step, kind, medianMs, samples}], costPerKind: [{kind, costUsd, memos}]}`. Read-only aggregates over `memos` (by `created_at`) and `memo_steps` (both filter columns are indexed); no table of its own, no spend; 503 when the app is composed without a `StatsStore`. The window is the last `days` **local days of the server** (today included, `from`/`to` are `YYYY-MM-DD`); `date` and Monday-start `weekStart` use the same zone, and the first week only counts the days inside the window. `kind` is the memo's kind (§Pipeline steps, act) and `null` for a memo with none (mode `transcribe`, a failed memo, an old one); `perDay` and `costPerKind` are ordered by kind, null first. `stepMedians` is the baseline of the memo detail waterfall's faster/slower hint, **per step and kind**: `done` step records whose `started_at` is in the window, grouped by step and the memo's kind, in pipeline order (`STEPS`, old steps included) then kind, null first (integer ms; even counts average the two middle values and round, no other interpolation; a pair without samples is absent). `samples` is the n behind each median. **The client owns the minimum-n threshold**, the server does not send a `minSamples`: the threshold is a presentation choice (a hint wants more evidence than a plain number, and it may differ per surface), changing it must not need a server deploy or a contract change, and the server stays a plain aggregate that reports n honestly. `costPerKind` sums `memo_steps.cost_usd` per kind (the `act` row carries the Hermes turn's cost), `memos` counts the memos once. The memo detail waterfall compares its step durations to `stepMedians`. Day bucketing and medians run in the adapter, not with SQLite's `localtime`, so the window and the days share the process time zone |
 
 A separate route rather than a `text` field on `POST /v1/memos`: that route answers 201/200 for a memo that is still `receiving` and waits for segments, a typed memo is complete on arrival and its replay must compare a body, so sharing the handler would branch every line of it. A typed memo has no ingest or transcribe row in its timeline. The memo shape carries `typed: true` for a typed memo and omits it for a recording (one predicate, `isTyped` in `memo.ts`: past `receiving` with no segment count; `GET /memos/:id` reports `segmentCount` 0 there, so clients read `typed`). `POST /retry` from `transcribe` on a typed memo is 400: the text is its only transcript. `GET /audio` on a typed memo is 409 `bad_state` (no recording); `/speech` works as for any memo.
 
 The memo shape always carries `done`, `favorite` and `archived` (booleans; `archived` is `archived_at IS NOT NULL`, the time stays server-side) and, only while the
 memo is soft-deleted, `deletedAt` and `purgeAt` (ISO, 10 minutes apart); both are omitted, never null, otherwise. A flag change, a delete and a restore
 publish the existing `memo.updated` SSE event (same payload: `id`, current `state`, `step: null`); the client refetches the memo. The event is internally
-marked `flagChange` (not on the wire): `GET /events` does not follow it with `memo.done`, and the needs-route alert and Live Activity bindings ignore it, so a
+marked `flagChange` (not on the wire): `GET /events` does not follow it with `memo.done`, and the Live Activity binding ignores it, so a
 swipe never re-fires a notification or a result-ready handler.
 
-While a memo is `needs_route`, the memo shape carries `routeReason` (the latest decision's reason) and, on a low-confidence park, `routeSuggestion` (the model's best guess); both are omitted, never null, in every other state.
+**Threads.** A thread is a Hermes session (`threads` row; `kind` is `hermes` for every new one, `chat` only on rows from before the modes folded into one). `threadId` on either create route continues one: the service answers 404 for an unknown thread, 409 `destination_unavailable` while it is composed without Hermes (`hermes: false`; the turn could only fail at `act`, so create refuses it and stores nothing; a replay of an existing memo is judged by its stored thread instead) and 409 `conflict` for a replay whose `threadId` differs (`continuedThread`: a memo's own session, equal to its id, is not a continuation). The memo is stored with that `thread_id`, and `act` delivers into the thread's session (`Destination.deliver({threadId})`: the Hermes adapter skips the session create), one turn at a time per thread (a keyed queue in the `act` handler: a second memo for the same thread waits for the first turn's reply instead of failing; different threads do not wait for each other. The wait is bounded at 30 minutes, the size of a hang guard, since a turn has an idle watchdog but no wall-clock cap: past it `act` fails with `KeyedQueueTimeout` (`thread <id> is busy: waited 1800000 ms behind memo <id>, which has not finished`) and the task never runs, `POST /retry` queues it again. The line stays consistent: the failed waiter keeps its place until the stuck turn ends, so a later memo still waits for that turn, and the stuck turn's eventual completion changes nothing for anyone. A turn that has started is never cut off. `memo/keyed-queue.ts` takes `maxWaitMs` and an injected cancellable sleep: the timer is cleared as soon as the turn ahead finishes, so a served waiter leaves nothing pending). A waiter parked on that queue does not hold a `driveAll` slot: the act handler passes the runner's `whileWaiting` to the queue, which wraps only the wait behind another turn (a turn that starts at once never calls it); the runner gives the memo's slot back for that wait and takes one again, queueing behind whoever holds it, before the waiter delivers, so `driveAll` still runs at most three memos at once and an unrelated memo is never stuck behind a parked thread. Drives outside `driveAll` (HTTP create, retry) hold no slot, so `whileWaiting` is a plain await there. Every turn of a thread re-sends `system_message` (§Pipeline steps, act). The upsert moves the thread's `updated_at` and `last_memo_id` as for any `act`. The conversation is Iris's own data (`threadMessages` in `memo.ts`, built from the thread's memos in `seq` order); Hermes keeps its session but its transcript is never read.
 
-**Threads.** A thread is a Hermes session (`threads` row, `kind` `chat` for a chat, else `hermes`). `threadId` on either create route continues one: the service answers 404 for an unknown thread, 409 `destination_unavailable` while Hermes is not registered (the turn could only fail at route, so create refuses it and stores nothing; a replay of an existing memo is judged by its stored thread instead) and 409 `conflict` for a replay whose `threadId` differs (`continuedThread`: a memo's own session, equal to its id, is not a continuation). The memo is stored with that `thread_id`. The route step forces it to `hermes` (decision source `mode`, no decider call, whatever the mode or a spoken prefix says; Hermes is registered by then, create refused the turn otherwise), and `act` delivers into the thread's session (`Destination.deliver({threadId})`: the Hermes adapter skips the session create), one turn at a time per thread (a keyed queue in the `act` handler: a second memo for the same thread waits for the first turn's reply instead of failing; different threads do not wait for each other. The wait is bounded at 30 minutes, the size of a hang guard, since a turn has an idle watchdog but no wall-clock cap: past it `act` fails with `KeyedQueueTimeout` (`thread <id> is busy: waited 1800000 ms behind memo <id>, which has not finished`) and the task never runs, `POST /retry` queues it again. The line stays consistent: the failed waiter keeps its place until the stuck turn ends, so a later memo still waits for that turn, and the stuck turn's eventual completion changes nothing for anyone. A turn that has started is never cut off. `memo/keyed-queue.ts` takes `maxWaitMs` and an injected cancellable sleep (the timer is cleared as soon as the turn ahead finishes, so a served waiter leaves nothing pending); herdr's per-pane queue leaves it off, its calls are bounded by their own 5 s timeouts, but it takes a `maxDepth`, see the herdr pane queue bullet above). A waiter parked on that queue does not hold a `driveAll` slot: the act handler passes the runner's `whileWaiting` to the queue, which wraps only the wait behind another turn (a turn that starts at once never calls it); the runner gives the memo's slot back for that wait and takes one again, queueing behind whoever holds it, before the waiter delivers, so `driveAll` still runs at most three memos at once and an unrelated memo is never stuck behind a parked thread. Drives outside `driveAll` (HTTP create, retry) hold no slot, so `whileWaiting` is a plain await there with `chat` taken from the thread's kind, not the memo's mode, so every turn of a chat thread re-sends the no-side-effects `system_message`. The upsert moves the thread's `updated_at` and `last_memo_id` as for any `act`. The conversation is Iris's own data (`threadMessages` in `memo.ts`, built from the thread's memos in `seq` order); Hermes keeps its session but its transcript is never read, and a chat is tagged by `threads.kind`, not by Hermes's `source`.
+The memo shape carries `kind` (the normalised kind Hermes reported) and `actions` (tool names, deduplicated, ≤ 12); both are omitted, never null, when absent or empty. `route` stays on the shape as a nullable field no step writes. `routeReason` and `routeSuggestion` are gone.
 
 **Planned, not built:** the `targetTab` / `language`
 fields of `POST /v1/memos`.
@@ -311,81 +272,53 @@ the exported JSON Schema matches `contracts/schema`.
 
 ### Pipeline steps
 
-Shipped as five runner steps: `transcribe` (includes the concat below), `route`, `act`, `summarize`, `notify`. The journal and herdr
-destinations are registered by `compose()` from `BRAIN_DIR`, `HC_BIN` + `HC_SOCKET` and `HERDR_SOCKET`. The timeouts follow `agent-limits.md`
-(idle watchdogs and 30-minute hang guards, not the budgets sketched earlier). Transient failures are retried automatically (§Memo state
+Three runner steps: `transcribe` (includes the concat below), `act` and `notify`. `act` runs for every mode but `transcribe` (`runsAct(mode)`, `memo/memo.ts`). The timeouts
+follow `agent-limits.md` (idle watchdogs and 30-minute hang guards, not the budgets sketched earlier). Transient failures are retried automatically (§Memo state
 machine, Retries); retention (audio deleted 30 days after `notified`) is not built. Recover a `failed` memo with `POST /retry`.
 
 1. **concat:** `ffmpeg -f concat` over the segments → decode → mono 16 kHz
    AAC. Records `audio_seconds`.
 2. **transcribe:** `POST <audio door>/audio/transcriptions` (`AUDIO_DOOR_URL` carries the `/v1`).
    - Fields: `model=voxtral-mini-transcribe-3-0`, `language` (the device hint or
-     auto), and `context_bias` (repo names, live tab labels, recent thread
-     titles).
+     auto), and `context_bias` (repo names, recent thread titles).
    - Header: `Authorization: Bearer <AUDIO_DOOR_TOKEN>`; the answer carries `agw-run-id`, logged and set on the span as `agw.run_id`. A 401 is final.
    - The door handles chunking up to about 2 h. A 413 is terminal.
-3. **route:** only destinations with a registered act adapter are choices (`Destinations`). Mode `transcribe` never reaches this step (§Memo state machine): `RoutableMode` (`memo.ts`, every mode but `transcribe`, narrowed by `isRoutableMode`) is the type `route()` takes, so the step handler checks the mode once and `stepsOf`, the transitions and the service's `transcribe` refusals read the same predicate.
-   - If the memo's mode is not auto, it wins (`journal` → journal, `hermes` → hermes, `tab` → herdr, `chat` → hermes). Source `mode`; a chat memo is never routed elsewhere by prefix or `decide`. Mode `tab` carries no name:
-     it routes to the only live tab, and parks with "which tab?" when there are several or none.
-   - Otherwise the prefix parser matches "journal|tagebuch", "an hermes|hermes", "tab <name>", case- and diacritic-insensitive, with the
-     phrase starting within the first 6 words. Everything up to and including the phrase, plus trailing punctuation, is
-     cut from the text `act` and `summarize` receive (`deliveredTranscript`, derived from the raw transcript whenever a `prefix` decision exists;
-     kept whole when nothing else was said). `memos.transcript` stays the raw speech-to-text, so a retry from `route` routes the same way. Source `prefix`.
-   - **Multi-word tab names:** after "tab" the parser reads up to 5 words (none empty, none past one that ends in punctuation) and, given the live tab and repo labels, takes the longest run that equals a label, comparing folded with punctuation as a space (spoken "iris server ops" = label `iris-server-ops`); no match leaves the first word alone. A label that only shares its first words never matches ("tab iris server" does not name `iris-server-ops`). The decision row records `prefix_words`, the count of leading transcript words the prefix covers (words before the phrase included), and `deliveredTranscript` cuts exactly that many words, because the herd that told where the name ended is not there on a retry or at `act`; a row without a count (older rows, the act-time park row) falls back to parsing again. No wire change: the count is not in any response.
-   - **Spoken tab resolution:** a spoken tab name is resolved against the live `Herd` to a tab id, which is what the decision stores. It matches
-     a tab label or a workspace (repo) label, ignoring case and diacritics. Exactly one match routes; none or several park with a
-     reason that names the spoken name (`no tab named "x"`, `several tabs match "x"`); a herd that cannot be read parks as "herd unavailable".
-     Every park of this kind carries `destination: herdr`.
-   - A mode or prefix that names an unregistered destination parks at `needs_route` with the reason "<destination> not available".
-   - With fewer than two registered destinations the step stops here: it routes to the only one (source `default`, confidence 1, no spend). When that
-     one is herdr it needs a tab like mode `tab` does: the only live tab, else a park with "which tab?" (or "herd unavailable").
-   - Otherwise call `decide` through the `Decider` port (agw host `POST /decide`, hang guard like `triage`) with state = transcript (first 4k chars) + one line
-     per live tab, and questions `destination: choice[<registered>]`, plus `tab: choice[...]` when herdr is registered and there are live
-     tabs. A failing `Herd` call omits the tab lines and the question. Source `decide`.
-   - At confidence ≥ 0.8 → `routed` (for herdr the weaker of destination and tab confidence, and a live tab is required); otherwise
-     `needs_route` with the model's best guess recorded as the decision's destination. A refusal, an unknown choice, herdr without a live tab
-     and a missing decider ("decide unavailable") park the same way. An infrastructure failure of the call (transport error, hang guard,
-     off-schema answer) throws instead: the step fails and `POST /retry {from: route}` recovers it.
-   - Every outcome is written to `route_decisions`; the step row records the `decide` cost and usage (`costUsd` null stays null, never 0), and the log
-     line and span of the call carry the host's `agw.run_id`.
-   - **decide's model (S4, 2026-10-29):** the host's `decide` runs `decision-1-eu` (off Requesty; the answer's `model` reads `microsoft-decision-1`). A live probe through
-     `route()` and the real adapter, journal / hermes / herdr registered with two live tabs, bounded by `timeout`: journal 0.9996 and 0.9998, hermes 0.9940 and
-     0.9997, herdr 0.985 (tab `iris / server` picked) and 0.985 (tab `dotfiles / claude` picked), a vague "mach mal das Ding fertig" 0.30 (parked at `needs_route`).
-     Every clear case routes far above 0.8 and the ambiguous one falls far under it, so the 0.8 threshold stays. Span attributes `route`,
-     `route.source`, `route.confidence`; log `route.decided`.
-4. **act:** dispatches on `memo.route`; a route without a registered destination fails the step. For `herdr` the tab comes from the latest
-   routed decision (`store.listRouteDecisions`, not a `correction`) and is passed to `Destination.deliver` as `tab`; a herdr route without one
-   parks the memo (reason "which tab?"). A `TabGoneError` from the destination parks it instead of failing it too. Either way `act` returns
-   `needs_route` with a decision row (outcome `needs_route`, destination `herdr`, the tab or null, the reason, the source of the decision that
-   routed it), and the answer re-runs `act`. Any other delivery failure fails the step as before.
+3. **act:** registered only when a `Destination` is composed (`HERMES_URL` + `HERMES_TOKEN`, or the fake); without one the memo waits at `transcribed` and `/health` lists `act` in `degraded`.
+   The handler calls `destination.deliver({memoId, transcript, mode, threadId?})` with the raw transcript (no prefix is cut any more; `threadId` only for a memo that continues a thread,
+   `continuedThread(memo)`), through the keyed queue per thread (§HTTP API, Threads), syncs the reply assets (§Reply assets) and returns the patch
+   `{destinationRef, replyText, thread, kind, actions, summary}`; `kind`, `actions` and `summary` come from `Delivery.meta` (`{kind: string|null, summary: Summary|null, actions: string[]}`; no meta →
+   `null`, `[]`, `null`). `memo.route` is never written by a step (null on new memos). There is no summarize handler.
 
-   | Destination | Action |
-   |-|-|
-   | journal | Write `brain/Inbox/<YYYY-MM-DD>-<slug>.md` (frontmatter `title`, `date`, `tags: [journal, iris]`, `source: iris`, `memo`) under the brain-sync lock (`brain/docs/brain-access.md`), then commit and push following that doc |
-   | herdr | hc world first: `terminal.list {labels: {"herdr.tab": <tab>}}` finds the tab's agent terminal, `terminal.send {terminal, text}` pastes the transcript and presses Enter (`TabGoneError` when no live terminal, `not_found` or `finished`; a blocked agent is `unavailable`); a tab hc does not know falls back to classic herdr (TODO(Wave 7): drop classic), which does `pane.send_text` (the transcript) + `pane.send_keys ["enter"]` on the tab's agent pane over the herdr socket (the pane comes from `session.snapshot`: the tab's agent, else its only pane). A tab missing from the snapshot, or a `pane_not_found` answer to either write (the tab closed in between), is `TabGoneError`, which leads to `needs_route`. Deliveries to one pane are serialised in the adapter, so text and Enter of two memos never interleave. `ref` is the tab id, `reply_text` stays empty |
-   | hermes | `POST /api/sessions {id: memoId, source: "iris"}` (201/409 = OK) → `POST /api/sessions/:id/chat/stream {message}`. Collect the final assistant text from the SSE, store it as `reply_text`, and upsert `threads` (kind `hermes`) |
-   | hermes, mode `chat` | The same, with `source: "iris-chat"` and `system_message` on every `chat/stream` turn: answer conversationally and take no action with side effects (no tool call that writes, sends, schedules or changes anything). Thread kind `chat`. `system_message` is Hermes' per-turn ephemeral system prompt: appended to that turn's prompt, never stored, so a later turn in the same session must send it again |
+   **The Hermes turn** (`adapters/hermes.ts`). A new session is `POST /api/sessions {id: memoId, source: "iris"}` (201/409 = OK); a continuation skips it. Every turn, new or continued, is then
+   `POST /api/sessions/:id/chat/stream {message: transcript, system_message}` and the final assistant text is collected from the SSE. `system_message` is Hermes' per-turn ephemeral system prompt (appended to that
+   turn, never stored), so it is sent on every turn. It is `IRIS_SYSTEM_MESSAGE`, exported from the adapter:
 
-   **Hermes rewrites unknown session sources.** `_normalize_session_source` in Hermes' `api_server` keeps only its own allow-list (`api_server`, `browser`, `cli`, `telegram`, `discord`, `slack`, `desktop`, `dashboard`) and maps anything else to `api_server`. Both `iris` and `iris-chat` are therefore stored as `api_server` on the Hermes side: a chat is not visible there. `threads.kind` in Iris's own database is the marker. The values are still sent, which works unchanged if Hermes widens its list.
+   > This turn comes from Iris: the message is a transcript of the owner's voice memo (German or English, speech-to-text errors likely). Load skill_view('iris') and follow it: decide what the memo is, act with your skills (a side effect only when the memo asks for one), and end your reply with exactly one ```iris block.
 
-   **Continuing a thread** (shipped, see Threads under the HTTP API): `Destination.deliver` takes `threadId`; the Hermes adapter then uses that session as it is (no `POST /api/sessions`) and goes straight to `chat/stream`.
-5. **summarize:** agw host `POST /triage {destination, transcript, reply?}` (raw fields, sent whole; the host cuts each at 4000 characters and owns the prompt) answering the flat
-   `{headline (≤60), detail (≤240), spoken (≤300 characters, the cap standing for two sentences), model, attempts, latencyMs, usage}`. Journal and herdr skip the model
-   and use templates (no spend, no summarizer needed): headline "Saved to journal" / "Sent to <repo> / <label>" (≤60; "Sent to tab" when the
-   herd no longer lists the tab), detail the whitespace-collapsed transcript excerpt (≤240), spoken one sentence. Hermes keeps the model and
-   fails the step without a summarizer; the step is optional (§Memo state machine, Optional steps), so the memo goes on to `notify` with
-   `summary` null and `/health` keeps listing `summarize` in `degraded` while no summarizer is configured.
-6. **notify:** (without a summary: headline = the delivered transcript, whitespace collapsed, clipped to 60 characters; the alert body and
-   the Live Activity `end` use it, `spoken` is empty)
-   - a Live Activity `update` (priority 5) for each phase change, plus a final
-     `end` with the result content state and `dismissal-date` = now + 15 min;
-   - one alert (priority 10, `mutable-content: 1`, `category: MEMO_DONE` or
-     `MEMO_NEEDS_ROUTE`, `thread-id: memo`, a `memo` id in the custom payload). `MEMO_NEEDS_ROUTE` ships: sent
-     best-effort when a memo enters `needs_route` (generic title plus the park reason, never transcript or reply),
-     alert only, since the Live Activity `needsRoute` update comes from the phase binding. Both alerts share the
-     collapse id (the memo id), so the done alert replaces the needs-route banner;
+   The modes of an older app build add one line, `The owner picked: Chat.` / `Journal.` / `Tab.` (`systemMessage(mode)`); `auto` and `hermes` add nothing, and the thread kind is `hermes` either way.
+   Hermes rewrites unknown session sources: `_normalize_session_source` keeps only its own allow-list (`api_server`, `browser`, `cli`, `telegram`, `discord`, `slack`, `desktop`, `dashboard`), so `iris` is stored as `api_server` there;
+   the value is still sent, which works unchanged if Hermes widens its list.
+
+   **The `iris` block contract.** Hermes ends its reply with one fenced block tagged `iris`: JSON `{kind, headline, spoken}` (strings). `parseIrisBlock(reply)` is lenient and never fails the step:
+   - the **last** ```` ```iris ```` fence wins (an opening fence, `iris`, a newline, the JSON, a closing fence); extra keys are ignored;
+   - the fence and the whitespace before it are **stripped from `reply_text`**, also when the block is invalid (a machine block is never the answer);
+   - `kind` goes through `normalizeKind` (trim, lower-case, cut to 24 code points, empty → null); `headline` is trimmed and clipped to 60 code points (`HEADLINE_MAX`, ellipsis); `summary = {headline, detail: "", spoken}`
+     (`Summary.detail` stays empty; null when the headline is blank, so `notify` falls back to the transcript);
+   - no fence, bad JSON or a missing key gives `meta: null` and the adapter logs `hermes.meta_invalid {memo_id, reason}` (`reason`: `missing_block`, `invalid_json` or `invalid_shape: <paths>`; never the content). The memo still completes, with no kind and the transcript as headline.
+
+   **`actions`.** The SSE `tool.started` frames of the turn carry `tool_name`; the adapter collects the names only (never arguments) and `normalizeActions` trims, drops blanks, deduplicates (first seen) and keeps at most 12 (`ACTIONS_MAX`).
+   They are stored in `memos.actions_json` and shown as what Hermes did.
+4. **notify:** announces `memo.summary`; without one the headline is the transcript, whitespace collapsed, clipped to 60 code points (`transcriptSummary`: detail 240, `spoken` empty). A memo that never reached a summary (mode `transcribe`, a Hermes reply with no valid block) is announced the same way.
+   - a Live Activity `update` (priority 5) for each phase change (`processing`, `done`, `failed`; an old `needs_route` state maps to `processing`), plus a final
+     `end` with the result content state and `dismissal-date` = now + 15 min; the content state carries `routeChip` = the memo's `kind` capitalised (≤ 30 code points; no chip when the kind is null);
+   - one alert (priority 10, `mutable-content: 1`, `category: MEMO_DONE`, the only category, `thread-id: memo`, a `memo` id in the custom payload), titled with the same kind chip or "Iris" when there is none;
    - SSE `memo.done`;
    - a `log` stand-in when APNs is not configured.
+
+**Retired 2026-11-04 (Wave 21 S1).** Iris used to classify each memo itself: a spoken prefix (journal, hermes, `tab <name>`), then agent-workflows `decide` (confidence ≥ 0.8 routed, otherwise the memo parked at `needs_route` until
+the owner answered in the app with `POST /route`), then one of three destinations (a journal note in the brain inbox, a herdr/hc tab, Hermes, plus a chat mode with a no-side-effects prompt) and an optional `summarize` (`triage`) step.
+It went because 16 of 27 `auto` memos in production parked at `needs_route` on low `decide` confidence (0.25 to 0.77), and Hermes already routes with its skills. The full design (the `routing/` module, `Decider`, `Herd`, `Summarizer`, the journal and herdr adapters,
+`route_decisions`, the answer API and the pane queue) is in git history before the Wave 21 S1 commit.
 
 **Speech-ready variant** (`memo/speech-text.ts`, a pure function; no stored column, no migration, no wire change). `MemoMedia.speech` derives it on
 every `GET /v1/memos/:id/speech` from `replyText` and `summary.spoken`, so a retry that changes the reply changes the variant, and the text-keyed
@@ -397,7 +330,7 @@ synthesis path, so [Play] and spoken replies share it.
 - **Language:** the summary phrases ("ein Codeblock", "Details auf dem Bildschirm.") follow the language of the reply, found by counting German
   versus English function words outside code and URLs; German on a tie, since the transcripts are mostly German.
 - **Threshold:** a cleaned reply up to `SPEECH_MAX_CHARS` = 600 characters (about 40 s aloud) is spoken whole. Longer, the variant is
-  `summary.spoken` + "Details on screen." (the first whole sentences of the cleaned reply when there is no summary, e.g. summarize failed). Measured on the cleaned
+  `summary.spoken` + "Details on screen." (the first whole sentences of the cleaned reply when there is no summary, e.g. Hermes sent no `iris` block). Measured on the cleaned
   text, so a long code block does not push a short answer past it. Without a reply the (cleaned) `summary.spoken` is spoken. A notified memo
   with a reply and no summary is therefore speakable (`/speech` is 409 only when there is neither).
 
@@ -464,10 +397,7 @@ The research gateway was down for this item (503), so the facts above come from 
 | Pele | npm `pele` 1.10.0 (MIT), `render(text, {fontFamily}) → {svg, width, height}` sync, throws `PeleError`; theme = `--pele-bg/fg/muted/line/surface/surface-alt/border/accent/critical/error/font` and `--pele-series-1..8` on the root `<svg>` | https://pele.run, `node_modules/pele/dist/*.d.ts` |
 | resvg-js | `@resvg/resvg-js` 2.6.2: `new Resvg(svg, {background, fitTo: {mode: "zoom", value}, font: {loadSystemFonts, defaultFontFamily}}).render().asPng()`; no CSS `var()` support, so the SVG is resolved first | https://github.com/thx/resvg-js |
 | audio door | agent-workflows `audio` process, `http://127.0.0.1:7792/v1`, `Authorization: Bearer` from the `iris=` line of `~/.agent-workflows/data/door-tokens`. Synchronous multipart; `{text}` (`verbose_json` = one segment, so no timestamps); TTS at `POST /audio/speech`, `response_format` mp3. 401 `{error:{message:'unauthorized'}}`. Every response, errors included, has `agw-run-id` (the run that records the call and its cost). `GET :7792/health` is `make verify`'s downstream check | `agent-workflows/packages/audio/README.md` ("The door on the process", "Caller auth") |
-| agent-workflows host | `http://127.0.0.1:7791`, `Authorization: Bearer <AGW_API_SECRET>` (`op://mini/agent-workflows/API_SECRET`), `x-agw-purpose: iris`, `x-agw-caller: iris`, `x-agw-project: iris`, no redirects. Synchronous `POST /triage` and `POST /decide`; flat answers carry `model`, `latencyMs`, `usage` (`costUsd` null when any attempt is unpriced). Every response, errors included, has `agw-run-id`. 400, 401 and 502 `INVALID_OUTPUT` are final, 500 and 503 transient. `GET :7791/health` is `make verify`'s downstream check | `agent-workflows/packages/capabilities/README.md` (triage, decide), `packages/host/README.md` (auth, cancel, idempotency) |
-| Hermes | Bearer from `op://hermes/gateway/api-server-key`; SSE named events | `argo/apps/api/src/lib/hermes-upstream.ts` |
-| herdr-core | JSON-RPC 2.0 lines through a per-request `hc connect`: `terminal.list`, `terminal.send` | `hc --skill`, `hc schema` |
-| herdr (classic, until Wave 7) | Newline-delimited JSON over `~/.config/herdr/herdr.sock`: `session.snapshot`, `pane.send_text`, `pane.send_keys` | collie `HERDR_API.md` |
+| Hermes | Bearer from `op://hermes/gateway/api-server-key`; `POST /api/sessions {id, source: "iris"}` (201/409 = OK), `POST /api/sessions/:id/chat/stream {message, system_message}`, SSE named events. Tool names for `actions` come from the SSE event `tool.started`, data field `tool_name` (hermes-agent `gateway/platforms/api_server.py`, `_tool_progress`, lines 3115-3127); only names are read, never arguments | `argo/apps/api/src/lib/hermes-upstream.ts`, hermes-agent `gateway/platforms/api_server.py` |
 | APNs | HTTP/2 `api.push.apple.com` / `api.sandbox.push.apple.com`. ES256 provider JWT, refreshed every 20–60 min (`@parse/node-apn` regenerates it at 55 min, inside the window). Live Activity: `apns-push-type: liveactivity`, topic `<bundle>.push-type.liveactivity`, `aps.{timestamp, event, content-state}`. Priority 5 doesn't consume the budget, 10 does | `docs/research/2026-10-27-apns-from-bun.md` |
 
 ### Configuration and secrets
@@ -481,13 +411,13 @@ The research gateway was down for this item (503), so the facts above come from 
 | `IRIS_DEVICE_TOKENS` | Device tokens |
 | `IRIS_DATA` | The data directory |
 | `AUDIO_DOOR_URL`, `AUDIO_DOOR_TOKEN` | The audio door base (with `/v1`) and the `iris` caller token. Both register `transcribe` and `speech`. The URL is a plain value in `.env.local.tpl`; `launch.sh` reads the token from the local `door-tokens` file (no 1Password ref) |
-| `AGW_URL`, `AGW_API_SECRET` | The agent-workflows host base (`http://127.0.0.1:7791`, https or loopback) and its bearer (`op://mini/agent-workflows/API_SECRET`). Both register `summarize` (`triage`) and the decider (`decide`) |
-| `HERMES_URL`, `HERMES_TOKEN` | Hermes endpoint and bearer |
-| `HC_BIN` + `HC_SOCKET` | The `hc` binary and the launchd core's socket (both); register the `herdr` destination and serve `GET /v1/herd`; `hc` is never spawned while the socket file is missing |
-| `HERDR_SOCKET` | Path to the classic herdr socket; registers the same destination and herd beside hc (TODO(Wave 7): drop classic) |
-| `BRAIN_DIR` | The brain checkout; registers the `journal` destination (notes in `Inbox/`, then `git push`). Optional: unset leaves journal unregistered, not degraded. `launch.sh` sets it on the mini when `~/SourceRoot/brain` exists |
+| `HERMES_URL`, `HERMES_TOKEN` | Hermes endpoint and bearer. Both register `act`, the one destination; unset leaves every memo waiting at `transcribed` and `act` in `/health` `degraded` |
 | `APNS_KEY_P8`, `APNS_KEY_ID`, `APNS_TEAM_ID`, `APNS_TOPIC` | APNs credentials |
+| `IRIS_FAKES` | Boots every downstream port from in-memory fakes (`make e2e`); `degraded` then lists `fakes`. Never set in production (`launch.sh` refuses) |
 | `OTEL_*` | Telemetry export |
+
+`env.ts` parses only these. `AGW_URL`, `AGW_API_SECRET`, `HERDR_SOCKET`, `HC_BIN`, `HC_SOCKET` and `BRAIN_DIR` were removed with the routing (Wave 21 S1). `/health` `degraded` lists
+only `otel` (no OTLP endpoint), `fakes`, `device-tokens` (empty map), `transcribe`, `act` and `speech` (a missing port); APNs falls back to the log notifier without being listed.
 
 New refs go into `dotfiles-private/headless.refs`.
 
@@ -610,6 +540,8 @@ follows the memos: `evict(memoID:)` removes `<memo>.*` (recording, speech, diagr
 
 ### Optional summarize, money, offline History (Wave 16 I2)
 
+Superseded by Wave 21 A1 where it describes the optional `summarize` step (the step is gone; a memo without a summary falls back to the transcript headline).
+
 - **A memo without a summary** (`summary == null`, `notified`, a failed `summarize` step; S1) reads as done. The History row and the detail header fall back to the transcript on
   one line, cut at 60 characters with an ellipsis (the server's own clip for alerts, `Memo.clipped`); the detail has no summary paragraph. In the waterfall the failed step is
   **failed-but-optional** (`StepWaterfallRow.optionalNote`): a warning triangle and amber error box instead of the red cross, "Optional · the memo is done without it", the attempts,
@@ -640,6 +572,8 @@ follows the memos: `evict(memoID:)` removes `<memo>.*` (recording, speech, diagr
   flow runs to its answer on fakes (`ReplyFlowReviewUITests` shows it).
 
 ### Routing on iOS (Wave 16 I3, R2)
+
+Superseded by Wave 21 A1: the server no longer routes, serves `POST /route` or `GET /herd`, or pins memos (§3).
 
 - **One mode picker.** `ModePicker` (chips over `ChoiceChips`) is the composer's picker and the record control's: a tap on the record accessory still records in Auto, a
   long press opens a context menu with the voice modes and "Choose mode…", which opens `RecordModeSheet` (the same chips, one line on what the mode does, Start). A voice take offers Auto, Journal, Hermes, Chat and Transcribe (`MemoMode.voiceModes`; Transcribe has the `text.alignleft` icon and ends the memo with its transcript: History shows the transcript as the headline with "Transcribe" as the route label, the detail has a Transcript section and no Reply, no route card and no "Wrong route?"; its dashes and waterfall hold transcribe and notify only); Tab is
@@ -973,7 +907,7 @@ the runner needs a workflow step and was left out of this change (owned files: `
   - `phase` (recording/paused/uploading/processing/needsRoute/done/failed). `recording`, `paused` and `uploading` are the
     client's own (Wave 15 I3): `TakeLiveActivityCoordinator` sets them locally while the take is on the phone (recording while it
     runs, paused during an interruption, uploading from the stop until the outbox has sent the memo), then `processing`, and the
-    server's pushes (`processing`, `needsRoute`, `done`, `failed`; the wire enum and fixtures are unchanged) carry it from there.
+    server's pushes (`processing`, `done`, `failed` since Wave 21 S1; `needsRoute` stays in the `LiveActivityPhase` enum and decodes, the server no longer sends it) carry it from there.
     The activity's push token is kept by `ActivityTokenRegistrar` per memo until the activity ends, not until the hand-over: a PUT
     that failed is retried with a growing delay, and a token that rotates later is sent too. One `PUT` per memo is out at a time, so a rotation that arrives while one is in flight is sent after its answer and an older token's slow answer
     can never replace a newer one; the in-flight gate is keyed by memo id, not held on the entry, so a `finish` + `begin` of the same memo during a `PUT` makes the new entry's sender wait and then carry on with the newest token (never two `PUT`s at once).
@@ -1312,6 +1246,11 @@ targets use MainActor default isolation (SE-0466). Verified against Xcode 27.1
 
 The UI test bundle sets `SWIFT_DEFAULT_ACTOR_ISOLATION: nonisolated`. Local
 packages are `nonisolated` by default (`swiftLanguageModes: [.v6]`, tools 6.2).
+**IrisCore and the Wave 21 S1 wire.** `Memo` decodes the new `kind` (`String?`) and `actions` (`[String]`, empty when absent). `pinned`, `pinnedTruncated`, `routeReason` and `routeSuggestion` stay as decode-only defaults
+(`[]`, `false`, `nil`) for compatibility until the app is reworked in Wave 21 A1; the server no longer sends them. `ListMemosQuery` sends `kind` (the memo kind, exact) and `thread=true`; its `ThreadKind` filter is legacy and maps to `thread=true`.
+`Stats` is per memo kind (`perDay`, `stepMedians`, `costPerKind`; a null kind reads as `unrouted` where the app still groups by route). `ThreadKind` keeps `hermes` and the old `chat`; `GET /threads` takes no `kind`.
+`routeMemo`, `herd` and `LiveActivityPhase.needsRoute` stay in the API surface, but the server no longer serves them (404). Fixtures: the herd, route and pinned ones are deleted; `needs-route` and `summarize-failed` detail fixtures stay as old-row decode cases.
+
 Packages never depend on each other except through `IrisCore`; `IrisCapture`,
 `IrisUI` and `IrisTelemetry` currently define what they need locally and gain
 the `IrisCore` dependency when R1 wires them together.
@@ -1348,8 +1287,8 @@ the `IrisCore` dependency when R1 wires them together.
   files.
   - Resource attributes: `service.name=iris-server`, `host.name=mini`, and
     `deployment.environment`.
-  - Metrics as named log events: `memo.completed{route, audio_s, total_ms,
-    cost_usd}`, `route.decided{source, confidence, corrected}`, `stt.latency`.
+  - Metrics as named log events: `memo.completed{kind, audio_s, total_ms,
+    cost_usd}`, `stt.latency`; the Hermes adapter logs `hermes.meta_invalid{memo_id, reason}` when a reply has no valid `iris` block.
 - **Clients:** `IrisTelemetry` buffers spans and logs (in memory plus a file
   for crash survival) and flushes batches to `POST /v1/telemetry` every 10 s,
   on background, and on launch.
@@ -1448,16 +1387,14 @@ the `IrisCore` dependency when R1 wires them together.
     `UserDefaults`, and the extension has no other way to reach it. `StartMemoIntent` and the Live Activity buttons are
     `LiveActivityIntent`s and run in the app process, where they *are* relayed; a Record press with no `intent.perform` means the
     app was never reached.
-- **Propagation:** the audio door and the agw host don't accept `traceparent` (factory
+- **Propagation:** the audio door doesn't accept `traceparent` (factory
   ADR-006 plans it), so Iris spans carry the memo id as an attribute on every
   downstream call. Once ADR-006 lands, `traceparent` is added.
 - **Cost:**
   - STT/TTS spend is recorded by the audio door as a run per request (caller `iris`, from the bearer token's
     name); the `agw-run-id` of each call is on the Iris span and log line (`agw.run_id`), so a memo's trace
     leads to its run record;
-  - `decide`/`triage` spend is recorded by the host as a run per call (purpose `iris`, the `x-agw-purpose` header; caller `iris` and project `iris`, the
-    `x-agw-caller` / `x-agw-project` headers, so the ledger books it to iris, not to `agw`);
-    the `agw-run-id` of each call is on the Iris span and log line (`agw.run_id`) as for the audio door;
+  - the Hermes turn's usage and cost come back on the delivery and are stored on the `act` step row;
   - Iris posts no usage rows (they would double-count). It stores per-step
     `usage`/`cost_usd` for the memo detail.
 - **Later (not R0–R3):** HyperDX alerts (`iris memo-failed ≥ 1/15m`,
@@ -1559,9 +1496,9 @@ the `IrisCore` dependency when R1 wires them together.
 - **Exposure:** the server binds loopback and Caddy is the only door, on the
   tailnet. There is no public exposure.
 - **Content:** transcripts and audio never leave the mini except to
-  the audio door (STT/TTS) and the agw models. APNs payloads carry headlines
-  only, never full transcripts; when `summarize` failed, the headline is the
-  first 60 characters of the transcript (owner-confirmed, Wave 16); the same rule gives a `transcribe`-mode memo its headline, which is
+  the audio door (STT/TTS) and Hermes. APNs payloads carry headlines
+  only, never full transcripts; when Hermes sent no valid `iris` block, the headline is the
+  first 60 code points of the transcript (owner-confirmed, Wave 16); the same rule gives a `transcribe`-mode memo its headline, which is
   always the transcript's start.
 
 ## 13. Risks and unverified
@@ -1578,5 +1515,5 @@ the `IrisCore` dependency when R1 wires them together.
 | `xcode-27` is a preview CI image | Fall back to `macos-26` (D14) |
 | Exact Swift build-setting spellings (default isolation) | Verified in the setup wave against Xcode 27.1 |
 | Personal Team cannot sign Push or App Groups; 7-day profiles, 10 App IDs per 7 days | Device builds sign with entitlements minus `aps-environment` and the App Group (`DEVICE_SIGNING=personal`); `DEVICE_SIGNING=paid` signs the tracked files. Verified Wave 17 D1 on an iPhone 15, iOS 26.6.1: build, install and launch work, headless codesign needed no keychain prompt; S3 and the APNs rows wait for the paid team |
-| `decide` confidence calibration | Logged decisions and corrections; threshold tuned after 100 memos |
+| Hermes's `iris` block quality (kinds drift, headlines too long, block missing) | `hermes.meta_invalid` logs and the `kind` spread in Stats; the fix is the Hermes `iris` skill, not Iris |
 | Voxtral has no timestamps | Plain transcript in R1–R3; revisit if a synced transcript matters |
