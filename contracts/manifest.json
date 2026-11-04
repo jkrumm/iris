@@ -176,37 +176,6 @@
       }
     },
     {
-      "method": "POST",
-      "path": "/v1/memos/:id/route",
-      "auth": "bearer",
-      "request": {
-        "mediaType": "application/json",
-        "schema": "memos.route.request"
-      },
-      "responses": {
-        "202": {
-          "mediaType": "application/json",
-          "schema": "memos.route.response"
-        },
-        "200": {
-          "mediaType": "application/json",
-          "schema": "memos.route.response"
-        },
-        "400": {
-          "mediaType": "application/json",
-          "schema": "error"
-        },
-        "404": {
-          "mediaType": "application/json",
-          "schema": "error"
-        },
-        "409": {
-          "mediaType": "application/json",
-          "schema": "error"
-        }
-      }
-    },
-    {
       "method": "GET",
       "path": "/v1/memos",
       "auth": "bearer",
@@ -509,21 +478,6 @@
     },
     {
       "method": "GET",
-      "path": "/v1/herd",
-      "auth": "bearer",
-      "responses": {
-        "200": {
-          "mediaType": "application/json",
-          "schema": "herd.response"
-        },
-        "503": {
-          "mediaType": "application/json",
-          "schema": "error"
-        }
-      }
-    },
-    {
-      "method": "GET",
       "path": "/v1/stats",
       "auth": "bearer",
       "query": "stats.query",
@@ -572,12 +526,12 @@
     {
       "name": "liveactivity.content-state",
       "schema": "liveactivity.content-state",
-      "notes": "aps.content-state of a Live Activity update or end push. inputName is never sent: the device knows it, and the Swift ContentState declares it optional. routeChip and headline are omitted, not null, while unknown."
+      "notes": "aps.content-state of a Live Activity update or end push. inputName is never sent: the device knows it, and the Swift ContentState declares it optional. routeChip (the memo's kind, capitalised) and headline are omitted, not null, while unknown. phase is processing, done or failed."
     },
     {
       "name": "push.alert",
       "schema": "push.alert",
-      "notes": "The whole alert body. The custom memo key is the memo id the app opens on tap. category is MEMO_DONE for a finished memo and MEMO_NEEDS_ROUTE for one parked awaiting a destination (generic title, the park reason as body, never transcript or reply text); both share the collapse id (the memo id), so the done alert replaces the needs-route banner."
+      "notes": "The whole alert body. The custom memo key is the memo id the app opens on tap. category is MEMO_DONE; the title is the memo's kind (omitted kind: \"Iris\"), the body its headline, never transcript or reply text. The alert's collapse id is the memo id, so a re-send replaces the banner."
     }
   ]
 }

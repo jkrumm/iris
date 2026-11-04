@@ -3,28 +3,103 @@
   "from": "2026-03-08",
   "to": "2026-03-14",
   "perDay": [
-    { "date": "2026-03-12", "route": "hermes", "count": 3 },
-    { "date": "2026-03-12", "route": "unrouted", "count": 1 },
-    { "date": "2026-03-14", "route": "herdr", "count": 2 },
-    { "date": "2026-03-14", "route": "journal", "count": 1 }
+    {
+      "date": "2026-03-12",
+      "kind": null,
+      "count": 1
+    },
+    {
+      "date": "2026-03-12",
+      "kind": "task",
+      "count": 3
+    },
+    {
+      "date": "2026-03-14",
+      "kind": "note",
+      "count": 2
+    },
+    {
+      "date": "2026-03-14",
+      "kind": "question",
+      "count": 1
+    }
   ],
   "perWeek": [
-    { "weekStart": "2026-03-09", "count": 7 }
+    {
+      "weekStart": "2026-03-09",
+      "count": 7
+    }
   ],
   "stepMedians": [
-    { "step": "transcribe", "route": "herdr", "medianMs": 3980, "samples": 2 },
-    { "step": "transcribe", "route": "hermes", "medianMs": 4120, "samples": 3 },
-    { "step": "transcribe", "route": "journal", "medianMs": 4410, "samples": 1 },
-    { "step": "transcribe", "route": "unrouted", "medianMs": 3600, "samples": 1 },
-    { "step": "route", "route": "hermes", "medianMs": 1850, "samples": 3 },
-    { "step": "act", "route": "hermes", "medianMs": 2310, "samples": 3 },
-    { "step": "summarize", "route": "hermes", "medianMs": 6400, "samples": 3 },
-    { "step": "notify", "route": "herdr", "medianMs": 175, "samples": 2 }
+    {
+      "step": "transcribe",
+      "kind": null,
+      "medianMs": 3600,
+      "samples": 1
+    },
+    {
+      "step": "transcribe",
+      "kind": "note",
+      "medianMs": 3980,
+      "samples": 2
+    },
+    {
+      "step": "transcribe",
+      "kind": "question",
+      "medianMs": 4410,
+      "samples": 1
+    },
+    {
+      "step": "transcribe",
+      "kind": "task",
+      "medianMs": 4120,
+      "samples": 3
+    },
+    {
+      "step": "act",
+      "kind": "note",
+      "medianMs": 8100,
+      "samples": 2
+    },
+    {
+      "step": "act",
+      "kind": "task",
+      "medianMs": 9300,
+      "samples": 3
+    },
+    {
+      "step": "notify",
+      "kind": "note",
+      "medianMs": 175,
+      "samples": 2
+    },
+    {
+      "step": "notify",
+      "kind": "task",
+      "medianMs": 190,
+      "samples": 3
+    }
   ],
-  "costPerRoute": [
-    { "route": "herdr", "costUsd": 0, "memos": 2 },
-    { "route": "hermes", "costUsd": 0.0421, "memos": 3 },
-    { "route": "journal", "costUsd": 0.0107, "memos": 1 },
-    { "route": "unrouted", "costUsd": 0.0032, "memos": 1 }
+  "costPerKind": [
+    {
+      "kind": null,
+      "costUsd": 0.0032,
+      "memos": 1
+    },
+    {
+      "kind": "note",
+      "costUsd": 0.0107,
+      "memos": 2
+    },
+    {
+      "kind": "question",
+      "costUsd": 0.0121,
+      "memos": 1
+    },
+    {
+      "kind": "task",
+      "costUsd": 0.0421,
+      "memos": 3
+    }
   ]
 }

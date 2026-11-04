@@ -4,6 +4,12 @@
     "items": {
       "items": {
         "properties": {
+          "actions": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
           "archived": {
             "type": "boolean"
           },
@@ -71,6 +77,9 @@
             "type": "boolean"
           },
           "id": {
+            "type": "string"
+          },
+          "kind": {
             "type": "string"
           },
           "mode": {
@@ -165,12 +174,6 @@
                 "type": "null"
               }
             ]
-          },
-          "routeReason": {
-            "type": "string"
-          },
-          "routeSuggestion": {
-            "type": "string"
           },
           "segmentCount": {
             "anyOf": [
@@ -280,287 +283,10 @@
           "type": "null"
         }
       ]
-    },
-    "pinned": {
-      "description": "needs_route memos matching the filters, newest first, at most 50; [] with a cursor. Clients de-duplicate by memo id across pinned and pages: a memo answered after page 1 reappears in items on a later page.",
-      "items": {
-        "properties": {
-          "archived": {
-            "type": "boolean"
-          },
-          "audioSeconds": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "createdAt": {
-            "type": "string"
-          },
-          "deletedAt": {
-            "type": "string"
-          },
-          "destinationRef": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "device": {
-            "type": "string"
-          },
-          "done": {
-            "type": "boolean"
-          },
-          "error": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "failedStep": {
-            "anyOf": [
-              {
-                "enum": [
-                  "ingest",
-                  "transcribe",
-                  "route",
-                  "act",
-                  "summarize",
-                  "notify"
-                ],
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "favorite": {
-            "type": "boolean"
-          },
-          "id": {
-            "type": "string"
-          },
-          "mode": {
-            "enum": [
-              "auto",
-              "journal",
-              "hermes",
-              "tab",
-              "chat",
-              "transcribe"
-            ],
-            "type": "string"
-          },
-          "purgeAt": {
-            "type": "string"
-          },
-          "replyBlocks": {
-            "items": {
-              "properties": {
-                "height": {
-                  "type": "integer"
-                },
-                "index": {
-                  "type": "integer"
-                },
-                "kind": {
-                  "const": "mermaid",
-                  "type": "string"
-                },
-                "png": {
-                  "properties": {
-                    "dark": {
-                      "type": "string"
-                    },
-                    "light": {
-                      "type": "string"
-                    }
-                  },
-                  "required": [
-                    "light",
-                    "dark"
-                  ],
-                  "type": "object"
-                },
-                "svg": {
-                  "properties": {
-                    "dark": {
-                      "type": "string"
-                    },
-                    "light": {
-                      "type": "string"
-                    }
-                  },
-                  "required": [
-                    "light",
-                    "dark"
-                  ],
-                  "type": "object"
-                },
-                "width": {
-                  "type": "integer"
-                }
-              },
-              "required": [
-                "index",
-                "kind",
-                "width",
-                "height",
-                "svg",
-                "png"
-              ],
-              "type": "object"
-            },
-            "type": "array"
-          },
-          "replyText": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "route": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "routeReason": {
-            "type": "string"
-          },
-          "routeSuggestion": {
-            "type": "string"
-          },
-          "segmentCount": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "startedAt": {
-            "type": "string"
-          },
-          "state": {
-            "enum": [
-              "receiving",
-              "received",
-              "transcribed",
-              "routed",
-              "needs_route",
-              "acted",
-              "summarized",
-              "notified",
-              "failed"
-            ],
-            "type": "string"
-          },
-          "summary": {
-            "anyOf": [
-              {
-                "properties": {
-                  "detail": {
-                    "type": "string"
-                  },
-                  "headline": {
-                    "type": "string"
-                  },
-                  "spoken": {
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "headline",
-                  "detail",
-                  "spoken"
-                ],
-                "type": "object"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "threadId": {
-            "type": "string"
-          },
-          "transcript": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "typed": {
-            "const": true,
-            "type": "boolean"
-          },
-          "updatedAt": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "id",
-          "mode",
-          "device",
-          "startedAt",
-          "state",
-          "failedStep",
-          "error",
-          "segmentCount",
-          "audioSeconds",
-          "transcript",
-          "route",
-          "destinationRef",
-          "replyText",
-          "summary",
-          "done",
-          "favorite",
-          "archived",
-          "createdAt",
-          "updatedAt"
-        ],
-        "type": "object"
-      },
-      "type": "array"
-    },
-    "pinnedTruncated": {
-      "description": "true on the first page when more than 50 needs_route memos matched, so pinned holds only the newest 50; false otherwise and with a cursor.",
-      "type": "boolean"
     }
   },
   "required": [
     "items",
-    "pinned",
-    "pinnedTruncated",
     "nextCursor"
   ],
   "title": "memos.list.response",

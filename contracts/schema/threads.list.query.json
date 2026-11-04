@@ -4,13 +4,6 @@
     "cursor": {
       "type": "string"
     },
-    "kind": {
-      "enum": [
-        "chat",
-        "hermes"
-      ],
-      "type": "string"
-    },
     "limit": {
       "type": "number"
     }

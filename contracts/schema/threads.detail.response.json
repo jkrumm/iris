@@ -4,6 +4,12 @@
     "memos": {
       "items": {
         "properties": {
+          "actions": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
           "archived": {
             "type": "boolean"
           },
@@ -71,6 +77,9 @@
             "type": "boolean"
           },
           "id": {
+            "type": "string"
+          },
+          "kind": {
             "type": "string"
           },
           "mode": {
@@ -165,12 +174,6 @@
                 "type": "null"
               }
             ]
-          },
-          "routeReason": {
-            "type": "string"
-          },
-          "routeSuggestion": {
-            "type": "string"
           },
           "segmentCount": {
             "anyOf": [

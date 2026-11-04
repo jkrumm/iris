@@ -1,21 +1,28 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
-    "costPerRoute": {
+    "costPerKind": {
       "items": {
         "properties": {
           "costUsd": {
             "type": "number"
           },
+          "kind": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "memos": {
             "type": "integer"
-          },
-          "route": {
-            "type": "string"
           }
         },
         "required": [
-          "route",
+          "kind",
           "costUsd",
           "memos"
         ],
@@ -38,13 +45,20 @@
           "date": {
             "type": "string"
           },
-          "route": {
-            "type": "string"
+          "kind": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
           "date",
-          "route",
+          "kind",
           "count"
         ],
         "type": "object"
@@ -72,11 +86,18 @@
     "stepMedians": {
       "items": {
         "properties": {
+          "kind": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "medianMs": {
             "type": "integer"
-          },
-          "route": {
-            "type": "string"
           },
           "samples": {
             "type": "integer"
@@ -95,7 +116,7 @@
         },
         "required": [
           "step",
-          "route",
+          "kind",
           "medianMs",
           "samples"
         ],
@@ -114,7 +135,7 @@
     "perDay",
     "perWeek",
     "stepMedians",
-    "costPerRoute"
+    "costPerKind"
   ],
   "title": "stats.response",
   "type": "object"

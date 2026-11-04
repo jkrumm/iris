@@ -1,0 +1,59 @@
+{
+  "id": "6c3e9a41-5d27-4b80-9e1f-2a7d4c8b0f63",
+  "mode": "auto",
+  "device": "iphone",
+  "startedAt": "2026-03-14T09:20:41.000Z",
+  "state": "notified",
+  "failedStep": null,
+  "error": null,
+  "segmentCount": 4,
+  "audioSeconds": 38.4,
+  "transcript": "Erinnere mich bitte daran, am Montag die offenen Pull Requests durchzugehen, am Mittwoch den Feature-Freeze zu machen und am Donnerstag das Release zu bauen. Die Datenbankmigration ist noch offen.",
+  "route": null,
+  "destinationRef": "iris-0b6d1f4e-3a52-4c1d-9f0e-7a2c5d8e1b34",
+  "replyText": "Erledigt.",
+  "summary": null,
+  "done": false,
+  "favorite": false,
+  "archived": false,
+  "createdAt": "2026-03-14T09:20:41.512Z",
+  "updatedAt": "2026-03-14T09:21:19.870Z",
+  "steps": [
+    {
+      "step": "transcribe",
+      "status": "done",
+      "startedAt": "2026-03-14T09:20:52.100Z",
+      "finishedAt": "2026-03-14T09:21:00.640Z",
+      "error": null,
+      "usage": {
+        "audioSeconds": 38.4
+      },
+      "costUsd": 0.0038,
+      "attempts": 1
+    },
+    {
+      "step": "act",
+      "status": "done",
+      "startedAt": "2026-03-14T09:21:00.780Z",
+      "finishedAt": "2026-03-14T09:21:12.190Z",
+      "error": null,
+      "usage": {
+        "inputTokens": 1840,
+        "outputTokens": 212,
+        "totalTokens": 2052
+      },
+      "costUsd": 0.0412,
+      "attempts": 1
+    },
+    {
+      "step": "notify",
+      "status": "done",
+      "startedAt": "2026-03-14T09:21:18.010Z",
+      "finishedAt": "2026-03-14T09:21:19.860Z",
+      "error": null,
+      "usage": null,
+      "costUsd": null,
+      "attempts": 1
+    }
+  ]
+}
