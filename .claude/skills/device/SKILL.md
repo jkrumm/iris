@@ -10,9 +10,9 @@ owner's iPhone 15 (`iPhone15,4`, iOS 26.6.1, Developer Mode on, paired over the 
 Wrap every command that touches Xcode or the phone in `lockf -t 1800 /tmp/iris-apple.lock …` (one Apple job at a time on the mini).
 
 ```bash
-lockf -t 900 /tmp/iris-apple.lock make device          # ran: generate, signed build, install, launch, screenshot -> .artifacts/device-<time>.png
-lockf -t 900 /tmp/iris-apple.lock make device-run ARGS="-SomeFlag 1"   # reinstall the last build, launch with arguments, screenshot
-lockf -t 900 /tmp/iris-apple.lock make device-screenshot NAME=label    # ran: just the screenshot
+lockf -t 1800 /tmp/iris-apple.lock make device          # ran: generate, signed build, install, launch, screenshot -> .artifacts/device-<time>.png
+lockf -t 1800 /tmp/iris-apple.lock make device-run ARGS="-SomeFlag 1"   # reinstall the last build, launch with arguments, screenshot
+lockf -t 1800 /tmp/iris-apple.lock make device-screenshot NAME=label    # ran: just the screenshot
 xcrun devicectl list devices                           # ran: the phone is `connected`, Reality `physical`; simulators are `simulated`
 D=$(. scripts/device-lib.sh; device_id)                # the devicectl identifier, resolved at runtime (never commit it)
 xcrun devicectl device process launch --device $D --terminate-existing --console com.jkrumm.iris   # ran; --console shows stdout only, not os.Logger
