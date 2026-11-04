@@ -29,7 +29,6 @@ let fixtureTypes: [String: RoundTrip] = [
   "events.memo-updated": roundTrip(MemoEvent.self),
   "events.ready": roundTrip(ReadyEvent.self),
   "health.response": roundTrip(Health.self),
-  "herd.response": roundTrip(Herd.self),
   "liveactivity.content-state": roundTrip(LiveActivityContentState.self),
   "memos.activity-token.request": roundTrip(ActivityTokenRequest.self),
   "memos.complete.request": roundTrip(CompleteMemoRequest.self),
@@ -49,8 +48,6 @@ let fixtureTypes: [String: RoundTrip] = [
   "memos.result.response": roundTrip(Memo.self),
   "memos.retry.request": roundTrip(RetryMemoRequest.self),
   "memos.retry.response": roundTrip(Memo.self),
-  "memos.route.request": roundTrip(RouteRequest.self),
-  "memos.route.response": roundTrip(Memo.self),
   "push.alert": roundTrip(PushAlert.self),
   "stats.query": roundTrip(StatsQuery.self),
   "stats.response": roundTrip(Stats.self),
@@ -129,18 +126,49 @@ struct FixtureConformanceTests {
     #expect(full.apnsEnv == .set(.sandbox))
   }
 
-  @Test("A parked memo carries routeReason and routeSuggestion; other memos omit them on encode")
+  @Test("A parked old row keeps routeReason; a memo without it omits routeReason and routeSuggestion on encode")
   func routeDetails() throws {
     let decoder = IrisJSON.makeDecoder()
-    let parked = try decoder.decode(
-      Memo.self, from: Contracts.fixtureData("memos.result.response.needs-route-suggestion"))
-    #expect(parked.routeReason == "low confidence (0.62)")
-    #expect(parked.routeSuggestion == "hermes")
+    let parked = try decoder.decode(Memo.self, from: Contracts.fixtureData("memos.result.response.needs-route"))
+    #expect(parked.state == .needsRoute)
 
-    let routed = try decoder.decode(Memo.self, from: Contracts.fixtureData("memos.route.response"))
-    #expect(routed.routeReason == nil)
-    let encoded = String(decoding: try IrisJSON.makeEncoder().encode(routed), as: UTF8.self)
+    let plain = try decoder.decode(Memo.self, from: Contracts.fixtureData("memos.create.response"))
+    #expect(plain.routeReason == nil && plain.routeSuggestion == nil)
+    let encoded = String(decoding: try IrisJSON.makeEncoder().encode(plain), as: UTF8.self)
     #expect(!encoded.contains("routeReason") && !encoded.contains("routeSuggestion"))
+  }
+
+  @Test("kind and actions: decoded from the wire, omitted on encode when absent")
+  func kindAndActions() throws {
+    let decoder = IrisJSON.makeDecoder()
+    let task = try decoder.decode(MemoDetail.self, from: Contracts.fixtureData("memos.detail.response"))
+    #expect(task.memo.kind == "task")
+    #expect(task.memo.actions == ["todo_add", "calendar_search"])
+    #expect(task.memo.route == nil)
+    #expect(task.memo.summary?.detail == "")
+
+    let bare = try decoder.decode(
+      MemoDetail.self, from: Contracts.fixtureData("memos.detail.response.hermes-no-block"))
+    #expect(bare.memo.kind == nil && bare.memo.actions.isEmpty && bare.memo.summary == nil)
+    let encoded = String(decoding: try IrisJSON.makeEncoder().encode(bare), as: UTF8.self)
+    #expect(!encoded.contains("\"kind\"") && !encoded.contains("\"actions\""))
+  }
+
+  @Test("A page without pinned decodes it as empty and does not encode it back")
+  func pageWithoutPinned() throws {
+    let page = try IrisJSON.makeDecoder().decode(MemoPage.self, from: Contracts.fixtureData("memos.list.response"))
+    #expect(page.pinned.isEmpty && !page.pinnedTruncated)
+    let encoded = String(decoding: try IrisJSON.makeEncoder().encode(page), as: UTF8.self)
+    #expect(!encoded.contains("pinned"))
+  }
+
+  @Test("Stats carry kind, null for an unclassified memo, and costPerKind")
+  func statsKind() throws {
+    let stats = try IrisJSON.makeDecoder().decode(Stats.self, from: Contracts.fixtureData("stats.response"))
+    #expect(stats.perDay.map(\.kind) == ["task", nil, "note", "question"])
+    #expect(stats.costPerKind.map(\.kind) == [nil, "note", "question", "task"])
+    let encoded = String(decoding: try IrisJSON.makeEncoder().encode(stats), as: UTF8.self)
+    #expect(encoded.contains("costPerKind") && !encoded.contains("costPerRoute") && !encoded.contains("\"route\""))
   }
 
   @Test("The flags are always on the wire; deletedAt and purgeAt only while the memo is soft-deleted")
@@ -181,11 +209,11 @@ struct FixtureConformanceTests {
   func listQueryFilters() throws {
     let decoder = IrisJSON.makeDecoder()
     let filters = try decoder.decode(ListMemosQuery.self, from: Contracts.fixtureData("memos.list.query.filters"))
-    #expect(filters.favorite && !filters.archived && filters.kind == .chat)
+    #expect(filters.favorite && !filters.archived && filters.memoKind == "note" && filters.thread)
     #expect(
       filters.queryItems == [
         URLQueryItem(name: "limit", value: "20"), URLQueryItem(name: "favorite", value: "true"),
-        URLQueryItem(name: "kind", value: "chat"),
+        URLQueryItem(name: "kind", value: "note"), URLQueryItem(name: "thread", value: "true"),
       ])
     let archived = try decoder.decode(ListMemosQuery.self, from: Contracts.fixtureData("memos.list.query.archived"))
     #expect(archived.archived && !archived.favorite)
