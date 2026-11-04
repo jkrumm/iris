@@ -1,18 +1,16 @@
 # Lead handoff — Wave 21 (lead `iris-w21-lead`, active)
 
-## State (2026-11-04 ~22:00)
-- **H1 done:** hermes-agent `4a95400..e044b5b` (skill `iris`, `iris-note.py`, SOUL row), live, `agw review` clean. The lead pushed 10 earlier
-  unpushed hermes-agent commits first (clean, loopback-only).
-- **Owner feedback (`79be81d`) arrived while S1/A1 ran:** summarize stays (agw `triage`), block = `{kind, headline}`, three visible buttons,
-  software factory path, P1 pulled in. Response:
-  - **S1** PR #119 (reviewed clean, green) is **not merged**; superseded by **S1b** `w21-s1b-summarize-stays` (pane t12j): #119 rebased on
-    master + summarize restored + `hermes_headline`. #119 gets closed by S1b.
-  - **H1b** `w21-h1b-factory-headline` (hermes-agent, queued for capacity): block without `spoken`, factory path.
-  - **A1** `w21-a1-apple-follows` (pane t12g) amended by `rd say` (three buttons, Transcribe control, Mac pair); based on S1's branch, switches
-    to S1b's once it exists, rebases on master after S1b lands.
-  - **P1** `w21-p1-paid-signing-apns` (pane t12k): headless paid signing + APNs registration + phone proof. Owns `IrisApp.swift`,
-    `Push*.swift`, `project.yml`, entitlements; A1 owns the rest of `apple/**`.
-- Merge order: H1b live → S1b (deploys; `make verify`, `make smoke` with `kind`) → A1 + P1 (batch, one `apple.yml`).
-- Left behind so far: `op://mini/agent-workflows/API_SECRET` stays used (summarize stays). Master `apple.yml` red since #108 on a flaky
-  `HistorySwipeUITests` (A1 looks at it). `cron/dispatch_held.json` untracked in hermes-agent (not ours).
-Briefs (gitignored): `.artifacts/w21-briefs/`.
+## State (2026-11-04 23:30)
+- **H1 + H1b done, live:** hermes-agent `4a95400..fa8e444` (skill `iris`, block `{kind, headline}`, agent work via `factory issue new`),
+  `agw review` clean on both ranges.
+- **S1 done, deployed:** #120 (superseded #119) merged as `4818ab9`, deployed, `make verify` healthy, `make smoke` notified with `kind: chat`, summary
+  from `triage`; DB `user_version` 14. Migration 14 turned **16 open `needs_route` memos into `failed(act)`**: Retry from Act would hand them to
+  Hermes, which may act on them (tasks, notes): the owner's call, the lead does not retry them.
+- **P1** #121 (pane t12k): code done, paid device build + install + APNs registration worked pre-rebase (`devices.iphone` has a sandbox token;
+  a typed memo `a2855744` notified with no `no_token` / rejection). **Owner step:** App Group `group.com.jkrumm.iris` in the developer portal on
+  the three App IDs (until then device builds need `DEVICE_DROP_ENTITLEMENTS=com.apple.security.application-groups`). After 07:00: re-run
+  `PushRegistrarTests`, `make check-apple`, `make device` on the rebased head, banner screenshot, Live Activity `end` push.
+- **A1** #122 (pane t12g): three-button row, Transcribe control, Mac pair, routing UI removed, written but **never compiled** (load stop). After
+  07:00: rebase on master, validation, row renders into `docs/design/fidelity/w21.md`.
+- **Load stop (owner-approved, software-factory session):** no xcodebuild / simulator until 2026-11-05 07:00.
+- Then: A1 + P1 batch (`w21-batch-1`), one `apple.yml`, `agw review` on both, merge, close out.
