@@ -1375,9 +1375,11 @@ Mother's sketch 2026-11-04 (PRD "Direction 2026-11-04"); the lead writes the bri
 list: `docs/research/2026-11-04-apple-paid-team.md` (read it whole before P or M).
 **Owner batch first (only the Account Holder can do these; one `ask-human.sh` round, nothing else in this wave blocks on him):** (1) App Store
 Connect: the app record for `com.jkrumm.iris` (+ `.widgets`, `.notifications` App IDs with App Group and Push), an internal TestFlight group
-with automatic distribution and himself in it; (2) a **Team** App Store Connect API key (Admin), `.p8` + key id + issuer id into
-`op://mini/iris/*`; (3) an APNs key (Sandbox & Production), `.p8` + key id + team id into `op://mini/iris/*`; (4) a **Developer ID
-Application** certificate (+ private key) exported into 1Password; (5) the refs into `dotfiles-private/headless.refs`, `make secrets-seed`.
+with automatic distribution and himself in it; (2) a **Team** App Store Connect API key (Admin), `.p8` + key id + issuer id; (3) an APNs
+key (Sandbox & Production), `.p8` + key id, and the team id; (4) a **Developer ID Application** certificate (+ private key) as a `.p12`
+attached to the item, its password in a field. All of it is team-wide, so it lives in the item **`op://mini/apple-developer/*`** (fields
+`team-id`, `apns-key-p8`, `apns-key-id`, `asc-key-p8`, `asc-key-id`, `asc-issuer-id`, `developer-id-p12-password`; created 2026-11-04 with
+`fill-in` placeholders), reusable by any later app; nothing app-specific goes there; (5) the refs into `dotfiles-private/headless.refs`, `make secrets-seed`.
 - [ ] **U1. Less chrome (iOS + Mac):** no title block: drop `HistoryTitleBlock` and `ScreenTitle` (History, Stats, Settings, Diagnostics); the
       compose button moves into History's bottom search bar row; content starts under the status-bar scrim. Memo detail order: header (headline,
       kind chip, one meta line) → reply → player → transcript → **Details** (collapsed: step waterfall, cost, attempts, ids, [Retry from step]).
