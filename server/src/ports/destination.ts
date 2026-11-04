@@ -1,11 +1,11 @@
-import type { MemoMode, Summary, ThreadUpsert } from "../memo/memo.js";
+import type { MemoMode, ThreadUpsert } from "../memo/memo.js";
 
 /** What Hermes reported for the turn beyond its reply: the ```iris block (absent or invalid = none) and the tools it used. */
 export interface DeliveryMeta {
   /** `normalizeKind` of the block's `kind`; null when there was no valid block or the kind is empty. */
   kind: string | null;
-  /** The block's headline and spoken sentence; null when there was no valid block. */
-  summary: Summary | null;
+  /** The block's headline (`HEADLINE_MAX` code points); null when there was no valid block or it is blank. */
+  headline: string | null;
   /** Tool names of the turn, deduplicated in first-seen order and capped (`normalizeActions`). */
   actions: string[];
 }

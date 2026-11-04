@@ -190,7 +190,7 @@ export const RetryBody = t.Object({
   from: t.UnionEnum([...STEPS], {
     default: undefined,
     description:
-      "The step to re-run from. 400 `bad_request` for a typed memo's `transcribe` (no recording) and for a step the memo's pipeline does not have (`transcribe`, `act`, `notify`; mode `transcribe` runs only `transcribe` and `notify`, an old memo that failed at `route` or `summarize` retries from `act` or `notify`).",
+      "The step to re-run from. 400 `bad_request` for a typed memo's `transcribe` (no recording) and for a step the memo's pipeline does not have (`transcribe`, `act`, `summarize`, `notify`; mode `transcribe` runs only `transcribe` and `notify`, an old memo that failed at `route` retries from `act`). 409 `bad_state` unless the memo `failed`, or is `notified` with `from: \"summarize\"` and its `summarize` step failed (the step is optional).",
   }),
 });
 /** `PATCH /memos/:id`: at least one flag, nothing else (400). */

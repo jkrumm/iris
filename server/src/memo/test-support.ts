@@ -45,7 +45,7 @@ export function testStore() {
   return { db, clock, store: createSqliteMemoStore({ db, clock }) };
 }
 
-const PATH: MemoState[] = ["received", "transcribed", "acted", "notified"];
+const PATH: MemoState[] = ["received", "transcribed", "acted", "summarized", "notified"];
 
 /** Creates a memo and walks it through the happy-path states up to `state`. */
 export function seedMemo(store: MemoStore, state: MemoState = "receiving", device = "iphone") {

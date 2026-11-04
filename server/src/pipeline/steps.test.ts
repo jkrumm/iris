@@ -9,6 +9,7 @@ import {
   fakeDestination,
   fakeDiagramRenderer,
   fakeNotifier,
+  fakeSummarizer,
   fakeTranscriber,
 } from "../ports/fakes.js";
 import { createReplyAssets, type ReplyAssets } from "../memo/reply-assets.js";
@@ -23,6 +24,8 @@ function setup(
     /** `null` leaves the pipeline without Hermes: no `act` handler. */
     destination?: FakeDestination | null;
     notifier?: ReturnType<typeof fakeNotifier>;
+    /** `null` leaves the pipeline without agw: `summarize` fails and is skipped. */
+    summarizer?: Pick<ReturnType<typeof fakeSummarizer>, "calls" | "summarize"> | null;
     replyAssets?: (store: MemoStore) => ReplyAssets;
   } = {},
 ) {
@@ -32,17 +35,33 @@ function setup(
   const destination =
     options.destination ?? fakeDestination({ result: { usage: { turns: 1 }, costUsd: 0.1 } });
   const notifier = options.notifier ?? fakeNotifier();
+  const summarizer =
+    options.summarizer === null
+      ? undefined
+      : (options.summarizer ?? fakeSummarizer({ result: { costUsd: 0.001 } }));
   const handlers = createStepHandlers({
     store,
     audio,
     transcriber,
     ...(options.destination !== null && { destination }),
+    summarizer,
     replyAssets: options.replyAssets?.(store),
     notifier,
   });
   const events = createMemoEvents();
   const runner = createRunner({ store, handlers, events, clock });
-  return { store, db, audio, handlers, runner, events, transcriber, destination, notifier };
+  return {
+    store,
+    db,
+    audio,
+    handlers,
+    runner,
+    events,
+    transcriber,
+    destination,
+    summarizer,
+    notifier,
+  };
 }
 
 /** A Hermes that answers without the ```iris block: the delivery carries no `meta`. */
@@ -75,13 +94,13 @@ describe("createStepHandlers", () => {
       destination: fakeDestination(),
       notifier: fakeNotifier(),
     });
-    expect(Object.keys(handlers).toSorted()).toEqual(["act", "notify", "transcribe"]);
+    expect(Object.keys(handlers).toSorted()).toEqual(["act", "notify", "summarize", "transcribe"]);
   });
 
   it("registers act only with a destination", () => {
     const { store } = testStore();
     const handlers = createStepHandlers({ store, audio: fakeAudio(), notifier: fakeNotifier() });
-    expect(Object.keys(handlers).toSorted()).toEqual(["notify"]);
+    expect(Object.keys(handlers).toSorted()).toEqual(["notify", "summarize"]);
   });
 });
 
@@ -119,7 +138,7 @@ describe("transcribe", () => {
 });
 
 describe("act", () => {
-  it("delivers the transcript with the memo's mode and patches the ref, reply, thread, kind, actions and summary", async () => {
+  it("delivers the transcript with the memo's mode and patches the ref, reply, thread, kind, headline and actions", async () => {
     const { store, handlers, destination } = setup();
     const memo = { ...seedMemo(store, "transcribed"), transcript: "do the thing" };
     const result = await handlers.act?.({ memo });
@@ -132,8 +151,8 @@ describe("act", () => {
         replyText: "done",
         thread: { id: "session-1", kind: "hermes", title: "do the thing" },
         kind: "note",
+        hermesHeadline: "Hermes headline",
         actions: ["fake_search", "fake_write"],
-        summary: FAKE_META.summary,
       },
       usage: { turns: 1 },
       costUsd: 0.1,
@@ -149,7 +168,7 @@ describe("act", () => {
     }
   });
 
-  it("patches null, [] and null when the delivery carries no meta", async () => {
+  it("patches null, null and [] when the delivery carries no meta, and never a summary", async () => {
     const destination = metalessDestination();
     const { store, handlers } = setup({ destination });
     const memo = { ...seedMemo(store, "transcribed"), transcript: "plain" };
@@ -157,12 +176,13 @@ describe("act", () => {
     expect(result?.patch).toMatchObject({
       replyText: "plain reply",
       kind: null,
+      hermesHeadline: null,
       actions: [],
-      summary: null,
     });
+    expect(result?.patch).not.toHaveProperty("summary");
   });
 
-  it("stores kind, actions and summary with the commit, and a re-run replaces them", async () => {
+  it("stores kind, headline and actions with the commit, and a re-run replaces them", async () => {
     const withMeta = setup();
     const { store } = withMeta;
     const memo = { ...seedMemo(store, "transcribed"), transcript: "first" };
@@ -176,8 +196,8 @@ describe("act", () => {
     });
     expect(store.getMemo(memo.id)).toMatchObject({
       kind: "note",
+      hermesHeadline: FAKE_META.headline,
       actions: ["fake_search", "fake_write"],
-      summary: FAKE_META.summary,
     });
 
     // The next run of act has no meta: nothing of the first run's survives.
@@ -198,8 +218,8 @@ describe("act", () => {
     });
     expect(store.getMemo(memo.id)).toMatchObject({
       kind: null,
+      hermesHeadline: null,
       actions: [],
-      summary: null,
       replyText: "plain reply",
     });
   });
@@ -270,6 +290,37 @@ describe("act", () => {
   });
 });
 
+describe("summarize", () => {
+  it("summarizes the transcript and the reply with route hermes, nothing else", async () => {
+    const { store, handlers, summarizer } = setup();
+    const memo = {
+      ...seedMemo(store, "acted"),
+      transcript: "t",
+      replyText: "r",
+      actions: ["fake_search"],
+    };
+    const result = await handlers.summarize?.({ memo });
+    expect(summarizer?.calls).toEqual([
+      { memoId: memo.id, route: "hermes", transcript: "t", replyText: "r" },
+    ]);
+    expect(result).toMatchObject({
+      patch: { summary: { headline: "Headline", detail: "Detail", spoken: "Spoken." } },
+      costUsd: 0.001,
+    });
+  });
+
+  it("throws without a summarizer, and without a transcript", async () => {
+    const none = setup({ summarizer: null });
+    const memo = { ...seedMemo(none.store, "acted"), transcript: "t" };
+    await expect(none.handlers.summarize?.({ memo })).rejects.toThrow("no summarizer configured");
+    const { store, handlers, summarizer } = setup();
+    await expect(handlers.summarize?.({ memo: seedMemo(store, "acted") })).rejects.toThrow(
+      "no transcript",
+    );
+    expect(summarizer?.calls).toEqual([]);
+  });
+});
+
 describe("notify", () => {
   it("notifies with the memo and its summary", async () => {
     const { store, handlers, notifier } = setup();
@@ -279,7 +330,22 @@ describe("notify", () => {
     expect(notifier.calls).toEqual([{ memo, summary }]);
   });
 
-  it("announces a clipped transcript when the memo has no summary", async () => {
+  it("announces Hermes's headline when triage left no summary", async () => {
+    const { store, handlers, notifier } = setup();
+    const memo = { ...seedMemo(store, "acted"), transcript: "t", hermesHeadline: "From Hermes" };
+    await handlers.notify?.({ memo });
+    expect(notifier.calls[0]?.summary).toEqual({ headline: "From Hermes", detail: "", spoken: "" });
+  });
+
+  it("prefers triage's headline over Hermes's", async () => {
+    const { store, handlers, notifier } = setup();
+    const summary = { headline: "From triage", detail: "d", spoken: "s" };
+    const memo = { ...seedMemo(store, "acted"), summary, hermesHeadline: "From Hermes" };
+    await handlers.notify?.({ memo });
+    expect(notifier.calls[0]?.summary).toEqual(summary);
+  });
+
+  it("announces a clipped transcript when the memo has no summary and no Hermes headline", async () => {
     const { store, handlers, notifier } = setup();
     const transcript = `  Bitte   erinnere mich ${"morgen ".repeat(20)}an den Termin `;
     const memo = { ...seedMemo(store, "acted"), transcript };
@@ -331,19 +397,24 @@ describe("pipeline end to end", () => {
       destinationRef: "session-1",
       replyText: "done",
       kind: "note",
+      hermesHeadline: "Hermes headline",
       actions: ["fake_search", "fake_write"],
-      summary: { headline: "Headline", detail: "", spoken: "Spoken." },
+      summary: { headline: "Headline", detail: "Detail", spoken: "Spoken." },
     });
     expect(store.listStepRecords(id).map((s) => [s.step, s.status, s.usage, s.costUsd])).toEqual([
       ["transcribe", "done", { audioSeconds: 12.5 }, 0.02],
       ["act", "done", { turns: 1 }, 0.1],
+      ["summarize", "done", null, 0.001],
       ["notify", "done", null, null],
     ]);
     expect(notifier.calls.map((c) => c.summary.headline)).toEqual(["Headline"]);
   });
 
-  it("announces the transcript when Hermes sent no block", async () => {
-    const { store, runner, notifier } = setup({ destination: metalessDestination() });
+  it("announces the transcript when Hermes sent no block and triage is not configured", async () => {
+    const { store, runner, notifier } = setup({
+      destination: metalessDestination(),
+      summarizer: null,
+    });
     const { id } = seedWithSegments(store, [0]);
     await runner.drive(id);
     expect(store.getMemo(id)).toMatchObject({
@@ -392,6 +463,59 @@ describe("pipeline end to end", () => {
     await runner.drive(id);
     expect(store.getMemo(id)).toMatchObject({ state: "transcribed", failedStep: null });
     expect(notifier.calls).toEqual([]);
+  });
+
+  it("announces Hermes's headline when summarize fails for good, and retries it from summarize", async () => {
+    const inner = fakeSummarizer();
+    let broken = true;
+    const summarizer = {
+      calls: inner.calls,
+      async summarize(params: Parameters<typeof inner.summarize>[0]) {
+        if (broken) throw new Error("agw down");
+        return inner.summarize(params);
+      },
+    };
+    const { store, runner, transcriber, destination, notifier } = setup({ summarizer });
+    const { id } = seedWithSegments(store, [0]);
+    await runner.drive(id);
+    // The memo ends notified without a summary; the alert carries the headline of Hermes's block.
+    expect(store.getMemo(id)).toMatchObject({
+      state: "notified",
+      failedStep: null,
+      summary: null,
+      hermesHeadline: "Hermes headline",
+    });
+    expect(store.listStepRecords(id).find((s) => s.step === "summarize")).toMatchObject({
+      status: "failed",
+      error: "agw down",
+    });
+    expect(notifier.calls.map((c) => c.summary.headline)).toEqual(["Hermes headline"]);
+
+    broken = false;
+    runner.retry({ id, from: "summarize" });
+    await runner.idle();
+
+    expect(store.getMemo(id)).toMatchObject({
+      state: "notified",
+      summary: { headline: "Headline" },
+    });
+    expect(transcriber.calls).toHaveLength(1);
+    expect(destination.calls).toHaveLength(1);
+    expect(inner.calls).toHaveLength(1);
+    // notify re-sent with the real headline (the alert's collapse id replaces the banner)
+    expect(notifier.calls.map((c) => c.summary.headline)).toEqual(["Hermes headline", "Headline"]);
+  });
+
+  it("skips summarize when no summarizer is configured: the memo ends notified", async () => {
+    const { store, runner, notifier } = setup({ summarizer: null });
+    const { id } = seedWithSegments(store, [0]);
+    await runner.drive(id);
+    expect(store.getMemo(id)).toMatchObject({ state: "notified", summary: null });
+    expect(store.listStepRecords(id).find((s) => s.step === "summarize")).toMatchObject({
+      status: "failed",
+      error: expect.stringContaining("no summarizer configured"),
+    });
+    expect(notifier.calls).toHaveLength(1);
   });
 
   it("fails at act on a delivery failure and recovers with a retry from act, without re-transcribing", async () => {

@@ -30,6 +30,10 @@ export const Env = z.object({
   // required for `transcribe` and `speech` to register.
   AUDIO_DOOR_URL: z.preprocess(emptyToUndefined, bearerUrl("AUDIO_DOOR_URL").optional()),
   AUDIO_DOOR_TOKEN: z.preprocess(emptyToUndefined, z.string().optional()),
+  // The agent-workflows host (`triage`, the summarize step): `http://127.0.0.1:7791` on the mini, and its bearer
+  // (`op://mini/agent-workflows/API_SECRET`). Both are required for it to register.
+  AGW_URL: z.preprocess(emptyToUndefined, bearerUrl("AGW_URL").optional()),
+  AGW_API_SECRET: z.preprocess(emptyToUndefined, z.string().trim().optional()),
   // The Hermes API server and its key: the one destination, where every memo but a `transcribe` one goes. Both are required for `act` to register.
   HERMES_URL: z.preprocess(emptyToUndefined, z.url().optional()),
   HERMES_TOKEN: z.preprocess(emptyToUndefined, z.string().optional()),

@@ -103,7 +103,7 @@ describe("hermes destination", () => {
       ref: MEMO_ID,
       replyText: "Done, milk is on the list.",
       thread: { id: MEMO_ID, kind: "hermes", title: "buy milk" },
-      meta: { kind: null, summary: null, actions: [] },
+      meta: { kind: null, headline: null, actions: [] },
       usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
     });
 
@@ -392,11 +392,7 @@ describe("systemMessage", () => {
 });
 
 const FENCE = (json: string) => "```iris\n" + json + "\n```";
-const valid = JSON.stringify({
-  kind: "Task",
-  headline: "Buy milk",
-  spoken: "Milk is on the list.",
-});
+const valid = JSON.stringify({ kind: "Task", headline: "Buy milk" });
 
 describe("parseIrisBlock", () => {
   it("finds a block written on one line, and not a tag that merely starts with iris", () => {
@@ -412,7 +408,7 @@ describe("parseIrisBlock", () => {
       reply: "Done.",
       meta: {
         kind: "task",
-        summary: { headline: "Buy milk", detail: "", spoken: "Milk is on the list." },
+        headline: "Buy milk",
       },
     });
   });
@@ -421,7 +417,7 @@ describe("parseIrisBlock", () => {
     const first = JSON.stringify({ kind: "a", headline: "First", spoken: "1" });
     const result = parseIrisBlock(`x\n${FENCE(first)}\nmid\n${FENCE(valid)}`);
     expect(result.meta?.kind).toBe("task");
-    expect(result.meta?.summary?.headline).toBe("Buy milk");
+    expect(result.meta?.headline).toBe("Buy milk");
     expect(result.reply).toBe(`x\n${FENCE(first)}\nmid`);
   });
 
@@ -430,7 +426,7 @@ describe("parseIrisBlock", () => {
     const result = parseIrisBlock(`before\n${FENCE(json)}\nafter`);
     expect(result.meta).toEqual({
       kind: "note",
-      summary: { headline: "H", detail: "", spoken: "S" },
+      headline: "H",
     });
     expect(result.reply).toBe("before\nafter");
   });
@@ -443,18 +439,16 @@ describe("parseIrisBlock", () => {
     });
     const { meta } = parseIrisBlock(FENCE(json));
     expect(meta?.kind).toBe("task item");
-    expect([...(meta?.summary?.headline ?? "")]).toHaveLength(60);
-    expect(meta?.summary?.headline.endsWith("…")).toBe(true);
-    const long = parseIrisBlock(
-      FENCE(JSON.stringify({ kind: "k".repeat(40), headline: "H", spoken: "" })),
-    );
+    expect([...(meta?.headline ?? "")]).toHaveLength(60);
+    expect(meta?.headline?.endsWith("…")).toBe(true);
+    const long = parseIrisBlock(FENCE(JSON.stringify({ kind: "k".repeat(40), headline: "H" })));
     expect([...(long.meta?.kind ?? "")]).toHaveLength(24);
   });
 
-  it("leaves the summary out for a blank headline and the kind null for a blank kind", () => {
+  it("leaves the headline null for a blank headline and the kind null for a blank kind", () => {
     expect(
       parseIrisBlock(FENCE(JSON.stringify({ kind: "note", headline: "   ", spoken: "S" }))).meta,
-    ).toEqual({ kind: "note", summary: null });
+    ).toEqual({ kind: "note", headline: null });
     expect(
       parseIrisBlock(FENCE(JSON.stringify({ kind: " ", headline: "H", spoken: "S" }))).meta?.kind,
     ).toBeNull();
@@ -474,10 +468,15 @@ describe("parseIrisBlock", () => {
       meta: null,
       invalid: "invalid_json",
     });
-    expect(parseIrisBlock(`Hi\n${FENCE(JSON.stringify({ kind: "k", headline: "h" }))}`)).toEqual({
+    expect(parseIrisBlock(`Hi\n${FENCE(JSON.stringify({ kind: "k" }))}`)).toEqual({
       reply: "Hi",
       meta: null,
-      invalid: "invalid_shape: spoken",
+      invalid: "invalid_shape: headline",
+    });
+    expect(parseIrisBlock(`Hi\n${FENCE(JSON.stringify({ headline: "h" }))}`)).toEqual({
+      reply: "Hi",
+      meta: null,
+      invalid: "invalid_shape: kind",
     });
   });
 });
@@ -493,7 +492,7 @@ describe("hermes destination, the iris block and tools", () => {
     expect(delivery.replyText).toBe("Added.");
     expect(delivery.meta).toEqual({
       kind: "task",
-      summary: { headline: "Buy milk", detail: "", spoken: "Milk is on the list." },
+      headline: "Buy milk",
       actions: [],
     });
   });
@@ -562,14 +561,11 @@ describe("hermes destination, the iris block and tools", () => {
     const cases: [string, string][] = [
       [`${secret}`, "missing_block"],
       [`${secret}${irisBlock("{broken")}`, "invalid_json"],
-      [
-        `${secret}${irisBlock(JSON.stringify({ kind: "k", spoken: "s" }))}`,
-        "invalid_shape: headline",
-      ],
+      [`${secret}${irisBlock(JSON.stringify({ kind: "k" }))}`, "invalid_shape: headline"],
     ];
     for (const [content, reason] of cases) {
       const { result, lines } = await captureLogs(() => run([completed(content), done]));
-      expect(result.meta).toEqual({ kind: null, summary: null, actions: [] });
+      expect(result.meta).toEqual({ kind: null, headline: null, actions: [] });
       const invalid = lines.filter((l) => l["event"] === "hermes.meta_invalid");
       expect(invalid).toHaveLength(1);
       expect(invalid[0]).toMatchObject({ memo_id: MEMO_ID, reason });

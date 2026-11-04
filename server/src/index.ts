@@ -49,6 +49,7 @@ const handlers = createStepHandlers({
   replyAssets,
   transcriber: ports.transcriber,
   destination: ports.destination,
+  summarizer: ports.summarizer,
   notifier,
 });
 log("runner.handlers_registered", { steps: Object.keys(handlers) });

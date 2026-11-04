@@ -6,6 +6,7 @@ import type { DiagramRenderer, RenderedDiagram } from "./diagram.js";
 import type { Delivery, DeliveryMeta, Destination } from "./destination.js";
 import type { Notifier } from "./notifier.js";
 import type { Speaker, Speech, SpeechCache } from "./speaker.js";
+import type { Summarization, Summarizer } from "./summarizer.js";
 import type { Transcriber, TranscriptionResult } from "./transcriber.js";
 
 // Deterministic in-memory ports. Each records its calls; `failWith` makes every call throw it.
@@ -27,10 +28,10 @@ export function fakeTranscriber(
   };
 }
 
-/** What the fake Hermes reports for every turn: a kind, a summary and two tool names, as the `iris` skill's block would. */
+/** What the fake Hermes reports for every turn: a kind, a headline and two tool names, as the `iris` skill's block would. */
 export const FAKE_META: DeliveryMeta = {
   kind: "note",
-  summary: { headline: "Headline", detail: "", spoken: "Spoken." },
+  headline: "Hermes headline",
   actions: ["fake_search", "fake_write"],
 };
 
@@ -58,6 +59,22 @@ export function fakeDestination(
         };
       }
       return delivery;
+    },
+  };
+}
+
+const DEFAULT_SUMMARY: Summary = { headline: "Headline", detail: "Detail", spoken: "Spoken." };
+
+export function fakeSummarizer(
+  options: Options<Summarization> = {},
+): Summarizer & Calls<Parameters<Summarizer["summarize"]>[0]> {
+  const calls: Parameters<Summarizer["summarize"]>[0][] = [];
+  return {
+    calls,
+    async summarize(params) {
+      calls.push(params);
+      if (options.failWith) throw options.failWith;
+      return { summary: DEFAULT_SUMMARY, ...options.result };
     },
   };
 }

@@ -93,7 +93,7 @@ describe("POST /v1/memos/text", () => {
       steps: { step: string }[];
       segmentCount: number;
     };
-    expect(detail.steps.map((s) => s.step)).toEqual(["act", "notify"]);
+    expect(detail.steps.map((s) => s.step)).toEqual(["act", "summarize", "notify"]);
     expect(detail.segmentCount).toBe(0);
     expect(detail).toMatchObject({ typed: true });
   });
@@ -356,10 +356,10 @@ describe("POST /v1/memos/:id/retry", () => {
               replyText: "Erledigt.",
               kind: "note",
               actions: ["web_search"],
-              summary: { headline: "H", detail: "", spoken: "S" },
             },
           };
         },
+        summarize: async () => ({ patch: { summary: { headline: "H", detail: "", spoken: "S" } } }),
         notify: async () => ({}),
       },
     });
@@ -389,11 +389,11 @@ describe("POST /v1/memos/:id/retry", () => {
     expect(again.status).toBe(409);
   });
 
-  it("400s a step outside the memo's pipeline, including the retired route and summarize", async () => {
+  it("400s a step outside the memo's pipeline, including the retired route", async () => {
     const { app, store } = testApp();
     const { id } = seedMemo(store, "transcribed");
     store.markStepFailed({ id, step: "act", error: "boom" });
-    for (const from of ["route", "summarize", "ingest"]) {
+    for (const from of ["route", "ingest"]) {
       const res = await call(app, {
         method: "POST",
         path: `/v1/memos/${id}/retry`,
@@ -410,15 +410,16 @@ describe("POST /v1/memos/:id/retry", () => {
     expect(typed.status).toBe(202);
   });
 
-  it.each([
-    ["route", "act"],
-    ["summarize", "notify"],
-  ] as const)("retries an old failed(%s) memo from %s", async (failedStep, from) => {
+  it("retries an old failed(route) memo from act", async () => {
     const ran: string[] = [];
     const { app, store, runner } = testApp({
       handlers: {
         act: async () => {
           ran.push("act");
+          return {};
+        },
+        summarize: async () => {
+          ran.push("summarize");
           return {};
         },
         notify: async () => {
@@ -428,28 +429,77 @@ describe("POST /v1/memos/:id/retry", () => {
       },
     });
     const { id } = seedMemo(store, "transcribed");
-    store.markStepFailed({ id, step: failedStep, error: "old failure" });
-    expect(store.getMemo(id)).toMatchObject({ state: "failed", failedStep });
+    store.markStepFailed({ id, step: "route", error: "old failure" });
+    expect(store.getMemo(id)).toMatchObject({ state: "failed", failedStep: "route" });
 
-    if (from === "act") {
-      // failed at act: notify comes after the failure, so it cannot be retried from
-      const wrong = await call(app, {
-        method: "POST",
-        path: `/v1/memos/${id}/retry`,
-        json: { from: "notify" },
-      });
-      expect(wrong.status).toBe(400);
-    }
+    // failed at route: notify comes after the failure, so it cannot be retried from
+    const wrong = await call(app, {
+      method: "POST",
+      path: `/v1/memos/${id}/retry`,
+      json: { from: "notify" },
+    });
+    expect(wrong.status).toBe(400);
 
     const res = await call(app, {
       method: "POST",
       path: `/v1/memos/${id}/retry`,
-      json: { from },
+      json: { from: "act" },
     });
     expect(res.status).toBe(202);
     await runner.idle();
     expect(store.getMemo(id)?.state).toBe("notified");
-    expect(ran).toEqual(from === "act" ? ["act", "notify"] : ["notify"]);
+    expect(ran).toEqual(["act", "summarize", "notify"]);
+  });
+
+  it("ends a memo whose summarize failed as notified, and retries its summarize", async () => {
+    let broken = true;
+    const { app } = testApp({
+      handlers: {
+        act: async () => ({ patch: { replyText: "Erledigt.", hermesHeadline: "Hermes says" } }),
+        summarize: async () => {
+          if (broken) throw new Error("402 payment required");
+          return { patch: { summary: { headline: "H", detail: "D", spoken: "S" } } };
+        },
+        notify: async () => ({}),
+      },
+    });
+    const created = await createText(app);
+    const { id } = (await created.json()) as { id: string };
+    const res = await call(app, { path: `/v1/memos/${id}/result?wait=5` });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body).toMatchObject({ state: "notified", failedStep: null, error: null, summary: null });
+    // The wire has no hermes headline: clients show the transcript.
+    expect(JSON.stringify(body)).not.toContain("Hermes says");
+    const detail = await call(app, { path: `/v1/memos/${id}` });
+    expect(await detail.json()).toMatchObject({
+      steps: expect.arrayContaining([
+        expect.objectContaining({
+          step: "summarize",
+          status: "failed",
+          error: "402 payment required",
+        }),
+      ]),
+    });
+
+    broken = false;
+    const retry = await call(app, {
+      method: "POST",
+      path: `/v1/memos/${id}/retry`,
+      json: { from: "summarize" },
+    });
+    expect(retry.status).toBe(202);
+    expect(await retry.json()).toMatchObject({ state: "acted" });
+    const done = await call(app, { path: `/v1/memos/${id}/result?wait=5` });
+    expect(await done.json()).toMatchObject({ state: "notified", summary: { headline: "H" } });
+
+    // nothing failed any more: a second retry is a conflict
+    const again = await call(app, {
+      method: "POST",
+      path: `/v1/memos/${id}/retry`,
+      json: { from: "summarize" },
+    });
+    expect(again.status).toBe(409);
   });
 
   it("400s a missing from instead of defaulting it", async () => {

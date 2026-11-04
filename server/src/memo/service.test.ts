@@ -448,6 +448,7 @@ describe("waitForResult", () => {
     const { service, runner, store, listenerCount } = setup({
       transcribe: async () => ({}),
       act: async () => ({}),
+      summarize: async () => ({}),
       notify: async () => ({}),
     });
     const memo = seedMemo(store, "received");

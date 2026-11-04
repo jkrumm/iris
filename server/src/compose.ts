@@ -3,6 +3,8 @@ import { join } from "node:path";
 import { createFsAssetStore } from "./adapters/assets-fs.js";
 import { createPeleRenderer } from "./adapters/diagram-pele.js";
 import { createFsSpeechCache } from "./adapters/speech-fs.js";
+import { createAgwClient } from "./adapters/agw-client.js";
+import { createAgwSummarizer } from "./adapters/agw.js";
 import { createAudioDoorClient } from "./adapters/audio-door-client.js";
 import { createAudioDoorSpeaker } from "./adapters/audio-door-speaker.js";
 import { createAudioDoorTranscriber, ffmpegCombiner } from "./adapters/audio-door.js";
@@ -22,10 +24,12 @@ import {
   fakeNotifier,
   fakeSpeaker,
   fakeSpeechCache,
+  fakeSummarizer,
   fakeTranscriber,
 } from "./ports/fakes.js";
 import type { Notifier } from "./ports/notifier.js";
 import type { Speaker } from "./ports/speaker.js";
+import type { Summarizer } from "./ports/summarizer.js";
 import type { Transcriber } from "./ports/transcriber.js";
 import { fakeOtlpExporter } from "./telemetry/fakes.js";
 import { log } from "./telemetry/log.js";
@@ -41,6 +45,8 @@ export type ComposeEnv = Partial<
     | "OTEL_EXPORTER_OTLP_ENDPOINT"
     | "AUDIO_DOOR_URL"
     | "AUDIO_DOOR_TOKEN"
+    | "AGW_URL"
+    | "AGW_API_SECRET"
     | "HERMES_URL"
     | "HERMES_TOKEN"
     | "APNS_KEY_P8"
@@ -59,6 +65,7 @@ const fakePorts = () => ({
   transcriber: fakeTranscriber(),
   // Like Hermes: a session per memo, and (as the `iris` skill would) a kind, a headline and two tool names.
   destination: fakeDestination({ sessionPerMemo: true }),
+  summarizer: fakeSummarizer(),
   notifier: fakeNotifier(),
   speaker: fakeSpeaker({ result: { bytes: MP3_FRAME } }),
   speechCache: fakeSpeechCache(),
@@ -112,6 +119,12 @@ export function compose(deps: {
       ? createAudioDoorClient({ baseUrl: env.AUDIO_DOOR_URL, token: env.AUDIO_DOOR_TOKEN })
       : undefined;
 
+  // The host needs its URL and its bearer together.
+  const agw =
+    env.AGW_URL && env.AGW_API_SECRET
+      ? createAgwClient({ baseUrl: env.AGW_URL, secret: env.AGW_API_SECRET })
+      : undefined;
+
   const ports = {
     transcriber: choose<Transcriber>("transcribe", fakes?.transcriber, () =>
       audioDoor ? createAudioDoorTranscriber({ client: audioDoor }) : undefined,
@@ -121,6 +134,9 @@ export function compose(deps: {
       env.HERMES_URL && env.HERMES_TOKEN
         ? createHermesDestination({ baseUrl: env.HERMES_URL, token: env.HERMES_TOKEN })
         : undefined,
+    ),
+    summarizer: choose<Summarizer>("summarize", fakes?.summarizer, () =>
+      agw ? createAgwSummarizer({ client: agw }) : undefined,
     ),
     speaker: choose<Speaker>("speech", fakes?.speaker, () =>
       audioDoor ? createAudioDoorSpeaker({ client: audioDoor }) : undefined,
