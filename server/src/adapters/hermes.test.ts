@@ -5,6 +5,7 @@ import { transientKind } from "../ports/transient.js";
 import {
   createHermesDestination,
   IRIS_SYSTEM_MESSAGE,
+  actionOf,
   parseIrisBlock,
   systemMessage,
 } from "./hermes.js";
@@ -507,6 +508,36 @@ describe("hermes destination, the iris block and tools", () => {
     ]);
     expect(delivery.meta?.actions).toEqual(["web_search", "write_file"]);
     expect(JSON.stringify(delivery.meta)).not.toContain("secret");
+  });
+
+  it("records the loaded skill for skill_view, drops the iris skill and a skill_view without a usable name", async () => {
+    const delivery = await run([
+      toolStarted({ tool_name: "skill_view", args: { name: "iris" } }),
+      toolStarted({ tool_name: "web_search" }),
+      toolStarted({ tool_name: "skill_view", args: { name: "capture", file_path: "secret.md" } }),
+      toolStarted({ tool_name: "skill_view" }),
+      toolStarted({ tool_name: "skill_view", args: { name: 7 } }),
+      toolStarted({ tool_name: "skill_view", args: "capture" }),
+      toolStarted({ tool_name: "skill_view", args: { name: "  " } }),
+      toolStarted({ tool_name: "skill_view", args: { name: "plugin:herdr" } }),
+      toolStarted({ tool_name: "skill_view", args: { name: "capture" } }),
+      toolStarted({ tool_name: "skill_view", args: { name: "productivity/obsidian" } }),
+      toolStarted({ tool_name: "web_search" }),
+      completed("ok"),
+      done,
+    ]);
+    expect(delivery.meta?.actions).toEqual(["web_search", "capture", "herdr", "obsidian"]);
+    expect(JSON.stringify(delivery.meta)).not.toContain("secret");
+  });
+
+  it("actionOf cuts a plugin prefix and a path to the last segment, and drops iris however it is spelled", () => {
+    expect(actionOf({ tool_name: "terminal", args: { name: "iris" } })).toBe("terminal");
+    expect(actionOf({ tool_name: "skill_view", args: { name: "plugin:03-x/axolotl" } })).toBe(
+      "axolotl",
+    );
+    expect(actionOf({ tool_name: "skill_view", args: { name: "my-plugin:iris" } })).toBeNull();
+    expect(actionOf({ tool_name: "skill_view", args: { name: "tools/iris" } })).toBeNull();
+    expect(actionOf({ tool_name: "skill_view", args: null })).toBeNull();
   });
 
   it("keeps at most 12 actions", async () => {
