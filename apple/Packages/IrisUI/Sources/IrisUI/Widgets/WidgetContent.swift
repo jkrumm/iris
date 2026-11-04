@@ -134,7 +134,6 @@ public enum IrisWidgetText {
   static func title(_ phase: LastMemoSnapshot.Phase) -> Text {
     switch phase {
     case .processing: Text("Processing", bundle: #bundle, comment: "Widget memo state")
-    case .needsRoute: Text("Needs a route", bundle: #bundle, comment: "Widget memo state")
     case .done: Text("Done", bundle: #bundle, comment: "Widget memo state")
     case .failed: Text("Failed", bundle: #bundle, comment: "Widget memo state")
     }
@@ -144,7 +143,6 @@ public enum IrisWidgetText {
   static func hint(_ phase: LastMemoSnapshot.Phase) -> Text {
     switch phase {
     case .processing: Text("Iris is working on it", bundle: #bundle, comment: "Widget memo hint")
-    case .needsRoute: Text("Where should this go?", bundle: #bundle, comment: "Widget memo hint")
     case .done: Text("Your memo is ready", bundle: #bundle, comment: "Widget memo hint")
     case .failed: Text("Iris could not finish this memo", bundle: #bundle, comment: "Widget memo hint")
     }

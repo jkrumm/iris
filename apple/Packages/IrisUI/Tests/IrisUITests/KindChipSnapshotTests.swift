@@ -14,7 +14,7 @@
 
   @MainActor
   @Suite(.snapshots(record: recordMode))
-  struct RouteChipSnapshotTests {
+  struct KindChipSnapshotTests {
     private static func traits(_ style: UIUserInterfaceStyle) -> UITraitCollection {
       UITraitCollection(traitsFrom: [
         UITraitCollection(userInterfaceStyle: style),
@@ -24,14 +24,14 @@
     }
 
     private func chip(_ scheme: ColorScheme) -> some View {
-      RouteChip(label: "AirPods Pro", systemImage: "airpods.pro")
+      KindChip(label: "Github issue", systemImage: "tag.fill")
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Theme.Surface.background)
         .environment(\.colorScheme, scheme)
     }
 
-    @Test("RouteChip renders in light and dark", .tags(.snapshot))
-    func routeChip() {
+    @Test("KindChip renders in light and dark", .tags(.snapshot))
+    func kindChip() {
       for (scheme, style) in [(ColorScheme.light, UIUserInterfaceStyle.light), (.dark, .dark)] {
         assertSnapshot(
           of: chip(scheme),

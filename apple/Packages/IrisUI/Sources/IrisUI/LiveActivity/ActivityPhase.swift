@@ -3,7 +3,7 @@ import SwiftUI
 /// The phases a memo's Live Activity goes through. IrisUI has no dependency on `IrisCore`: the widget maps its own phase
 /// onto this one.
 public enum ActivityPhase: String, Sendable, CaseIterable {
-  case recording, paused, uploading, processing, needsRoute, done, failed
+  case recording, paused, uploading, processing, done, failed
 
   /// The four stages of a memo, as the activity shows them: record, upload, process, done. `nil` when the phase is
   /// outside the sequence (a failure shows no progress).
@@ -11,7 +11,7 @@ public enum ActivityPhase: String, Sendable, CaseIterable {
     switch self {
     case .recording, .paused: 0
     case .uploading: 1
-    case .processing, .needsRoute: 2
+    case .processing: 2
     case .done: 3
     case .failed: nil
     }
@@ -23,7 +23,6 @@ public enum ActivityPhase: String, Sendable, CaseIterable {
     case .paused: "pause.fill"
     case .uploading: "arrow.up"
     case .processing: "waveform"
-    case .needsRoute: "arrow.triangle.branch"
     case .done: "checkmark"
     case .failed: "exclamationmark.triangle.fill"
     }
@@ -41,6 +40,7 @@ public struct ActivityPresentation: Equatable, Sendable {
   public var modeLabel: String
   public var subtitle: String?
   public var inputName: String?
+  /// The wire name of the memo's kind (the server sends the capitalised kind).
   public var routeChip: String?
   public var headline: String?
   /// A line about another memo that is still on its way ("1 earlier memo is still sending").

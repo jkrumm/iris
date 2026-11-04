@@ -11,26 +11,6 @@
         }
       }
     },
-    "Auto" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Auto"
-          }
-        }
-      }
-    },
-    "Chat" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Chat"
-          }
-        }
-      }
-    },
     "Connect Iris to your server in Settings first." : {
       "localizations" : {
         "de" : {
@@ -141,32 +121,12 @@
         }
       }
     },
-    "Journal" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Journal"
-          }
-        }
-      }
-    },
     "Memo" : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Memo"
-          }
-        }
-      }
-    },
-    "Needs a route" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Route erforderlich"
           }
         }
       }
@@ -351,16 +311,6 @@
         }
       }
     },
-    "Tab" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Tab"
-          }
-        }
-      }
-    },
     "This memo has no reply to play." : {
       "localizations" : {
         "de" : {
@@ -387,16 +337,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Wird hochgeladen"
-          }
-        }
-      }
-    },
-    "Where should this go?" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Wohin damit?"
           }
         }
       }
