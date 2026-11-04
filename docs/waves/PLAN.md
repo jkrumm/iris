@@ -1368,6 +1368,14 @@ train, `agw review` on every PR). TDD §3 and §4 and AGENTS.md change in the sa
       `actions` as one quiet line under the reply ("Hermes used: capture, github"). Old memos with a `route` and no `kind` show the route name.
       Stats series per kind. Mac takes: no change (always the default mode). Snapshots re-recorded, `make uitest ONLY=` for History, detail,
       composer and the record control; strings `de` included (`make check-strings`).
+- [ ] **P1 (pulled forward from Wave 22, mother 2026-11-04):** the owner's keys are in (`op://mini/apple-developer/*`, seeded) and production
+      already runs the APNs notifier (`918f870`). Device builds sign with the **paid team** headless: `scripts/device-build.sh` passes
+      `-allowProvisioningUpdates -authenticationKeyPath/-ID/-IssuerID` from the ASC Team key (write the `.p8` to a 0600 temp file, rebuilt with
+      the same rule as `normalizePem`: 1Password flattened its newlines; delete it after) and `DEVELOPMENT_TEAM` from `team-id`;
+      `DEVICE_SIGNING=paid` becomes the default (personal stays selectable), so `aps-environment` and the App Group are in the device build.
+      The app registers its APNs token with `apnsEnv: sandbox` on a Debug device build. Proof on the phone (`make device`, under the lock, after
+      A1's Apple build or between its runs): `POST /devices/register` shows `hasApnsToken: true`, a typed memo ends with a `MEMO_DONE` banner and
+      a Live Activity `end` push (`notify.apns_*` log lines, no `notify.no_token`). The Mac keeps its Personal Team build until Wave 22 M2.
 - (carried) **D1** hardware batch: waits for Wave 22's first TestFlight build.
 
 ## Wave 22 — less chrome ∥ the paid Apple team: APNs, TestFlight, Sparkle            <!-- status: pending -->
@@ -1385,7 +1393,7 @@ attached to the item, its password in a field. All of it is team-wide, so it liv
       kind chip, one meta line) → reply → player → transcript → **Details** (collapsed: step waterfall, cost, attempts, ids, [Retry from step]).
       A failed memo opens Details. Same order on the Mac detail pane. Before/after renders (light, dark, German) into
       `docs/design/fidelity/w22.md` for the owner's async look; snapshots re-recorded.
-- [ ] **P1. Paid signing + APNs live:** `DEVICE_SIGNING=paid` the default, App Groups on for all three iOS targets and the widget feed live;
+- [ ] **P1. Paid signing + APNs live** (moved into Wave 21; only TestFlight's `production` env remains here): `DEVICE_SIGNING=paid` the default, App Groups on for all three iOS targets and the widget feed live;
       `APNS_*` in `.env.mini.tpl` from the owner's refs, `notifier.selected` = apns; `apnsEnv` follows the build channel (Debug device build
       `sandbox`, TestFlight `production`), registered by the app. Live Activity remote updates and the result alert reach the phone.
 - [ ] **P2. `make testflight` + the update loop:** archive, export with the Team key (`method app-store-connect`, `destination upload`),
