@@ -106,6 +106,8 @@ Pairing a phone with the mini is an owner step (trust prompt on the phone, Devel
   keychain (`security find-identity -v -p codesigning`), headless. The team id comes from `defaults export com.apple.dt.Xcode - | plutil -extract IDEProvisioningTeamByIdentifier json -o - -`
   (`isFreeProvisioningTeam`). A Personal Team profile fails with "doesn't match the entitlements file's value for the com.apple.security.application-groups entitlement" and cannot
   carry `aps-environment`: the script strips both via the `IRIS_*_ENTITLEMENTS` build settings. Remove a key from a plist with `PlistBuddy -c "Delete :com.apple.…"`: `plutil -remove` reads the dots as a key path.
+- Headless signing with the ASC Team key (ran 2026-11-04): the flags above create and download the profiles without Xcode's account (App ID + Push worked). The API key cannot create an App Group
+  identifier: until the Account Holder adds `group.com.jkrumm.iris` to the App IDs, `DEVICE_DROP_ENTITLEMENTS=com.apple.security.application-groups` builds without it (AGENTS.md "Device").
 - If codesign ever hangs on a keychain prompt over SSH/launchd: `security unlock-keychain` then
   `security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k <keychain-pass> <keychain>` (**unverified**, not needed so far).
 - Mac apps (MenuBarExtra, hotkey, mic) need a **stable signing identity**: TCC (microphone, accessibility) grants are keyed to

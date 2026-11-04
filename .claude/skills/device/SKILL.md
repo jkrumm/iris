@@ -22,8 +22,11 @@ xcrun devicectl device capture screenshot --device $D --destination out.png   # 
 - Signing: `DEVICE_SIGNING=paid` (default; the paid team, headless with the ASC Team key read through `secrets-run`, key file 0600 and deleted on exit) or
   `personal` (fallback: free team, no Push/App Groups); `TEAM=<id>` and `IRIS_DEVICE_ID` override. The phone resolves at runtime (`scripts/device-lib.sh`);
   the flags, the key lifecycle and the Personal Team limits: AGENTS.md "Device". Do not rename bundle ids. Install over the same bundle id keeps the app's data (Keychain, outbox).
-- APNs proof after `make device`: `GET`-less check is the register response (`hasApnsToken`); send a typed memo (`scripts/send-memo.ts` or `POST /v1/memos/text`, mode `hermes`,
-  the iphone token from `secrets-run`), then `~/Library/Logs/iris.log` must show `notify.apns_*` success lines for that memo and no `notify.no_token`. The phone must be unlocked for the banner screenshot.
+- APNs proof after `make device` (ran 2026-11-04, paid team, sandbox): the server row `sqlite3 -readonly ~/.iris/data/iris.db "select device,apns_env,apns_token is not null from devices"` shows `iphone|sandbox|1`
+  (never print the token); send a typed memo (`IRIS_TOKEN=<iphone token from secrets-run> bun scripts/send-memo.ts --text '…' --mode hermes`) and read `~/Library/Logs/iris.log`: **a delivered push logs nothing**
+  (only `notify.apns_rejected|apns_transient|no_token` log), so success is the memo reaching `notified` with none of those lines for its id. A banner needs the notification permission (the app asks once, German "Erlauben")
+  and an unlocked, idle phone: a screenshot can show a call or other private content, look before keeping it.
+- The App Group is not yet in the portal: build with `DEVICE_DROP_ENTITLEMENTS=com.apple.security.application-groups` until the owner creates it (AGENTS.md "Device").
 - First install: iOS refuses to launch until the developer is trusted on the phone (Settings > General > VPN & Device Management); that is an owner step.
 - `pymobiledevice3` **does not work** here: `usbmux list` is empty (the phone is on a network tunnel) and an RSD tunnel needs root. Use `devicectl`.
 - Logs: `os.Logger` subsystem `com.jkrumm.iris`; **no headless route** (ran 2026-10-30): `/usr/bin/log collect --device*` says "Must be root to collect logs from attached device" (`log` is a zsh builtin: use the full

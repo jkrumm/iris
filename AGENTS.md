@@ -130,11 +130,16 @@ States: `receiving → received → transcribed → acted → summarized → not
 `lockf -t 1800 /tmp/iris-apple.lock make device` builds, signs, installs, launches Iris and screenshots the phone to `.artifacts/device-<time>.png`
 (`device-build`, `device-run`, `device-screenshot` run alone; `make device-run ARGS="-flag"` passes launch arguments). Scripts: `scripts/device-*.sh`;
 the phone (`devicectl list devices`, the connected physical iOS device) resolves at runtime, nothing about it is tracked. Overrides: `IRIS_DEVICE_ID`,
-`TEAM=<id>`, `DEVICE_SIGNING=paid|personal`.
+`TEAM=<id>`, `DEVICE_SIGNING=paid|personal`, `DEVICE_DROP_ENTITLEMENTS="<key> ..."`. The phone's tunnel may read `disconnected` while it is `available`: the scripts accept that (it comes up on first use), only `unavailable` is skipped.
 - **Signing is one switch, paid by default.** `DEVICE_SIGNING=paid` signs with the paid team, headless: `scripts/device-build.sh` reads `team-id`,
   `asc-key-id`, `asc-issuer-id` and `asc-key-p8` from `op://mini/apple-developer` with `secrets-run read` (never `op`), and passes
   `-allowProvisioningUpdates -authenticationKeyPath <file> -authenticationKeyID <id> -authenticationKeyIssuerID <issuer>` plus `DEVELOPMENT_TEAM=<team-id>`
   to `xcodebuild`. The entitlements apply exactly as tracked (`aps-environment`, the App Group, the Keychain group).
+- **Open owner step (2026-11-04): the App Group.** The portal has Push on `com.jkrumm.iris` but no App Group identifier assigned to the three App IDs (the
+  API key cannot create one), so the tracked entitlements fail with "Provisioning profile … doesn't match the entitlements file's value for the
+  com.apple.security.application-groups entitlement". Until the Account Holder creates `group.com.jkrumm.iris` (Identifiers > App Groups) and adds it to
+  the three App IDs, build with `DEVICE_DROP_ENTITLEMENTS=com.apple.security.application-groups make device`: signed by the paid team, Push on, no group
+  (the widget feed stays dark). The variable drops the named keys from derived copies of the entitlements on any signing mode.
 - **The key file's life:** 1Password flattened the `.p8` newlines into spaces, so `pem_normalize` (`scripts/device-lib.sh`, the same rule as
   `normalizePem` in `server/src/notify/select.ts`) rebuilds real newlines and 64-character body lines into a `mktemp` file with mode 0600; a `trap` on
   `EXIT` deletes it on every exit path. Only the path, key id and issuer id are in argv; the key is in no log and no tracked file.
