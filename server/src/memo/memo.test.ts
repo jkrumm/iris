@@ -5,12 +5,14 @@ import {
   clipCodePoints,
   IllegalTransitionError,
   isResultReady,
+  isOptionalStep,
   isTerminal,
   MEMO_STATES,
   nextStep,
   normalizeActions,
   normalizeKind,
   runsAct,
+  stateAfter,
   stateBefore,
   stepsFrom,
   stepsOf,
@@ -23,7 +25,8 @@ describe("transition table", () => {
     ["ingest", "receiving", "received"],
     ["transcribe", "received", "transcribed"],
     ["act", "transcribed", "acted"],
-    ["notify", "acted", "notified"],
+    ["summarize", "acted", "summarized"],
+    ["notify", "summarized", "notified"],
   ];
 
   it.each(happy)("%s moves %s to %s", (step, from, to) => {
@@ -39,13 +42,11 @@ describe("transition table", () => {
     }
   });
 
-  it("has no route or summarize step in any pipeline", () => {
-    for (const step of ["route", "summarize"] as const) {
-      expect(() => advance({ state: "transcribed", step, mode: "auto" })).toThrow(
-        IllegalTransitionError,
-      );
-      expect(() => stateBefore({ step, mode: "auto" })).toThrow(IllegalTransitionError);
-    }
+  it("has no route step in any pipeline", () => {
+    expect(() => advance({ state: "transcribed", step: "route", mode: "auto" })).toThrow(
+      IllegalTransitionError,
+    );
+    expect(() => stateBefore({ step: "route", mode: "auto" })).toThrow(IllegalTransitionError);
   });
 });
 
@@ -54,8 +55,9 @@ describe("helpers", () => {
     expect(nextStep({ state: "receiving", mode: "auto" })).toBeNull();
     expect(nextStep({ state: "received", mode: "auto" })).toBe("transcribe");
     expect(nextStep({ state: "transcribed", mode: "auto" })).toBe("act");
-    expect(nextStep({ state: "acted", mode: "auto" })).toBe("notify");
-    for (const state of ["routed", "summarized", "needs_route", "notified", "failed"] as const) {
+    expect(nextStep({ state: "acted", mode: "auto" })).toBe("summarize");
+    expect(nextStep({ state: "summarized", mode: "auto" })).toBe("notify");
+    for (const state of ["routed", "needs_route", "notified", "failed"] as const) {
       expect(nextStep({ state, mode: "auto" })).toBeNull();
     }
   });
@@ -81,9 +83,9 @@ describe("runsAct", () => {
 });
 
 describe("stepsOf", () => {
-  it("is ingest, transcribe, act, notify for every mode that runs act", () => {
+  it("is ingest, transcribe, act, summarize, notify for every mode that runs act", () => {
     for (const mode of ["auto", "journal", "hermes", "tab", "chat"] as const) {
-      expect(stepsOf(mode)).toEqual(["ingest", "transcribe", "act", "notify"]);
+      expect(stepsOf(mode)).toEqual(["ingest", "transcribe", "act", "summarize", "notify"]);
     }
   });
 });
@@ -111,6 +113,15 @@ describe("mode transcribe", () => {
   });
 });
 
+describe("optional steps", () => {
+  it("is summarize only, and a skipped one leaves the memo in the state the step would have reached", () => {
+    expect(isOptionalStep("summarize")).toBe(true);
+    for (const step of ["transcribe", "act", "notify"] as const)
+      expect(isOptionalStep(step)).toBe(false);
+    expect(stateAfter("summarize")).toBe("summarized");
+  });
+});
+
 describe("canRetryFrom", () => {
   it("allows any pipeline step up to the failed one", () => {
     expect(canRetryFrom({ from: "transcribe", failedStep: "act", mode: "auto" })).toBe(true);
@@ -125,9 +136,10 @@ describe("canRetryFrom", () => {
     expect(canRetryFrom({ from: "notify", failedStep: "route", mode: "auto" })).toBe(false);
   });
 
-  it("treats an old failed(summarize) as failed at notify", () => {
+  it("allows summarize and refuses notify after a failed summarize", () => {
     expect(canRetryFrom({ from: "act", failedStep: "summarize", mode: "auto" })).toBe(true);
-    expect(canRetryFrom({ from: "notify", failedStep: "summarize", mode: "auto" })).toBe(true);
+    expect(canRetryFrom({ from: "summarize", failedStep: "summarize", mode: "auto" })).toBe(true);
+    expect(canRetryFrom({ from: "notify", failedStep: "summarize", mode: "auto" })).toBe(false);
   });
 
   it("refuses a step outside the pipeline", () => {

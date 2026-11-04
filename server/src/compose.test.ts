@@ -43,6 +43,7 @@ function fakesApp() {
     audio,
     transcriber: fakes.transcriber,
     destination: fakes.destination,
+    summarizer: fakes.summarizer,
     notifier: fakes.notifier,
   });
   const runner = createRunner({ store, handlers, events, clock });
@@ -120,7 +121,7 @@ describe("compose with IRIS_FAKES", () => {
     expect(await detail.json()).toMatchObject({
       kind: "note",
       actions: ["fake_search", "fake_write"],
-      summary: { headline: "Headline" },
+      summary: { headline: "Headline", detail: "Detail", spoken: "Spoken." },
     });
 
     expect((await call(app, { path: "/v1/herd" })).status).toBe(404);
@@ -148,8 +149,8 @@ describe("compose", () => {
       AUDIO_DOOR_URL: "http://127.0.0.1:1/v1",
       AUDIO_DOOR_TOKEN: "door-token",
     });
-    const { transcriber, destination, speaker } = composed.ports;
-    for (const port of [transcriber, destination, speaker]) {
+    const { transcriber, destination, summarizer, speaker } = composed.ports;
+    for (const port of [transcriber, destination, summarizer, speaker]) {
       expect(port).toBeDefined();
     }
     expect(composed.degraded).toEqual(["fakes"]);
@@ -159,16 +160,23 @@ describe("compose", () => {
 
   it("an empty env builds no downstream and reports each missing one in order", () => {
     const { composed } = build({});
-    const { transcriber, destination, speaker } = composed.ports;
-    for (const port of [transcriber, destination, speaker]) {
+    const { transcriber, destination, summarizer, speaker } = composed.ports;
+    for (const port of [transcriber, destination, summarizer, speaker]) {
       expect(port).toBeUndefined();
     }
-    expect(composed.degraded).toEqual(["otel", "device-tokens", "transcribe", "act", "speech"]);
+    expect(composed.degraded).toEqual([
+      "otel",
+      "device-tokens",
+      "transcribe",
+      "act",
+      "summarize",
+      "speech",
+    ]);
     expect(composed.notifierKind).toBe("log");
     expect(composed.deviceTokens.size).toBe(0);
   });
 
-  it("composes no routing port: no herd, decider, summarizer or other destination", () => {
+  it("composes no routing port: no herd, decider or other destination", () => {
     const { composed } = build({
       IRIS_FAKES: true,
       HERMES_URL: "http://127.0.0.1:1",
@@ -181,6 +189,7 @@ describe("compose", () => {
       "diagrams",
       "speaker",
       "speechCache",
+      "summarizer",
       "transcriber",
     ]);
   });
@@ -191,11 +200,13 @@ describe("compose", () => {
       IRIS_DEVICE_TOKENS: DEVICE_TOKENS,
       AUDIO_DOOR_URL: "http://127.0.0.1:1/v1",
       AUDIO_DOOR_TOKEN: "door-token",
+      AGW_URL: "http://127.0.0.1:1",
+      AGW_API_SECRET: "agw-secret",
       HERMES_URL: "http://127.0.0.1:1",
       HERMES_TOKEN: "token",
     });
-    const { transcriber, destination, speaker } = composed.ports;
-    for (const port of [transcriber, destination, speaker]) {
+    const { transcriber, destination, summarizer, speaker } = composed.ports;
+    for (const port of [transcriber, destination, summarizer, speaker]) {
       expect(port).toBeDefined();
     }
     expect(composed.degraded).toEqual([]);
@@ -215,6 +226,18 @@ describe("compose", () => {
     expect(both.ports.speaker).toBeDefined();
     expect(both.degraded).not.toContain("transcribe");
     expect(both.degraded).not.toContain("speech");
+  });
+
+  it("the agent-workflows host needs both its URL and its secret, else summarize is degraded", () => {
+    const url = "http://127.0.0.1:1";
+    for (const env of [{ AGW_URL: url }, { AGW_API_SECRET: "s" }]) {
+      const { ports, degraded } = build(env).composed;
+      expect(ports.summarizer).toBeUndefined();
+      expect(degraded).toContain("summarize");
+    }
+    const both = build({ AGW_URL: url, AGW_API_SECRET: "s" }).composed;
+    expect(both.ports.summarizer).toBeDefined();
+    expect(both.degraded).not.toContain("summarize");
   });
 
   it("Hermes is the single destination and needs both its URL and token, else act is degraded", () => {

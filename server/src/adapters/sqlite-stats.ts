@@ -58,7 +58,7 @@ export function createSqliteStatsStore(params: { db: Database; clock: Clock }): 
         .sort((x, y) => x.weekStart.localeCompare(y.weekStart));
 
       // Keyed by step and the memo's kind: how long `act` takes depends on what Hermes made of the memo. Steps of memos from
-      // before Hermes decided (`route`, `summarize`) are in too, under their old memos' kind (none).
+      // before Hermes decided (`route`) are in too, under their old memos' kind (none).
       const durations = new Map<string, { step: Step; kind: string | null; ms: number[] }>();
       const stepRows = db
         .query<

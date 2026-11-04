@@ -118,8 +118,15 @@ export interface MemoStore extends ThreadStore {
   /** Also moves the memo to `failed` and records `failedStep` and `error`. */
   markStepFailed(params: { id: string; step: Step; error: string }): void;
   /**
+   * An optional step failed for good: records the failure on its step row (error and attempts stay) and moves the memo
+   * on to the state the step would have reached, compare-and-set from `from`, without marking the memo failed. False
+   * (nothing written, the step row stays as it was) when the memo left `from`. Throws for a step that is not optional.
+   */
+  skipStep(params: { id: string; step: Step; from: MemoState; error: string }): boolean;
+  /**
    * failed → stateBefore(from), clearing error, failedStep, the timeline and the data columns of `from` and later steps (steps an
-   * old memo had and the pipeline no longer has included); false if not failed.
+   * old memo had and the pipeline no longer has included); false if not failed. Also resets a `notified` memo when `from` is an
+   * optional step whose row is `failed` (the memo ended without its result).
    */
   resetForRetry(params: { id: string; from: Step }): boolean;
   listStepRecords(id: string): StepRecord[];

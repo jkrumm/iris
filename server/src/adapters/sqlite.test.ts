@@ -516,18 +516,20 @@ describe("completeStep", () => {
     complete("act", "transcribed", "acted", {
       destinationRef: "r",
       replyText: "x",
-      summary,
       kind: "task",
+      hermesHeadline: "Buy milk",
       actions: ["web_search"],
     });
+    complete("summarize", "acted", "summarized", { summary });
     store.markStepStarted({ id, step: "notify" });
     store.markStepFailed({ id, step: "notify", error: "boom" });
 
-    // A retry from notify keeps everything act produced.
+    // A retry from notify keeps everything act and summarize produced.
     store.resetForRetry({ id, from: "notify" });
     expect(store.getMemo(id)).toMatchObject({
-      state: "acted",
+      state: "summarized",
       kind: "task",
+      hermesHeadline: "Buy milk",
       actions: ["web_search"],
       summary,
       replyText: "x",
@@ -544,8 +546,43 @@ describe("completeStep", () => {
       replyText: null,
       summary: null,
       kind: null,
+      hermesHeadline: null,
       actions: [],
     });
+  });
+
+  it("skipStep moves the memo past a failed optional step, keeping the step row failed", () => {
+    const { store } = testStore();
+    const { id } = seedMemo(store, "acted");
+    store.markStepStarted({ id, step: "summarize" });
+    expect(store.skipStep({ id, step: "summarize", from: "acted", error: "402" })).toBe(true);
+    expect(store.getMemo(id)).toMatchObject({ state: "summarized", failedStep: null, error: null });
+    expect(store.listStepRecords(id).find((r) => r.step === "summarize")).toMatchObject({
+      status: "failed",
+      error: "402",
+    });
+    // The memo left `acted`: nothing more is written.
+    expect(store.skipStep({ id, step: "summarize", from: "acted", error: "again" })).toBe(false);
+    expect(() => store.skipStep({ id, step: "act", from: "summarized", error: "x" })).toThrow(
+      "not optional",
+    );
+  });
+
+  it("resetForRetry re-runs a failed summarize on a notified memo, and only then", () => {
+    const { store } = testStore();
+    const { id } = seedMemo(store, "acted");
+    store.markStepStarted({ id, step: "summarize" });
+    store.skipStep({ id, step: "summarize", from: "acted", error: "402" });
+    store.markStepStarted({ id, step: "notify" });
+    store.completeStep({ id, step: "notify", from: "summarized", to: "notified" });
+
+    expect(store.resetForRetry({ id, from: "notify" })).toBe(false);
+    expect(store.resetForRetry({ id, from: "summarize" })).toBe(true);
+    expect(store.getMemo(id)).toMatchObject({ state: "acted", summary: null });
+    expect(store.listStepRecords(id).map((r) => r.step)).toEqual([]);
+
+    const healthy = seedMemo(store, "notified");
+    expect(store.resetForRetry({ id: healthy.id, from: "summarize" })).toBe(false);
   });
 
   it("resetForRetry only rewinds a failed memo", () => {
@@ -877,11 +914,11 @@ describe("migrations", () => {
       ).toEqual([]);
     });
 
-    it("moves routed to transcribed and summarized to acted, and keeps route_decisions untouched", () => {
+    it("moves routed to transcribed, leaves summarized alone and keeps route_decisions untouched", () => {
       const db = version13();
       migrate(db);
       expect(stateOf(db, "routed")?.state).toBe("transcribed");
-      expect(stateOf(db, "summarized")?.state).toBe("acted");
+      expect(stateOf(db, "summarized")?.state).toBe("summarized");
       expect(
         db.query("SELECT memo_id, source, outcome, reason FROM route_decisions").all(),
       ).toEqual([
@@ -895,6 +932,9 @@ describe("migrations", () => {
       expect(
         db.query("SELECT kind, actions_json FROM memos WHERE id = 'summarized'").get(),
       ).toEqual({ kind: null, actions_json: null });
+      expect(db.query("SELECT hermes_headline FROM memos WHERE id = 'summarized'").get()).toEqual({
+        hermes_headline: null,
+      });
     });
 
     it("lets the migrated memo retry from act like any failed memo, then drive on", () => {

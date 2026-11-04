@@ -20,13 +20,13 @@ export const MEMO_STATES = [
 ] as const;
 export type MemoState = (typeof MEMO_STATES)[number];
 
-/** Every step a row of the timeline can name: `route` and `summarize` only on memos from before Hermes decided. */
+/** Every step a row of the timeline can name: `route` only on memos from before Hermes decided. */
 export const STEPS = ["ingest", "transcribe", "route", "act", "summarize", "notify"] as const;
 export type Step = (typeof STEPS)[number];
 /** Steps a handler implements; `ingest` is driven by the upload `complete` call. */
-export type HandlerStep = "transcribe" | "act" | "notify";
+export type HandlerStep = "transcribe" | "act" | "summarize" | "notify";
 
-/** What Hermes reports for a turn (its ```iris block): a notification headline and one spoken sentence; `detail` is never set. */
+/** The triage result (agw `triage`, step `summarize`): a notification headline, a longer detail line and 1–2 spoken sentences. */
 export interface Summary {
   headline: string;
   detail: string;
@@ -115,6 +115,8 @@ export interface Memo {
   threadId: string | null;
   /** What Hermes called the memo (`normalizeKind`); null before `act`, in mode `transcribe` and when the reply carried no block. */
   kind: string | null;
+  /** The headline of Hermes's iris block (`HEADLINE_MAX`); `notify`'s fallback when the summary is missing. Null before `act` and without a block. Not on the wire. */
+  hermesHeadline: string | null;
   /** The tool names Hermes used in the turn (`normalizeActions`), first seen first; empty when none or unknown. */
   actions: string[];
   /** User flags (swipe actions): handled, starred, and when it was archived. None of them affects the pipeline. */
@@ -173,6 +175,7 @@ export type MemoColumnPatch = Partial<
     | "summary"
     | "threadId"
     | "kind"
+    | "hermesHeadline"
     | "actions"
   >
 >;
@@ -286,15 +289,16 @@ interface Transition {
   to: MemoState;
 }
 
-/** The pipeline of every memo that runs `act`; the states `routed`, `summarized` and `needs_route` are only ever read (old rows). */
+/** The pipeline of every memo that runs `act`; the states `routed` and `needs_route` are only ever read (old rows). */
 const TRANSITIONS: Partial<Record<Step, Transition>> = {
   ingest: { from: "receiving", to: "received" },
   transcribe: { from: "received", to: "transcribed" },
   act: { from: "transcribed", to: "acted" },
-  notify: { from: "acted", to: "notified" },
+  summarize: { from: "acted", to: "summarized" },
+  notify: { from: "summarized", to: "notified" },
 };
 
-const ACT_STEPS: readonly Step[] = ["ingest", "transcribe", "act", "notify"];
+const ACT_STEPS: readonly Step[] = ["ingest", "transcribe", "act", "summarize", "notify"];
 
 /** Mode `transcribe` stops after the transcript: `notify` runs straight from `transcribed`, no `act` row exists. */
 const TRANSCRIBE_ONLY_STEPS: readonly Step[] = ["ingest", "transcribe", "notify"];
@@ -314,7 +318,24 @@ function transitionOf(step: Step, mode: MemoMode): Transition {
   return transition;
 }
 
-const HANDLER_STEPS: readonly HandlerStep[] = ["transcribe", "act", "notify"];
+/**
+ * Steps whose permanent failure does not fail the memo: the step row stays `failed` (error and attempts kept) and the memo
+ * moves on to the next step. The result they produce is an extra, not the point of the memo.
+ */
+const OPTIONAL_STEPS: readonly Step[] = ["summarize"];
+
+export function isOptionalStep(step: Step): boolean {
+  return OPTIONAL_STEPS.includes(step);
+}
+
+/** The state a memo moves to when the optional `step` failed for good: the one the step would have advanced to. */
+export function stateAfter(step: Step): MemoState {
+  const transition = TRANSITIONS[step];
+  if (!transition) throw new IllegalTransitionError(`step ${step} has no transition`);
+  return transition.to;
+}
+
+const HANDLER_STEPS: readonly HandlerStep[] = ["transcribe", "act", "summarize", "notify"];
 
 export class IllegalTransitionError extends Error {
   constructor(message: string) {

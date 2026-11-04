@@ -63,6 +63,7 @@ describe("memo lifecycle over HTTP", () => {
     expect(detail.steps.map((s) => [s.step, s.status])).toEqual([
       ["transcribe", "done"],
       ["act", "done"],
+      ["summarize", "done"],
       ["notify", "done"],
     ]);
 
@@ -101,6 +102,7 @@ describe("mode transcribe over HTTP", () => {
       handlers: {
         transcribe: record("transcribe", { transcript: "buy milk and call the dentist" }),
         act: record("act"),
+        summarize: record("summarize"),
         notify: record("notify"),
       },
     });

@@ -6,7 +6,6 @@ import {
   normalizeKind,
   threadTitle,
   type MemoMode,
-  type Summary,
 } from "../memo/memo.js";
 import type { Delivery, DeliveryMeta, Destination } from "../ports/destination.js";
 import { fetchFailure, hangGuardFailure, httpFailure } from "../ports/transient.js";
@@ -46,7 +45,8 @@ export function systemMessage(mode: MemoMode): string {
     : `${IRIS_SYSTEM_MESSAGE}\nThe owner picked: ${picked}`;
 }
 
-const IrisBlock = z.object({ kind: z.string(), headline: z.string(), spoken: z.string() });
+// Extra keys (an old `spoken`) are ignored: the spoken line and the summary are triage's (`summarize`), not Hermes's.
+const IrisBlock = z.object({ kind: z.string(), headline: z.string() });
 
 // The tag must stand alone (not ```irisfoo); the block may start on the next line or right after the tag on one line.
 const IRIS_FENCE = /```iris(?=[\s{])[ \t]*\r?\n?([\s\S]*?)```/g;
@@ -55,15 +55,14 @@ export interface IrisBlockResult {
   /** The reply without the last ```iris fence and the whitespace before it. */
   reply: string;
   /** Null when there was no valid block; `invalid` then says why (never the content). */
-  meta: { kind: string | null; summary: Summary | null } | null;
+  meta: { kind: string | null; headline: string | null } | null;
   invalid?: string;
 }
 
 /**
  * Takes the last ```iris fence of the final reply: parsed leniently (extra keys ignored; no fence, bad JSON or a missing key is
  * "no block"), and cut out of the reply either way, since a machine block is never the answer. `kind` is normalised
- * (`normalizeKind`), the headline clipped to `HEADLINE_MAX`; a blank headline leaves the summary out so `notify` falls back to
- * the transcript. `detail` stays empty: the block has none.
+ * (`normalizeKind`), the headline clipped to `HEADLINE_MAX`; a blank headline is none, so `notify` falls back to the transcript.
  */
 export function parseIrisBlock(reply: string): IrisBlockResult {
   const fences = [...reply.matchAll(IRIS_FENCE)];
@@ -88,7 +87,7 @@ export function parseIrisBlock(reply: string): IrisBlockResult {
     reply: stripped,
     meta: {
       kind: normalizeKind(parsed.data.kind),
-      summary: headline === "" ? null : { headline, detail: "", spoken: parsed.data.spoken.trim() },
+      headline: headline === "" ? null : headline,
     },
   };
 }
@@ -280,7 +279,7 @@ export function createHermesDestination(opts: HermesDestinationOptions): Destina
         const actions = normalizeActions(toolNames);
         const meta: DeliveryMeta = {
           kind: parsed.meta?.kind ?? null,
-          summary: parsed.meta?.summary ?? null,
+          headline: parsed.meta?.headline ?? null,
           actions,
         };
         log("hermes.delivered", {

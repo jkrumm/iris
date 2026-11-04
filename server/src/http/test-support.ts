@@ -139,9 +139,10 @@ export function call(
   );
 }
 
-/** Trivial handlers for every step: the pipeline runs transcribe → act → notify with no external calls. */
+/** Trivial handlers for every step: the pipeline runs transcribe → act → summarize → notify with no external calls. */
 export const fakeHandlers: Record<HandlerStep, StepHandler> = {
   transcribe: async () => ({}),
   act: async () => ({}),
+  summarize: async () => ({}),
   notify: async () => ({}),
 };

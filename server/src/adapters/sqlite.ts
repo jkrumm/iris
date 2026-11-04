@@ -4,6 +4,8 @@ import { MemoError } from "../memo/errors.js";
 import {
   groupReplyBlocks,
   STEPS,
+  isOptionalStep,
+  stateAfter,
   stateBefore,
   stepsFrom,
   type Memo,
@@ -62,6 +64,8 @@ interface MemoRow {
   summary_json: string | null;
   thread_id: string | null;
   kind: string | null;
+  /** The headline of Hermes's iris block, NULL before `act` and when the reply carried none. */
+  hermes_headline: string | null;
   /** The tool names of the turn as a JSON array of strings, NULL before `act`. */
   actions_json: string | null;
   done: number;
@@ -174,6 +178,7 @@ const toMemo = (row: MemoRow): Memo => ({
   summary: parseSummary(row),
   threadId: row.thread_id,
   kind: row.kind,
+  hermesHeadline: row.hermes_headline,
   actions: parseActions(row),
   done: row.done === 1,
   favorite: row.favorite === 1,
@@ -212,13 +217,15 @@ const PATCH_COLUMNS = {
   summary: "summary_json",
   threadId: "thread_id",
   kind: "kind",
+  hermesHeadline: "hermes_headline",
   actions: "actions_json",
 } as const satisfies Record<keyof MemoColumnPatch, string>;
 
 /** The data columns a step writes, cleared when the step is re-run. */
 const STEP_COLUMNS: Partial<Record<Step, (keyof MemoColumnPatch)[]>> = {
   transcribe: ["audioSeconds", "transcript"],
-  act: ["destinationRef", "replyText", "summary", "kind", "actions"],
+  act: ["destinationRef", "replyText", "kind", "hermesHeadline", "actions"],
+  summarize: ["summary"],
 };
 
 const toStepRecord = (row: StepRow): StepRecord => ({
@@ -251,14 +258,30 @@ export function createSqliteMemoStore(params: { db: Database; clock: Clock }): M
     ).run(step, error, at, id);
   });
 
+  const skipStep = db.transaction((id: string, step: Step, from: MemoState, error: string) => {
+    if (!isOptionalStep(step)) throw new Error(`step ${step} is not optional`);
+    const at = stamp();
+    const moved = db
+      .query("UPDATE memos SET state = ?, updated_at = ? WHERE id = ? AND state = ?")
+      .run(stateAfter(step), at, id, from);
+    if (moved.changes === 0) return false;
+    db.query(
+      "UPDATE memo_steps SET status = 'failed', finished_at = ?, error = ? WHERE memo_id = ? AND step = ?",
+    ).run(at, error, id, step);
+    return true;
+  });
+
   const resetForRetry = db.transaction((id: string, from: Step) => {
     const mode = memoById(id)?.mode;
     if (mode === undefined) return false;
+    // A failed memo, or a finished one whose optional step failed on the way (`from` is that step).
     const reset = db
       .query(
-        `UPDATE memos SET state = ?, failed_step = NULL, error = NULL, updated_at = ? WHERE id = ? AND state = 'failed'`,
+        `UPDATE memos SET state = ?, failed_step = NULL, error = NULL, updated_at = ? WHERE id = ?
+           AND (state = 'failed' OR (state = 'notified' AND EXISTS (
+             SELECT 1 FROM memo_steps WHERE memo_id = memos.id AND step = ? AND status = 'failed')))`,
       )
-      .run(stateBefore({ step: from, mode }), stamp(), id);
+      .run(stateBefore({ step: from, mode }), stamp(), id, from);
     if (reset.changes === 0) return false;
     const cleared = stepsFrom(from);
     const columns = cleared
@@ -558,6 +581,9 @@ export function createSqliteMemoStore(params: { db: Database; clock: Clock }): M
       markStepFailed(id, step, error);
     },
 
+    skipStep({ id, step, from, error }) {
+      return skipStep(id, step, from, error);
+    },
     resetForRetry({ id, from }) {
       const reset = resetForRetry(id, from);
       // The transaction dropped the rows of a reply that is gone; no completeStep will settle its staged assets.

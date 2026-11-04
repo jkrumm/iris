@@ -82,12 +82,13 @@ const handlers = (overrides: Partial<Record<HandlerStep, StepHandler>> = {}) => 
       destinationRef: "iris-session",
       replyText: "Notiert.",
       kind: "note",
+      hermesHeadline: "Notiz gespeichert",
       actions: ["todo_add", "calendar_search"],
-      summary: SUMMARY,
     },
     usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
     costUsd: 0.01,
   }),
+  summarize: async () => ({ patch: { summary: SUMMARY }, costUsd: 0.002 }),
   notify: async () => ({}),
   ...overrides,
 });
@@ -163,6 +164,7 @@ describe("flows: every response conforms", () => {
     expect(typedDetail).toMatchObject({ typed: true, segmentCount: 0 });
     expect((typedDetail["steps"] as { step: string }[]).map((s) => s.step)).toEqual([
       "act",
+      "summarize",
       "notify",
     ]);
   });
@@ -200,7 +202,7 @@ describe("flows: every response conforms", () => {
 
   it("a transcribe memo ends notified with the transcript, no route, reply or summary, and two steps", async () => {
     const { app } = testApp({
-      handlers: handlers({ act: async () => ({}) }),
+      handlers: handlers({ act: async () => ({}), summarize: async () => ({}) }),
     });
     const id = crypto.randomUUID();
     const created = await create(app, id, "transcribe");
@@ -286,7 +288,7 @@ describe("flows: every response conforms", () => {
 
     const detail = await call(app, { path: `/v1/memos/${id}` });
     const body = await conformingBody({ route: "GET /v1/memos/:id", res: detail });
-    expect(body["steps"]).toHaveLength(3);
+    expect(body["steps"]).toHaveLength(4);
 
     const list = await call(app, { path: "/v1/memos?limit=1" });
     await conformingBody({ route: "GET /v1/memos", res: list });

@@ -12,6 +12,7 @@ import type { ReplyAssets } from "../memo/reply-assets.js";
 import type { AudioStore } from "../ports/audio.js";
 import type { Destination } from "../ports/destination.js";
 import type { Notifier } from "../ports/notifier.js";
+import type { Summarizer } from "../ports/summarizer.js";
 import type { Transcriber } from "../ports/transcriber.js";
 import type { MemoStore } from "../memo/store.js";
 import { getActiveSpan } from "../telemetry/otel.js";
@@ -25,7 +26,7 @@ const THREAD_WAIT_MS = 1_800_000;
 
 const DETAIL_MAX = 240;
 
-/** What notify announces when Hermes sent no headline: the transcript clipped to one, nothing is stored. */
+/** What notify announces when neither triage nor Hermes gave a headline: the transcript clipped to one, nothing is stored. */
 function transcriptSummary(transcript: string): Summary {
   const text = transcript.replace(/\s+/g, " ").trim();
   return {
@@ -46,11 +47,13 @@ export function createStepHandlers(deps: {
   transcriber?: Transcriber | undefined;
   /** Hermes, where every memo but a `transcribe` one goes; absent, `act` has no handler and memos wait at `transcribed`. */
   destination?: Destination | undefined;
+  /** agw `triage`, behind `summarize`; absent, the step fails and is skipped (it is optional). */
+  summarizer?: Summarizer | undefined;
   /** Renders the reply's Mermaid blocks once it is delivered; absent, a reply stays plain markdown. */
   replyAssets?: ReplyAssets | undefined;
   notifier: Notifier;
 }): Partial<Record<HandlerStep, StepHandler>> {
-  const { store, audio, transcriber, destination, replyAssets, notifier } = deps;
+  const { store, audio, transcriber, destination, summarizer, replyAssets, notifier } = deps;
 
   // Turns into one Hermes session run one at a time: a second memo for the same thread waits for the first's reply, up
   // to `THREAD_WAIT_MS`; past that it fails and names the turn ahead (`POST /retry` re-queues it). The wait gives up the
@@ -109,8 +112,8 @@ export function createStepHandlers(deps: {
           ...(delivery.thread && { thread: delivery.thread }),
           // Always written, so a re-run of `act` replaces what the first run left.
           kind: delivery.meta?.kind ?? null,
+          hermesHeadline: delivery.meta?.headline ?? null,
           actions: delivery.meta?.actions ?? [],
-          summary: delivery.meta?.summary ?? null,
         },
         usage: delivery.usage,
         ...(delivery.costUsd !== undefined && { costUsd: delivery.costUsd }),
@@ -118,10 +121,34 @@ export function createStepHandlers(deps: {
     };
   }
 
+  // Always present: without a summarizer (or when triage fails) the step fails and the runner skips it, `summarize` being optional.
+  // Triage sees the transcript and the final reply only, never tool traffic; every memo it summarizes went to Hermes.
+  handlers.summarize = async ({ memo }) => {
+    if (!summarizer) throw new Error("summarize: no summarizer configured");
+    const result = await summarizer.summarize({
+      memoId: memo.id,
+      route: "hermes",
+      transcript: required(memo.transcript, "transcript", "summarize"),
+      replyText: memo.replyText,
+    });
+    getActiveSpan().setAttributes({
+      summary_chars: result.summary.headline.length + result.summary.detail.length,
+      cost_usd: result.costUsd,
+    });
+    return {
+      patch: { summary: result.summary },
+      usage: result.usage,
+      ...(result.costUsd !== undefined && { costUsd: result.costUsd }),
+    };
+  };
+
   handlers.notify = async ({ memo }: { memo: Memo }) => {
-    // Without a headline from Hermes (no block, mode `transcribe`) the alert carries the start of what was said.
-    const summary =
-      memo.summary ?? transcriptSummary(required(memo.transcript, "transcript", "notify"));
+    // The headline: triage's, else the one Hermes put in its block, else the start of what was said (nothing is stored).
+    const summary: Summary =
+      memo.summary ??
+      (memo.hermesHeadline !== null
+        ? { headline: memo.hermesHeadline, detail: "", spoken: "" }
+        : transcriptSummary(required(memo.transcript, "transcript", "notify")));
     await notifier.notify({ memo, summary });
     return {};
   };
