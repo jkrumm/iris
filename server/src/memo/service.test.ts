@@ -574,15 +574,17 @@ describe("list", () => {
     expect(service.list({ kind: "   " }).memos).toEqual([]);
   });
 
-  it("keeps only memos that ran in a thread with the thread filter", () => {
+  it("keeps only the memos of a conversation with the thread filter", () => {
     const { service, store } = setup();
+    seedThread(store, "solo");
+    seedThread(store, "thread-1");
     seedThread(store, "thread-1");
     seedMemo(store, "transcribed");
 
-    expect(service.list({}).memos).toHaveLength(2);
+    expect(service.list({}).memos).toHaveLength(4);
     const threaded = service.list({ thread: true }).memos;
-    expect(threaded).toHaveLength(1);
-    expect(threaded[0]?.threadId).toBe("thread-1");
+    expect(threaded).toHaveLength(2);
+    expect(threaded.every((m) => m.threadId === "thread-1")).toBe(true);
   });
 
   it("lists threads with limit and cursor", () => {

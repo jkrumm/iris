@@ -745,22 +745,28 @@ describe("GET /v1/memos filters", () => {
     expect((await list(app)).body.items.map((m) => m.id)).toContain(untyped);
   });
 
-  it("keeps only memos in a thread with thread=true", async () => {
+  it("keeps only the memos of a conversation with thread=true, not a memo alone in its session", async () => {
     const { app, store } = testApp();
-    const { id } = seedMemo(store, "transcribed");
-    store.markStepStarted({ id, step: "act" });
-    store.completeStep({
-      id,
-      step: "act",
-      from: "transcribed",
-      to: "acted",
-      patch: { thread: { id, kind: "hermes", title: "t" } },
-    });
+    const inSession = (session: string) => {
+      const { id } = seedMemo(store, "transcribed");
+      store.markStepStarted({ id, step: "act" });
+      store.completeStep({
+        id,
+        step: "act",
+        from: "transcribed",
+        to: "acted",
+        patch: { thread: { id: session, kind: "hermes", title: "t" } },
+      });
+      return id;
+    };
+    const alone = inSession("alone");
+    const first = inSession("talk");
+    const second = inSession("talk");
     const plain = seedMemo(store, "notified").id;
 
-    expect((await list(app, "?thread=true")).body.items.map((m) => m.id)).toEqual([id]);
+    expect((await list(app, "?thread=true")).body.items.map((m) => m.id)).toEqual([second, first]);
     expect((await list(app)).body.items.map((m) => m.id).toSorted()).toEqual(
-      [id, plain].toSorted(),
+      [alone, first, second, plain].toSorted(),
     );
   });
 

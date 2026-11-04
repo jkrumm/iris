@@ -216,7 +216,7 @@ export const ListQuery = t.Object({
   archived: t.Optional(t.Literal("true")),
   // The memo's kind, exact after the same normalisation as the stored one (trimmed, lower-case, cut to 24 characters).
   kind: t.Optional(t.String()),
-  // `thread=true` keeps the memos that belong to a thread (a Hermes session).
+  // `thread=true` keeps the memos of a conversation: a thread (Hermes session) with at least two live memos, i.e. one that was continued.
   thread: t.Optional(t.Literal("true")),
 });
 export const ThreadIdParams = t.Object({ id: t.String() });

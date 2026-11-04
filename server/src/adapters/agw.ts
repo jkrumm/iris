@@ -1,11 +1,10 @@
 import { z } from "zod";
+import { DETAIL_MAX, HEADLINE_MAX } from "../memo/memo.js";
 import type { Summarization, Summarizer } from "../ports/summarizer.js";
 import { log } from "../telemetry/log.js";
 import type { AgwClient } from "./agw-client.js";
 import { RUN_ID_ATTR } from "../telemetry/run-id.js";
 
-const HEADLINE_MAX = 60;
-const DETAIL_MAX = 240;
 // "At most two sentences" is enforced as a length cap rather than by counting sentences.
 const SPOKEN_MAX = 300;
 

@@ -128,7 +128,7 @@ describe("listMemos flags", () => {
     expect(ids(store.listMemos({ limit: 10 }))).toEqual([star, plain]);
   });
 
-  it("filters by the memo's kind, exactly, and by whether it continues a thread", () => {
+  it("filters by the memo's kind, exactly", () => {
     const ctx = testStore();
     const task = joinThread(ctx, { thread: "task-1" });
     const loose = seedMemo(ctx.store, "notified").id;
@@ -138,8 +138,33 @@ describe("listMemos flags", () => {
     expect(ids(ctx.store.listMemos({ limit: 10, kind: "note" }))).toEqual([loose]);
     expect(ids(ctx.store.listMemos({ limit: 10, kind: "tas" }))).toEqual([]);
     expect(ids(ctx.store.listMemos({ limit: 10, kind: "" }))).toEqual([]);
-    expect(ids(ctx.store.listMemos({ limit: 10, thread: true }))).toEqual([task]);
     expect(ids(ctx.store.listMemos({ limit: 10 }))).toEqual([loose, task]);
+  });
+
+  it("thread keeps the memos of a conversation: a thread with at least two live memos", () => {
+    const ctx = testStore();
+    const alone = joinThread(ctx, { thread: "alone" });
+    const first = joinThread(ctx, { thread: "talk" });
+    const second = joinThread(ctx, { thread: "talk" });
+    const third = joinThread(ctx, { thread: "pair" });
+    const fourth = joinThread(ctx, { thread: "pair" });
+    const loose = seedMemo(ctx.store, "notified").id;
+
+    // A memo alone in its own session, and one with no thread, are no conversation.
+    expect(ids(ctx.store.listMemos({ limit: 10, thread: true }))).toEqual([
+      fourth,
+      third,
+      second,
+      first,
+    ]);
+    expect(ids(ctx.store.listMemos({ limit: 10 }))).toContain(alone);
+    expect(ids(ctx.store.listMemos({ limit: 10 }))).toContain(loose);
+
+    // A soft-deleted partner does not make the survivor a conversation; the filters combine.
+    ctx.store.markDeleted({ id: fourth, at: ctx.clock.now().toISOString() });
+    expect(ids(ctx.store.listMemos({ limit: 10, thread: true }))).toEqual([second, first]);
+    ctx.db.query("UPDATE memos SET kind = 'task' WHERE id = ?").run(first);
+    expect(ids(ctx.store.listMemos({ limit: 10, thread: true, kind: "task" }))).toEqual([first]);
   });
 
   it("pages a parked (old needs_route) memo like any other, by seq", () => {

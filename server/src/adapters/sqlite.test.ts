@@ -585,6 +585,20 @@ describe("completeStep", () => {
     expect(store.resetForRetry({ id: healthy.id, from: "summarize" })).toBe(false);
   });
 
+  it("resetForRetry from act or transcribe clears the old route, from notify keeps it", () => {
+    const { store, db } = testStore();
+    const failedWithRoute = (from: "transcribe" | "act" | "notify") => {
+      const { id } = seedMemo(store, "acted");
+      db.query("UPDATE memos SET route = 'journal' WHERE id = ?").run(id);
+      store.markStepFailed({ id, step: from, error: "boom" });
+      store.resetForRetry({ id, from });
+      return store.getMemo(id)?.route;
+    };
+    expect(failedWithRoute("act")).toBeNull();
+    expect(failedWithRoute("transcribe")).toBeNull();
+    expect(failedWithRoute("notify")).toBe("journal");
+  });
+
   it("resetForRetry only rewinds a failed memo", () => {
     const { store } = testStore();
     const { id } = seedMemo(store, "acted");
