@@ -18,6 +18,12 @@ route-name inconsistencies, needs-route candidates. Still open from 2026-11-03: 
 Mac; Mac threads read-only; `RecordingPanelKeyTests.keyDoesNotMoveTheFrontmostApp` fails locally only. The iPhone's Personal Team build expires
 ~2026-11-10 (rebuild with `make device` until TestFlight runs). Quota 2026-11-04 19:55: iu 1 % (7d), me 95 % (11-05 06:00), me2 77 %.
 
+**Owner session planned for 2026-11-05 (guided, together in chat):** the Developer ID certificate (portal: Certificates > + > Developer ID
+Application > G2 Sub-CA > upload `~/Downloads/DeveloperID.certSigningRequest` on the MacBook, its private key is
+`~/.local/state/apple-developer/developer-id.key` on the mini; then build the `.p12` and attach it to `mini/apple-developer`) and the
+TestFlight setup (App Store Connect app record for `com.jkrumm.iris`, internal group with automatic distribution, TestFlight app on the
+phone). Walk him through one screen at a time and verify each step from the mini; do not hand him a long list.
+
 Previous pause (2026-11-03, after the Mac desktop rework #107/#108, master `3150958`): see git history of this file.
 **Spawn (lead):** `cd ~/SourceRoot/software-factory && secrets-run run --env-file=.env.tpl -- factory spawn create <key> --repo ~/SourceRoot/iris --role lead
 --parent iris-mother --prompt 'Read docs/waves/PLAN.md and ~/.claude/skills/wave/roles/lead.md. You are the fleet lead for the active wave (Wave <n>). Brief
