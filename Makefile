@@ -235,8 +235,9 @@ ui-snapshot: sim ## Semantic UI element tree of the foreground app -> .artifacts
 	@cat $(ARTIFACTS)/ui-snapshot.txt
 
 # --- Device (the paired iPhone; TDD §13, skill `device`). Wrap in `lockf -t 900 /tmp/iris-apple.lock` like every xcodebuild/devicectl job. ---
-# DEVICE_SIGNING=personal (default: the free Personal Team, no Push/App Groups) | paid (the paid team, entitlements as tracked); TEAM=<id> overrides
-# the team Xcode knows; IRIS_DEVICE_ID overrides the phone. Nothing here is tracked: team and device resolve at runtime (scripts/device-lib.sh).
+# DEVICE_SIGNING=paid (default: the paid team, headless with the ASC Team key from op://mini/apple-developer, entitlements as tracked) | personal
+# (the free Personal Team Xcode knows, no Push/App Groups); TEAM=<id> overrides the team; IRIS_DEVICE_ID overrides the phone. Nothing here is
+# tracked: team, key and device resolve at runtime (scripts/device-lib.sh).
 .PHONY: device-build
 device-build: generate ## Signed Debug build of Iris + extensions for the paired iPhone (first run registers the device)
 	scripts/device-build.sh
