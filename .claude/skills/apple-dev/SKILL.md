@@ -115,6 +115,26 @@ Pairing a phone with the mini is an owner step (trust prompt on the phone, Devel
   `method: app-store-connect` and `destination: upload`, or `xcrun altool --upload-app` (the binary exists in this
   Xcode). **Unverified until enrollment**; `make testflight` is a fleet task.
 
+## Mac release (Sparkle)
+
+`make mac-release IDENTITY=development|developer-id [PUBLISH=draft|release]` (`scripts/mac-release.sh`; AGENTS.md "Mac releases"). Run it
+under the lock: `lockf -t 1800 /tmp/iris-apple.lock timeout 2400 make mac-release IDENTITY=development PUBLISH=draft`.
+
+- Tools: Sparkle 2.10.1's `generate_keys`, `sign_update`, `generate_appcast` come with the SPM package
+  (`apple/.dd.noindex/SourcePackages/artifacts/sparkle/Sparkle/bin`); a download of the release tarball in `~/.local/share/sparkle/<version>/bin` is the
+  fallback (`gh release download <version> -R sparkle-project/Sparkle -p 'Sparkle-*.tar.xz'`, unpack in its own directory).
+- EdDSA key: `generate_keys` stored it in the login keychain (works headless); `generate_keys -p` prints the public half; `-x <file>` exports the
+  private key (0600, outside every repo; the backup for 1Password). **`sign_update` / `generate_appcast` hang headless on the keychain's access prompt**
+  (verified 2026-11-04): always pass `--ed-key-file <exported file>`. Verify with `sign_update --verify --ed-key-file <key> <zip> <edSignature>`
+  (exit 1 and "failed to pass signing verification" when wrong). `generate_appcast --ed-key-file <key> --download-url-prefix <url> <dir>` writes
+  `<dir>/appcast.xml` from the zip's Info.plist.
+- `IDENTITY=development`: Apple Development of the paid team through `-allowProvisioningUpdates` and the ASC Team key, Hardened Runtime and
+  `--timestamp`, no notarization, drafts only. `developer-id` needs a "Developer ID Application (<team>)" identity with its private key in the login
+  keychain, then `notarytool submit --key/--key-id/--issuer --wait`, `stapler staple`, `spctl --assess`. **Unrun until the certificate exists.**
+- Check a signature: `codesign -dvv --entitlements - IrisMac.app` shows `flags=0x10000(runtime)`, `TeamIdentifier`, `Timestamp`, the audio-input
+  entitlement, no `app-sandbox`, no `get-task-allow`. `SIGNING_ONLY=1` stops there.
+- Drafts are not `releases/latest`; delete a proof with `gh release delete <tag> --yes --cleanup-tag`.
+
 ## Failure modes
 
 | Symptom | Cause / fix |

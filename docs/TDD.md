@@ -1199,15 +1199,28 @@ Two `StaticConfiguration` widgets in `IrisWidgets/HomeWidgets.swift`; the views,
     windows (the popover, the main window in four states, the Settings tabs, onboarding, the recording panel and its refused message) and quit (any further launch flag, such as `-IrisMacStalled`,
     goes **after** `-IrisMacSnapshot <dir>`: between `-IrisMacPanelWindow` and it, the panel window is not created); snapshot mode only exists on the fake composition. Unit tests: `IrisMacTests`,
     hosted in the app (launched with `-IrisFakeData`), run by `make check-apple`.
-- **Signing:** a stable Apple Development identity. Ad-hoc signing resets TCC
+- **Signing:** a stable identity. Ad-hoc signing resets TCC
   on every build (the microphone grant is keyed to the code signature). The
-  mini signs `IrisMac` with its Apple Development identity without a
-  provisioning profile when the build drops the `application-groups`
-  entitlement (nothing reads the App Group on the Mac; sandbox, audio input
-  and network client are unrestricted), so its grants survive rebuilds; the
-  unsigned CI and `check-apple` builds never record. The microphone prompt and a
+  app is **not sandboxed** (Wave 22 M2; Developer ID, Sparkle swaps the bundle in place) and its entitlements are the Hardened
+  Runtime `com.apple.security.device.audio-input` only: no App Group (nothing reads it on the Mac), no network entitlement, so
+  it signs with an Apple Development or Developer ID identity without a provisioning profile and its grants survive rebuilds;
+  the unsigned CI and `check-apple` builds never record. Leaving the sandbox moved the data from the app container to
+  `~/Library/Application Support/Iris` and the old signature's Keychain item may not be readable (unverified: expect an access prompt or a re-entered connection once). The microphone prompt and a
   real take need a Mac with a microphone and a person: hands-on rows in
   `docs/spikes/device-checklist.md` ("Mac hands-on rows").
+- **Updates (Wave 22 M2):** Sparkle 2.10.x (floor 2.9.6) through SPM, `SPUStandardUpdaterController` behind the `UpdateEngine`
+  port (`Updater` is the observable the menu items read; `SparkleUpdateEngine` is the adapter, `ScriptedUpdateEngine` the fake).
+  The root owns the updater only when `IrisMacApp` hands it an engine, which it does outside `-IrisFakeData`. Info.plist:
+  `SUFeedURL` (the `releases/latest/download/appcast.xml` URL of this repo), `SUPublicEDKey`, `SUEnableAutomaticChecks`, and
+  `CFBundleShortVersionString` / `CFBundleVersion` from `MARKETING_VERSION` / `CURRENT_PROJECT_VERSION`; the release script sets
+  the latter to the commit count, so Sparkle always sees a growing build. "Check for Updates…" (`CheckForUpdatesButton`) sits in
+  the popover's lines and Settings > General, disabled while `canCheckForUpdates` is false. No custom `NSUpdateSecurityPolicy`.
+  Releases: `make mac-release` (`scripts/mac-release.sh`; AGENTS.md "Mac releases") archives, signs, zips with `ditto`, runs
+  `generate_appcast`, verifies the EdDSA signature and creates a GitHub release with `IrisMac-<version>-<build>.zip` and
+  `appcast.xml` (drafts are never `releases/latest`). The EdDSA key lives in the mini's login keychain; the tools read it from
+  `--ed-key-file` because the keychain prompt hangs headless. *Open until the Developer ID certificate exists:* notarization and
+  stapling (implemented, never run), first install without Open Anyway, an update with no admin prompt on the MacBook, and
+  `xattr -l` on the updated bundle.
 - **Outbox panel (Wave 19 M1):** a strip under the panel header on every page, only while the queue holds something or cannot
   be opened or saved (`MacOutboxStrip` over `MacOutboxModel`). It reads the iPhone's `QueuedItemSource` (`OutboxService`, compiled
   in; no second model of the outbox): a count ("2 of 3 could not be sent"), the first stalled item's reason, and per item the
