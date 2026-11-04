@@ -1,17 +1,14 @@
 import { describe, expect, it } from "bun:test";
 import { MemoError, type MemoErrorCode } from "./errors.js";
 import { createMemoEvents, type MemoEvent, type MemoEvents } from "./events.js";
-import type { HandlerStep, Memo } from "./memo.js";
-import { createStepHandlers } from "../pipeline/steps.js";
-import { fakeDestination, fakeNotifier, fakeSummarizer } from "../ports/fakes.js";
-import type { DestinationName } from "../ports/destination.js";
+import { MEMO_MODES, type HandlerStep } from "./memo.js";
 import { createRunner, type StepHandler } from "./runner.js";
 import { createMemoService } from "./service.js";
 import {
   captureLogs,
   deferred,
   fakeAudio,
-  parkMemo as park,
+  legacyParkedMemo,
   seedMemo,
   testStore,
 } from "./test-support.js";
@@ -21,7 +18,7 @@ const bytes = (n = 4) => new Uint8Array(n).fill(7);
 function setup(
   handlers: Partial<Record<HandlerStep, StepHandler>> = {},
   maxSegmentBytes = 16,
-  destinations: DestinationName[] = ["hermes"],
+  hermes = true,
 ) {
   const { store, clock } = testStore();
   const base = createMemoEvents();
@@ -46,7 +43,7 @@ function setup(
     audio,
     clock,
     maxSegmentBytes,
-    destinations,
+    hermes,
   });
   return { store, clock, events, audio, runner, service, listenerCount: () => listeners };
 }
@@ -106,11 +103,11 @@ const typed = (id: string = crypto.randomUUID(), text = "  kauf Milch \n") => ({
 });
 
 describe("createTextMemo", () => {
-  it("creates a transcribed memo with the trimmed text, publishes once and drives from route", async () => {
+  it("creates a transcribed memo with the trimmed text, publishes once and drives from act", async () => {
     const seen: string[] = [];
     const { service, events, runner } = setup({
-      route: async () => {
-        seen.push("route");
+      act: async () => {
+        seen.push("act");
         return {};
       },
     });
@@ -122,8 +119,8 @@ describe("createTextMemo", () => {
     expect(memo).toMatchObject({ state: "transcribed", transcript: "kauf Milch" });
     expect(published[0]).toMatchObject({ state: "transcribed", step: null });
     await runner.idle();
-    expect(seen).toEqual(["route"]);
-    expect(service.get(params.id).steps.map((s) => s.step)).toEqual(["route"]);
+    expect(seen).toEqual(["act"]);
+    expect(service.get(params.id).steps.map((s) => s.step)).toEqual(["act"]);
     expect(service.get(params.id).segmentCount).toBe(0);
   });
 
@@ -177,10 +174,10 @@ describe("createTextMemo", () => {
     );
   });
 
-  it("retries a failed typed memo from route, and refuses transcribe: there is no audio", async () => {
+  it("retries a failed typed memo from act, and refuses transcribe: there is no audio", async () => {
     let fail = true;
     const { service, runner } = setup({
-      route: async () => {
+      act: async () => {
         if (fail) throw new Error("boom");
         return {};
       },
@@ -197,7 +194,7 @@ describe("createTextMemo", () => {
       transcript: "kauf Milch",
     });
     fail = false;
-    expect(service.retry({ id: params.id, from: "route" }).state).toBe("transcribed");
+    expect(service.retry({ id: params.id, from: "act" }).state).toBe("transcribed");
     await runner.idle();
     expect(service.get(params.id).memo.transcript).toBe("kauf Milch");
   });
@@ -450,7 +447,8 @@ describe("waitForResult", () => {
   it("resolves as soon as the memo reaches a result state", async () => {
     const { service, runner, store, listenerCount } = setup({
       transcribe: async () => ({}),
-      route: async () => ({ outcome: "needs_route" }),
+      act: async () => ({}),
+      notify: async () => ({}),
     });
     const memo = seedMemo(store, "received");
     const waiting = service.waitForResult({ id: memo.id, waitSeconds: 5 });
@@ -458,6 +456,15 @@ describe("waitForResult", () => {
     await runner.drive(memo.id);
     const result = await waiting;
     expect(result.ready).toBe(true);
+    expect(result.memo.state).toBe("notified");
+    expect(listenerCount()).toBe(0);
+  });
+
+  it("answers immediately for an old memo parked at needs_route", async () => {
+    const { service, store, listenerCount } = setup();
+    const id = legacyParkedMemo(store);
+    const result = await service.waitForResult({ id, waitSeconds: 5 });
+    expect(result).toMatchObject({ ready: true });
     expect(result.memo.state).toBe("needs_route");
     expect(listenerCount()).toBe(0);
   });
@@ -523,171 +530,112 @@ describe("subscribe", () => {
   });
 });
 
-describe("route", () => {
-  const rest: Record<"act" | "summarize" | "notify", StepHandler> = {
-    act: async () => ({ patch: { destinationRef: "s-1", replyText: "ok" } }),
-    summarize: async () => ({
-      patch: { summary: { headline: "h", detail: "d", spoken: "s" } },
-    }),
-    notify: async () => ({}),
-  };
-
-  it("answers a parked memo: routes it atomically, publishes, then the runner finishes it", async () => {
-    const { store, service, events, runner } = setup(rest);
-    const id = park(store, { reason: "low confidence (0.60)", destination: "journal" });
-    const seen: MemoEvent[] = [];
-    events.subscribe((e) => seen.push(e));
-
-    const { memo, accepted } = service.route({ id, destination: "hermes" });
-    expect(accepted).toBe(true);
-    expect(memo).toMatchObject({ state: "routed", route: "hermes" });
-    expect(memo.routeReason).toBeUndefined();
-    expect(store.listRouteDecisions(id).at(-1)).toMatchObject({
-      source: "answer",
-      destination: "hermes",
-      tab: null,
-      outcome: "routed",
-    });
-    expect(seen[0]).toMatchObject({ id, state: "routed", step: "route" });
-
-    await runner.idle();
-    expect(store.getMemo(id)?.state).toBe("notified");
-    expect(seen.map((e) => e.state)).toEqual(["routed", "acted", "summarized", "notified"]);
+/** A thread the way `act` leaves it: a memo that ran in Hermes session `threadId`. */
+function seedThread(store: ReturnType<typeof testStore>["store"], threadId: string) {
+  const memo = seedMemo(store, "transcribed");
+  store.completeStep({
+    id: memo.id,
+    step: "act",
+    from: "transcribed",
+    to: "acted",
+    patch: {
+      destinationRef: threadId,
+      replyText: "ok",
+      thread: { id: threadId, kind: "hermes", title: "first" },
+    },
   });
+  return threadId;
+}
 
-  it("rejects an unregistered destination and a wrong tab without touching the memo", async () => {
-    const { store, service } = setup(rest);
-    const id = park(store, { reason: "journal not available" });
-    const attempts = [
-      { destination: "journal" as const },
-      { destination: "herdr" as const },
-      { destination: "herdr" as const, tab: "w1:t1" },
-      { destination: "hermes" as const, tab: "w1:t1" },
-    ];
-    for (const attempt of attempts) {
-      expect([attempt, await codeOf(() => service.route({ id, ...attempt }))]).toEqual([
-        attempt,
-        "bad_request",
-      ]);
+describe("list", () => {
+  it("normalises the kind filter like the stored kind and matches nothing for blank text", () => {
+    const { service, store } = setup();
+    const shopping = seedMemo(store, "transcribed");
+    store.completeStep({
+      id: shopping.id,
+      step: "act",
+      from: "transcribed",
+      to: "acted",
+      patch: { kind: "shopping", actions: ["search"] },
+    });
+    seedMemo(store, "transcribed");
+
+    expect(service.list({}).memos).toHaveLength(2);
+    for (const kind of ["shopping", "  Shopping ", "SHOPPING"]) {
+      expect(service.list({ kind }).memos.map((m) => m.id)).toEqual([shopping.id]);
     }
-    expect(() => service.route({ id, destination: "journal" })).toThrow("journal not available");
-    expect(store.getMemo(id)?.state).toBe("needs_route");
-    expect(store.listRouteDecisions(id)).toHaveLength(1);
-  });
-
-  it("takes a herdr answer with a tab once herdr is registered", () => {
-    const { store, service } = setup({}, 16, ["hermes", "herdr"]);
-    const id = park(store, { reason: "decide refused" });
-    service.route({ id, destination: "herdr", tab: "w1:t1" });
-    expect(store.listRouteDecisions(id).at(-1)).toMatchObject({
-      source: "answer",
-      destination: "herdr",
-      tab: "w1:t1",
+    expect(service.list({ kind: "shopping" }).memos[0]).toMatchObject({
+      kind: "shopping",
+      actions: ["search"],
     });
+    expect(service.list({ kind: "recipes" }).memos).toEqual([]);
+    expect(service.list({ kind: "" }).memos).toEqual([]);
+    expect(service.list({ kind: "   " }).memos).toEqual([]);
   });
 
-  it("409s a second answer: the memo has left needs_route", async () => {
-    const gate = deferred();
-    const { store, service, runner } = setup({
-      ...rest,
-      act: async () => {
-        await gate.promise;
-        return {};
-      },
-    });
-    const id = park(store, { reason: "decide refused" });
-    service.route({ id, destination: "hermes" });
-    expect(await codeOf(() => service.route({ id, destination: "hermes" }))).toBe("bad_state");
-    expect(store.listRouteDecisions(id).filter((d) => d.source === "answer")).toHaveLength(1);
-    gate.resolve();
-    await runner.idle();
+  it("keeps only memos that ran in a thread with the thread filter", () => {
+    const { service, store } = setup();
+    seedThread(store, "thread-1");
+    seedMemo(store, "transcribed");
+
+    expect(service.list({}).memos).toHaveLength(2);
+    const threaded = service.list({ thread: true }).memos;
+    expect(threaded).toHaveLength(1);
+    expect(threaded[0]?.threadId).toBe("thread-1");
   });
 
-  it("logs a correction after act and leaves the memo as it is", async () => {
-    const { store, service, events } = setup();
-    const seen: MemoEvent[] = [];
-    for (const state of ["acted", "summarized", "notified"] as const) {
-      const memo = seedMemo(store, state);
-      const before = store.getMemo(memo.id) as Memo;
-      events.subscribe((e) => seen.push(e));
-      const { result, lines } = await captureLogs(async () =>
-        service.route({ id: memo.id, destination: "hermes" }),
-      );
-      expect(result.accepted).toBe(false);
-      expect(result.memo).toEqual(before);
-      expect(store.listRouteDecisions(memo.id)).toMatchObject([
-        { source: "correction", destination: "hermes", outcome: "routed" },
-      ]);
-      expect(lines.find((l) => l["event"] === "route.decided")).toMatchObject({
-        source: "correction",
-        corrected: true,
-      });
-    }
-    expect(seen).toEqual([]);
+  it("lists threads with limit and cursor", () => {
+    const { service, store } = setup();
+    seedThread(store, "thread-1");
+    seedThread(store, "thread-2");
+    const page = service.listThreads({ limit: 1 });
+    expect(page.threads).toHaveLength(1);
+    expect(service.listThreads({ cursor: page.nextCursor }).threads).toHaveLength(1);
+  });
+});
+
+describe("thread continuation", () => {
+  it("continues an existing thread when hermes is available", () => {
+    const { service, store } = setup({}, 16, true);
+    const threadId = seedThread(store, "thread-1");
+    const { memo, created } = service.createTextMemo({ ...typed(), threadId });
+    expect(created).toBe(true);
+    expect(memo.threadId).toBe(threadId);
   });
 
-  it("400s a route on a transcribe memo, answer or correction, and logs no decision", async () => {
-    const { store, service } = setup();
-    const id = crypto.randomUUID();
-    store.createTextMemo({
-      id,
-      mode: "transcribe",
-      device: "iphone",
-      startedAt: "2026-01-01T00:00:00.000Z",
-      text: "keep this",
-    });
-    store.transition({ id, from: "transcribed", to: "notified" });
-    expect(() => service.route({ id, destination: "hermes" })).toThrow(
-      expect.objectContaining({ code: "bad_request" }),
+  it("409s destination_unavailable without hermes, and 404s an unknown thread", async () => {
+    const { service, store } = setup({}, 16, false);
+    const threadId = seedThread(store, "thread-1");
+    expect(await codeOf(() => service.createTextMemo({ ...typed(), threadId }))).toBe(
+      "destination_unavailable",
     );
-    expect(store.listRouteDecisions(id)).toEqual([]);
-  });
-
-  it("409s receiving, received, transcribed, routed and failed, 404s unknown", async () => {
-    const { store, service } = setup();
-    for (const state of ["receiving", "received", "transcribed", "routed"] as const) {
-      const { id } = seedMemo(store, state);
-      expect(await codeOf(() => service.route({ id, destination: "hermes" }))).toBe("bad_state");
-    }
-    const failed = seedMemo(store, "transcribed");
-    store.markStepFailed({ id: failed.id, step: "route", error: "boom" });
-    expect(await codeOf(() => service.route({ id: failed.id, destination: "hermes" }))).toBe(
-      "bad_state",
+    expect(await codeOf(() => service.createMemo({ ...input(), threadId }))).toBe(
+      "destination_unavailable",
     );
+    const withHermes = setup();
     expect(
-      await codeOf(() => service.route({ id: crypto.randomUUID(), destination: "hermes" })),
+      await codeOf(() => withHermes.service.createTextMemo({ ...typed(), threadId: "nope" })),
     ).toBe("not_found");
   });
 
-  it("delivers the transcript without the spoken prefix after an answer to a prefix park", async () => {
-    const { store, clock, events, audio } = setup();
-    const destination = fakeDestination();
-    const handlers = createStepHandlers({
-      store,
-      audio,
-      destinations: { hermes: destination },
-      summarizer: fakeSummarizer(),
-      notifier: fakeNotifier(),
-    });
-    const runner = createRunner({ store, handlers, events, clock });
-    const service = createMemoService({
-      store,
-      runner,
-      events,
-      audio,
-      clock,
-      maxSegmentBytes: 16,
-      destinations: ["hermes"],
-    });
-    // "journal" is spoken but not registered: the prefix parks the memo, the user picks hermes.
-    const id = park(
-      store,
-      { source: "prefix", reason: "journal not available" },
-      "Tagebuch: heute war gut",
-    );
-    service.route({ id, destination: "hermes" });
-    await runner.idle();
-    expect(store.getMemo(id)?.state).toBe("notified");
-    expect(destination.calls.map((c) => c.transcript)).toEqual(["heute war gut"]);
+  it("400s a thread on a transcribe memo", async () => {
+    const { service, store } = setup();
+    const threadId = seedThread(store, "thread-1");
+    expect(
+      await codeOf(() => service.createTextMemo({ ...typed(), mode: "transcribe", threadId })),
+    ).toBe("bad_request");
+    expect(
+      await codeOf(() => service.createMemo({ ...input(), mode: "transcribe", threadId })),
+    ).toBe("bad_request");
+  });
+});
+
+describe("modes", () => {
+  it("stores every mode as received on both create routes", () => {
+    const { service } = setup();
+    for (const mode of MEMO_MODES) {
+      expect(service.createMemo({ ...input(), mode }).memo.mode).toBe(mode);
+      expect(service.createTextMemo({ ...typed(), mode }).memo.mode).toBe(mode);
+    }
   });
 });

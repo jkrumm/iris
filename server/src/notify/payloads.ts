@@ -2,7 +2,7 @@ import { t } from "elysia";
 import type { Memo, MemoState, Summary } from "../memo/memo.js";
 import type { ApnsMessage } from "../ports/apns.js";
 
-// Pure payload builders: no clock, no network. The headline comes from the summary; when summarize failed, `notify` passes a
+// Pure payload builders: no clock, no network. The headline comes from the summary Hermes reported; without one, `notify` passes a
 // transcript-derived one (pipeline/steps.ts), clipped to HEADLINE_MAX. Apple limits both an alert and a Live Activity
 // push to 4 KB; every free-text field is capped far below that. The two TypeBox schemas below are
 // the push shapes the Swift clients decode; `contracts/` exports them.
@@ -15,7 +15,7 @@ const HEADLINE_MAX = 60;
 const ALERT_BODY_MAX = 200;
 const ROUTE_CHIP_MAX = 30;
 
-export const LIVE_ACTIVITY_PHASES = ["processing", "needsRoute", "done", "failed"] as const;
+export const LIVE_ACTIVITY_PHASES = ["processing", "done", "failed"] as const;
 export type LiveActivityPhase = (typeof LIVE_ACTIVITY_PHASES)[number];
 
 /**
@@ -32,13 +32,13 @@ export type LiveActivityContentState = typeof ContentState.static;
 
 /**
  * The whole alert body: Apple's `aps` dict plus the custom `memo` key (the memo id) the app routes on.
- * `MEMO_DONE` announces a finished memo, `MEMO_NEEDS_ROUTE` one that waits for the user's destination choice.
+ * `MEMO_DONE` announces a finished memo.
  */
 export const AlertPayload = t.Object({
   aps: t.Object({
     alert: t.Object({ title: t.String(), body: t.String() }),
     "mutable-content": t.Literal(1),
-    category: t.UnionEnum(["MEMO_DONE", "MEMO_NEEDS_ROUTE"]),
+    category: t.Literal("MEMO_DONE"),
     "thread-id": t.Literal("memo"),
     sound: t.Literal("default"),
   }),
@@ -53,18 +53,16 @@ export function truncate(text: string, max: number): string {
   return `${points.slice(0, max - 1).join("")}…`;
 }
 
-/** `hermes` → `Hermes`; null when the memo has no route yet. */
-export function routeChip(route: string | null): string | null {
-  if (!route) return null;
-  return truncate(route.charAt(0).toUpperCase() + route.slice(1), ROUTE_CHIP_MAX);
+/** `note` → `Note`: the chip and alert title for a memo's kind; null when Hermes reported none. */
+export function kindChip(kind: string | null): string | null {
+  if (!kind) return null;
+  return truncate(kind.charAt(0).toUpperCase() + kind.slice(1), ROUTE_CHIP_MAX);
 }
 
 export function phaseOf(state: MemoState): LiveActivityPhase {
   switch (state) {
     case "notified":
       return "done";
-    case "needs_route":
-      return "needsRoute";
     case "failed":
       return "failed";
     default:
@@ -78,7 +76,7 @@ function contentState(params: {
   headline: string | null;
 }): LiveActivityContentState {
   const { memo, phase, headline } = params;
-  const chip = routeChip(memo.route);
+  const chip = kindChip(memo.kind);
   return {
     phase,
     ...(chip !== null && { routeChip: chip }),
@@ -112,7 +110,7 @@ export function buildLiveActivityUpdate(params: {
   };
 }
 
-/** The final state: the memo is still `summarized` when notify runs, so the phase is fixed to done. */
+/** The final state: the memo is still `acted` when notify runs, so the phase is fixed to done. */
 export function buildLiveActivityEnd(params: {
   topic: string;
   memo: Memo;
@@ -142,43 +140,11 @@ export function buildAlert(params: { topic: string; memo: Memo; summary: Summary
   const payload: AlertPayloadBody = {
     aps: {
       alert: {
-        title: routeChip(memo.route) ?? "Iris",
+        title: kindChip(memo.kind) ?? "Iris",
         body: truncate(summary.headline, ALERT_BODY_MAX),
       },
       "mutable-content": 1,
       category: "MEMO_DONE",
-      "thread-id": "memo",
-      sound: "default",
-    },
-    memo: memo.id,
-  };
-  return {
-    headers: { topic, pushType: "alert", priority: 10, collapseId: memo.id },
-    payload,
-  };
-}
-
-const NEEDS_ROUTE_TITLE = "Where should this go?";
-const NEEDS_ROUTE_FALLBACK_BODY = "Choose a destination to continue.";
-
-/**
- * The needs-route alert: generic title plus the park reason, never transcript or reply text. Same
- * collapse id as the done alert, so the finished memo replaces this banner.
- */
-export function buildNeedsRouteAlert(params: {
-  topic: string;
-  memo: Memo;
-  reason: string | null;
-}): ApnsMessage {
-  const { topic, memo, reason } = params;
-  const payload: AlertPayloadBody = {
-    aps: {
-      alert: {
-        title: NEEDS_ROUTE_TITLE,
-        body: reason ? truncate(reason, ALERT_BODY_MAX) : NEEDS_ROUTE_FALLBACK_BODY,
-      },
-      "mutable-content": 1,
-      category: "MEMO_NEEDS_ROUTE",
       "thread-id": "memo",
       sound: "default",
     },

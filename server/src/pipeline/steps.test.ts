@@ -1,32 +1,27 @@
 import { describe, expect, it } from "bun:test";
 import { createMemoEvents } from "../memo/events.js";
-import { bindNeedsRouteAlerts } from "../notify/needs-route.js";
+import { MEMO_MODES } from "../memo/memo.js";
 import { createRunner } from "../memo/runner.js";
-import { captureLogs, fakeAudio, seedMemo, testStore } from "../memo/test-support.js";
-import { TabGoneError, type Destination, type Destinations } from "../ports/destination.js";
+import { fakeAudio, seedMemo, testStore } from "../memo/test-support.js";
 import {
+  FAKE_META,
   fakeAssetStore,
-  fakeDecider,
   fakeDestination,
   fakeDiagramRenderer,
-  fakeHerd,
   fakeNotifier,
-  fakeSummarizer,
   fakeTranscriber,
 } from "../ports/fakes.js";
 import { createReplyAssets, type ReplyAssets } from "../memo/reply-assets.js";
 import type { MemoStore } from "../memo/store.js";
 import { createStepHandlers } from "./steps.js";
 
+type FakeDestination = ReturnType<typeof fakeDestination>;
+
 function setup(
   options: {
     transcriber?: ReturnType<typeof fakeTranscriber>;
-    destination?: ReturnType<typeof fakeDestination>;
-    /** Replaces the Hermes-only registry, e.g. to add a journal destination. */
-    destinations?: Destinations;
-    decider?: ReturnType<typeof fakeDecider>;
-    summarizer?: ReturnType<typeof fakeSummarizer> | null;
-    herd?: ReturnType<typeof fakeHerd>;
+    /** `null` leaves the pipeline without Hermes: no `act` handler. */
+    destination?: FakeDestination | null;
     notifier?: ReturnType<typeof fakeNotifier>;
     replyAssets?: (store: MemoStore) => ReplyAssets;
   } = {},
@@ -36,35 +31,29 @@ function setup(
   const transcriber = options.transcriber ?? fakeTranscriber({ result: { costUsd: 0.02 } });
   const destination =
     options.destination ?? fakeDestination({ result: { usage: { turns: 1 }, costUsd: 0.1 } });
-  const summarizer =
-    options.summarizer === null
-      ? undefined
-      : (options.summarizer ?? fakeSummarizer({ result: { costUsd: 0.001 } }));
   const notifier = options.notifier ?? fakeNotifier();
   const handlers = createStepHandlers({
     store,
     audio,
     transcriber,
-    destinations: options.destinations ?? { hermes: destination },
-    herd: options.herd,
-    decider: options.decider,
-    summarizer,
+    ...(options.destination !== null && { destination }),
     replyAssets: options.replyAssets?.(store),
     notifier,
   });
   const events = createMemoEvents();
   const runner = createRunner({ store, handlers, events, clock });
+  return { store, db, audio, handlers, runner, events, transcriber, destination, notifier };
+}
+
+/** A Hermes that answers without the ```iris block: the delivery carries no `meta`. */
+function metalessDestination(): FakeDestination {
+  const calls: FakeDestination["calls"] = [];
   return {
-    store,
-    db,
-    audio,
-    handlers,
-    runner,
-    events,
-    transcriber,
-    destination,
-    summarizer,
-    notifier,
+    calls,
+    async deliver(params) {
+      calls.push(params);
+      return { ref: "session-1", replyText: "plain reply" };
+    },
   };
 }
 
@@ -82,16 +71,17 @@ describe("createStepHandlers", () => {
     const handlers = createStepHandlers({
       store,
       audio: fakeAudio(),
-      destinations: { hermes: fakeDestination() },
+      transcriber: fakeTranscriber(),
+      destination: fakeDestination(),
       notifier: fakeNotifier(),
     });
-    expect(Object.keys(handlers).toSorted()).toEqual(["act", "notify", "route", "summarize"]);
+    expect(Object.keys(handlers).toSorted()).toEqual(["act", "notify", "transcribe"]);
   });
 
-  it("registers neither route nor act without a destination", () => {
+  it("registers act only with a destination", () => {
     const { store } = testStore();
     const handlers = createStepHandlers({ store, audio: fakeAudio(), notifier: fakeNotifier() });
-    expect(Object.keys(handlers).toSorted()).toEqual(["notify", "summarize"]);
+    expect(Object.keys(handlers).toSorted()).toEqual(["notify"]);
   });
 });
 
@@ -128,125 +118,89 @@ describe("transcribe", () => {
   });
 });
 
-const transcribed = (store: ReturnType<typeof testStore>["store"], transcript = "kauf Milch") => ({
-  ...seedMemo(store, "transcribed"),
-  transcript,
-});
-
-describe("route", () => {
-  it("routes to the only registered destination as the default, with no cost", async () => {
-    const { store, handlers } = setup();
-    const result = await handlers.route?.({ memo: transcribed(store) });
-    expect(result).toEqual({
-      patch: {
-        route: "hermes",
-        routeDecision: {
-          source: "default",
-          destination: "hermes",
-          tab: null,
-          confidence: 1,
-          model: null,
-          costUsd: null,
-          reason: null,
-          outcome: "routed",
-        },
-      },
-    });
-  });
-
-  it("routes by a spoken prefix without rewriting the transcript", async () => {
-    const { store, handlers } = setup({
-      destinations: { hermes: fakeDestination(), journal: fakeDestination() },
-    });
-    const result = await handlers.route?.({ memo: transcribed(store, "Tagebuch: heute war gut") });
-    expect(result).toMatchObject({
-      patch: {
-        route: "journal",
-        routeDecision: { source: "prefix", destination: "journal", outcome: "routed" },
-      },
-    });
-    expect(result?.outcome).toBeUndefined();
-    expect(result?.patch).not.toHaveProperty("transcript");
-  });
-
-  it("parks on a destination that is not registered, leaving route unset", async () => {
-    const { store, handlers } = setup();
-    const result = await handlers.route?.({ memo: transcribed(store, "Tagebuch: heute war gut") });
-    expect(result?.outcome).toBe("needs_route");
-    expect(result?.patch).toEqual({
-      routeDecision: {
-        source: "prefix",
-        prefixWords: 1,
-        destination: null,
-        tab: null,
-        confidence: null,
-        model: null,
-        costUsd: null,
-        reason: "journal not available",
-        outcome: "needs_route",
-      },
-    });
-  });
-
-  it("carries the decide cost and usage on the step result", async () => {
-    const decider = fakeDecider({
-      result: {
-        destination: { choice: "journal", confidence: 0.92 },
-        model: "decider-1",
-        costUsd: 0.0004,
-        usage: { inputTokens: 90 },
-      },
-    });
-    const { store, handlers } = setup({
-      decider,
-      destinations: { hermes: fakeDestination(), journal: fakeDestination() },
-    });
-    const result = await handlers.route?.({ memo: transcribed(store) });
-    expect(result).toMatchObject({
-      patch: {
-        route: "journal",
-        routeDecision: {
-          source: "decide",
-          destination: "journal",
-          confidence: 0.92,
-          model: "decider-1",
-          costUsd: 0.0004,
-        },
-      },
-      usage: { inputTokens: 90 },
-      costUsd: 0.0004,
-    });
-    expect(result?.patch).not.toHaveProperty("transcript");
-  });
-
-  it("throws without a transcript", async () => {
-    const { store, handlers } = setup();
-    await expect(handlers.route?.({ memo: seedMemo(store, "transcribed") })).rejects.toThrow(
-      "no transcript",
-    );
-  });
-
-  it("has no route for a transcribe-only memo: the pipeline never asks", async () => {
-    const { store, handlers } = setup();
-    const memo = { ...transcribed(store), mode: "transcribe" as const };
-    await expect(handlers.route?.({ memo })).rejects.toThrow("no route step");
-  });
-});
-
 describe("act", () => {
-  it("delivers the transcript and patches the ref and reply", async () => {
+  it("delivers the transcript with the memo's mode and patches the ref, reply, thread, kind, actions and summary", async () => {
     const { store, handlers, destination } = setup();
-    const memo = { ...seedMemo(store, "routed"), transcript: "do the thing", route: "hermes" };
+    const memo = { ...seedMemo(store, "transcribed"), transcript: "do the thing" };
     const result = await handlers.act?.({ memo });
-    expect(destination.calls).toEqual([{ memoId: memo.id, transcript: "do the thing" }]);
+    expect(destination.calls).toEqual([
+      { memoId: memo.id, transcript: "do the thing", mode: "auto" },
+    ]);
     expect(result).toEqual({
       patch: {
         destinationRef: "session-1",
         replyText: "done",
         thread: { id: "session-1", kind: "hermes", title: "do the thing" },
+        kind: "note",
+        actions: ["fake_search", "fake_write"],
+        summary: FAKE_META.summary,
       },
       usage: { turns: 1 },
       costUsd: 0.1,
+    });
+  });
+
+  it("passes every mode as the memo has it", async () => {
+    const { store, handlers, destination } = setup();
+    for (const mode of MEMO_MODES.filter((m) => m !== "transcribe")) {
+      const memo = { ...seedMemo(store, "transcribed"), mode, transcript: "t" };
+      await handlers.act?.({ memo });
+      expect(destination.calls.at(-1)).toEqual({ memoId: memo.id, transcript: "t", mode });
+    }
+  });
+
+  it("patches null, [] and null when the delivery carries no meta", async () => {
+    const destination = metalessDestination();
+    const { store, handlers } = setup({ destination });
+    const memo = { ...seedMemo(store, "transcribed"), transcript: "plain" };
+    const result = await handlers.act?.({ memo });
+    expect(result?.patch).toMatchObject({
+      replyText: "plain reply",
+      kind: null,
+      actions: [],
+      summary: null,
+    });
+  });
+
+  it("stores kind, actions and summary with the commit, and a re-run replaces them", async () => {
+    const withMeta = setup();
+    const { store } = withMeta;
+    const memo = { ...seedMemo(store, "transcribed"), transcript: "first" };
+    const first = await withMeta.handlers.act?.({ memo });
+    store.completeStep({
+      id: memo.id,
+      step: "act",
+      from: "transcribed",
+      to: "acted",
+      patch: first?.patch ?? {},
+    });
+    expect(store.getMemo(memo.id)).toMatchObject({
+      kind: "note",
+      actions: ["fake_search", "fake_write"],
+      summary: FAKE_META.summary,
+    });
+
+    // The next run of act has no meta: nothing of the first run's survives.
+    const rerun = createStepHandlers({
+      store,
+      audio: fakeAudio(),
+      destination: metalessDestination(),
+      notifier: fakeNotifier(),
+    });
+    store.transition({ id: memo.id, from: "acted", to: "transcribed" });
+    const second = await rerun.act?.({ memo: { ...memo, state: "transcribed" } });
+    store.completeStep({
+      id: memo.id,
+      step: "act",
+      from: "transcribed",
+      to: "acted",
+      patch: second?.patch ?? {},
+    });
+    expect(store.getMemo(memo.id)).toMatchObject({
+      kind: null,
+      actions: [],
+      summary: null,
+      replyText: "plain reply",
     });
   });
 
@@ -258,7 +212,7 @@ describe("act", () => {
       destination: fakeDestination({ result: { replyText: reply } }),
       replyAssets: (s) => createReplyAssets({ store: s, assets, renderer }),
     });
-    const memo = { ...seedMemo(store, "routed"), transcript: "draw it", route: "hermes" };
+    const memo = { ...seedMemo(store, "transcribed"), transcript: "draw it" };
     const result = await handlers.act?.({ memo });
 
     expect(result?.patch?.replyText).toBe(reply);
@@ -268,7 +222,7 @@ describe("act", () => {
     store.completeStep({
       id: memo.id,
       step: "act",
-      from: "routed",
+      from: "transcribed",
       to: "acted",
       patch: result?.patch ?? {},
     });
@@ -276,228 +230,43 @@ describe("act", () => {
     expect(assets.files.size).toBe(4);
   });
 
-  it("tells the destination a chat memo is a chat and persists the thread it names", async () => {
-    const { store, handlers, destination } = setup();
-    const memo = {
-      ...seedMemo(store, "routed"),
-      mode: "chat" as const,
-      transcript: "what is   a monad?",
-      route: "hermes",
-    };
-    const result = await handlers.act?.({ memo });
-    expect(destination.calls).toEqual([
-      { memoId: memo.id, transcript: "what is   a monad?", chat: true },
-    ]);
-    expect(result).toMatchObject({
-      patch: { thread: { id: "session-1", kind: "chat", title: "what is a monad?" } },
-    });
-  });
-
   it("persists the thread exactly as the destination reported it", async () => {
     const thread = { id: "other", kind: "hermes" as const, title: "named by the adapter" };
     const { store, handlers } = setup({ destination: fakeDestination({ result: { thread } }) });
-    const memo = { ...seedMemo(store, "routed"), transcript: "anything", route: "hermes" };
+    const memo = { ...seedMemo(store, "transcribed"), transcript: "anything" };
     const result = await handlers.act?.({ memo });
     expect(result?.patch?.thread).toEqual(thread);
   });
 
   it("persists no thread when the destination reports none", async () => {
-    const journal = fakeDestination({ threads: false, result: { ref: "note.md", replyText: "" } });
-    const { store, handlers } = setup({ destinations: { hermes: fakeDestination(), journal } });
-    const memo = { ...seedMemo(store, "routed"), transcript: "heute", route: "journal" };
+    const { store, handlers } = setup({ destination: metalessDestination() });
+    const memo = { ...seedMemo(store, "transcribed"), transcript: "x" };
     const result = await handlers.act?.({ memo });
-    expect(result?.patch).toEqual({ destinationRef: "note.md", replyText: "" });
+    expect(result?.patch).not.toHaveProperty("thread");
   });
 
-  it("dispatches by the memo's route", async () => {
-    const hermes = fakeDestination();
-    const journal = fakeDestination({ threads: false, result: { ref: "note.md", replyText: "" } });
-    const { store, handlers } = setup({ destinations: { hermes, journal } });
-    const memo = { ...seedMemo(store, "routed"), transcript: "heute", route: "journal" };
+  it("omits the cost when the destination reports none", async () => {
+    const { store, handlers } = setup({ destination: metalessDestination() });
+    const memo = { ...seedMemo(store, "transcribed"), transcript: "x" };
     const result = await handlers.act?.({ memo });
-    expect(hermes.calls).toEqual([]);
-    expect(journal.calls).toEqual([{ memoId: memo.id, transcript: "heute" }]);
-    expect(result).toMatchObject({ patch: { destinationRef: "note.md" } });
-  });
-
-  it("throws when the route has no registered destination", async () => {
-    const { store, handlers } = setup();
-    const memo = { ...seedMemo(store, "routed"), transcript: "t", route: "journal" };
-    await expect(handlers.act?.({ memo })).rejects.toThrow(
-      'no destination registered for route "journal"',
-    );
-    await expect(handlers.act?.({ memo: { ...memo, route: null } })).rejects.toThrow("no route");
+    expect(result).not.toHaveProperty("costUsd");
   });
 
   it("throws without a transcript", async () => {
     const { store, handlers, destination } = setup();
-    await expect(handlers.act?.({ memo: seedMemo(store, "routed") })).rejects.toThrow(
+    await expect(handlers.act?.({ memo: seedMemo(store, "transcribed") })).rejects.toThrow(
       "no transcript",
     );
     expect(destination.calls).toEqual([]);
   });
-});
 
-describe("summarize", () => {
-  it("summarizes with the stored route, transcript and reply", async () => {
-    const { store, handlers, summarizer } = setup();
-    const memo = {
-      ...seedMemo(store, "acted"),
-      route: "hermes",
-      transcript: "t",
-      replyText: "r",
-    };
-    const result = await handlers.summarize?.({ memo });
-    expect(summarizer?.calls).toEqual([
-      { memoId: memo.id, route: "hermes", transcript: "t", replyText: "r" },
-    ]);
-    expect(result).toMatchObject({
-      patch: { summary: { headline: "Headline", detail: "Detail", spoken: "Spoken." } },
-      costUsd: 0.001,
+  it("propagates a delivery failure and writes nothing", async () => {
+    const { store, handlers } = setup({
+      destination: fakeDestination({ failWith: new Error("hermes down") }),
     });
-  });
-});
-
-describe("summarize: templated routes", () => {
-  const herd = fakeHerd({
-    tabs: [{ id: "w1:t1", repo: "iris", label: "server", agentState: "idle", lastActivity: null }],
-  });
-
-  it("summarizes a journal memo without a summarizer, with no cost", async () => {
-    const { store, handlers } = setup({ summarizer: null });
-    const memo = {
-      ...seedMemo(store, "acted"),
-      route: "journal",
-      transcript: "heute\n war   gut",
-    };
-    expect(await handlers.summarize?.({ memo })).toEqual({
-      patch: {
-        summary: {
-          headline: "Saved to journal",
-          detail: "heute war gut",
-          spoken: "Saved to your journal.",
-        },
-      },
-    });
-  });
-
-  it("summarizes a herdr memo with the tab it went to, without calling the summarizer", async () => {
-    const { store, handlers, summarizer } = setup({ herd });
-    const memo = {
-      ...seedMemo(store, "acted"),
-      route: "herdr",
-      destinationRef: "w1:t1",
-      transcript: "run the tests",
-    };
-    expect(await handlers.summarize?.({ memo })).toEqual({
-      patch: {
-        summary: {
-          headline: "Sent to iris / server",
-          detail: "run the tests",
-          spoken: "Sent to iris server.",
-        },
-      },
-    });
-    expect(summarizer?.calls).toEqual([]);
-  });
-
-  it("falls back to a generic target when the tab is no longer in the herd", async () => {
-    for (const unreadable of [
-      setup({ herd: fakeHerd({ failWith: new Error("down") }) }),
-      setup(),
-    ]) {
-      const memo = {
-        ...seedMemo(unreadable.store, "acted"),
-        route: "herdr",
-        destinationRef: "w9:t9",
-        transcript: "x",
-      };
-      const result = await unreadable.handlers.summarize?.({ memo });
-      expect(result?.patch?.summary).toMatchObject({
-        headline: "Sent to tab",
-        spoken: "Sent to the tab.",
-      });
-    }
-  });
-
-  it("keeps the headline within 60 and the detail within 240 characters", async () => {
-    const long = fakeHerd({
-      tabs: [
-        {
-          id: "w1:t1",
-          repo: "r".repeat(50),
-          label: "l".repeat(50),
-          agentState: "idle",
-          lastActivity: null,
-        },
-      ],
-    });
-    const { store, handlers } = setup({ herd: long });
-    const memo = {
-      ...seedMemo(store, "acted"),
-      route: "herdr",
-      destinationRef: "w1:t1",
-      transcript: "word ".repeat(100),
-    };
-    const summary = (await handlers.summarize?.({ memo }))?.patch?.summary;
-    expect(summary?.headline.length).toBeLessThanOrEqual(60);
-    expect(summary?.detail.length).toBeLessThanOrEqual(240);
-    expect(summary?.detail.endsWith("…")).toBe(true);
-  });
-
-  it("logs when the herd cannot be read for the tab name", async () => {
-    const { store, handlers } = setup({ herd: fakeHerd({ failWith: new Error("down") }) });
-    const memo = {
-      ...seedMemo(store, "acted"),
-      route: "herdr",
-      destinationRef: "w1:t1",
-      transcript: "x",
-    };
-    const { lines } = await captureLogs(async () => {
-      await handlers.summarize?.({ memo });
-    });
-    expect(lines).toContainEqual(
-      expect.objectContaining({
-        event: "summarize.herd_unavailable",
-        memo: memo.id,
-        error: "down",
-      }),
-    );
-  });
-
-  it("strips a spoken prefix from the excerpt", async () => {
-    const { store, handlers } = setup({ summarizer: null });
-    const memo = {
-      ...seedMemo(store, "acted"),
-      route: "journal",
-      transcript: "Tagebuch: heute war gut",
-    };
-    store.completeStep({
-      id: memo.id,
-      step: "route",
-      from: "acted",
-      to: "acted",
-      patch: {
-        routeDecision: {
-          source: "prefix",
-          destination: "journal",
-          tab: null,
-          confidence: 1,
-          model: null,
-          costUsd: null,
-          reason: null,
-          outcome: "routed",
-        },
-      },
-    });
-    const result = await handlers.summarize?.({ memo });
-    expect(result?.patch?.summary?.detail).toBe("heute war gut");
-  });
-
-  it("still needs a summarizer for hermes", async () => {
-    const { store, handlers } = setup({ summarizer: null });
-    const memo = { ...seedMemo(store, "acted"), route: "hermes", transcript: "t" };
-    await expect(handlers.summarize?.({ memo })).rejects.toThrow("no summarizer configured");
+    const memo = { ...seedMemo(store, "transcribed"), transcript: "t" };
+    await expect(handlers.act?.({ memo })).rejects.toThrow("hermes down");
+    expect(store.getMemo(memo.id)).toMatchObject({ replyText: null, kind: null, actions: [] });
   });
 });
 
@@ -505,7 +274,7 @@ describe("notify", () => {
   it("notifies with the memo and its summary", async () => {
     const { store, handlers, notifier } = setup();
     const summary = { headline: "h", detail: "d", spoken: "s" };
-    const memo = { ...seedMemo(store, "summarized"), summary };
+    const memo = { ...seedMemo(store, "acted"), summary };
     expect(await handlers.notify?.({ memo })).toEqual({});
     expect(notifier.calls).toEqual([{ memo, summary }]);
   });
@@ -513,44 +282,38 @@ describe("notify", () => {
   it("announces a clipped transcript when the memo has no summary", async () => {
     const { store, handlers, notifier } = setup();
     const transcript = `  Bitte   erinnere mich ${"morgen ".repeat(20)}an den Termin `;
-    const memo = { ...seedMemo(store, "summarized"), route: "hermes", transcript };
+    const memo = { ...seedMemo(store, "acted"), transcript };
     expect(await handlers.notify?.({ memo })).toEqual({});
     const [call] = notifier.calls;
     expect(call?.memo).toBe(memo);
     expect(call?.summary.headline).toHaveLength(60);
     expect(call?.summary.headline.startsWith("Bitte erinnere mich morgen morgen")).toBe(true);
     expect(call?.summary.headline.endsWith("…")).toBe(true);
+    expect(call?.summary.detail.length).toBeLessThanOrEqual(240);
     expect(call?.summary.spoken).toBe("");
   });
 
-  it("clips the delivered transcript, without a spoken routing prefix", async () => {
+  it("clips the headline at 60 code points, not UTF-16 units", async () => {
     const { store, handlers, notifier } = setup();
-    const memo = {
-      ...seedMemo(store, "summarized"),
-      route: "hermes",
-      transcript: "Hermes, kauf Milch",
-    };
-    store.completeStep({
-      id: memo.id,
-      step: "route",
-      from: "summarized",
-      to: "summarized",
-      patch: {
-        routeDecision: {
-          source: "prefix",
-          destination: "hermes",
-          tab: null,
-          confidence: 1,
-          model: null,
-          costUsd: null,
-          reason: null,
-          outcome: "routed",
-          prefixWords: 1,
-        },
-      },
-    });
+    const memo = { ...seedMemo(store, "acted"), transcript: "😀".repeat(70) };
     await handlers.notify?.({ memo });
-    expect(notifier.calls[0]?.summary.headline).toBe("kauf Milch");
+    const headline = notifier.calls[0]?.summary.headline ?? "";
+    expect(Array.from(headline)).toHaveLength(60);
+    expect(headline).toBe(`${"😀".repeat(59)}…`);
+  });
+
+  it("announces a short transcript whole, with no routing prefix cut", async () => {
+    const { store, handlers, notifier } = setup();
+    const memo = { ...seedMemo(store, "acted"), transcript: "Hermes, kauf Milch" };
+    await handlers.notify?.({ memo });
+    expect(notifier.calls[0]?.summary.headline).toBe("Hermes, kauf Milch");
+  });
+
+  it("throws when there is neither a summary nor a transcript", async () => {
+    const { store, handlers } = setup();
+    await expect(handlers.notify?.({ memo: seedMemo(store, "acted") })).rejects.toThrow(
+      "no transcript",
+    );
   });
 });
 
@@ -564,19 +327,33 @@ describe("pipeline end to end", () => {
       state: "notified",
       audioSeconds: 12.5,
       transcript: "hello iris",
-      route: "hermes",
+      route: null,
       destinationRef: "session-1",
       replyText: "done",
-      summary: { headline: "Headline", detail: "Detail", spoken: "Spoken." },
+      kind: "note",
+      actions: ["fake_search", "fake_write"],
+      summary: { headline: "Headline", detail: "", spoken: "Spoken." },
     });
     expect(store.listStepRecords(id).map((s) => [s.step, s.status, s.usage, s.costUsd])).toEqual([
       ["transcribe", "done", { audioSeconds: 12.5 }, 0.02],
-      ["route", "done", null, null],
       ["act", "done", { turns: 1 }, 0.1],
-      ["summarize", "done", null, 0.001],
       ["notify", "done", null, null],
     ]);
-    expect(notifier.calls).toHaveLength(1);
+    expect(notifier.calls.map((c) => c.summary.headline)).toEqual(["Headline"]);
+  });
+
+  it("announces the transcript when Hermes sent no block", async () => {
+    const { store, runner, notifier } = setup({ destination: metalessDestination() });
+    const { id } = seedWithSegments(store, [0]);
+    await runner.drive(id);
+    expect(store.getMemo(id)).toMatchObject({
+      state: "notified",
+      kind: null,
+      actions: [],
+      summary: null,
+      replyText: "plain reply",
+    });
+    expect(notifier.calls.map((c) => c.summary.headline)).toEqual(["hello iris"]);
   });
 
   it("ends a transcribe-mode memo after transcribe, announcing the transcript", async () => {
@@ -598,6 +375,8 @@ describe("pipeline end to end", () => {
       route: null,
       replyText: null,
       summary: null,
+      kind: null,
+      actions: [],
     });
     expect(store.listStepRecords(id).map((s) => [s.step, s.status])).toEqual([
       ["transcribe", "done"],
@@ -607,370 +386,64 @@ describe("pipeline end to end", () => {
     expect(notifier.calls.map((c) => c.summary.headline)).toEqual(["hello iris"]);
   });
 
-  it("retries a summarize failure without re-running transcribe", async () => {
-    const inner = fakeSummarizer();
+  it("waits at transcribed when no destination is configured", async () => {
+    const { store, runner, notifier } = setup({ destination: null });
+    const { id } = seedWithSegments(store, [0]);
+    await runner.drive(id);
+    expect(store.getMemo(id)).toMatchObject({ state: "transcribed", failedStep: null });
+    expect(notifier.calls).toEqual([]);
+  });
+
+  it("fails at act on a delivery failure and recovers with a retry from act, without re-transcribing", async () => {
+    const inner = fakeDestination();
     let broken = true;
-    const summarizer = {
+    const destination: FakeDestination = {
       calls: inner.calls,
-      async summarize(params: Parameters<typeof inner.summarize>[0]) {
-        if (broken) throw new Error("agw down");
-        return inner.summarize(params);
-      },
-    };
-    const { store, runner, transcriber, destination, notifier } = setup({ summarizer });
-    const { id } = seedWithSegments(store, [0]);
-    await runner.drive(id);
-    // The memo ends notified without a summary; the alert carries the transcript's headline.
-    expect(store.getMemo(id)).toMatchObject({
-      state: "notified",
-      failedStep: null,
-      summary: null,
-      transcript: "hello iris",
-    });
-    expect(store.listStepRecords(id).find((s) => s.step === "summarize")).toMatchObject({
-      status: "failed",
-      error: "agw down",
-    });
-    expect(notifier.calls.map((c) => c.summary.headline)).toEqual(["hello iris"]);
-
-    broken = false;
-    runner.retry({ id, from: "summarize" });
-    await runner.idle();
-
-    expect(store.getMemo(id)).toMatchObject({
-      state: "notified",
-      summary: { headline: "Headline" },
-    });
-    expect(transcriber.calls).toHaveLength(1);
-    expect(destination.calls).toHaveLength(1);
-    expect(inner.calls).toHaveLength(1);
-    // notify re-sent with the real headline (the alert's collapse id replaces the banner)
-    expect(notifier.calls.map((c) => c.summary.headline)).toEqual(["hello iris", "Headline"]);
-  });
-
-  it("skips to notify for a hermes memo when no summarizer is configured", async () => {
-    const { store, runner, notifier } = setup({ summarizer: null });
-    const { id } = seedWithSegments(store, [0]);
-    await runner.drive(id);
-    expect(store.getMemo(id)).toMatchObject({ state: "notified", summary: null });
-    expect(store.listStepRecords(id).find((s) => s.step === "summarize")).toMatchObject({
-      status: "failed",
-      error: expect.stringContaining("no summarizer configured"),
-    });
-    expect(notifier.calls).toHaveLength(1);
-  });
-});
-
-describe("routing through the runner", () => {
-  it("writes the decision row with the step and keeps the raw transcript and delivers the stripped one", async () => {
-    const { store, runner, destination, summarizer } = setup({
-      transcriber: fakeTranscriber({ result: { text: "Hermes, kauf Milch" } }),
-    });
-    const { id } = seedWithSegments(store, [0]);
-    await runner.drive(id);
-
-    expect(store.getMemo(id)).toMatchObject({
-      state: "notified",
-      route: "hermes",
-      transcript: "Hermes, kauf Milch",
-    });
-    expect(destination.calls).toEqual([{ memoId: id, transcript: "kauf Milch" }]);
-    expect(summarizer?.calls[0]?.transcript).toBe("kauf Milch");
-    expect(store.listRouteDecisions(id)).toMatchObject([
-      { source: "prefix", destination: "hermes", confidence: 1, outcome: "routed" },
-    ]);
-  });
-
-  it("parks at needs_route with a readable reason and does not act", async () => {
-    const { store, runner, destination } = setup({
-      transcriber: fakeTranscriber({ result: { text: "Tagebuch: heute war gut" } }),
-    });
-    const { id } = seedWithSegments(store, [0]);
-    await runner.drive(id);
-
-    expect(store.getMemo(id)).toMatchObject({
-      state: "needs_route",
-      route: null,
-      transcript: "Tagebuch: heute war gut",
-    });
-    expect(store.listRouteDecisions(id).at(-1)).toMatchObject({
-      outcome: "needs_route",
-      destination: null,
-      reason: "journal not available",
-    });
-    expect(destination.calls).toEqual([]);
-  });
-
-  it("records the decide cost and usage on the route step row", async () => {
-    const decider = fakeDecider({
-      result: {
-        destination: { choice: "hermes", confidence: 0.9 },
-        costUsd: 0.0004,
-        usage: { inputTokens: 90 },
-      },
-    });
-    const { store, runner } = setup({
-      decider,
-      destinations: { hermes: fakeDestination(), journal: fakeDestination() },
-    });
-    const { id } = seedWithSegments(store, [0]);
-    await runner.drive(id);
-
-    const route = store.listStepRecords(id).find((s) => s.step === "route");
-    expect(route).toMatchObject({ usage: { inputTokens: 90 }, costUsd: 0.0004 });
-    expect(store.listRouteDecisions(id)).toMatchObject([
-      { source: "decide", destination: "hermes", confidence: 0.9, costUsd: 0.0004 },
-    ]);
-  });
-
-  it("parks as 'decide unavailable' with two destinations and no decider", async () => {
-    const { store, runner } = setup({
-      destinations: { hermes: fakeDestination(), journal: fakeDestination() },
-    });
-    const { id } = seedWithSegments(store, [0]);
-    await runner.drive(id);
-    expect(store.getMemo(id)?.state).toBe("needs_route");
-    expect(store.listRouteDecisions(id).at(-1)?.reason).toBe("decide unavailable");
-  });
-
-  it("routes a retry from route by the same prefix and still delivers the stripped text", async () => {
-    const inner = fakeDestination({ result: { ref: "note.md", replyText: "" } });
-    let broken = true;
-    const journal = {
-      calls: inner.calls,
-      async deliver(params: Parameters<typeof inner.deliver>[0]) {
-        if (broken) throw new Error("brain locked");
+      async deliver(params) {
+        if (broken) throw new Error("hermes down");
         return inner.deliver(params);
       },
     };
-    const { store, runner } = setup({
-      transcriber: fakeTranscriber({ result: { text: "Tagebuch: heute war gut" } }),
-      destinations: { hermes: fakeDestination(), journal },
-    });
+    const { store, runner, transcriber, notifier } = setup({ destination });
     const { id } = seedWithSegments(store, [0]);
     await runner.drive(id);
-    expect(store.getMemo(id)).toMatchObject({ state: "failed", failedStep: "act" });
-
-    broken = false;
-    runner.retry({ id, from: "route" });
-    await runner.idle();
-
-    expect(store.getMemo(id)).toMatchObject({
-      state: "notified",
-      route: "journal",
-      transcript: "Tagebuch: heute war gut",
-    });
-    expect(store.listRouteDecisions(id).map((d) => [d.source, d.destination])).toEqual([
-      ["prefix", "journal"],
-      ["prefix", "journal"],
-    ]);
-    expect(inner.calls).toEqual([{ memoId: id, transcript: "heute war gut" }]);
-  });
-
-  it("fails the step on a decider failure and recovers with a retry from route", async () => {
-    const inner = fakeDecider({ result: { destination: { choice: "journal", confidence: 0.95 } } });
-    let broken = true;
-    const decider = {
-      calls: inner.calls,
-      async decide(params: Parameters<typeof inner.decide>[0]) {
-        if (broken) throw new Error("agw decide timed out after 1800000 ms");
-        return inner.decide(params);
-      },
-    };
-    const { store, runner } = setup({
-      decider,
-      destinations: { hermes: fakeDestination(), journal: fakeDestination() },
-    });
-    const { id } = seedWithSegments(store, [0]);
-    await runner.drive(id);
-
     expect(store.getMemo(id)).toMatchObject({
       state: "failed",
-      failedStep: "route",
-      error: "agw decide timed out after 1800000 ms",
-      route: null,
+      failedStep: "act",
+      error: "hermes down",
     });
-    expect(store.listRouteDecisions(id)).toEqual([]);
 
     broken = false;
-    runner.retry({ id, from: "route" });
+    runner.retry({ id, from: "act" });
     await runner.idle();
-    expect(store.getMemo(id)).toMatchObject({ state: "notified", route: "journal" });
-    expect(store.listRouteDecisions(id)).toMatchObject([{ source: "decide", outcome: "routed" }]);
+
+    expect(store.getMemo(id)).toMatchObject({ state: "notified", kind: "note" });
+    expect(transcriber.calls).toHaveLength(1);
+    expect(notifier.calls).toHaveLength(1);
   });
 
-  it("does not re-run route or reach act when a parked memo is driven again", async () => {
-    const decider = fakeDecider({
-      result: { destination: { choice: "journal", confidence: 0.5 } },
-    });
-    const hermes = fakeDestination();
-    const journal = fakeDestination();
-    const { store, runner } = setup({ decider, destinations: { hermes, journal } });
-    const { id } = seedWithSegments(store, [0]);
-    await runner.drive(id);
-    expect(store.getMemo(id)?.state).toBe("needs_route");
-
-    await runner.drive(id);
-    await runner.driveAll();
-
-    expect(store.getMemo(id)?.state).toBe("needs_route");
-    expect(decider.calls).toHaveLength(1);
-    expect(store.listRouteDecisions(id)).toHaveLength(1);
-    expect([hermes.calls, journal.calls]).toEqual([[], []]);
-  });
-});
-
-const spoken = (text: string) => fakeTranscriber({ result: { text } });
-
-describe("herdr act", () => {
-  const herd = fakeHerd({
-    tabs: [
-      { id: "w1:t1", repo: "iris", label: "server", agentState: "idle", lastActivity: null },
-      { id: "w2:t1", repo: "dotfiles", label: "main", agentState: "idle", lastActivity: null },
-    ],
-  });
-  it("delivers the stripped transcript to the tab the prefix resolved to", async () => {
-    const herdr = fakeDestination({ result: { ref: "w1:t1", replyText: "" } });
-    const { store, runner, summarizer } = setup({
-      transcriber: spoken("Tab server run the tests"),
-      destinations: { herdr, hermes: fakeDestination() },
-      herd,
-    });
-    const { id } = seedWithSegments(store, [0]);
-    await runner.drive(id);
-
-    expect(herdr.calls).toEqual([{ memoId: id, transcript: "run the tests", tab: "w1:t1" }]);
-    expect(store.getMemo(id)).toMatchObject({
-      state: "notified",
-      route: "herdr",
-      destinationRef: "w1:t1",
-      summary: { headline: "Sent to iris / server", detail: "run the tests" },
-    });
-    expect(summarizer?.calls).toEqual([]);
-  });
-
-  it("passes no tab to a destination that is not herdr", async () => {
-    const hermes = fakeDestination();
-    const { store, runner } = setup({ destinations: { hermes } });
-    const { id } = seedWithSegments(store, [0]);
-    await runner.drive(id);
-    expect(hermes.calls[0]).toEqual({ memoId: id, transcript: "hello iris" });
-  });
-
-  it("parks a herdr route that names no tab instead of failing the step", async () => {
-    const herdr = fakeDestination();
-    const { store, handlers } = setup({ destinations: { herdr } });
-    const memo = { ...seedMemo(store, "routed"), transcript: "t", route: "herdr" };
-    const result = await handlers.act?.({ memo });
-    expect(herdr.calls).toEqual([]);
-    expect(result).toEqual({
-      outcome: "needs_route",
-      patch: {
-        routeDecision: {
-          source: "default",
-          outcome: "needs_route",
-          destination: "herdr",
-          tab: null,
-          confidence: null,
-          model: null,
-          costUsd: null,
-          reason: "which tab?",
-        },
-      },
-    });
-  });
-
-  it("with herdr as the only destination routes to the one live tab, or parks at route", async () => {
-    const one = fakeHerd({
-      tabs: [
-        { id: "w1:t1", repo: "iris", label: "server", agentState: "idle", lastActivity: null },
-      ],
-    });
-    const herdr = fakeDestination();
-    const a = setup({ destinations: { herdr }, herd: one });
-    const first = seedWithSegments(a.store, [0]);
-    await a.runner.drive(first.id);
-    expect(herdr.calls).toEqual([{ memoId: first.id, transcript: "hello iris", tab: "w1:t1" }]);
-
-    const b = setup({ destinations: { herdr: fakeDestination() }, herd });
-    const second = seedWithSegments(b.store, [0]);
-    await b.runner.drive(second.id);
-    expect(b.store.getMemo(second.id)).toMatchObject({
-      state: "needs_route",
-      routeReason: "which tab?",
-    });
-  });
-
-  it("parks a vanished tab, alerts once, and delivers after the answer names another tab", async () => {
-    const calls: { memoId: string; transcript: string; tab?: string }[] = [];
-    const herdr: Destination = {
-      async deliver(params) {
-        calls.push(params);
-        if (params.tab === "w1:t1") throw new TabGoneError(params.tab);
-        return { ref: params.tab ?? "", replyText: "" };
+  it("retries a failed notify without delivering again", async () => {
+    let broken = true;
+    const inner = fakeNotifier();
+    const notifier: ReturnType<typeof fakeNotifier> = {
+      ...inner,
+      async notify(params) {
+        if (broken) throw new Error("apns down");
+        return inner.notify(params);
       },
     };
-    const { store, runner, events, notifier } = setup({
-      transcriber: spoken("Tab server run the tests"),
-      destinations: { herdr },
-      herd,
-    });
-    const alerts = bindNeedsRouteAlerts({ events, store, notifier });
+    const { store, runner, destination } = setup({ notifier });
     const { id } = seedWithSegments(store, [0]);
     await runner.drive(id);
-    await alerts.idle();
+    expect(store.getMemo(id)).toMatchObject({ state: "failed", failedStep: "notify" });
 
-    expect(store.getMemo(id)).toMatchObject({
-      state: "needs_route",
-      route: "herdr",
-      routeReason: "tab w1:t1 is gone",
-      routeSuggestion: "herdr",
-    });
-    expect(store.listRouteDecisions(id)).toMatchObject([
-      { source: "prefix", outcome: "routed", destination: "herdr", tab: "w1:t1" },
-      {
-        source: "prefix",
-        outcome: "needs_route",
-        destination: "herdr",
-        tab: "w1:t1",
-        reason: "tab w1:t1 is gone",
-      },
-    ]);
-    expect(notifier.needsRouteCalls).toMatchObject([{ reason: "tab w1:t1 is gone" }]);
+    broken = false;
+    runner.retry({ id, from: "notify" });
+    await runner.idle();
 
-    // The runner leaves it parked, and the answer routes it as usual.
-    await runner.drive(id);
-    expect(calls).toHaveLength(1);
-    const answered = store.answerRoute({
-      id,
-      decision: {
-        source: "answer",
-        destination: "herdr",
-        tab: "w2:t1",
-        confidence: 1,
-        model: null,
-        costUsd: null,
-        reason: null,
-        outcome: "routed",
-      },
-    });
-    expect(answered).toBe(true);
-    await runner.drive(id);
-
-    expect(calls.map((c) => c.tab)).toEqual(["w1:t1", "w2:t1"]);
-    expect(store.getMemo(id)).toMatchObject({ state: "notified", destinationRef: "w2:t1" });
-  });
-
-  it("does not park on any other delivery failure", async () => {
-    const herdr = fakeDestination({ failWith: new Error("herdr: socket closed") });
-    const { store, runner } = setup({
-      transcriber: spoken("Tab server run the tests"),
-      destinations: { herdr },
-      herd,
-    });
-    const { id } = seedWithSegments(store, [0]);
-    await runner.drive(id);
-    expect(store.getMemo(id)).toMatchObject({ state: "failed", failedStep: "act" });
+    expect(store.getMemo(id)?.state).toBe("notified");
+    expect(destination.calls).toHaveLength(1);
+    expect(inner.calls.map((c) => c.summary.headline)).toEqual(["Headline"]);
   });
 });
 
@@ -978,8 +451,12 @@ describe("herdr act", () => {
 function gatedHermes() {
   const state = { running: 0, peak: 0, started: [] as string[] };
   const gates: Array<() => void> = [];
-  const destination: Destination = {
-    async deliver({ memoId, threadId }) {
+  const calls: FakeDestination["calls"] = [];
+  const destination: FakeDestination = {
+    calls,
+    async deliver(params) {
+      calls.push(params);
+      const { memoId, threadId } = params;
       state.started.push(memoId);
       state.running++;
       state.peak = Math.max(state.peak, state.running);
@@ -995,7 +472,7 @@ const tick = () => new Promise((resolve) => setTimeout(resolve, 5));
 
 function twoTurns(threads: [string, string]) {
   const hermes = gatedHermes();
-  const ctx = setup({ destinations: { hermes: hermes.destination } });
+  const ctx = setup({ destination: hermes.destination });
   const memos = threads.map((threadId, i) => {
     ctx.db
       .query(
@@ -1010,7 +487,7 @@ function twoTurns(threads: [string, string]) {
       text: `turn ${i}`,
       threadId,
     });
-    return { ...memo, route: "hermes" as const };
+    return memo;
   });
   return { ...hermes, handlers: ctx.handlers, memos };
 }
@@ -1018,64 +495,43 @@ function twoTurns(threads: [string, string]) {
 describe("a memo that continues a thread", () => {
   const THREAD = "0b1f6c52-4a7d-4e90-8c13-9d2a5e7f1b34";
 
-  /** A text memo created in `thread`, with the thread row the earlier turn left behind. */
-  function continuing(
-    kind: "chat" | "hermes",
-    overrides: { mode?: "chat" | "auto"; setup?: Parameters<typeof setup>[0] } = {},
-  ) {
-    const ctx = setup(overrides.setup);
+  /** A text memo created in `THREAD`, with the thread row the earlier turn left behind. */
+  function continuing(mode: "chat" | "auto" = "auto") {
+    const ctx = setup();
     ctx.db
       .query(
-        "INSERT INTO threads (id, kind, title, created_at, updated_at) VALUES (?, ?, 'earlier', 'c', 'u')",
+        "INSERT INTO threads (id, kind, title, created_at, updated_at) VALUES (?, 'hermes', 'earlier', 'c', 'u')",
       )
-      .run(THREAD, kind);
+      .run(THREAD);
     const { memo } = ctx.store.createTextMemo({
       id: crypto.randomUUID(),
-      mode: overrides.mode ?? "auto",
+      mode,
       device: "iphone",
       startedAt: "2026-01-01T00:00:00.000Z",
       text: "and then?",
       threadId: THREAD,
     });
-    return { ...ctx, memo: { ...memo, route: "hermes" } };
+    return { ...ctx, memo };
   }
 
-  it("routes to hermes without asking the decider, whatever the mode", async () => {
-    const decider = fakeDecider();
-    const { handlers, memo } = continuing("hermes", { setup: { decider } });
-    const result = await handlers.route?.({ memo });
-    expect(result?.outcome).toBeUndefined();
-    expect(result?.patch).toMatchObject({
-      route: "hermes",
-      routeDecision: { source: "mode", destination: "hermes", outcome: "routed" },
-    });
-    expect(decider.calls).toEqual([]);
-  });
-
-  it("fails the route when hermes is not registered", async () => {
-    const journal = fakeDestination({ threads: false });
-    const { handlers, memo } = continuing("hermes", { setup: { destinations: { journal } } });
-    await expect(handlers.route?.({ memo })).rejects.toThrow("not registered");
-  });
-
-  it("delivers into the thread's session and sends the chat instruction again in a chat thread", async () => {
+  it("delivers into the thread's session with the memo's mode", async () => {
     const { handlers, destination, memo } = continuing("chat");
     const result = await handlers.act?.({ memo });
     expect(destination.calls).toEqual([
-      { memoId: memo.id, transcript: "and then?", chat: true, threadId: THREAD },
+      { memoId: memo.id, transcript: "and then?", mode: "chat", threadId: THREAD },
     ]);
     expect(result?.patch).toMatchObject({
       destinationRef: THREAD,
-      thread: { id: THREAD, kind: "chat" },
+      thread: { id: THREAD, kind: "hermes" },
+      kind: "note",
     });
   });
 
-  it("is no chat in a hermes thread, even when the memo's mode says chat", async () => {
-    const { handlers, destination, memo } = continuing("hermes", { mode: "chat" });
-    await handlers.act?.({ memo });
-    expect(destination.calls).toEqual([
-      { memoId: memo.id, transcript: "and then?", threadId: THREAD },
-    ]);
+  it("sends no thread for a memo whose thread is its own session", async () => {
+    const { store, handlers, destination } = setup();
+    const memo = { ...seedMemo(store, "transcribed"), transcript: "again" };
+    await handlers.act?.({ memo: { ...memo, threadId: memo.id } });
+    expect(destination.calls).toEqual([{ memoId: memo.id, transcript: "again", mode: "auto" }]);
   });
 
   describe("turns into one session", () => {
@@ -1127,20 +583,5 @@ describe("a memo that continues a thread", () => {
       for (const gate of gates) gate();
       await Promise.all(running);
     });
-  });
-
-  it("does not send the thread to a destination that keeps none", async () => {
-    const journal = fakeDestination({ threads: false, result: { ref: "note.md", replyText: "" } });
-    const ctx = setup({ destinations: { hermes: fakeDestination(), journal } });
-    const { memo } = ctx.store.createTextMemo({
-      id: crypto.randomUUID(),
-      mode: "auto",
-      device: "iphone",
-      startedAt: "2026-01-01T00:00:00.000Z",
-      text: "heute",
-      threadId: THREAD,
-    });
-    await ctx.handlers.act?.({ memo: { ...memo, route: "journal" } });
-    expect(journal.calls).toEqual([{ memoId: memo.id, transcript: "heute" }]);
   });
 });

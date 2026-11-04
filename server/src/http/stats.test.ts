@@ -14,7 +14,7 @@ describe("GET /v1/stats", () => {
       perDay: [],
       perWeek: [],
       stepMedians: [],
-      costPerRoute: [],
+      costPerKind: [],
     });
     expect(body.from < body.to).toBe(true);
   });
@@ -29,9 +29,12 @@ describe("GET /v1/stats", () => {
     });
     const res = await call(app, { path: "/v1/stats?days=1" });
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { days: number; perDay: { route: string; count: number }[] };
+    const body = (await res.json()) as {
+      days: number;
+      perDay: { kind: string | null; count: number }[];
+    };
     expect(body.days).toBe(1);
-    expect(body.perDay).toEqual([expect.objectContaining({ route: "unrouted", count: 1 })]);
+    expect(body.perDay).toEqual([expect.objectContaining({ kind: null, count: 1 })]);
   });
 
   it.each(["0", "366", "1.5", "-3", "abc"])("400s on days=%s", async (days) => {

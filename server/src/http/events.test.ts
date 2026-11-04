@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { parkMemo } from "../memo/test-support.js";
+import { seedMemo } from "../memo/test-support.js";
 import { call, fakeHandlers, testApp } from "./test-support.js";
 
 /** Reads decoded chunks from an SSE body until `done` says enough, or the deadline passes. */
@@ -106,17 +106,19 @@ describe("GET /v1/events", () => {
     await res.body?.cancel().catch(() => undefined);
   });
 
-  it("streams memo.updated (routed) when a parked memo is answered, then memo.done at notified", async () => {
+  it("streams memo.updated for each step of a retried legacy failed(route) memo, then memo.done at notified", async () => {
     const { app, store, runner } = testApp({ sseKeepaliveMs: 1000, handlers: fakeHandlers });
-    const id = parkMemo(store, { reason: "decide refused" });
+    const id = seedMemo(store, "transcribed").id;
+    store.markStepFailed({ id, step: "route", error: "decide refused" });
     const res = await call(app, { path: "/v1/events" });
     const reader = (res.body as ReadableStream<Uint8Array>).getReader();
 
-    await call(app, {
+    const retry = await call(app, {
       method: "POST",
-      path: `/v1/memos/${id}/route`,
-      json: { destination: "hermes" },
+      path: `/v1/memos/${id}/retry`,
+      json: { from: "act" },
     });
+    expect(retry.status).toBe(202);
     await runner.idle();
 
     const text = await readUntil(reader, (t) => t.includes("memo.done"));
@@ -128,13 +130,11 @@ describe("GET /v1/events", () => {
         (name as string).slice(7),
         (JSON.parse((data as string).slice(6)) as { state: string }).state,
       ]);
-    expect(frames).toEqual([
-      ["memo.updated", "routed"],
-      ["memo.updated", "acted"],
-      ["memo.updated", "summarized"],
-      ["memo.updated", "notified"],
-      ["memo.done", "notified"],
-    ]);
+    expect(frames.at(-1)).toEqual(["memo.done", "notified"]);
+    expect(frames.map(([, state]) => state)).toEqual(
+      expect.arrayContaining(["transcribed", "acted", "notified"]),
+    );
+    expect(frames.map(([, state]) => state)).not.toContain("routed");
     await reader.cancel();
   });
 });

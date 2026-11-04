@@ -1,10 +1,11 @@
 export const MEMO_MODES = ["auto", "journal", "hermes", "tab", "chat", "transcribe"] as const;
 export type MemoMode = (typeof MEMO_MODES)[number];
 
-/** A mode whose memo goes through route, act and summarize; `transcribe` stops after the transcript and never routes. */
-export type RoutableMode = Exclude<MemoMode, "transcribe">;
-
-export const isRoutableMode = (mode: MemoMode): mode is RoutableMode => mode !== "transcribe";
+/**
+ * Every mode but `transcribe` hands the memo to Hermes (`act`); `transcribe` stops after the transcript. The other modes are the
+ * owner's pick as the app offered it (`auto` and `hermes` pick nothing); Hermes decides either way.
+ */
+export const runsAct = (mode: MemoMode): boolean => mode !== "transcribe";
 
 export const MEMO_STATES = [
   "receiving",
@@ -19,15 +20,13 @@ export const MEMO_STATES = [
 ] as const;
 export type MemoState = (typeof MEMO_STATES)[number];
 
+/** Every step a row of the timeline can name: `route` and `summarize` only on memos from before Hermes decided. */
 export const STEPS = ["ingest", "transcribe", "route", "act", "summarize", "notify"] as const;
 export type Step = (typeof STEPS)[number];
 /** Steps a handler implements; `ingest` is driven by the upload `complete` call. */
-export type HandlerStep = Exclude<Step, "ingest">;
+export type HandlerStep = "transcribe" | "act" | "notify";
 
-/** A handler can park the memo instead of advancing it; only `route` and `act` may. */
-export type StepOutcome = "needs_route";
-
-/** The triage result: a notification headline, a longer detail line and 1–2 spoken sentences. */
+/** What Hermes reports for a turn (its ```iris block): a notification headline and one spoken sentence; `detail` is never set. */
 export interface Summary {
   headline: string;
   detail: string;
@@ -102,7 +101,7 @@ export interface Memo {
   /** Written by the steps; null until the step that produces it has run. */
   audioSeconds: number | null;
   transcript: string | null;
-  /** The destination name (`hermes`, `journal`, `herdr`); null until the route step has routed it. */
+  /** The destination name of a memo from before Hermes decided (`hermes`, `journal`, `herdr`); null on every new memo. */
   route: string | null;
   destinationRef: string | null;
   replyText: string | null;
@@ -110,16 +109,14 @@ export interface Memo {
   replyBlocks: ReplyBlock[];
   summary: Summary | null;
   /**
-   * The Hermes session (chat or not) the memo ran in: set by `act` (a fresh memo's own session, so equal to its id), or at
-   * creation for a memo that continues a thread. Null before then and for other destinations.
+   * The Hermes session the memo ran in: set by `act` (a fresh memo's own session, so equal to its id), or at creation for a
+   * memo that continues a thread. Null before then.
    */
   threadId: string | null;
-  /**
-   * Derived from the decision log, not a column: while the memo is `needs_route`, why it parked and
-   * (low-confidence parks) the model's best guess. Absent in every other state.
-   */
-  routeReason?: string;
-  routeSuggestion?: string;
+  /** What Hermes called the memo (`normalizeKind`); null before `act`, in mode `transcribe` and when the reply carried no block. */
+  kind: string | null;
+  /** The tool names Hermes used in the turn (`normalizeActions`), first seen first; empty when none or unknown. */
+  actions: string[];
   /** User flags (swipe actions): handled, starred, and when it was archived. None of them affects the pipeline. */
   done: boolean;
   favorite: boolean;
@@ -165,51 +162,18 @@ export function isTyped(memo: Pick<Memo, "segmentCount" | "state">): boolean {
   return memo.segmentCount === null && memo.state !== "receiving";
 }
 
-export const ROUTE_SOURCES = [
-  "mode",
-  "prefix",
-  "decide",
-  "default",
-  "answer",
-  "correction",
-] as const;
-export type RouteSource = (typeof ROUTE_SOURCES)[number];
-export const ROUTE_OUTCOMES = ["routed", "needs_route"] as const;
-export type RouteOutcome = (typeof ROUTE_OUTCOMES)[number];
-
-/** One row of the routing decision log, as a handler reports it. */
-export interface RouteDecisionInput {
-  source: RouteSource;
-  /** The chosen destination; on a low-confidence park the model's best guess, null when nothing was chosen. */
-  destination: string | null;
-  tab: string | null;
-  confidence: number | null;
-  model: string | null;
-  costUsd: number | null;
-  /** Why the memo parked; null when routed. */
-  reason: string | null;
-  outcome: RouteOutcome;
-  /** Source `prefix`: the leading transcript words the spoken prefix covers, so `act` cuts exactly those. Absent on older rows. */
-  prefixWords?: number;
-}
-
-export interface RouteDecisionRecord extends RouteDecisionInput {
-  id: number;
-  memoId: string;
-  createdAt: string;
-}
-
 /** The memo columns a handler may set when its step completes. */
 export type MemoColumnPatch = Partial<
   Pick<
     Memo,
     | "audioSeconds"
     | "transcript"
-    | "route"
     | "destinationRef"
     | "replyText"
     | "summary"
     | "threadId"
+    | "kind"
+    | "actions"
   >
 >;
 
@@ -221,10 +185,11 @@ export function continuedThread(memo: Pick<Memo, "id" | "threadId">): string | n
   return memo.threadId !== null && memo.threadId !== memo.id ? memo.threadId : null;
 }
 
+/** New threads are `hermes`; `chat` rows are from before the modes folded into one and stay readable. */
 export const THREAD_KINDS = ["chat", "hermes"] as const;
 export type ThreadKind = (typeof THREAD_KINDS)[number];
 
-/** A Hermes session that one or more memos ran in; `kind` is Iris's own record (`chat` or a normal task). */
+/** A Hermes session that one or more memos ran in. */
 export interface Thread {
   id: string;
   kind: ThreadKind;
@@ -297,11 +262,10 @@ export interface ThreadUpsert {
 }
 
 /**
- * What a step writes atomically with its completion: memo columns, and for a step that routes or
- * parks (`route`, `act`) a decision-log row, and for `act` into a thread-keeping destination the thread it ran in (`thread` upserts the row; `memos.thread_id` is set from it).
+ * What a step writes atomically with its completion: memo columns, and for `act` the thread it ran in (`thread` upserts the row;
+ * `memos.thread_id` is set from it).
  */
 export type MemoPatch = MemoColumnPatch & {
-  routeDecision?: RouteDecisionInput;
   thread?: ThreadUpsert;
 };
 
@@ -320,52 +284,37 @@ export interface StepRecord {
 interface Transition {
   from: MemoState;
   to: MemoState;
-  /** Alternative target when the handler reports `needs_route`. */
-  park?: MemoState;
 }
 
-const TRANSITIONS: Record<Step, Transition> = {
+/** The pipeline of every memo that runs `act`; the states `routed`, `summarized` and `needs_route` are only ever read (old rows). */
+const TRANSITIONS: Partial<Record<Step, Transition>> = {
   ingest: { from: "receiving", to: "received" },
   transcribe: { from: "received", to: "transcribed" },
-  route: { from: "transcribed", to: "routed", park: "needs_route" },
-  act: { from: "routed", to: "acted", park: "needs_route" },
-  summarize: { from: "acted", to: "summarized" },
-  notify: { from: "summarized", to: "notified" },
+  act: { from: "transcribed", to: "acted" },
+  notify: { from: "acted", to: "notified" },
 };
 
-/**
- * Mode `transcribe` stops after the transcript: no route, act or summarize step exists for it (no row on the timeline,
- * no route, no reply, no summary), and `notify` runs straight from `transcribed`.
- */
+const ACT_STEPS: readonly Step[] = ["ingest", "transcribe", "act", "notify"];
+
+/** Mode `transcribe` stops after the transcript: `notify` runs straight from `transcribed`, no `act` row exists. */
 const TRANSCRIBE_ONLY_STEPS: readonly Step[] = ["ingest", "transcribe", "notify"];
 
-/** The steps a memo of `mode` goes through, in pipeline order. */
+/** The steps a memo of `mode` goes through, in pipeline order; the pipeline of every memo, old ones included. */
 export function stepsOf(mode: MemoMode): readonly Step[] {
-  return isRoutableMode(mode) ? STEPS : TRANSCRIBE_ONLY_STEPS;
+  return runsAct(mode) ? ACT_STEPS : TRANSCRIBE_ONLY_STEPS;
 }
 
 function transitionOf(step: Step, mode: MemoMode): Transition {
-  return step === "notify" && !isRoutableMode(mode)
-    ? { from: "transcribed", to: "notified" }
-    : TRANSITIONS[step];
+  if (!stepsOf(mode).includes(step)) {
+    throw new IllegalTransitionError(`step ${step} does not run in mode ${mode}`);
+  }
+  if (step === "notify" && !runsAct(mode)) return { from: "transcribed", to: "notified" };
+  const transition = TRANSITIONS[step];
+  if (!transition) throw new IllegalTransitionError(`step ${step} has no transition`);
+  return transition;
 }
 
-/**
- * Steps whose permanent failure does not fail the memo: the step row stays `failed` (error and attempts kept) and the memo
- * moves on to the next step. The result they produce is an extra, not the point of the memo.
- */
-const OPTIONAL_STEPS: readonly Step[] = ["summarize"];
-
-export function isOptionalStep(step: Step): boolean {
-  return OPTIONAL_STEPS.includes(step);
-}
-
-/** The state a memo moves to when the optional `step` failed for good: the one the step would have advanced to. */
-export function stateAfter(step: Step): MemoState {
-  return TRANSITIONS[step].to;
-}
-
-const HANDLER_STEPS: readonly HandlerStep[] = ["transcribe", "route", "act", "summarize", "notify"];
+const HANDLER_STEPS: readonly HandlerStep[] = ["transcribe", "act", "notify"];
 
 export class IllegalTransitionError extends Error {
   constructor(message: string) {
@@ -389,50 +338,75 @@ export function isTerminal(state: MemoState): boolean {
   return state === "notified" || state === "failed";
 }
 
-/** A result long-poll can answer. `needs_route` is parked awaiting a user choice. */
+/** A result long-poll can answer. `needs_route` is a state of old rows only: nothing moves a memo there any more. */
 export function isResultReady(state: MemoState): boolean {
   return isTerminal(state) || state === "needs_route";
 }
 
-/** After `act`: a route can no longer change the outcome, so an answer is only recorded as a correction. */
-export function isCorrectable(state: MemoState): boolean {
-  return state === "acted" || state === "summarized" || state === "notified";
-}
-
 /** The state a retry from `step` resets the memo to. */
 export function stateBefore(params: { step: Step; mode: MemoMode }): MemoState {
-  const { step, mode } = params;
-  if (!stepsOf(mode).includes(step)) {
-    throw new IllegalTransitionError(`step ${step} does not run in mode ${mode}`);
-  }
-  return transitionOf(step, mode).from;
+  return transitionOf(params.step, params.mode).from;
 }
 
 export function stepIndex(step: Step): number {
   return STEPS.indexOf(step);
 }
 
-/** `step` and every later step, in pipeline order. */
+/** `step` and every later step of the full timeline (old `route` and `summarize` rows included), in order. */
 export function stepsFrom(step: Step): Step[] {
   return STEPS.slice(stepIndex(step));
 }
 
+/**
+ * The step a retry from `from` may start at, given where the memo failed: any step of its pipeline up to the failed one. An
+ * old memo that failed at `route` or `summarize` (steps no pipeline has any more) counts as failed at the next step of the
+ * pipeline, so it retries from `act` or `notify`.
+ */
+export function canRetryFrom(params: { from: Step; failedStep: Step; mode: MemoMode }): boolean {
+  const { from, failedStep, mode } = params;
+  const failedAt = stepsOf(mode).find((step) => stepIndex(step) >= stepIndex(failedStep));
+  return failedAt !== undefined && stepIndex(from) <= stepIndex(failedAt);
+}
+
 /** The state after `step` succeeds from `state`; throws when the move is not in the table. */
-export function advance(params: {
-  state: MemoState;
-  step: Step;
-  mode: MemoMode;
-  outcome?: StepOutcome | undefined;
-}): MemoState {
-  const { state, step, mode, outcome } = params;
-  if (!stepsOf(mode).includes(step)) {
-    throw new IllegalTransitionError(`step ${step} does not run in mode ${mode}`);
-  }
+export function advance(params: { state: MemoState; step: Step; mode: MemoMode }): MemoState {
+  const { state, step, mode } = params;
   const t = transitionOf(step, mode);
   if (state !== t.from) {
     throw new IllegalTransitionError(`step ${step} cannot run from state ${state}`);
   }
-  if (!outcome) return t.to;
-  if (!t.park) throw new IllegalTransitionError(`step ${step} cannot yield ${outcome}`);
-  return t.park;
+  return t.to;
+}
+
+/** Longest `kind` the memo keeps, in code points. */
+export const KIND_MAX = 24;
+/** Longest headline kept from Hermes's block, in code points (the alert and Live Activity limit). */
+export const HEADLINE_MAX = 60;
+/** The most tool names a memo keeps. */
+export const ACTIONS_MAX = 12;
+
+/** Cuts to `max` code points with an ellipsis (trailing space dropped first), never splitting a surrogate pair. */
+export function clipCodePoints(text: string, max: number): string {
+  const points = Array.from(text);
+  if (points.length <= max) return text;
+  return `${points
+    .slice(0, max - 1)
+    .join("")
+    .trimEnd()}…`;
+}
+
+/** A memo kind as stored and as `?kind=` filters: trimmed, lower-case, cut to `KIND_MAX` code points; null when nothing is left. */
+export function normalizeKind(raw: string): string | null {
+  const kind = Array.from(raw.trim().toLowerCase()).slice(0, KIND_MAX).join("").trim();
+  return kind === "" ? null : kind;
+}
+
+/** Tool names, deduplicated in first-seen order and cut to `ACTIONS_MAX`; blank names are dropped. */
+export function normalizeActions(names: readonly string[]): string[] {
+  const seen = new Set<string>();
+  for (const name of names) {
+    const trimmed = name.trim();
+    if (trimmed !== "") seen.add(trimmed);
+  }
+  return [...seen].slice(0, ACTIONS_MAX);
 }

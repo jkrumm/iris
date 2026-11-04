@@ -4,7 +4,7 @@ import { createMemoEvents, type MemoEvent } from "./events.js";
 import { PURGE_AFTER_MS, type MemoState } from "./memo.js";
 import { createRunner } from "./runner.js";
 import { createMemoService } from "./service.js";
-import { deferred, fakeAudio, parkMemo, seedMemo, testStore } from "./test-support.js";
+import { deferred, fakeAudio, legacyParkedMemo, seedMemo, testStore } from "./test-support.js";
 
 function setup() {
   const { store, clock } = testStore();
@@ -20,7 +20,7 @@ function setup() {
     audio,
     clock,
     maxSegmentBytes: 16,
-    destinations: ["hermes"],
+    hermes: true,
   });
   return { store, clock, seen, service, audio };
 }
@@ -58,8 +58,8 @@ describe("setFlags", () => {
 
   it("flags a memo that is still in the pipeline", () => {
     const { store, service } = setup();
-    const { id } = seedMemo(store, "routed");
-    expect(service.setFlags({ id, favorite: true }).state).toBe("routed");
+    const { id } = seedMemo(store, "transcribed");
+    expect(service.setFlags({ id, favorite: true }).state).toBe("transcribed");
   });
 
   it("rejects an empty change, an unknown memo and a deleted memo", () => {
@@ -88,7 +88,7 @@ describe("delete", () => {
       expect(service.get(id).memo.deletedAt).toBe(deleted.deletedAt);
       expect(seen).toEqual([expect.objectContaining({ id, flagChange: true })]);
     }
-    const parked = parkMemo(store, { reason: "unsure" });
+    const parked = legacyParkedMemo(store);
     expect(service.delete(parked).deletedAt).not.toBeNull();
   });
 
@@ -126,7 +126,7 @@ describe("delete", () => {
 
   it("refuses a memo the pipeline is still working on", () => {
     const { store, service } = setup();
-    const states: MemoState[] = ["received", "transcribed", "routed", "acted", "summarized"];
+    const states: MemoState[] = ["received", "transcribed", "acted"];
     for (const state of states) {
       const { id } = seedMemo(store, state);
       expect([state, codeOf(() => service.delete(id))]).toEqual([state, "bad_state"]);
@@ -145,17 +145,17 @@ describe("delete", () => {
     expect(seen).toEqual([]);
   });
 
-  it("rejects retry and route on a deleted memo", () => {
+  it("rejects retry on a deleted memo", () => {
     const { store, service } = setup();
     const failed = seedMemo(store, "transcribed").id;
-    store.markStepFailed({ id: failed, step: "route", error: "boom" });
+    store.markStepFailed({ id: failed, step: "act", error: "boom" });
     service.delete(failed);
-    expect(codeOf(() => service.retry({ id: failed, from: "route" }))).toBe("bad_state");
+    expect(codeOf(() => service.retry({ id: failed, from: "act" }))).toBe("bad_state");
 
-    const parked = parkMemo(store, { reason: "unsure" });
+    const parked = legacyParkedMemo(store);
     service.delete(parked);
-    expect(codeOf(() => service.route({ id: parked, destination: "hermes" }))).toBe("bad_state");
     expect(store.getMemo(parked)?.state).toBe("needs_route");
+    expect(store.getMemo(parked)?.deletedAt).not.toBeNull();
   });
 });
 

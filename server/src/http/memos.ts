@@ -16,7 +16,6 @@ import {
   MissingSegmentsError,
   ResultQuery,
   RetryBody,
-  RouteBody,
   SegmentParams,
   TooLargeError,
 } from "./schemas.js";
@@ -175,47 +174,20 @@ export function memoRoutes(deps: { memos: MemoService; auth: ReturnType<typeof d
         response: { 202: Memo, 400: ErrorBody, 404: ErrorBody, 409: ErrorBody },
       },
     )
-    .post(
-      "/:id/route",
-      ({ params, body, set }) => {
-        const { memo, accepted } = memos.route({
-          id: params.id,
-          destination: body.destination,
-          tab: body.tab,
-        });
-        set.status = accepted ? 202 : 200;
-        return memoJson(memo);
-      },
-      {
-        params: MemoIdParams,
-        body: RouteBody,
-        response: { 200: Memo, 202: Memo, 400: ErrorBody, 404: ErrorBody, 409: ErrorBody },
-      },
-    )
     .get(
       "/",
       ({ query }) => {
-        const {
-          memos: items,
-          pinned,
-          pinnedTruncated,
-          nextCursor,
-        } = memos.list({
+        const { memos: items, nextCursor } = memos.list({
           ...(query.limit !== undefined && { limit: query.limit }),
           cursor: query.cursor,
           q: query.q,
-          route: query.route,
           state: query.state,
           favorite: query.favorite === "true" ? true : undefined,
           archived: query.archived === "true" ? true : undefined,
           kind: query.kind,
+          thread: query.thread === "true" ? true : undefined,
         });
-        return {
-          items: items.map(memoJson),
-          pinned: pinned.map(memoJson),
-          pinnedTruncated,
-          nextCursor,
-        };
+        return { items: items.map(memoJson), nextCursor };
       },
       { query: ListQuery, response: { 200: MemoList, 400: ErrorBody } },
     )

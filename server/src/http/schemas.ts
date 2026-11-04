@@ -2,8 +2,6 @@ import { t } from "elysia";
 import { MEMO_ERROR_CODES } from "../memo/errors.js";
 import { MEMO_MODES, MEMO_STATES, STEPS, THREAD_KINDS } from "../memo/memo.js";
 import { APNS_ENVS, PLATFORMS } from "../ports/devices.js";
-import { DESTINATION_NAMES } from "../ports/destination.js";
-import { AGENT_STATES } from "../ports/herd.js";
 import { TELEMETRY_MAX_RECORDS } from "../telemetry/limits.js";
 
 // Every request and response shape on the wire, in one file. Pure TypeBox (no Transform or custom
@@ -71,6 +69,7 @@ const memoFields = {
   segmentCount: Nullable(Int),
   audioSeconds: Nullable(t.Number()),
   transcript: Nullable(t.String()),
+  // The destination of a memo from before Hermes decided (`hermes`, `journal`, `herdr`); null on every newer one.
   route: Nullable(t.String()),
   destinationRef: Nullable(t.String()),
   replyText: Nullable(t.String()),
@@ -82,9 +81,10 @@ const memoFields = {
   threadId: t.Optional(t.String()),
   // Present (and `true`) only for a typed memo, one created from text; omitted for a recording.
   typed: t.Optional(t.Literal(true)),
-  // Present only while the memo is `needs_route`: why it parked, and the model's guess on a low-confidence park.
-  routeReason: t.Optional(t.String()),
-  routeSuggestion: t.Optional(t.String()),
+  // What Hermes called the memo (lower-case, at most 24 characters); omitted, never null, when it reported none.
+  kind: t.Optional(t.String()),
+  // The tool names Hermes used in the turn, first used first, at most 12, names only; omitted, never empty or null, otherwise.
+  actions: t.Optional(t.Array(t.String())),
   // User flags, always present. `archived` is derived from the archive time, which stays server-side.
   done: t.Boolean(),
   favorite: t.Boolean(),
@@ -121,7 +121,7 @@ export const MemoDetail = t.Object({
 
 const ThreadKind = t.UnionEnum([...THREAD_KINDS]);
 
-/** A Hermes session that memos ran in; `kind` `chat` marks a side-effect-free conversation. */
+/** A Hermes session that memos ran in; `kind` is `hermes` for every new one, `chat` only on rows from before the modes folded into one. */
 export const Thread = t.Object({
   id: t.String(),
   kind: ThreadKind,
@@ -152,23 +152,10 @@ export const ThreadDetail = t.Object({
 });
 
 /**
- * One page of history. `pinned` is every `needs_route` memo matching the filters (newest first, at most 50) on the
- * first page and `[]` on later ones; `items` never holds a `needs_route` memo. A memo answered after page 1 left
- * `needs_route` and appears in `items` at its seq position, so a later page can repeat a memo already in `pinned`. A
- * `done` `needs_route` memo is no open question: it is never pinned and sits in `items` at its seq position. Soft-deleted
- * memos appear in neither; archived ones only when the `archived` filter is on. `pinnedTruncated` is true on the first
- * page when more than 50 memos matched (the oldest are left out of `pinned`), false otherwise and on every later page.
+ * One page of history, newest first. Soft-deleted memos appear in none; archived ones only when the `archived` filter is on.
  */
 export const MemoList = t.Object({
   items: t.Array(Memo),
-  pinned: t.Array(Memo, {
-    description:
-      "needs_route memos matching the filters, newest first, at most 50; [] with a cursor. Clients de-duplicate by memo id across pinned and pages: a memo answered after page 1 reappears in items on a later page.",
-  }),
-  pinnedTruncated: t.Boolean({
-    description:
-      "true on the first page when more than 50 needs_route memos matched, so pinned holds only the newest 50; false otherwise and with a cursor.",
-  }),
   nextCursor: Nullable(t.String()),
 });
 
@@ -203,16 +190,9 @@ export const RetryBody = t.Object({
   from: t.UnionEnum([...STEPS], {
     default: undefined,
     description:
-      "The step to re-run from. 400 `bad_request` for a typed memo's `transcribe` (no recording) and for a step the memo's mode has no part in (mode `transcribe` runs only `transcribe` and `notify`).",
+      "The step to re-run from. 400 `bad_request` for a typed memo's `transcribe` (no recording) and for a step the memo's pipeline does not have (`transcribe`, `act`, `notify`; mode `transcribe` runs only `transcribe` and `notify`, an old memo that failed at `route` or `summarize` retries from `act` or `notify`).",
   }),
 });
-/** `tab` is required for `herdr` and rejected for the others (400 `bad_request`). */
-export const RouteBody = t.Object({
-  // `UnionEnum` defaults a missing value to its first member; a missing destination must be a 400, not "hermes".
-  destination: t.UnionEnum([...DESTINATION_NAMES], { default: undefined }),
-  tab: t.Optional(t.String({ minLength: 1 })),
-});
-
 /** `PATCH /memos/:id`: at least one flag, nothing else (400). */
 export const FlagsBody = t.Object(
   {
@@ -229,19 +209,18 @@ export const ListQuery = t.Object({
   // Search text: transcript and summary headline, case/umlaut-insensitive, each term a prefix, terms ANDed.
   q: t.Optional(t.String({ maxLength: 200 })),
   // `UnionEnum` defaults a missing value to its first member; an absent filter must stay absent.
-  route: t.Optional(t.UnionEnum([...DESTINATION_NAMES], { default: undefined })),
   state: t.Optional(t.UnionEnum([...MEMO_STATES], { default: undefined })),
   // `favorite=true` keeps the favorites. `archived=true` lists only the archived memos (without it they are hidden).
   // Only `true` is a value; the filter is off by omitting it.
   favorite: t.Optional(t.Literal("true")),
   archived: t.Optional(t.Literal("true")),
-  // The Chats chip: memos whose thread has this kind.
-  kind: t.Optional(t.UnionEnum([...THREAD_KINDS], { default: undefined })),
+  // The memo's kind, exact after the same normalisation as the stored one (trimmed, lower-case, cut to 24 characters).
+  kind: t.Optional(t.String()),
+  // `thread=true` keeps the memos that belong to a thread (a Hermes session).
+  thread: t.Optional(t.Literal("true")),
 });
 export const ThreadIdParams = t.Object({ id: t.String() });
-// `default: undefined`: a missing `kind` must stay missing, not become the first member.
 export const ThreadListQuery = t.Object({
-  kind: t.Optional(t.UnionEnum([...THREAD_KINDS], { default: undefined })),
   limit: t.Optional(t.Numeric()),
   cursor: t.Optional(t.String()),
 });
@@ -283,17 +262,6 @@ export const ActivityTokenBody = t.Object({
   token: t.String({ pattern: "^[0-9a-fA-F]+$", maxLength: 1024 }),
 });
 
-// ── Herd ─────────────────────────────────────────────────────────────────────
-
-export const HerdTab = t.Object({
-  id: t.String(),
-  repo: t.String(),
-  label: t.String(),
-  agentState: t.UnionEnum([...AGENT_STATES]),
-  lastActivity: Nullable(t.String()),
-});
-export const HerdResponse = t.Object({ tabs: t.Array(HerdTab) });
-
 // ── Stats ────────────────────────────────────────────────────────────────────
 
 /** `days` is an integer 1..365 (default 30 when absent); anything else is a 400 `bad_request`. Elysia coerces the query text. */
@@ -305,10 +273,13 @@ export const StatsResponse = t.Object({
   /** First and last local day of the window (server time zone), `YYYY-MM-DD`, inclusive. */
   from: t.String(),
   to: t.String(),
-  perDay: t.Array(t.Object({ date: t.String(), route: t.String(), count: Int })),
+  // `kind` is null for a memo with none: mode `transcribe`, a failed memo, an old one.
+  perDay: t.Array(t.Object({ date: t.String(), kind: Nullable(t.String()), count: Int })),
   perWeek: t.Array(t.Object({ weekStart: t.String(), count: Int })),
-  stepMedians: t.Array(t.Object({ step: Step, route: t.String(), medianMs: Int, samples: Int })),
-  costPerRoute: t.Array(t.Object({ route: t.String(), costUsd: t.Number(), memos: Int })),
+  stepMedians: t.Array(
+    t.Object({ step: Step, kind: Nullable(t.String()), medianMs: Int, samples: Int }),
+  ),
+  costPerKind: t.Array(t.Object({ kind: Nullable(t.String()), costUsd: t.Number(), memos: Int })),
 });
 
 // ── Service ──────────────────────────────────────────────────────────────────

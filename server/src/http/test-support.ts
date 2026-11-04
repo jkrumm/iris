@@ -8,15 +8,7 @@ import { createMemoMedia } from "../memo/media.js";
 import { createMemoService } from "../memo/service.js";
 import type { MemoStore } from "../memo/store.js";
 import { fakeAudio, testStore } from "../memo/test-support.js";
-import type { DestinationName } from "../ports/destination.js";
-import type { HerdTab } from "../ports/herd.js";
-import {
-  fakeAssetStore,
-  fakeCombiner,
-  fakeHerd,
-  fakeSpeaker,
-  fakeSpeechCache,
-} from "../ports/fakes.js";
+import { fakeAssetStore, fakeCombiner, fakeSpeaker, fakeSpeechCache } from "../ports/fakes.js";
 import { fakeOtlpExporter } from "../telemetry/fakes.js";
 import { createTelemetryRelay } from "../telemetry/relay.js";
 import { parseDeviceTokens } from "./auth.js";
@@ -36,14 +28,11 @@ export function testApp(
     sseKeepaliveMs?: number;
     /** `false` leaves speech unconfigured (503). */
     speaker?: ReturnType<typeof fakeSpeaker> | false;
-    /** `false` leaves herd unconfigured (503). */
-    herd?: ReturnType<typeof fakeHerd> | false;
-    herdTabs?: HerdTab[];
     combiner?: ReturnType<typeof fakeCombiner>;
     /** The reply asset files; pass the one the handlers' `createReplyAssets` writes to. */
     assets?: ReturnType<typeof fakeAssetStore>;
-    /** The destinations an answer may pick; default `hermes` only. */
-    destinations?: DestinationName[];
+    /** Hermes is registered (a thread can be continued); default yes. */
+    hermes?: boolean;
     /** The collector behind the telemetry relay; default a recording fake, `{down: true}` rejects. */
     otlp?: ReturnType<typeof fakeOtlpExporter>;
     /** `false` leaves the telemetry relay unconfigured (503). */
@@ -75,15 +64,11 @@ export function testApp(
     audio,
     clock,
     maxSegmentBytes: options.maxSegmentBytes ?? 1024,
-    destinations: options.destinations ?? ["hermes"],
+    hermes: options.hermes ?? true,
   });
   const devices = createSqliteDeviceStore({ db, clock });
   const combiner = options.combiner ?? fakeCombiner();
   const speaker = options.speaker === false ? undefined : (options.speaker ?? fakeSpeaker());
-  const herd =
-    options.herd === false
-      ? undefined
-      : (options.herd ?? fakeHerd(options.herdTabs && { tabs: options.herdTabs }));
   const assets = options.assets ?? fakeAssetStore();
   const media = createMemoMedia({
     store,
@@ -105,7 +90,6 @@ export function testApp(
     stats: createSqliteStatsStore({ db, clock }),
     devices,
     media,
-    herd,
     telemetry: options.telemetry === false ? undefined : telemetry,
     sseKeepaliveMs: options.sseKeepaliveMs,
   });
@@ -122,7 +106,6 @@ export function testApp(
     devices,
     combiner,
     speaker,
-    herd,
     otlp,
     telemetry,
     relayLog,
@@ -156,11 +139,9 @@ export function call(
   );
 }
 
-/** Trivial handlers for every step: the pipeline runs transcribe → notify with no external calls. */
+/** Trivial handlers for every step: the pipeline runs transcribe → act → notify with no external calls. */
 export const fakeHandlers: Record<HandlerStep, StepHandler> = {
   transcribe: async () => ({}),
-  route: async () => ({}),
   act: async () => ({}),
-  summarize: async () => ({}),
   notify: async () => ({}),
 };

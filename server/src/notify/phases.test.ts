@@ -55,9 +55,7 @@ describe("bindPhaseUpdates", () => {
     const clock = { now: () => new Date() };
     events.publish(memoEvent({ memo: { ...memo, state: "receiving" }, step: null, clock }));
     emit("transcribed");
-    emit("routed");
     emit("acted");
-    emit("summarized");
     await binding.idle();
     notifier.phaseCalls.length = 0;
 
@@ -67,15 +65,15 @@ describe("bindPhaseUpdates", () => {
     expect(store.getMemo(memo.id)?.state).toBe("notified");
   });
 
-  it("sends needs_route and failed states", async () => {
+  it("sends a legacy needs_route state and failed states", async () => {
     const { notifier, store, events, memo, binding, emit } = setup();
     const clock = { now: () => new Date() };
     emit("transcribed");
     store.transition({ id: memo.id, from: "transcribed", to: "needs_route" });
-    events.publish(memoEvent({ memo: store.getMemo(memo.id) as Memo, step: "route", clock }));
+    events.publish(memoEvent({ memo: store.getMemo(memo.id) as Memo, step: "act", clock }));
     await binding.idle();
-    store.markStepFailed({ id: memo.id, step: "route", error: "nope" });
-    events.publish(memoEvent({ memo: store.getMemo(memo.id) as Memo, step: "route", clock }));
+    store.markStepFailed({ id: memo.id, step: "act", error: "nope" });
+    events.publish(memoEvent({ memo: store.getMemo(memo.id) as Memo, step: "act", clock }));
     await binding.idle();
     expect(notifier.phaseCalls.map((c) => c.memo.state)).toEqual([
       "transcribed",
@@ -99,15 +97,13 @@ describe("bindPhaseUpdates", () => {
     };
 
     emit("transcribed");
-    emit("routed");
     emit("acted");
-    emit("summarized");
     gate.resolve();
     await binding.idle();
 
     expect(maxRunning).toBe(1);
-    // The first send was already underway; the three queued changes collapse into one send of the latest state.
-    expect(notifier.phaseCalls.map((c) => c.memo.state)).toEqual(["transcribed", "summarized"]);
+    // The first send was already underway; the queued change collapses into one send of the latest state.
+    expect(notifier.phaseCalls.map((c) => c.memo.state)).toEqual(["transcribed", "acted"]);
   });
 
   it("logs and survives a throwing notifier, then keeps sending", async () => {
@@ -124,11 +120,11 @@ describe("bindPhaseUpdates", () => {
     const { lines } = await captureLogs(async () => {
       emit("transcribed");
       await binding.idle();
-      emit("routed");
+      emit("acted");
       await binding.idle();
     });
     expect(lines.map((l) => l["event"])).toContain("notify.phase_failed");
-    expect(notifier.phaseCalls.map((c) => c.memo.state)).toEqual(["routed"]);
+    expect(notifier.phaseCalls.map((c) => c.memo.state)).toEqual(["acted"]);
   });
 
   it("stops listening after stop()", async () => {

@@ -23,29 +23,16 @@ export const Env = z.object({
   IRIS_MAX_SEGMENT_BYTES: z.coerce.number().int().positive().default(5_000_000),
   // `token=device,token=device` — see `parseDeviceTokens`. Empty means every /v1/* call is 401.
   IRIS_DEVICE_TOKENS: z.string().default(""),
-  // Downstream adapters. Each is optional: unset leaves its step without a handler (memos park)
+  // Downstream adapters. Each is optional: unset leaves its step without a handler (memos wait)
   // and shows up in /health `degraded`.
   // The agent-workflows audio door (STT + TTS): base with the version segment, `http://127.0.0.1:7792/v1` on the
   // mini, and the caller token (`iris=` line of `~/.agent-workflows/data/door-tokens`, read by `launch.sh`). Both are
   // required for `transcribe` and `speech` to register.
   AUDIO_DOOR_URL: z.preprocess(emptyToUndefined, bearerUrl("AUDIO_DOOR_URL").optional()),
   AUDIO_DOOR_TOKEN: z.preprocess(emptyToUndefined, z.string().optional()),
-  // The agent-workflows host (`triage`, `decide`): `http://127.0.0.1:7791` on the mini, and its bearer
-  // (`op://mini/agent-workflows/API_SECRET`). Both are required for the two to register.
-  AGW_URL: z.preprocess(emptyToUndefined, bearerUrl("AGW_URL").optional()),
-  AGW_API_SECRET: z.preprocess(emptyToUndefined, z.string().trim().optional()),
+  // The Hermes API server and its key: the one destination, where every memo but a `transcribe` one goes. Both are required for `act` to register.
   HERMES_URL: z.preprocess(emptyToUndefined, z.url().optional()),
   HERMES_TOKEN: z.preprocess(emptyToUndefined, z.string().optional()),
-  // Classic herdr's unix socket (`~/.config/herdr/herdr.sock` on the mini); with `HC_BIN` + `HC_SOCKET` unset too, `GET /v1/herd` is 503 and the `herdr` destination unregistered.
-  HERDR_SOCKET: z.preprocess(emptyToUndefined, z.string().optional()),
-  // The herdr-core CLI (`hc`) and its core's socket (`~/.local/state/herdr-core/default/default.sock`). `HC_BIN` + `HC_SOCKET` (both) register the
-  // hc world beside classic herdr (the `herdr` destination and `GET /v1/herd` use whichever worlds are set); `HC_SOCKET` makes
-  // the adapter refuse to spawn `hc` while no core runs, since any `hc` call would start one under iris's launchd job.
-  HC_BIN: z.preprocess(emptyToUndefined, z.string().optional()),
-  HC_SOCKET: z.preprocess(emptyToUndefined, z.string().optional()),
-  // The brain git checkout (`~/SourceRoot/brain` on the mini); set registers the `journal` destination, which
-  // writes notes into `Inbox/` and pushes. Unset leaves journal unregistered (not `degraded`).
-  BRAIN_DIR: z.preprocess(emptyToUndefined, z.string().optional()),
   // APNs credentials. The APNs notifier needs all four (else the log notifier runs, which is not
   // `degraded`). `APNS_KEY_P8` is the .p8 PEM, literal `\n` escapes allowed; `APNS_TOPIC` the bundle id.
   APNS_KEY_P8: z.preprocess(emptyToUndefined, z.string().optional()),

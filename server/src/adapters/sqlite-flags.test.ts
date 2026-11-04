@@ -1,23 +1,23 @@
 import { describe, expect, it } from "bun:test";
 import type { MemoPatch } from "../memo/memo.js";
-import { parkMemo, seedMemo, testStore } from "../memo/test-support.js";
+import { legacyParkedMemo, seedMemo, testStore } from "../memo/test-support.js";
 import { Database } from "bun:sqlite";
 import { migrate } from "./sqlite.js";
 import { MIGRATIONS } from "./sqlite-migrations.js";
 
 const ids = (page: { memos: { id: string }[] }) => page.memos.map((m) => m.id);
 
-/** Runs `act` on a routed memo so it joins (or starts) the thread `thread`. */
+/** Runs `act` on a transcribed memo so it joins (or starts) the thread `thread`. */
 function joinThread(
   { store }: ReturnType<typeof testStore>,
   params: { thread: string; kind?: "chat" | "hermes" },
 ) {
-  const { id } = seedMemo(store, "routed");
+  const { id } = seedMemo(store, "transcribed");
   const patch: MemoPatch = {
     thread: { id: params.thread, kind: params.kind ?? "hermes", title: "title" },
   };
   store.markStepStarted({ id, step: "act" });
-  store.completeStep({ id, step: "act", from: "routed", to: "acted", patch });
+  store.completeStep({ id, step: "act", from: "transcribed", to: "acted", patch });
   return id;
 }
 
@@ -93,16 +93,15 @@ describe("markDeleted and restore", () => {
 });
 
 describe("listMemos flags", () => {
-  it("hides soft-deleted memos from items and pinned", () => {
+  it("hides soft-deleted memos, parked ones included", () => {
     const { store } = testStore();
     const kept = seedMemo(store, "notified").id;
     const gone = seedMemo(store, "notified").id;
-    const parked = parkMemo(store, { reason: "unsure" });
+    const parked = legacyParkedMemo(store);
     store.markDeleted({ id: gone, at: "2026-01-01T00:00:00.000Z" });
     store.markDeleted({ id: parked, at: "2026-01-01T00:00:00.000Z" });
     const page = store.listMemos({ limit: 10 });
     expect(ids(page)).toEqual([kept]);
-    expect(page.pinned).toEqual([]);
     expect(ids(store.listMemos({ limit: 10, archived: true }))).toEqual([]);
   });
 
@@ -129,48 +128,32 @@ describe("listMemos flags", () => {
     expect(ids(store.listMemos({ limit: 10 }))).toEqual([star, plain]);
   });
 
-  it("filters by the kind of the memo's thread", () => {
+  it("filters by the memo's kind, exactly, and by whether it continues a thread", () => {
     const ctx = testStore();
-    const chat = joinThread(ctx, { thread: "chat-1", kind: "chat" });
-    const task = joinThread(ctx, { thread: "task-1", kind: "hermes" });
+    const task = joinThread(ctx, { thread: "task-1" });
     const loose = seedMemo(ctx.store, "notified").id;
-    expect(ids(ctx.store.listMemos({ limit: 10, kind: "chat" }))).toEqual([chat]);
-    expect(ids(ctx.store.listMemos({ limit: 10, kind: "hermes" }))).toEqual([task]);
-    expect(ids(ctx.store.listMemos({ limit: 10 }))).toEqual([loose, task, chat]);
+    ctx.db.query("UPDATE memos SET kind = 'task' WHERE id = ?").run(task);
+    ctx.db.query("UPDATE memos SET kind = 'note' WHERE id = ?").run(loose);
+    expect(ids(ctx.store.listMemos({ limit: 10, kind: "task" }))).toEqual([task]);
+    expect(ids(ctx.store.listMemos({ limit: 10, kind: "note" }))).toEqual([loose]);
+    expect(ids(ctx.store.listMemos({ limit: 10, kind: "tas" }))).toEqual([]);
+    expect(ids(ctx.store.listMemos({ limit: 10, kind: "" }))).toEqual([]);
+    expect(ids(ctx.store.listMemos({ limit: 10, thread: true }))).toEqual([task]);
+    expect(ids(ctx.store.listMemos({ limit: 10 }))).toEqual([loose, task]);
   });
 
-  it("does not pin a done needs_route memo and pages it by seq instead", () => {
+  it("pages a parked (old needs_route) memo like any other, by seq", () => {
     const { store } = testStore();
-    const first = parkMemo(store, { reason: "unsure" });
-    const second = parkMemo(store, { reason: "unsure" });
+    const first = legacyParkedMemo(store);
+    const second = legacyParkedMemo(store);
     store.setFlags({ id: first, done: true });
-    const page = store.listMemos({ limit: 10 });
-    expect(page.pinned.map((m) => m.id)).toEqual([second]);
-    expect(ids(page)).toEqual([first]);
-  });
-
-  it("keeps the cursor stable when a pinned memo becomes done", () => {
-    const { store } = testStore();
-    const a = seedMemo(store, "notified").id;
-    const b = seedMemo(store, "notified").id;
-    const parked = parkMemo(store, { reason: "unsure" });
-    const page1 = store.listMemos({ limit: 1 });
-    expect(page1.pinned.map((m) => m.id)).toEqual([parked]);
-    expect(ids(page1)).toEqual([b]);
-    store.setFlags({ id: parked, done: true });
-    const page2 = store.listMemos({ limit: 5, cursor: page1.nextCursor });
-    expect(ids(page2)).toEqual([a]);
-  });
-
-  it("answers state=needs_route with the open memos pinned and the done ones paged", () => {
-    const { store } = testStore();
-    const done = parkMemo(store, { reason: "unsure" });
-    const open = parkMemo(store, { reason: "unsure" });
-    store.setFlags({ id: done, done: true });
-    const page = store.listMemos({ limit: 10, state: "needs_route" });
-    expect(page.pinned.map((m) => m.id)).toEqual([open]);
-    expect(ids(page)).toEqual([done]);
-    expect(store.listMemos({ limit: 10, state: "needs_route", cursor: "999" }).pinned).toEqual([]);
+    expect(ids(store.listMemos({ limit: 10 }))).toEqual([second, first]);
+    expect(ids(store.listMemos({ limit: 10, state: "needs_route" }))).toEqual([second, first]);
+    const page = store.listMemos({ limit: 1, state: "needs_route" });
+    expect(ids(page)).toEqual([second]);
+    expect(
+      ids(store.listMemos({ limit: 5, state: "needs_route", cursor: page.nextCursor })),
+    ).toEqual([first]);
   });
 
   it("keeps the search index in step with a purge", () => {
@@ -205,10 +188,14 @@ describe("listPurgeable and purge", () => {
     expect(store.listPurgeable("2030-01-01T00:00:00.000Z")).not.toContain(kept);
   });
 
-  it("removes the memo with its steps, segments and decisions, and only when it is deleted", () => {
+  it("removes the memo with its steps, segments and old route decisions, and only when it is deleted", () => {
     const { store, db } = testStore();
-    const id = parkMemo(store, { reason: "unsure" });
+    const id = legacyParkedMemo(store);
     store.recordSegment({ id, index: 0, bytes: 4, sha256: "x" });
+    // History from before Hermes decided: nothing writes this table any more, but a purge still clears it.
+    db.query(
+      `INSERT INTO route_decisions (memo_id, created_at, source, outcome) VALUES (?, 't', 'decide', 'needs_route')`,
+    ).run(id);
     expect(store.purge(id)).toBe(false);
     expect(store.getMemo(id)).not.toBeNull();
 
