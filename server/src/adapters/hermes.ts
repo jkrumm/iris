@@ -107,8 +107,28 @@ const RunCompleted = z.object({
     })
     .nullish(),
 });
-// `tool.started` frames carry the tool's name at the top level (hermes-agent `gateway/platforms/api_server.py`, `_tool_progress`).
-const ToolStarted = z.object({ tool_name: z.string() });
+// `tool.started` frames carry the tool's name and its arguments at the top level (hermes-agent `gateway/platforms/api_server.py`,
+// `_tool_progress`). The arguments are read for one tool only: `skill_view`, whose `name` is the skill Hermes loaded.
+const ToolStarted = z.object({ tool_name: z.string(), args: z.unknown().optional() });
+
+/** The skill whose load every Iris turn starts with: not something Hermes did for the memo. */
+const IRIS_SKILL = "iris";
+
+/**
+ * What a `tool.started` frame adds to `actions`: the tool's name, except for `skill_view` (hermes-agent `tools/skills_tool.py`
+ * `skill_view(name, file_path, …)`), where it is the loaded skill's name (`args.name`, a string only; a `<plugin>:` prefix and any
+ * path are cut to the last segment) and the `iris` skill itself or a call without a usable name adds nothing. Never any other
+ * argument.
+ */
+export function actionOf(frame: { tool_name: string; args?: unknown }): string | null {
+  if (frame.tool_name !== "skill_view") return frame.tool_name;
+  const { args } = frame;
+  const name =
+    typeof args === "object" && args !== null ? (args as { name?: unknown }).name : undefined;
+  if (typeof name !== "string") return null;
+  const skill = name.split(":").at(-1)?.split("/").at(-1)?.trim() ?? "";
+  return skill === "" || skill === IRIS_SKILL ? null : skill;
+}
 const ErrorEvent = z.object({ message: z.string() });
 const ErrorEnvelope = z.object({ error: z.object({ message: z.string().min(1) }) });
 
@@ -233,7 +253,8 @@ export function createHermesDestination(opts: HermesDestinationOptions): Destina
               }
             } else if (frame.event === "tool.started") {
               const started = ToolStarted.safeParse(parseData(frame));
-              if (started.success) toolNames.push(started.data.tool_name);
+              const action = started.success ? actionOf(started.data) : null;
+              if (action !== null) toolNames.push(action);
             } else if (frame.event === "error") {
               const failed = ErrorEvent.safeParse(parseData(frame));
               throw new Error(`hermes error: ${failed.success ? failed.data.message : frame.data}`);
