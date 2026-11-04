@@ -19,10 +19,7 @@
           "type": "object"
         },
         "category": {
-          "enum": [
-            "MEMO_DONE",
-            "MEMO_NEEDS_ROUTE"
-          ],
+          "const": "MEMO_DONE",
           "type": "string"
         },
         "mutable-content": {

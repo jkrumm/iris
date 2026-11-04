@@ -1,5 +1,6 @@
 {
   "limit": 20,
   "favorite": "true",
-  "kind": "chat"
+  "kind": "note",
+  "thread": "true"
 }
