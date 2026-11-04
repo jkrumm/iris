@@ -3,7 +3,7 @@ import { createSqliteDeviceStore } from "../adapters/sqlite-devices.js";
 import { systemClock } from "../ports/clock.js";
 import { testStore } from "../memo/test-support.js";
 import { generateP8 } from "../adapters/apns-test-support.js";
-import { selectNotifier, unescapeNewlines } from "./select.js";
+import { normalizePem, selectNotifier } from "./select.js";
 
 // Built at runtime so the public-repo guard (PEM rule) does not read the dummy key as a leak.
 const KIND = "PRIVATE KEY";
@@ -46,6 +46,21 @@ describe("selectNotifier", () => {
   });
 
   it("turns escaped newlines in the key into real ones", () => {
-    expect(unescapeNewlines(full.APNS_KEY_P8)).toBe(pem("abc", "\n"));
+    expect(normalizePem(full.APNS_KEY_P8)).toBe(pem("abc", "\n"));
+  });
+
+  it("rebuilds a key whose newlines a password field turned into spaces", async () => {
+    const generated = await generateP8();
+    const flattened = generated.pem.trim().replaceAll("\n", " ");
+    expect(normalizePem(flattened)).toBe(generated.pem.trim());
+    const selected = select({ ...full, APNS_KEY_P8: flattened });
+    expect(selected.kind).toBe("apns");
+    await selected.close?.();
+  });
+
+  it("wraps a one-line body at 64 characters and leaves a proper key as it is", () => {
+    const body = "A".repeat(100);
+    expect(normalizePem(pem(body, " "))).toBe(pem(`${"A".repeat(64)}\n${"A".repeat(36)}`, "\n"));
+    expect(normalizePem(`${pem("abc", "\n")}\n`)).toBe(pem("abc", "\n"));
   });
 });

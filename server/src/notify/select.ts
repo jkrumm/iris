@@ -12,8 +12,22 @@ export interface ApnsConfig {
   APNS_TOPIC?: string | undefined;
 }
 
-/** An env file holds the PEM on one line with literal `\n`; node-apn needs real newlines. */
-export const unescapeNewlines = (pem: string) => pem.replaceAll("\\n", "\n");
+const PEM = /^-----BEGIN ([A-Z0-9 ]+)-----([\s\S]*?)-----END \1-----$/;
+const PEM_LINE = 64;
+
+/**
+ * The key as node-apn needs it: real newlines, 64-character body lines. An env file holds the PEM on one line with
+ * literal `\n`, and a 1Password concealed field turns its newlines into spaces; both are rebuilt from the body.
+ * Anything that is not one PEM block is only unescaped.
+ */
+export function normalizePem(value: string): string {
+  const unescaped = value.replaceAll("\\n", "\n").trim();
+  const match = PEM.exec(unescaped);
+  if (!match) return unescaped;
+  const [, label, body = ""] = match;
+  const lines = body.replace(/\s+/g, "").match(new RegExp(`.{1,${PEM_LINE}}`, "g")) ?? [];
+  return [`-----BEGIN ${label}-----`, ...lines, `-----END ${label}-----`].join("\n");
+}
 
 /**
  * The APNs notifier only when all four credentials are set; otherwise the log stand-in, which is
@@ -30,7 +44,7 @@ export function selectNotifier(deps: { apns: ApnsConfig; devices: DeviceStore; c
     return { notifier: createLogNotifier(), kind: "log" };
   }
   const transport = createNodeApnsTransport({
-    keyP8: unescapeNewlines(APNS_KEY_P8),
+    keyP8: normalizePem(APNS_KEY_P8),
     keyId: APNS_KEY_ID,
     teamId: APNS_TEAM_ID,
   });
