@@ -53,7 +53,7 @@ describe("parseCliArgs", () => {
       source: { kind: "file", path: "a.m4a" },
       url: "http://127.0.0.1:7730",
       token: "t",
-      mode: "auto",
+      mode: "hermes",
       waitSeconds: 300,
     });
   });
@@ -100,6 +100,12 @@ describe("parseCliArgs", () => {
     });
   });
 
+  it("accepts every wire mode", () => {
+    for (const mode of ["hermes", "transcribe", "auto", "chat", "journal", "tab"]) {
+      expect(parseCliArgs(["a.m4a", "--mode", mode], { IRIS_TOKEN: "t" })).toMatchObject({ mode });
+    }
+  });
+
   it("accepts --mode transcribe", () => {
     expect(parseCliArgs(["a.m4a", "--mode", "transcribe"], { IRIS_TOKEN: "t" })).toMatchObject({
       mode: "transcribe",
@@ -137,6 +143,8 @@ describe("formatSummary", () => {
     transcript: "x".repeat(300),
     replyText: "hello\nworld",
     summary: { headline: "Head", detail: "Detail" },
+    kind: "task",
+    actions: ["todo_add", "calendar_search"],
     steps: [
       {
         step: "transcribe",
@@ -147,7 +155,7 @@ describe("formatSummary", () => {
         costUsd: 0.001,
       },
       {
-        step: "summarize",
+        step: "act",
         status: "done",
         startedAt: "2026-01-01T00:00:02.000Z",
         finishedAt: "2026-01-01T00:00:03.000Z",
@@ -170,7 +178,9 @@ describe("formatSummary", () => {
     expect(text).toContain("trace       0190aaaabbbb4ccc8dddeeeeeeeeeeee");
     expect(text).toContain(`transcript  ${"x".repeat(200)}...`);
     expect(text).toContain("reply       hello world");
-    expect(text).toContain("transcribe:done 1.5s  summarize:done 1.0s  notify:done");
+    expect(text).toContain("kind        task");
+    expect(text).toContain("actions     todo_add, calendar_search");
+    expect(text).toContain("transcribe:done 1.5s  act:done 1.0s  notify:done");
     expect(text).toContain("costUsd     $0.0015");
   });
 
@@ -178,6 +188,8 @@ describe("formatSummary", () => {
     const text = formatSummary({ id: "a-b", state: "failed", failedStep: "act", error: "boom" });
     expect(text).toContain("failed      act: boom");
     expect(text).toContain("costUsd     -");
+    expect(text).toContain("kind        -");
+    expect(text).toContain("actions     -");
   });
 });
 
