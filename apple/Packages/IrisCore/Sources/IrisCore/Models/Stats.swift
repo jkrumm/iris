@@ -14,9 +14,6 @@ public struct StatsQuery: Codable, Hashable, Sendable {
   }
 }
 
-/// The label a memo without a kind gets where the app still groups by route.
-private let unroutedLabel = "unrouted"
-
 /// Body of `GET /v1/stats`: aggregates over the last `days` local days of the server, today included.
 /// Days are `YYYY-MM-DD` strings in the server's time zone, not instants.
 public struct Stats: Codable, Hashable, Sendable {
@@ -28,16 +25,12 @@ public struct Stats: Codable, Hashable, Sendable {
   public var perWeek: [StatsWeekCount]
   /// Median duration of done step records per step and memo kind, in pipeline order then kind; a pair without samples is absent.
   public var stepMedians: [StatsStepMedian]
-  /// Cost per memo kind; `kind` is `nil` for memos Hermes has not classified.
-  public var costPerKind: [StatsRouteCost]
+  /// Cost per memo kind; `kind` is `nil` for memos without one (transcribe, or not classified).
+  public var costPerKind: [StatsKindCost]
 
-  /// The old name of `costPerKind`.
-  public var costPerRoute: [StatsRouteCost] { costPerKind }
-
-  /// `costPerRoute` is the old spelling of `costPerKind`; the non-empty one wins.
   public init(
     days: Int, from: String, to: String, perDay: [StatsDayCount] = [], perWeek: [StatsWeekCount] = [],
-    stepMedians: [StatsStepMedian] = [], costPerRoute: [StatsRouteCost] = [], costPerKind: [StatsRouteCost] = []
+    stepMedians: [StatsStepMedian] = [], costPerKind: [StatsKindCost] = []
   ) {
     self.days = days
     self.from = from
@@ -45,7 +38,7 @@ public struct Stats: Codable, Hashable, Sendable {
     self.perDay = perDay
     self.perWeek = perWeek
     self.stepMedians = stepMedians
-    self.costPerKind = costPerKind.isEmpty ? costPerRoute : costPerKind
+    self.costPerKind = costPerKind
   }
 }
 
@@ -55,17 +48,10 @@ public struct StatsDayCount: Codable, Hashable, Sendable {
   public var kind: String?
   public var count: Int
 
-  /// The kind, or `"unrouted"` without one.
-  public var route: String { kind ?? unroutedLabel }
-
   public init(date: String, kind: String?, count: Int) {
     self.date = date
     self.kind = kind
     self.count = count
-  }
-
-  public init(date: String, route: String, count: Int) {
-    self.init(date: date, kind: route == unroutedLabel ? nil : route, count: count)
   }
 
   private enum CodingKeys: String, CodingKey {
@@ -106,18 +92,11 @@ public struct StatsStepMedian: Codable, Hashable, Sendable {
   public var medianMs: Int
   public var samples: Int
 
-  /// The kind, or `"unrouted"` without one.
-  public var route: String { kind ?? unroutedLabel }
-
   public init(step: MemoStep, kind: String?, medianMs: Int, samples: Int) {
     self.step = step
     self.kind = kind
     self.medianMs = medianMs
     self.samples = samples
-  }
-
-  public init(step: MemoStep, route: String, medianMs: Int, samples: Int) {
-    self.init(step: step, kind: route == unroutedLabel ? nil : route, medianMs: medianMs, samples: samples)
   }
 
   private enum CodingKeys: String, CodingKey {
@@ -141,23 +120,16 @@ public struct StatsStepMedian: Codable, Hashable, Sendable {
   }
 }
 
-/// Cost and memo count of one memo kind (`nil`: unclassified). The type keeps its old name for the app.
-public struct StatsRouteCost: Codable, Hashable, Sendable {
+/// Cost and memo count of one memo kind (`nil`: none, shown as "Transcript").
+public struct StatsKindCost: Codable, Hashable, Sendable {
   public var kind: String?
   public var costUsd: Double
   public var memos: Int
-
-  /// The kind, or `"unrouted"` without one.
-  public var route: String { kind ?? unroutedLabel }
 
   public init(kind: String?, costUsd: Double, memos: Int) {
     self.kind = kind
     self.costUsd = costUsd
     self.memos = memos
-  }
-
-  public init(route: String, costUsd: Double, memos: Int) {
-    self.init(kind: route == unroutedLabel ? nil : route, costUsd: costUsd, memos: memos)
   }
 
   private enum CodingKeys: String, CodingKey {
