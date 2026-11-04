@@ -14,7 +14,6 @@ export function threadRoutes(deps: { memos: MemoService; auth: ReturnType<typeof
       "/",
       ({ query }) => {
         const { threads, nextCursor } = memos.listThreads({
-          kind: query.kind,
           ...(query.limit !== undefined && { limit: query.limit }),
           cursor: query.cursor,
         });

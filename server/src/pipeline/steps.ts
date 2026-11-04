@@ -1,30 +1,19 @@
 import { createKeyedQueue } from "../memo/keyed-queue.js";
 import {
+  clipCodePoints,
   continuedThread,
+  HEADLINE_MAX,
   type HandlerStep,
-  isRoutableMode,
   type Memo,
-  type RouteDecisionInput,
   type Summary,
 } from "../memo/memo.js";
 import type { StepHandler } from "../memo/runner.js";
 import type { ReplyAssets } from "../memo/reply-assets.js";
-import type { MemoStore } from "../memo/store.js";
 import type { AudioStore } from "../ports/audio.js";
-import type { Decider } from "../ports/decider.js";
-import {
-  isDestinationName,
-  registeredDestinations,
-  type DestinationName,
-  TabGoneError,
-  type Destinations,
-} from "../ports/destination.js";
-import type { Herd } from "../ports/herd.js";
+import type { Destination } from "../ports/destination.js";
 import type { Notifier } from "../ports/notifier.js";
-import type { Summarizer } from "../ports/summarizer.js";
 import type { Transcriber } from "../ports/transcriber.js";
-import { deliveredTranscript, route, WHICH_TAB, type RouteDecision } from "../routing/index.js";
-import { log } from "../telemetry/log.js";
+import type { MemoStore } from "../memo/store.js";
 import { getActiveSpan } from "../telemetry/otel.js";
 
 // Each step is a pure function of (memo, ports): it reads what earlier steps stored on the memo,
@@ -34,56 +23,17 @@ import { getActiveSpan } from "../telemetry/otel.js";
 // an idle watchdog but no wall-clock cap.
 const THREAD_WAIT_MS = 1_800_000;
 
-const HEADLINE_MAX = 60;
 const DETAIL_MAX = 240;
 
-const clip = (text: string, max: number) =>
-  text.length > max ? `${text.slice(0, max - 1).trimEnd()}…` : text;
-
-/** Journal and herdr never produce an answer worth a model call: the summary is a fixed phrase plus an excerpt. */
-function templatedSummary(params: {
-  destination: "journal" | "herdr";
-  transcript: string;
-  /** The herdr tab the memo went to, as far as the live herd still knows it. */
-  tab: { repo: string; label: string } | null;
-}): Summary {
-  const { destination, transcript, tab } = params;
-  const detail = clip(transcript.replace(/\s+/g, " ").trim(), DETAIL_MAX);
-  if (destination === "journal") {
-    return { headline: "Saved to journal", detail, spoken: "Saved to your journal." };
-  }
-  const target = tab ? `${tab.repo} / ${tab.label}` : "tab";
-  return {
-    headline: clip(`Sent to ${target}`, HEADLINE_MAX),
-    detail,
-    spoken: `Sent to ${tab ? `${tab.repo} ${tab.label}` : "the tab"}.`,
-  };
-}
-
-/** What notify announces when summarize failed for good: the transcript clipped to a headline, nothing is stored. */
+/** What notify announces when Hermes sent no headline: the transcript clipped to one, nothing is stored. */
 function transcriptSummary(transcript: string): Summary {
   const text = transcript.replace(/\s+/g, " ").trim();
-  return { headline: clip(text, HEADLINE_MAX), detail: clip(text, DETAIL_MAX), spoken: "" };
-}
-
-/** The route of a memo that continues a thread: forced to `hermes`, no model call. */
-function continuationRoute(registered: readonly DestinationName[]): RouteDecision {
-  if (!registered.includes("hermes")) {
-    throw new Error("route: a thread continues in Hermes, which is not registered");
-  }
   return {
-    source: "mode",
-    destination: "hermes",
-    tab: null,
-    confidence: null,
-    model: null,
-    costUsd: null,
-    reason: null,
-    outcome: "routed",
+    headline: clipCodePoints(text, HEADLINE_MAX),
+    detail: clipCodePoints(text, DETAIL_MAX),
+    spoken: "",
   };
 }
-
-const errorMessage = (err: unknown) => (err instanceof Error ? err.message : String(err));
 
 function required<T>(value: T | null, what: string, step: HandlerStep): T {
   if (value === null) throw new Error(`${step}: memo has no ${what}`);
@@ -94,38 +44,18 @@ export function createStepHandlers(deps: {
   store: MemoStore;
   audio: AudioStore;
   transcriber?: Transcriber | undefined;
-  /** The registered act adapters; the route step chooses among them, the act step dispatches by `memo.route`. */
-  destinations?: Destinations | undefined;
-  herd?: Herd | undefined;
-  decider?: Decider | undefined;
-  summarizer?: Summarizer | undefined;
+  /** Hermes, where every memo but a `transcribe` one goes; absent, `act` has no handler and memos wait at `transcribed`. */
+  destination?: Destination | undefined;
   /** Renders the reply's Mermaid blocks once it is delivered; absent, a reply stays plain markdown. */
   replyAssets?: ReplyAssets | undefined;
   notifier: Notifier;
 }): Partial<Record<HandlerStep, StepHandler>> {
-  const {
-    store,
-    audio,
-    transcriber,
-    destinations = {},
-    herd,
-    decider,
-    summarizer,
-    replyAssets,
-    notifier,
-  } = deps;
+  const { store, audio, transcriber, destination, replyAssets, notifier } = deps;
 
   // Turns into one Hermes session run one at a time: a second memo for the same thread waits for the first's reply, up
   // to `THREAD_WAIT_MS`; past that it fails and names the turn ahead (`POST /retry` re-queues it). The wait gives up the
   // runner's `driveAll` slot (`whileWaiting`), so a parked waiter never keeps an unrelated memo from starting.
   const inThread = createKeyedQueue({ maxWaitMs: THREAD_WAIT_MS });
-  /** The raw transcript, minus a spoken routing prefix when one routed the memo. */
-  const delivered = (memo: Memo, step: HandlerStep) =>
-    deliveredTranscript({
-      transcript: required(memo.transcript, "transcript", step),
-      decisions: store.listRouteDecisions(memo.id),
-    });
-  const registered = registeredDestinations(destinations);
   const handlers: Partial<Record<HandlerStep, StepHandler>> = {};
 
   if (transcriber) {
@@ -149,103 +79,26 @@ export function createStepHandlers(deps: {
     };
   }
 
-  // Without a destination there is nothing to route to: the memo waits at `transcribed` until one is configured.
-  if (registered.length > 0) {
-    handlers.route = async ({ memo }) => {
-      const transcript = required(memo.transcript, "transcript", "route");
-      // The pipeline of a transcribe-only memo has no route step; reaching here is a bug, not a decision to park.
-      if (!isRoutableMode(memo.mode)) throw new Error(`route: mode ${memo.mode} has no route step`);
-      // A reply into a thread goes to the Hermes session that holds it, whatever the mode or the words say.
-      const decision: RouteDecision = continuedThread(memo)
-        ? continuationRoute(registered)
-        : await route({
-            memoId: memo.id,
-            mode: memo.mode,
-            transcript,
-            destinations: registered,
-            herd,
-            decider,
-          });
-      const routed = decision.outcome === "routed";
-      getActiveSpan().setAttributes({
-        route: decision.destination,
-        "route.source": decision.source,
-        "route.confidence": decision.confidence,
-        cost_usd: decision.costUsd,
-      });
-      log("route.decided", {
-        memo: memo.id,
-        source: decision.source,
-        destination: decision.destination,
-        confidence: decision.confidence,
-        outcome: decision.outcome,
-        reason: decision.reason,
-      });
-      const { usage, ...row } = decision;
-      return {
-        ...(!routed && { outcome: "needs_route" as const }),
-        patch: {
-          ...(routed && { route: decision.destination }),
-          routeDecision: row,
-        },
-        ...(usage !== undefined && { usage }),
-        ...(decision.costUsd !== null && { costUsd: decision.costUsd }),
-      };
-    };
-
+  // Without Hermes there is nothing to hand the memo to: it waits at `transcribed` until one is configured.
+  if (destination) {
     handlers.act = async ({ memo, whileWaiting }) => {
-      const transcript = delivered(memo, "act");
-      const name = required(memo.route, "route", "act");
-      const destination = isDestinationName(name) ? destinations[name] : undefined;
-      if (!destination) throw new Error(`act: no destination registered for route "${name}"`);
-
-      // The decision that routed the memo names the tab; an answer to a park replaces the one before it.
-      const routedBy = store
-        .listRouteDecisions(memo.id)
-        .findLast((d) => d.outcome === "routed" && d.source !== "correction");
-      const tab = name === "herdr" ? (routedBy?.tab ?? undefined) : undefined;
-      // Both ways a herdr memo cannot be delivered park it for a new answer: no tab on the route, or a tab that is gone.
-      const park = (reason: string, parkedTab: string | null) => {
-        log("act.parked", { memo: memo.id, tab: parkedTab, reason });
-        const parked: RouteDecisionInput = {
-          source: routedBy?.source ?? "default",
-          outcome: "needs_route",
-          destination: name,
-          tab: parkedTab,
-          confidence: null,
-          model: null,
-          costUsd: null,
-          reason,
-        };
-        return { outcome: "needs_route" as const, patch: { routeDecision: parked } };
-      };
-      if (name === "herdr" && tab === undefined) return park(WHICH_TAB, null);
-
-      // A continuation delivers into its thread's session; the thread, not the memo's mode, says whether it is a chat
-      // (Hermes does not keep the no-side-effects message, so every turn of a chat thread sends it again).
-      const threadId = name === "hermes" ? continuedThread(memo) : null;
-      const chat =
-        name === "hermes" &&
-        (threadId ? store.getThread(threadId)?.kind === "chat" : memo.mode === "chat");
-      let delivery;
-      try {
-        const deliver = () =>
-          destination.deliver({
-            memoId: memo.id,
-            transcript,
-            ...(tab !== undefined && { tab }),
-            ...(chat && { chat }),
-            ...(threadId && { threadId }),
-          });
-        delivery = await (threadId
-          ? inThread(threadId, deliver, { label: `memo ${memo.id}`, whileWaiting })
-          : deliver());
-      } catch (err) {
-        if (err instanceof TabGoneError) return park(err.message, err.tab);
-        throw err;
-      }
+      const transcript = required(memo.transcript, "transcript", "act");
+      // A reply into a thread goes to the Hermes session that holds it.
+      const threadId = continuedThread(memo);
+      const deliver = () =>
+        destination.deliver({
+          memoId: memo.id,
+          transcript,
+          mode: memo.mode,
+          ...(threadId && { threadId }),
+        });
+      const delivery = await (threadId
+        ? inThread(threadId, deliver, { label: `memo ${memo.id}`, whileWaiting })
+        : deliver());
       getActiveSpan().setAttributes({
         reply_chars: delivery.replyText.length,
+        kind: delivery.meta?.kind ?? "",
+        actions: delivery.meta?.actions.length ?? 0,
         cost_usd: delivery.costUsd,
       });
       await replyAssets?.sync({ memoId: memo.id, replyText: delivery.replyText });
@@ -254,6 +107,10 @@ export function createStepHandlers(deps: {
           destinationRef: delivery.ref,
           replyText: delivery.replyText,
           ...(delivery.thread && { thread: delivery.thread }),
+          // Always written, so a re-run of `act` replaces what the first run left.
+          kind: delivery.meta?.kind ?? null,
+          actions: delivery.meta?.actions ?? [],
+          summary: delivery.meta?.summary ?? null,
         },
         usage: delivery.usage,
         ...(delivery.costUsd !== undefined && { costUsd: delivery.costUsd }),
@@ -261,48 +118,10 @@ export function createStepHandlers(deps: {
     };
   }
 
-  /** The herd for a summary's tab name; a herd that cannot be read only costs the name. */
-  const liveTabs = async (memoId: string) => {
-    if (!herd) return [];
-    try {
-      return await herd.snapshot();
-    } catch (err) {
-      log("summarize.herd_unavailable", { memo: memoId, error: errorMessage(err) });
-      return [];
-    }
-  };
-
-  // Always present: journal and herdr are summarized from a template, only the model-backed routes need the port. A failure
-  // here (no summarizer included) is skipped by the runner: `summarize` is an optional step.
-  handlers.summarize = async ({ memo }) => {
-    const name = required(memo.route, "route", "summarize");
-    const transcript = delivered(memo, "summarize");
-    if (name === "journal" || name === "herdr") {
-      const tabs = name === "herdr" ? await liveTabs(memo.id) : [];
-      const tab = tabs.find((t) => t.id === memo.destinationRef) ?? null;
-      return { patch: { summary: templatedSummary({ destination: name, transcript, tab }) } };
-    }
-    if (!summarizer) throw new Error(`summarize: no summarizer configured for route "${name}"`);
-    const result = await summarizer.summarize({
-      memoId: memo.id,
-      route: name,
-      transcript,
-      replyText: memo.replyText,
-    });
-    getActiveSpan().setAttributes({
-      summary_chars: result.summary.headline.length + result.summary.detail.length,
-      cost_usd: result.costUsd,
-    });
-    return {
-      patch: { summary: result.summary },
-      usage: result.usage,
-      ...(result.costUsd !== undefined && { costUsd: result.costUsd }),
-    };
-  };
-
   handlers.notify = async ({ memo }: { memo: Memo }) => {
-    // `summarize` is optional: without its result the alert carries the start of what was said.
-    const summary = memo.summary ?? transcriptSummary(delivered(memo, "notify"));
+    // Without a headline from Hermes (no block, mode `transcribe`) the alert carries the start of what was said.
+    const summary =
+      memo.summary ?? transcriptSummary(required(memo.transcript, "transcript", "notify"));
     await notifier.notify({ memo, summary });
     return {};
   };

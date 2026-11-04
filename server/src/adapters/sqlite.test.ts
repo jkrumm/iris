@@ -2,7 +2,7 @@ import { Database } from "bun:sqlite";
 import { describe, expect, it } from "bun:test";
 import { MemoError } from "../memo/errors.js";
 import type { MemoPatch, MemoState, ReplyAsset, Step } from "../memo/memo.js";
-import { captureLogs, parkMemo, seedMemo, testStore } from "../memo/test-support.js";
+import { captureLogs, legacyParkedMemo, seedMemo, testStore } from "../memo/test-support.js";
 import { createSqliteMemoStore, migrate } from "./sqlite.js";
 import { MIGRATIONS } from "./sqlite-migrations.js";
 
@@ -158,125 +158,30 @@ describe("listMemos search and filters", () => {
     expect(ids(store.listMemos({ limit: 5, q: "... ---" }))).toEqual([]);
   });
 
-  it("filters by route and state and combines them with q", () => {
+  it("filters by kind and state and combines them with q; kind is exact", () => {
     const { store } = testStore();
-    const hermes = memoWith(store, "notified", { transcript: "Milch", route: "hermes" });
-    const journal = memoWith(store, "notified", { transcript: "Milch", route: "journal" });
-    const failed = memoWith(store, "acted", { transcript: "Brot", route: "hermes" });
+    const task = memoWith(store, "notified", { transcript: "Milch", kind: "task" });
+    const note = memoWith(store, "notified", { transcript: "Milch", kind: "note" });
+    const failed = memoWith(store, "acted", { transcript: "Brot", kind: "task" });
 
-    expect(ids(store.listMemos({ limit: 10, route: "journal" }))).toEqual([journal]);
+    expect(ids(store.listMemos({ limit: 10, kind: "note" }))).toEqual([note]);
     expect(ids(store.listMemos({ limit: 10, state: "acted" }))).toEqual([failed]);
-    expect(ids(store.listMemos({ limit: 10, route: "hermes", q: "milch" }))).toEqual([hermes]);
-    expect(ids(store.listMemos({ limit: 10, route: "herdr" }))).toEqual([]);
+    expect(ids(store.listMemos({ limit: 10, kind: "task", q: "milch" }))).toEqual([task]);
+    expect(ids(store.listMemos({ limit: 10, kind: "tas" }))).toEqual([]);
+    expect(ids(store.listMemos({ limit: 10, kind: "" }))).toEqual([]);
   });
 
-  it("pins needs_route memos on the first page only and keeps them out of items", () => {
+  it("keeps a memo parked at needs_route (an old row) in the list like any other", () => {
     const { store } = testStore();
-    const first = parkMemo(store, { reason: "unsure" }, "Kalender Termin");
+    const parked = legacyParkedMemo(store, "Kalender Termin");
     const old = memoWith(store, "notified", { transcript: "Kalender alt" });
-    const second = parkMemo(store, { reason: "unsure" }, "Milch");
     const newest = memoWith(store, "notified", { transcript: "Kalender neu" });
 
-    const page1 = store.listMemos({ limit: 1 });
-    expect(page1.pinned.map((m) => m.id)).toEqual([second, first]);
-    expect(ids(page1)).toEqual([newest]);
-
-    const page2 = store.listMemos({ limit: 1, cursor: page1.nextCursor });
-    expect(page2.pinned).toEqual([]);
-    expect(ids(page2)).toEqual([old]);
-    expect(page2.nextCursor).toBeNull();
-
-    const searched = store.listMemos({ limit: 10, q: "kalend" });
-    expect(searched.pinned.map((m) => m.id)).toEqual([first]);
-    expect(ids(searched)).toEqual([newest, old]);
-  });
-
-  it("keeps the cursor stable when a pinned memo leaves needs_route", () => {
-    const { store } = testStore();
-    const a = seedMemo(store, "notified").id;
-    const b = seedMemo(store, "notified").id;
-    const c = seedMemo(store, "notified").id;
-    const parked = parkMemo(store, { reason: "unsure" });
     const page1 = store.listMemos({ limit: 2 });
-    expect(ids(page1)).toEqual([c, b]);
-
-    store.answerRoute({
-      id: parked,
-      decision: {
-        source: "answer",
-        destination: "hermes",
-        tab: null,
-        confidence: null,
-        model: null,
-        costUsd: null,
-        reason: null,
-        outcome: "routed",
-      },
-    });
-    const page2 = store.listMemos({ limit: 2, cursor: page1.nextCursor });
-    expect(ids(page2)).toEqual([a]);
-  });
-
-  it("lists a memo pinned on page 1 and answered before page 2 again in items, for clients to de-duplicate", () => {
-    const { store } = testStore();
-    const parked = parkMemo(store, { reason: "unsure" });
-    const older = seedMemo(store, "notified").id;
-    const newest = seedMemo(store, "notified").id;
-    const page1 = store.listMemos({ limit: 1 });
-    expect(page1.pinned.map((m) => m.id)).toEqual([parked]);
-    expect(ids(page1)).toEqual([newest]);
-
-    store.answerRoute({
-      id: parked,
-      decision: {
-        source: "answer",
-        destination: "hermes",
-        tab: null,
-        confidence: null,
-        model: null,
-        costUsd: null,
-        reason: null,
-        outcome: "routed",
-      },
-    });
-    const page2 = store.listMemos({ limit: 5, cursor: page1.nextCursor });
-    expect(page2.pinned).toEqual([]);
-    expect(ids(page2)).toEqual([older, parked]);
-  });
-
-  it("answers state=needs_route entirely from pinned, with the filters applied, capped at 50", () => {
-    const { store } = testStore();
-    for (let i = 0; i < 52; i++) parkMemo(store, { reason: "unsure" }, i === 0 ? "alpha" : "beta");
-    seedMemo(store, "notified");
-
-    const all = store.listMemos({ limit: 10, state: "needs_route" });
-    expect(all.memos).toEqual([]);
-    expect(all.nextCursor).toBeNull();
-    expect(all.pinned).toHaveLength(50);
-    expect(store.listMemos({ limit: 10, state: "needs_route", q: "alpha" }).pinned).toHaveLength(1);
-    expect(store.listMemos({ limit: 10, state: "notified" }).pinned).toEqual([]);
-
-    // `pinned` is never paged: with a cursor it is empty, and state=needs_route has no second page.
-    const later = store.listMemos({ limit: 10, state: "needs_route", cursor: "1" });
-    expect(later).toEqual({ memos: [], pinned: [], pinnedTruncated: false, nextCursor: null });
-  });
-
-  it("flags a first page whose pinned memos were cut at 50, and only then", () => {
-    const { store } = testStore();
-    const oldest = parkMemo(store, { reason: "unsure" });
-    for (let i = 1; i < 50; i++) parkMemo(store, { reason: "unsure" });
-    seedMemo(store, "notified");
-    const full = store.listMemos({ limit: 10 });
-    expect(full.pinned).toHaveLength(50);
-    expect(full.pinnedTruncated).toBe(false);
-
-    parkMemo(store, { reason: "unsure" });
-    const cut = store.listMemos({ limit: 10 });
-    expect(cut.pinned).toHaveLength(50);
-    expect(cut.pinned.map((m) => m.id)).not.toContain(oldest);
-    expect(cut.pinnedTruncated).toBe(true);
-    expect(store.listMemos({ limit: 10, route: "journal" }).pinnedTruncated).toBe(false);
-    expect(store.listMemos({ limit: 10, cursor: "1" }).pinnedTruncated).toBe(false);
+    expect(ids(page1)).toEqual([newest, old]);
+    expect(ids(store.listMemos({ limit: 2, cursor: page1.nextCursor }))).toEqual([parked]);
+    expect(ids(store.listMemos({ limit: 10, q: "kalend" }))).toEqual([newest, old, parked]);
+    expect(ids(store.listMemos({ limit: 10, state: "needs_route" }))).toEqual([parked]);
   });
 
   it("backfills the index for memos that existed before the migration", () => {
@@ -322,7 +227,7 @@ describe("state changes", () => {
   it("transition is a compare-and-set", () => {
     const { store } = testStore();
     const { id } = seedMemo(store, "received");
-    expect(store.transition({ id, from: "transcribed", to: "routed" })).toBe(false);
+    expect(store.transition({ id, from: "transcribed", to: "acted" })).toBe(false);
     expect(store.transition({ id, from: "received", to: "transcribed" })).toBe(true);
     expect(store.transition({ id, from: "received", to: "transcribed" })).toBe(false);
     expect(store.getMemo(id)?.state).toBe("transcribed");
@@ -333,10 +238,9 @@ describe("state changes", () => {
     seedMemo(store, "receiving");
     seedMemo(store, "notified");
     const failed = seedMemo(store, "transcribed");
-    store.markStepStarted({ id: failed.id, step: "route" });
-    store.markStepFailed({ id: failed.id, step: "route", error: "x" });
-    const parked = seedMemo(store, "transcribed");
-    store.transition({ id: parked.id, from: "transcribed", to: "needs_route" });
+    store.markStepStarted({ id: failed.id, step: "act" });
+    store.markStepFailed({ id: failed.id, step: "act", error: "x" });
+    legacyParkedMemo(store);
     const mid = seedMemo(store, "acted");
     const fresh = seedMemo(store, "received");
     expect(
@@ -391,13 +295,13 @@ describe("step records", () => {
   it("replaces the row when a step runs again and lists in pipeline order", () => {
     const { store, clock } = testStore();
     const { id } = seedMemo(store, "received");
-    store.markStepStarted({ id, step: "route" });
+    store.markStepStarted({ id, step: "act" });
     store.markStepStarted({ id, step: "transcribe" });
     store.markStepFailed({ id, step: "transcribe", error: "first" });
     clock.advance(1000);
     store.markStepStarted({ id, step: "transcribe" });
     const records = store.listStepRecords(id);
-    expect(records.map((r) => r.step)).toEqual(["transcribe", "route"]);
+    expect(records.map((r) => r.step)).toEqual(["transcribe", "act"]);
     expect(records[0]).toMatchObject({
       status: "running",
       error: null,
@@ -408,14 +312,14 @@ describe("step records", () => {
   it("markStepFailed fails the memo and records where and why", () => {
     const { store } = testStore();
     const { id } = seedMemo(store, "transcribed");
-    store.markStepStarted({ id, step: "route" });
-    store.markStepFailed({ id, step: "route", error: "no route" });
+    store.markStepStarted({ id, step: "act" });
+    store.markStepFailed({ id, step: "act", error: "hermes down" });
     expect(store.getMemo(id)).toMatchObject({
       state: "failed",
-      failedStep: "route",
-      error: "no route",
+      failedStep: "act",
+      error: "hermes down",
     });
-    expect(store.listStepRecords(id)[0]).toMatchObject({ status: "failed", error: "no route" });
+    expect(store.listStepRecords(id)[0]).toMatchObject({ status: "failed", error: "hermes down" });
   });
 
   it("resetForRetry rewinds a failed memo and clears the timeline from that step on", () => {
@@ -424,17 +328,17 @@ describe("step records", () => {
     store.markStepStarted({ id, step: "transcribe" });
     store.markStepDone({ id, step: "transcribe" });
     store.transition({ id, from: "received", to: "transcribed" });
-    store.markStepStarted({ id, step: "route" });
-    store.markStepFailed({ id, step: "route", error: "x" });
+    store.markStepStarted({ id, step: "act" });
+    store.markStepFailed({ id, step: "act", error: "x" });
 
-    expect(store.resetForRetry({ id, from: "route" })).toBe(true);
+    expect(store.resetForRetry({ id, from: "act" })).toBe(true);
     expect(store.getMemo(id)).toMatchObject({
       state: "transcribed",
       failedStep: null,
       error: null,
     });
     expect(store.listStepRecords(id).map((r) => r.step)).toEqual(["transcribe"]);
-    expect(store.resetForRetry({ id, from: "route" })).toBe(false);
+    expect(store.resetForRetry({ id, from: "act" })).toBe(false);
   });
 });
 
@@ -465,6 +369,8 @@ describe("completeStep", () => {
       transcript: "hi",
       audioSeconds: 3,
       route: null,
+      kind: null,
+      actions: [],
     });
     expect(store.listStepRecords(id)[0]).toMatchObject({
       status: "done",
@@ -475,27 +381,21 @@ describe("completeStep", () => {
 
   it("round-trips the summary as JSON", () => {
     const { store } = testStore();
-    const { id } = seedMemo(store, "acted");
-    store.markStepStarted({ id, step: "summarize" });
-    store.completeStep({
-      id,
-      step: "summarize",
-      from: "acted",
-      to: "summarized",
-      patch: { summary },
-    });
+    const { id } = seedMemo(store, "transcribed");
+    store.markStepStarted({ id, step: "act" });
+    store.completeStep({ id, step: "act", from: "transcribed", to: "acted", patch: { summary } });
     expect(store.getMemo(id)?.summary).toEqual(summary);
   });
 
   it("stores a null summary as SQL NULL, not the text 'null'", () => {
     const { store, db } = testStore();
-    const { id } = seedMemo(store, "acted");
-    store.markStepStarted({ id, step: "summarize" });
+    const { id } = seedMemo(store, "transcribed");
+    store.markStepStarted({ id, step: "act" });
     store.completeStep({
       id,
-      step: "summarize",
-      from: "acted",
-      to: "summarized",
+      step: "act",
+      from: "transcribed",
+      to: "acted",
       patch: { summary: null },
     });
     const row = db
@@ -507,9 +407,74 @@ describe("completeStep", () => {
     expect(store.getMemo(id)?.summary).toBeNull();
   });
 
+  it("persists kind, actions and summary from the act completion", () => {
+    const { store, db } = testStore();
+    const { id } = seedMemo(store, "transcribed");
+    store.markStepStarted({ id, step: "act" });
+    store.completeStep({
+      id,
+      step: "act",
+      from: "transcribed",
+      to: "acted",
+      patch: { kind: "task", actions: ["web_search", "write_file"], summary },
+    });
+    expect(store.getMemo(id)).toMatchObject({
+      kind: "task",
+      actions: ["web_search", "write_file"],
+      summary,
+    });
+    expect(
+      db
+        .query<{ actions_json: string }, [string]>("SELECT actions_json FROM memos WHERE id = ?")
+        .get(id)?.actions_json,
+    ).toBe('["web_search","write_file"]');
+  });
+
+  it("stores no actions as an empty list and a null kind as NULL", () => {
+    const { store, db } = testStore();
+    const { id } = seedMemo(store, "transcribed");
+    store.markStepStarted({ id, step: "act" });
+    store.completeStep({
+      id,
+      step: "act",
+      from: "transcribed",
+      to: "acted",
+      patch: { kind: null, actions: [] },
+    });
+    expect(store.getMemo(id)).toMatchObject({ kind: null, actions: [] });
+    expect(db.query("SELECT kind, actions_json FROM memos WHERE id = ?").get(id)).toEqual({
+      kind: null,
+      actions_json: "[]",
+    });
+  });
+
+  it("reads invalid stored actions as [] and logs memo.actions_invalid", async () => {
+    const { store, db } = testStore();
+    const { id } = seedMemo(store, "acted");
+    db.query("UPDATE memos SET actions_json = ? WHERE id = ?").run('{"a":1}', id);
+    const { result, lines } = await captureLogs(async () => store.getMemo(id));
+    expect(result?.actions).toEqual([]);
+    expect(lines).toContainEqual(
+      expect.objectContaining({ event: "memo.actions_invalid", memo_id: id }),
+    );
+
+    db.query("UPDATE memos SET actions_json = ? WHERE id = ?").run("not json", id);
+    const second = await captureLogs(async () => store.getMemo(id));
+    expect(second.result?.actions).toEqual([]);
+    expect(second.lines).toContainEqual(
+      expect.objectContaining({ event: "memo.actions_invalid", memo_id: id }),
+    );
+  });
+
+  it("reads NULL actions (before act) as []", () => {
+    const { store } = testStore();
+    const { id } = seedMemo(store, "received");
+    expect(store.getMemo(id)?.actions).toEqual([]);
+  });
+
   it("reads an invalid stored summary as null and logs a warning", async () => {
     const { store, db } = testStore();
-    const { id } = seedMemo(store, "summarized");
+    const { id } = seedMemo(store, "acted");
     db.query("UPDATE memos SET summary_json = ? WHERE id = ?").run('{"headline":1}', id);
     const { result, lines } = await captureLogs(async () => store.getMemo(id));
     expect(result?.summary).toBeNull();
@@ -530,8 +495,8 @@ describe("completeStep", () => {
     const won = store.completeStep({
       id,
       step: "transcribe",
-      from: "routed",
-      to: "acted",
+      from: "acted",
+      to: "notified",
       usage: { x: 1 },
       patch: { transcript: "nope" },
     });
@@ -548,21 +513,46 @@ describe("completeStep", () => {
       store.completeStep({ id, step, from, to, patch });
     };
     complete("transcribe", "received", "transcribed", { transcript: "t", audioSeconds: 2 });
-    complete("route", "transcribed", "routed", { route: "hermes" });
-    complete("act", "routed", "acted", { destinationRef: "r", replyText: "x" });
-    store.markStepStarted({ id, step: "summarize" });
-    store.markStepFailed({ id, step: "summarize", error: "boom" });
+    complete("act", "transcribed", "acted", {
+      destinationRef: "r",
+      replyText: "x",
+      summary,
+      kind: "task",
+      actions: ["web_search"],
+    });
+    store.markStepStarted({ id, step: "notify" });
+    store.markStepFailed({ id, step: "notify", error: "boom" });
 
+    // A retry from notify keeps everything act produced.
+    store.resetForRetry({ id, from: "notify" });
+    expect(store.getMemo(id)).toMatchObject({
+      state: "acted",
+      kind: "task",
+      actions: ["web_search"],
+      summary,
+      replyText: "x",
+    });
+
+    store.markStepFailed({ id, step: "act", error: "boom" });
     store.resetForRetry({ id, from: "act" });
     expect(store.getMemo(id)).toMatchObject({
-      state: "routed",
+      state: "transcribed",
       transcript: "t",
       audioSeconds: 2,
-      route: "hermes",
+      route: null,
       destinationRef: null,
       replyText: null,
       summary: null,
+      kind: null,
+      actions: [],
     });
+  });
+
+  it("resetForRetry only rewinds a failed memo", () => {
+    const { store } = testStore();
+    const { id } = seedMemo(store, "acted");
+    expect(store.resetForRetry({ id, from: "act" })).toBe(false);
+    expect(store.getMemo(id)?.state).toBe("acted");
   });
 });
 
@@ -574,13 +564,13 @@ const thread = (id: string, title = "first words") => ({
 
 function act(store: ReturnType<typeof testStore>["store"], id: string, patch: MemoPatch) {
   store.markStepStarted({ id, step: "act" });
-  return store.completeStep({ id, step: "act", from: "routed", to: "acted", patch });
+  return store.completeStep({ id, step: "act", from: "transcribed", to: "acted", patch });
 }
 
 describe("threads", () => {
   it("upserts the thread and sets the memo's thread_id in the act completion", () => {
     const { store, db, clock } = testStore();
-    const { id } = seedMemo(store, "routed");
+    const { id } = seedMemo(store, "transcribed");
     expect(store.getMemo(id)?.threadId).toBeNull();
     expect(act(store, id, { destinationRef: id, thread: thread(id) })).toBe(true);
     expect(store.getMemo(id)?.threadId).toBe(id);
@@ -598,11 +588,11 @@ describe("threads", () => {
 
   it("keeps kind, title and created_at of an existing thread and moves updated_at and last_memo_id", () => {
     const { store, db, clock } = testStore();
-    const first = seedMemo(store, "routed");
+    const first = seedMemo(store, "transcribed");
     act(store, first.id, { thread: thread("session", "first words") });
     const created = clock.now().toISOString();
     clock.advance(5_000);
-    const second = seedMemo(store, "routed");
+    const second = seedMemo(store, "transcribed");
     act(store, second.id, {
       thread: { id: "session", kind: "hermes", title: "other words" },
     });
@@ -629,12 +619,12 @@ describe("threads", () => {
 
   it("resetForRetry from act unlinks the memo from its own session but keeps the thread", () => {
     const { store, db } = testStore();
-    const { id } = seedMemo(store, "routed");
+    const { id } = seedMemo(store, "transcribed");
     act(store, id, { thread: thread(id) });
-    store.markStepStarted({ id, step: "summarize" });
-    store.markStepFailed({ id, step: "summarize", error: "boom" });
+    store.markStepStarted({ id, step: "notify" });
+    store.markStepFailed({ id, step: "notify", error: "boom" });
 
-    store.resetForRetry({ id, from: "summarize" });
+    store.resetForRetry({ id, from: "notify" });
     expect(store.getMemo(id)?.threadId).toBe(id);
 
     store.markStepFailed({ id, step: "act", error: "boom" });
@@ -645,7 +635,7 @@ describe("threads", () => {
 
   it("resetForRetry keeps the thread of a memo created to continue it", () => {
     const { store } = testStore();
-    const memo = seedMemo(store, "routed");
+    const memo = seedMemo(store, "transcribed");
     const continued = store.createTextMemo({
       id: crypto.randomUUID(),
       mode: "chat",
@@ -656,16 +646,15 @@ describe("threads", () => {
     }).memo;
     expect(continued.threadId).toBe(memo.id);
 
-    store.transition({ id: continued.id, from: "transcribed", to: "routed" });
     act(store, continued.id, { thread: thread(memo.id) });
     store.markStepFailed({ id: continued.id, step: "act", error: "boom" });
-    store.resetForRetry({ id: continued.id, from: "route" });
+    store.resetForRetry({ id: continued.id, from: "act" });
     expect(store.getMemo(continued.id)?.threadId).toBe(memo.id);
   });
 
   it("rejects an unknown kind", () => {
     const { store } = testStore();
-    const { id } = seedMemo(store, "routed");
+    const { id } = seedMemo(store, "transcribed");
     expect(() =>
       act(store, id, { thread: { id: "s", kind: "other" as never, title: "t" } }),
     ).toThrow();
@@ -682,7 +671,7 @@ describe("threads", () => {
     insert.run("h1", "hermes", "notified", "buy\nmilk", "hermes", "h1", "c1", "u1");
     insert.run("h2", "auto", "notified", long, "hermes", "h2", "c2", "u2");
     insert.run("j1", "journal", "notified", "dear diary", "journal", "note.md", "c3", "u3");
-    insert.run("h3", "hermes", "routed", "not acted yet", "hermes", null, "c4", "u4");
+    insert.run("h3", "hermes", "transcribed", "not acted yet", "hermes", null, "c4", "u4");
 
     const store = createSqliteMemoStore({ db, clock: testStore().clock });
     expect(db.query("SELECT * FROM threads ORDER BY id").all()).toEqual([
@@ -710,134 +699,8 @@ describe("threads", () => {
   });
 });
 
-describe("route decisions", () => {
-  const decision = {
-    source: "decide" as const,
-    destination: "journal",
-    tab: null,
-    confidence: 0.91,
-    model: "decider-1",
-    costUsd: 0.0004,
-    reason: null,
-    outcome: "routed" as const,
-  };
-
-  it("appends the decision row in the same transaction as the step completion", () => {
-    const { store, clock } = testStore();
-    const { id } = seedMemo(store, "transcribed");
-    store.markStepStarted({ id, step: "route" });
-    clock.advance(1000);
-    const won = store.completeStep({
-      id,
-      step: "route",
-      from: "transcribed",
-      to: "routed",
-      patch: { route: "journal", routeDecision: decision },
-    });
-    expect(won).toBe(true);
-    expect(store.getMemo(id)).toMatchObject({ state: "routed", route: "journal" });
-    expect(store.listRouteDecisions(id)).toEqual([
-      { ...decision, id: 1, memoId: id, createdAt: clock.now().toISOString() },
-    ]);
-  });
-
-  it("round-trips the prefix word count and leaves it off rows without one", () => {
-    const { store } = testStore();
-    const { id } = seedMemo(store, "transcribed");
-    store.markStepStarted({ id, step: "route" });
-    store.completeStep({
-      id,
-      step: "route",
-      from: "transcribed",
-      to: "routed",
-      patch: {
-        route: "herdr",
-        routeDecision: {
-          ...decision,
-          source: "prefix",
-          destination: "herdr",
-          tab: "w1:t1",
-          prefixWords: 4,
-        },
-      },
-    });
-    store.recordCorrection({ id, decision: { ...decision, source: "correction" } });
-    const [first, second] = store.listRouteDecisions(id);
-    expect(first?.prefixWords).toBe(4);
-    expect(second).not.toHaveProperty("prefixWords");
-  });
-
-  it("stores a park with its reason and nullable fields", () => {
-    const { store } = testStore();
-    const { id } = seedMemo(store, "transcribed");
-    store.markStepStarted({ id, step: "route" });
-    store.completeStep({
-      id,
-      step: "route",
-      from: "transcribed",
-      to: "needs_route",
-      patch: {
-        routeDecision: {
-          source: "mode",
-          destination: null,
-          tab: null,
-          confidence: null,
-          model: null,
-          costUsd: null,
-          reason: "journal not available",
-          outcome: "needs_route",
-        },
-      },
-    });
-    expect(store.getMemo(id)?.route).toBeNull();
-    expect(store.listRouteDecisions(id)).toMatchObject([
-      {
-        destination: null,
-        confidence: null,
-        reason: "journal not available",
-        outcome: "needs_route",
-      },
-    ]);
-  });
-
-  it("writes no row when the compare-and-set loses", () => {
-    const { store } = testStore();
-    const { id } = seedMemo(store, "received");
-    store.markStepStarted({ id, step: "route" });
-    const won = store.completeStep({
-      id,
-      step: "route",
-      from: "transcribed",
-      to: "routed",
-      patch: { route: "journal", routeDecision: decision },
-    });
-    expect(won).toBe(false);
-    expect(store.listRouteDecisions(id)).toEqual([]);
-  });
-
-  it("keeps the log across a retry and returns rows oldest first", () => {
-    const { store } = testStore();
-    const { id } = seedMemo(store, "transcribed");
-    const complete = (to: "routed" | "needs_route", reason: string | null) => {
-      store.markStepStarted({ id, step: "route" });
-      store.completeStep({
-        id,
-        step: "route",
-        from: "transcribed",
-        to,
-        patch: { routeDecision: { ...decision, outcome: to, reason } },
-      });
-    };
-    complete("needs_route", "low confidence (0.60)");
-    store.transition({ id, from: "needs_route", to: "transcribed" });
-    complete("routed", null);
-    expect(store.listRouteDecisions(id).map((d) => [d.id, d.reason])).toEqual([
-      [1, "low confidence (0.60)"],
-      [2, null],
-    ]);
-  });
-
-  it("rejects an unknown source or outcome and cascades with the memo", () => {
+describe("route decisions history", () => {
+  it("keeps the table for old rows: it rejects an unknown source or outcome and cascades with the memo", () => {
     const { store, db } = testStore();
     const { id } = seedMemo(store, "transcribed");
     const insert = (source: string, outcome: string) =>
@@ -850,7 +713,21 @@ describe("route decisions", () => {
     expect(() => insert("answer", "maybe")).toThrow();
     insert("correction", "routed");
     db.query("DELETE FROM memos WHERE id = ?").run(id);
-    expect(store.listRouteDecisions(id)).toEqual([]);
+    expect(db.query("SELECT * FROM route_decisions WHERE memo_id = ?").all(id)).toEqual([]);
+  });
+
+  it("is never written by a step", () => {
+    const { store, db } = testStore();
+    const { id } = seedMemo(store, "transcribed");
+    store.markStepStarted({ id, step: "act" });
+    store.completeStep({
+      id,
+      step: "act",
+      from: "transcribed",
+      to: "acted",
+      patch: { kind: "task" },
+    });
+    expect(db.query("SELECT * FROM route_decisions").all()).toEqual([]);
   });
 });
 
@@ -896,7 +773,7 @@ describe("migrations", () => {
     ).run(id);
 
     const store = createSqliteMemoStore({ db, clock: testStore().clock });
-    expect(store.listRouteDecisions(id)).toEqual([]);
+    expect(db.query("SELECT * FROM route_decisions WHERE memo_id = ?").all(id)).toEqual([]);
     expect(store.getMemo(id)?.state).toBe("transcribed");
   });
 
@@ -930,6 +807,145 @@ describe("migrations", () => {
     expect(tables).toEqual(["a", "b"]);
   });
 
+  describe("14: Hermes decides", () => {
+    const PARKED = "parked before routing moved to Hermes";
+    const userVersion = (db: Database) =>
+      db.query<{ user_version: number }, []>("PRAGMA user_version").get()?.user_version;
+
+    /** A database as it stood at version 13, with one memo per state the migration treats differently. */
+    function version13() {
+      const db = new Database(":memory:");
+      migrate(db, MIGRATIONS.slice(0, 13));
+      expect(userVersion(db)).toBe(13);
+      const insert = db.query(
+        `INSERT INTO memos (id, mode, device, started_at, state, transcript, route, done, deleted_at, created_at, updated_at)
+         VALUES (?, 'auto', 'iphone', 't', ?, 'kauf Milch', ?, ?, ?, 'c', 'u')`,
+      );
+      insert.run("open", "needs_route", null, 0, null);
+      insert.run("done", "needs_route", null, 1, null);
+      insert.run("deleted", "needs_route", null, 0, "2026-01-01T00:00:00.000Z");
+      insert.run("routed", "routed", "hermes", 0, null);
+      insert.run("summarized", "summarized", "hermes", 0, null);
+      db.query(
+        `INSERT INTO route_decisions (memo_id, created_at, source, outcome, reason)
+         VALUES ('open', 'c', 'decide', 'needs_route', 'low confidence (0.60)')`,
+      ).run();
+      db.query(
+        `INSERT INTO memo_steps (memo_id, step, status, started_at, finished_at, attempts)
+         VALUES ('open', 'route', 'done', 'c', 'c', 1)`,
+      ).run();
+      return db;
+    }
+
+    const stateOf = (db: Database, id: string) =>
+      db
+        .query<{ state: string; failed_step: string | null; error: string | null }, [string]>(
+          "SELECT state, failed_step, error FROM memos WHERE id = ?",
+        )
+        .get(id);
+
+    it("fails an open needs_route memo at act with a failed act step, leaving done and deleted ones alone", () => {
+      const db = version13();
+      migrate(db);
+      expect(userVersion(db)).toBe(14);
+
+      expect(stateOf(db, "open")).toEqual({ state: "failed", failed_step: "act", error: PARKED });
+      expect(
+        db
+          .query(
+            "SELECT step, status, error, started_at, finished_at, attempts FROM memo_steps WHERE memo_id = 'open' AND step = 'act'",
+          )
+          .all(),
+      ).toEqual([
+        {
+          step: "act",
+          status: "failed",
+          error: PARKED,
+          started_at: "u",
+          finished_at: "u",
+          attempts: 1,
+        },
+      ]);
+      expect(stateOf(db, "done")).toEqual({ state: "needs_route", failed_step: null, error: null });
+      expect(stateOf(db, "deleted")).toEqual({
+        state: "needs_route",
+        failed_step: null,
+        error: null,
+      });
+      expect(
+        db.query("SELECT 1 FROM memo_steps WHERE memo_id IN ('done', 'deleted')").all(),
+      ).toEqual([]);
+    });
+
+    it("moves routed to transcribed and summarized to acted, and keeps route_decisions untouched", () => {
+      const db = version13();
+      migrate(db);
+      expect(stateOf(db, "routed")?.state).toBe("transcribed");
+      expect(stateOf(db, "summarized")?.state).toBe("acted");
+      expect(
+        db.query("SELECT memo_id, source, outcome, reason FROM route_decisions").all(),
+      ).toEqual([
+        {
+          memo_id: "open",
+          source: "decide",
+          outcome: "needs_route",
+          reason: "low confidence (0.60)",
+        },
+      ]);
+      expect(
+        db.query("SELECT kind, actions_json FROM memos WHERE id = 'summarized'").get(),
+      ).toEqual({ kind: null, actions_json: null });
+    });
+
+    it("lets the migrated memo retry from act like any failed memo, then drive on", () => {
+      const db = version13();
+      const store = createSqliteMemoStore({ db, clock: testStore().clock });
+      expect(userVersion(db)).toBe(MIGRATIONS.length);
+      expect(store.getMemo("open")).toMatchObject({
+        state: "failed",
+        failedStep: "act",
+        error: PARKED,
+        kind: null,
+        actions: [],
+      });
+
+      expect(store.resetForRetry({ id: "open", from: "act" })).toBe(true);
+      expect(store.getMemo("open")).toMatchObject({
+        state: "transcribed",
+        failedStep: null,
+        error: null,
+        transcript: "kauf Milch",
+      });
+      expect(store.listStepRecords("open").map((r) => r.step)).toEqual(["route"]);
+
+      store.markStepStarted({ id: "open", step: "act" });
+      expect(
+        store.completeStep({
+          id: "open",
+          step: "act",
+          from: "transcribed",
+          to: "acted",
+          patch: { replyText: "ok", kind: "task", actions: ["web_search"] },
+        }),
+      ).toBe(true);
+      expect(store.getMemo("open")).toMatchObject({ state: "acted", kind: "task" });
+    });
+
+    it("indexes memos.kind", () => {
+      const db = new Database(":memory:");
+      createSqliteMemoStore({ db, clock: testStore().clock });
+      expect(
+        db
+          .query<{ detail: string }, []>(
+            "EXPLAIN QUERY PLAN SELECT id FROM memos WHERE kind = 'task'",
+          )
+          .all()
+          .map((row) => row.detail)
+          .join("\n"),
+      ).toContain("memos_kind");
+    });
+  });
+
   it("rolls a failing migration back without bumping the version", () => {
     const db = new Database(":memory:");
     expect(() => migrate(db, ["CREATE TABLE a (x INTEGER); BOGUS SQL;"])).toThrow();
@@ -937,81 +953,6 @@ describe("migrations", () => {
       0,
     );
     expect(db.query("SELECT name FROM sqlite_master WHERE name = 'a'").get()).toBeNull();
-  });
-});
-
-describe("answering and correcting a route", () => {
-  const answer = {
-    source: "answer" as const,
-    destination: "hermes" as const,
-    tab: null,
-    confidence: null,
-    model: null,
-    costUsd: null,
-    reason: null,
-    outcome: "routed" as const,
-  };
-
-  it("exposes the park reason and suggestion only while the memo is needs_route", () => {
-    const { store } = testStore();
-    const id = parkMemo(store, { reason: "low confidence (0.60)", destination: "journal" });
-    expect(store.getMemo(id)).toMatchObject({
-      routeReason: "low confidence (0.60)",
-      routeSuggestion: "journal",
-    });
-    expect(store.listMemos({ limit: 5 }).pinned[0]).toMatchObject({
-      routeReason: "low confidence (0.60)",
-    });
-
-    const plain = parkMemo(store, { reason: "journal not available" });
-    const memo = store.getMemo(plain);
-    expect(memo?.routeReason).toBe("journal not available");
-    expect(memo).not.toHaveProperty("routeSuggestion");
-
-    store.answerRoute({ id, decision: answer });
-    const answered = store.getMemo(id);
-    expect(answered).not.toHaveProperty("routeReason");
-    expect(answered).not.toHaveProperty("routeSuggestion");
-  });
-
-  it("answerRoute moves needs_route to routed, sets the route and logs in one step", () => {
-    const { store } = testStore();
-    const id = parkMemo(store, { reason: "decide refused" });
-    expect(store.answerRoute({ id, decision: answer })).toBe(true);
-    expect(store.getMemo(id)).toMatchObject({ state: "routed", route: "hermes" });
-    expect(store.listRouteDecisions(id).map((d) => [d.source, d.outcome])).toEqual([
-      ["decide", "needs_route"],
-      ["answer", "routed"],
-    ]);
-  });
-
-  it("answerRoute writes nothing unless the memo is needs_route", () => {
-    const { store } = testStore();
-    const { id } = seedMemo(store, "transcribed");
-    expect(store.answerRoute({ id, decision: answer })).toBe(false);
-    const parked = parkMemo(store, { reason: "decide refused" });
-    expect(store.answerRoute({ id: parked, decision: answer })).toBe(true);
-    expect(store.answerRoute({ id: parked, decision: answer })).toBe(false);
-    expect(store.listRouteDecisions(id)).toEqual([]);
-    expect(store.listRouteDecisions(parked).filter((d) => d.source === "answer")).toHaveLength(1);
-  });
-
-  it("recordCorrection logs without touching the memo, only from acted onwards", () => {
-    const { store } = testStore();
-    const correction = { ...answer, source: "correction" as const };
-    for (const state of ["transcribed", "routed"] as const) {
-      const { id } = seedMemo(store, state);
-      expect(store.recordCorrection({ id, decision: correction })).toBe(false);
-      expect(store.listRouteDecisions(id)).toEqual([]);
-    }
-    for (const state of ["acted", "summarized", "notified"] as const) {
-      const { id } = seedMemo(store, state);
-      const before = store.getMemo(id);
-      expect(store.recordCorrection({ id, decision: correction })).toBe(true);
-      expect(store.getMemo(id)).toEqual(before);
-      expect(store.listRouteDecisions(id)).toMatchObject([{ source: "correction" }]);
-    }
-    expect(store.recordCorrection({ id: crypto.randomUUID(), decision: correction })).toBe(false);
   });
 });
 
@@ -1036,17 +977,25 @@ function commitReply(params: {
   replyText: string;
   assets?: ReplyAsset[];
   failed?: boolean;
-  from?: "routed" | "acted";
+  from?: "transcribed" | "acted";
   settled?: string[];
 }) {
-  const { store, id, replyText, assets = [], failed = false, from = "routed", settled } = params;
+  const {
+    store,
+    id,
+    replyText,
+    assets = [],
+    failed = false,
+    from = "transcribed",
+    settled,
+  } = params;
   store.stageReplyAssets(id, {
     replyText,
     assets,
     failed,
     onSettled: (outcome) => void settled?.push(`${replyText}:${outcome}`),
   });
-  return store.completeStep({ id, step: "act", from, to: "summarized", patch: { replyText } });
+  return store.completeStep({ id, step: "act", from, to: "acted", patch: { replyText } });
 }
 
 const candidates = (store: Store) => store.listReplyAssetCandidates({ limit: 10 }).map((c) => c.id);
@@ -1054,7 +1003,7 @@ const candidates = (store: Store) => store.listReplyAssetCandidates({ limit: 10 
 describe("reply assets", () => {
   it("a memo has no blocks until a reply commits with assets; they group per block and come back ordered", () => {
     const { store } = testStore();
-    const { id } = seedMemo(store, "routed");
+    const { id } = seedMemo(store, "transcribed");
     expect(store.getMemo(id)?.replyBlocks).toEqual([]);
 
     expect(
@@ -1085,7 +1034,7 @@ describe("reply assets", () => {
 
   it("a stored row that no longer parses drops the blocks with a warning instead of failing the read", async () => {
     const { store, db } = testStore();
-    const { id } = seedMemo(store, "routed");
+    const { id } = seedMemo(store, "transcribed");
     commitReply({ store, id, replyText: "r", assets: files(0, "a") });
     db.query("UPDATE reply_assets SET width = 'wide' WHERE id = 'a-svg-light'").run();
     const { result, lines } = await captureLogs(async () => store.getMemo(id));
@@ -1095,7 +1044,7 @@ describe("reply assets", () => {
 
   it("staged assets are invisible (no row, no asset) until the reply commits, then settle as committed once", () => {
     const { store, db } = testStore();
-    const { id } = seedMemo(store, "routed");
+    const { id } = seedMemo(store, "transcribed");
     const settled: string[] = [];
     store.markStepStarted({ id, step: "act" });
     expect(
@@ -1113,7 +1062,7 @@ describe("reply assets", () => {
     store.completeStep({
       id,
       step: "act",
-      from: "routed",
+      from: "transcribed",
       to: "acted",
       patch: { replyText: "r" },
     });
@@ -1132,11 +1081,10 @@ describe("reply assets", () => {
 
   it("a winning commit replaces the earlier reply's rows; a reply with no staged assets leaves none", () => {
     const { store } = testStore();
-    const { id } = seedMemo(store, "routed");
+    const { id } = seedMemo(store, "transcribed");
     store.markStepStarted({ id, step: "act" });
     commitReply({ store, id, replyText: "r1", assets: files(0, "old") });
-    store.transition({ id, from: "summarized", to: "acted" });
-    store.transition({ id, from: "acted", to: "routed" });
+    store.transition({ id, from: "acted", to: "transcribed" });
     commitReply({
       store,
       id,
@@ -1146,21 +1094,27 @@ describe("reply assets", () => {
     expect(store.getReplyAsset(id, "old-svg-light")).toBeNull();
     expect(store.getMemo(id)?.replyBlocks.map((b) => b.index)).toEqual([0]);
 
-    store.transition({ id, from: "summarized", to: "acted" });
-    store.transition({ id, from: "acted", to: "routed" });
+    store.transition({ id, from: "acted", to: "transcribed" });
     commitReply({ store, id, replyText: "r3" });
     expect(store.getMemo(id)?.replyBlocks).toEqual([]);
   });
 
   it("a lost compare-and-set leaves the earlier committed reply's assets and settles the new ones as discarded", () => {
     const { store } = testStore();
-    const { id } = seedMemo(store, "routed");
+    const { id } = seedMemo(store, "transcribed");
     const settled: string[] = [];
     commitReply({ store, id, replyText: "r1", assets: files(0, "old"), settled });
 
     // The step ran again from a stale state and lost.
     expect(
-      commitReply({ store, id, replyText: "r2", assets: files(0, "new"), from: "routed", settled }),
+      commitReply({
+        store,
+        id,
+        replyText: "r2",
+        assets: files(0, "new"),
+        from: "transcribed",
+        settled,
+      }),
     ).toBe(false);
     expect(settled).toEqual(["r1:committed", "r2:discarded"]);
     expect(store.getMemo(id)?.replyBlocks.map((b) => b.svg.light)).toEqual(["old-svg-light"]);
@@ -1169,7 +1123,7 @@ describe("reply assets", () => {
 
   it("a completeStep that throws rolls back and settles the staging as discarded, once", () => {
     const { store } = testStore();
-    const { id } = seedMemo(store, "routed");
+    const { id } = seedMemo(store, "transcribed");
     const settled: string[] = [];
     store.markStepStarted({ id, step: "act" });
     store.stageReplyAssets(id, {
@@ -1184,23 +1138,29 @@ describe("reply assets", () => {
       store.completeStep({
         id,
         step: "act",
-        from: "routed",
+        from: "transcribed",
         to: "acted",
         patch: { replyText: "r" },
       }),
     ).toThrow();
     expect(settled).toEqual(["discarded"]);
-    expect(store.getMemo(id)).toMatchObject({ state: "routed", replyText: null });
+    expect(store.getMemo(id)).toMatchObject({ state: "transcribed", replyText: null });
     expect(store.getMemo(id)?.replyBlocks).toEqual([]);
 
     // Nothing is left staged: a later commit of the same reply settles nothing again.
-    store.completeStep({ id, step: "act", from: "routed", to: "acted", patch: { replyText: "r" } });
+    store.completeStep({
+      id,
+      step: "act",
+      from: "transcribed",
+      to: "acted",
+      patch: { replyText: "r" },
+    });
     expect(settled).toEqual(["discarded"]);
   });
 
   it("only the latest staging of a memo settles with a commit; a newer one discards the older", () => {
     const { store } = testStore();
-    const { id } = seedMemo(store, "routed");
+    const { id } = seedMemo(store, "transcribed");
     const settled: string[] = [];
     store.markStepStarted({ id, step: "act" });
     for (const replyText of ["r1", "r2"]) {
@@ -1214,23 +1174,23 @@ describe("reply assets", () => {
     expect(settled).toEqual(["r1:discarded"]);
 
     // A commit of a reply nothing was staged for leaves the staging of the newer one alone.
-    store.transition({ id, from: "routed", to: "needs_route" });
+    store.transition({ id, from: "transcribed", to: "needs_route" });
     expect(
       store.completeStep({
         id,
         step: "act",
-        from: "routed",
+        from: "transcribed",
         to: "acted",
         patch: { replyText: "r1" },
       }),
     ).toBe(false);
     expect(settled).toEqual(["r1:discarded"]);
 
-    store.transition({ id, from: "needs_route", to: "routed" });
+    store.transition({ id, from: "needs_route", to: "transcribed" });
     store.completeStep({
       id,
       step: "act",
-      from: "routed",
+      from: "transcribed",
       to: "acted",
       patch: { replyText: "r2" },
     });
@@ -1240,7 +1200,7 @@ describe("reply assets", () => {
 
   it("resetForRetry from act drops the rows and discards a staging once; a reset from a later step leaves both", () => {
     const { store } = testStore();
-    const { id } = seedMemo(store, "routed");
+    const { id } = seedMemo(store, "transcribed");
     const settled: string[] = [];
     commitReply({ store, id, replyText: "x", assets: files(0, "a"), settled });
     store.stageReplyAssets(id, {
@@ -1250,9 +1210,9 @@ describe("reply assets", () => {
       onSettled: (outcome) => void settled.push(`y:${outcome}`),
     });
 
-    store.markStepStarted({ id, step: "summarize" });
-    store.markStepFailed({ id, step: "summarize", error: "boom" });
-    store.resetForRetry({ id, from: "summarize" });
+    store.markStepStarted({ id, step: "notify" });
+    store.markStepFailed({ id, step: "notify", error: "boom" });
+    store.resetForRetry({ id, from: "notify" });
     expect(store.getMemo(id)?.replyBlocks).toHaveLength(1);
     expect(settled).toEqual(["x:committed"]);
 
@@ -1262,12 +1222,12 @@ describe("reply assets", () => {
     expect(store.getMemo(id)?.replyBlocks).toEqual([]);
 
     // Nothing is left to settle: a stale commit of the old reply discards nothing a second time.
-    store.transition({ id, from: "routed", to: "needs_route" });
+    store.transition({ id, from: "transcribed", to: "needs_route" });
     expect(
       store.completeStep({
         id,
         step: "act",
-        from: "routed",
+        from: "transcribed",
         to: "acted",
         patch: { replyText: "y" },
       }),
@@ -1277,7 +1237,7 @@ describe("reply assets", () => {
 
   it("purge removes the rows with the memo and forgets a staging", () => {
     const { store, clock } = testStore();
-    const { id } = seedMemo(store, "routed");
+    const { id } = seedMemo(store, "transcribed");
     const settled: string[] = [];
     commitReply({ store, id, replyText: "x", assets: files(0, "b"), settled });
     store.stageReplyAssets(id, {
@@ -1297,19 +1257,18 @@ describe("reply assets", () => {
 
     it("a commit staged as failed hides the memo from the backfill candidates; a changed reply clears it", () => {
       const { store } = testStore();
-      const { id } = seedMemo(store, "routed");
+      const { id } = seedMemo(store, "transcribed");
       commitReply({ store, id, replyText: mermaid, failed: true });
       expect(candidates(store)).toEqual([]);
 
-      store.transition({ id, from: "summarized", to: "acted" });
-      store.transition({ id, from: "acted", to: "routed" });
+      store.transition({ id, from: "acted", to: "transcribed" });
       commitReply({ store, id, replyText: `${mermaid} changed` });
       expect(candidates(store)).toEqual([id]);
     });
 
     it("a reply committed without a staging is a candidate; marking applies only to the reply it names", () => {
       const { store } = testStore();
-      const { id } = seedMemo(store, "routed");
+      const { id } = seedMemo(store, "transcribed");
       commitReply({ store, id, replyText: mermaid });
       expect(candidates(store)).toEqual([id]);
 
@@ -1322,7 +1281,7 @@ describe("reply assets", () => {
 
     it("resetForRetry from act clears it", () => {
       const { store, db } = testStore();
-      const { id } = seedMemo(store, "routed");
+      const { id } = seedMemo(store, "transcribed");
       commitReply({ store, id, replyText: mermaid, failed: true });
       store.markStepFailed({ id, step: "act", error: "boom" });
       store.resetForRetry({ id, from: "act" });

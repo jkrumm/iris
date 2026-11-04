@@ -42,10 +42,7 @@ function fakesApp() {
     store,
     audio,
     transcriber: fakes.transcriber,
-    destinations: fakes.destinations,
-    herd: fakes.herd,
-    decider: fakes.decider,
-    summarizer: fakes.summarizer,
+    destination: fakes.destination,
     notifier: fakes.notifier,
   });
   const runner = createRunner({ store, handlers, events, clock });
@@ -56,6 +53,7 @@ function fakesApp() {
     audio,
     clock,
     maxSegmentBytes: 1024,
+    hermes: true,
   });
   const media = createMemoMedia({
     store,
@@ -72,7 +70,6 @@ function fakesApp() {
     stats: composed.stats,
     devices,
     media,
-    herd: fakes.herd,
   });
   return { app, fakes };
 }
@@ -119,8 +116,14 @@ describe("compose with IRIS_FAKES", () => {
       new Uint8Array([0xff, 0xfb]),
     );
 
-    const herd = await call(app, { path: "/v1/herd" });
-    expect(((await herd.json()) as { tabs: unknown[] }).tabs).toHaveLength(4);
+    const detail = await call(app, { path: `/v1/memos/${id}` });
+    expect(await detail.json()).toMatchObject({
+      kind: "note",
+      actions: ["fake_search", "fake_write"],
+      summary: { headline: "Headline" },
+    });
+
+    expect((await call(app, { path: "/v1/herd" })).status).toBe(404);
 
     // The stats store comes from compose(), over the same database as the memo store.
     const stats = await call(app, { path: "/v1/stats" });
@@ -145,11 +148,10 @@ describe("compose", () => {
       AUDIO_DOOR_URL: "http://127.0.0.1:1/v1",
       AUDIO_DOOR_TOKEN: "door-token",
     });
-    const { transcriber, destinations, summarizer, speaker, herd } = composed.ports;
-    for (const port of [transcriber, destinations, summarizer, speaker, herd]) {
+    const { transcriber, destination, speaker } = composed.ports;
+    for (const port of [transcriber, destination, speaker]) {
       expect(port).toBeDefined();
     }
-    expect(Object.keys(destinations ?? {}).toSorted()).toEqual(["herdr", "hermes", "journal"]);
     expect(composed.degraded).toEqual(["fakes"]);
     expect(composed.notifierKind).toBe("fakes");
     expect(composed.closeTransport).toBeUndefined();
@@ -157,21 +159,30 @@ describe("compose", () => {
 
   it("an empty env builds no downstream and reports each missing one in order", () => {
     const { composed } = build({});
-    const { transcriber, destinations, summarizer, speaker, herd } = composed.ports;
-    for (const port of [transcriber, destinations, summarizer, speaker, herd]) {
+    const { transcriber, destination, speaker } = composed.ports;
+    for (const port of [transcriber, destination, speaker]) {
       expect(port).toBeUndefined();
     }
-    expect(composed.degraded).toEqual([
-      "otel",
-      "device-tokens",
-      "transcribe",
-      "act",
-      "summarize",
-      "speech",
-      "herd",
-    ]);
+    expect(composed.degraded).toEqual(["otel", "device-tokens", "transcribe", "act", "speech"]);
     expect(composed.notifierKind).toBe("log");
     expect(composed.deviceTokens.size).toBe(0);
+  });
+
+  it("composes no routing port: no herd, decider, summarizer or other destination", () => {
+    const { composed } = build({
+      IRIS_FAKES: true,
+      HERMES_URL: "http://127.0.0.1:1",
+      HERMES_TOKEN: "t",
+    });
+    expect(Object.keys(composed.ports).toSorted()).toEqual([
+      "assets",
+      "combiner",
+      "destination",
+      "diagrams",
+      "speaker",
+      "speechCache",
+      "transcriber",
+    ]);
   });
 
   it("env URLs build the real adapters without touching the network", () => {
@@ -180,19 +191,14 @@ describe("compose", () => {
       IRIS_DEVICE_TOKENS: DEVICE_TOKENS,
       AUDIO_DOOR_URL: "http://127.0.0.1:1/v1",
       AUDIO_DOOR_TOKEN: "door-token",
-      AGW_URL: "http://127.0.0.1:1",
-      AGW_API_SECRET: "agw-secret",
       HERMES_URL: "http://127.0.0.1:1",
       HERMES_TOKEN: "token",
-      HERDR_SOCKET: "/nonexistent/herdr.sock",
-      BRAIN_DIR: "/nonexistent/brain",
     });
-    const { transcriber, destinations, summarizer, speaker, herd } = composed.ports;
-    for (const port of [transcriber, destinations, summarizer, speaker, herd]) {
+    const { transcriber, destination, speaker } = composed.ports;
+    for (const port of [transcriber, destination, speaker]) {
       expect(port).toBeDefined();
     }
     expect(composed.degraded).toEqual([]);
-    expect(composed.ports.decider).toBeDefined();
     expect(composed.notifierKind).toBe("log");
   });
 
@@ -211,74 +217,14 @@ describe("compose", () => {
     expect(both.degraded).not.toContain("speech");
   });
 
-  it("registers each destination on its own env and turns decide on from two", () => {
-    const hermes = { HERMES_URL: "http://127.0.0.1:1", HERMES_TOKEN: "t" };
-    const only = (env: ComposeEnv) => {
-      const { ports, degraded } = build(env).composed;
-      return { names: Object.keys(ports.destinations ?? {}), degraded };
-    };
-
-    const one = only(hermes);
-    expect(one.names).toEqual(["hermes"]);
-    expect(one.degraded).not.toContain("decide");
-
-    const journal = only({ BRAIN_DIR: "/nonexistent/brain" });
-    expect(journal.names).toEqual(["journal"]);
-    expect(journal.degraded).not.toContain("act");
-
-    const herdr = only({ HERDR_SOCKET: "/nonexistent/herdr.sock" });
-    expect(herdr.names).toEqual(["herdr"]);
-    expect(herdr.degraded).not.toContain("act");
-    expect(herdr.degraded).not.toContain("herd");
-
-    // The hc world registers the same destination and the herd on its own, or beside classic herdr.
-    for (const env of [
-      { HC_BIN: "/nonexistent/hc", HC_SOCKET: "/nonexistent/default.sock" },
-      {
-        HC_BIN: "/nonexistent/hc",
-        HC_SOCKET: "/nonexistent/default.sock",
-        HERDR_SOCKET: "/nonexistent/herdr.sock",
-      },
-    ]) {
-      const both = only(env);
-      expect(both.names).toEqual(["herdr"]);
-      expect(both.degraded).not.toContain("act");
-      expect(both.degraded).not.toContain("herd");
+  it("Hermes is the single destination and needs both its URL and token, else act is degraded", () => {
+    for (const env of [{ HERMES_URL: "http://127.0.0.1:1" }, { HERMES_TOKEN: "t" }]) {
+      const { composed } = build(env);
+      expect(composed.ports.destination).toBeUndefined();
+      expect(composed.degraded).toContain("act");
     }
-    // The binary and the socket come together (no socket, no guard against hc starting a core under iris): either alone registers nothing.
-    expect(only({ HC_SOCKET: "/nonexistent/default.sock" }).degraded).toContain("act");
-    expect(only({ HC_BIN: "/nonexistent/hc" }).degraded).toContain("act");
-
-    const several = only({ ...hermes, BRAIN_DIR: "/nonexistent/brain" });
-    expect(several.names.toSorted()).toEqual(["hermes", "journal"]);
-    expect(several.degraded).toContain("decide");
-
-    const withDecider = build({
-      ...hermes,
-      BRAIN_DIR: "/nonexistent/brain",
-      AGW_URL: "http://127.0.0.1:1",
-      AGW_API_SECRET: "agw-secret",
-    }).composed;
-    expect(withDecider.degraded).not.toContain("decide");
-    expect(withDecider.ports.decider).toBeDefined();
-  });
-
-  it("the agent-workflows host needs both its URL and its secret, else summarize is degraded", () => {
-    const url = "http://127.0.0.1:1";
-    for (const env of [{ AGW_URL: url }, { AGW_API_SECRET: "s" }]) {
-      const { ports, degraded } = build(env).composed;
-      expect([ports.summarizer, ports.decider]).toEqual([undefined, undefined]);
-      expect(degraded).toContain("summarize");
-    }
-    const both = build({ AGW_URL: url, AGW_API_SECRET: "s" }).composed;
-    expect(both.ports.summarizer).toBeDefined();
-    expect(both.ports.decider).toBeDefined();
-    expect(both.degraded).not.toContain("summarize");
-  });
-
-  it("Hermes needs both its URL and token", () => {
-    const { composed } = build({ HERMES_URL: "http://127.0.0.1:1" });
-    expect(composed.ports.destinations).toBeUndefined();
-    expect(composed.degraded).toContain("act");
+    const { composed } = build({ HERMES_URL: "http://127.0.0.1:1", HERMES_TOKEN: "t" });
+    expect(composed.ports.destination).toBeDefined();
+    expect(composed.degraded).not.toContain("act");
   });
 });

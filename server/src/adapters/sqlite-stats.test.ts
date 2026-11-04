@@ -15,12 +15,12 @@ function seeded(now: Date = NOW) {
   let seq = 0;
   return {
     stats,
-    memo(input: { createdAt: string; route?: string | null }) {
+    memo(input: { createdAt: string; kind?: string | null }) {
       const id = `memo-${++seq}`;
       db.query(
-        `INSERT INTO memos (id, mode, device, started_at, state, created_at, updated_at, route)
+        `INSERT INTO memos (id, mode, device, started_at, state, created_at, updated_at, kind)
          VALUES (?, 'auto', 'iphone', ?, 'notified', ?, ?, ?)`,
-      ).run(id, input.createdAt, input.createdAt, input.createdAt, input.route ?? null);
+      ).run(id, input.createdAt, input.createdAt, input.createdAt, input.kind ?? null);
       return id;
     },
     step(input: {
@@ -50,6 +50,8 @@ function seeded(now: Date = NOW) {
   };
 }
 
+type PerDay = { date: string; kind: string | null; count: number };
+
 describe("the stats.response fixture", () => {
   it("is what the server produces from its own perDay: days and weeks", async () => {
     const fixture = await Bun.file(
@@ -57,16 +59,19 @@ describe("the stats.response fixture", () => {
     ).json();
     const [year = 0, month = 0, day = 0] = fixture.to.split("-").map(Number);
     const { stats, memo } = seeded(new Date(year, month - 1, day, 12));
-    for (const { date, route, count } of fixture.perDay) {
+    for (const { date, kind, count } of fixture.perDay) {
       const [y = 0, m = 0, d = 0] = date.split("-").map(Number);
       for (let i = 0; i < count; i++) {
-        memo({ createdAt: new Date(y, m - 1, d, 12).toISOString(), route });
+        memo({ createdAt: new Date(y, m - 1, d, 12).toISOString(), kind });
       }
     }
     expect(stats.summary({ days: fixture.days })).toMatchObject({
       from: fixture.from,
       to: fixture.to,
-      perDay: fixture.perDay,
+      perDay: fixture.perDay.toSorted(
+        (x: PerDay, y: PerDay) =>
+          x.date.localeCompare(y.date) || (x.kind ?? "").localeCompare(y.kind ?? ""),
+      ),
       perWeek: fixture.perWeek,
     });
   });
@@ -84,7 +89,7 @@ describe("median", () => {
 describe("sqlite stats", () => {
   it("answers an empty window with empty lists and the window bounds", () => {
     const { stats, memo } = seeded();
-    memo({ createdAt: at(8, 1), route: "hermes" }); // far outside a 7-day window
+    memo({ createdAt: at(8, 1), kind: "task" }); // far outside a 7-day window
     expect(stats.summary({ days: 7 })).toEqual({
       days: 7,
       from: "2026-10-22",
@@ -92,20 +97,20 @@ describe("sqlite stats", () => {
       perDay: [],
       perWeek: [],
       stepMedians: [],
-      costPerRoute: [],
+      costPerKind: [],
     });
   });
 
   it("windows by local day: days=1 is today only, midnight inclusive", () => {
     const { stats, memo } = seeded();
-    memo({ createdAt: at(10, 27, 23, 59, 59, 999), route: "hermes" });
-    memo({ createdAt: at(10, 28, 0, 0, 0, 0), route: "hermes" });
-    memo({ createdAt: at(10, 28, 9), route: "journal" });
+    memo({ createdAt: at(10, 27, 23, 59, 59, 999), kind: "task" });
+    memo({ createdAt: at(10, 28, 0, 0, 0, 0), kind: "task" });
+    memo({ createdAt: at(10, 28, 9), kind: "note" });
     const today = stats.summary({ days: 1 });
     expect([today.from, today.to]).toEqual(["2026-10-28", "2026-10-28"]);
     expect(today.perDay).toEqual([
-      { date: "2026-10-28", route: "hermes", count: 1 },
-      { date: "2026-10-28", route: "journal", count: 1 },
+      { date: "2026-10-28", kind: "note", count: 1 },
+      { date: "2026-10-28", kind: "task", count: 1 },
     ]);
     expect(stats.summary({ days: 2 }).perDay.map((d) => d.date)).toEqual([
       "2026-10-27",
@@ -114,16 +119,16 @@ describe("sqlite stats", () => {
     ]);
   });
 
-  it("counts per local day and route, reporting a null route as unrouted", () => {
+  it("counts per local day and kind, keeping memos without a kind (null first)", () => {
     const { stats, memo } = seeded();
-    memo({ createdAt: at(10, 26, 8), route: "hermes" });
-    memo({ createdAt: at(10, 26, 20), route: "hermes" });
-    memo({ createdAt: at(10, 26, 21), route: null });
-    memo({ createdAt: at(10, 28, 7), route: "herdr" });
+    memo({ createdAt: at(10, 26, 8), kind: "task" });
+    memo({ createdAt: at(10, 26, 20), kind: "task" });
+    memo({ createdAt: at(10, 26, 21), kind: null });
+    memo({ createdAt: at(10, 28, 7), kind: "idea" });
     expect(stats.summary({ days: 30 }).perDay).toEqual([
-      { date: "2026-10-26", route: "hermes", count: 2 },
-      { date: "2026-10-26", route: "unrouted", count: 1 },
-      { date: "2026-10-28", route: "herdr", count: 1 },
+      { date: "2026-10-26", kind: null, count: 1 },
+      { date: "2026-10-26", kind: "task", count: 2 },
+      { date: "2026-10-28", kind: "idea", count: 1 },
     ]);
   });
 
@@ -141,15 +146,15 @@ describe("sqlite stats", () => {
     ]);
   });
 
-  it("computes step medians per step and route in pipeline order (odd, even, single)", () => {
+  it("computes step medians per step and kind in pipeline order (odd, even, single)", () => {
     const { stats, memo, step } = seeded();
-    const a = memo({ createdAt: at(10, 27), route: "hermes" });
-    const b = memo({ createdAt: at(10, 27), route: "hermes" });
-    const c = memo({ createdAt: at(10, 27), route: "hermes" });
-    const d = memo({ createdAt: at(10, 27), route: "hermes" });
-    const j = memo({ createdAt: at(10, 27), route: "journal" });
-    const parked = memo({ createdAt: at(10, 27), route: null });
-    // transcribe, hermes: 1000, 5000, 3000 -> odd, median 3000
+    const a = memo({ createdAt: at(10, 27), kind: "task" });
+    const b = memo({ createdAt: at(10, 27), kind: "task" });
+    const c = memo({ createdAt: at(10, 27), kind: "task" });
+    const d = memo({ createdAt: at(10, 27), kind: "task" });
+    const j = memo({ createdAt: at(10, 27), kind: "note" });
+    const parked = memo({ createdAt: at(10, 27), kind: null });
+    // transcribe, task: 1000, 5000, 3000 -> odd, median 3000
     for (const [id, ms] of [
       [a, 1000],
       [b, 5000],
@@ -157,18 +162,19 @@ describe("sqlite stats", () => {
     ] as const) {
       step({ memoId: id, step: "transcribe", startedAt: at(10, 27, 12), durationMs: ms });
     }
-    // route, hermes: 100, 201, 300, 700 -> even, mean of 201 and 300 = 250.5 -> 251
+    // act, task: 100, 201, 300, 700 -> even, mean of 201 and 300 = 250.5 -> 251
     for (const [id, ms] of [
       [a, 100],
       [b, 700],
       [c, 201],
       [d, 300],
     ] as const) {
-      step({ memoId: id, step: "route", startedAt: at(10, 27, 12), durationMs: ms });
+      step({ memoId: id, step: "act", startedAt: at(10, 27, 12), durationMs: ms });
     }
-    // the same step on another route is its own baseline; an unrouted memo reports "unrouted"
+    // the same step on another kind is its own baseline; a memo without a kind (transcribe mode, or none set) reports null
     step({ memoId: j, step: "transcribe", startedAt: at(10, 27, 12), durationMs: 800 });
     step({ memoId: j, step: "act", startedAt: at(10, 27, 12), durationMs: 12 });
+    step({ memoId: parked, step: "act", startedAt: at(10, 27, 12), durationMs: 77 });
     step({ memoId: parked, step: "transcribe", startedAt: at(10, 27, 12), durationMs: 400 });
     // not counted: failed, still running, and a done step that started before the window
     step({
@@ -178,33 +184,34 @@ describe("sqlite stats", () => {
       durationMs: 9999,
       status: "failed",
     });
-    step({ memoId: c, step: "act", startedAt: at(10, 27, 12), status: "running" });
-    step({ memoId: d, step: "act", startedAt: at(9, 1), durationMs: 5 });
+    step({ memoId: c, step: "notify", startedAt: at(10, 27, 12), status: "running" });
+    step({ memoId: d, step: "notify", startedAt: at(9, 1), durationMs: 5 });
     expect(stats.summary({ days: 7 }).stepMedians).toEqual([
-      { step: "transcribe", route: "hermes", medianMs: 3000, samples: 3 },
-      { step: "transcribe", route: "journal", medianMs: 800, samples: 1 },
-      { step: "transcribe", route: "unrouted", medianMs: 400, samples: 1 },
-      { step: "route", route: "hermes", medianMs: 251, samples: 4 },
-      { step: "act", route: "journal", medianMs: 12, samples: 1 },
+      { step: "transcribe", kind: null, medianMs: 400, samples: 1 },
+      { step: "transcribe", kind: "note", medianMs: 800, samples: 1 },
+      { step: "transcribe", kind: "task", medianMs: 3000, samples: 3 },
+      { step: "act", kind: null, medianMs: 77, samples: 1 },
+      { step: "act", kind: "note", medianMs: 12, samples: 1 },
+      { step: "act", kind: "task", medianMs: 251, samples: 4 },
     ]);
   });
 
-  it("sums step cost per route, with memos counted once and unrouted memos kept", () => {
+  it("sums step cost per kind, with memos counted once and memos without a kind kept (null first)", () => {
     const { stats, memo, step } = seeded();
-    const h1 = memo({ createdAt: at(10, 27), route: "hermes" });
-    const h2 = memo({ createdAt: at(10, 28), route: "hermes" });
-    memo({ createdAt: at(10, 28), route: "journal" });
-    const parked = memo({ createdAt: at(10, 28), route: null });
-    const old = memo({ createdAt: at(8, 1), route: "hermes" });
-    step({ memoId: h1, step: "route", startedAt: at(10, 27), durationMs: 1, costUsd: 0.1 });
-    step({ memoId: h1, step: "summarize", startedAt: at(10, 27), durationMs: 1, costUsd: 0.2 });
-    step({ memoId: h2, step: "summarize", startedAt: at(10, 28), durationMs: 1, costUsd: 0.05 });
-    step({ memoId: parked, step: "route", startedAt: at(10, 28), durationMs: 1, costUsd: 0.01 });
-    step({ memoId: old, step: "summarize", startedAt: at(8, 1), durationMs: 1, costUsd: 5 });
-    expect(stats.summary({ days: 30 }).costPerRoute).toEqual([
-      { route: "hermes", costUsd: 0.35, memos: 2 },
-      { route: "journal", costUsd: 0, memos: 1 },
-      { route: "unrouted", costUsd: 0.01, memos: 1 },
+    const h1 = memo({ createdAt: at(10, 27), kind: "task" });
+    const h2 = memo({ createdAt: at(10, 28), kind: "task" });
+    memo({ createdAt: at(10, 28), kind: "note" });
+    const parked = memo({ createdAt: at(10, 28), kind: null });
+    const old = memo({ createdAt: at(8, 1), kind: "task" });
+    step({ memoId: h1, step: "act", startedAt: at(10, 27), durationMs: 1, costUsd: 0.1 });
+    step({ memoId: h1, step: "notify", startedAt: at(10, 27), durationMs: 1, costUsd: 0.2 });
+    step({ memoId: h2, step: "act", startedAt: at(10, 28), durationMs: 1, costUsd: 0.05 });
+    step({ memoId: parked, step: "act", startedAt: at(10, 28), durationMs: 1, costUsd: 0.01 });
+    step({ memoId: old, step: "act", startedAt: at(8, 1), durationMs: 1, costUsd: 5 });
+    expect(stats.summary({ days: 30 }).costPerKind).toEqual([
+      { kind: null, costUsd: 0.01, memos: 1 },
+      { kind: "note", costUsd: 0, memos: 1 },
+      { kind: "task", costUsd: 0.35, memos: 2 },
     ]);
   });
 });

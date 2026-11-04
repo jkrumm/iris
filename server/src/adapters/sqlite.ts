@@ -3,10 +3,7 @@ import { z } from "zod";
 import { MemoError } from "../memo/errors.js";
 import {
   groupReplyBlocks,
-  isCorrectable,
-  isOptionalStep,
   STEPS,
-  stateAfter,
   stateBefore,
   stepsFrom,
   type Memo,
@@ -14,22 +11,12 @@ import {
   type MemoMode,
   type MemoState,
   type ReplyAsset,
-  type RouteDecisionInput,
-  type RouteDecisionRecord,
-  type RouteOutcome,
-  type RouteSource,
   type Step,
   type StepRecord,
   type Summary,
   type ThreadUpsert,
 } from "../memo/memo.js";
-import {
-  PINNED_LIMIT,
-  type AnswerDecision,
-  type MemoStore,
-  type StagedReplyAssets,
-  type ThreadStore,
-} from "../memo/store.js";
+import type { MemoStore, StagedReplyAssets, ThreadStore } from "../memo/store.js";
 import type { Clock } from "../ports/clock.js";
 import { log } from "../telemetry/log.js";
 import { MIGRATIONS } from "./sqlite-migrations.js";
@@ -74,15 +61,15 @@ interface MemoRow {
   reply_text: string | null;
   summary_json: string | null;
   thread_id: string | null;
+  kind: string | null;
+  /** The tool names of the turn as a JSON array of strings, NULL before `act`. */
+  actions_json: string | null;
   done: number;
   favorite: number;
   archived_at: string | null;
   deleted_at: string | null;
   created_at: string;
   updated_at: string;
-  /** The latest decision's reason and destination, only while the memo is `needs_route`. */
-  park_reason: string | null;
-  park_destination: string | null;
   /** The memo's `reply_assets` rows as a JSON array (`REPLY_ASSETS_JSON`), `[]` when it has none. */
   reply_assets_json: string;
 }
@@ -116,21 +103,6 @@ interface StepRow {
   attempts: number;
 }
 
-interface RouteDecisionRow {
-  id: number;
-  memo_id: string;
-  created_at: string;
-  source: string;
-  destination: string | null;
-  tab: string | null;
-  confidence: number | null;
-  model: string | null;
-  cost_usd: number | null;
-  reason: string | null;
-  outcome: string;
-  prefix_words: number | null;
-}
-
 const SummarySchema = z.object({ headline: z.string(), detail: z.string(), spoken: z.string() });
 
 /** A stored summary that no longer parses is dropped (null) with a warning, never thrown. */
@@ -144,6 +116,21 @@ function parseSummary(row: MemoRow): Summary | null {
     log("memo.summary_invalid", { memo_id: row.id, error: String(err) });
   }
   return null;
+}
+
+const ActionsSchema = z.array(z.string());
+
+/** Like the summary: a stored list that no longer parses reads as none, with a warning. */
+function parseActions(row: MemoRow): string[] {
+  if (row.actions_json === null) return [];
+  try {
+    const parsed = ActionsSchema.safeParse(JSON.parse(row.actions_json));
+    if (parsed.success) return parsed.data;
+    log("memo.actions_invalid", { memo_id: row.id, error: parsed.error.message });
+  } catch (err) {
+    log("memo.actions_invalid", { memo_id: row.id, error: String(err) });
+  }
+  return [];
 }
 
 const ReplyAssetsSchema = z.array(
@@ -186,8 +173,8 @@ const toMemo = (row: MemoRow): Memo => ({
   replyBlocks: parseReplyBlocks(row),
   summary: parseSummary(row),
   threadId: row.thread_id,
-  ...(row.park_reason !== null && { routeReason: row.park_reason }),
-  ...(row.park_destination !== null && { routeSuggestion: row.park_destination }),
+  kind: row.kind,
+  actions: parseActions(row),
   done: row.done === 1,
   favorite: row.favorite === 1,
   archivedAt: row.archived_at,
@@ -200,13 +187,8 @@ const REPLY_ASSETS_JSON = `(SELECT json_group_array(json_object(
     'id', a.id, 'block_index', a.block_index, 'format', a.format, 'scheme', a.scheme, 'width', a.width, 'height', a.height))
   FROM reply_assets a WHERE a.memo_id = memos.id)`;
 
-/** `SELECT` list for a memo row: the columns, the park details of the latest routing decision and the reply's rendered blocks. */
-const MEMO_SELECT = `memos.*,
-  ${REPLY_ASSETS_JSON} AS reply_assets_json,
-  CASE WHEN memos.state = 'needs_route' THEN
-    (SELECT reason FROM route_decisions d WHERE d.memo_id = memos.id ORDER BY d.id DESC LIMIT 1) END AS park_reason,
-  CASE WHEN memos.state = 'needs_route' THEN
-    (SELECT destination FROM route_decisions d WHERE d.memo_id = memos.id ORDER BY d.id DESC LIMIT 1) END AS park_destination`;
+/** `SELECT` list for a memo row: the columns and the reply's rendered blocks. */
+const MEMO_SELECT = `memos.*, ${REPLY_ASSETS_JSON} AS reply_assets_json`;
 
 /**
  * The FTS5 MATCH expression for a user's search text: every term quoted (embedded quotes doubled, so input
@@ -221,38 +203,22 @@ function ftsMatch(q: string): string | null | undefined {
   return terms.map((term) => `"${term.replaceAll('"', '""')}"*`).join(" ");
 }
 
-const toRouteDecision = (row: RouteDecisionRow): RouteDecisionRecord => ({
-  id: row.id,
-  memoId: row.memo_id,
-  createdAt: row.created_at,
-  source: row.source as RouteSource,
-  destination: row.destination,
-  tab: row.tab,
-  confidence: row.confidence,
-  model: row.model,
-  costUsd: row.cost_usd,
-  reason: row.reason,
-  outcome: row.outcome as RouteOutcome,
-  ...(row.prefix_words !== null && { prefixWords: row.prefix_words }),
-});
-
 /** Column behind each patchable memo field. */
 const PATCH_COLUMNS = {
   audioSeconds: "audio_seconds",
   transcript: "transcript",
-  route: "route",
   destinationRef: "destination_ref",
   replyText: "reply_text",
   summary: "summary_json",
   threadId: "thread_id",
+  kind: "kind",
+  actions: "actions_json",
 } as const satisfies Record<keyof MemoColumnPatch, string>;
 
 /** The data columns a step writes, cleared when the step is re-run. */
 const STEP_COLUMNS: Partial<Record<Step, (keyof MemoColumnPatch)[]>> = {
   transcribe: ["audioSeconds", "transcript"],
-  route: ["route"],
-  act: ["destinationRef", "replyText"],
-  summarize: ["summary"],
+  act: ["destinationRef", "replyText", "summary", "kind", "actions"],
 };
 
 const toStepRecord = (row: StepRow): StepRecord => ({
@@ -285,30 +251,14 @@ export function createSqliteMemoStore(params: { db: Database; clock: Clock }): M
     ).run(step, error, at, id);
   });
 
-  const skipStep = db.transaction((id: string, step: Step, from: MemoState, error: string) => {
-    if (!isOptionalStep(step)) throw new Error(`step ${step} is not optional`);
-    const at = stamp();
-    const moved = db
-      .query("UPDATE memos SET state = ?, updated_at = ? WHERE id = ? AND state = ?")
-      .run(stateAfter(step), at, id, from);
-    if (moved.changes === 0) return false;
-    db.query(
-      "UPDATE memo_steps SET status = 'failed', finished_at = ?, error = ? WHERE memo_id = ? AND step = ?",
-    ).run(at, error, id, step);
-    return true;
-  });
-
   const resetForRetry = db.transaction((id: string, from: Step) => {
     const mode = memoById(id)?.mode;
     if (mode === undefined) return false;
-    // A failed memo, or a finished one whose optional step failed on the way (`from` is that step).
     const reset = db
       .query(
-        `UPDATE memos SET state = ?, failed_step = NULL, error = NULL, updated_at = ? WHERE id = ?
-           AND (state = 'failed' OR (state = 'notified' AND EXISTS (
-             SELECT 1 FROM memo_steps WHERE memo_id = memos.id AND step = ? AND status = 'failed')))`,
+        `UPDATE memos SET state = ?, failed_step = NULL, error = NULL, updated_at = ? WHERE id = ? AND state = 'failed'`,
       )
-      .run(stateBefore({ step: from, mode }), stamp(), id, from);
+      .run(stateBefore({ step: from, mode }), stamp(), id);
     if (reset.changes === 0) return false;
     const cleared = stepsFrom(from);
     const columns = cleared
@@ -332,26 +282,6 @@ export function createSqliteMemoStore(params: { db: Database; clock: Clock }): M
     return true;
   });
 
-  const insertRouteDecision = (id: string, at: string, decision: RouteDecisionInput) => {
-    db.query(
-      `INSERT INTO route_decisions
-         (memo_id, created_at, source, destination, tab, confidence, model, cost_usd, reason, outcome, prefix_words)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    ).run(
-      id,
-      at,
-      decision.source,
-      decision.destination,
-      decision.tab,
-      decision.confidence,
-      decision.model,
-      decision.costUsd,
-      decision.reason,
-      decision.outcome,
-      decision.prefixWords ?? null,
-    );
-  };
-
   /** Creates the thread, or bumps `updated_at` and `last_memo_id` of an existing one (its kind and title stay). The memo's `thread_id` is a patched column. */
   const upsertThread = (memoId: string, at: string, thread: ThreadUpsert) => {
     db.query(
@@ -360,27 +290,6 @@ export function createSqliteMemoStore(params: { db: Database; clock: Clock }): M
        ON CONFLICT (id) DO UPDATE SET updated_at = excluded.updated_at, last_memo_id = excluded.last_memo_id`,
     ).run(thread.id, thread.kind, thread.title, at, at, memoId);
   };
-
-  const answerRoute = db.transaction((id: string, decision: AnswerDecision): boolean => {
-    const at = stamp();
-    const moved = db
-      .query(
-        "UPDATE memos SET state = 'routed', route = ?, updated_at = ? WHERE id = ? AND state = 'needs_route'",
-      )
-      .run(decision.destination, at, id);
-    if (moved.changes === 0) return false;
-    insertRouteDecision(id, at, decision);
-    return true;
-  });
-
-  const recordCorrection = db.transaction((id: string, decision: RouteDecisionInput): boolean => {
-    const row = db
-      .query<{ state: string }, [string]>("SELECT state FROM memos WHERE id = ?")
-      .get(id);
-    if (!row || !isCorrectable(row.state as MemoState)) return false;
-    insertRouteDecision(id, stamp(), decision);
-    return true;
-  });
 
   const insertReplyAssets = (id: string, assets: readonly ReplyAsset[]) => {
     const insert = db.query(
@@ -418,7 +327,6 @@ export function createSqliteMemoStore(params: { db: Database; clock: Clock }): M
         `UPDATE memo_steps SET status = 'done', finished_at = ?, error = NULL, usage_json = ?, cost_usd = ?
          WHERE memo_id = ? AND step = ?`,
       ).run(at, usage === undefined ? null : JSON.stringify(usage), costUsd ?? null, id, step);
-      if (patch?.routeDecision) insertRouteDecision(id, at, patch.routeDecision);
       if (patch?.thread) upsertThread(id, at, patch.thread);
       // A reported thread is also the memo's `thread_id`.
       const columns: MemoColumnPatch | undefined = patch?.thread
@@ -430,7 +338,7 @@ export function createSqliteMemoStore(params: { db: Database; clock: Clock }): M
       if (fields.length === 0) return true;
       const values = fields.map((field) => {
         const value = columns?.[field];
-        if (field !== "summary") return value as string | number | null;
+        if (field !== "summary" && field !== "actions") return value as string | number | null;
         return value === null ? null : JSON.stringify(value);
       });
       db.query(
@@ -506,7 +414,7 @@ export function createSqliteMemoStore(params: { db: Database; clock: Clock }): M
       return row ? toMemo(row) : null;
     },
 
-    listMemos({ limit, cursor, q, route, state, favorite, archived, kind }) {
+    listMemos({ limit, cursor, q, kind, state, favorite, archived, thread }) {
       let before: number | null = null;
       if (cursor) {
         before = Number(cursor);
@@ -520,13 +428,10 @@ export function createSqliteMemoStore(params: { db: Database; clock: Clock }): M
       ];
       const args: (string | number)[] = [];
       if (favorite) filters.push("memos.favorite = 1");
-      if (kind) {
-        filters.push("memos.thread_id IN (SELECT id FROM threads WHERE kind = ?)");
+      if (thread) filters.push("memos.thread_id IS NOT NULL");
+      if (kind !== undefined) {
+        filters.push("memos.kind = ?");
         args.push(kind);
-      }
-      if (route) {
-        filters.push("memos.route = ?");
-        args.push(route);
       }
       if (state) {
         filters.push("memos.state = ?");
@@ -538,35 +443,16 @@ export function createSqliteMemoStore(params: { db: Database; clock: Clock }): M
         filters.push("memos.seq IN (SELECT rowid FROM memo_fts WHERE memo_fts MATCH ?)");
         args.push(match);
       }
-      const select = (extra: string[], tail: string, tailArgs: (string | number)[]) =>
-        db
-          .query<MemoRow, (string | number)[]>(
-            `SELECT ${MEMO_SELECT} FROM memos WHERE ${[...filters, ...extra].join(" AND ") || "1"} ${tail}`,
-          )
-          .all(...args, ...tailArgs);
-
-      // A parked memo that is `done` is no open question: it is paged like any other memo instead of pinned.
-      const open = "(memos.state = 'needs_route' AND memos.done = 0)";
-      // One row past the cap tells a full set from a truncated one.
-      const pinnedRows =
-        before === null && (!state || state === "needs_route")
-          ? select([open], "ORDER BY seq DESC LIMIT ?", [PINNED_LIMIT + 1])
-          : [];
-      const pinned = pinnedRows.slice(0, PINNED_LIMIT);
-
-      const rows =
-        before === null
-          ? select([`NOT ${open}`], "ORDER BY seq DESC LIMIT ?", [limit + 1])
-          : select([`NOT ${open}`, "memos.seq < ?"], "ORDER BY seq DESC LIMIT ?", [
-              before,
-              limit + 1,
-            ]);
+      if (before !== null) filters.push("memos.seq < ?");
+      const rows = db
+        .query<MemoRow, (string | number)[]>(
+          `SELECT ${MEMO_SELECT} FROM memos WHERE ${filters.join(" AND ")} ORDER BY seq DESC LIMIT ?`,
+        )
+        .all(...args, ...(before === null ? [] : [before]), limit + 1);
       const page = rows.slice(0, limit);
       const last = page.at(-1);
       return {
         memos: page.map(toMemo),
-        pinned: pinned.map(toMemo),
-        pinnedTruncated: pinnedRows.length > PINNED_LIMIT,
         nextCursor: rows.length > limit && last ? String(last.seq) : null,
       };
     },
@@ -672,10 +558,6 @@ export function createSqliteMemoStore(params: { db: Database; clock: Clock }): M
       markStepFailed(id, step, error);
     },
 
-    skipStep({ id, step, from, error }) {
-      return skipStep(id, step, from, error);
-    },
-
     resetForRetry({ id, from }) {
       const reset = resetForRetry(id, from);
       // The transaction dropped the rows of a reply that is gone; no completeStep will settle its staged assets.
@@ -695,23 +577,6 @@ export function createSqliteMemoStore(params: { db: Database; clock: Clock }): M
         )
         .all(id)
         .map(toStepRecord);
-    },
-
-    listRouteDecisions(id) {
-      return db
-        .query<RouteDecisionRow, [string]>(
-          "SELECT * FROM route_decisions WHERE memo_id = ? ORDER BY id",
-        )
-        .all(id)
-        .map(toRouteDecision);
-    },
-
-    answerRoute({ id, decision }) {
-      return answerRoute(id, decision);
-    },
-
-    recordCorrection({ id, decision }) {
-      return recordCorrection(id, decision);
     },
 
     setFlags({ id, done, favorite, archived }) {

@@ -62,9 +62,7 @@ describe("memo lifecycle over HTTP", () => {
     expect(detail.segmentCount).toBe(4);
     expect(detail.steps.map((s) => [s.step, s.status])).toEqual([
       ["transcribe", "done"],
-      ["route", "done"],
       ["act", "done"],
-      ["summarize", "done"],
       ["notify", "done"],
     ]);
 
@@ -91,7 +89,7 @@ describe("memo lifecycle over HTTP", () => {
 describe("mode transcribe over HTTP", () => {
   const START = "2026-01-01T00:00:00.000Z";
 
-  it("ends notified after transcribe and notify alone, with the transcript and no route", async () => {
+  it("ends notified after transcribe and notify alone, with the transcript and no route or reply", async () => {
     const ran: string[] = [];
     const record =
       (step: string, patch?: { transcript: string }): StepHandler =>
@@ -102,9 +100,7 @@ describe("mode transcribe over HTTP", () => {
     const { app } = testApp({
       handlers: {
         transcribe: record("transcribe", { transcript: "buy milk and call the dentist" }),
-        route: record("route"),
         act: record("act"),
-        summarize: record("summarize"),
         notify: record("notify"),
       },
     });
@@ -154,8 +150,8 @@ describe("mode transcribe over HTTP", () => {
     const { app } = testApp({
       handlers: {
         ...fakeHandlers,
-        route: async () => {
-          ran.push("route");
+        act: async () => {
+          ran.push("act");
           return {};
         },
         notify: async () => {

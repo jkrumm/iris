@@ -16,13 +16,13 @@ function setup(speaker: Speaker) {
     speechCache: fakeSpeechCache(),
     assets: fakeAssetStore(),
   });
-  const memo = seedMemo(store, "summarized");
+  const memo = seedMemo(store, "acted");
   const withReply = (replyText: string, spoken?: string) =>
     store.completeStep({
       id: memo.id,
-      step: "summarize",
-      from: "summarized",
-      to: "summarized",
+      step: "act",
+      from: "acted",
+      to: "acted",
       patch: {
         replyText,
         ...(spoken ? { summary: { headline: "h", detail: "d", spoken } } : {}),
@@ -122,7 +122,7 @@ describe("speech", () => {
     expect(texts).toEqual(["Das ist gut, siehe Doku.\n\nein Codeblock"]);
   });
 
-  it("speaks the triage summary plus 'details on screen' for a long reply", async () => {
+  it("speaks the spoken summary plus 'details on screen' for a long reply", async () => {
     const { speaker, texts } = countingSpeaker();
     const { media, memo, withReply } = setup(speaker);
     withReply(
@@ -133,7 +133,7 @@ describe("speech", () => {
     expect(texts).toEqual(["Die Migration ist fertig. Details auf dem Bildschirm."]);
   });
 
-  it("speaks the clipped reply of a long answer whose summary failed, instead of a 409", async () => {
+  it("speaks the clipped reply of a long answer without a summary, instead of a 409", async () => {
     const { speaker, texts } = countingSpeaker();
     const { media, memo, withReply } = setup(speaker);
     withReply("Das ist ein langer Satz über die Migration. ".repeat(30));

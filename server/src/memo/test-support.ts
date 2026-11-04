@@ -45,7 +45,7 @@ export function testStore() {
   return { db, clock, store: createSqliteMemoStore({ db, clock }) };
 }
 
-const PATH: MemoState[] = ["received", "transcribed", "routed", "acted", "summarized", "notified"];
+const PATH: MemoState[] = ["received", "transcribed", "acted", "notified"];
 
 /** Creates a memo and walks it through the happy-path states up to `state`. */
 export function seedMemo(store: MemoStore, state: MemoState = "receiving", device = "iphone") {
@@ -64,12 +64,11 @@ export function seedMemo(store: MemoStore, state: MemoState = "receiving", devic
   return store.getMemo(memo.id) as Memo;
 }
 
-/** Walks a fresh memo through `route` into `needs_route`, with the decision row the route step writes. */
-export function parkMemo(
-  store: MemoStore,
-  decision: { source?: "mode" | "prefix" | "decide"; destination?: string | null; reason: string },
-  transcript = "kauf bitte Milch",
-) {
+/**
+ * A memo as the store held it before Hermes decided: parked at `needs_route` (rows from before the migration are `failed(act)`
+ * now, but a `done` one stays parked). Nothing writes this state any more, so the test moves the memo there directly.
+ */
+export function legacyParkedMemo(store: MemoStore, transcript = "kauf bitte Milch") {
   const memo = seedMemo(store, "transcribed");
   store.completeStep({
     id: memo.id,
@@ -78,25 +77,7 @@ export function parkMemo(
     to: "transcribed",
     patch: { transcript },
   });
-  store.markStepStarted({ id: memo.id, step: "route" });
-  store.completeStep({
-    id: memo.id,
-    step: "route",
-    from: "transcribed",
-    to: "needs_route",
-    patch: {
-      routeDecision: {
-        source: decision.source ?? "decide",
-        destination: decision.destination ?? null,
-        tab: null,
-        confidence: null,
-        model: null,
-        costUsd: null,
-        reason: decision.reason,
-        outcome: "needs_route",
-      },
-    },
-  });
+  store.transition({ id: memo.id, from: "transcribed", to: "needs_route" });
   return memo.id;
 }
 

@@ -190,9 +190,9 @@ describe("sync", () => {
   });
 });
 
-/** A memo whose `act` is about to commit: routed, with the step running. */
-function routedMemo(store: ReturnType<typeof setup>["store"]) {
-  const { id } = seedMemo(store, "routed");
+/** A memo whose `act` is about to commit: transcribed, with the step running. */
+function transcribedMemo(store: ReturnType<typeof setup>["store"]) {
+  const { id } = seedMemo(store, "transcribed");
   store.markStepStarted({ id, step: "act" });
   return id;
 }
@@ -201,7 +201,7 @@ const commitAct = (store: ReturnType<typeof setup>["store"], id: string, replyTe
   store.completeStep({
     id,
     step: "act",
-    from: "routed",
+    from: "transcribed",
     to: "acted",
     patch: { destinationRef: "session-1", replyText },
   });
@@ -221,7 +221,7 @@ describe("sync and the commit of the reply", () => {
       assets,
       renderer,
     });
-    const id = routedMemo(store);
+    const id = transcribedMemo(store);
     const reply = fence("A-->B");
     await replies.sync({ memoId: id, replyText: reply });
 
@@ -282,10 +282,10 @@ describe("sync and the commit of the reply", () => {
 
   it("removes the files when the step loses its compare-and-set and nothing was committed before", async () => {
     const { store, replies, assets } = setup();
-    const id = routedMemo(store);
+    const id = transcribedMemo(store);
     const reply = fence("A-->B");
     await replies.sync({ memoId: id, replyText: reply });
-    store.transition({ id, from: "routed", to: "needs_route" });
+    store.transition({ id, from: "transcribed", to: "needs_route" });
 
     const { lines } = await captureLogs(async () => {
       expect(commitAct(store, id, reply)).toBe(false);
@@ -298,7 +298,7 @@ describe("sync and the commit of the reply", () => {
 
   it("drops the assets of a reply that is not the one committed", async () => {
     const { store, replies } = setup();
-    const id = routedMemo(store);
+    const id = transcribedMemo(store);
     await replies.sync({ memoId: id, replyText: fence("A-->B") });
 
     expect(commitAct(store, id, "another reply")).toBe(true);
@@ -307,9 +307,9 @@ describe("sync and the commit of the reply", () => {
 
   it("a lost step does not touch the assets a newer pass staged for the same memo", async () => {
     const { store, replies, assets } = setup();
-    const id = routedMemo(store);
+    const id = transcribedMemo(store);
     await replies.sync({ memoId: id, replyText: fence("A-->B") });
-    store.transition({ id, from: "routed", to: "needs_route" });
+    store.transition({ id, from: "transcribed", to: "needs_route" });
     // A second run renders its own reply before the first one's lost commit is reconciled.
     await replies.sync({ memoId: id, replyText: fence("X-->Y") });
 
@@ -317,7 +317,7 @@ describe("sync and the commit of the reply", () => {
     await replies.idle();
     expect(assets.files.size).toBe(4);
 
-    store.transition({ id, from: "needs_route", to: "routed" });
+    store.transition({ id, from: "needs_route", to: "transcribed" });
     expect(commitAct(store, id, fence("X-->Y"))).toBe(true);
     await replies.idle();
     expect(store.getMemo(id)?.replyBlocks).toHaveLength(1);
@@ -326,7 +326,7 @@ describe("sync and the commit of the reply", () => {
 });
 
 function committed(store: ReturnType<typeof setup>["store"], replyText: string) {
-  const id = routedMemo(store);
+  const id = transcribedMemo(store);
   commitAct(store, id, replyText);
   return id;
 }
@@ -427,7 +427,7 @@ describe("backfill", () => {
 
   it("a reply whose diagrams the renderer all refused in the act step is marked with the commit (and logged), not retried at boot", async () => {
     const { store, replies, renderer } = setup();
-    const id = routedMemo(store);
+    const id = transcribedMemo(store);
     const reply = fence("unrenderable");
     const { lines } = await captureLogs(async () => {
       await replies.sync({ memoId: id, replyText: reply });
@@ -460,7 +460,7 @@ describe("backfill", () => {
         throw new Error("disk full");
       },
     };
-    const id = routedMemo(store);
+    const id = transcribedMemo(store);
     const reply = fence("A-->B");
     const full = createReplyAssets({ store, assets: broken, renderer });
     const { lines } = await captureLogs(async () => {
@@ -498,7 +498,7 @@ describe("backfill", () => {
 
   it("a changed reply clears the marker, so the new diagrams are rendered", async () => {
     const { store, replies, renderer, assets } = setup();
-    const id = routedMemo(store);
+    const id = transcribedMemo(store);
     await replies.sync({ memoId: id, replyText: fence("unrenderable") });
     commitAct(store, id, fence("unrenderable"));
     expect(await replies.backfill()).toBe(0);

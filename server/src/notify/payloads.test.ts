@@ -5,10 +5,9 @@ import {
   buildAlert,
   buildLiveActivityEnd,
   buildLiveActivityUpdate,
-  buildNeedsRouteAlert,
   MAX_PAYLOAD_BYTES,
   phaseOf,
-  routeChip,
+  kindChip,
   truncate,
 } from "./payloads.js";
 
@@ -20,19 +19,19 @@ const summary = { headline: "Buy milk", detail: "Buy milk tomorrow", spoken: "Bu
 
 function memoWith(patch: Partial<Memo> = {}): Memo {
   const { store } = testStore();
-  return { ...seedMemo(store, "summarized"), ...patch };
+  return { ...seedMemo(store, "acted"), ...patch };
 }
 
 const bytes = (value: unknown) => new TextEncoder().encode(JSON.stringify(value)).length;
 
 describe("alert", () => {
-  it("carries the route chip, the headline and the rich-notification keys", () => {
-    const memo = memoWith({ route: "hermes" });
+  it("carries the kind chip, the headline and the rich-notification keys", () => {
+    const memo = memoWith({ kind: "note" });
     expect(buildAlert({ topic: TOPIC, memo, summary })).toEqual({
       headers: { topic: TOPIC, pushType: "alert", priority: 10, collapseId: memo.id },
       payload: {
         aps: {
-          alert: { title: "Hermes", body: "Buy milk" },
+          alert: { title: "Note", body: "Buy milk" },
           "mutable-content": 1,
           category: "MEMO_DONE",
           "thread-id": "memo",
@@ -50,9 +49,9 @@ describe("alert", () => {
     expect(new TextEncoder().encode(headers.collapseId).length).toBeLessThanOrEqual(64);
   });
 
-  it("falls back to Iris without a route and never leaks transcript, reply, detail or spoken text", () => {
+  it("falls back to Iris without a kind and never leaks transcript, reply, detail or spoken text", () => {
     const memo = memoWith({
-      route: null,
+      kind: null,
       transcript: "secret transcript",
       replyText: "secret reply",
     });
@@ -63,7 +62,7 @@ describe("alert", () => {
   });
 
   it("stays under 4 KB for hostile input", () => {
-    const memo = memoWith({ route: "𝒳".repeat(500) });
+    const memo = memoWith({ kind: "𝒳".repeat(500) });
     const huge = { headline: "\u0001𝒳".repeat(5000), detail: "d".repeat(9000), spoken: "s" };
     const { payload } = buildAlert({ topic: TOPIC, memo, summary: huge });
     expect(bytes(payload)).toBeLessThan(MAX_PAYLOAD_BYTES);
@@ -72,7 +71,7 @@ describe("alert", () => {
 
 describe("Live Activity update", () => {
   it("is priority 5 on the liveactivity topic with a bare processing state", () => {
-    const memo = memoWith({ state: "received" as MemoState, summary: null, route: null });
+    const memo = memoWith({ state: "received" as MemoState, summary: null, kind: null });
     expect(buildLiveActivityUpdate({ topic: TOPIC, memo, now: NOW })).toEqual({
       headers: {
         topic: `${TOPIC}.push-type.liveactivity`,
@@ -89,12 +88,12 @@ describe("Live Activity update", () => {
     });
   });
 
-  it("adds the route chip, the headline and hasReply once known, with no inputName", () => {
-    const memo = memoWith({ route: "hermes", replyText: "ok", summary });
+  it("adds the kind chip, the headline and hasReply once known, with no inputName", () => {
+    const memo = memoWith({ kind: "note", replyText: "ok", summary });
     const { payload } = buildLiveActivityUpdate({ topic: TOPIC, memo, now: NOW });
     expect((payload["aps"] as { "content-state": unknown })["content-state"]).toEqual({
       phase: "processing",
-      routeChip: "Hermes",
+      routeChip: "Note",
       headline: "Buy milk",
       hasReply: true,
     });
@@ -116,7 +115,7 @@ describe("Live Activity update", () => {
       routed: "processing",
       acted: "processing",
       summarized: "processing",
-      needs_route: "needsRoute",
+      needs_route: "processing",
       notified: "done",
       failed: "failed",
     };
@@ -128,7 +127,7 @@ describe("Live Activity update", () => {
 
 describe("Live Activity end", () => {
   it("is priority 10, dismisses 15 minutes later and carries the final state", () => {
-    const memo = memoWith({ route: "hermes", replyText: "ok" });
+    const memo = memoWith({ kind: "note", replyText: "ok" });
     expect(buildLiveActivityEnd({ topic: TOPIC, memo, summary, now: NOW })).toEqual({
       headers: {
         topic: `${TOPIC}.push-type.liveactivity`,
@@ -142,7 +141,7 @@ describe("Live Activity end", () => {
           "dismissal-date": NOW_SECONDS + 900,
           "content-state": {
             phase: "done",
-            routeChip: "Hermes",
+            routeChip: "Note",
             headline: "Buy milk",
             hasReply: true,
           },
@@ -155,7 +154,7 @@ describe("Live Activity end", () => {
     const huge = { headline: "𝒳".repeat(5000), detail: "d", spoken: "s" };
     const { payload } = buildLiveActivityEnd({
       topic: TOPIC,
-      memo: memoWith({ route: "r".repeat(500) }),
+      memo: memoWith({ kind: "r".repeat(500) }),
       summary: huge,
       now: NOW,
     });
@@ -170,53 +169,10 @@ describe("helpers", () => {
     expect(truncate("𝒳𝒳𝒳", 2)).toBe("𝒳…");
   });
 
-  it("capitalises the route and ignores an absent one", () => {
-    expect(routeChip("hermes")).toBe("Hermes");
-    expect(routeChip(null)).toBeNull();
-    expect(routeChip("")).toBeNull();
-  });
-});
-
-describe("needs-route alert", () => {
-  it("is a priority-10 MEMO_NEEDS_ROUTE alert with the memo id, collapsing with the done alert", () => {
-    const memo = memoWith({ state: "needs_route", route: null });
-    const message = buildNeedsRouteAlert({ topic: TOPIC, memo, reason: "journal not available" });
-    expect(message).toEqual({
-      headers: { topic: TOPIC, pushType: "alert", priority: 10, collapseId: memo.id },
-      payload: {
-        aps: {
-          alert: { title: "Where should this go?", body: "journal not available" },
-          "mutable-content": 1,
-          category: "MEMO_NEEDS_ROUTE",
-          "thread-id": "memo",
-          sound: "default",
-        },
-        memo: memo.id,
-      },
-    });
-    expect(message.headers.collapseId).toBe(
-      buildAlert({ topic: TOPIC, memo, summary }).headers.collapseId,
-    );
-  });
-
-  it("falls back to a generic body, caps a long reason and never leaks transcript or reply", () => {
-    const memo = memoWith({
-      state: "needs_route",
-      transcript: "secret transcript text",
-      replyText: "secret reply text",
-    });
-    const bare = buildNeedsRouteAlert({ topic: TOPIC, memo, reason: null });
-    const long = buildNeedsRouteAlert({ topic: TOPIC, memo, reason: "r".repeat(500) });
-    expect((bare.payload["aps"] as { alert: { body: string } }).alert.body).toBe(
-      "Choose a destination to continue.",
-    );
-    expect(
-      Array.from((long.payload["aps"] as { alert: { body: string } }).alert.body),
-    ).toHaveLength(200);
-    for (const message of [bare, long]) {
-      const text = JSON.stringify(message);
-      expect(text).not.toContain("secret");
-      expect(bytes(message.payload)).toBeLessThan(MAX_PAYLOAD_BYTES);
-    }
+  it("capitalises the kind, caps it at 30 code points and ignores an absent one", () => {
+    expect(kindChip("note")).toBe("Note");
+    expect(Array.from(kindChip("k".repeat(100)) as string)).toHaveLength(30);
+    expect(kindChip(null)).toBeNull();
+    expect(kindChip("")).toBeNull();
   });
 });

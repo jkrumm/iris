@@ -2,13 +2,10 @@ import { threadTitle, type Memo, type Summary } from "../memo/memo.js";
 import type { ApnsResult, ApnsTransport } from "./apns.js";
 import type { AssetStore } from "./assets.js";
 import type { AudioCombiner } from "./audio.js";
-import type { Decider, Decision } from "./decider.js";
 import type { DiagramRenderer, RenderedDiagram } from "./diagram.js";
-import type { Delivery, Destination } from "./destination.js";
-import type { Herd, HerdTab } from "./herd.js";
+import type { Delivery, DeliveryMeta, Destination } from "./destination.js";
 import type { Notifier } from "./notifier.js";
 import type { Speaker, Speech, SpeechCache } from "./speaker.js";
-import type { Summarization, Summarizer } from "./summarizer.js";
 import type { Transcriber, TranscriptionResult } from "./transcriber.js";
 
 // Deterministic in-memory ports. Each records its calls; `failWith` makes every call throw it.
@@ -30,12 +27,19 @@ export function fakeTranscriber(
   };
 }
 
+/** What the fake Hermes reports for every turn: a kind, a summary and two tool names, as the `iris` skill's block would. */
+export const FAKE_META: DeliveryMeta = {
+  kind: "note",
+  summary: { headline: "Headline", detail: "", spoken: "Spoken." },
+  actions: ["fake_search", "fake_write"],
+};
+
 /**
- * Stands for Hermes: every delivery names its thread (the ref, kind `chat` for a chat) unless `threads: false` makes it
- * a destination that keeps none, or `result.thread` says otherwise.
+ * Stands for Hermes: every delivery names its thread (the ref, kind `hermes`) and carries `FAKE_META`. `sessionPerMemo` names the
+ * session after the memo like Hermes does; otherwise every memo shares one session (`session-1`).
  */
 export function fakeDestination(
-  options: Options<Delivery> & { threads?: boolean; sessionPerMemo?: boolean } = {},
+  options: Options<Delivery> & { sessionPerMemo?: boolean } = {},
 ): Destination & Calls<Parameters<Destination["deliver"]>[0]> {
   const calls: Parameters<Destination["deliver"]>[0][] = [];
   return {
@@ -45,11 +49,11 @@ export function fakeDestination(
       if (options.failWith) throw options.failWith;
       // A continuation lands in its thread's session; otherwise one shared session, or (`sessionPerMemo`) one per memo like Hermes.
       const ref = params.threadId ?? (options.sessionPerMemo ? params.memoId : "session-1");
-      const delivery: Delivery = { ref, replyText: "done", ...options.result };
-      if (options.threads !== false && !delivery.thread) {
+      const delivery: Delivery = { ref, replyText: "done", meta: FAKE_META, ...options.result };
+      if (!delivery.thread) {
         delivery.thread = {
           id: delivery.ref,
-          kind: params.chat ? "chat" : "hermes",
+          kind: "hermes",
           title: threadTitle(params.transcript),
         };
       }
@@ -58,58 +62,15 @@ export function fakeDestination(
   };
 }
 
-/** Answers `hermes` at 0.9 unless told otherwise; `failWith` makes every call throw. */
-export function fakeDecider(
-  options: Options<Decision> = {},
-): Decider & Calls<Parameters<Decider["decide"]>[0]> {
-  const calls: Parameters<Decider["decide"]>[0][] = [];
-  return {
-    calls,
-    async decide(params) {
-      calls.push(params);
-      if (options.failWith) throw options.failWith;
-      return {
-        destination: { choice: "hermes", confidence: 0.9 },
-        tab: null,
-        model: "fake-decider",
-        ...options.result,
-      };
-    },
-  };
-}
-
-const DEFAULT_SUMMARY: Summary = { headline: "Headline", detail: "Detail", spoken: "Spoken." };
-
-export function fakeSummarizer(
-  options: Options<Summarization> = {},
-): Summarizer & Calls<Parameters<Summarizer["summarize"]>[0]> {
-  const calls: Parameters<Summarizer["summarize"]>[0][] = [];
-  return {
-    calls,
-    async summarize(params) {
-      calls.push(params);
-      if (options.failWith) throw options.failWith;
-      return { summary: DEFAULT_SUMMARY, ...options.result };
-    },
-  };
-}
-
-/** `calls` records `notify`, `phaseCalls` `phase`, `needsRouteCalls` `needsRoute`; `failWith` fails `notify` only. */
-export function fakeNotifier(options: { failWith?: Error } = {}): Notifier &
-  Calls<{ memo: Memo; summary: Summary }> & {
-    phaseCalls: { memo: Memo }[];
-    needsRouteCalls: { memo: Memo; reason: string | null }[];
-  } {
+/** `calls` records `notify`, `phaseCalls` `phase`; `failWith` fails `notify` only. */
+export function fakeNotifier(
+  options: { failWith?: Error } = {},
+): Notifier & Calls<{ memo: Memo; summary: Summary }> & { phaseCalls: { memo: Memo }[] } {
   const calls: { memo: Memo; summary: Summary }[] = [];
   const phaseCalls: { memo: Memo }[] = [];
-  const needsRouteCalls: { memo: Memo; reason: string | null }[] = [];
   return {
     calls,
     phaseCalls,
-    needsRouteCalls,
-    async needsRoute(params) {
-      needsRouteCalls.push(params);
-    },
     async notify(params) {
       calls.push(params);
       if (options.failWith) throw options.failWith;
@@ -179,25 +140,6 @@ export function fakeSpeechCache(): SpeechCache & { entries: Map<string, unknown>
       entries.delete(memoId);
     },
   };
-}
-
-const DEFAULT_TABS: HerdTab[] = [
-  { id: "w1:t1", repo: "iris", label: "server", agentState: "working", lastActivity: null },
-  { id: "w2:t1", repo: "dotfiles", label: "1", agentState: "idle", lastActivity: null },
-];
-
-export function fakeHerd(
-  options: { tabs?: HerdTab[]; failWith?: Error } = {},
-): Herd & { calls: number } {
-  const herd = {
-    calls: 0,
-    async snapshot() {
-      herd.calls++;
-      if (options.failWith) throw options.failWith;
-      return options.tabs ?? DEFAULT_TABS;
-    },
-  };
-  return herd;
 }
 
 const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];

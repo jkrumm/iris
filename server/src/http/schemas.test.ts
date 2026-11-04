@@ -36,7 +36,6 @@ describe("schemas", () => {
       "ThreadList",
       "ThreadDetail",
       "ThreadListQuery",
-      "HerdResponse",
       "ErrorBody",
       "MissingSegmentsError",
       "MemoEventPayload",

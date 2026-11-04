@@ -2,7 +2,6 @@ import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { createFsAudioStore } from "./adapters/audio-fs.js";
 import { createSqliteMemoStore, openDatabase } from "./adapters/sqlite.js";
-import { repairFailedSummaries } from "./adapters/sqlite-repair.js";
 import { createSqliteDeviceStore } from "./adapters/sqlite-devices.js";
 import { createApp } from "./app.js";
 import { compose } from "./compose.js";
@@ -14,11 +13,9 @@ import { createRunner } from "./memo/runner.js";
 import { createReplyAssets } from "./memo/reply-assets.js";
 import { createMemoService } from "./memo/service.js";
 import { createNotifyLifecycle } from "./notify/lifecycle.js";
-import { bindNeedsRouteAlerts } from "./notify/needs-route.js";
 import { bindPhaseUpdates } from "./notify/phases.js";
 import { createStepHandlers } from "./pipeline/steps.js";
 import { systemClock } from "./ports/clock.js";
-import { registeredDestinations } from "./ports/destination.js";
 import { log } from "./telemetry/log.js";
 import { flushOtel } from "./telemetry/otel.js";
 
@@ -27,12 +24,6 @@ mkdirSync(env.IRIS_DATA, { recursive: true });
 const db = openDatabase(join(env.IRIS_DATA, "iris.db"));
 const clock = systemClock;
 const store = createSqliteMemoStore({ db, clock });
-// Best effort: a full disk or an existing backup name must not keep the server from booting.
-try {
-  repairFailedSummaries({ db, clock, dataDir: env.IRIS_DATA });
-} catch (err) {
-  log("repair.failed_summaries_error", { error: err instanceof Error ? err.message : String(err) });
-}
 const devices = createSqliteDeviceStore({ db, clock });
 const events = createMemoEvents();
 const audio = createFsAudioStore(join(env.IRIS_DATA, "audio"));
@@ -57,17 +48,13 @@ const handlers = createStepHandlers({
   audio,
   replyAssets,
   transcriber: ports.transcriber,
-  destinations: ports.destinations,
-  herd: ports.herd,
-  decider: ports.decider,
-  summarizer: ports.summarizer,
+  destination: ports.destination,
   notifier,
 });
 log("runner.handlers_registered", { steps: Object.keys(handlers) });
 const runner = createRunner({ store, handlers, events, clock });
 const notifyLifecycle = createNotifyLifecycle({
   phases: bindPhaseUpdates({ events, store, devices, notifier }),
-  alerts: bindNeedsRouteAlerts({ events, store, notifier }),
   closeTransport,
 });
 const memos = createMemoService({
@@ -77,7 +64,7 @@ const memos = createMemoService({
   audio,
   clock,
   maxSegmentBytes: env.IRIS_MAX_SEGMENT_BYTES,
-  destinations: registeredDestinations(ports.destinations ?? {}),
+  hermes: ports.destination !== undefined,
 });
 
 const purger = createPurger({
@@ -104,7 +91,6 @@ const app = createApp({
   stats,
   devices,
   media,
-  herd: ports.herd,
   telemetry,
   inflight: () => runner.inflightIds().length,
 }).listen({

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import { Env } from "./env.js";
 
-describe.each(["AUDIO_DOOR_URL", "AGW_URL"] as const)("%s", (name) => {
+describe.each(["AUDIO_DOOR_URL"] as const)("%s", (name) => {
   const parse = (value: string) => Env.safeParse({ [name]: value });
 
   it.each([

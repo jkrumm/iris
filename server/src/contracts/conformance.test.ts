@@ -4,14 +4,10 @@ import { join } from "node:path";
 import { call, MAC, PHONE, testApp } from "../http/test-support.js";
 import type { StepHandler } from "../memo/runner.js";
 import type { HandlerStep } from "../memo/memo.js";
-import {
-  buildAlert,
-  buildLiveActivityEnd,
-  buildLiveActivityUpdate,
-  buildNeedsRouteAlert,
-} from "../notify/payloads.js";
+import { buildAlert, buildLiveActivityEnd, buildLiveActivityUpdate } from "../notify/payloads.js";
+import { legacyParkedMemo, seedMemo } from "../memo/test-support.js";
 import { createReplyAssets } from "../memo/reply-assets.js";
-import { fakeAssetStore, fakeDiagramRenderer, fakeHerd } from "../ports/fakes.js";
+import { fakeAssetStore, fakeDiagramRenderer } from "../ports/fakes.js";
 import { loadContracts, MANIFEST_FILE, violations } from "./check.js";
 import { keyDifferences, sseFrames } from "./conformance-support.js";
 import { Manifest, routeKey } from "./manifest.js";
@@ -33,8 +29,8 @@ const fixture = (stem: string) => {
 
 /** Schema properties that are omitted rather than null: a body or fixture may lack them. */
 const OPTIONAL_KEYS = [
-  "routeReason",
-  "routeSuggestion",
+  "kind",
+  "actions",
   "typed",
   "threadId",
   "deletedAt",
@@ -81,13 +77,17 @@ const handlers = (overrides: Partial<Record<HandlerStep, StepHandler>> = {}) => 
     usage: { audioSeconds: 12.5 },
     costUsd: 0.001,
   }),
-  route: async () => ({ patch: { route: "hermes" } }),
   act: async () => ({
-    patch: { destinationRef: "iris-session", replyText: "Notiert." },
+    patch: {
+      destinationRef: "iris-session",
+      replyText: "Notiert.",
+      kind: "note",
+      actions: ["todo_add", "calendar_search"],
+      summary: SUMMARY,
+    },
     usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
     costUsd: 0.01,
   }),
-  summarize: async () => ({ patch: { summary: SUMMARY }, costUsd: 0.002 }),
   notify: async () => ({}),
   ...overrides,
 });
@@ -119,22 +119,6 @@ async function record(app: App, segments = 2) {
   await call(app, { path: `/v1/memos/${id}/result?wait=5` });
   return id;
 }
-
-const park = (reason: string, destination: string | null) => ({
-  outcome: "needs_route" as const,
-  patch: {
-    routeDecision: {
-      source: "decide" as const,
-      destination,
-      tab: null,
-      confidence: null,
-      model: null,
-      costUsd: null,
-      reason,
-      outcome: "needs_route" as const,
-    },
-  },
-});
 
 describe("flows: every response conforms", () => {
   it("a typed memo: create answers 202 and reaches notified, a replay and a different body conform", async () => {
@@ -178,9 +162,7 @@ describe("flows: every response conforms", () => {
     });
     expect(typedDetail).toMatchObject({ typed: true, segmentCount: 0 });
     expect((typedDetail["steps"] as { step: string }[]).map((s) => s.step)).toEqual([
-      "route",
       "act",
-      "summarize",
       "notify",
     ]);
   });
@@ -192,7 +174,7 @@ describe("flows: every response conforms", () => {
           patch: {
             destinationRef: memo.id,
             replyText: "Ein Mutex hat einen Halter.",
-            thread: { id: memo.id, kind: "chat", title: "Mutex gegen Semaphor" },
+            thread: { id: memo.id, kind: "hermes", title: "Mutex gegen Semaphor" },
           },
         }),
       }),
@@ -218,11 +200,7 @@ describe("flows: every response conforms", () => {
 
   it("a transcribe memo ends notified with the transcript, no route, reply or summary, and two steps", async () => {
     const { app } = testApp({
-      handlers: handlers({
-        route: async () => ({}),
-        act: async () => ({}),
-        summarize: async () => ({}),
-      }),
+      handlers: handlers({ act: async () => ({}) }),
     });
     const id = crypto.randomUUID();
     const created = await create(app, id, "transcribe");
@@ -308,7 +286,7 @@ describe("flows: every response conforms", () => {
 
     const detail = await call(app, { path: `/v1/memos/${id}` });
     const body = await conformingBody({ route: "GET /v1/memos/:id", res: detail });
-    expect(body["steps"]).toHaveLength(5);
+    expect(body["steps"]).toHaveLength(3);
 
     const list = await call(app, { path: "/v1/memos?limit=1" });
     await conformingBody({ route: "GET /v1/memos", res: list });
@@ -362,18 +340,52 @@ describe("flows: every response conforms", () => {
     await conformingBody({ route: "POST /v1/memos/:id/retry", res: retry });
   });
 
-  it("a memo parked in needs_route is a ready result and carries why", async () => {
-    const { app } = testApp({
-      handlers: handlers({ route: async () => park("low confidence (0.62)", "hermes") }),
-    });
+  it("a memo with kind and actions conforms on result, detail and list, and omits them when empty", async () => {
+    const { app } = testApp({ handlers: handlers() });
     const id = await record(app);
+    const result = await conformingBody({
+      route: "GET /v1/memos/:id/result",
+      res: await call(app, { path: `/v1/memos/${id}/result` }),
+    });
+    expect(result).toMatchObject({
+      kind: "note",
+      actions: ["todo_add", "calendar_search"],
+      summary: SUMMARY,
+      route: null,
+    });
+    expect(result).not.toHaveProperty("routeReason");
+    const detail = await conformingBody({
+      route: "GET /v1/memos/:id",
+      res: await call(app, { path: `/v1/memos/${id}` }),
+      fixtures: ["memos.detail.response"],
+    });
+    expect(detail).toMatchObject({ kind: "note", actions: ["todo_add", "calendar_search"] });
+    const list = (await conformingBody({
+      route: "GET /v1/memos",
+      res: await call(app, { path: "/v1/memos" }),
+    })) as { items: { id: string; kind?: string }[]; nextCursor: string | null };
+    expect(Object.keys(list).toSorted()).toEqual(["items", "nextCursor"]);
+    expect(list.items.find((m) => m.id === id)?.kind).toBe("note");
+
+    const bare = testApp({ handlers: handlers({ act: async () => ({}) }) });
+    const bareId = await record(bare.app);
+    const bareDetail = await conformingBody({
+      route: "GET /v1/memos/:id",
+      res: await call(bare.app, { path: `/v1/memos/${bareId}` }),
+      fixtures: ["memos.detail.response.hermes-no-block"],
+    });
+    expect(bareDetail).not.toHaveProperty("kind");
+    expect(bareDetail).not.toHaveProperty("actions");
+  });
+
+  it("a legacy needs_route memo is a ready result", async () => {
+    const { app, store } = testApp();
+    const id = legacyParkedMemo(store);
     const result = await call(app, { path: `/v1/memos/${id}/result` });
     expect(result.status).toBe(200);
     expect(await conformingBody({ route: "GET /v1/memos/:id/result", res: result })).toMatchObject({
       state: "needs_route",
       route: null,
-      routeReason: "low confidence (0.62)",
-      routeSuggestion: "hermes",
     });
     const detail = await call(app, { path: `/v1/memos/${id}` });
     await conformingBody({ route: "GET /v1/memos/:id", res: detail });
@@ -428,58 +440,7 @@ describe("flows: every response conforms", () => {
     await conformingBody({ route: "DELETE /v1/memos/:id", res: gone });
   });
 
-  it("answer, correction and the route errors", async () => {
-    const parks = handlers({
-      route: async () => ({
-        outcome: "needs_route",
-        patch: {
-          routeDecision: {
-            source: "mode",
-            destination: null,
-            tab: null,
-            confidence: null,
-            model: null,
-            costUsd: null,
-            reason: "journal not available",
-            outcome: "needs_route",
-          },
-        },
-      }),
-    });
-    const { app } = testApp({ handlers: parks });
-    const id = await record(app);
-    const path = `/v1/memos/${id}/route`;
-    const post = (json: unknown) => call(app, { method: "POST", path, json });
-
-    const unavailable = await post(fixture("memos.route.request.herdr").value);
-    expect(unavailable.status).toBe(400);
-    await conformingBody({ route: "POST /v1/memos/:id/route", res: unavailable });
-    const missing = await call(app, {
-      method: "POST",
-      path: `/v1/memos/${crypto.randomUUID()}/route`,
-      json: fixture("memos.route.request").value,
-    });
-    expect(missing.status).toBe(404);
-    await conformingBody({ route: "POST /v1/memos/:id/route", res: missing });
-
-    const answered = await post(fixture("memos.route.request").value);
-    expect(answered.status).toBe(202);
-    expect(
-      await conformingBody({
-        route: "POST /v1/memos/:id/route",
-        res: answered,
-        fixtures: ["memos.route.response"],
-      }),
-    ).toMatchObject({ state: "routed", route: "hermes" });
-
-    // The fake route handler parks again on the next pass only after a retry; here the memo runs on to notified.
-    await call(app, { path: `/v1/memos/${id}/result?wait=5` });
-    const second = await post(fixture("memos.route.request").value);
-    expect(second.status).toBe(200);
-    await conformingBody({ route: "POST /v1/memos/:id/route", res: second });
-  });
-
-  it("devices, herd, health and whoami", async () => {
+  it("devices, stats, health and whoami", async () => {
     const { app } = testApp({ handlers: handlers() });
     for (const f of contracts.fixtures.filter((x) => x.schema === "devices.register.request")) {
       const res = await call(app, { method: "POST", path: "/v1/devices/register", json: f.value });
@@ -487,16 +448,25 @@ describe("flows: every response conforms", () => {
       await conformingBody({ route: "POST /v1/devices/register", res });
     }
 
-    const herd = await call(app, { path: "/v1/herd" });
-    await conformingBody({ route: "GET /v1/herd", res: herd });
-    const noTabs = testApp({ herd: fakeHerd({ tabs: [] }) });
-    const empty = await call(noTabs.app, { path: "/v1/herd" });
-    expect(
-      ((await conformingBody({ route: "GET /v1/herd", res: empty })) as { tabs: [] }).tabs,
-    ).toEqual([]);
-
-    const stats = await call(app, { path: "/v1/stats" });
-    await conformingBody({ route: "GET /v1/stats", res: stats });
+    const empty = await call(testApp().app, { path: "/v1/stats" });
+    await conformingBody({
+      route: "GET /v1/stats",
+      res: empty,
+      fixtures: ["stats.response.empty"],
+    });
+    await record(app);
+    const kinds = await call(app, { path: "/v1/stats?days=30" });
+    const withKinds = await conformingBody({
+      route: "GET /v1/stats",
+      res: kinds,
+      fixtures: ["stats.response"],
+    });
+    expect(withKinds["perDay"]).toEqual([
+      expect.objectContaining({ kind: "note", count: expect.any(Number) }),
+    ]);
+    expect(withKinds["costPerKind"]).toEqual([
+      expect.objectContaining({ kind: "note", memos: expect.any(Number) }),
+    ]);
     const badDays = await call(app, { path: "/v1/stats?days=0" });
     expect(badDays.status).toBe(400);
     await conformingBody({ route: "GET /v1/stats", res: badDays });
@@ -517,7 +487,7 @@ const actInThread = async () => ({
   patch: {
     destinationRef: "iris-session",
     replyText: "Notiert.",
-    thread: { id: "iris-session", kind: "chat" as const, title: "Hallo Welt" },
+    thread: { id: "iris-session", kind: "hermes" as const, title: "Hallo Welt" },
   },
 });
 
@@ -528,7 +498,7 @@ describe("flows: threads conform", () => {
 
     const list = await call(app, { path: "/v1/threads" });
     const listed = await conformingBody({ route: "GET /v1/threads", res: list });
-    expect(listed).toMatchObject({ items: [{ id: "iris-session", kind: "chat" }] });
+    expect(listed).toMatchObject({ items: [{ id: "iris-session", kind: "hermes" }] });
 
     const detail = await call(app, { path: "/v1/threads/iris-session" });
     expect(await conformingBody({ route: "GET /v1/threads/:id", res: detail })).toMatchObject({
@@ -594,7 +564,7 @@ describe("flows: every error shape conforms", () => {
   });
 
   it("404, 409, 400, 413, 422 and 503 carry the manifest's error schemas", async () => {
-    const { app } = testApp({ handlers: handlers(), maxSegmentBytes: 4, herd: false });
+    const { app } = testApp({ handlers: handlers(), maxSegmentBytes: 4 });
     const unknown = crypto.randomUUID();
 
     const notFound = await call(app, { path: `/v1/memos/${unknown}` });
@@ -640,11 +610,13 @@ describe("flows: every error shape conforms", () => {
       await conformingBody({ route: "PUT /v1/memos/:id/segments/:n", res: tooLarge }),
     ).toMatchObject({ error: "too_large", maxBytes: 4 });
 
-    const unavailable = await call(app, { path: "/v1/herd" });
+    const noSpeech = testApp({ speaker: false });
+    const speechId = seedMemo(noSpeech.store, "notified").id;
+    const unavailable = await call(noSpeech.app, { path: `/v1/memos/${speechId}/speech` });
     expect(unavailable.status).toBe(503);
-    expect(await conformingBody({ route: "GET /v1/herd", res: unavailable })).toMatchObject({
-      error: "unavailable",
-    });
+    expect(
+      await conformingBody({ route: "GET /v1/memos/:id/speech", res: unavailable }),
+    ).toMatchObject({ error: "unavailable" });
   });
 
   it("a missing or wrong token is plain text, never JSON", async () => {
@@ -691,6 +663,7 @@ describe("GET /v1/events", () => {
 
 const memo = (patch: Record<string, unknown>) => ({
   ...(fixture("memos.result.response").value as object),
+  kind: "task",
   ...patch,
 });
 const live = (build: () => { payload: Record<string, unknown> }) =>
@@ -711,7 +684,7 @@ describe("push payloads", () => {
         live(() =>
           buildLiveActivityUpdate({
             topic: "t",
-            memo: memo({ state: "received", route: null, summary: null, replyText: null }) as never,
+            memo: memo({ state: "received", kind: null, summary: null, replyText: null }) as never,
             now: NOW,
           }),
         ),
@@ -727,13 +700,13 @@ describe("push payloads", () => {
         ),
       ],
       [
-        "liveactivity.content-state.needs-route",
+        "liveactivity.content-state.processing",
         live(() =>
           buildLiveActivityUpdate({
             topic: "t",
             memo: memo({
               state: "needs_route",
-              route: null,
+              kind: null,
               summary: null,
               replyText: null,
             }) as never,
@@ -757,21 +730,9 @@ describe("push payloads", () => {
     }
   });
 
-  it("builds the needs-route alert that matches its fixture", () => {
-    conforms({
-      schema: "push.alert",
-      value: buildNeedsRouteAlert({
-        topic: "t",
-        memo: memo({}) as never,
-        reason: "journal not available",
-      }).payload,
-      fixtures: ["push.alert.needs-route"],
-    });
-  });
-
   it("builds alerts that match the alert fixtures", () => {
     const base = memo({});
-    const summary = (base as { summary: never }).summary;
+    const summary = (base as unknown as { summary: never }).summary;
     conforms({
       schema: "push.alert",
       value: buildAlert({ topic: "t", memo: base as never, summary }).payload,
@@ -779,7 +740,7 @@ describe("push payloads", () => {
     });
     conforms({
       schema: "push.alert",
-      value: buildAlert({ topic: "t", memo: memo({ route: null }) as never, summary }).payload,
+      value: buildAlert({ topic: "t", memo: memo({ kind: null }) as never, summary }).payload,
       fixtures: ["push.alert.no-route"],
     });
   });
@@ -801,7 +762,7 @@ describe("request fixtures are accepted by the server", () => {
       if (threadId === undefined) continue;
       db.query(
         `INSERT OR IGNORE INTO threads (id, kind, title, created_at, updated_at)
-         VALUES (?, 'chat', 'earlier turn', '2026-03-14T09:00:00.000Z', '2026-03-14T09:00:00.000Z')`,
+         VALUES (?, 'hermes', 'earlier turn', '2026-03-14T09:00:00.000Z', '2026-03-14T09:00:00.000Z')`,
       ).run(threadId);
     }
     for (const f of fixturesOf("memos.create.request")) {
@@ -868,20 +829,20 @@ describe("request fixtures are accepted by the server", () => {
     }
   });
 
-  it("route accepts its request fixtures", async () => {
-    for (const f of fixturesOf("memos.route.request")) {
-      const { app } = testApp({
-        destinations: ["hermes", "herdr"],
-        handlers: handlers({ route: async () => ({ outcome: "needs_route" }) }),
-      });
-      const id = await record(app);
-      const res = await call(app, {
-        method: "POST",
-        path: `/v1/memos/${id}/route`,
-        json: f.value,
-      });
-      expect([f.stem, res.status]).toEqual([f.stem, 202]);
-    }
+  it("accepts the kind and thread list filters and lists the memo that matches", async () => {
+    const { app } = testApp({ handlers: handlers() });
+    const id = await record(app);
+    const filtered = await call(app, { path: "/v1/memos?kind=%20Note%20&thread=true" });
+    expect(filtered.status).toBe(200);
+    const none = (await conformingBody({ route: "GET /v1/memos", res: filtered })) as {
+      items: unknown[];
+    };
+    expect(none.items).toEqual([]);
+    const byKind = (await (await call(app, { path: "/v1/memos?kind=%20Note%20" })).json()) as {
+      items: { id: string }[];
+    };
+    expect(byKind.items.map((m) => m.id)).toEqual([id]);
+    expect((await call(app, { path: "/v1/memos?thread=true" })).status).toBe(200);
   });
 
   it("activity-token accepts its fixture, and the server rejects non-hex tokens", async () => {
