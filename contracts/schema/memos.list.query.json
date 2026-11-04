@@ -13,10 +13,6 @@
       "type": "string"
     },
     "kind": {
-      "enum": [
-        "chat",
-        "hermes"
-      ],
       "type": "string"
     },
     "limit": {
@@ -24,14 +20,6 @@
     },
     "q": {
       "maxLength": 200,
-      "type": "string"
-    },
-    "route": {
-      "enum": [
-        "hermes",
-        "journal",
-        "herdr"
-      ],
       "type": "string"
     },
     "state": {
@@ -46,6 +34,10 @@
         "notified",
         "failed"
       ],
+      "type": "string"
+    },
+    "thread": {
+      "const": "true",
       "type": "string"
     }
   },

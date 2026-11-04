@@ -1,6 +1,12 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
+    "actions": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
     "archived": {
       "type": "boolean"
     },
@@ -68,6 +74,9 @@
       "type": "boolean"
     },
     "id": {
+      "type": "string"
+    },
+    "kind": {
       "type": "string"
     },
     "mode": {
@@ -162,12 +171,6 @@
           "type": "null"
         }
       ]
-    },
-    "routeReason": {
-      "type": "string"
-    },
-    "routeSuggestion": {
-      "type": "string"
     },
     "segmentCount": {
       "type": "integer"

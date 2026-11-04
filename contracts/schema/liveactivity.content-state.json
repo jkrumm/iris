@@ -10,7 +10,6 @@
     "phase": {
       "enum": [
         "processing",
-        "needsRoute",
         "done",
         "failed"
       ],
