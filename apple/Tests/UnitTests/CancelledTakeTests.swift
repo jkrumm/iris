@@ -171,7 +171,7 @@ struct CancelledTakeTests {
       outbox: service, microphone: nil, canRecord: true, isConfigured: { true }, requestPermission: { true },
       preview: nil)
 
-    let id = try await controller.start(mode: .auto)
+    let id = try await controller.start(mode: .hermes)
     await capture.recordWithoutClock(seconds: 12)
     #expect(await waitFor { await created.memo(id: id.wireID) != nil })
 
@@ -198,7 +198,7 @@ struct CancelledTakeTests {
     let coordinator = TakeLiveActivityCoordinator(activity: activity, stack: rig.stack, created: rig.created)
     let session = try await rig.stack.session()
     let id = try await session.start(TakeRequest(mode: "auto", title: "Voice memo"))
-    await coordinator.begin(memoID: id, mode: .auto, startedAt: MemoFactory.now)
+    await coordinator.begin(memoID: id, mode: .hermes, startedAt: MemoFactory.now)
     await rig.capture.recordWithoutClock(seconds: 12)
     #expect(await waitFor { await rig.created.memo(id: id.wireID) != nil })
 
@@ -219,13 +219,13 @@ struct CancelledTakeTests {
     let session = try await rig.stack.session()
 
     let first = try await session.start(TakeRequest(mode: "auto", title: "Voice memo"))
-    await coordinator.begin(memoID: first, mode: .auto, startedAt: MemoFactory.now)
+    await coordinator.begin(memoID: first, mode: .hermes, startedAt: MemoFactory.now)
     await rig.capture.recordWithoutClock(seconds: 3)
     _ = try await session.stop()
     #expect(await waitFor { await rig.service.queuedItems().count == 1 })
 
     let second = try await session.start(TakeRequest(mode: "auto", title: "Voice memo"))
-    await coordinator.begin(memoID: second, mode: .auto, startedAt: MemoFactory.now)
+    await coordinator.begin(memoID: second, mode: .hermes, startedAt: MemoFactory.now)
 
     let state = try #require(await activity.states.last)
     #expect(state.phase == .recording)

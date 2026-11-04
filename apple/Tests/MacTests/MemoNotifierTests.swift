@@ -12,12 +12,12 @@ struct MemoNotifierTests {
   static let secret = "my secret transcript about the bank account"
 
   static func memo(
-    _ id: String, state: MemoState = .notified, route: String? = "journal",
+    _ id: String, state: MemoState = .notified, kind: String? = "note",
     summary: MemoSummary? = MemoSummary(headline: "Buy oat milk", detail: "d", spoken: "s"), started: Date = now
   ) -> Memo {
     Memo(
-      id: id, mode: .auto, device: "iphone", startedAt: started, state: state, transcript: secret, route: route,
-      replyText: "the reply " + secret, summary: summary, createdAt: now, updatedAt: now)
+      id: id, mode: .hermes, device: "iphone", startedAt: started, state: state, transcript: secret,
+      replyText: "the reply " + secret, summary: summary, kind: kind, createdAt: now, updatedAt: now)
   }
 
   private func notifier(
@@ -26,14 +26,14 @@ struct MemoNotifierTests {
     MemoNotifier(poster: poster, connectionID: "c1", lookup: lookup, retryDelays: [.zero, .zero])
   }
 
-  @Test("a finished memo posts one notification: the route as title, the headline as body")
+  @Test("a finished memo posts one notification: the kind as title, the headline as body")
   func posts() async {
     let poster = RecordingNotificationPoster()
     let notifier = notifier(poster)
     await notifier.memoDone(id: "a")
     #expect(
       await poster.posted == [
-        MemoNotification(memoID: "a", connectionID: notifier.connectionID, title: "Journal", body: "Buy oat milk")
+        MemoNotification(memoID: "a", connectionID: notifier.connectionID, title: "Note", body: "Buy oat milk")
       ])
   }
 
@@ -150,26 +150,22 @@ struct MemoNotifierTests {
   }
 
   @Test(
-    "a banner never carries the transcript, the reply or the park reason: parked and failed memos say generic words")
+    "a banner never carries the transcript or the reply: a failed memo says generic words")
   func neverTheTranscript() {
     let noSummary = MemoNotifier.notification(for: Self.memo("a", summary: nil), connectionID: "c")
-    #expect(noSummary == MemoNotification(memoID: "a", connectionID: "c", title: "Journal", body: "Done."))
+    #expect(noSummary == MemoNotification(memoID: "a", connectionID: "c", title: "Note", body: "Done."))
 
-    var parked = Self.memo("b", state: .needsRoute, route: nil, summary: nil)
-    parked.routeReason = "Not sure whether \(Self.secret) means the tab dotfiles / claude."
-    var failed = Self.memo("c", state: .failed, route: nil, summary: nil)
+    var failed = Self.memo("c", state: .failed, kind: nil, summary: nil)
     failed.error = Self.secret
     failed.failedStep = .transcribe
 
-    let parkedBanner = MemoNotifier.notification(for: parked, connectionID: "c")
-    #expect(parkedBanner.title == "Where should this go?" && parkedBanner.body == "Open Iris to choose a route.")
     let failedBanner = MemoNotifier.notification(for: failed, connectionID: "c")
     #expect(failedBanner.title == "Memo failed" && failedBanner.body == "Open Iris to retry it.")
 
-    for memo in [Self.memo("a", summary: nil), parked, failed] {
+    for memo in [Self.memo("a", summary: nil), failed] {
       let shown = MemoNotifier.notification(for: memo, connectionID: "c")
       #expect(!shown.title.contains("secret") && !shown.body.contains("secret"))
-      #expect(!shown.body.contains("dotfiles") && !shown.body.contains("transcribe"))
+      #expect(!shown.body.contains("transcribe"))
     }
   }
 
@@ -320,24 +316,23 @@ struct MemoNotifierCatchUpTests {
     server.set("a", .notified)
     #expect(notifier.noteState(of: event("a", .notified)))
     await notifier.memoDone(id: "a")
-    #expect(await poster.posted.map(\.title) == ["Memo failed", "Journal"])
+    #expect(await poster.posted.map(\.title) == ["Memo failed", "Note"])
     #expect(!notifier.noteState(of: event("a", .notified)))
   }
 
-  @Test("a parked memo announces on entering needs_route, and again as done once it has been routed")
-  func parkedThenDone() async {
+  @Test("an old memo parked at needs_route announces nothing; its later finish still does")
+  func parkedAnnouncesNothing() async {
     let poster = RecordingNotificationPoster()
     let server = Server()
     server.memos = [memo("a", .needsRoute)]
     let notifier = rig(poster, server)
-    #expect(notifier.noteState(of: event("a", .needsRoute)))
-    await notifier.memoDone(id: "a")
     #expect(!notifier.noteState(of: event("a", .needsRoute)))
-    _ = notifier.noteState(of: event("a", .routed))
+    await notifier.memoDone(id: "a")
+    #expect(await poster.posted.isEmpty)
     server.set("a", .notified)
     #expect(notifier.noteState(of: event("a", .notified)))
     await notifier.memoDone(id: "a")
-    #expect(await poster.posted.map(\.title) == ["Where should this go?", "Journal"])
+    #expect(await poster.posted.map(\.title) == ["Note"])
   }
 
   @Test("the event's state is not the answer: a memo that moved on by the time it is fetched is judged by the fetch")
@@ -364,7 +359,7 @@ struct MemoNotifierCatchUpTests {
     #expect(await poster.posted.isEmpty)
   }
 
-  @Test("a memo that finished, failed or parked while the stream was down is announced once on the next catch-up")
+  @Test("a memo that finished or failed while the stream was down is announced once on the next catch-up")
   func catchUpAnnouncesWhatHappenedMeanwhile() async {
     let poster = RecordingNotificationPoster()
     let server = Server()
@@ -378,12 +373,11 @@ struct MemoNotifierCatchUpTests {
     server.set("c", .failed)
     await notifier.catchUp()
     let posted = await poster.posted
-    #expect(Set(posted.map(\.memoID)) == ["a", "b", "c"] && posted.count == 3)
+    #expect(Set(posted.map(\.memoID)) == ["a", "c"] && posted.count == 2)
     await notifier.catchUp()
-    #expect(await poster.posted.count == 3)
+    #expect(await poster.posted.count == 2)
     // Whatever a banner says, never a word of what was spoken or answered.
     for banner in posted { #expect(!banner.title.contains("secret") && !banner.body.contains("secret")) }
-    #expect(posted.first { $0.memoID == "b" }?.body == "Open Iris to choose a route.")
     #expect(posted.first { $0.memoID == "c" }?.body == "Open Iris to retry it.")
   }
 

@@ -1,26 +1,6 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
-    "%@ is not available on the server right now. Pick another destination." : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@ ist auf dem Server gerade nicht verfügbar. Ein anderes Ziel wählen."
-          }
-        }
-      }
-    },
-    "%@ suggested — tap to decide" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@ vorgeschlagen — zum Entscheiden tippen"
-          }
-        }
-      }
-    },
     "%@ to stop" : {
       "localizations" : {
         "de" : {
@@ -263,6 +243,16 @@
         }
       }
     },
+    "Chat" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Chat"
+          }
+        }
+      }
+    },
     "Chat message" : {
       "comment" : "Outbox item kind",
       "localizations" : {
@@ -270,16 +260,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Chat-Nachricht"
-          }
-        }
-      }
-    },
-    "Chats" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Chats"
           }
         }
       }
@@ -444,22 +424,22 @@
         }
       }
     },
+    "Could not load the conversation" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Die Unterhaltung konnte nicht geladen werden"
+          }
+        }
+      }
+    },
     "Could not load the memo" : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Das Memo ließ sich nicht laden"
-          }
-        }
-      }
-    },
-    "Could not reach the server. Try again." : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Der Server ist nicht erreichbar. Erneut versuchen."
           }
         }
       }
@@ -636,12 +616,12 @@
         }
       }
     },
-    "Hermes threads" : {
+    "Hermes used: %@" : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Hermes-Threads"
+            "value" : "Hermes nutzte: %@"
           }
         }
       }
@@ -736,26 +716,6 @@
         }
       }
     },
-    "Needs a route" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Route erforderlich"
-          }
-        }
-      }
-    },
-    "Needs route" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Route nötig"
-          }
-        }
-      }
-    },
     "No memo selected" : {
       "localizations" : {
         "de" : {
@@ -792,6 +752,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Nicht verbunden"
+          }
+        }
+      }
+    },
+    "Not delivered" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nicht zugestellt"
           }
         }
       }
@@ -836,32 +806,12 @@
         }
       }
     },
-    "Only logged: nothing is sent again." : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Wird nur protokolliert: nichts wird erneut gesendet."
-          }
-        }
-      }
-    },
     "Open Iris" : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Iris öffnen"
-          }
-        }
-      }
-    },
-    "Open Iris to choose a route." : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Iris öffnen, um eine Route zu wählen."
           }
         }
       }
@@ -986,16 +936,6 @@
         }
       }
     },
-    "Record" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Aufnehmen"
-          }
-        }
-      }
-    },
     "Record a voice memo with one key. Iris transcribes it, sends it where it belongs and tells you when it is done." : {
       "localizations" : {
         "de" : {
@@ -1088,16 +1028,6 @@
         }
       }
     },
-    "Route…" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Route …"
-          }
-        }
-      }
-    },
     "Running" : {
       "localizations" : {
         "de" : {
@@ -1154,16 +1084,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Wähle ein Memo aus, um es zu lesen."
-          }
-        }
-      }
-    },
-    "Send it somewhere else" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Anderswohin senden"
           }
         }
       }
@@ -1320,16 +1240,6 @@
         }
       }
     },
-    "Suggested" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Vorgeschlagen"
-          }
-        }
-      }
-    },
     "Summarize" : {
       "localizations" : {
         "de" : {
@@ -1366,26 +1276,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Tab"
-          }
-        }
-      }
-    },
-    "Tabs" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Tabs"
-          }
-        }
-      }
-    },
-    "Tap to decide" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Zum Entscheiden tippen"
           }
         }
       }
@@ -1515,22 +1405,12 @@
         }
       }
     },
-    "This memo no longer exists." : {
+    "Threads" : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Dieses Memo gibt es nicht mehr."
-          }
-        }
-      }
-    },
-    "This memo was already routed. It has been refreshed." : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Dieses Memo wurde bereits geroutet. Es wurde aktualisiert."
+            "value" : "Threads"
           }
         }
       }
@@ -1738,16 +1618,6 @@
         }
       }
     },
-    "Where should this go?" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Wohin damit?"
-          }
-        }
-      }
-    },
     "Working…" : {
       "localizations" : {
         "de" : {
@@ -1774,56 +1644,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Du"
-          }
-        }
-      }
-    },
-    "blocked" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "blockiert"
-          }
-        }
-      }
-    },
-    "done" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "fertig"
-          }
-        }
-      }
-    },
-    "herdr has no live tab to send this to." : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "herdr hat keinen aktiven Tab, an den das gehen könnte."
-          }
-        }
-      }
-    },
-    "herdr is not reachable, so a tab cannot be picked." : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "herdr ist nicht erreichbar, daher lässt sich kein Tab wählen."
-          }
-        }
-      }
-    },
-    "idle" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "untätig"
           }
         }
       }
@@ -1868,32 +1688,12 @@
         }
       }
     },
-    "working" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "arbeitet"
-          }
-        }
-      }
-    },
     "−%lld %% faster" : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "−%lld %% schneller"
-          }
-        }
-      }
-    },
-    "Could not load the conversation" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Die Unterhaltung konnte nicht geladen werden"
           }
         }
       }

@@ -14,7 +14,7 @@ enum SendOutcome: Equatable, Sendable {
   case stalled(reason: String)
 }
 
-/// A typed memo or chat message handed to the outbox.
+/// A typed memo handed to the outbox.
 struct TextSubmission: Sendable, Equatable {
   var id: MemoID
   var mode: MemoMode
@@ -286,7 +286,7 @@ extension QueuedItem {
       case _ where queued.isDeletion: .removal
       case (.voice, nil): .voiceMemo
       case (.voice, _): .voiceReply
-      case (.text, nil): item.mode == MemoMode.chat.rawValue ? .chatMessage : .typedMemo
+      case (.text, nil): .typedMemo
       case (.text, _): .textReply
       }
     let state: State =

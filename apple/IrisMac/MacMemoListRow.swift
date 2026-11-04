@@ -3,7 +3,7 @@ import IrisUI
 import SwiftUI
 
 /// A memo in the main window's list: a compact two-line row on the system's selection highlight, no box. The headline (13 pt
-/// semibold, up to two lines), then a status dot with the route and the audio length in 11 pt; the time and the flags sit right.
+/// semibold, up to two lines), then a status dot with the kind and the audio length in 11 pt; the time and the flags sit right.
 struct MacMemoListRow: View {
   let memo: Memo
 

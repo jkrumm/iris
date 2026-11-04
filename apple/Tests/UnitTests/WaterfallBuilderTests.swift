@@ -74,13 +74,45 @@ struct WaterfallBuilderTests {
   func typedSkipsTranscribe() {
     let memo = MemoFactory.memo("t", state: .transcribed, typed: true)
     let rows = WaterfallBuilder.rows(for: MemoFactory.detail(memo), baselines: StepBaselines(), now: now)
-    #expect(rows.map(\.id) == ["route", "act", "summarize", "notify"])
+    #expect(rows.map(\.id) == ["act", "notify"])
   }
 
-  @Test("the act step is named for where it went")
+  @Test("the act step is named for what Hermes made of the memo, an old memo for its route")
   func actTitle() {
-    let hermes = WaterfallBuilder.rows(for: finished(), baselines: StepBaselines(), now: now)
-    #expect(hermes[2].title == "Act · Hermes")
+    let old = WaterfallBuilder.rows(for: finished(), baselines: StepBaselines(), now: now)
+    #expect(old[2].title == "Act · Hermes")
+    let issue = MemoFactory.memo("n", state: .notified, kind: "github issue", actions: ["github"])
+    let rows = WaterfallBuilder.rows(
+      for: MemoFactory.detail(
+        issue,
+        steps: [
+          MemoFactory.step(.transcribe, at: 0, for: 4), MemoFactory.step(.act, at: 4, for: 9),
+          MemoFactory.step(.notify, at: 13, for: 1),
+        ]),
+      baselines: StepBaselines(), now: now)
+    #expect(rows.map(\.id) == ["transcribe", "act", "notify"], "a new memo has no route or summarize row")
+    #expect(rows[1].title == "Act · Github issue")
+    let plain = MemoFactory.memo("p", state: .notified)
+    let transcript = WaterfallBuilder.rows(
+      for: MemoFactory.detail(plain, steps: [MemoFactory.step(.act, at: 0, for: 1)]), baselines: StepBaselines(),
+      now: now)
+    #expect(transcript[0].title == "Act", "no kind and no route: no suffix")
+  }
+
+  @Test("baselines are keyed by the memo's kind")
+  func baselinesPerKind() {
+    let stats = Stats(
+      days: 30, from: "a", to: "b",
+      stepMedians: [StatsStepMedian(step: .act, kind: "note", medianMs: 5_000, samples: 30)])
+    let note = MemoFactory.memo("n", state: .notified, kind: "Note")
+    let task = MemoFactory.memo("t", state: .notified, kind: "task")
+    let steps = [MemoFactory.step(.act, at: 0, for: 10)]
+    #expect(
+      WaterfallBuilder.rows(for: MemoFactory.detail(note, steps: steps), baselines: StepBaselines(stats), now: now)[0]
+        .badge?.tone == .slower)
+    #expect(
+      WaterfallBuilder.rows(for: MemoFactory.detail(task, steps: steps), baselines: StepBaselines(stats), now: now)[0]
+        .badge == nil)
   }
 
   @Test("faster and slower show only for a finished step with a baseline of enough samples")
@@ -88,15 +120,15 @@ struct WaterfallBuilderTests {
     let thin = Stats(
       days: 30, from: "a", to: "b",
       stepMedians: [
-        StatsStepMedian(step: .act, route: "hermes", medianMs: 5_000, samples: StepBaselines.minimumSamples - 1)
+        StatsStepMedian(step: .act, kind: nil, medianMs: 5_000, samples: StepBaselines.minimumSamples - 1)
       ])
     #expect(WaterfallBuilder.rows(for: finished(), baselines: StepBaselines(thin), now: now)[2].badge == nil)
 
     let enough = Stats(
       days: 30, from: "a", to: "b",
       stepMedians: [
-        StatsStepMedian(step: .act, route: "hermes", medianMs: 5_000, samples: StepBaselines.minimumSamples),
-        StatsStepMedian(step: .summarize, route: "hermes", medianMs: 3_000, samples: 30),
+        StatsStepMedian(step: .act, kind: nil, medianMs: 5_000, samples: StepBaselines.minimumSamples),
+        StatsStepMedian(step: .summarize, kind: nil, medianMs: 3_000, samples: 30),
       ])
     let rows = WaterfallBuilder.rows(for: finished(), baselines: StepBaselines(enough), now: now)
     #expect(rows[2].badge?.tone == .slower)

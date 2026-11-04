@@ -14,8 +14,7 @@ struct HistoryFiltersTests {
     "each quick filter becomes its query parameter",
     arguments: [
       (QuickFilter.favorites, ListMemosQuery(limit: 50, favorite: true)),
-      (.chats, ListMemosQuery(limit: 50, kind: .chat)),
-      (.needsRoute, ListMemosQuery(limit: 50, state: .needsRoute)),
+      (.threads, ListMemosQuery(limit: 50, thread: true)),
       (.archived, ListMemosQuery(limit: 50, archived: true)),
     ])
   func quickQuery(filter: QuickFilter, expected: ListMemosQuery) {
@@ -28,10 +27,30 @@ struct HistoryFiltersTests {
   func quickIsExclusive() {
     var filters = HistoryFilters()
     filters.toggle(.favorites)
-    filters.toggle(.chats)
-    #expect(filters.quick == .chats)
-    filters.toggle(.chats)
+    filters.toggle(.threads)
+    #expect(filters.quick == .threads)
+    filters.toggle(.threads)
     #expect(filters.quick == nil)
+    #expect(filters.query() == ListMemosQuery(limit: 50))
+  }
+
+  @Test("a kind goes through ?kind= and a second tap, in any case, clears it")
+  func kindQuery() {
+    var filters = HistoryFilters()
+    filters.toggleKind("github issue")
+    #expect(filters.query() == ListMemosQuery(limit: 50, kind: "github issue"))
+    #expect(filters.isSelected(kind: "Github Issue"))
+    filters.toggleKind("GITHUB ISSUE")
+    #expect(filters.query() == ListMemosQuery(limit: 50))
+  }
+
+  @Test("the thread narrowing sends thread=true without a chip")
+  func threadNarrowing() {
+    var filters = HistoryFilters()
+    filters.setThread(true)
+    #expect(filters.query() == ListMemosQuery(limit: 50, thread: true))
+    #expect(filters.isFiltering && filters.needsServerMatching)
+    filters.setThread(false)
     #expect(filters.query() == ListMemosQuery(limit: 50))
   }
 
@@ -39,12 +58,12 @@ struct HistoryFiltersTests {
   func combined() {
     var filters = HistoryFilters()
     filters.toggle(.favorites)
-    filters.toggleRoute(.hermes)
+    filters.toggleKind("task")
     filters.toggleState(.failed)
     filters.searchText = "  release "
     #expect(
       filters.query(cursor: "50")
-        == ListMemosQuery(limit: 50, cursor: "50", q: "release", route: .hermes, state: .failed, favorite: true))
+        == ListMemosQuery(limit: 50, cursor: "50", q: "release", state: .failed, favorite: true, kind: "task"))
     #expect(filters.sheetFilterCount == 2)
   }
 
@@ -56,32 +75,18 @@ struct HistoryFiltersTests {
     #expect(!filters.isFiltering)
   }
 
-  @Test("the Needs route chip and the sheet's Needs route state are one filter")
-  func needsRouteIsOneFilter() {
-    var filters = HistoryFilters()
-    filters.toggleState(.needsRoute)
-    #expect(filters.quick == .needsRoute)
-    #expect(filters.effectiveState == .needsRoute)
-    filters.toggleState(.failed)
-    #expect(filters.quick == nil)
-    #expect(filters.effectiveState == .failed)
-    filters.toggle(.needsRoute)
-    #expect(filters.effectiveState == .needsRoute)
-    #expect(filters.state == nil)
-  }
-
   @Test("reset clears the sheet and keeps the chip and the search")
   func resetSheet() {
     var filters = HistoryFilters()
     filters.toggle(.favorites)
-    filters.toggleRoute(.journal)
+    filters.toggleKind("note")
     filters.toggleState(.failed)
     filters.searchText = "plan"
     filters.resetSheet()
     #expect(filters.query() == ListMemosQuery(limit: 50, q: "plan", favorite: true))
   }
 
-  @Test("matches judges flags, route and state, and never shows an archived or deleted memo by default")
+  @Test("matches judges flags, kind and state, and never shows an archived or deleted memo by default")
   func matching() {
     var filters = HistoryFilters()
     #expect(filters.matches(MemoFactory.memo("a")))
@@ -92,9 +97,43 @@ struct HistoryFiltersTests {
 
     filters.clear()
     filters.toggle(.favorites)
-    filters.toggleRoute(.hermes)
-    #expect(filters.matches(MemoFactory.memo("a", route: "hermes", favorite: true)))
-    #expect(!filters.matches(MemoFactory.memo("a", route: "journal", favorite: true)))
-    #expect(!filters.matches(MemoFactory.memo("a", route: "hermes")))
+    filters.toggleKind("task")
+    #expect(filters.matches(MemoFactory.memo("a", favorite: true, kind: "task")))
+    #expect(filters.matches(MemoFactory.memo("a", favorite: true, kind: "Task")))
+    #expect(!filters.matches(MemoFactory.memo("a", favorite: true, kind: "note")))
+    #expect(!filters.matches(MemoFactory.memo("a", kind: "task")))
+  }
+
+  // MARK: Kind chips
+
+  private func memos(_ kinds: [String?]) -> [Memo] {
+    kinds.enumerated().map { MemoFactory.memo("m\($0.offset)", kind: $0.element) }
+  }
+
+  @Test("kinds are distinct case-insensitively, most frequent first, then by name; none adds nothing")
+  func kindDerivation() {
+    let filters = HistoryFilters()
+    let loaded = memos(["note", "Task", "task", nil, "answer", "TASK", "note", ""])
+    #expect(filters.kinds(in: loaded) == ["task", "note", "answer"])
+    #expect(filters.kinds(in: memos([nil, nil])).isEmpty)
+    #expect(filters.kinds(in: []).isEmpty)
+  }
+
+  @Test("the quick row shows at most five kinds")
+  func kindCap() {
+    let filters = HistoryFilters()
+    let loaded = memos(["a", "b", "c", "d", "e", "f", "g"])
+    #expect(filters.kinds(in: loaded, limit: HistoryFilters.kindChipLimit) == ["a", "b", "c", "d", "e"])
+    #expect(filters.kinds(in: loaded).count == 7)
+  }
+
+  @Test("a selected kind stays visible when it drops out of the loaded set or past the cap")
+  func selectedKindStays() {
+    var filters = HistoryFilters()
+    filters.toggleKind("zebra")
+    #expect(filters.kinds(in: memos(["a", "a", "b"]), limit: 5) == ["a", "b", "zebra"])
+    #expect(filters.kinds(in: []) == ["zebra"])
+    let many = memos(["a", "b", "c", "d", "e", "f", "zebra"])
+    #expect(filters.kinds(in: many, limit: 5) == ["a", "b", "c", "d", "zebra"])
   }
 }

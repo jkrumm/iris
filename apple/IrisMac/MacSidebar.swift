@@ -2,9 +2,8 @@ import IrisCore
 import IrisUI
 import SwiftUI
 
-/// The main window's sidebar: the library (everything, what needs a route, favorites, the archive) and the conversations (chats,
-/// Hermes threads). A selection narrows the list column through the root's scope. The only count is the one the popover's
-/// unfiltered list already holds: the open `needs_route` memos it pins.
+/// The main window's sidebar: the library (everything, favorites, the archive) and the conversations (threads). A selection narrows
+/// the list column through the root's scope.
 struct MacSidebar: View {
   @Bindable var root: MacCompositionRoot
 
@@ -12,14 +11,11 @@ struct MacSidebar: View {
     List(selection: $root.scope) {
       Section(String(localized: "Library", comment: "Sidebar section")) {
         row(.all, String(localized: "All memos", comment: "Sidebar item"), "tray.full")
-        row(.needsRoute, String(localized: "Needs route", comment: "Sidebar item"), "arrow.triangle.branch")
-          .badge(root.history.pinned.count)
         row(.favorites, String(localized: "Favorites", comment: "Sidebar item"), "star")
         row(.archive, String(localized: "Archive", comment: "Sidebar item"), "archivebox")
       }
       Section(String(localized: "Conversations", comment: "Sidebar section")) {
-        row(.chats, String(localized: "Chats", comment: "Sidebar item"), "bubble.left.and.bubble.right")
-        row(.hermesThreads, String(localized: "Hermes threads", comment: "Sidebar item"), "sparkles")
+        row(.threads, String(localized: "Threads", comment: "Sidebar item"), "bubble.left.and.bubble.right")
       }
     }
     .listStyle(.sidebar)

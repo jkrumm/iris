@@ -20,7 +20,7 @@ struct IrisApp: App {
         diagnostics: root.diagnostics, micRules: root.micRules, spokenReplies: root.spokenReplies,
         connectionForm: root.connectionForm, startsOnSettings: root.opensOnSettings,
         makeDetail: root.detailModel(for:), makeComposer: root.composerModel(for:),
-        makeThread: root.threadModel(for:), makeRouteAnswer: root.routeAnswerModel(for:)
+        makeThread: root.threadModel(for:)
       )
       .environment(\.replyImageStore, root.replyImages)
       .task { DeviceLog.shared.sceneChanged(to: scenePhase.telemetryName) }

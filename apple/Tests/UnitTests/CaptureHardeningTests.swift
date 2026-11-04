@@ -66,7 +66,7 @@ struct UploaderHardeningTests {
 
   private func submission(_ n: UInt8 = 1) -> TextSubmission {
     TextSubmission(
-      id: MemoID(uuid: (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, n)), mode: .auto, text: "later",
+      id: MemoID(uuid: (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, n)), mode: .hermes, text: "later",
       threadId: nil, startedAt: MemoFactory.now)
   }
 
@@ -87,7 +87,7 @@ struct UploaderHardeningTests {
   func missingSegmentsAreNamed() async throws {
     let id = MemoID()
     _ = try await client.createMemo(
-      CreateMemoRequest(id: id.wireID, mode: .auto, startedAt: MemoFactory.now, threadId: nil))
+      CreateMemoRequest(id: id.wireID, mode: .hermes, startedAt: MemoFactory.now, threadId: nil))
     try await client.uploadSegment(memoID: id.wireID, index: 0, data: Data("a".utf8))
     let uploader = APIOutboxUploader(client: client, created: CreatedMemoLog())
 
@@ -168,7 +168,7 @@ struct LiveActivityFollowerTests {
     let coordinator = TakeLiveActivityCoordinator(activity: activity, stack: rig.stack, created: rig.created)
     let session = try await rig.stack.session()
     let id = try await session.start(TakeRequest(mode: "auto", title: "Voice memo"))
-    await coordinator.begin(memoID: id, mode: .auto, startedAt: MemoFactory.now)
+    await coordinator.begin(memoID: id, mode: .hermes, startedAt: MemoFactory.now)
 
     await coordinator.stop()
     try await Task.sleep(for: .milliseconds(200))
@@ -194,7 +194,7 @@ struct OverlappingTakeTests {
     await client.enqueueFailure(.transport(.notConnectedToInternet), for: .createMemo)
 
     let first = try await session.start(TakeRequest(mode: "auto", title: "Voice memo"))
-    await coordinator.begin(memoID: first, mode: .auto, startedAt: MemoFactory.now)
+    await coordinator.begin(memoID: first, mode: .hermes, startedAt: MemoFactory.now)
     await rig.capture.recordWithoutClock(seconds: 3)
     _ = try await session.stop()
     #expect(await waitFor { await activity.phases(of: first.wireID).contains(.uploading) })
@@ -207,7 +207,7 @@ struct OverlappingTakeTests {
       })
 
     let second = try await session.start(TakeRequest(mode: "auto", title: "Voice memo"))
-    await coordinator.begin(memoID: second, mode: .auto, startedAt: MemoFactory.now)
+    await coordinator.begin(memoID: second, mode: .hermes, startedAt: MemoFactory.now)
     #expect(await activity.phases(of: second.wireID).allSatisfy { $0 == .recording })
 
     // Back online: the first memo goes through while the second take is still recording.
@@ -233,7 +233,7 @@ struct OverlappingTakeTests {
     let coordinator = TakeLiveActivityCoordinator(activity: activity, stack: rig.stack, created: rig.created)
     let session = try await rig.stack.session()
     let id = try await session.start(TakeRequest(mode: "auto", title: "Voice memo"))
-    await coordinator.begin(memoID: id, mode: .auto, startedAt: MemoFactory.now)
+    await coordinator.begin(memoID: id, mode: .hermes, startedAt: MemoFactory.now)
 
     await rig.capture.recorder.fail(reason: "segment write failed")
     await coordinator.finished()

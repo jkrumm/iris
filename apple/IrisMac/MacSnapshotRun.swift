@@ -22,9 +22,8 @@
 
     let directory: URL
     let root: MacCompositionRoot
-    /// The sample memos the main window is shown on: one with a reply, one that needs a route, a chat thread.
+    /// The sample memos the main window is shown on: one with a reply, a chat thread.
     let replyMemoID: String
-    let needsRouteMemoID = "2f8d5b06-9c1e-4a73-b4d8-0e6a3c7f1d95"
     let threadMemoID = SampleData.chatThreadID
 
     init?(arguments: [String], root: MacCompositionRoot, replyMemoID: String = "0b6d1f4e-3a52-4c1d-9f0e-7a2c5d8e1b34") {
@@ -57,16 +56,13 @@
       NSApp.terminate(nil)
     }
 
-    /// The main window with a memo that has a reply, one that needs a route, and a chat thread selected.
+    /// The main window with a memo that has a reply and a chat thread selected.
     private func writeMainWindow() async {
       root.show(replyMemoID, source: "snapshot")
       try? await Task.sleep(for: .seconds(3))
       resize(windowTitled: Self.mainTitle, width: Theme.Spacing.windowWidth, height: Theme.Spacing.windowHeight)
       try? await Task.sleep(for: .seconds(1))
       write(windowTitled: Self.mainTitle, as: "window-all")
-      root.selectedMemoID = needsRouteMemoID
-      try? await Task.sleep(for: .seconds(2))
-      write(windowTitled: Self.mainTitle, as: "window-needsroute")
       root.selectedMemoID = threadMemoID
       try? await Task.sleep(for: .seconds(2))
       write(windowTitled: Self.mainTitle, as: "window-thread")
@@ -78,7 +74,7 @@
       try? await Task.sleep(for: .seconds(2))
       write(windowTitled: Self.mainTitle, as: "window-thread-failed")
       root.selectedMemoID = replyMemoID
-      root.scope = .needsRoute
+      root.scope = .threads
       try? await Task.sleep(for: .seconds(2))
       write(windowTitled: Self.mainTitle, as: "window-filtered")
       root.scope = .all

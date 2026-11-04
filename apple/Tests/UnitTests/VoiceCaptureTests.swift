@@ -14,7 +14,7 @@ struct VoiceCaptureTests {
   private func seedThread() async {
     await client.seed(
       ThreadDetail(
-        thread: MemoThread(id: "t", kind: .hermes, title: "T", createdAt: MemoFactory.now, updatedAt: MemoFactory.now),
+        thread: MemoThread(id: "t", kind: "hermes", title: "T", createdAt: MemoFactory.now, updatedAt: MemoFactory.now),
         memos: [], messages: []))
   }
 

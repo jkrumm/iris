@@ -1,5 +1,6 @@
 import Foundation
 import IrisCapture
+import IrisCore
 import Observation
 import os
 
@@ -111,12 +112,24 @@ final class RecordingPanelModel {
 
   // MARK: Intents
 
-  /// The hotkey: start when idle (or when a message is up), stop when recording; nothing while a start or stop runs.
+  /// The hotkey: start a Hermes take when idle (or when a message is up), stop when recording; nothing while a start or stop
+  /// runs.
   func toggle() {
     onCommand?("hotkey")
+    run(mode: .hermes)
+  }
+
+  /// The popover's buttons: start a take in `mode` when idle (or when a message is up), stop when recording (either button
+  /// stops the running take, whatever its mode); nothing while a start or stop runs.
+  func toggle(mode: MemoMode) {
+    onCommand?("panel")
+    run(mode: mode)
+  }
+
+  private func run(mode: MemoMode) {
     perform { model in
       switch model.phase {
-      case .idle, .failed: await model.begin()
+      case .idle, .failed: await model.begin(mode: mode)
       case .recording: await model.finish()
       case .starting, .stopping: break
       }
@@ -195,7 +208,7 @@ final class RecordingPanelModel {
     }
   }
 
-  private func begin() async {
+  private func begin(mode: MemoMode) async {
     guard isConfigured() else {
       phase = .failed(.notConfigured)
       return
@@ -207,7 +220,7 @@ final class RecordingPanelModel {
       phase = .failed(.microphoneDenied)
       return
     }
-    let (outcome, operation) = await boundedStart(requestsPermission: access == .undetermined)
+    let (outcome, operation) = await boundedStart(mode: mode, requestsPermission: access == .undetermined)
     switch outcome {
     case .started(let startedAt):
       // Nothing between here and `.recording` suspends: Stop and Cancel are live from the moment the take shows.
@@ -254,7 +267,7 @@ final class RecordingPanelModel {
   /// The permission question (when open) and the engine start, raced against the deadline and Cancel. The operation runs
   /// unawaited: a call that never returns is left behind (cancelled), never waited for. It first waits for the cleanup of an
   /// earlier abandoned start, so the engine is never started while that start's late `cancel` is still to come.
-  private func boundedStart(requestsPermission: Bool) async -> (StartRace.Outcome, Task<Bool, Never>) {
+  private func boundedStart(mode: MemoMode, requestsPermission: Bool) async -> (StartRace.Outcome, Task<Bool, Never>) {
     let race = StartRace()
     startRace = race
     let engine = engine
@@ -276,7 +289,7 @@ final class RecordingPanelModel {
         race.arm(engineDeadline)
       }
       do {
-        race.resolve(.started(try await engine.start()))
+        race.resolve(.started(try await engine.start(mode: mode)))
       } catch {
         // A Cancel or the deadline ends the start by cancelling this task: that is not an error.
         if race.outcome == nil {

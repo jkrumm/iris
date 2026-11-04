@@ -45,7 +45,7 @@ struct SettingsModelTests {
     #expect(empty.queue.isEmpty)
 
     let item = QueuedItem(
-      id: "q1", kind: .chatMessage, title: "Which index?", queuedAt: MemoFactory.now, state: .waiting)
+      id: "q1", kind: .typedMemo, title: "Which index?", queuedAt: MemoFactory.now, state: .waiting)
     let filled = SettingsModel(client: client, queue: StaticQueue(items: [item]))
     await filled.load()
     #expect(filled.queue == [item])

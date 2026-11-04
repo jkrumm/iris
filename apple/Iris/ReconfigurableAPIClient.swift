@@ -59,9 +59,6 @@ nonisolated final class ReconfigurableAPIClient: APIClient {
   func retryMemo(id: String, request: RetryMemoRequest) async throws -> Memo {
     try await current().retryMemo(id: id, request: request)
   }
-  func routeMemo(id: String, request: RouteRequest) async throws -> Memo {
-    try await current().routeMemo(id: id, request: request)
-  }
   func setFlags(id: String, done: Bool?, favorite: Bool?, archived: Bool?) async throws -> Memo {
     try await current().setFlags(id: id, done: done, favorite: favorite, archived: archived)
   }
@@ -80,7 +77,6 @@ nonisolated final class ReconfigurableAPIClient: APIClient {
   func setActivityToken(memoID: String, request: ActivityTokenRequest) async throws {
     try await current().setActivityToken(memoID: memoID, request: request)
   }
-  func herd() async throws -> Herd { try await current().herd() }
   func stats(_ query: StatsQuery) async throws -> Stats { try await current().stats(query) }
 
   func events() -> AsyncThrowingStream<ServerEvent, any Error> {

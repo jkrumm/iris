@@ -3,11 +3,10 @@ import IrisCore
 import IrisUI
 
 extension Memo {
-  /// A memo that belongs to a conversation worth a thread view: every chat, and any turn that continues a thread. A
-  /// Hermes memo that ran in its own session (`threadId` equal to its id) is a single answer and keeps the plain detail.
+  /// A memo that belongs to a thread opens its conversation: every Hermes memo ran in a session, so the thread view is
+  /// the one way to read it. A memo without a thread (a transcript, one that failed before `act`) keeps the plain detail.
   nonisolated var opensThread: Bool {
-    guard let threadId, !isDeleted else { return false }
-    return mode == .chat || threadId != id
+    threadId != nil && !isDeleted
   }
 
   /// The route History pushes for this memo, when it opens a thread.

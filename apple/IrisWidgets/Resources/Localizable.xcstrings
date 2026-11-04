@@ -131,6 +131,16 @@
         }
       }
     },
+    "Open Iris and start a voice memo that is only transcribed." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Iris öffnen und ein Sprachmemo starten, das nur transkribiert wird."
+          }
+        }
+      }
+    },
     "Open Iris and start a voice memo." : {
       "localizations" : {
         "de" : {
@@ -271,6 +281,16 @@
         }
       }
     },
+    "Start a voice memo that is only transcribed." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ein Sprachmemo starten, das nur transkribiert wird."
+          }
+        }
+      }
+    },
     "Start a voice memo." : {
       "localizations" : {
         "de" : {
@@ -327,6 +347,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Transkribieren"
+          }
+        }
+      }
+    },
+    "Transcribe with Iris" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mit Iris transkribieren"
           }
         }
       }

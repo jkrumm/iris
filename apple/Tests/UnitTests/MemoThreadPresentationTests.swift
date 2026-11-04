@@ -13,14 +13,12 @@ struct MemoThreadPresentationTests {
     return memo
   }
 
-  @Test("a chat opens its thread, a continued turn opens its thread, a Hermes memo in its own session does not")
+  @Test("a memo with a thread opens it, one without (a transcript) or a deleted one does not")
   func opensThread() {
-    #expect(memo("a", mode: .chat, threadId: "a").opensThread)
+    #expect(memo("a", mode: .hermes, threadId: "a").opensThread)
     #expect(memo("b", mode: .hermes, threadId: "a").opensThread)
-    #expect(memo("c", mode: .tab, threadId: "a").opensThread)
-    #expect(!memo("a", mode: .hermes, threadId: "a").opensThread)
-    #expect(!memo("d", mode: .chat, threadId: nil).opensThread)
-    #expect(!memo("e", mode: .chat, threadId: "e", deleted: true).opensThread)
+    #expect(!memo("d", mode: .transcribe, threadId: nil).opensThread)
+    #expect(!memo("e", mode: .hermes, threadId: "e", deleted: true).opensThread)
   }
 
   @Test("the route carries the thread id and the memo's headline as the title until the thread loads")
@@ -28,7 +26,7 @@ struct MemoThreadPresentationTests {
     var thread = memo("b", mode: .hermes, threadId: "a")
     thread.summary = MemoSummary(headline: "Headline", detail: "d", spoken: "s")
     #expect(thread.threadRoute == ThreadRoute(id: "a", title: "Headline"))
-    #expect(memo("x", mode: .chat, threadId: nil).threadRoute == nil)
+    #expect(memo("x", mode: .hermes, threadId: nil).threadRoute == nil)
   }
 
   @Test("the media source names a reply's image under the memo, authenticated and kept for good")

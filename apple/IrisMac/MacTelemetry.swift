@@ -112,7 +112,6 @@ extension Announcement {
   var telemetryName: String {
     switch self {
     case .done: "done"
-    case .needsRoute: "needsRoute"
     case .failed: "failed"
     }
   }

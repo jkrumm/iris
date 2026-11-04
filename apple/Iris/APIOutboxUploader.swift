@@ -21,7 +21,7 @@ nonisolated struct APIOutboxUploader: SegmentUploader {
   var keeping: (any SegmentFileStore)?
   func create(_ item: OutboxItem) async throws {
     let id = item.memoID.wireID
-    let mode = MemoMode(rawValue: item.mode) ?? .auto
+    let mode = MemoMode(rawValue: item.mode) ?? .hermes
     do {
       let memo =
         switch item.kind {

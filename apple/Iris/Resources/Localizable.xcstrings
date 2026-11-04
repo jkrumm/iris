@@ -31,27 +31,6 @@
         }
       }
     },
-    "%@ is not available on the server right now. Pick another destination." : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@ ist auf dem Server gerade nicht verfügbar. Ein anderes Ziel wählen."
-          }
-        }
-      }
-    },
-    "%@ suggested — tap to decide" : {
-      "comment" : "History row hint on a memo that needs a route: the decision model's guess, then the prompt",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@ vorgeschlagen — zum Entscheiden tippen"
-          }
-        }
-      }
-    },
     "%@ · %@ of audio" : {
       "localizations" : {
         "de" : {
@@ -342,16 +321,6 @@
         }
       }
     },
-    "%lld tabs live" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%lld Tabs aktiv"
-          }
-        }
-      }
-    },
     "+%lld %% slower" : {
       "localizations" : {
         "de" : {
@@ -382,72 +351,12 @@
         }
       }
     },
-    "1 tab live" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "1 Tab aktiv"
-          }
-        }
-      }
-    },
-    "A conversation with your agent" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Eine Unterhaltung mit dem Agenten"
-          }
-        }
-      }
-    },
-    "A mode you pick wins over spoken words. With neither, Iris decides, and asks you when it is under 80 %% sure." : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Ein gewählter Modus hat Vorrang vor gesprochenen Wörtern. Ohne beides entscheidet Iris und fragt nach, wenn die Sicherheit unter 80 %% liegt."
-          }
-        }
-      }
-    },
-    "A note in the brain inbox" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Eine Notiz im Brain-Eingang"
-          }
-        }
-      }
-    },
-    "A plain conversation: an answer, no todo, no journal." : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Eine einfache Unterhaltung: eine Antwort, keine Aufgabe, kein Journal."
-          }
-        }
-      }
-    },
     "A reset renamed the unreadable outbox file instead of deleting it. Share it to have the queue looked at." : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Beim Zurücksetzen wurde die unlesbare Warteschlangen-Datei umbenannt statt gelöscht. Teilen, um die Warteschlange prüfen zu lassen."
-          }
-        }
-      }
-    },
-    "A route you have connected to before keeps its rule. Change it here without being connected to it." : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Eine Route, mit der schon einmal eine Verbindung bestand, behält ihre Regel. Sie lässt sich hier ändern, ohne verbunden zu sein."
           }
         }
       }
@@ -492,32 +401,12 @@
         }
       }
     },
-    "AirPods microphone" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "AirPods-Mikrofon"
-          }
-        }
-      }
-    },
     "Another reply is still loading. Try again in a moment." : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Eine andere Antwort lädt noch. In einem Moment erneut versuchen."
-          }
-        }
-      }
-    },
-    "Appended to today's journal." : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Wird an das heutige Journal angehängt."
           }
         }
       }
@@ -552,42 +441,12 @@
         }
       }
     },
-    "Audio routes" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Audiorouten"
-          }
-        }
-      }
-    },
-    "Auto" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Auto"
-          }
-        }
-      }
-    },
     "Automatic" : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Automatisch"
-          }
-        }
-      }
-    },
-    "Available" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Verfügbar"
           }
         }
       }
@@ -683,52 +542,12 @@
         }
       }
     },
-    "Chat message" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Chat-Nachricht"
-          }
-        }
-      }
-    },
-    "Chats" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Chats"
-          }
-        }
-      }
-    },
     "Checking…" : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Wird geprüft …"
-          }
-        }
-      }
-    },
-    "Choose a route…" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Route wählen …"
-          }
-        }
-      }
-    },
-    "Choose mode…" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Modus wählen …"
           }
         }
       }
@@ -759,16 +578,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Verbunden"
-          }
-        }
-      }
-    },
-    "Connected now" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Jetzt verbunden"
           }
         }
       }
@@ -843,16 +652,6 @@
         }
       }
     },
-    "Correct the route" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Route korrigieren"
-          }
-        }
-      }
-    },
     "Cost · %lld d" : {
       "localizations" : {
         "de" : {
@@ -909,16 +708,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Das Memo ließ sich nicht einreihen. Der Text ist noch da."
-          }
-        }
-      }
-    },
-    "Could not reach the server. Try again." : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Der Server ist nicht erreichbar. Erneut versuchen."
           }
         }
       }
@@ -1039,16 +828,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Ziel"
-          }
-        }
-      }
-    },
-    "Destinations" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Ziele"
           }
         }
       }
@@ -1193,16 +972,6 @@
         }
       }
     },
-    "Herdr tab" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Herdr-Tab"
-          }
-        }
-      }
-    },
     "Hermes" : {
       "localizations" : {
         "de" : {
@@ -1259,16 +1028,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Iris konnte die Aufnahme nicht beenden."
-          }
-        }
-      }
-    },
-    "Iris decides where it goes, and asks when it is unsure." : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Iris entscheidet, wohin es geht, und fragt bei Unsicherheit nach."
           }
         }
       }
@@ -1343,36 +1102,6 @@
         }
       }
     },
-    "Live tabs" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Aktive Tabs"
-          }
-        }
-      }
-    },
-    "Log correction" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Korrektur festhalten"
-          }
-        }
-      }
-    },
-    "Looking for live tabs…" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Suche aktive Tabs …"
-          }
-        }
-      }
-    },
     "Memo" : {
       "localizations" : {
         "de" : {
@@ -1413,52 +1142,12 @@
         }
       }
     },
-    "Memos per route" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Memos pro Route"
-          }
-        }
-      }
-    },
-    "Memos per route. %@" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Memos pro Route. %@"
-          }
-        }
-      }
-    },
     "Microphone" : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Mikrofon"
-          }
-        }
-      }
-    },
-    "Needs a route" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Route erforderlich"
-          }
-        }
-      }
-    },
-    "Needs route" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Route nötig"
           }
         }
       }
@@ -1543,16 +1232,6 @@
         }
       }
     },
-    "Not set up" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Nicht eingerichtet"
-          }
-        }
-      }
-    },
     "Nothing is sent." : {
       "localizations" : {
         "de" : {
@@ -1593,16 +1272,6 @@
         }
       }
     },
-    "Now connected · %@" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Jetzt verbunden · %@"
-          }
-        }
-      }
-    },
     "OK" : {
       "localizations" : {
         "de" : {
@@ -1623,12 +1292,12 @@
         }
       }
     },
-    "Only the transcript: nothing is routed, answered or summarized." : {
+    "Open Iris and start a voice memo that is only transcribed." : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Nur das Transkript: nichts wird geroutet, beantwortet oder zusammengefasst."
+            "value" : "Iris öffnen und ein Sprachmemo starten, das nur transkribiert wird."
           }
         }
       }
@@ -1649,6 +1318,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Einstellungen öffnen"
+          }
+        }
+      }
+    },
+    "Opens the composer to type a memo." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Öffnet den Editor, um ein Memo zu tippen."
           }
         }
       }
@@ -1773,16 +1452,6 @@
         }
       }
     },
-    "Read from herdr each time. A tab that closes before the memo arrives sends it back for a new answer." : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Wird jedes Mal aus herdr gelesen. Schließt ein Tab, bevor das Memo ankommt, geht es zur neuen Entscheidung zurück."
-          }
-        }
-      }
-    },
     "Received" : {
       "localizations" : {
         "de" : {
@@ -1809,36 +1478,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Aufnahme wird empfangen …"
-          }
-        }
-      }
-    },
-    "Record" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Aufnehmen"
-          }
-        }
-      }
-    },
-    "Record as" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Aufnehmen als"
-          }
-        }
-      }
-    },
-    "Record mode" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Aufnahmemodus"
           }
         }
       }
@@ -1963,42 +1602,12 @@
         }
       }
     },
-    "Route to %@…" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "An %@ routen …"
-          }
-        }
-      }
-    },
     "Routed" : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Geroutet"
-          }
-        }
-      }
-    },
-    "Routes" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Routen"
-          }
-        }
-      }
-    },
-    "Route…" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Route …"
           }
         }
       }
@@ -2043,16 +1652,6 @@
         }
       }
     },
-    "Say first" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Zuerst sagen"
-          }
-        }
-      }
-    },
     "Search transcripts" : {
       "localizations" : {
         "de" : {
@@ -2063,42 +1662,12 @@
         }
       }
     },
-    "Seen before" : {
+    "Send to Hermes" : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Schon gesehen"
-          }
-        }
-      }
-    },
-    "Send" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Senden"
-          }
-        }
-      }
-    },
-    "Send a memo here" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Memo hierhin senden"
-          }
-        }
-      }
-    },
-    "Send it to" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Senden an"
+            "value" : "An Hermes senden"
           }
         }
       }
@@ -2113,12 +1682,12 @@
         }
       }
     },
-    "Sent to Hermes as an instruction." : {
+    "Sends the text as a memo that is only transcribed." : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Wird als Anweisung an Hermes gesendet."
+            "value" : "Sendet den Text als Memo, das nur transkribiert wird."
           }
         }
       }
@@ -2245,40 +1814,6 @@
         }
       }
     },
-    "Stacked by route, per day. Today is partial." : {
-      "comment" : "Stats chart subtitle",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Pro Tag nach Route gestapelt. Heute ist unvollständig."
-          }
-        },
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Stacked by route, per day. Today is partial."
-          }
-        }
-      }
-    },
-    "Stacked by route, per week. The current week is partial." : {
-      "comment" : "Stats chart subtitle",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Pro Woche nach Route gestapelt. Die aktuelle Woche ist unvollständig."
-          }
-        },
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Stacked by route, per week. The current week is partial."
-          }
-        }
-      }
-    },
     "Start a voice memo." : {
       "localizations" : {
         "de" : {
@@ -2289,12 +1824,22 @@
         }
       }
     },
-    "Start recording" : {
+    "Starts a voice memo for Hermes." : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Aufnahme starten"
+            "value" : "Startet ein Sprachmemo für Hermes."
+          }
+        }
+      }
+    },
+    "Starts a voice memo that is only transcribed." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Startet ein Sprachmemo, das nur transkribiert wird."
           }
         }
       }
@@ -2376,16 +1921,6 @@
         }
       }
     },
-    "Suggested: %@" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Vorschlag: %@"
-          }
-        }
-      }
-    },
     "Summarize" : {
       "localizations" : {
         "de" : {
@@ -2426,32 +1961,12 @@
         }
       }
     },
-    "Tabs" : {
+    "Text" : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Tabs"
-          }
-        }
-      }
-    },
-    "Tap to decide" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Zum Entscheiden tippen"
-          }
-        }
-      }
-    },
-    "Text typed into a running agent tab" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Text, der in einen laufenden Agenten-Tab getippt wird"
+            "value" : "Text"
           }
         }
       }
@@ -2479,16 +1994,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "That was too short to send"
-          }
-        }
-      }
-    },
-    "The memo was already sent. This is only logged, to teach Iris; nothing is sent again." : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Das Memo wurde bereits gesendet. Die Korrektur wird nur festgehalten, damit Iris dazulernt; es wird nichts erneut gesendet."
           }
         }
       }
@@ -2593,42 +2098,12 @@
         }
       }
     },
-    "The server cannot reach herdr." : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Der Server erreicht herdr nicht."
-          }
-        }
-      }
-    },
     "The server did not accept this device's token. Check it below." : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Der Server hat das Token dieses Geräts nicht akzeptiert. Es unten prüfen."
-          }
-        }
-      }
-    },
-    "The server has no Hermes connection." : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Der Server hat keine Hermes-Verbindung."
-          }
-        }
-      }
-    },
-    "The server has no brain checkout, so there is nowhere to write a note." : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Der Server hat kein Brain-Checkout, daher gibt es keinen Ort für eine Notiz."
           }
         }
       }
@@ -2653,62 +2128,12 @@
         }
       }
     },
-    "The transcript is typed into the agent pane of one live herdr tab and sent with Enter. Which tab is decided per memo; the tab's answer stays in the terminal." : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Das Transkript wird in den Agenten-Bereich eines aktiven herdr-Tabs getippt und mit Enter gesendet. Welcher Tab, wird je Memo entschieden; die Antwort des Tabs bleibt im Terminal."
-          }
-        }
-      }
-    },
-    "The transcript is written as a note into the brain inbox, then committed and pushed. There is no reply, so the memo ends with the note." : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Das Transkript wird als Notiz in den Brain-Eingang geschrieben, committet und gepusht. Es gibt keine Antwort, das Memo endet mit der Notiz."
-          }
-        }
-      }
-    },
-    "The transcript starts a new Hermes session and the answer comes back as the reply. A chat memo, or a reply inside a thread, continues the same session." : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Das Transkript startet eine neue Hermes-Sitzung, die Antwort kommt als Antwort zurück. Ein Chat-Memo oder eine Antwort in einer Unterhaltung setzt dieselbe Sitzung fort."
-          }
-        }
-      }
-    },
     "This memo has no reply to play." : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Dieses Memo hat keine Antwort zum Abspielen."
-          }
-        }
-      }
-    },
-    "This memo no longer exists." : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Dieses Memo gibt es nicht mehr."
-          }
-        }
-      }
-    },
-    "This memo was already routed. It has been refreshed." : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Dieses Memo wurde bereits geroutet. Es wurde aktualisiert."
           }
         }
       }
@@ -2783,6 +2208,16 @@
         }
       }
     },
+    "Transcribe with Iris" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mit Iris transkribieren"
+          }
+        }
+      }
+    },
     "Transcribed" : {
       "localizations" : {
         "de" : {
@@ -2823,16 +2258,6 @@
         }
       }
     },
-    "Typed into a running agent tab." : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Wird in einen laufenden Agenten-Tab getippt."
-          }
-        }
-      }
-    },
     "Typed memo" : {
       "localizations" : {
         "de" : {
@@ -2843,12 +2268,12 @@
         }
       }
     },
-    "Typed memos take the same route as spoken ones: same history, same result." : {
+    "Typed memos land in the same history as spoken ones." : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Getippte Memos nehmen dieselbe Route wie gesprochene: derselbe Verlauf, dasselbe Ergebnis."
+            "value" : "Getippte Memos landen im selben Verlauf wie gesprochene."
           }
         }
       }
@@ -2889,16 +2314,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Nicht erreichbar"
-          }
-        }
-      }
-    },
-    "Unrouted" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Ohne Route"
           }
         }
       }
@@ -2993,62 +2408,12 @@
         }
       }
     },
-    "Where a memo can be sent. The server decides what exists; say a destination first, pick a mode, or let Iris choose when it is sure enough. Otherwise the memo waits for your answer." : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Wohin ein Memo gehen kann. Der Server bestimmt, was es gibt; zuerst ein Ziel sagen, einen Modus wählen oder Iris entscheiden lassen, wenn sie sicher genug ist. Sonst wartet das Memo auf eine Antwort."
-          }
-        }
-      }
-    },
-    "Where memos can go, and the microphone per audio route" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Wohin Memos gehen können, und das Mikrofon je Audioroute"
-          }
-        }
-      }
-    },
-    "Where should this go?" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Wohin damit?"
-          }
-        }
-      }
-    },
-    "Which microphone recording starts with, per audio route such as the car's Bluetooth. Kept on this device." : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Mit welchem Mikrofon die Aufnahme startet, je Audioroute, etwa das Bluetooth im Auto. Auf diesem Gerät gespeichert."
-          }
-        }
-      }
-    },
     "Working…" : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Wird bearbeitet …"
-          }
-        }
-      }
-    },
-    "Wrong route?" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Falsche Route?"
           }
         }
       }
@@ -3069,66 +2434,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Ø %@ / Wo."
-          }
-        }
-      }
-    },
-    "blocked" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "blockiert"
-          }
-        }
-      }
-    },
-    "done" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "fertig"
-          }
-        }
-      }
-    },
-    "herdr has no live tab to send this to." : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "herdr hat keinen aktiven Tab, an den das gehen könnte."
-          }
-        }
-      }
-    },
-    "herdr is not reachable, so a tab cannot be picked." : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "herdr ist nicht erreichbar, daher lässt sich kein Tab wählen."
-          }
-        }
-      }
-    },
-    "iPhone microphone" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "iPhone-Mikrofon"
-          }
-        }
-      }
-    },
-    "idle" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "untätig"
           }
         }
       }
@@ -3163,22 +2468,112 @@
         }
       }
     },
-    "working" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "arbeitet"
-          }
-        }
-      }
-    },
     "−%lld %% faster" : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "−%lld %% schneller"
+          }
+        }
+      }
+    },
+    "Kind" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Art"
+          }
+        }
+      }
+    },
+    "Hermes used: %@" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hermes nutzte: %@"
+          }
+        }
+      }
+    },
+    "Thread" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Unterhaltung"
+          }
+        }
+      }
+    },
+    "Memos per kind" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Memos pro Art"
+          }
+        }
+      }
+    },
+    "Memos per kind. %@" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Memos pro Art. %@"
+          }
+        }
+      }
+    },
+    "Stacked by kind, per day. Today is partial." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pro Tag nach Art gestapelt. Heute ist unvollständig."
+          }
+        }
+      }
+    },
+    "Stacked by kind, per week. The current week is partial." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pro Woche nach Art gestapelt. Die laufende Woche ist unvollständig."
+          }
+        }
+      }
+    },
+    "Other" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sonstige"
+          }
+        }
+      }
+    },
+    "Not delivered" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nicht zugestellt"
+          }
+        }
+      }
+    },
+    "Threads" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Threads"
           }
         }
       }

@@ -1,14 +1,13 @@
 import Foundation
 import IrisCapture
 
-/// One whole memo or chat message that is waiting to be sent (round 2: the outbox is a queue of items, not of
+/// One whole memo that is waiting to be sent (round 2: the outbox is a queue of items, not of
 /// segments). `OutboxService` fills it in from the capture outbox; ``QueuedItemSource`` is the seam.
 nonisolated struct QueuedItem: Identifiable, Equatable, Sendable {
   enum Kind: Equatable, Sendable {
     case voiceMemo
     case voiceReply
     case typedMemo
-    case chatMessage
     case textReply
     /// A discarded take whose memo the server still has: its `DELETE` is queued and shows until it goes through.
     case removal
