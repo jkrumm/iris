@@ -16,7 +16,6 @@ struct SettingsView: View {
     NavigationStack {
       ScrollView {
         VStack(alignment: .leading, spacing: Theme.Spacing.gutter) {
-          ScreenTitle(String(localized: "Settings", comment: "Title of the Settings tab"))
           diagnosticsLink
           connection
           outbox
@@ -25,6 +24,7 @@ struct SettingsView: View {
           microphone
         }
         .padding(.horizontal, Theme.Spacing.screenMargin)
+        .padding(.top, Theme.Spacing.sectionTop)
       }
       .accessibilityIdentifier("settings.view")
       // The Record accessory floats over the scroll's end: the last footnote stops above it.
@@ -393,25 +393,7 @@ extension QueuedItem.State {
   }
 }
 
-// MARK: Screen chrome shared by Stats, Settings and Diagnostics
-
-/// The large title the mockups draw right under the status bar (a hidden navigation bar leaves no title slot).
-struct ScreenTitle: View {
-  private let title: String
-
-  init(_ title: String) {
-    self.title = title
-  }
-
-  var body: some View {
-    Text(verbatim: title)
-      .themeFont(.display, weight: .bold)
-      .foregroundStyle(Theme.Ink.primary)
-      .frame(maxWidth: .infinity, alignment: .leading)
-      .padding(.top, Theme.Spacing.titleTop)
-      .accessibilityAddTraits(.isHeader)
-  }
-}
+// MARK: Screen chrome shared by Settings and Diagnostics
 
 /// Control size, not spacing: the leading icon column of a row, so labels line up with or without an icon.
 enum SettingsRowMetrics {

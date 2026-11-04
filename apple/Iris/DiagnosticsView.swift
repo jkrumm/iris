@@ -15,7 +15,6 @@ struct DiagnosticsView: View {
     let selected = model.selectedMemo(in: memos)
     return ScrollView {
       VStack(alignment: .leading, spacing: Theme.Spacing.gutter) {
-        ScreenTitle(String(localized: "Diagnostics", comment: "Title of the Diagnostics screen"))
         SettingsGroup(title: String(localized: "Memo", comment: "Diagnostics section")) {
           if recent.isEmpty {
             Text("No memos yet.", comment: "Diagnostics without memos")
@@ -117,9 +116,11 @@ struct DiagnosticsView: View {
         }
       }
       .padding(.horizontal, Theme.Spacing.screenMargin)
+      .padding(.top, Theme.Spacing.sectionTop)
     }
     .accessibilityIdentifier("diagnostics.view")
     .background(Theme.Surface.background)
+    .navigationTitle(String(localized: "Diagnostics", comment: "Title of the Diagnostics screen"))
     .navigationBarTitleDisplayMode(.inline)
     .task { model.selectedID = model.selectedID ?? selected?.id }
     .task(id: model.copyCount) {

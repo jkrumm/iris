@@ -10,10 +10,10 @@ struct StatsView: View {
     NavigationStack {
       ScrollView {
         VStack(alignment: .leading, spacing: Theme.Spacing.cozy) {
-          ScreenTitle(String(localized: "Stats", comment: "Title of the Stats tab"))
           content
         }
         .padding(.horizontal, Theme.Spacing.screenMargin)
+        .padding(.top, Theme.Spacing.sectionTop)
       }
       .accessibilityIdentifier("stats.view")
       // The Record accessory floats over the scroll's end: the last footnote stops above it.

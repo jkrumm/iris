@@ -1,12 +1,14 @@
 import IrisUI
 import SwiftUI
 
-/// The search field and the filter button floating above the tab bar (`history.html` `.sbwrap`): a glass capsule and a
-/// round glass button with the number of sheet filters as a badge. Content scrolls under them.
+/// The search field, the filter button and the compose button floating above the tab bar (`history.html` `.sbwrap`): a glass
+/// capsule and two round glass buttons, the filter one with the number of sheet filters as a badge. One row, 44 pt
+/// targets. Content scrolls under them.
 struct HistorySearchBar: View {
   @Binding var text: String
   let filterCount: Int
   let onFilter: () -> Void
+  let onCompose: () -> Void
   @FocusState private var isFocused: Bool
 
   var body: some View {
@@ -53,6 +55,15 @@ struct HistorySearchBar: View {
       .accessibilityLabel(String(localized: "Filter", comment: "Opens the filter sheet"))
       .accessibilityValue(filterCount > 0 ? Text("\(filterCount)") : Text(verbatim: ""))
       .accessibilityIdentifier("history.filter")
+      Button(action: onCompose) {
+        Image(systemName: "square.and.pencil")
+          .foregroundStyle(Theme.Accent.tint)
+          .frame(width: Theme.Spacing.barControlSize, height: Theme.Spacing.barControlSize)
+      }
+      .buttonStyle(.plain)
+      .glassEffect(.regular, in: .circle)
+      .accessibilityLabel(String(localized: "New memo", comment: "Opens the typed-memo composer"))
+      .accessibilityIdentifier("history.compose")
     }
     .padding(.horizontal, Theme.Spacing.barInset)
     .padding(.bottom, Theme.Spacing.barGap)

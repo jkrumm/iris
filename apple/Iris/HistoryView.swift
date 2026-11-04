@@ -26,16 +26,8 @@ struct HistoryView: View {
   var body: some View {
     NavigationStack {
       List {
-        // The title block and the chips are the list's first rows, not bars pinned with `safeAreaBar` around the list:
-        // the list stays the navigation stack's root scroll content, so they scroll with it. The title is drawn here,
-        // not by the navigation bar, so it sits on the same 20 pt margin as the rows (the system large title is 16).
-        HistoryTitleBlock(
-          title: String(localized: "History", comment: "Navigation title of the memo list"),
-          subtitle: HistoryDaySection.subtitle(for: model.memos), onCompose: { composer = ComposerRequest() }
-        )
-        .listRowInsets(EdgeInsets())
-        .listRowSeparator(.hidden)
-        .listRowBackground(Color.clear)
+        // The chips are the list's first row, not a bar pinned with `safeAreaBar` around the list: the list stays the
+        // navigation stack's root scroll content, so they scroll with it. There is no title: the tab bar says where you are.
         HistoryFilterBar(
           filters: $model.filters, kinds: model.filters.kinds(in: model.memos, limit: HistoryFilters.kindChipLimit)
         )
@@ -110,7 +102,7 @@ struct HistoryView: View {
       .safeAreaInset(edge: .bottom, spacing: 0) {
         HistorySearchBar(
           text: $model.filters.searchText, filterCount: model.filters.sheetFilterCount,
-          onFilter: { showingFilters = true }
+          onFilter: { showingFilters = true }, onCompose: { composer = ComposerRequest() }
         )
         // Solid down to the screen edge: the Record accessory and the tab bar (also the minimized one under a take banner)
         // are glass over this, not over the rows.
