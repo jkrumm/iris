@@ -101,11 +101,11 @@ public struct ListMemosQuery: Hashable, Sendable {
   public var state: MemoState?
   public var favorite: Bool
   public var archived: Bool
-  /// Legacy thread-kind filter; sent as `thread=true` (memos that belong to a thread).
+  /// Legacy thread-kind filter; sent as `thread=true` (the memos of a conversation: a thread with at least two memos).
   public var kind: ThreadKind?
   /// The memo kind to keep (e.g. "note"); the wire's `kind`.
   public var memoKind: String?
-  /// Keeps the memos that belong to a thread; the wire's `thread`, only ever `true`.
+  /// Keeps the memos of a conversation (a continued thread, at least two memos); the wire's `thread`, only ever `true`.
   public var thread: Bool
 
   public init(
