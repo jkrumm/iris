@@ -1243,7 +1243,7 @@ Two `StaticConfiguration` widgets in `IrisWidgets/HomeWidgets.swift`; the views,
   (`-IrisMacStalled` seeds a stalled upload, a retry backoff and a queued removal for the screenshot).
 - **Telemetry (Wave 19 M1):** the Mac is on the device log and the relay like the iPhone (§8): the iPhone's `DeviceLog`,
   `DeviceLogCaptureEvents`, `ObservedSegmentUploader` and credentialed transport are compiled into `IrisMac`, and `MacTelemetry`
-  builds the log with `service.name=iris-macos` (crash file `telemetry.jsonl` in the app container; under `-IrisFakeData` the
+  builds the log with `service.name=iris-macos` (crash file `telemetry.jsonl` in `~/Library/Application Support/Iris`; under `-IrisFakeData` the
   records stay in memory). The capture session, the recorder and the uploader report through it (`take.phase`, `capture.*`,
   `outbox.segment.upload`, `outbox.complete.sent`; trace id = memo id without dashes), `take.phase` names the control that asked
   (`source`: `hotkey` or `panel`). Mac-only records: `mac.panel` (the panel's phase, and a failure's enum name), `mac.hotkey`,
