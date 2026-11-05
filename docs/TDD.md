@@ -1398,8 +1398,9 @@ the `IrisCore` dependency when R1 wires them together.
   - **Read it:** a take's device timeline sits next to its server timeline in HyperDX (skills `device`, `memo-debug`): the
     memo id without dashes joins them; order by `seq`, not by timestamp. A segment with `capture.segment.closed` and no
     `outbox.segment.upload` is a data-loss alarm visible while the take still runs.
-  - **The widget extension logs to `os.Logger` only.** A Personal Team has no App Group, the server URL lives in the app's
-    `UserDefaults`, and the extension has no other way to reach it. `StartMemoIntent` and the Live Activity buttons are
+  - **The widget extension logs to `os.Logger` only.** The server URL lives in the app's `UserDefaults` and the extension has no
+    other way to reach it (the App Group is on for paid builds, but no relay code reads it from the extension; the app logs
+    `widget.container` and `widget.snapshot` for it). `StartMemoIntent` and the Live Activity buttons are
     `LiveActivityIntent`s and run in the app process, where they *are* relayed; a Record press with no `intent.perform` means the
     app was never reached.
 - **Propagation:** the audio door doesn't accept `traceparent` (factory
@@ -1529,6 +1530,6 @@ the `IrisCore` dependency when R1 wires them together.
 | Bun `node:http2` over-dispatch to APNs | Cap in-flight streams (D6); Bun 1.3.14's HTTP/2 `fetch` as a fallback |
 | `xcode-27` is a preview CI image | Fall back to `macos-26` (D14) |
 | Exact Swift build-setting spellings (default isolation) | Verified in the setup wave against Xcode 27.1 |
-| Personal Team cannot sign Push or App Groups; 7-day profiles, 10 App IDs per 7 days | Device builds sign with entitlements minus `aps-environment` and the App Group (`DEVICE_SIGNING=personal`); `DEVICE_SIGNING=paid` signs the tracked files. Verified Wave 17 D1 on an iPhone 15, iOS 26.6.1: build, install and launch work, headless codesign needed no keychain prompt; S3 and the APNs rows wait for the paid team |
+| Personal Team cannot sign Push or App Groups; 7-day profiles, 10 App IDs per 7 days | Device builds sign with entitlements minus `aps-environment` and the App Group (`DEVICE_SIGNING=personal`); `DEVICE_SIGNING=paid` (default) signs the tracked files, App Group included (2026-11-05). Verified Wave 17 D1 on an iPhone 15, iOS 26.6.1: build, install and launch work, headless codesign needed no keychain prompt |
 | Hermes's `iris` block quality (kinds drift, headlines too long, block missing) | `hermes.meta_invalid` logs and the `kind` spread in Stats; the fix is the Hermes `iris` skill, not Iris |
 | Voxtral has no timestamps | Plain transcript in R1–R3; revisit if a synced transcript matters |
