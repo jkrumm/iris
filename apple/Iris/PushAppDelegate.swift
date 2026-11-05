@@ -63,8 +63,4 @@ final class PushAppDelegate: NSObject, UIApplicationDelegate {
   func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: any Error) {
     PushRegistrar.shared.didFail(error)
   }
-
-  func applicationDidBecomeActive(_ application: UIApplication) {
-    Task { await PushRegistrar.shared.foregrounded() }
-  }
 }
