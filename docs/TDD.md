@@ -1222,8 +1222,9 @@ Two `StaticConfiguration` widgets in `IrisWidgets/HomeWidgets.swift`; the views,
   The root owns the updater only when `IrisMacApp` hands it an engine, which it does outside `-IrisFakeData`. Info.plist:
   `SUFeedURL` (the `releases/latest/download/appcast.xml` URL of this repo), `SUPublicEDKey`, `SUEnableAutomaticChecks`, and
   `CFBundleShortVersionString` / `CFBundleVersion` from `MARKETING_VERSION` / `CURRENT_PROJECT_VERSION`; the release script sets
-  the latter to the commit count, so Sparkle always sees a growing build. "Check for Updates…" (`CheckForUpdatesButton`) sits in
-  the popover's lines and Settings > General, disabled while `canCheckForUpdates` is false. No custom `NSUpdateSecurityPolicy`.
+  the latter to the commit count, so Sparkle always sees a growing build. "Check for Updates…" is a popover line
+  (`MacMenuLine`, id `mac.menu.update`) and a `CheckForUpdatesButton` in Settings > General, both disabled while
+  `Updater.canCheckForUpdates` is false and absent without an updater. No custom `NSUpdateSecurityPolicy`.
   Releases: `make mac-release` (`scripts/mac-release.sh`; AGENTS.md "Mac releases") archives, signs, zips with `ditto`, runs
   `generate_appcast`, verifies the EdDSA signature and creates a GitHub release with `IrisMac-<version>-<build>.zip` and
   `appcast.xml` (drafts are never `releases/latest`). The EdDSA key lives in the mini's login keychain; the tools read it from

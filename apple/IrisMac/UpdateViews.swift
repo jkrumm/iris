@@ -1,7 +1,8 @@
 import SwiftUI
 
-/// "Check for Updates…": the one item the popover's lines and Settings > General share. Disabled while a check or an install
-/// runs (`canCheckForUpdates`); absent under `-IrisFakeData`, where the root has no updater.
+/// "Check for Updates…" in Settings > General (the popover uses a `MacMenuLine`, id `mac.menu.update`, bound to the same
+/// `Updater`). Disabled while a check or an install runs (`canCheckForUpdates`); absent under `-IrisFakeData`, where the
+/// root has no updater.
 struct CheckForUpdatesButton: View {
   let updater: Updater
 
