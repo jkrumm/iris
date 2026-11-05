@@ -10,6 +10,10 @@
 #
 # Locking and the deadline live outside, in `jobrun ... --lock iris-deploy --timeout 1800`; a held
 # lock skips the tick. `make deploy` goes through the same wrapper, so they never overlap.
+#
+# After a deployed tick (and on every tick whose SHA is already deployed) `release_hooks` hands the SHA to
+# scripts/release-hooks.sh, which starts TestFlight / Mac releases as detached jobs of their own: a release never
+# runs inline here, its marker files and switches (~/.iris/release.env) are that script's business.
 
 set -u
 
@@ -52,6 +56,14 @@ write_deployed_sha() {
   local sha="$1" tmp
   tmp="$DEPLOYED_SHA_FILE.tmp.$$"
   print -r -- "$sha" > "$tmp" && mv -f "$tmp" "$DEPLOYED_SHA_FILE"
+}
+
+# Release hooks (TestFlight, Mac release): scripts/release-hooks.sh decides per hook and starts a detached jobrun job, so this returns in
+# milliseconds. Run only for a SHA that is deployed (CI-green gated above); never fails the tick. The script lives in the clone the
+# deploy just reset, so it is the new version; it is executed, never sourced.
+release_hooks() {
+  [[ -x "$APP_DIR/scripts/release-hooks.sh" ]] || return 0
+  "$APP_DIR/scripts/release-hooks.sh" "$1" 2>&1 || log "release hooks failed (ignored): rc=$?"
 }
 
 service_pid() {
@@ -107,6 +119,7 @@ main() {
   origin_head=$(git -C "$APP_DIR" rev-parse origin/master)
   deployed_sha=$(cat "$DEPLOYED_SHA_FILE" 2>/dev/null || print '')
   if [[ -n "$deployed_sha" && "$deployed_sha" == "$origin_head" ]]; then
+    release_hooks "$origin_head"  # nothing to deploy: the weekly rebuild and a retry after a held-off failure live here
     return 0
   fi
 
@@ -198,6 +211,7 @@ main() {
   if [[ "$restart_needed" -eq 0 ]]; then
     write_deployed_sha "$origin_head"
     log "deployed $(git -C "$APP_DIR" rev-parse --short HEAD) — no restart-worthy paths changed, service left running"
+    release_hooks "$origin_head"
     return 0
   fi
 
@@ -225,6 +239,7 @@ main() {
   if [[ "$ok" -eq 1 ]]; then
     write_deployed_sha "$origin_head"
     log "deploy OK — $sha up and healthy after restart"
+    release_hooks "$origin_head"
   else
     log "ERROR: deploy of $sha did NOT come back healthy within ${HEALTH_POLL_SECS}s — rolling back to ${prev_head[1,12]}, check ~/Library/Logs/iris.err"
     print -r -- "$origin_head" > "$FAILED_SHA_FILE"
