@@ -127,19 +127,30 @@ States: `receiving → received → transcribed → acted → summarized → not
 
 ## Device (the paired iPhone)
 
-`lockf -t 900 /tmp/iris-apple.lock make device` builds, signs, installs, launches Iris and screenshots the phone to `.artifacts/device-<time>.png`
+`lockf -t 1800 /tmp/iris-apple.lock make device` builds, signs, installs, launches Iris and screenshots the phone to `.artifacts/device-<time>.png`
 (`device-build`, `device-run`, `device-screenshot` run alone; `make device-run ARGS="-flag"` passes launch arguments). Scripts: `scripts/device-*.sh`;
-the phone (`devicectl list devices`, the connected physical iOS device) and the team (`defaults export com.apple.dt.Xcode`) resolve at runtime, nothing
-about either is tracked. Overrides: `IRIS_DEVICE_ID`, `TEAM=<id>`, `DEVICE_SIGNING=personal|paid`.
-- **Signing is one switch.** `DEVICE_SIGNING=personal` (default) uses the free Personal Team, `DEVICE_SIGNING=paid` the paid team and the entitlements
-  exactly as tracked. The three iOS targets' `CODE_SIGN_ENTITLEMENTS` are variables (`IRIS_APP_ENTITLEMENTS` etc. in `apple/project.yml`, default the tracked
-  files, so the simulator/CI build with `CODE_SIGNING_ALLOWED=NO` is unchanged); a personal build points them at copies without the gated keys, derived at
-  build time from the tracked files (`scripts/device-lib.sh`), so nothing drifts. The three `*.entitlements` files are hand-kept, no longer generated.
-- **Gated off for a Personal Team (device builds only):** `aps-environment` (Push/APNs: no remote Live Activity updates, no result notification,
-  device registration without an APNs token, spikes S3/D3 wait for the paid team) and `com.apple.security.application-groups` (no Swift code reads the
-  App Group yet; the Keychain group stays). Nothing else is gated; Live Activities, the Control widget and the audio background mode need no entitlement.
-- **Personal Team limits:** 7-day profiles (rebuild weekly), 10 App IDs per 7 days (`com.jkrumm.iris`, `.widgets`, `.notifications` are three; never rename them),
-  3 devices. Only the Iris iOS targets are built; `IrisMac` and the test bundles are not.
+the phone (`devicectl list devices`, the connected physical iOS device) resolves at runtime, nothing about it is tracked. Overrides: `IRIS_DEVICE_ID`,
+`TEAM=<id>`, `DEVICE_SIGNING=paid|personal`, `DEVICE_DROP_ENTITLEMENTS="<key> ..."`. The phone's tunnel may read `disconnected` while it is `available`: the scripts accept that (it comes up on first use), only `unavailable` is skipped.
+- **Signing is one switch, paid by default.** `DEVICE_SIGNING=paid` signs with the paid team, headless: `scripts/device-build.sh` reads `team-id`,
+  `asc-key-id`, `asc-issuer-id` and `asc-key-p8` from `op://mini/apple-developer` with `secrets-run read` (never `op`), and passes
+  `-allowProvisioningUpdates -authenticationKeyPath <file> -authenticationKeyID <id> -authenticationKeyIssuerID <issuer>` plus `DEVELOPMENT_TEAM=<team-id>`
+  to `xcodebuild`. The entitlements apply exactly as tracked (`aps-environment`, the App Group, the Keychain group).
+- **Open owner step (2026-11-04): the App Group.** The portal has Push on `com.jkrumm.iris` but no App Group identifier assigned to the three App IDs (the
+  API key cannot create one), so the tracked entitlements fail with "Provisioning profile … doesn't match the entitlements file's value for the
+  com.apple.security.application-groups entitlement". Until the Account Holder creates `group.com.jkrumm.iris` (Identifiers > App Groups) and adds it to
+  the three App IDs, build with `DEVICE_DROP_ENTITLEMENTS=com.apple.security.application-groups make device`: signed by the paid team, Push on, no group
+  (the widget feed stays dark). The variable drops the named keys from derived copies of the entitlements on any signing mode.
+- **The key file's life:** 1Password flattened the `.p8` newlines into spaces, so `pem_normalize` (`scripts/device-lib.sh`, the same rule as
+  `normalizePem` in `server/src/notify/select.ts`) rebuilds real newlines and 64-character body lines into a `mktemp` file with mode 0600; a `trap` on
+  `EXIT` deletes it on every exit path. Only the path, key id and issuer id are in argv; the key is in no log and no tracked file.
+- **Personal Team is the fallback** (`DEVICE_SIGNING=personal`): the free team Xcode knows (`defaults export com.apple.dt.Xcode`), no key file. It signs
+  neither Push nor App Groups, so the three `CODE_SIGN_ENTITLEMENTS` variables (`IRIS_APP_ENTITLEMENTS` etc. in `apple/project.yml`, default the tracked
+  files, so the simulator/CI build with `CODE_SIGNING_ALLOWED=NO` is unchanged) point at copies without `aps-environment` and the App Group, derived at
+  build time (`entitlement_settings`), so nothing drifts. Limits: 7-day profiles, 10 App IDs per 7 days (`com.jkrumm.iris`, `.widgets`,
+  `.notifications` are three; never rename them), 3 devices, no APNs token and no remote Live Activity.
+- **APNs on the phone:** `PushRegistrar` (apple/Iris, `PushAppDelegate` forwards the callbacks) registers once a connection is saved and sends the hex token
+  with `apnsEnv` through `devices/register`: `sandbox` on a Debug build (`#if DEBUG`, what `make device` installs), `production` on Release (TestFlight).
+  Details: TDD §4 Notifications. Only the Iris iOS targets are built by `make device`; `IrisMac` and the test bundles are not.
 - **First install:** the first `-allowProvisioningUpdates` build registers the device; the owner must trust the developer once on the phone (Settings >
   General > VPN & Device Management) or `launch` fails with "invalid code signature ... profile has not been explicitly trusted".
   A codesign keychain prompt on the mini's screen needs "Always Allow" (not seen so far: the build signed headless).
@@ -151,7 +162,7 @@ about either is tracked. Overrides: `IRIS_DEVICE_ID`, `TEAM=<id>`, `DEVICE_SIGNI
 - **Device observability (TDD §8):** every capture, route, interruption, outbox, intent and Live Activity event is `DeviceLog.shared.event(...)` (apple/Iris) or
   an `IrisCapture` `CaptureEvents` call: one `os.Logger` line in `com.jkrumm.iris` and one relayed record (`service.name=iris-ios`, trace id = the memo id
   without dashes, ordered by `seq`). Add an event there, not a bare `Logger` call, and never a token, transcript, reply or port uid in one. `service.version` is the
-  `IRIS_BUILD_SHA` build setting (`scripts/device-build.sh` passes the short git sha; any other build reports `dev`). The widget extension only logs to the console (no App Group on a Personal Team).
+  `IRIS_BUILD_SHA` build setting (`scripts/device-build.sh` passes the short git sha; any other build reports `dev`). The widget extension only logs to the console.
   Delivery is single-flight and bounded (a send ends at 20 s, the background flush holds its assertion at most 20 s), a crash file that cannot be read before the
   first unlock costs nothing (records wait in memory), and records left behind for another server are counted in `dropped` (TDD §8).
   Headless read of a take: skills `device` and `memo-debug`.
