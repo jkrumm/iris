@@ -11,16 +11,6 @@
         }
       }
     },
-    "%@ · %@ of audio" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%1$@ · %2$@ Audio"
-          }
-        }
-      }
-    },
     "%lld attempts" : {
       "localizations" : {
         "en" : {
@@ -57,16 +47,6 @@
                 }
               }
             }
-          }
-        }
-      }
-    },
-    "%lld memos today" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%lld Memos heute"
           }
         }
       }
@@ -129,16 +109,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "+%lld %% langsamer"
-          }
-        }
-      }
-    },
-    "1 memo today" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "1 Memo heute"
           }
         }
       }

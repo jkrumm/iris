@@ -31,16 +31,6 @@
         }
       }
     },
-    "%@ · %@ of audio" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%1$@ · %2$@ Audio"
-          }
-        }
-      }
-    },
     "%@%lld %% vs prior" : {
       "localizations" : {
         "de" : {
@@ -221,16 +211,6 @@
         }
       }
     },
-    "%lld memos today" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%lld Memos heute"
-          }
-        }
-      }
-    },
     "%lld of %lld characters" : {
       "localizations" : {
         "de" : {
@@ -337,16 +317,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "1 früheres Memo wird noch gesendet"
-          }
-        }
-      }
-    },
-    "1 memo today" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "1 Memo heute"
           }
         }
       }
