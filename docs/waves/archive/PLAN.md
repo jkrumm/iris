@@ -1320,7 +1320,7 @@ pushes instead. A worker's before+after screenshot walk held `/tmp/iris-apple.lo
 held it 18 min at 0 % CPU: briefs now carry one walk per lock acquisition and per-test limits (`-test-timeouts-enabled YES
 -maximum-test-execution-time-allowance 120`, `timeout 1500`). U2 was fanned on master + `origin/w20-batch-1` to skip the batch's CI hour.
 
-## Wave 21 — Hermes decides: routing out of Iris (server ∥ Hermes skills, then iOS + Mac)            <!-- status: active -->
+## Wave 21 — Hermes decides: routing out of Iris (server ∥ Hermes skills, then iOS + Mac)            <!-- status: done -->
 Mother's plan 2026-11-04 from the owner's voice brief (PRD "Direction 2026-11-04", binding). Iris stops classifying memos: every memo except mode
 Transcribe goes to Hermes, which decides and acts with its own skills. Production evidence: 16 of 27 `auto` memos parked at `needs_route` on
 low `decide` confidence. Code map of what goes (paths, line counts): the Explore report summarized here: server ~1,500 source lines + ~2,900 test
@@ -1331,7 +1331,7 @@ review, `RecordModeSheet`, `MacRouteAnswerBar`, `MacRouteDestination`, Needs-rou
 `scripts/**`, the `IrisCore` models + client in the same PR), then **A** (`apple/**` iOS + Mac) after S merges. Fleet rules hold (lock, batch
 train, `agw review` on every PR). TDD §3 and §4 and AGENTS.md change in the same PRs; the TDD keeps the old routing design only as one
 "Retired 2026-11-04" paragraph.
-- [ ] **H1. Hermes owns the decision (hermes-agent):** an `iris` skill (or a SOUL.md section, whichever `/hermes-validate` keeps stable) that
+- [x] **H1. Hermes owns the decision (hermes-agent):** an `iris` skill (or a SOUL.md section, whichever `/hermes-validate` keeps stable) that
       states the contract for turns from Iris: the turn is a transcript of the owner's voice memo (German or English, speech-to-text errors
       likely); decide what it is and act with the existing skills (answer/chat; `capture` for tasks and GitHub issues; `obsidian` for a note
       into the brain `Inbox/` with brain-sync's lock, replacing Iris's journal destination: same folder, frontmatter and title rules as
@@ -1341,7 +1341,7 @@ train, `agw review` on every PR). TDD §3 and §4 and AGENTS.md change in the sa
       chars>"}` (owner 2026-11-04: the spoken line and the real summary stay with agw `triage`). Lift the obsidian skill's "do not write journal entries" line for Iris notes only. Validate with
       `/hermes-validate` on six German and English sample transcripts (a question, a todo, a GitHub issue for a named repo, a note, a tab
       prompt, plain chat): right skill, block present and valid. Commit in hermes-agent, restart the gateway its way.
-- [ ] **S1. One destination (server + contracts + IrisCore):** modes `hermes` (default) and `transcribe`; `auto`, `chat`, `journal` and `tab`
+- [x] **S1. One destination (server + contracts + IrisCore):** modes `hermes` (default) and `transcribe`; `auto`, `chat`, `journal` and `tab`
       stay accepted on the wire as legacy aliases of `hermes` for one release (the installed app sends them), a non-`hermes` alias is passed to
       Hermes as one hint line ("the owner picked Journal"). Pipeline `transcribe → act → summarize → notify` (no `route` step for new memos; old memos keep their rows
       and render). **`summarize` stays** (owner 2026-11-04: agw `triage` writes the better summary) and stays optional; it already sends only
@@ -1357,7 +1357,7 @@ train, `agw review` on every PR). TDD §3 and §4 and AGENTS.md change in the sa
       `route_decisions` stays as history, never written again. `make contracts`, fixtures for every variant the app decodes, `make e2e`,
       `send-memo.ts` modes, `smoke.sh` without `--mode hermes`. `MemoMode` in Swift: `hermes`, `transcribe`, unknown values decode to `hermes`.
       Hermes sees no `source` (it folds unknown sources to `api_server`), so **every** turn carries a short `system_message` naming the Iris turn and the H1 contract (replacing the chat-only no-side-effects message; `chat: true`, `CHAT_SYSTEM_MESSAGE` and thread kind `chat` go, threads are one kind). Deploy after H1 is live, `make verify`, `make smoke` (real Hermes, block parsed: check the memo's `kind`).
-- [ ] **A1. iOS + Mac follow the server (after S1):** **three buttons, no hidden gestures** (owner 2026-11-04): the bottom record control
+- [x] **A1. iOS + Mac follow the server (after S1):** **three buttons, no hidden gestures** (owner 2026-11-04): the bottom record control
       becomes a row of a large primary **Hermes** button (robot symbol, the default, starts a Hermes take), a smaller **Transcribe** button
       and a smaller **Text** button (opens the composer, which offers Hermes and Transcribe as two send targets); the long-press mode sheet goes.
       Render the row (light, dark, German) for the owner's async look before the rest. The Lock Screen control and `StartMemoIntent` stay
@@ -1368,7 +1368,7 @@ train, `agw review` on every PR). TDD §3 and §4 and AGENTS.md change in the sa
       `actions` as one quiet line under the reply ("Hermes used: capture, github"). Old memos with a `route` and no `kind` show the route name.
       Stats series per kind. Mac takes: no change (always the default mode). Snapshots re-recorded, `make uitest ONLY=` for History, detail,
       composer and the record control; strings `de` included (`make check-strings`).
-- [ ] **P1 (pulled forward from Wave 22, mother 2026-11-04):** the owner's keys are in (`op://mini/apple-developer/*`, seeded) and production
+- [x] **P1 (pulled forward from Wave 22, mother 2026-11-04):** the owner's keys are in (`op://mini/apple-developer/*`, seeded) and production
       already runs the APNs notifier (`918f870`). Device builds sign with the **paid team** headless: `scripts/device-build.sh` passes
       `-allowProvisioningUpdates -authenticationKeyPath/-ID/-IssuerID` from the ASC Team key (write the `.p8` to a 0600 temp file, rebuilt with
       the same rule as `normalizePem`: 1Password flattened its newlines; delete it after) and `DEVELOPMENT_TEAM` from `team-id`;
@@ -1376,9 +1376,21 @@ train, `agw review` on every PR). TDD §3 and §4 and AGENTS.md change in the sa
       The app registers its APNs token with `apnsEnv: sandbox` on a Debug device build. Proof on the phone (`make device`, under the lock, after
       A1's Apple build or between its runs): `POST /devices/register` shows `hasApnsToken: true`, a typed memo ends with a `MEMO_DONE` banner and
       a Live Activity `end` push (`notify.apns_*` log lines, no `notify.no_token`). The Mac keeps its Personal Team build until Wave 22 M2.
-- (carried) **D1** hardware batch: waits for Wave 22's first TestFlight build.
+- (carried) **D1** hardware batch: now factory Issue 89 (after the first TestFlight build, Issue 88).
 
-## Wave 22 — less chrome ∥ the paid Apple team: APNs, TestFlight, Sparkle            <!-- status: pending -->
+Closed 2026-11-05. H1 live in hermes-agent (skill `iris`, the ```iris block), S1 merged as #120 and deployed 2026-11-04. A1 (#122) and
+P1 (#121) landed as batch #126 (`ce920c7`) after the 07:00 load stop: hosted `apple.yml` green on the batch head, deployed, `make verify`
+healthy, `make smoke` notified (`kind: chat`, summary from `triage`). P1 proved on the phone: paid headless signing, an APNs banner and a
+Live Activity `end` push. The owner then asked for the end push alone, so a memo with a Live Activity no longer gets a second banner
+(Issue 75, `a6854ad`, the `end` carries the alert and sound). In-session `/review` replaced the hidden review transport for the day: four deep
+hidden reviews gave up (rv_4szp, rv_4jmu, rv_tsrh, rv_mde4; software-factory Issue 67, fixed).
+**Left behind:** the 16 memos migration 14 parked as `failed(act)` stay as they are (owner 2026-11-05: no retry). The App Group was registered by
+the owner and is on paid device builds (Issue 77, #127). The batch merge `ce920c7` is not yet covered by a deep review: held at the account's deep
+cap (15/15) on 2026-11-05, Issue 77's lead reviews it after the UTC reset before its ship. Three UI tests flaked on the batch
+(MemoDetail copy confirmation, typed offline, History swipe): Issue 87. Local Apple runs overloaded the mini (load ~290): the owner's rule is
+one targeted local run per change, hosted CI proves the rest; Issue 86 makes it mechanical. No successor wave: work continues as Issues.
+
+## Wave 22 — less chrome ∥ the paid Apple team: APNs, TestFlight, Sparkle            <!-- status: done -->
 Mother's sketch 2026-11-04 (PRD "Direction 2026-11-04"); the lead writes the briefs once Wave 21 is done.
 **Overnight 2026-11-04 → 05 (mother): start right after Wave 21 merges, do not wait for the owner.** Owner items (1)-(3) are done and seeded;
 (4) the Developer ID certificate and (1) the App Store Connect app record + internal group happen in a guided session on 2026-11-05. Gates:
@@ -1395,24 +1407,34 @@ key (Sandbox & Production), `.p8` + key id, and the team id; (4) a **Developer I
 attached to the item, its password in a field. All of it is team-wide, so it lives in the item **`op://mini/apple-developer/*`** (fields
 `team-id`, `apns-key-p8`, `apns-key-id`, `asc-key-p8`, `asc-key-id`, `asc-issuer-id`, `developer-id-p12-password`; created 2026-11-04 with
 `fill-in` placeholders), reusable by any later app; nothing app-specific goes there; (5) the refs into `dotfiles-private/headless.refs`, `make secrets-seed`.
-- [ ] **U1. Less chrome (iOS + Mac):** no title block: drop `HistoryTitleBlock` and `ScreenTitle` (History, Stats, Settings, Diagnostics); the
+- [x] **U1. Less chrome (iOS + Mac):** no title block: drop `HistoryTitleBlock` and `ScreenTitle` (History, Stats, Settings, Diagnostics); the
       compose button moves into History's bottom search bar row; content starts under the status-bar scrim. Memo detail order: header (headline,
       kind chip, one meta line) → reply → player → transcript → **Details** (collapsed: step waterfall, cost, attempts, ids, [Retry from step]).
       A failed memo opens Details. Same order on the Mac detail pane. Before/after renders (light, dark, German) into
       `docs/design/fidelity/w22.md` for the owner's async look; snapshots re-recorded.
-- [ ] **P1. Paid signing + APNs live** (moved into Wave 21; only TestFlight's `production` env remains here): `DEVICE_SIGNING=paid` the default, App Groups on for all three iOS targets and the widget feed live;
+- [x] **P1. Paid signing + APNs live** (moved into Wave 21; only TestFlight's `production` env remains here): `DEVICE_SIGNING=paid` the default, App Groups on for all three iOS targets and the widget feed live;
       `APNS_*` in `.env.mini.tpl` from the owner's refs, `notifier.selected` = apns; `apnsEnv` follows the build channel (Debug device build
       `sandbox`, TestFlight `production`), registered by the app. Live Activity remote updates and the result alert reach the phone.
-- [ ] **P2. `make testflight` + the update loop:** archive, export with the Team key (`method app-store-connect`, `destination upload`),
+- [x] **P2. `make testflight` + the update loop:** archive, export with the Team key (`method app-store-connect`, `destination upload`),
       `CFBundleVersion` from `git rev-list --count HEAD`; the deploy poller (`mini-deploy.sh`) uploads a build when `apple/**` changed on a green
       master, plus a weekly rebuild when nothing changed (90-day expiry). Check `xcrun altool --help` and headless cloud signing first (both
       unverified). The phone updates itself through TestFlight; `make device` stays for debugging.
-- [ ] **M2. Mac releases without admin:** Developer ID + Hardened Runtime (audio-input entitlement), non-sandboxed, Sparkle 2.10.x (≥ 2.9.6,
+- [x] **M2. Mac releases without admin:** Developer ID + Hardened Runtime (audio-input entitlement), non-sandboxed, Sparkle 2.10.x (≥ 2.9.6,
       SPM), EdDSA key (private in the mini's keychain + 1Password backup), notarize + staple with the Team key, appcast and archive as GitHub
       Release assets of this repo (`SUFeedURL` = the `releases/latest/download/appcast.xml` URL), `make mac-release` from the same poller on an
       `IrisMac` change. Prove on the MacBook: install by drag into `~/Applications`, first launch without Open Anyway, one Sparkle update with no
       admin prompt, `xattr -l` shows no quarantine on the updated bundle. A "Check for Updates…" item in the popover and Settings > General.
 - (carried) **D1** hardware batch on the first TestFlight build (adds: an APNs alert, a Live Activity push update, the widget feed).
+
+Converted to Issues 2026-11-05 (the last wave on the `rd wave` path; software-factory decision RS11): no workers were spawned for what was
+left. Merged: U1 #124 (`955acd9`), P2 #123 (`4ce8567`, `make testflight UPLOAD=0` proven headless with Apple Distribution), M2 #125 (`3ff181c`,
+Developer ID signing and notarization proven on the mini), each with hosted `apple.yml` green and an in-session `/review` clean.
+**Left behind (as Issues):** 86 machine budget (every local Apple build/test in `factory slot run`, simulators shut down, runners capped);
+87 the three flaky UI tests, CI-proven (after 86); 88 the first TestFlight upload and the production APNs environment (owner: app record and
+his go; he does not want to publish yet); 89 D1 hardware batch on that build (after 88); 90 the first Developer ID Mac release with Sparkle and
+the MacBook proof (owner's go), incl. removing the Sparkle key file from the mini once its 1Password backup is confirmed. Issue 75 (Live Activity
+end only) and 77 (App Group on device builds) came from this wave too; 76 was stopped for the load and refiled as 87. Coverage reviews of
+`955acd9` and `3ff181c` (nit-fix commits after review) are held at the deep cap with `ce920c7`, noted on Issue 77.
 
 ## Fleet backlog (for the long-running fleet: mother → lead → workers)
 

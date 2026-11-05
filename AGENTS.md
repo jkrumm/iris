@@ -2,8 +2,8 @@
 
 Voice channel into the agent platform. A memo recorded on a phone is uploaded as 10 s segments, transcribed, handed to Hermes (which decides what it is and acts)
 and notified. A public monorepo: `server/` (Bun + Elysia + `bun:sqlite`, runs on the mini), `apple/` (iOS app, Mac app, packages),
-`contracts/` (the wire contract both sides test against). **`docs/TDD.md` is the design, `docs/PRD.md` is the product, `docs/waves/PLAN.md` is
-the implementation chain** (foundation waves, then the fleet backlog). Read the TDD section named by a rule before changing that area.
+`contracts/` (the wire contract both sides test against). **`docs/TDD.md` is the design, `docs/PRD.md` is the product; new work is software-factory Issues** (`rd issue iris`);
+the finished wave chain (Waves 1-22) is archived in `docs/waves/archive/PLAN.md`. Read the TDD section named by a rule before changing that area.
 
 ## Layout
 
@@ -18,7 +18,7 @@ the implementation chain** (foundation waves, then the fleet backlog). Read the 
 | `launchd/` | LaunchAgent plist templates for the mini |
 | `fixtures/audio/` | the German smoke recording and how it was made |
 | `.claude/rules/`, `.claude/skills/` | rules and skills, indexed below |
-| `docs/` | `PRD.md`, `TDD.md`, `research/`, `spikes/` (S1-S3 briefs, device checklist), `waves/PLAN.md` |
+| `docs/` | `PRD.md`, `TDD.md`, `research/`, `spikes/` (S1-S3 briefs, device checklist), `waves/archive/` (the finished wave chain and its handoffs) |
 
 ## Rules and skills
 
