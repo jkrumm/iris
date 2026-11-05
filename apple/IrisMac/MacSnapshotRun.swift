@@ -24,7 +24,7 @@
     let root: MacCompositionRoot
     /// The sample memos the main window is shown on: one with a reply, a chat thread.
     let replyMemoID: String
-    let threadMemoID = SampleData.chatThreadID
+    let threadMemoID = SampleData.chatFollowUpID
 
     init?(arguments: [String], root: MacCompositionRoot, replyMemoID: String = "0b6d1f4e-3a52-4c1d-9f0e-7a2c5d8e1b34") {
       guard let index = arguments.firstIndex(of: Self.argument), arguments.indices.contains(index + 1) else {
