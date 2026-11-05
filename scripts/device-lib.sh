@@ -78,22 +78,20 @@ signing_team() {
   printf '%s\n' "$team"
 }
 
-# A Personal Team signs neither Push nor App Groups (the profile lacks both; no Swift code uses the group yet). Personal builds
-# sign with copies of the tracked entitlements minus those keys, derived at build time so they cannot drift; paid keeps the files.
-# DEVICE_DROP_ENTITLEMENTS="<key> ..." drops named keys from those copies on any signing mode: the lever for a paid team whose portal
-# lacks a capability (the App Group `group.com.jkrumm.iris` is created by the Account Holder, not by the API key), so the rest still installs.
+# A Personal Team signs neither Push nor App Groups (the profile lacks both). Personal builds sign with copies of the tracked
+# entitlements minus those keys, derived at build time so they cannot drift; paid signs the tracked files as they are (Push and the
+# App Group `group.com.jkrumm.iris`, which the Account Holder registers and enables on the three App IDs in the portal).
 # Prints xcodebuild build settings, one per line.
 entitlement_settings() {
-  local dir name var key dst pair drop="${DEVICE_DROP_ENTITLEMENTS:-}"
-  [ "$DEVICE_SIGNING" = "personal" ] && drop="aps-environment com.apple.security.application-groups $drop"
-  [ -n "${drop// /}" ] || return 0
+  local dir name var key dst pair
+  [ "$DEVICE_SIGNING" = "personal" ] || return 0
   dir="$(cd "$APPLE_DIR" && pwd)/.dd.noindex/device-entitlements"
   mkdir -p "$dir"
   for pair in "Iris:IRIS_APP_ENTITLEMENTS" "IrisWidgets:IRIS_WIDGETS_ENTITLEMENTS" "IrisNotifications:IRIS_NOTIFICATIONS_ENTITLEMENTS"; do
     name="${pair%%:*}"; var="${pair##*:}"
     dst="$dir/$name.entitlements"
     cp "$APPLE_DIR/$name/$name.entitlements" "$dst"
-    for key in $drop; do
+    for key in aps-environment com.apple.security.application-groups; do
       if /usr/libexec/PlistBuddy -c "Print :$key" "$dst" >/dev/null 2>&1; then /usr/libexec/PlistBuddy -c "Delete :$key" "$dst"; fi
     done
     printf '%s=%s\n' "$var" "$dst"

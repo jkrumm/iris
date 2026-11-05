@@ -289,7 +289,7 @@ has no `capture.session.error`, and **no** record carries any transcript text (`
 |-|-|-|
 | W-1 | Home Screen small and medium Record: tap with the phone unlocked opens Iris and starts a take (`Button(intent: OpenRecorderIntent())` from a widget; if the app opens but no take starts, or the extension runs the intent, switch to `widgetURL`) | not run |
 | W-2 | Lock Screen circular Record: tap on the locked phone asks for the unlock, then Iris opens and the take starts | not run |
-| W-3 | Last memo (paid team, App Group on): record a memo, watch the small / medium / rectangular / inline widget go processing, then done; the banner and the widget agree | not run |
+| W-3 | Last memo (paid team, App Group on): record a memo, watch the small / medium / rectangular / inline widget go processing, then done; the banner and the widget agree | data path pass 2026-11-05 (iPhone 15, iOS 26.6.1, paid team): `widget.container` available, a typed memo wrote `widget.snapshot` saved, phase done; the rendered widget not run |
 | W-4 | Last memo without the App Group (Personal Team build): the widget shows "Open Iris" and tapping opens the app, no crash | not run |
 | W-5 | A widget whose memo was deleted in the app returns to "Open Iris" within a reload | not run |
 | W-6 | StandBy (charging, landscape): the small Last memo and Record widgets are legible at distance; at night they go red-tinted | not run |

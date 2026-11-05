@@ -25,7 +25,7 @@ extension LastMemoWidgetFeed {
   /// on fakes, so a UI test or a simulator run never touches a real container or reloads a placed widget.
   static func app(fake: Bool) -> LastMemoWidgetFeed {
     LastMemoWidgetFeed(
-      store: fake ? InMemoryLastMemoSnapshotStore() : FileLastMemoSnapshotStore.appGroup(),
+      store: fake ? InMemoryLastMemoSnapshotStore() : LoggedLastMemoSnapshotStore(),
       reload: { if !fake { WidgetCenter.shared.reloadTimelines(ofKind: IrisWidgetKind.lastMemo) } })
   }
 
