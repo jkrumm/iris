@@ -351,6 +351,16 @@
         }
       }
     },
+    "Transcribe recorder" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Transkriptions-Rekorder"
+          }
+        }
+      }
+    },
     "Transcribe with Iris" : {
       "localizations" : {
         "de" : {

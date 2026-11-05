@@ -13,12 +13,26 @@ struct MemoThreadPresentationTests {
     return memo
   }
 
-  @Test("a memo with a thread opens it, one without (a transcript) or a deleted one does not")
+  @Test(
+    "a turn into another memo's session opens the thread; a memo in its own session, a transcript or a deleted one keeps the detail"
+  )
   func opensThread() {
-    #expect(memo("a", mode: .hermes, threadId: "a").opensThread)
     #expect(memo("b", mode: .hermes, threadId: "a").opensThread)
+    #expect(!memo("a", mode: .hermes, threadId: "a").opensThread, "act gives every Hermes memo its own session id")
     #expect(!memo("d", mode: .transcribe, threadId: nil).opensThread)
     #expect(!memo("e", mode: .hermes, threadId: "e", deleted: true).opensThread)
+    #expect(!memo("f", mode: .hermes, threadId: "z", deleted: true).opensThread)
+  }
+
+  @Test(
+    "the sample data is shaped like the server's: own-session memos carry their id, only the follow-ups open a thread")
+  func sampleThreadIDs() {
+    let details = SampleData.details(now: MemoFactory.now)
+    let opening = details.map(\.memo).filter(\.opensThread).map(\.id).sorted()
+    #expect(opening == [SampleData.chatFollowUpID, SampleData.hermesFollowUpID].sorted())
+    let own = details.map(\.memo).filter { $0.threadId == $0.id }
+    #expect(own.count >= 4, "acted Hermes memos are in their own session")
+    #expect(own.allSatisfy { !$0.opensThread && $0.destinationRef != nil })
   }
 
   @Test("the route carries the thread id and the memo's headline as the title until the thread loads")

@@ -315,9 +315,11 @@ struct FakeAPIClientTests {
   func listFilters() async throws {
     let fake = FakeAPIClient()
     let kinds: [String: String] = ["task": "task", "note": "Note", "github": "github issue"]
+    // "task" and "note" share a session (a conversation); "github" is alone in its own; "plain" shares one with the deleted "gone".
+    let threadIDs: [String: String] = ["task": "t1", "note": "t1", "github": "github", "plain": "t2", "gone": "t2"]
     for (index, id) in ["plain", "star", "archived", "gone", "task", "note", "github"].enumerated() {
       await seedMemo(
-        fake, id: id, createdAt: 1_773_480_000 + Double(index), threadId: id == "task" ? "t1" : nil, kind: kinds[id])
+        fake, id: id, createdAt: 1_773_480_000 + Double(index), threadId: threadIDs[id], kind: kinds[id])
     }
     _ = try await fake.setFlags(id: "star", done: nil, favorite: true, archived: nil)
     _ = try await fake.setFlags(id: "archived", done: nil, favorite: nil, archived: true)
@@ -330,7 +332,7 @@ struct FakeAPIClientTests {
     #expect(try await listedIDs(fake, ListMemosQuery(kind: " NOTE ")) == ["note"])
     #expect(try await listedIDs(fake, ListMemosQuery(kind: "github issue")) == ["github"])
     #expect(try await listedIDs(fake, ListMemosQuery(kind: "answer")).isEmpty)
-    #expect(try await listedIDs(fake, ListMemosQuery(thread: true)) == ["task"])
+    #expect(try await listedIDs(fake, ListMemosQuery(thread: true)) == ["note", "task"])
   }
 
   @Test("a memo parked at needs_route in an old row is paged like any other, never pinned")

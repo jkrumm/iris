@@ -124,7 +124,6 @@ extension QueuedItem.Kind {
     case .voiceMemo: "voiceMemo"
     case .voiceReply: "voiceReply"
     case .typedMemo: "typedMemo"
-    case .chatMessage: "chatMessage"
     case .textReply: "textReply"
     case .removal: "removal"
     }

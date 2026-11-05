@@ -23,6 +23,9 @@ Application > G2 Sub-CA > upload `~/Downloads/DeveloperID.certSigningRequest` on
 `~/.local/state/apple-developer/developer-id.key` on the mini; then build the `.p12` and attach it to `mini/apple-developer`) and the
 TestFlight setup (App Store Connect app record for `com.jkrumm.iris`, internal group with automatic distribution, TestFlight app on the
 phone). Walk him through one screen at a time and verify each step from the mini; do not hand him a long list.
+Added overnight (lead): (c) the App Group `group.com.jkrumm.iris` on the three App IDs in the portal (Identifiers > each id > App Groups);
+(d) the 16 old `needs_route` memos, now `failed(act)`: retry them into Hermes (it may file tasks/notes) or leave them, the owner's call;
+(e) the Sparkle EdDSA key's 1Password backup (`~/.local/state/apple-developer/sparkle-ed25519.key` on the mini).
 
 Previous pause (2026-11-03, after the Mac desktop rework #107/#108, master `3150958`): see git history of this file.
 **Spawn (lead):** `cd ~/SourceRoot/software-factory && secrets-run run --env-file=.env.tpl -- factory spawn create <key> --repo ~/SourceRoot/iris --role lead

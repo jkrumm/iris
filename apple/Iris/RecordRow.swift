@@ -69,8 +69,10 @@ private struct RecordLabelStyle: LabelStyle {
   func makeBody(configuration: Configuration) -> some View {
     HStack(spacing: Theme.Spacing.snug) {
       configuration.icon
-      if showsTitle { configuration.title }
+      if showsTitle { configuration.title.lineLimit(1) }
     }
+    // The title keeps its natural width ("Transkribieren" must not wrap); the Hermes button gives way.
+    .fixedSize(horizontal: true, vertical: false)
     .padding(.horizontal, Theme.Spacing.cozy)
   }
 }

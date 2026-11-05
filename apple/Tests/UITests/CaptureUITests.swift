@@ -20,7 +20,7 @@ final class CaptureUITests: IrisUITestCase {
   /// Opens the seeded conversation (its row is below the fold until the list has scrolled to it).
   @MainActor
   private func openChatThread(_ app: XCUIApplication) {
-    let row = revealRow(containing: "How the step runner retries", in: app)
+    let row = revealRow(containing: "Hang guards are not retried", in: app)
     row.tap()
     XCTAssertTrue(waitForPresence(app.descendants(matching: .any)["thread.view"], timeout: 10))
   }

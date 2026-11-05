@@ -458,8 +458,7 @@ Settings and Stats, load History, reopen the event stream.
 
 ### Thread view
 
-A History row opens the conversation when `Memo.opensThread`: a chat (`mode == chat`) or a turn that continues a thread (`threadId != id`); a Hermes memo in its own
-session (`threadId == id`) is one answer and keeps the detail, which gets a Conversation button when it has a `threadId`. `ThreadModel` loads
+A History row opens the conversation when `Memo.opensThread`: a turn that continues another memo's session (`threadId != id`), which is the server's `thread=true` (a conversation: a thread with two or more live memos). `act` gives every Hermes memo its own session id as `threadId`, so a memo in its own session (`threadId == id`) is one answer and keeps the plain detail (Retry, waterfall, kind chip, actions line), which gets a Conversation button when it has a `threadId`; a transcript, a memo that failed before `act` and a deleted memo have none either. The Mac detail applies the same rule (`MacMemoSections` shows the conversation only for such a turn). `ThreadModel` loads
 `GET /v1/threads/:id` and derives the turns from the memos and messages: a user turn per memo with a transcript, an assistant turn per reply, and for a memo that
 has no reply yet either a **pending** turn (the step dashes from the memo's state, a caption) or, for `failed`, the server's error. A `memo.updated` event for any
 memo of the thread bumps History's revision of it, the screen reloads, and the pending turn turns into the answer in the same place with a short fade and height
