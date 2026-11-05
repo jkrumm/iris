@@ -122,7 +122,7 @@ lockf -t 1800 /tmp/iris-apple.lock make testflight            # UPLOAD=0 (defaul
 lockf -t 1800 /tmp/iris-apple.lock make testflight UPLOAD=1   # destination upload: the export step sends the build to App Store Connect
 ```
 
-- `scripts/testflight.sh`: `xcodegen generate`, `xcodebuild archive` (Release, `-destination 'generic/platform=iOS'`, `CURRENT_PROJECT_VERSION=$(git rev-list --count HEAD)`,
+- `scripts/testflight.sh`: `xcodegen generate`, `xcodebuild archive` (Release, `-destination 'generic/platform=iOS'`, `CURRENT_PROJECT_VERSION=<git rev-list --count HEAD>.<UTC epoch hours>` (App Store Connect rejects a repeated build number; the weekly same-sha rebuild raises the second component),
   `IRIS_BUILD_SHA`, `DEVELOPMENT_TEAM` from `team-id`), then `xcodebuild -exportArchive -exportOptionsPlist <tracked apple/ExportOptions.plist + teamID + destination>`.
   Both steps get `-allowProvisioningUpdates -authenticationKeyPath <0600 temp file> -authenticationKeyID -authenticationKeyIssuerID` from the ASC Team key
   (`scripts/apple-signing-key.sh`: `secrets-run read op://mini/apple-developer/{asc-key-p8,asc-key-id,asc-issuer-id,team-id}`, `pem_normalize`, `trap` deletes the file). Full output goes to `.artifacts/testflight/testflight.log`, only the tail on failure.

@@ -3,7 +3,8 @@
 #   UPLOAD=0|1   0 (default until the App Store Connect app record exists): destination `export`, the .ipa lands in .artifacts/testflight/export
 #                1: destination `upload`, xcodebuild -exportArchive sends the build to App Store Connect
 # Team id and the App Store Connect Team key come from op://mini/apple-developer via secrets-run (scripts/apple-signing-key.sh); the key is a
-# 0600 temp file deleted on every exit, nothing secret reaches argv or a log. CFBundleVersion = `git rev-list --count HEAD`, never committed.
+# 0600 temp file deleted on every exit, nothing secret reaches argv or a log. CFBundleVersion = "<commit count>.<UTC epoch hours>", never committed:
+# App Store Connect rejects a repeated build number, so a same-sha weekly rebuild must still raise it (the second component).
 # Wrap in `lockf -t 1800 /tmp/iris-apple.lock` like every xcodebuild job (the poller's release hook does).
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -20,7 +21,8 @@ LOG="$OUT/testflight.log"
 TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/iris-testflight.XXXXXX")"
 trap 'rm -rf "$TMP_DIR"; rm -f "${KEY_FILE:-}"' EXIT
 
-build="$(git rev-list --count HEAD)"
+# Strictly increasing per upload: a new commit raises the first component, a rebuild of the same sha the second (1-3 dot-separated integers).
+build="$(git rev-list --count HEAD).$(( $(date -u +%s) / 3600 ))"
 sha="$(git rev-parse --short HEAD)"
 team="${TEAM:-$(apple_dev_field team-id)}"
 paid_signing_setup

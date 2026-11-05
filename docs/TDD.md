@@ -1480,8 +1480,9 @@ the `IrisCore` dependency when R1 wires them together.
   - registered in `dotfiles/docs/architecture.md`.
 - **App distribution:**
   - TestFlight internal (Wave 22 P2): `make testflight` runs `xcodebuild archive`
-    (Release, `generic/platform=iOS`, `CFBundleVersion` = `git rev-list --count
-    HEAD`, never committed) and `-exportArchive` with `apple/ExportOptions.plist`
+    (Release, `generic/platform=iOS`, `CFBundleVersion` = `<git rev-list --count
+    HEAD>.<UTC epoch hours>`, never committed: strictly increasing per upload,
+    so the weekly same-sha rebuild is not a repeated build number) and `-exportArchive` with `apple/ExportOptions.plist`
     (`method app-store-connect`, `testFlightInternalTestingOnly`, `destination`
     `export` for a local `.ipa` or `upload` for App Store Connect), both signed
     headless with the App Store Connect Team key from `op://mini/apple-developer`

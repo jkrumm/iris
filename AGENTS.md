@@ -166,7 +166,7 @@ about either is tracked. Overrides: `IRIS_DEVICE_ID`, `TEAM=<id>`, `DEVICE_SIGNI
 | `make snapshots` | IrisUI snapshot tests on the pinned simulator (`RECORD=1` re-records) | mini, `apple.yml` |
 | `make uitest` | XCUITest flows (`-IrisFakeCapture`); `ONLY=<Class>[/<test>]` runs one class or method (`-only-testing:IrisUITests/…`) | full suite: `apple.yml`; mini: `ONLY=` only |
 | `make device` | `device-build` + `device-run`: signed Debug build, install, launch and a phone screenshot on the paired iPhone (see Device) | mini, phone wired |
-| `make testflight [UPLOAD=0\|1]` | `scripts/testflight.sh`: archive `Iris` Release, export a signed `.ipa` into `.artifacts/testflight/export` (`UPLOAD=0`, default) or export-and-upload (`UPLOAD=1`, needs the App Store Connect app record); `CFBundleVersion` = `git rev-list --count HEAD` | mini, under the Apple lock; the poller's release hook runs it |
+| `make testflight [UPLOAD=0\|1]` | `scripts/testflight.sh`: archive `Iris` Release, export a signed `.ipa` into `.artifacts/testflight/export` (`UPLOAD=0`, default) or export-and-upload (`UPLOAD=1`, needs the App Store Connect app record); `CFBundleVersion` = `<git rev-list --count HEAD>.<UTC epoch hours>` (strictly increasing, so a same-sha weekly rebuild uploads) | mini, under the Apple lock; the poller's release hook runs it |
 | `make check-strings` | the String catalogs: `de` on every key, no stale key, no hard-coded user-facing literal (bun only, runs on Linux CI too) | mini, CI, `check`/`check-apple` |
 | `make guard` | public-repo scan (IPs, tailnet/real hostnames, token shapes) | mini, CI, lefthook pre-commit |
 | `make verify` / `make smoke` | production health / a real recording through production | mini only, after deploy |

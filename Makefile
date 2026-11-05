@@ -239,7 +239,7 @@ ui-snapshot: sim ## Semantic UI element tree of the foreground app -> .artifacts
 # the team Xcode knows; IRIS_DEVICE_ID overrides the phone. Nothing here is tracked: team and device resolve at runtime (scripts/device-lib.sh).
 # --- TestFlight (Wave 22 P2, skill `apple-dev`). Wrap in `lockf -t 1800 /tmp/iris-apple.lock` like every xcodebuild job; the poller's release hook does. ---
 # UPLOAD=0 (default until the App Store Connect app record exists): a signed .ipa in .artifacts/testflight/export; UPLOAD=1: export and upload.
-# Team id and the ASC Team key come from op://mini/apple-developer via secrets-run (scripts/apple-signing-key.sh); CFBundleVersion = commit count.
+# Team id and the ASC Team key come from op://mini/apple-developer via secrets-run (scripts/apple-signing-key.sh); CFBundleVersion = <commit count>.<UTC epoch hours> (a same-sha rebuild still gets a new number).
 UPLOAD ?= 0
 .PHONY: testflight
 testflight: ## Archive Iris (Release), export a signed .ipa (UPLOAD=0, default) or upload to TestFlight (UPLOAD=1)
