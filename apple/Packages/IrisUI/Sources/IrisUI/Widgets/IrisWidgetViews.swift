@@ -9,7 +9,6 @@ extension ActivityPhase {
   fileprivate init(_ phase: LastMemoSnapshot.Phase) {
     switch phase {
     case .processing: self = .processing
-    case .needsRoute: self = .needsRoute
     case .done: self = .done
     case .failed: self = .failed
     }
@@ -23,7 +22,6 @@ extension IrisWidgetContext {
     guard isFullColor else { return .primary }
     switch phase {
     case .processing: return Theme.Accent.tint
-    case .needsRoute: return Theme.Status.warn
     case .done: return Theme.Status.good
     case .failed: return Theme.Status.bad
     }

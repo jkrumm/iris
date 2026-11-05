@@ -33,7 +33,7 @@ extension CaptureHandlerSuites {
 
       await take.start()
       #expect(await waitFor { take.isActive && take.showsFull })
-      #expect(take.modeTitle == "Auto" && take.inputName != nil)
+      #expect(take.modeTitle == "Hermes" && take.inputName != nil)
 
       take.showsFull = false
       #expect(take.isActive, "the take goes on behind the banner")
@@ -43,6 +43,20 @@ extension CaptureHandlerSuites {
       #expect(!take.showsFull)
       #expect(take.failure == nil)
       #expect(await waitFor { await root.fakeLiveActivity?.handedOver == true }, "the memo reaches the server")
+    }
+
+    @Test("the Transcribe start hands the transcribe mode to the controller")
+    func transcribeStart() async throws {
+      let (root, follower) = make()
+      defer { follower.cancel() }
+      let take = root.take
+
+      await take.start(mode: .transcribe)
+      #expect(await waitFor { take.isActive })
+      #expect(take.modeTitle == "Transcribe")
+      #expect(await root.fakeLiveActivity?.starts.first?.mode == .transcribe)
+      await take.discard()
+      #expect(await waitFor { !take.isActive })
     }
 
     @Test("pausing freezes the timer and resuming moves its start forward by the pause")

@@ -1,9 +1,12 @@
+import IrisCore
 import IrisUI
 import SwiftUI
 
-/// The quick-filter chips above the list.
+/// The quick-filter chips above the list: Favorites, Threads, Archived, then one chip per memo kind in the list.
 struct HistoryFilterBar: View {
   @Binding var filters: HistoryFilters
+  /// ``HistoryFilters/kinds(in:limit:)`` of the loaded memos.
+  let kinds: [String]
 
   var body: some View {
     ScrollView(.horizontal) {
@@ -15,6 +18,15 @@ struct HistoryFilterBar: View {
             withAnimation(.snappy) { filters.toggle(filter) }
           }
           .accessibilityIdentifier("history.chip.\(filter.identifier)")
+        }
+        ForEach(kinds, id: \.self) { kind in
+          FilterChip(
+            title: Memo.capitalizedKind(kind), dot: KindPalette.color(forKind: kind),
+            isOn: filters.isSelected(kind: kind), size: .compact
+          ) {
+            withAnimation(.snappy) { filters.toggleKind(kind) }
+          }
+          .accessibilityIdentifier("history.chip.kind.\(kind)")
         }
       }
     }
@@ -28,8 +40,7 @@ extension QuickFilter {
   var title: String {
     switch self {
     case .favorites: String(localized: "Favorites", comment: "Quick filter chip")
-    case .chats: String(localized: "Chats", comment: "Quick filter chip")
-    case .needsRoute: String(localized: "Needs route", comment: "Quick filter chip")
+    case .threads: String(localized: "Threads", comment: "Quick filter chip")
     case .archived: String(localized: "Archived", comment: "Quick filter chip")
     }
   }
@@ -37,8 +48,7 @@ extension QuickFilter {
   var systemImage: String {
     switch self {
     case .favorites: "star"
-    case .chats: "bubble.left"
-    case .needsRoute: "arrow.triangle.branch"
+    case .threads: "bubble.left"
     case .archived: "archivebox"
     }
   }
@@ -46,8 +56,7 @@ extension QuickFilter {
   fileprivate var identifier: String {
     switch self {
     case .favorites: "favorites"
-    case .chats: "chats"
-    case .needsRoute: "needs-route"
+    case .threads: "threads"
     case .archived: "archived"
     }
   }

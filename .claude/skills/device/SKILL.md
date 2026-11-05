@@ -39,7 +39,7 @@ xcrun devicectl device capture screenshot --device $D --destination out.png   # 
 - Owner steps are German (his phone is German; iOS settings by their German path, `docs/design/feedback-device-1.md` §9). Keep a step short, one action group per dialog. `sips -c` crops from the centre: add `--cropOffset 0 0` for the status bar.
 - Read-only phone state (ran): `devicectl device info processes|apps|files|displays`, `device copy from --domain-type appDataContainer --domain-identifier com.jkrumm.iris --source 'Library/Application Support/Iris/outbox.json'`.
   `info lockState` gives only `passcodeRequired` / `unlockedSinceBoot`.
-- `GET /v1/memos` lists memos parked at `needs_route` under `pinned`, not `items`: read both.
+- `GET /v1/memos` returns every memo in `items` (no `pinned`); a memo carries the `kind` Hermes reported and the `actions` it ran. An old parked memo is `failed` at `act`: [Retry from Act] delivers it.
 - Connecting the app: no launch-argument route (no backdoor); the owner types the server URL and the `iphone` device token in Settings > Connection once
   (ran 2026-10-30; a typed memo reached `done`, see the checklist). The tailnet VPN must be on, or Safari shows `NOT_FOUND` and the app "Could not load memos".
   `op://mini/iris/device-tokens` holds every device as `token=device,...`: the owner needs only the part before `=iphone`, which is easy to get wrong and

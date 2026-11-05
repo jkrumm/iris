@@ -16,7 +16,6 @@ enum WaterfallBuilder {
     let memo = detail.memo
     let entries = detail.steps.filter { $0.step != .ingest }.sorted { $0.startedAt < $1.startedAt }
     let span = span(of: entries, now: now)
-    let route = memo.route ?? "unrouted"
 
     var rows = entries.enumerated().map { index, entry -> StepWaterfallRow in
       let ms = durationMs(entry, now: now)
@@ -29,7 +28,7 @@ enum WaterfallBuilder {
         phase: phase(of: entry.status),
         metric: StepText.metric(milliseconds: ms, costUsd: entry.costUsd),
         badge: entry.status == .done
-          ? baselines.comparison(step: entry.step, route: route, durationMs: ms).map(badge(for:)) : nil,
+          ? baselines.comparison(step: entry.step, kind: memo.kind, durationMs: ms).map(badge(for:)) : nil,
         attempts: entry.attempts > 1
           ? String(localized: "\(entry.attempts) attempts", comment: "Step row: how many tries the step used") : nil,
         error: entry.status == .failed ? entry.error : nil,
@@ -61,10 +60,10 @@ enum WaterfallBuilder {
 
   // MARK: Steps
 
-  /// "Act · Hermes": the act step is named for where it went.
+  /// "Act · Answer": the act step is named for what Hermes made of the memo.
   private static func title(of step: MemoStep, memo: Memo) -> String {
-    guard step == .act, memo.route != nil else { return step.title }
-    return "\(step.title) · \(memo.routeLabel)"
+    guard step == .act, memo.hasKind || memo.route != nil else { return step.title }
+    return "\(step.title) · \(memo.kindLabel)"
   }
 
   private static func phase(of status: StepStatus) -> StepWaterfallRow.Phase {
@@ -87,7 +86,10 @@ enum WaterfallBuilder {
   /// The steps after the last one the timeline holds; before anything ran the whole pipeline is ahead.
   private static func pending(after entries: [StepEntry], memo: Memo) -> [MemoStep] {
     guard memo.state != .notified else { return [] }
-    let steps = PipelineSteps.applicable(to: memo)
+    // An old memo keeps the route and summarize rows it was stored with; the steps to come follow its pipeline.
+    let steps =
+      entries.contains { $0.step == .route || $0.step == .summarize }
+      ? PipelineSteps.legacy(for: memo) : PipelineSteps.applicable(to: memo)
     guard let last = entries.map(\.step).compactMap(steps.firstIndex(of:)).max() else { return steps }
     return Array(steps[(last + 1)...])
   }

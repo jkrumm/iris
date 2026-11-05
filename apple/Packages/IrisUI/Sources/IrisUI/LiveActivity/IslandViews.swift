@@ -24,12 +24,6 @@ public struct IslandGlyph: View {
           .font(.system(size: 13, weight: .bold))
           .foregroundStyle(Theme.Status.good)
           .frame(width: 16, height: 16)
-      case .needsRoute:
-        Text(verbatim: "?")
-          .font(.system(size: 11, weight: .heavy))
-          .foregroundStyle(.black)
-          .frame(width: 16, height: 16)
-          .background(Theme.Status.warn, in: .circle)
       case .failed:
         Image(systemName: phase.symbol)
           .font(.system(size: 13, weight: .bold))

@@ -2,11 +2,11 @@ import SwiftUI
 
 /// The status line of a History row (round 2 render): what the memo is doing or where it went.
 public enum HistoryRowStatus: Equatable {
-  /// A routed memo: `● Route · duration`.
-  case settled(route: String, dot: Color, duration: String?)
-  /// The pipeline is still driving it: `● Route · Acting ▬▬▬▭▭`, the dashes being one per step, filled as steps finish.
-  case inFlight(route: String, dot: Color, label: String, progress: StepProgress? = nil)
-  /// Needs the user (Needs route, Failed): the coloured state replaces the route.
+  /// A finished memo: `● Kind · duration`.
+  case settled(kind: String, dot: Color, duration: String?)
+  /// The pipeline is still driving it: `● Kind · Acting ▬▬▬▭▭`, the dashes being one per step, filled as steps finish.
+  case inFlight(kind: String, dot: Color, label: String, progress: StepProgress? = nil)
+  /// Needs the user (Failed): the coloured state replaces the kind.
   case alert(label: String, color: Color)
 }
 
@@ -83,10 +83,10 @@ public struct HistoryRow: View {
 
   @ViewBuilder private var statusLine: some View {
     switch status {
-    case .settled(let route, let dot, let duration):
+    case .settled(let kind, let dot, let duration):
       HStack(spacing: Theme.Spacing.snug) {
         Dot(color: dot)
-        Text(verbatim: route)
+        Text(verbatim: kind)
           .fontWeight(.semibold)
           .foregroundStyle(Theme.Ink.secondary)
         if let duration {
@@ -95,10 +95,10 @@ public struct HistoryRow: View {
         }
       }
       .foregroundStyle(Theme.Ink.muted)
-    case .inFlight(let route, let dot, let label, let progress):
+    case .inFlight(let kind, let dot, let label, let progress):
       HStack(spacing: Theme.Spacing.snug) {
         Dot(color: dot)
-        Text(verbatim: route)
+        Text(verbatim: kind)
           .fontWeight(.semibold)
           .foregroundStyle(Theme.Ink.secondary)
         Text(verbatim: "·")
@@ -157,7 +157,7 @@ private struct Dot: View {
   }
 }
 
-/// The List row background: the page surface, tinted while the memo needs a route.
+/// The List row background: the page surface, tinted while the memo needs attention.
 public struct HistoryRowBackground: View {
   private let needsAttention: Bool
 

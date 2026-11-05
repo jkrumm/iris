@@ -126,16 +126,12 @@ struct FixtureConformanceTests {
     #expect(full.apnsEnv == .set(.sandbox))
   }
 
-  @Test("A parked old row keeps routeReason; a memo without it omits routeReason and routeSuggestion on encode")
-  func routeDetails() throws {
-    let decoder = IrisJSON.makeDecoder()
-    let parked = try decoder.decode(Memo.self, from: Contracts.fixtureData("memos.result.response.needs-route"))
+  @Test("An old parked row still decodes: needs_route state, no kind")
+  func oldParkedRow() throws {
+    let parked = try IrisJSON.makeDecoder().decode(
+      Memo.self, from: Contracts.fixtureData("memos.result.response.needs-route"))
     #expect(parked.state == .needsRoute)
-
-    let plain = try decoder.decode(Memo.self, from: Contracts.fixtureData("memos.create.response"))
-    #expect(plain.routeReason == nil && plain.routeSuggestion == nil)
-    let encoded = String(decoding: try IrisJSON.makeEncoder().encode(plain), as: UTF8.self)
-    #expect(!encoded.contains("routeReason") && !encoded.contains("routeSuggestion"))
+    #expect(parked.kind == nil)
   }
 
   @Test("kind and actions: decoded from the wire, omitted on encode when absent")
@@ -154,10 +150,11 @@ struct FixtureConformanceTests {
     #expect(!encoded.contains("\"kind\"") && !encoded.contains("\"actions\""))
   }
 
-  @Test("A page without pinned decodes it as empty and does not encode it back")
-  func pageWithoutPinned() throws {
-    let page = try IrisJSON.makeDecoder().decode(MemoPage.self, from: Contracts.fixtureData("memos.list.response"))
-    #expect(page.pinned.isEmpty && !page.pinnedTruncated)
+  @Test("A page that still carries the retired pinned keys decodes and does not encode them back")
+  func pageIgnoresPinned() throws {
+    let page = try IrisJSON.makeDecoder().decode(
+      MemoPage.self, from: Data(#"{"items":[],"pinned":[],"pinnedTruncated":true,"nextCursor":null}"#.utf8))
+    #expect(page.items.isEmpty && page.nextCursor == nil)
     let encoded = String(decoding: try IrisJSON.makeEncoder().encode(page), as: UTF8.self)
     #expect(!encoded.contains("pinned"))
   }
@@ -209,7 +206,7 @@ struct FixtureConformanceTests {
   func listQueryFilters() throws {
     let decoder = IrisJSON.makeDecoder()
     let filters = try decoder.decode(ListMemosQuery.self, from: Contracts.fixtureData("memos.list.query.filters"))
-    #expect(filters.favorite && !filters.archived && filters.memoKind == "note" && filters.thread)
+    #expect(filters.favorite && !filters.archived && filters.kind == "note" && filters.thread)
     #expect(
       filters.queryItems == [
         URLQueryItem(name: "limit", value: "20"), URLQueryItem(name: "favorite", value: "true"),
@@ -217,7 +214,7 @@ struct FixtureConformanceTests {
       ])
     let archived = try decoder.decode(ListMemosQuery.self, from: Contracts.fixtureData("memos.list.query.archived"))
     #expect(archived.archived && !archived.favorite)
-    #expect(ListMemosQuery(favorite: false, archived: false, kind: .unknown).queryItems.isEmpty)
+    #expect(ListMemosQuery(favorite: false, archived: false).queryItems.isEmpty)
     #expect(throws: DecodingError.self) {
       try decoder.decode(ListMemosQuery.self, from: Data(#"{"favorite":"false"}"#.utf8))
     }
@@ -320,7 +317,7 @@ struct FixtureConformanceTests {
   func threadId() throws {
     let decoder = IrisJSON.makeDecoder()
     let chat = try decoder.decode(MemoDetail.self, from: Contracts.fixtureData("memos.detail.response.chat"))
-    #expect(chat.memo.mode == .chat)
+    #expect(chat.memo.mode == .hermes)
     #expect(chat.memo.threadId == chat.memo.id)
 
     let plain = try decoder.decode(Memo.self, from: Contracts.fixtureData("memos.create.response"))
@@ -342,35 +339,28 @@ struct FixtureConformanceTests {
     #expect(!encoded.contains("threadId"))
 
     let detail = try decoder.decode(ThreadDetail.self, from: Contracts.fixtureData("threads.detail.response"))
-    #expect(detail.thread.kind == .chat)
+    #expect(detail.thread.kind == "chat")
     #expect(detail.memos.map(\.threadId) == [detail.id, detail.id])
     #expect(detail.messages.map(\.role) == [.user, .assistant, .user, .assistant])
     #expect(detail.messages.map(\.memoId) == detail.memos.flatMap { [$0.id, $0.id] })
   }
 
-  @Test("A thread kind this build does not know decodes with .unknown and keeps the rest of the page")
-  func unknownThreadKind() throws {
-    let original = String(decoding: try Contracts.fixtureData("threads.list.response"), as: UTF8.self)
-    let patched = original.replacingOccurrences(of: "\"kind\": \"chat\"", with: "\"kind\": \"voice\"")
-    #expect(patched != original)
-    let page = try IrisJSON.makeDecoder().decode(ThreadPage.self, from: Data(patched.utf8))
-    #expect(page.items.map(\.kind) == [.unknown, .hermes])
-    #expect(!ThreadKind.allCases.contains(.unknown))
+  @Test("A thread kind is passed through as the wire string")
+  func threadKindPassthrough() throws {
+    let page = try IrisJSON.makeDecoder().decode(ThreadPage.self, from: Contracts.fixtureData("threads.list.response"))
+    #expect(page.items.map(\.kind) == ["chat", "hermes"])
   }
 
-  @Test("A memo with a mode this build does not know decodes with .unknown and keeps the rest of the page")
-  func unknownMode() throws {
-    let original = String(decoding: try Contracts.fixtureData("memos.list.response"), as: UTF8.self)
-    let patched = original.replacingOccurrences(of: "\"mode\": \"auto\"", with: "\"mode\": \"voice-note\"")
-    #expect(patched != original)
-
+  @Test("Every mode but transcribe decodes to .hermes, a retired or unknown one included; encoding writes the case")
+  func modeDecoding() throws {
     let decoder = IrisJSON.makeDecoder()
-    let known = try decoder.decode(MemoPage.self, from: Data(original.utf8))
-    let page = try decoder.decode(MemoPage.self, from: Data(patched.utf8))
-    #expect(page.items.count == known.items.count)
-    #expect(page.items.first?.mode == .unknown)
-    #expect(page.items.dropFirst().map(\.mode) == known.items.dropFirst().map(\.mode))
-    #expect(!MemoMode.allCases.contains(.unknown))
+    for raw in ["auto", "chat", "journal", "tab", "hermes", "voice-note"] {
+      #expect(try decoder.decode(MemoMode.self, from: Data("\"\(raw)\"".utf8)) == .hermes, "\(raw)")
+    }
+    #expect(try decoder.decode(MemoMode.self, from: Data(#""transcribe""#.utf8)) == .transcribe)
+    #expect(MemoMode.allCases == [.hermes, .transcribe])
+    let encoder = IrisJSON.makeEncoder()
+    #expect(try encoder.encode([MemoMode.hermes, .transcribe]) == Data(#"["hermes","transcribe"]"#.utf8))
   }
 
   @Test("Result-ready states match the server")

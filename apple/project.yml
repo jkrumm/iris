@@ -116,7 +116,7 @@ targets:
           NSExtensionPointIdentifier: com.apple.usernotifications.content-extension
           NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).NotificationViewController
           NSExtensionAttributes:
-            UNNotificationExtensionCategory: [MEMO_DONE, MEMO_NEEDS_ROUTE]
+            UNNotificationExtensionCategory: [MEMO_DONE]
             UNNotificationExtensionInitialContentSizeRatio: 0.4
             UNNotificationExtensionDefaultContentHidden: true
     settings:
@@ -156,8 +156,7 @@ targets:
       - Iris/WaterfallBuilder.swift
       - Iris/ReplyMarkdown.swift
       - Iris/Pasteboard.swift
-      # The desktop app: the route answer, the media download behind Play, the thread read.
-      - Iris/RouteAnswerModel.swift
+      # The desktop app: the media download behind Play, the thread read.
       - Iris/MediaDownloader.swift
       - Iris/MemoMediaSource.swift
       - Iris/FakeDiagramImage.swift

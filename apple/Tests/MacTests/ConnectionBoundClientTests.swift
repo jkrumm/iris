@@ -9,7 +9,7 @@ import Testing
 struct ConnectionBoundClientTests {
   private func request() -> CreateTextMemoRequest {
     CreateTextMemoRequest(
-      id: UUID().uuidString.lowercased(), mode: .auto, startedAt: Date(timeIntervalSince1970: 0), text: "hello",
+      id: UUID().uuidString.lowercased(), mode: .hermes, startedAt: Date(timeIntervalSince1970: 0), text: "hello",
       threadId: nil)
   }
 

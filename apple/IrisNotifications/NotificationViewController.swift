@@ -4,10 +4,10 @@ import UIKit
 import UserNotifications
 import UserNotificationsUI
 
-/// What the card shows: the push alert's title is the route chip, its body the headline.
+/// What the card shows: the push alert's title is the kind chip, its body the headline.
 @Observable
 final class NotificationCardModel {
-  var routeChip = ""
+  var kind = ""
   var headline = ""
 }
 
@@ -32,7 +32,7 @@ final class NotificationViewController: UIViewController, UNNotificationContentE
 
   func didReceive(_ notification: UNNotification) {
     let content = notification.request.content
-    model.routeChip = content.title
+    model.kind = content.title
     model.headline = content.body
   }
 }
@@ -46,8 +46,8 @@ private struct NotificationCard: View {
         .themeFont(.title3, weight: .bold)
         .foregroundStyle(Theme.Ink.primary)
         .frame(maxWidth: .infinity, alignment: .leading)
-      if !model.routeChip.isEmpty {
-        RouteChip(label: model.routeChip, systemImage: "arrow.triangle.branch")
+      if !model.kind.isEmpty {
+        KindChip(label: model.kind)
       }
     }
     .padding(Theme.Spacing.lg)

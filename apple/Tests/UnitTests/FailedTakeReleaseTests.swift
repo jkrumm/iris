@@ -37,7 +37,7 @@ struct FailedTakeReleaseTests {
     let following = Task { await model.run() }
     defer { following.cancel() }
 
-    try await controller.start(mode: .auto)
+    try await controller.start(mode: .hermes)
     #expect(controller.captureActive, "a recording take holds the claim")
 
     await rig.capture.recordWithoutClock(seconds: 12)
@@ -60,7 +60,7 @@ struct FailedTakeReleaseTests {
     let following = Task { await model.run() }
     defer { following.cancel() }
 
-    try await controller.start(mode: .auto)
+    try await controller.start(mode: .hermes)
     await rig.capture.recordWithoutClock(seconds: 12)
     try await Task.sleep(for: .milliseconds(100))
 

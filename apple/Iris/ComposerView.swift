@@ -2,7 +2,7 @@ import IrisCore
 import IrisUI
 import SwiftUI
 
-/// The typed-memo composer as a sheet: mode chips, the text field, Send. `onSent` gets the created memo before the
+/// The typed-memo composer as a sheet: the text field and two send targets, Hermes and Transcribe. `onSent` gets the created memo before the
 /// sheet closes, so History can show it at once; `onQueued` says the memo waits in the outbox instead.
 struct ComposerView: View {
   @State private var model: ComposerModel
@@ -19,11 +19,6 @@ struct ComposerView: View {
   var body: some View {
     NavigationStack {
       VStack(alignment: .leading, spacing: Theme.Spacing.md) {
-        if model.threadId == nil {
-          ModePicker(modes: ComposerModel.modes, selection: $model.mode)
-            .disabled(model.isSending)
-            .accessibilityIdentifier("composer.modes")
-        }
         ComposerField(
           text: $model.text,
           placeholder: String(localized: "What should Iris do?", comment: "Composer placeholder"),
@@ -52,27 +47,45 @@ struct ComposerView: View {
             .disabled(!model.canCancel)
             .accessibilityIdentifier("composer.cancel")
         }
-        ToolbarItem(placement: .confirmationAction) {
-          Button {
-            Task { await send() }
-          } label: {
-            // The toolbar drops a `Label`'s title; two views keep the mockup's "arrow Send".
-            HStack(spacing: Theme.Spacing.xs) {
-              Image(systemName: "arrow.up")
-              Text("Send", comment: "Sends the typed memo")
-            }
-            .foregroundStyle(model.canSend ? Theme.Accent.onFill : Theme.Ink.muted)
-          }
-          // A toolbar item draws its own prominent glass and ignores a custom `ButtonStyle`: the accent fill and the
-          // label colour are set on it directly, and the disabled button swaps to a quiet panel with a muted label.
-          .buttonStyle(.borderedProminent)
-          .tint(model.canSend ? Theme.Accent.fill : Theme.Surface.elevated)
-          .disabled(!model.canSend)
-          .accessibilityIdentifier("composer.send")
-        }
       }
+      .safeAreaInset(edge: .bottom) { sendBar }
       .interactiveDismissDisabled(model.isSending)
     }
+  }
+
+  /// Hermes is the primary send; Transcribe is the second one and is not offered to a reply in a thread.
+  private var sendBar: some View {
+    HStack(spacing: Theme.Spacing.barGap) {
+      Button {
+        Task { await send(as: .hermes) }
+      } label: {
+        Label("Send to Hermes", systemImage: "arrow.up")
+          .frame(maxWidth: .infinity)
+          .foregroundStyle(model.canSend ? Theme.Accent.onFill : Theme.Ink.muted)
+      }
+      // The disabled button swaps to a quiet panel with a muted label, like the toolbar Send it replaces.
+      .buttonStyle(.borderedProminent)
+      .tint(model.canSend ? Theme.Accent.fill : Theme.Surface.elevated)
+      .disabled(!model.canSend)
+      .accessibilityIdentifier("composer.send")
+
+      if model.offersTranscribe {
+        Button {
+          Task { await send(as: .transcribe) }
+        } label: {
+          Label("Transcribe", systemImage: "text.alignleft")
+        }
+        .buttonStyle(.bordered)
+        .tint(Theme.Accent.tint)
+        .disabled(!model.canSend)
+        .accessibilityHint("Sends the text as a memo that is only transcribed.")
+        .accessibilityIdentifier("composer.send.transcribe")
+      }
+    }
+    .controlSize(.large)
+    .padding(.horizontal, Theme.Spacing.lg)
+    .padding(.vertical, Theme.Spacing.barGap)
+    .background(Theme.Surface.background)
   }
 
   private var counter: String {
@@ -86,7 +99,7 @@ struct ComposerView: View {
     Label {
       Text(
         model.threadId == nil
-          ? "Typed memos take the same route as spoken ones: same history, same result."
+          ? "Typed memos land in the same history as spoken ones."
           : "Continues this conversation.", comment: "Composer hint")
     } icon: {
       Image(systemName: model.threadId == nil ? "mic" : "bubble.left.and.bubble.right")
@@ -100,8 +113,8 @@ struct ComposerView: View {
     .detailCard()
   }
 
-  private func send() async {
-    guard let outcome = await model.send() else { return }
+  private func send(as mode: MemoMode) async {
+    guard let outcome = await model.send(mode: mode) else { return }
     switch outcome {
     case .sent(let memo): onSent(memo)
     case .queued: onQueued()

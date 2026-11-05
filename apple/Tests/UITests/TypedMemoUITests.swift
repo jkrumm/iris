@@ -13,7 +13,6 @@ final class TypedMemoUITests: IrisUITestCase {
     XCTAssertTrue(waitForPresence(send, timeout: 5))
     XCTAssertFalse(send.isEnabled, "nothing typed yet")
 
-    app.buttons["Chat"].tap()
     let field = app.textViews["composer.field"]
     XCTAssertTrue(waitForPresence(field, timeout: 5))
     field.tap()

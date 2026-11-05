@@ -25,21 +25,15 @@ struct HistorySectionsTests {
     #expect(sections.map { $0.memos.map(\.id) } == [["a", "b"], ["c"], ["d"]])
   }
 
-  @Test("an older pinned memo gets its own header above Today")
-  func pinnedFromAnOlderDay() {
-    let memos = [MemoFactory.memo("parked", age: 3 * day), MemoFactory.memo("a", age: 0)]
-    #expect(HistoryDaySection.group(memos, calendar: calendar).map { $0.memos.map(\.id) } == [["parked"], ["a"]])
-  }
-
-  @Test("a pinned memo from yesterday and yesterday's own memos get distinct section ids")
-  func pinnedAndLaterSectionOfTheSameDayDoNotShareAnID() {
-    // The list is the open needs-route memos first, then everything newest first: yesterday, today, yesterday again.
+  @Test("two runs of the same day get distinct section ids")
+  func runsOfTheSameDayDoNotShareAnID() {
+    // A list that is not strictly newest first: yesterday, today, yesterday again.
     let memos = [
-      MemoFactory.memo("parked", age: day + hour), MemoFactory.memo("a", age: 0), MemoFactory.memo("b", age: hour),
+      MemoFactory.memo("x", age: day + hour), MemoFactory.memo("a", age: 0), MemoFactory.memo("b", age: hour),
       MemoFactory.memo("c", age: day), MemoFactory.memo("d", age: day + 2 * hour),
     ]
     let sections = HistoryDaySection.group(memos, calendar: calendar)
-    #expect(sections.map { $0.memos.map(\.id) } == [["parked"], ["a", "b"], ["c", "d"]])
+    #expect(sections.map { $0.memos.map(\.id) } == [["x"], ["a", "b"], ["c", "d"]])
     #expect(Set(sections.map(\.id)).count == sections.count, "SwiftUI drops rows of sections that share an id")
     #expect(sections.map(\.id) == HistoryDaySection.group(memos, calendar: calendar).map(\.id), "ids are stable")
   }
@@ -96,7 +90,7 @@ struct HistoryModelSectionsTests {
   func sectionsFollowTheList() async {
     let client = FakeAPIClient(now: { MemoFactory.now })
     for memo in [
-      MemoFactory.memo("parked", age: 90_000, state: .needsRoute), MemoFactory.memo("a", age: 10),
+      MemoFactory.memo("old", age: 90_000), MemoFactory.memo("a", age: 10),
       MemoFactory.memo("b", age: 20),
     ] {
       await client.seed(MemoFactory.detail(memo))
@@ -105,14 +99,14 @@ struct HistoryModelSectionsTests {
     #expect(model.sections.isEmpty && model.memoIDs.isEmpty)
 
     await model.load()
-    #expect(model.memoIDs == ["parked", "a", "b"])
+    #expect(model.memoIDs == ["a", "b", "old"])
     #expect(model.sections.flatMap(\.memos).map(\.id) == model.memoIDs, "the sections are the list, in order")
     #expect(Set(model.sections.map(\.id)).count == model.sections.count)
 
-    let memoA = model.memos[1]
+    let memoA = model.memos[0]
     await model.toggleFavorite(memoA)
     #expect(model.sections.flatMap(\.memos).first { $0.id == "a" }?.favorite == true, "a flag change reaches the rows")
-    #expect(model.memoIDs == ["parked", "a", "b"], "and does not look like a reorder")
+    #expect(model.memoIDs == ["a", "b", "old"], "and does not look like a reorder")
   }
 
   @Test("a long list groups in one pass and keeps list order inside a day")

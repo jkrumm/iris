@@ -3,7 +3,7 @@ import IrisCore
 import IrisUI
 
 /// What the Stats tab shows for one granularity, computed from a `GET /v1/stats` body: the bars, the three tiles and
-/// the per-route trends. Pure, so it is tested without a view. Days are the server's `YYYY-MM-DD` strings; they are
+/// the per-kind trends. Pure, so it is tested without a view. Days are the server's `YYYY-MM-DD` strings; they are
 /// read and written in UTC so no device time zone can move a day.
 nonisolated struct StatsReport: Equatable {
   enum Granularity: String, CaseIterable, Identifiable {
@@ -41,12 +41,19 @@ nonisolated struct StatsReport: Equatable {
   let rangeText: String
   let tiles: [Tile]
   let trends: [Trend]
+  /// Every series the bars may draw, in legend order: the ranked kinds, then Other and Transcript.
+  let series: [VolumeSeries]
+  /// The series' names for legends, readouts and trend rows: a kind as Hermes wrote it (data), the two catch-alls localized.
+  let names: [VolumeSeries: String]
 
   var isEmpty: Bool { bars.allSatisfy { $0.total == 0 } }
 
   init(stats: Stats, granularity: Granularity, locale: Locale = .current) {
     self.granularity = granularity
-    let grid = Grid(stats: stats, locale: locale)
+    let ranking = KindRanking(stats: stats)
+    series = ranking.series
+    names = ranking.names
+    let grid = Grid(stats: stats, ranking: ranking, locale: locale)
     let barList: [VolumeBar]
     switch granularity {
     case .days:
@@ -61,7 +68,7 @@ nonisolated struct StatsReport: Equatable {
         bars: barList, change: Self.percentChange(now, prior), stats: stats, locale: locale)
       dayTiles[0].isRise = now > prior
       tiles = dayTiles
-      trends = VolumeSeries.allCases.compactMap { series in
+      trends = ranking.series.compactMap { series in
         let points = barList.map { $0.counts[series, default: 0] }
         let prior = before.map { $0.counts[series, default: 0] }.reduce(0, +)
         return StatsReport.trend(series, points: points, change: points.reduce(0, +) - prior)
@@ -77,7 +84,7 @@ nonisolated struct StatsReport: Equatable {
         bars: barList,
         change: String(localized: "avg \(average.formatted(.number.precision(.fractionLength(0...1)))) / wk"),
         stats: stats, locale: locale)
-      trends = VolumeSeries.allCases.compactMap { series in
+      trends = ranking.series.compactMap { series in
         StatsReport.weekTrend(series, points: barList.map { $0.counts[series, default: 0] })
       }
     }
@@ -89,8 +96,8 @@ nonisolated struct StatsReport: Equatable {
   private static func tiles(bars: [VolumeBar], change: String?, stats: Stats, locale: Locale) -> [Tile] {
     let total = bars.map(\.total).reduce(0, +)
     let busiest = bars.max { $0.total < $1.total }
-    let memos = stats.costPerRoute.map(\.memos).reduce(0, +)
-    let cost = stats.costPerRoute.map(\.costUsd).reduce(0, +)
+    let memos = stats.costPerKind.map(\.memos).reduce(0, +)
+    let cost = stats.costPerKind.map(\.costUsd).reduce(0, +)
     return [
       Tile(title: String(localized: "Memos", comment: "Stats tile"), value: String(total), caption: change),
       Tile(
@@ -139,13 +146,50 @@ nonisolated struct StatsReport: Equatable {
       direction: .flat)
   }
 
-  /// The route names the server stores, folded into the chart's series.
-  static func series(of route: String) -> VolumeSeries {
-    switch route {
-    case "hermes": .hermes
-    case "journal": .journal
-    case "tab", "herdr": .tabs
-    default: .unrouted
+  /// The kinds of the loaded window ranked by memo count: the top `VolumeSeries.paletteCount` get a palette slot in rank
+  /// order, every other kind folds into Other, and a memo without a kind (transcribe) is Transcript.
+  private struct KindRanking {
+    /// Lower-cased kinds, most memos first, then by name.
+    let ranked: [String]
+
+    init(stats: Stats) {
+      var counts: [String: Int] = [:]
+      for row in stats.perDay {
+        guard let kind = Self.key(row.kind) else { continue }
+        counts[kind, default: 0] += row.count
+      }
+      ranked = counts.sorted { ($1.value, $0.key) < ($0.value, $1.key) }.map(\.key)
+    }
+
+    private static func key(_ kind: String?) -> String? {
+      guard let trimmed = kind?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(), !trimmed.isEmpty else {
+        return nil
+      }
+      return trimmed
+    }
+
+    func series(of kind: String?) -> VolumeSeries {
+      guard let key = Self.key(kind) else { return .transcript }
+      guard let rank = ranked.firstIndex(of: key), rank < VolumeSeries.paletteCount else { return .other }
+      return .kind(key, slot: rank)
+    }
+
+    /// Ranked kinds first, then Other (when a kind folds into it), then Transcript.
+    var series: [VolumeSeries] {
+      var list = ranked.prefix(VolumeSeries.paletteCount).enumerated().map { VolumeSeries.kind($1, slot: $0) }
+      if ranked.count > VolumeSeries.paletteCount { list.append(.other) }
+      return list + [.transcript]
+    }
+
+    var names: [VolumeSeries: String] {
+      var names: [VolumeSeries: String] = [
+        .other: String(localized: "Other", comment: "Stats series for the kinds outside the top four"),
+        .transcript: String(localized: "Transcript", comment: "Stats series for memos without a kind"),
+      ]
+      for (rank, kind) in ranked.prefix(VolumeSeries.paletteCount).enumerated() {
+        names[.kind(kind, slot: rank)] = Memo.capitalizedKind(kind)
+      }
+      return names
     }
   }
 
@@ -165,10 +209,10 @@ nonisolated struct StatsReport: Equatable {
       return calendar
     }
 
-    init(stats: Stats, locale: Locale) {
+    init(stats: Stats, ranking: KindRanking, locale: Locale) {
       var counts: [String: [VolumeSeries: Int]] = [:]
       for row in stats.perDay {
-        counts[row.date, default: [:]][StatsReport.series(of: row.route), default: 0] += row.count
+        counts[row.date, default: [:]][ranking.series(of: row.kind), default: 0] += row.count
       }
       countsByDay = counts
       weekStarts = stats.perWeek.map(\.weekStart)

@@ -48,17 +48,11 @@
       SnapshotSupport.assertLightAndDark(both, width: 390, height: 300)
     }
 
-    @Test("lock screen: needs a route", .tags(.snapshot))
-    func lockNeedsRoute() {
-      SnapshotSupport.assertLightAndDark(
-        card(CaptureSamples.presentation(.needsRoute, routeChip: "Hermes?")), width: 390, height: 150)
-    }
-
     @Test("lock screen: the done card keeps the checkmark on the first line", .tags(.snapshot))
     func lockDone() {
-      let short = CaptureSamples.presentation(.done, headline: "Weekly plan agreed", routeChip: "Hermes")
+      let short = CaptureSamples.presentation(.done, headline: "Weekly plan agreed", routeChip: "Answer")
       let long = CaptureSamples.presentation(
-        .done, headline: "Weekly plan agreed, release on Thursday, two follow-ups assigned", routeChip: "Hermes")
+        .done, headline: "Weekly plan agreed, release on Thursday, two follow-ups assigned", routeChip: "Answer")
       let both = VStack(spacing: 0) {
         card(short)
         card(long)
@@ -68,7 +62,7 @@
 
     @Test("lock screen: the done card with Play", .tags(.snapshot))
     func lockDonePlay() {
-      let presentation = CaptureSamples.presentation(.done, headline: "Weekly plan agreed", routeChip: "Hermes")
+      let presentation = CaptureSamples.presentation(.done, headline: "Weekly plan agreed", routeChip: "Answer")
       let panel = LiveActivityPanel(presentation) {
         EmptyView()
       } doneAction: {
@@ -109,7 +103,7 @@
     @Test("island: compact and minimal across the phases", .tags(.snapshot))
     func compactAndMinimal() {
       let rows = VStack(spacing: 12) {
-        ForEach([ActivityPhase.recording, .paused, .uploading, .processing, .needsRoute, .done, .failed], id: \.self) {
+        ForEach([ActivityPhase.recording, .paused, .uploading, .processing, .done, .failed], id: \.self) {
           phase in
           HStack(spacing: 12) {
             compact(phase)
@@ -154,7 +148,7 @@
     @Test("island expanded: done with Play", .tags(.snapshot))
     func expandedDonePlay() {
       let presentation = CaptureSamples.presentation(
-        .done, headline: "Weekly plan agreed, release on Thursday", routeChip: "Hermes")
+        .done, headline: "Weekly plan agreed, release on Thursday", routeChip: "Answer")
       let island = IslandMock(.expanded) {
         ActivityPhaseTitle(presentation, onDark: true)
       } trailing: {
@@ -173,7 +167,7 @@
     @Test("island expanded: done", .tags(.snapshot))
     func expandedDone() {
       let presentation = CaptureSamples.presentation(
-        .done, headline: "Weekly plan agreed, release on Thursday", routeChip: "Hermes")
+        .done, headline: "Weekly plan agreed, release on Thursday", routeChip: "Answer")
       SnapshotSupport.assertLightAndDark(expanded(presentation), width: 390, height: 170)
     }
   }

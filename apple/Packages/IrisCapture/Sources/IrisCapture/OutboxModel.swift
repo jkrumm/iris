@@ -133,7 +133,7 @@ public struct OutboxDeletion: Sendable, Equatable, Codable {
 public struct OutboxItem: Sendable, Equatable, Codable {
   public let memoID: MemoID
   public var kind: OutboxItemKind
-  /// The `MemoMode` raw value (IrisCapture does not depend on IrisCore).
+  /// The `MemoMode` raw value, `hermes` or `transcribe` (IrisCapture does not depend on IrisCore).
   public var mode: String
   /// Continues this thread; `nil` for a new memo.
   public var threadID: String?

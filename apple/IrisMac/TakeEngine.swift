@@ -31,8 +31,8 @@ protocol TakeEngine: Sendable {
   func microphones() async -> Microphones
   /// The microphone list when a device appears or goes, or the default changes. Every call is its own subscription.
   func microphoneChanges() -> AsyncStream<Microphones>
-  /// Starts a take in mode Auto; returns the instant it started.
-  func start() async throws -> Date
+  /// Starts a take in `mode` (Hermes or Transcribe); returns the instant it started.
+  func start(mode: MemoMode) async throws -> Date
   func stop() async throws -> TakeEnd
   /// Drops the take: nothing is sent, its memo is deleted when the server already has it.
   func cancel() async
@@ -40,7 +40,7 @@ protocol TakeEngine: Sendable {
 }
 
 /// The production engine: one take through `IrisCapture`'s session and the persistent outbox (the same stack as the iPhone's,
-/// on a Core Audio route manager), mode Auto like the iPhone's record control. The system default input is changed by
+/// on a Core Audio route manager), in the mode the panel asks for. The system default input is changed by
 /// ``select(microphone:)`` and put back when the take ends, however it ends (and not over a default somebody else chose since).
 final class CaptureTakeEngine: TakeEngine {
   private let stack: CaptureStack
@@ -112,10 +112,10 @@ final class CaptureTakeEngine: TakeEngine {
     }
   }
 
-  func start() async throws -> Date {
+  func start(mode: MemoMode) async throws -> Date {
     do {
       let session = try await stack.session()
-      try await session.start(TakeRequest(mode: "auto", title: title))
+      try await session.start(TakeRequest(mode: mode.rawValue, title: title))
       return await session.current.startedAt ?? Date()
     } catch {
       // The session may have applied a microphone rule (the default input changed) before the recorder refused.
@@ -180,12 +180,16 @@ final class FakeTakeEngine: TakeEngine, @unchecked Sendable {
     var stopError: (any Error)?
     var end = TakeEnd.queued
     var calls: [String] = []
+    var startedModes: [MemoMode] = []
   }
 
   init() {}
 
   /// What the panel asked, in order: `start`, `stop`, `cancel`, `select:<uid>`.
   var calls: [String] { lock.withLock { state.calls } }
+
+  /// The mode of each `start`, in order.
+  var startedModes: [MemoMode] { lock.withLock { state.startedModes } }
 
   /// Script hooks.
   func failStart(with error: (any Error)?) { lock.withLock { state.startError = error } }
@@ -216,9 +220,10 @@ final class FakeTakeEngine: TakeEngine, @unchecked Sendable {
   }
   func microphoneChanges() -> AsyncStream<Microphones> { changeFeed.subscribe() }
 
-  func start() async throws -> Date {
+  func start(mode: MemoMode) async throws -> Date {
     let (hangs, gate) = lock.withLock {
       state.calls.append("start")
+      state.startedModes.append(mode)
       return (state.startHangs, state.startGate)
     }
     await gate?.wait()

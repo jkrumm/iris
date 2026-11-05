@@ -35,7 +35,7 @@ struct CaptureFollowUpTests {
     let rig = OutboxRig(client: client)
     let activity = RecordingLiveActivity()
     let (controller, coordinator) = controller(rig, activity: activity)
-    let id = try await controller.start(mode: .auto)
+    let id = try await controller.start(mode: .hermes)
 
     await coordinator.endOrphans()  // the connection changed mid-take
 
@@ -54,8 +54,8 @@ struct CaptureFollowUpTests {
     let activity = RecordingLiveActivity()
     let (controller, _) = controller(rig, activity: activity)
 
-    async let first = controller.start(mode: .auto)
-    async let second = controller.start(mode: .auto)
+    async let first = controller.start(mode: .hermes)
+    async let second = controller.start(mode: .hermes)
     let (a, b) = try await (first, second)
 
     #expect(a == b, "both callers got the one take")
@@ -63,7 +63,7 @@ struct CaptureFollowUpTests {
     #expect(await session.current.memoID == a)
     #expect(await activity.starts.count == 1)
     // A start that finds the take already running is that take too, not an error.
-    #expect(try await controller.start(mode: .auto) == a)
+    #expect(try await controller.start(mode: .hermes) == a)
     try await controller.stop()
   }
 
@@ -72,10 +72,10 @@ struct CaptureFollowUpTests {
     let rig = OutboxRig(client: client)
     let activity = RecordingLiveActivity()
     let (controller, _) = controller(rig, activity: activity)
-    let running = try await controller.start(mode: .auto)
+    let running = try await controller.start(mode: .hermes)
 
-    async let first = controller.start(mode: .auto)
-    async let second = controller.start(mode: .auto)
+    async let first = controller.start(mode: .hermes)
+    async let second = controller.start(mode: .hermes)
     let (a, b) = try await (first, second)
 
     #expect(a == running && b == running, "the joined caller recovers the running take too, not alreadyRecording")
@@ -91,8 +91,8 @@ struct CaptureFollowUpTests {
     let denied = TakeController(
       stack: rig.stack, liveActivity: coordinator, outbox: rig.service, microphone: nil, canRecord: true,
       isConfigured: { true }, requestPermission: { false }, preview: nil)
-    await #expect(throws: StartMemoError.microphoneDenied) { try await denied.start(mode: .auto) }
-    await #expect(throws: StartMemoError.microphoneDenied) { try await denied.start(mode: .auto) }
+    await #expect(throws: StartMemoError.microphoneDenied) { try await denied.start(mode: .hermes) }
+    await #expect(throws: StartMemoError.microphoneDenied) { try await denied.start(mode: .hermes) }
   }
 
   @Test("cancel reports it when the capture session cannot be opened, and Discard says so")

@@ -10,7 +10,7 @@ import Testing
 struct OutboxServiceTests {
   let client = FakeAPIClient(now: { MemoFactory.now })
 
-  private func submission(_ n: UInt8, text: String = "hello", threadId: String? = nil, mode: MemoMode = .auto)
+  private func submission(_ n: UInt8, text: String = "hello", threadId: String? = nil, mode: MemoMode = .hermes)
     -> TextSubmission
   {
     TextSubmission(
@@ -131,11 +131,10 @@ struct OutboxServiceTests {
             queuedAt: MemoFactory.now, title: "t"),
           status: .waiting))
     }
-    #expect(item(.voice, mode: "auto", thread: nil).kind == .voiceMemo)
+    #expect(item(.voice, mode: "hermes", thread: nil).kind == .voiceMemo)
     #expect(item(.voice, mode: "hermes", thread: "t").kind == .voiceReply)
-    #expect(item(.text("x"), mode: "auto", thread: nil).kind == .typedMemo)
-    #expect(item(.text("x"), mode: "chat", thread: nil).kind == .chatMessage)
-    #expect(item(.text("x"), mode: "chat", thread: "t").kind == .textReply)
+    #expect(item(.text("x"), mode: "hermes", thread: nil).kind == .typedMemo)
+    #expect(item(.text("x"), mode: "hermes", thread: "t").kind == .textReply)
   }
 
   @Test("segments the server already has for a completed memo are delivered on its 409, and the queue clears")
@@ -143,7 +142,7 @@ struct OutboxServiceTests {
     let id = MemoID()
     let wire = id.wireID
     // The server has the whole take and has completed it (the audio was sent by hand, or the answers were lost).
-    _ = try await client.createMemo(CreateMemoRequest(id: wire, mode: .auto, startedAt: MemoFactory.now))
+    _ = try await client.createMemo(CreateMemoRequest(id: wire, mode: .hermes, startedAt: MemoFactory.now))
     for index in 0..<3 { try await client.uploadSegment(memoID: wire, index: index, data: Data("audio".utf8)) }
     _ = try await client.completeMemo(id: wire, request: CompleteMemoRequest(segmentCount: 3))
     let uploadsBefore = await client.calls.count
@@ -158,7 +157,8 @@ struct OutboxServiceTests {
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
     defer { try? FileManager.default.removeItem(at: directory) }
     var item = OutboxItem(
-      memoID: id, kind: .voice, mode: "auto", startedAt: MemoFactory.now, queuedAt: MemoFactory.now, title: "Voice memo"
+      memoID: id, kind: .voice, mode: "hermes", startedAt: MemoFactory.now, queuedAt: MemoFactory.now,
+      title: "Voice memo"
     )
     item.create = .uploaded
     var machine = OutboxStateMachine()
@@ -224,7 +224,7 @@ struct APIOutboxUploaderTests {
     let client = FakeAPIClient()
     await client.seed(
       ThreadDetail(
-        thread: MemoThread(id: "t", kind: .hermes, title: "T", createdAt: MemoFactory.now, updatedAt: MemoFactory.now),
+        thread: MemoThread(id: "t", kind: "hermes", title: "T", createdAt: MemoFactory.now, updatedAt: MemoFactory.now),
         memos: [], messages: []))
     let created = CreatedMemoLog()
     let uploader = APIOutboxUploader(client: client, created: created)
@@ -252,7 +252,7 @@ struct APIOutboxUploaderTests {
       try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
       file = directory.appending(path: "\(id.uuidString)-2.m4a")
       try Data("audio".utf8).write(to: file)
-      _ = try await client.createMemo(CreateMemoRequest(id: id.wireID, mode: .auto, startedAt: MemoFactory.now))
+      _ = try await client.createMemo(CreateMemoRequest(id: id.wireID, mode: .hermes, startedAt: MemoFactory.now))
       for index in 0..<held { try await client.uploadSegment(memoID: id.wireID, index: index, data: Data("x".utf8)) }
       if held > 0 { _ = try await client.completeMemo(id: id.wireID, request: CompleteMemoRequest(segmentCount: held)) }
       await client.enqueueFailure(
