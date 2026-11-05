@@ -326,12 +326,13 @@ Push to master deploys. LaunchAgent `com.jkrumm.iris` (KeepAlive, `ExitTimeOut` 
   notifier is the intended state until enrolment; a degraded `/health` fails `make verify`). Boot logs `notifier.selected`.
   Environment per push is `device.apnsEnv`, `sandbox` when null; with a null `apnsEnv`
   a BadDeviceToken (likely a production token sent to the sandbox) is logged with a hint and the token is kept, so only
-  an explicitly registered env makes BadDeviceToken clear it (410 / Unregistered always do, via the conditional `clearApnsToken`). `notify` sends the Live Activity `end` (if the memo has an
-  activity token) and the alert (if the device has an `apnsToken`); neither registered logs `notify.no_token` and succeeds.
+  an explicitly registered env makes BadDeviceToken clear it (410 / Unregistered always do, via the conditional `clearApnsToken`). `notify` sends one push per memo: the Live Activity `end` when the memo has an
+  activity token (it carries `aps.alert` {kind chip or "Iris", headline, `sound: "default"`}, so the device lights up and plays the sound; no separate banner, owner 2026-11-05, TDD §3 notify), else the alert push
+  (if the device has an `apnsToken`; also the fallback when the `end` is refused for good); neither registered logs `notify.no_token` and succeeds. A transient `end` failure throws without sending the alert.
   A rejected token never fails the memo: `notify.apns_rejected` is logged, and BadDeviceToken / 410 Unregistered clear the
   stored token (only if it is still the one we sent to); other 4xx (e.g. 403 InvalidProviderToken) are logged, tokens kept.
   Transient failures (status 0, 408, 429, 5xx, 403 ExpiredProviderToken) throw a `TransientError`, so the runner retries notify twice (2 s, 8 s) and then fails it for `POST /retry`
-  (a retry re-sends both pushes; the alert carries `apns-collapse-id` = memo id, so a re-send replaces the banner instead of duplicating it). `phase` (Live Activity `update`, priority 5) is bound to memo events by
+  (a retry re-sends the push by the same rule; the alert carries `apns-collapse-id` = memo id, so a re-send replaces the banner instead of duplicating it). `phase` (Live Activity `update`, priority 5) is bound to memo events by
   `bindPhaseUpdates`: not for `receiving` or `notified`, serialised per memo, latest state wins, errors logged only.
   The alert carries `category: MEMO_DONE` only (the `MEMO_NEEDS_ROUTE` alert and `notifier.needsRoute` are gone with the park).
 - **APNs transport:** node-apn builds the ES256 JWT with `jsonwebtoken` and regenerates it when its `iat` is 3300 s (55 min)
@@ -340,8 +341,8 @@ Push to master deploys. LaunchAgent `com.jkrumm.iris` (KeepAlive, `ExitTimeOut` 
   stream until a valid token lands; a status-0 failure re-arms that). `config.port` (443) is passed to `http2.connect` and Bun
   honours it over the URL, so a test server needs `address` and `port` both. Not verified: real Apple hosts and GOAWAY JSON.
   node-apn emits a harmless `MaxListenersExceededWarning` (one `timeout` listener per stream on the session) above 10 streams.
-- **Live Activity contract (Swift side):** payload `aps` is `{timestamp, event, "content-state"}` (+ `dismissal-date` on `end`,
-  now + 15 min). `ContentState` is plain camelCase Codable: `phase` (`processing` | `done` | `failed` on the wire; the Swift enum keeps `needsRoute` until Wave 21 A1),
+- **Live Activity contract (Swift side):** payload `aps` is `{timestamp, event, "content-state"}` (+ `dismissal-date` and `alert` {title, body, sound} on `end`,
+  now + 15 min; the `end` is the memo's announcement). `ContentState` is plain camelCase Codable: `phase` (`processing` | `done` | `failed` on the wire; the Swift enum keeps `needsRoute` until Wave 21 A1),
   `routeChip?` (the memo's `kind`, capitalised), `headline?` (≤ 60), `hasReply`. `inputName` is never sent: the client keeps it device-side and must declare it
   optional. Alerts carry the kind chip (title, "Iris" without a kind) + headline only (never transcript or reply), `category: MEMO_DONE`, `thread-id: memo`, `mutable-content: 1` and a top-level `memo` id.
 - **Bookkeeping failures** (`completeStep` throws after a handler ran) log `runner.bookkeeping_failed`

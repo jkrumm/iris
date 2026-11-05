@@ -104,21 +104,24 @@ export function createApnsNotifier(deps: {
       }
 
       const now = clock.now();
-      const pushes: Promise<ApnsResult>[] = [];
+      const results: ApnsResult[] = [];
+      // A memo with a Live Activity gets its end push (which carries the alert) and no banner. Without an activity token, or when
+      // that push is finally refused (the activity is gone), the alert push is the only way the device hears of the memo.
       if (activityToken) {
-        pushes.push(
-          push({
-            kind: "live_activity_end",
-            memo,
-            token: activityToken,
-            message: buildLiveActivityEnd({ topic, memo, summary, now }),
-            clearToken: clearActivityToken(memo, activityToken),
-          }),
-        );
+        const end = await push({
+          kind: "live_activity_end",
+          memo,
+          token: activityToken,
+          message: buildLiveActivityEnd({ topic, memo, summary, now }),
+          clearToken: clearActivityToken(memo, activityToken),
+        });
+        results.push(end);
       }
-      if (alertToken) {
-        pushes.push(
-          push({
+      const endDelivered = results[0]?.ok === true;
+      const endTransient = results[0] !== undefined && !results[0].ok && isTransient(results[0]);
+      if (alertToken && !endDelivered && !endTransient) {
+        results.push(
+          await push({
             kind: "alert",
             memo,
             token: alertToken,
@@ -128,7 +131,6 @@ export function createApnsNotifier(deps: {
         );
       }
 
-      const results = await Promise.all(pushes);
       const transient = results.find((r): r is Failure => !r.ok && isTransient(r));
       if (transient) {
         throw new TransientError(`apns: ${transient.status} ${transient.reason}`, "after_send");
