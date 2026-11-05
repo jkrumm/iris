@@ -32,33 +32,49 @@ extension Memo {
     step == .summarize && state == .notified && summary == nil
   }
 
-  /// Where the memo went (the tab name for a herdr tab); the mode only before it is routed.
-  var routeLabel: String {
+  /// The longest a kind label reads: the wire's own limit, in code points.
+  nonisolated static let kindLimit = 24
+
+  /// Hermes' kind as the server's alert writes it: the first character upper-cased, the rest as sent ("github issue"
+  /// becomes "Github issue"), at most ``kindLimit`` code points.
+  nonisolated static func capitalizedKind(_ kind: String) -> String {
+    let trimmed = kind.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard let first = trimmed.first else { return "" }
+    let text = first.uppercased() + trimmed.dropFirst()
+    return String(String.UnicodeScalarView(text.unicodeScalars.prefix(kindLimit)))
+  }
+
+  /// Hermes classified the memo (a free-form kind: data, never localized).
+  var hasKind: Bool {
+    !(kind?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
+  }
+
+  /// What the memo is: Hermes' kind; an old memo without one reads its route (the tab name for a herdr tab); a
+  /// transcript-only memo "Transcript"; a Hermes memo not yet classified "Hermes".
+  var kindLabel: String {
+    if hasKind, let kind { return Self.capitalizedKind(kind) }
+    if mode == .transcribe { return String(localized: "Transcript", comment: "Kind label of a transcript-only memo") }
     switch route {
-    case nil: mode.rawValue.capitalized
+    case nil: return String(localized: "Hermes", comment: "Kind label of a memo Hermes has not classified")
     case "tab", "herdr":
-      destinationRef ?? String(localized: "Tab", comment: "Route name for a herdr tab without a name")
-    case let route?: route.capitalized
+      return destinationRef ?? String(localized: "Tab", comment: "Route name of an old memo for a herdr tab")
+    case "journal": return String(localized: "Journal", comment: "Route name of an old memo")
+    case "chat": return String(localized: "Chat", comment: "Route name of an old memo")
+    case "hermes": return String(localized: "Hermes", comment: "Kind label of a memo Hermes has not classified")
+    case let route?: return route.capitalized
     }
   }
 
-  /// The icon on the detail's chip: a transcript-only memo has no route to show a branch for.
-  var routeChipIcon: String {
-    mode == .transcribe ? "text.alignleft" : "arrow.triangle.branch"
+  /// The glyph on the kind chip: a transcript-only memo has no kind to tag.
+  var kindIcon: String {
+    mode == .transcribe && !hasKind ? "text.alignleft" : "tag.fill"
   }
 
-  /// The route's dot on a History row.
-  var routeDotColor: Color {
-    switch route {
-    case "hermes": Theme.Accent.tint
-    case "journal": Theme.Status.good
-    case "tab", "herdr": Theme.Ink.secondary
-    default: Theme.Ink.faint
-    }
+  /// The kind's dot on a History row.
+  var kindDotColor: Color {
+    guard mode != .transcribe || hasKind else { return Theme.Ink.faint }
+    return KindPalette.color(forKind: hasKind ? kind : route)
   }
-
-  /// Parked at `needs_route` and not yet handled: pinned above the list and tinted.
-  var isOpenNeedsRoute: Bool { state == .needsRoute && !done }
 
   var relativeTime: String {
     createdAt.formatted(.relative(presentation: .named))
@@ -69,22 +85,24 @@ extension Memo {
     createdAt.formatted(date: .omitted, time: .shortened)
   }
 
-  /// Settled memos show the route and the audio length, memos that need the user show the coloured state, memos the
-  /// pipeline is still driving show the route and "Acting". The list wire carries no cost.
+  /// Settled memos show the kind and the audio length, a failed memo the coloured state, memos the pipeline is still
+  /// driving show the kind and "Acting". An old memo parked at `needs_route` (done, never routed) reads "Not delivered". The list wire carries no cost.
   var rowStatus: HistoryRowStatus {
     switch state {
     case .needsRoute:
-      .alert(label: String(localized: "Needs route", comment: "History row status"), color: Theme.Status.warn)
+      .alert(
+        label: String(localized: "Not delivered", comment: "History row status of an old memo that was never routed"),
+        color: Theme.Status.neutral)
     case .failed:
       .alert(
         label: failedStep.map { String(localized: "Failed · \($0.title)", comment: "History row status") }
           ?? String(localized: "Failed", comment: "History row status"),
         color: Theme.Status.bad)
     case .notified:
-      .settled(route: routeLabel, dot: routeDotColor, duration: audioSeconds.map(DurationText.string(seconds:)))
+      .settled(kind: kindLabel, dot: kindDotColor, duration: audioSeconds.map(DurationText.string(seconds:)))
     default:
       .inFlight(
-        route: routeLabel, dot: routeDotColor, label: String(localized: "Acting", comment: "History row status"),
+        kind: kindLabel, dot: kindDotColor, label: String(localized: "Acting", comment: "History row status"),
         progress: stepProgress)
     }
   }
@@ -96,10 +114,8 @@ extension Memo {
     let completed =
       switch state {
       case .receiving, .received, .failed: 0
-      case .transcribed, .needsRoute: 1
-      case .routed: 2
-      case .acted: 3
-      case .summarized: 4
+      case .transcribed, .needsRoute, .routed: 1
+      case .acted, .summarized: total - 1
       case .notified: total
       }
     return StepProgress(completed: completed, total: total)
@@ -112,17 +128,6 @@ extension Memo {
       let retry = failedStep.map { String(localized: "retry from \($0.title)", comment: "History row hint") }
       let parts = [error == rowHeadline ? nil : error, retry].compactMap { $0 }
       return parts.isEmpty ? nil : parts.joined(separator: " — ")
-    case .needsRoute:
-      // The list wire carries the decision model's one guess, not a candidate list: name it when there is one.
-      let name: String
-      switch routeSuggestion {
-      case "tab", "herdr": name = String(localized: "Tab", comment: "Route name for a herdr tab without a name")
-      case "hermes", "journal": name = routeSuggestion?.capitalized ?? ""
-      default: return String(localized: "Tap to decide", comment: "History row hint on a memo that needs a route")
-      }
-      return String(
-        localized: "\(name) suggested — tap to decide",
-        comment: "History row hint on a memo that needs a route: the decision model's guess, then the prompt")
     default:
       return summary?.detail.split(whereSeparator: \.isNewline).first.map(String.init)
     }
@@ -131,11 +136,18 @@ extension Memo {
 
 /// The steps the UI shows, in order: the timeline's handler steps (`ingest` is the upload, not a step of work).
 nonisolated enum PipelineSteps {
-  static let shown: [MemoStep] = [.transcribe, .route, .act, .summarize, .notify]
+  static let shown: [MemoStep] = [.transcribe, .act, .notify]
 
-  /// The steps a memo of `mode` goes through: a transcript-only memo skips route, act and summarize.
+  /// The steps a memo of `mode` goes through: a transcript-only memo skips act.
   static func shown(for mode: MemoMode) -> [MemoStep] {
     mode == .transcribe ? [.transcribe, .notify] : shown
+  }
+
+  /// The steps an old memo went through (route and summarize rows exist only on memos from before Hermes decides).
+  static func legacy(for memo: Memo) -> [MemoStep] {
+    let steps: [MemoStep] =
+      memo.mode == .transcribe ? [.transcribe, .notify] : [.transcribe, .route, .act, .summarize, .notify]
+    return memo.isTyped ? steps.filter { $0 != .transcribe } : steps
   }
 
   /// The steps `memo` goes through: a typed memo has no recording, so it skips transcribe.
@@ -165,7 +177,7 @@ extension MemoState {
     case .received: String(localized: "Received", comment: "Memo state")
     case .transcribed: String(localized: "Transcribed", comment: "Memo state")
     case .routed: String(localized: "Routed", comment: "Memo state")
-    case .needsRoute: String(localized: "Needs a route", comment: "Memo state")
+    case .needsRoute: String(localized: "Not delivered", comment: "Memo state of an old memo that was never routed")
     case .acted: String(localized: "Acted", comment: "Memo state")
     case .summarized: String(localized: "Summarized", comment: "Memo state")
     case .notified: String(localized: "Done", comment: "Memo state")
@@ -176,7 +188,6 @@ extension MemoState {
   var color: Color {
     switch self {
     case .notified: Theme.Status.good
-    case .needsRoute: Theme.Status.warn
     case .failed: Theme.Status.bad
     default: Theme.Status.neutral
     }

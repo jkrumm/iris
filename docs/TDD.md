@@ -462,8 +462,7 @@ Settings and Stats, load History, reopen the event stream.
 
 ### Thread view
 
-A History row opens the conversation when `Memo.opensThread`: a chat (`mode == chat`) or a turn that continues a thread (`threadId != id`); a Hermes memo in its own
-session (`threadId == id`) is one answer and keeps the detail, which gets a Conversation button when it has a `threadId`. `ThreadModel` loads
+A History row opens the conversation when `Memo.opensThread`: a turn that continues another memo's session (`threadId != id`), which is the server's `thread=true` (a conversation: a thread with two or more live memos). `act` gives every Hermes memo its own session id as `threadId`, so a memo in its own session (`threadId == id`) is one answer and keeps the plain detail (Retry, waterfall, kind chip, actions line), which gets a Conversation button when it has a `threadId`; a transcript, a memo that failed before `act` and a deleted memo have none either. The Mac detail applies the same rule (`MacMemoSections` shows the conversation only for such a turn). `ThreadModel` loads
 `GET /v1/threads/:id` and derives the turns from the memos and messages: a user turn per memo with a transcript, an assistant turn per reply, and for a memo that
 has no reply yet either a **pending** turn (the step dashes from the memo's state, a caption) or, for `failed`, the server's error. A `memo.updated` event for any
 memo of the thread bumps History's revision of it, the screen reloads, and the pending turn turns into the answer in the same place with a short fade and height
@@ -579,20 +578,22 @@ The optional `summarize` step stays (Wave 21 S1b, owner 2026-11-04): the paragra
 - **The fake API answers a typed memo**: `FakePipelineUploader.create` starts the fake pipeline for a text item (routed, then `notified` with a canned answer), so the text reply
   flow runs to its answer on fakes (`ReplyFlowReviewUITests` shows it).
 
-### Routing on iOS (Wave 16 I3, R2)
+### Two modes and the kind chip (Wave 21 A1; spoken replies, mic rules and Play from Waves 16-18)
 
-Superseded by Wave 21 A1: the server no longer routes, serves `POST /route` or `GET /herd`, or pins memos (§3).
+Iris no longer routes (§3 "Hermes decides"); the app has two modes and shows what Hermes decided.
 
-- **One mode picker.** `ModePicker` (chips over `ChoiceChips`) is the composer's picker and the record control's: a tap on the record accessory still records in Auto, a
-  long press opens a context menu with the voice modes and "Choose mode…", which opens `RecordModeSheet` (the same chips, one line on what the mode does, Start). A voice take offers Auto, Journal, Hermes, Chat and Transcribe (`MemoMode.voiceModes`; Transcribe has the `text.alignleft` icon and ends the memo with its transcript: History shows the transcript as the headline with "Transcribe" as the route label, the detail has a Transcript section and no Reply, no route card and no "Wrong route?"; its dashes and waterfall hold transcribe and notify only); Tab is
-  left out because the tab is named while speaking, the composer keeps it. The accessory stays a `Button` with a context menu: a tap/long-press gesture on a plain label made taps elsewhere on History miss intermittently (the smoke test failed 2 of 6 against 0 of 6 on the baseline).
-- **Answering a park.** `RouteAnswerModel` / `RouteAnswerSheet` (the panel itself is IrisUI's `RouteAnswerPanel`, snapshot tested) call `POST /v1/memos/:id/route`. A pinned
-  needs-route History row has a trailing swipe action "Route…" (a button inside the row fought the row's `NavigationLink` for the tap and an extra row made the top bars blur the pinned memo), the memo detail a card with the park reason and a "Route to <suggestion>…" button. The sheet shows `routeReason`, preselects
-  `routeSuggestion` (`tab` reads as `herdr`; Hermes without one), and for herdr reads `GET /v1/herd` and requires a tab (one tab is preselected; an unreadable or empty herd says so and blocks Send).
-  `400 <dest> not available` keeps the sheet open naming the destination, `409` says the memo was already routed and refreshes History, `404`/transport are plain sentences.
-- **Presentation hosts.** The route sheet from a History row is presented by `RootView` (next to the mode sheet), not by `HistoryView`. With `.sheet(item:)` over `RouteAnswerSheet` in History's modifier chain, the list's top scroll edge mis-sized on some launches in suite order (a blur over the title, chips and first rows, taps and swipes there dead; `SmokeUITests` failed 2-5 of 15 launches, `origin/master` and the branch without the sheet 0 of 45). A trivial sheet body, one merged `sheet(item:)` enum, an animation-free list and a fixed-height chip bar did not change it; hosting the sheet at the root did (Smoke 15/15, the full suite 28/28). The detail's own sheet is unaffected. Both hosts present the one `routeAnswerSheet(item:make:onRouted:)` modifier (detents and drag indicator in one place); only the host differs.
-- **Correcting after act.** A memo in `acted`/`summarized`/`notified` with a route shows "Wrong route?" in the detail header; the same sheet, titled "Correct the route", sends the same
-  request. The server answers 200 and only logs it, so the sheet says nothing is sent again and the memo stays as it was.
+- **Two modes, three buttons.** `MemoMode` is `hermes` (the default) and `transcribe`; any other wire value (old memos: `auto`, `chat`, `journal`, `tab`) reads as `hermes`. The record control is the
+  tab bar's bottom accessory and shows `RecordRow`: a large Hermes button (starts a Hermes take), a smaller Transcribe button (a take that only becomes a transcript) and a smaller Text button (opens the composer).
+  No long press, no menu, no mode sheet: the owner asked for no hidden gestures. The Hermes glyph is `sparkles`: the SF Symbols have no robot glyph. In the `inline` placement (minimized tab bar) the two small buttons drop their titles.
+  The composer has two send targets instead of mode chips: "Send to Hermes" (primary) and "Transcribe"; a reply bound to a thread offers Hermes only (the server answers 400 for `threadId` with Transcribe).
+  The Lock Screen Record control and `StartMemoIntent` start a Hermes take; a second control, "Transcribe" (`OpenTranscribeRecorderIntent`, the same unlock-then-open flow), starts a Transcribe take.
+- **The kind chip.** A memo's chip (`KindChip`, neutral; `KindPalette` colours answer, task, note, github issue and chat) shows `kindLabel`: the memo's `kind` capitalised exactly like the server's alert,
+  else an old memo's route name (Journal, Hermes, Chat, Tab), "Transcript" for mode `transcribe`, "Hermes" while a Hermes memo has neither yet. A kind is free-form data: `Text(verbatim:)`, only the fixed labels have a `de` entry.
+  An old memo that was parked at `needs_route` and dismissed reads "Not delivered" and offers no routing; a parked memo that was not dismissed is `failed(act)` on the server since migration 14 and retries from Act.
+- **Actions.** The detail shows `actions` (the tools Hermes ran) as one quiet line under the reply, "Hermes used: capture, terminal"; omitted when empty.
+- **Filters.** The History quick filters are Favorites, Threads (`thread=true`, conversations of at least two memos), Archived and one chip per kind present in the loaded pages (`?kind=`; at most five, a selected kind stays); the filter sheet lists all
+  present kinds and the states. There is no Needs-route filter, no pinned section and no Route swipe.
+- **Stats** series are per kind: the top four by count get a palette slot, the rest are "Other", a memo without a kind is "Transcript".
 - **Play.** `SpeechPlayer` is the app's one spoken-reply player (one `MemoPlayer`, remembering whose reply it holds): the detail's Play, `PlayReplyIntent` and spoken replies go through it,
   so replies never overlap; the recording of a detail and the speech pause each other (`MemoPlayback`; `SpeechPlayer.pauseRecording` covers a reply the user starts elsewhere, `PlayReplyIntent`, and a pause cancels a reply still downloading). It plays `GET /v1/memos/:id/speech` (the server's speech variant) downloaded with the
   device token by `MediaDownloader`. `PlayReplyIntent` is an `AudioPlaybackIntent` (runs in the app process; `PlaybackIntents.handler` is the composition root, which fetches the memo and plays);
@@ -615,9 +616,8 @@ Superseded by Wave 21 A1: the server no longer routes, serves `POST /route` or `
 - **Per-route mic rules (R-CAP-4).** The capture engine already keeps `[routeFingerprint: preferredPortUID]` and applies the rule when a take starts (`CaptureSession`); Wave 16 adds the UI:
   Settings → Microphone shows the active route (`RouteSnapshot.outputNames`, new, for display only; the fingerprint is still the sorted output UIDs) and its inputs, Automatic removes the rule.
   Only the active route is editable: other routes get their rule when they are the active one (the rules store holds fingerprints, not names). Device-verified: nothing (no phone paired); simulator: the fake route manager.
-- **Tests.** Unit: `RouteAnswerModelTests`, `SpeechPlayerTests`, `SpokenRepliesTests`, `MicRulesModelTests`, `MemoPlaybackTests`. Snapshots (light + dark): the route panel (parked + suggestion, herdr tabs, herdr unreachable,
-  correction with a refusal), the mic rule list, the done card and island with Play. UI (`RoutingUITests`, `-IrisFakeCapture`): answer a pinned memo, herdr needs a tab, answer from the detail, correct a route,
-  Play toggles, long-press mode picker incl. Chat, a mic rule picks the input of the next take, the spoken-replies toggle. The fake API's needs-route sample carries a reason and a suggestion, and the fake herd has two tabs.
+- **Tests.** Unit: `SpeechPlayerTests`, `SpokenRepliesTests`, `MicRulesModelTests`, `MemoPlaybackTests`, `ComposerModelTests` (the two sends), `MemoPresentationTests` (the kind label rules), `HistoryFiltersTests`. Snapshots (light + dark): the kind chip, the mic rule list, the done card and island with Play.
+  UI (`ModesUITests`, `-IrisFakeCapture`): the record row's three buttons, Play toggles, a mic rule picks the input of the next take, the spoken-replies toggle. The fake API's samples carry kinds and actions, an old memo with a route and no kind, and a transcript memo.
 
 ### Localization (Wave 19 R3)
 
@@ -912,10 +912,10 @@ the runner needs a workflow step and was left out of this change (owned files: `
 
 - **Static:** `memoId`, `mode`, `startedAt`.
 - **`ContentState`** (well under the 4 KB limit):
-  - `phase` (recording/paused/uploading/processing/needsRoute/done/failed). `recording`, `paused` and `uploading` are the
+  - `phase` (recording/paused/uploading/processing/done/failed). `recording`, `paused` and `uploading` are the
     client's own (Wave 15 I3): `TakeLiveActivityCoordinator` sets them locally while the take is on the phone (recording while it
     runs, paused during an interruption, uploading from the stop until the outbox has sent the memo), then `processing`, and the
-    server's pushes (`processing`, `done`, `failed` since Wave 21 S1; `needsRoute` stays in the `LiveActivityPhase` enum and decodes, the server no longer sends it) carry it from there.
+    server's pushes (`processing`, `done`, `failed`) carry it from there.
     The activity's push token is kept by `ActivityTokenRegistrar` per memo until the activity ends, not until the hand-over: a PUT
     that failed is retried with a growing delay, and a token that rotates later is sent too. One `PUT` per memo is out at a time, so a rotation that arrives while one is in flight is sent after its answer and an older token's slow answer
     can never replace a newer one; the in-flight gate is keyed by memo id, not held on the entry, so a `finish` + `begin` of the same memo during a `PUT` makes the new entry's sender wait and then carry on with the newest token (never two `PUT`s at once).
@@ -928,13 +928,12 @@ the runner needs a workflow step and was left out of this change (owned files: `
     **Stale activities** (`StaleActivityRule`, `StaleActivitySweeper`; Wave 17): without a push token (`pushToken == nil`: a Personal Team build has no
     `aps-environment`) the server's `end` never arrives and a `processing` activity would sit on the Lock Screen and in the island for
     up to 8 h, hiding a running take's controls. So (1) at the hand-over an activity without a token is followed: the sweeper polls
-    `GET /memos/:id` (3 s, doubling to 30 s) until the memo `isResultReady` and then ends it on that result (`done` / `failed` /
-    `needsRoute`, shown 15 minutes like the server's `end`); (2) at launch (`endOrphans()`) every handed-over activity is checked
+    `GET /memos/:id` (3 s, doubling to 30 s) until the memo `isResultReady` and then ends it on that result (`done` / `failed`, shown 15 minutes like the server's `end`); (2) at launch (`endOrphans()`) every handed-over activity is checked
     the same way and ended at once when its memo is finished (no token), gone (404) or older than 30 minutes (`StaleActivityRule.maxAge`, token or not: the
     server's `end` is 15 minutes after done); one without a token whose memo is still in the pipeline gets a follower as in (1);
     an activity with a token and a young memo is the server's; (3) a starting take
     (`ActivityKitTakeLiveActivity.start`) first ends the finished (`done`, `failed`) activities and those nothing will update
-    (`processing`/`needsRoute` without a token), so the take's activity owns the island; a `processing` activity the server still
+    (`processing` without a token), so the take's activity owns the island; a `processing` activity the server still
     drives stays. A server that cannot be asked keeps a young activity. Unit-tested on a fake catalog and `FakeAPIClient`; the ActivityKit adapter is device-only.
     **Why the card survived Stop and `done` (Wave 18 I7, device row 20; read from the code, the device proof is the `liveactivity.snapshot` records):** every one of the above runs inside the app process, and an app
     whose take was stopped from the island or the Lock Screen is suspended seconds later (the recorder's audio I/O was the only thing keeping it running). The follower's poll froze with it, the server cannot push (no
@@ -1031,22 +1030,21 @@ Two `StaticConfiguration` widgets in `IrisWidgets/HomeWidgets.swift`; the views,
   `DEVICE_SIGNING=personal` stays as the free-team fallback without both entitlements (AGENTS.md "Device").
 - **Categories:**
   - `MEMO_DONE`: [Play] [Reply by voice] [Open];
-  - `MEMO_NEEDS_ROUTE`: up to 3 route actions from the payload;
   - [Reply by voice] opens the app in recording mode bound to `threadId`
     (foreground required for capture).
-- **Content extension:** headline, route chip, the condensed answer (Textual
+- **Content extension:** headline, kind chip, the condensed answer (Textual
   markdown), and an inline [Play] using the shared player.
 
 ### Screens
 
 | Screen | Content |
 |-|-|
-| History | Tabs History · Stats · Settings (no Threads tab). Memo rows (route chip · state · headline · relative time, step-progress dashes while in flight), pinned needs-route rows (a "Route…" swipe action opens the route sheet), day sections, search (a glass capsule with the round filter button and its count badge, `HistorySearchBar`, floating above the tab bar as a bottom `safeAreaInset`), quick-filter chips (Favorites, Chats, Needs route, Archived), bottom-sheet filter; the navigation bar is hidden and the title block (`HistoryTitleBlock`: title, one-line summary, the [+] button) and the chips are the list's first rows, not bars pinned with `safeAreaBar`, so the list is the stack's root scroll content, they scroll with it and the title sits on the rows' 20 pt margin (`Theme.Spacing.screenMargin`; the system large title is 16), native swipe actions (done/favorite, archive/delete with a 5 s undo), pull to refresh, SSE live updates, [+] opens the composer |
-| Memo detail | A park card (reason, "Route to …") on a needs-route memo, "Wrong route?" on a finished one (route sheet), transcript, player (play/pause, scrubber, 10 s back, no speed), step waterfall collapsed to a total line (time · cost) that opens to one `duration · cost` chip per step (money in the user's locale: two decimals from a cent, four below), Copy as plain text on the transcript and the reply, faster/slower vs the stats baseline only above a sample threshold, attempts, a failed optional summarize as a warning row, [Retry from step], icon-only actions (play reply, reply → composer, retry), the reply as markdown; SSE refresh |
+| History | Tabs History · Stats · Settings (no Threads tab). Memo rows (kind chip · state · headline · relative time, step-progress dashes while in flight), day sections, search (a glass capsule with the round filter button and its count badge, `HistorySearchBar`, floating above the tab bar as a bottom `safeAreaInset`), quick-filter chips (Favorites, Threads, Archived, one per kind present), bottom-sheet filter; the navigation bar is hidden and the title block (`HistoryTitleBlock`: title, one-line summary, the [+] button) and the chips are the list's first rows, not bars pinned with `safeAreaBar`, so the list is the stack's root scroll content, they scroll with it and the title sits on the rows' 20 pt margin (`Theme.Spacing.screenMargin`; the system large title is 16), native swipe actions (done/favorite, archive/delete with a 5 s undo), pull to refresh, SSE live updates, [+] opens the composer |
+| Memo detail | The kind chip, transcript, player (play/pause, scrubber, 10 s back, no speed), step waterfall collapsed to a total line (time · cost) that opens to one `duration · cost` chip per step (money in the user's locale: two decimals from a cent, four below), Copy as plain text on the transcript and the reply, faster/slower vs the stats baseline only above a sample threshold, attempts, a failed optional summarize as a warning row, [Retry from step], icon-only actions (play reply, reply → composer, retry), the reply as markdown with the actions line under it; SSE refresh |
 | Composer | Typed memo: mode picker (Auto, Journal, Hermes, Tab, Chat), text, send via `POST /v1/memos/text`; from a detail's reply it continues the memo's thread |
 | Stats | Volume per route per day / week (Swift Charts), tiles, per-route trends, from `GET /v1/stats` |
 | Thread | One conversation as a rendered document (`GET /v1/threads/:id`), opened by a History row of a chat or a continued thread (Wave 15 I2, "Thread view" below): question and answer turns, a pending answer with the step dashes, hold-to-talk and a keyboard button at the bottom |
-| Record | Wave 15 I4. **Start from any screen:** the record control is the tab bar's bottom accessory (tap: Auto; long press: a menu with Auto, Journal, Hermes, Chat and "Choose mode…", the mode sheet); memo detail and thread hide the tab bar, but that does not hide the accessory (Apple DTS, iOS 26.1: it stays across the app), so it would sit over their bottom actions and swallow taps: `DetailActionBar` and `ThreadReplyBar` register through `.hidesRecordAccessory()` into a counted `RecordAccessoryPresence` (injected by `RootView`), and `tabViewBottomAccessory(isEnabled:)` takes the control off while one is shown (iOS 26.1+; on 26.0 it stays, **not verified on a device**). Their banner still shows. A take opens the full `TakeScreen` (mode, timer, level waveform, mic list, pause, Stop, discard with a confirmation); minimizing (chevron) leaves a compact **`TakeBanner`** (dot, running time, mode · mic, "N sending", Stop: an opaque `Theme.Status.bad` disc with a `Theme.Surface.background` glyph, as the take screen's) pinned under the navigation bar of every screen (`.takeBanner()`), and tapping it returns to the full take (it comes and goes with an animation only while the scene is active: the device's 10 s scene-update watchdog hit an animated navigation-bar layout of a backgrounded scene when a take ended from the banner, Wave 17 D2; Stop only ever suspends the main actor, `StopOffMainTests` holds a hung recorder). `TakeModel` follows `CaptureSession.updates()` and the outbox; a pause moves the timer's start forward so it counts recorded time. Leaving the app needs no hand-over: the take's Live Activity is requested at the start, so the Lock Screen card and the Dynamic Island carry it from there |
+| Record | Wave 15 I4. **Start from any screen:** the record control is the tab bar's bottom accessory (`RecordRow`: Hermes, Transcribe and Text buttons, see "Two modes and the kind chip"); memo detail and thread hide the tab bar, but that does not hide the accessory (Apple DTS, iOS 26.1: it stays across the app), so it would sit over their bottom actions and swallow taps: `DetailActionBar` and `ThreadReplyBar` register through `.hidesRecordAccessory()` into a counted `RecordAccessoryPresence` (injected by `RootView`), and `tabViewBottomAccessory(isEnabled:)` takes the control off while one is shown (iOS 26.1+; on 26.0 it stays, **not verified on a device**). Their banner still shows. A take opens the full `TakeScreen` (mode, timer, level waveform, mic list, pause, Stop, discard with a confirmation); minimizing (chevron) leaves a compact **`TakeBanner`** (dot, running time, mode · mic, "N sending", Stop: an opaque `Theme.Status.bad` disc with a `Theme.Surface.background` glyph, as the take screen's) pinned under the navigation bar of every screen (`.takeBanner()`), and tapping it returns to the full take (it comes and goes with an animation only while the scene is active: the device's 10 s scene-update watchdog hit an animated navigation-bar layout of a backgrounded scene when a take ended from the banner, Wave 17 D2; Stop only ever suspends the main actor, `StopOffMainTests` holds a hung recorder). `TakeModel` follows `CaptureSession.updates()` and the outbox; a pause moves the timer's start forward so it counts recorded time. Leaving the app needs no hand-over: the take's Live Activity is requested at the start, so the Lock Screen card and the Dynamic Island carry it from there |
 | Settings | Diagnostics (copy a memo id, animated "Copied"), Connection (server URL + device token in the Keychain; the status row is the health probe from when Settings appeared **and** `HistoryModel.link`, what History's authenticated event stream and list loads last saw: "Connected" is never shown for a server that stream cannot reach; a dropped stream reads "Unreachable" with "Server not reachable — is Tailscale on?", a 401 "Token rejected", a failed probe that traffic has since overruled "Connected"; `ConnectionStatusLine`; "Not configured" until saved), Playback (spoken replies toggle), Microphone (the active route's rule), outbox section (the queue of whole items from `OutboxService`: kind, age, state, a retry time or the reason it stalled, retry now and discard; live through the outbox's change stream). Later: default mode |
 
 ## 5. macOS app (`IrisMac`)
@@ -1123,7 +1121,7 @@ Two `StaticConfiguration` widgets in `IrisWidgets/HomeWidgets.swift`; the views,
   outbox is the iPhone's `CaptureStack` over `JSONFileOutboxStore` in the app
   container and `APIOutboxUploader` over a `ReconfigurableAPIClient` the Mac's
   connection change re-points (`MacCaptureStack`, same sources compiled into
-  both targets). A take is mode Auto, like the iPhone's record control.
+  both targets). A take is mode Hermes by default (the hotkey, the popover's Hermes button); the popover's Transcribe button starts a Transcribe take.
   `RecordingPanelModel` is the state machine (`idle → starting → recording →
   stopping → idle`, `failed(reason)` side state); a press or button while a
   start or stop runs is dropped, a microphone pick is queued, and a recorder
@@ -1176,10 +1174,10 @@ Two `StaticConfiguration` widgets in `IrisWidgets/HomeWidgets.swift`; the views,
     request does not hold the stream back; its `ready` event reloads the list), whether or not the popover was ever opened, and
     restart on a connection change. The list reloads on every stream reconnect.
   - *Notifications (Wave 19 M1, `MemoNotifier`):* a banner per **transition**, for three kinds: finished (`notified`: route and
-    headline, "Done." without a summary), parked (`needs_route`) and failed. Three feeds, one record (`announced`, the kind each
+    headline, "Done." without a summary), or failed (the title is the memo's kind; an old `needs_route` memo announces nothing). Three feeds, one record (`announced`, the kind each
     memo was last announced as): `memo.updated` / `memo.done` payloads from the open stream (`StreamTappingClient` hands every
     state to the root in stream order; `noteState` is synchronous, so an earlier event never overtakes a later one), the
-    `memo.done` payload (its state is on the same stream: there is no separate `History` hook), and the **catch-up** after the stream (re)connects. A state that is not a kind (a retry, a route answer) clears
+    `memo.done` payload (its state is on the same stream: there is no separate `History` hook), and the **catch-up** after the stream (re)connects. A state that is not a kind (a retry) clears
     the record, so the memo's next finish is a new banner; a repeated event or a second feed posts nothing. The event's state is
     not the answer: the memo is fetched fresh before posting and judged by that copy. The catch-up fetches the newest 50 memos
     **unfiltered** (History's filters hide memos from its list, not from the banners): the first one of a connection is the
@@ -1261,10 +1259,7 @@ targets use MainActor default isolation (SE-0466). Verified against Xcode 27.1
 
 The UI test bundle sets `SWIFT_DEFAULT_ACTOR_ISOLATION: nonisolated`. Local
 packages are `nonisolated` by default (`swiftLanguageModes: [.v6]`, tools 6.2).
-**IrisCore and the Wave 21 S1 wire.** `Memo` decodes the new `kind` (`String?`) and `actions` (`[String]`, empty when absent). `pinned`, `pinnedTruncated`, `routeReason` and `routeSuggestion` stay as decode-only defaults
-(`[]`, `false`, `nil`) for compatibility until the app is reworked in Wave 21 A1; the server no longer sends them. `ListMemosQuery` sends `kind` (the memo kind, exact) and `thread=true`; its `ThreadKind` filter is legacy and maps to `thread=true`, which now means conversations, the old Chats/Hermes-threads narrowing.
-`Stats` is per memo kind (`perDay`, `stepMedians`, `costPerKind`; a null kind reads as `unrouted` where the app still groups by route). `ThreadKind` keeps `hermes` and the old `chat`; `GET /threads` takes no `kind`.
-`routeMemo`, `herd` and `LiveActivityPhase.needsRoute` stay in the API surface, but the server no longer serves them (404). Fixtures: the herd, route and pinned ones are deleted; `needs-route` and `summarize-failed` detail fixtures stay as old-row decode cases.
+**IrisCore and the Hermes-decides wire.** `Memo` decodes `kind` (`String?`) and `actions` (`[String]`, empty when absent); `routeReason`, `routeSuggestion`, list `pinned`, `routeMemo`, `herd`, `ThreadKind` and `LiveActivityPhase.needsRoute` are gone. `MemoMode` is `hermes`/`transcribe` (any other wire value reads as `hermes`); `MemoState.needsRoute`, `MemoStep.route` and `Memo.route` stay so old rows decode. `ListMemosQuery` sends `kind` (the memo kind, exact) and `thread=true` (conversations). `Stats` is per memo kind (`perDay`, `stepMedians`, `costPerKind`; a null kind is a transcript or an unclassified memo). `MemoThread.kind` is a plain string the app ignores. Fixtures with a legacy mode carry `hermes`; a separate test decodes the legacy modes.
 
 Packages never depend on each other except through `IrisCore`; `IrisCapture`,
 `IrisUI` and `IrisTelemetry` currently define what they need locally and gain

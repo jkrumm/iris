@@ -17,7 +17,6 @@ struct RootView: View {
   let makeDetail: (Memo) -> MemoDetailModel
   let makeComposer: (ComposerRequest) -> ComposerModel
   let makeThread: (ThreadRoute) -> ThreadModel
-  let makeRouteAnswer: (Memo) -> RouteAnswerModel
 
   /// The tab shown first and the one the app jumps to when the connection is missing.
   enum Section: Hashable {
@@ -25,16 +24,17 @@ struct RootView: View {
   }
 
   @State private var selection: Section
-  @State private var routing: Memo?
   /// Screens with their own bottom actions (a memo's detail, a thread) take the record control off the screen while shown.
   @State private var accessoryPresence = RecordAccessoryPresence()
+  /// The composer the record row's Text button opens.
+  @State private var composer: ComposerRequest?
 
   init(
     history: HistoryModel, isConfigured: Bool = true, take: TakeModel, stats: StatsModel, settings: SettingsModel,
     diagnostics: DiagnosticsModel, micRules: MicRulesModel, spokenReplies: SpokenReplies,
     connectionForm: ConnectionModel? = nil, startsOnSettings: Bool = false,
     makeDetail: @escaping (Memo) -> MemoDetailModel, makeComposer: @escaping (ComposerRequest) -> ComposerModel,
-    makeThread: @escaping (ThreadRoute) -> ThreadModel, makeRouteAnswer: @escaping (Memo) -> RouteAnswerModel
+    makeThread: @escaping (ThreadRoute) -> ThreadModel
   ) {
     self.history = history
     self.isConfigured = isConfigured
@@ -48,7 +48,6 @@ struct RootView: View {
     self.makeDetail = makeDetail
     self.makeComposer = makeComposer
     self.makeThread = makeThread
-    self.makeRouteAnswer = makeRouteAnswer
     _selection = State(initialValue: startsOnSettings ? .settings : .history)
   }
 
@@ -57,8 +56,7 @@ struct RootView: View {
       Tab(String(localized: "History", comment: "Tab title"), systemImage: "clock", value: Section.history) {
         HistoryView(
           model: history, isConfigured: isConfigured, onConnect: { selection = .settings }, makeDetail: makeDetail,
-          makeComposer: makeComposer, makeThread: makeThread, makeRouteAnswer: makeRouteAnswer,
-          onRoute: { routing = $0 })
+          makeComposer: makeComposer, makeThread: makeThread)
       }
       Tab(String(localized: "Stats", comment: "Tab title"), systemImage: "chart.bar", value: Section.stats) {
         StatsView(model: stats)
@@ -71,19 +69,21 @@ struct RootView: View {
     }
     .tint(Theme.Accent.tint)
     // The record control sits above the tab bar on every screen; a running take replaces it (the banner below).
-    .modifier(RecordAccessoryModifier(model: take, isCovered: accessoryPresence.isHidden))
+    .modifier(
+      RecordRowModifier(model: take, isCovered: accessoryPresence.isHidden, onCompose: { composer = ComposerRequest() })
+    )
+    .sheet(item: $composer) { request in
+      BuiltOnce(make: { makeComposer(request) }) { composer in
+        ComposerView(model: composer, onSent: { history.insert($0) }, onQueued: { history.didQueue() })
+      }
+      .id(request.id)
+    }
     .environment(accessoryPresence)
     // A take continues as a compact banner under each screen's navigation bar (`takeBanner()`); tapping it brings the
     // take screen back.
     .environment(take)
     .fullScreenCover(isPresented: $take.showsFull) {
       TakeView(model: take)
-    }
-    .routeAnswerSheet(item: $routing, make: makeRouteAnswer, onRouted: { history.insert($0) })
-    .sheet(isPresented: $take.showsModePicker) {
-      RecordModeSheet(model: take)
-        .presentationDetents([.height(320)])
-        .presentationDragIndicator(.visible)
     }
     .alert(
       String(localized: "Recording", comment: "Take failure alert title"),
@@ -102,11 +102,9 @@ struct RootView: View {
     }
   }
 
-  /// What the owner is looking at, for `ui.screen`: a sheet or the take screen over the selected tab.
+  /// What the owner is looking at, for `ui.screen`: the take screen over the selected tab.
   private var visibleScreen: String {
     if take.showsFull { return "take" }
-    if take.showsModePicker { return "sheet.record_mode" }
-    if routing != nil { return "sheet.route" }
     return switch selection {
     case .history: "history"
     case .stats: "stats"
@@ -115,18 +113,21 @@ struct RootView: View {
   }
 }
 
-/// The record control as the tab bar's bottom accessory. `isEnabled` (iOS 26.1) hides it while a take runs and while a screen
+/// The record row (Hermes, Transcribe, Text) as the tab bar's bottom accessory. `isEnabled` (iOS 26.1) hides it while a take runs and while a screen
 /// with its own bottom actions is shown (`isCovered`: hiding the tab bar does not hide the accessory, and it would sit over those
 /// actions); on 26.0 it stays and is disabled while a take runs, since `canStart` is false then.
-private struct RecordAccessoryModifier: ViewModifier {
+private struct RecordRowModifier: ViewModifier {
   let model: TakeModel
   let isCovered: Bool
+  let onCompose: () -> Void
 
   func body(content: Content) -> some View {
     if #available(iOS 26.1, *) {
-      content.tabViewBottomAccessory(isEnabled: !model.isActive && !isCovered) { RecordAccessory(model: model) }
+      content.tabViewBottomAccessory(isEnabled: !model.isActive && !isCovered) {
+        RecordRow(model: model, onCompose: onCompose)
+      }
     } else {
-      content.tabViewBottomAccessory { RecordAccessory(model: model) }
+      content.tabViewBottomAccessory { RecordRow(model: model, onCompose: onCompose) }
     }
   }
 }

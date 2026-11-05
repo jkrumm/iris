@@ -1,7 +1,7 @@
 import Foundation
 import IrisCore
 
-/// Two conversations for the fake client: a chat whose answers hold every block type Hermes emits (heading, emphasis,
+/// Two conversations for the fake client: one whose answers hold every block type Hermes emits (heading, emphasis,
 /// links, lists, code, table, quote, Mermaid), and a Hermes thread whose second turn is still in the pipeline. Their
 /// ids are fixed so UI tests and snapshots can name them.
 extension SampleData {
@@ -63,9 +63,8 @@ extension SampleData {
   private static func chatThread(now: Date) -> ThreadDetail {
     let start = now.addingTimeInterval(-200_000)
     let first = Memo(
-      id: chatThreadID, mode: .chat, device: "iphone", startedAt: start, state: .notified, segmentCount: 2,
-      audioSeconds: 9.2, transcript: chatQuestion, route: "hermes", destinationRef: chatThreadID,
-      replyText: chatReply,
+      id: chatThreadID, mode: .hermes, device: "iphone", startedAt: start, state: .notified, segmentCount: 2,
+      audioSeconds: 9.2, transcript: chatQuestion, destinationRef: chatThreadID, replyText: chatReply,
       replyBlocks: [
         ReplyBlock(
           index: 0, width: 320, height: 140,
@@ -75,16 +74,16 @@ extension SampleData {
       summary: MemoSummary(
         headline: "How the step runner retries a failed step",
         detail: "Transient failures are retried twice, then the step fails.", spoken: "Two retries, then failed."),
-      threadId: chatThreadID, createdAt: start, updatedAt: start.addingTimeInterval(20))
+      threadId: chatThreadID, kind: "chat", actions: ["web"], createdAt: start, updatedAt: start.addingTimeInterval(20))
     let second = Memo(
-      id: chatFollowUpID, mode: .chat, device: "iphone", startedAt: start.addingTimeInterval(120), state: .notified,
-      transcript: chatFollowUpQuestion, route: "hermes", destinationRef: chatThreadID, replyText: chatFollowUpReply,
+      id: chatFollowUpID, mode: .hermes, device: "iphone", startedAt: start.addingTimeInterval(120), state: .notified,
+      transcript: chatFollowUpQuestion, destinationRef: chatThreadID, replyText: chatFollowUpReply,
       summary: MemoSummary(headline: "Hang guards are not retried", detail: "One window, then retry.", spoken: "No."),
       threadId: chatThreadID, isTyped: true, createdAt: start.addingTimeInterval(120),
       updatedAt: start.addingTimeInterval(131))
     return ThreadDetail(
       thread: MemoThread(
-        id: chatThreadID, kind: .chat, title: "Explain how the step runner retries a failed step, with a diagram",
+        id: chatThreadID, kind: "hermes", title: "Explain how the step runner retries a failed step, with a diagram",
         createdAt: first.createdAt, updatedAt: second.updatedAt, lastMemoId: second.id),
       memos: [first, second],
       messages: [
@@ -99,7 +98,7 @@ extension SampleData {
     let start = now.addingTimeInterval(-180_000)
     let first = Memo(
       id: hermesThreadID, mode: .hermes, device: "iphone", startedAt: start, state: .notified, segmentCount: 2,
-      audioSeconds: 11.0, transcript: "Which Postgres index fits the herd snapshot query?", route: "hermes",
+      audioSeconds: 11.0, transcript: "Which Postgres index fits the herd snapshot query?",
       destinationRef: hermesThreadID,
       replyText: "A **partial index** on `(repo, last_activity)` covers it.",
       summary: MemoSummary(
@@ -108,12 +107,12 @@ extension SampleData {
       threadId: hermesThreadID, createdAt: start, updatedAt: start.addingTimeInterval(14))
     let second = Memo(
       id: hermesFollowUpID, mode: .hermes, device: "iphone", startedAt: start.addingTimeInterval(300),
-      state: .routed, transcript: "Show me the migration for it.", route: "hermes", destinationRef: hermesThreadID,
+      state: .transcribed, transcript: "Show me the migration for it.", destinationRef: hermesThreadID,
       threadId: hermesThreadID, isTyped: true, createdAt: start.addingTimeInterval(300),
       updatedAt: start.addingTimeInterval(302))
     return ThreadDetail(
       thread: MemoThread(
-        id: hermesThreadID, kind: .hermes, title: "Which Postgres index fits the herd snapshot query?",
+        id: hermesThreadID, kind: "hermes", title: "Which Postgres index fits the herd snapshot query?",
         createdAt: first.createdAt, updatedAt: second.updatedAt, lastMemoId: second.id),
       memos: [first, second],
       messages: [

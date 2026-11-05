@@ -18,7 +18,7 @@ import UIKit
 ///   Keychain); every model holds one ``ReconfigurableAPIClient``, which follows the saved connection. With nothing
 ///   saved the app opens on Settings and loads nothing, so there is neither a crash nor a silent fake.
 ///
-/// Capture runs through one ``CaptureStack`` (the persistent outbox and the capture session): typed memos, chat messages and
+/// Capture runs through one ``CaptureStack`` (the persistent outbox and the capture session): typed memos and
 /// voice takes all go in through it, Settings reads the queue out, and the start intent records through the same session.
 /// Under `-IrisFakeCapture` the stack runs on fake audio and the fake API; `-IrisFakeOffline` makes the first create call
 /// of each kind fail, so a memo is queued and "retry now" sends it.
@@ -254,12 +254,6 @@ final class CompositionRoot: CaptureIntentHandler, PlaybackIntentHandler {
     ComposerModel(request: request, outbox: outbox)
   }
 
-  /// The model behind one route sheet. A 409 (somebody answered first) refreshes the list.
-  func routeAnswerModel(for memo: Memo) -> RouteAnswerModel {
-    let history = history
-    return RouteAnswerModel(memo: memo, client: api, onStale: { Task { await history.load() } })
-  }
-
   /// The model behind one open conversation.
   func threadModel(for route: ThreadRoute) -> ThreadModel {
     ThreadModel(route: route, client: api, voice: voiceReply)
@@ -344,11 +338,20 @@ final class CompositionRoot: CaptureIntentHandler, PlaybackIntentHandler {
 
   // MARK: CaptureIntentHandler
 
-  /// Starts a take in `auto` mode with its Live Activity: what the Control (`OpenRecorderIntent`, in the foreground), Siri and the
+  /// Starts a take in `hermes` mode with its Live Activity: what the Control (`OpenRecorderIntent`, in the foreground), Siri and the
   /// Shortcuts app (`StartMemoIntent`) run. A failure is shown in the app too: the control's press must never end in silence.
   func startMemo() async throws {
+    try await startTake(mode: .hermes)
+  }
+
+  /// The Transcribe control's start (`OpenTranscribeRecorderIntent`): a `transcribe` take, otherwise like ``startMemo()``.
+  func startTranscribeMemo() async throws {
+    try await startTake(mode: .transcribe)
+  }
+
+  private func startTake(mode: MemoMode) async throws {
     do {
-      try await takeController.start(mode: .auto, source: "intent")
+      try await takeController.start(mode: mode, source: "intent")
     } catch {
       take.reportStartFailure(error)
       throw error

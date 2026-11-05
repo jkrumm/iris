@@ -26,6 +26,25 @@ final class HistorySwipeUITests: IrisUITestCase {
     return app.descendants(matching: .any).matching(predicate).firstMatch
   }
 
+  /// Drags across `target` from `fromX` to `toX` (fractions of its width). The row's frame is read once, through the retrying
+  /// query, and the drag runs on screen coordinates: a drag on the row's own coordinate asks the app for the row again, and
+  /// on a loaded runner that query timed out three times in a row (run 41614503885, 287 s) and failed the test.
+  @MainActor
+  private func drag(_ target: XCUIElement, in app: XCUIApplication, fromX: Double, toX: Double) {
+    var frame: CGRect?
+    for _ in 0..<3 where frame == nil {
+      frame = QueryRetry.attempt({ target.frame }) ?? nil
+    }
+    guard let frame else { return XCTFail("could not read the row's frame") }
+    let origin = app.coordinate(withNormalizedOffset: .zero)
+    let start = origin.withOffset(CGVector(dx: frame.minX + frame.width * fromX, dy: frame.midY))
+    let end = origin.withOffset(CGVector(dx: frame.minX + frame.width * toX, dy: frame.midY))
+    for _ in 0..<3 {
+      if QueryRetry.attempt({ start.press(forDuration: 0.1, thenDragTo: end) }) != nil { return }
+    }
+    XCTFail("the drag never ran: the app did not answer its queries")
+  }
+
   @MainActor
   func testSwipeRightMarksTheRowDone() {
     let app = launch()
@@ -35,9 +54,7 @@ final class HistorySwipeUITests: IrisUITestCase {
     XCTAssertTrue(waitForAbsence(markedDone(in: app), timeout: 1))
 
     // Dragging past the full-swipe threshold fires the first action; `swipeRight()` can stop short of it.
-    let start = target.coordinate(withNormalizedOffset: CGVector(dx: 0.1, dy: 0.5))
-    let end = target.coordinate(withNormalizedOffset: CGVector(dx: 0.98, dy: 0.5))
-    start.press(forDuration: 0.1, thenDragTo: end)
+    drag(target, in: app, fromX: 0.1, toX: 0.98)
 
     XCTAssertTrue(waitForPresence(markedDone(in: app), timeout: 10))
   }
@@ -50,9 +67,7 @@ final class HistorySwipeUITests: IrisUITestCase {
     target.scrollIntoClearBand(of: app.descendants(matching: .any)["history.list"], app: app)
 
     // A short drag reveals the buttons; a full swipe would archive instead.
-    let start = target.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5))
-    let end = target.coordinate(withNormalizedOffset: CGVector(dx: 0.55, dy: 0.5))
-    start.press(forDuration: 0.1, thenDragTo: end)
+    drag(target, in: app, fromX: 0.9, toX: 0.55)
     let delete = app.buttons["history.swipe.delete"]
     XCTAssertTrue(waitForPresence(delete, timeout: 5))
     delete.tap()

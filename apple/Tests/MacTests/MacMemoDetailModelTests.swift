@@ -64,7 +64,7 @@ struct MacMemoDetailModelTests {
   }
 
   @Test(
-    "a memo failed at summarize offers a retry from there; the retry restarts it and the waterfall opens on its own")
+    "a memo failed at act offers a retry from there; the retry restarts it and the waterfall opens on its own")
   func retries() async {
     let failedID = "9e2c4b70-1a58-4d36-8f07-5b3a6d1c8e24"
     let api = FakeAPIClient()
@@ -72,8 +72,8 @@ struct MacMemoDetailModelTests {
     let model = MacMemoDetailModel(memoID: failedID, client: api, pasteboard: RecordingPasteboard())
     await model.load()
     #expect(model.isWaterfallExpanded)
-    #expect(model.retrySteps.last == .summarize)
-    await model.retry(from: .summarize)
+    #expect(model.retrySteps.last == .act)
+    await model.retry(from: .act)
     #expect(model.failure == nil && !model.isRetrying)
     #expect(model.memo?.state != .failed)
     #expect(model.retrySteps.isEmpty)
@@ -93,7 +93,7 @@ struct MacMemoDetailModelTests {
     let slow = Task { await model.load() }
     await gate.waitUntilHeld()
     // The retry restarts the memo; its own load answers at once.
-    await model.retry(from: .summarize)
+    await model.retry(from: .act)
     #expect(model.memo?.state != .failed)
     gate.release()
     await slow.value
@@ -105,7 +105,7 @@ struct MacMemoDetailModelTests {
     let api = FakeAPIClient()
     await SampleData.seed(api)
     let chat = MacMemoDetailModel(
-      memoID: SampleData.chatThreadID, client: api, pasteboard: RecordingPasteboard())
+      memoID: SampleData.chatFollowUpID, client: api, pasteboard: RecordingPasteboard())
     await chat.load()
     #expect(chat.memo?.opensThread == true)
     let thread = try #require(chat.thread)
@@ -121,7 +121,7 @@ struct MacMemoDetailModelTests {
     await SampleData.seed(api)
     await api.enqueueFailure(.transport(.notConnectedToInternet), for: .thread)
     let chat = MacMemoDetailModel(
-      memoID: SampleData.chatThreadID, client: api, pasteboard: RecordingPasteboard())
+      memoID: SampleData.chatFollowUpID, client: api, pasteboard: RecordingPasteboard())
     await chat.load()
     #expect(chat.memo?.opensThread == true && chat.thread == nil && chat.threadFailed)
     await chat.load()

@@ -3,7 +3,7 @@ import IrisUI
 import SwiftUI
 
 /// How many memos the list holds once the sheet closes, when the app can say. The list wire has no total, so the count is
-/// exact only when the whole result fits the first page (fewer rows than a page, pinned ones included) and the load has
+/// exact only when the whole result fits the first page (fewer rows than a page) and the load has
 /// settled; otherwise the button names no number rather than a wrong one.
 enum HistoryResultCount {
   static func exact(memos: Int, isSettled: Bool) -> Int? {
@@ -20,15 +20,17 @@ enum HistoryResultCount {
   }
 }
 
-/// The bottom sheet (round 2): route and state, applied live. Search and the quick chips stay as they are.
+/// The bottom sheet (round 2): kind and state, applied live. Search and the quick chips stay as they are.
 struct HistoryFilterSheet: View {
   @Binding var filters: HistoryFilters
   /// ``HistoryResultCount/exact(memos:isSettled:)`` of the list behind the sheet.
   let resultCount: Int?
+  /// ``HistoryFilters/kinds(in:limit:)`` of the loaded memos, uncapped.
+  let kinds: [String]
   @Environment(\.dismiss) private var dismiss
   @State private var contentHeight: CGFloat = 340
 
-  private static let states: [MemoState] = [.needsRoute, .failed, .notified]
+  private static let states: [MemoState] = [.failed, .notified]
 
   var body: some View {
     VStack(alignment: .leading, spacing: Theme.Spacing.md) {
@@ -43,18 +45,21 @@ struct HistoryFilterSheet: View {
         .disabled(filters.sheetFilterCount == 0)
         .accessibilityIdentifier("history.filter.reset")
       }
-      group(String(localized: "Route", comment: "Filter sheet group")) {
-        ForEach(RouteDestination.allCases, id: \.self) { destination in
-          FilterChip(
-            title: destination.title, dot: destination.dotColor, isOn: filters.route == destination, size: .regular
-          ) {
-            withAnimation(.snappy) { filters.toggleRoute(destination) }
+      if !kinds.isEmpty {
+        group(String(localized: "Kind", comment: "Filter sheet group")) {
+          ForEach(kinds, id: \.self) { kind in
+            FilterChip(
+              title: Memo.capitalizedKind(kind), dot: KindPalette.color(forKind: kind),
+              isOn: filters.isSelected(kind: kind), size: .regular
+            ) {
+              withAnimation(.snappy) { filters.toggleKind(kind) }
+            }
           }
         }
       }
       group(String(localized: "State", comment: "Filter sheet group")) {
         ForEach(Self.states, id: \.self) { state in
-          FilterChip(title: state.label, dot: state.color, isOn: filters.effectiveState == state, size: .regular) {
+          FilterChip(title: state.label, dot: state.color, isOn: filters.state == state, size: .regular) {
             withAnimation(.snappy) { filters.toggleState(state) }
           }
         }
@@ -90,25 +95,6 @@ struct HistoryFilterSheet: View {
       ChipFlowLayout(lineSpacing: Theme.Spacing.sm - (Theme.Spacing.tapTarget - Theme.Spacing.chipHeightLarge)) {
         chips()
       }
-    }
-  }
-}
-
-extension RouteDestination {
-  /// The route's dot, the same colours as the dot on a History row.
-  var dotColor: Color {
-    switch self {
-    case .hermes: Theme.Accent.tint
-    case .journal: Theme.Status.good
-    case .herdr: Theme.Ink.secondary
-    }
-  }
-
-  var title: String {
-    switch self {
-    case .hermes: String(localized: "Hermes", comment: "Route name")
-    case .journal: String(localized: "Journal", comment: "Route name")
-    case .herdr: String(localized: "Tabs", comment: "Route name for memos sent to a herdr tab")
     }
   }
 }

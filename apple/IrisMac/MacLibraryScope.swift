@@ -4,11 +4,9 @@ import IrisCore
 /// uses, so the list, paging and event handling are the shared model's.
 enum MacLibraryScope: Hashable, CaseIterable {
   case all
-  case needsRoute
   case favorites
   case archive
-  case chats
-  case hermesThreads
+  case threads
 
   /// Narrows `filters` to the scope and drops the previous scope's narrowing; the search text stays.
   func apply(to filters: inout HistoryFilters) {
@@ -17,11 +15,9 @@ enum MacLibraryScope: Hashable, CaseIterable {
     filters.searchText = search
     switch self {
     case .all: break
-    case .needsRoute: filters.toggle(.needsRoute)
     case .favorites: filters.toggle(.favorites)
     case .archive: filters.toggle(.archived)
-    case .chats: filters.toggle(.chats)
-    case .hermesThreads: filters.setKind(.hermes)
+    case .threads: filters.setThread(true)
     }
   }
 }

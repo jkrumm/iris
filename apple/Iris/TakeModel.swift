@@ -26,8 +26,6 @@ final class TakeModel {
   /// The full take screen is up (otherwise a running take shows as the banner).
   var showsFull = false
   var showsInputPicker = false
-  /// The mode picker of the record control (a long press) is up.
-  var showsModePicker = false
   private(set) var isEnding = false
   /// How many takes have opened since launch, a thread's hold-to-talk included: a spoken reply that waited on a download
   /// sees that one opened and closed meanwhile.
@@ -74,7 +72,7 @@ final class TakeModel {
   var timerFrozenAt: Date? { isPaused ? pausedAt : nil }
 
   var modeTitle: String {
-    (state.request.flatMap { MemoMode(rawValue: $0.mode) } ?? .auto).composerTitle
+    (state.request.flatMap { MemoMode(rawValue: $0.mode) } ?? .hermes).recordTitle
   }
 
   var inputName: String? { state.inputName }
@@ -180,7 +178,7 @@ final class TakeModel {
 
   // MARK: Actions
 
-  func start(mode: MemoMode = .auto) async {
+  func start(mode: MemoMode = .hermes) async {
     guard canStart else { return }
     failure = nil
     do {

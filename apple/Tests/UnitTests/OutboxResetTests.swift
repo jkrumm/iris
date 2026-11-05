@@ -68,7 +68,7 @@ struct OutboxResetTests {
     #expect(await service.queuedItems().isEmpty)
     #expect(await service.quarantinedFiles().count == 1, "the old file is kept, not deleted")
     let outcome = await service.submitText(
-      TextSubmission(id: MemoID(), mode: .auto, text: "hello", threadId: nil, startedAt: Date()))
+      TextSubmission(id: MemoID(), mode: .hermes, text: "hello", threadId: nil, startedAt: Date()))
     #expect(outcome != .refused, "the fresh outbox takes new items")
     #expect(await service.resetOutbox() == .notReset, "a second reset has nothing to set aside")
   }

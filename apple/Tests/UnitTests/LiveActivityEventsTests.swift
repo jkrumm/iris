@@ -16,7 +16,8 @@ struct LiveActivityEventsTests {
     let memo = UUID().uuidString.lowercased()
 
     await activity.start(
-      memoID: memo, mode: .auto, startedAt: Date(), state: LiveActivityContentState(phase: .recording, hasReply: false))
+      memoID: memo, mode: .hermes, startedAt: Date(),
+      state: LiveActivityContentState(phase: .recording, hasReply: false))
     await activity.update(memoID: memo, LiveActivityContentState(phase: .uploading, hasReply: false))
     await activity.end(memoID: memo, finalState: nil, dismissal: .immediate)
     activity.logSnapshot(reason: "foreground")

@@ -45,18 +45,18 @@ actor FakePipeline {
   }
 
   /// Walks `memoID` to `notified`. A typed memo is created already transcribed (and keeps its own words as the transcript),
-  /// so it only has the route and the answer ahead of it.
+  /// so it only has the act and the answer ahead of it.
   func run(_ memoID: String, typed: Bool = false) {
     guard tasks[memoID] == nil else { return }
     // Owned by `tasks`; cancelled with the pipeline.
     tasks[memoID] = Task { [client, step] in
       let voice: [(MemoState, String?, String?)] = [
         (.transcribed, "This is the fake transcript of your voice memo.", nil),
-        (.routed, nil, nil),
+        (.acted, nil, nil),
         (.notified, nil, "This is the fake answer to your voice memo."),
       ]
       let text: [(MemoState, String?, String?)] = [
-        (.routed, nil, nil),
+        (.acted, nil, nil),
         (.notified, nil, "This is the fake answer to your message."),
       ]
       for (state, transcript, reply) in typed ? text : voice {

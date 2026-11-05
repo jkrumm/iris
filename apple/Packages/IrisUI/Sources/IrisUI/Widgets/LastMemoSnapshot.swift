@@ -1,22 +1,22 @@
 import Foundation
 
-/// What the widgets know about the newest memo, and all they are allowed to know: the state, the route chip and the
-/// headline (≤ 60 characters). Never the transcript, the reply, the park reason or an error text; a Lock Screen widget is
+/// What the widgets know about the newest memo, and all they are allowed to know: the state, the kind chip and the
+/// headline (≤ 60 characters). Never the transcript, the reply, or an error text; a Lock Screen widget is
 /// readable without unlocking the phone. The app writes it into the App Group container (``LastMemoSnapshotStoring``), the
 /// widget extension reads it; the extension has no network and no Keychain token, so this file is its only source.
 public struct LastMemoSnapshot: Codable, Equatable, Sendable {
-  /// The four phases the server pushes to the Live Activity; the client-only ones (recording, uploading) are the take
+  /// The phases the server pushes to the Live Activity; the client-only ones (recording, uploading) are the take
   /// screen's business, a memo is `processing` from the first segment on.
   public enum Phase: String, Codable, Sendable, CaseIterable {
-    case processing, needsRoute, done, failed
+    case processing, done, failed
 
-    /// Parked or finished: nothing further happens without the user, so the state never goes stale.
+    /// Finished or failed: nothing further happens without the user, so the state never goes stale.
     public var isSettled: Bool { self != .processing }
   }
 
   /// The longest a headline gets (the same bound as the Live Activity's and the server's alert headline).
   public static let headlineLimit = 60
-  /// The longest a route chip gets (a tab name is user-chosen).
+  /// The longest a kind chip gets (Hermes' kind is free-form; the field keeps the server's wire name `routeChip`).
   public static let routeChipLimit = 24
   /// An in-flight memo whose last update is older than this shows no state: the app is not running to say it finished, and
   /// the server's own hang guard is 30 minutes.

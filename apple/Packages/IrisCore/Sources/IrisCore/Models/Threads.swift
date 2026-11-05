@@ -1,33 +1,18 @@
 import Foundation
 
-/// What a thread is: a side-effect-free `chat`, or a normal task conversation with Hermes. A kind this build does
-/// not know decodes to `.unknown` instead of failing the whole page; `.unknown` is not in `allCases` and is not a filter to send.
-public enum ThreadKind: String, Codable, Hashable, Sendable, CaseIterable {
-  case chat
-  case hermes
-  case unknown
-
-  public static var allCases: [ThreadKind] { [.chat, .hermes] }
-
-  public init(from decoder: any Decoder) throws {
-    let raw = try decoder.singleValueContainer().decode(String.self)
-    self = ThreadKind(rawValue: raw) ?? .unknown
-  }
-}
-
 /// A Hermes session that one or more memos ran in. Named `MemoThread` because `Foundation.Thread` exists.
 public struct MemoThread: Codable, Hashable, Sendable, Identifiable {
   /// The Hermes session id, which is also `Memo.threadId` of every memo in it.
   public var id: String
-  public var kind: ThreadKind
+  /// Wire passthrough ("hermes", "chat" on old rows); the app ignores it.
+  public var kind: String
   /// The first words of the thread's first transcript.
   public var title: String
   public var createdAt: Date
   public var updatedAt: Date
   public var lastMemoId: String?
 
-  public init(id: String, kind: ThreadKind, title: String, createdAt: Date, updatedAt: Date, lastMemoId: String? = nil)
-  {
+  public init(id: String, kind: String, title: String, createdAt: Date, updatedAt: Date, lastMemoId: String? = nil) {
     self.id = id
     self.kind = kind
     self.title = title
@@ -111,12 +96,10 @@ public struct ThreadDetail: Codable, Hashable, Sendable, Identifiable {
 
 /// Query of `GET /v1/threads`.
 public struct ListThreadsQuery: Codable, Hashable, Sendable {
-  public var kind: ThreadKind?
   public var limit: Int?
   public var cursor: String?
 
-  public init(kind: ThreadKind? = nil, limit: Int? = nil, cursor: String? = nil) {
-    self.kind = kind
+  public init(limit: Int? = nil, cursor: String? = nil) {
     self.limit = limit
     self.cursor = cursor
   }

@@ -10,7 +10,7 @@ public protocol APIClient: Sendable {
   /// `POST /v1/memos`: idempotent by `request.id`. With `request.threadId` the memo continues that thread (404 when unknown).
   func createMemo(_ request: CreateMemoRequest) async throws -> Memo
   /// `POST /v1/memos/text`: a memo typed instead of spoken. It is created `transcribed` with the text as its
-  /// transcript and driven from `route`; there is no upload and no `complete`. Idempotent by `request.id`:
+  /// transcript and driven on; there is no upload and no `complete`. Idempotent by `request.id`:
   /// the same body returns the memo, another body for the id throws a 409 `APIError.server`.
   func createTextMemo(_ request: CreateTextMemoRequest) async throws -> Memo
   /// `PUT /v1/memos/:id/segments/:n`: raw m4a bytes, idempotent by content.
@@ -19,10 +19,6 @@ public protocol APIClient: Sendable {
   func completeMemo(id: String, request: CompleteMemoRequest) async throws -> Memo
   /// `POST /v1/memos/:id/retry`.
   func retryMemo(id: String, request: RetryMemoRequest) async throws -> Memo
-  /// `POST /v1/memos/:id/route`: answers a memo parked at `needs_route` (the server routes it and drives
-  /// it on) or, after `act`, records a correction and leaves the memo unchanged. Throws a 409
-  /// `APIError.server` in any other state, which includes a second answer while the first is still driving.
-  func routeMemo(id: String, request: RouteRequest) async throws -> Memo
   /// `PATCH /v1/memos/:id`: sets the flags that are not `nil` (at least one, else a 400 `APIError.server`). A soft-deleted
   /// memo is a 409.
   func setFlags(id: String, done: Bool?, favorite: Bool?, archived: Bool?) async throws -> Memo
@@ -47,8 +43,6 @@ public protocol APIClient: Sendable {
   func registerDevice(_ request: RegisterDeviceRequest) async throws -> RegisterDeviceResponse
   /// `PUT /v1/memos/:id/activity-token`.
   func setActivityToken(memoID: String, request: ActivityTokenRequest) async throws
-  /// `GET /v1/herd`.
-  func herd() async throws -> Herd
   /// `GET /v1/stats`: aggregates over the last `query.days` local days of the server (default 30).
   func stats(_ query: StatsQuery) async throws -> Stats
   /// `GET /v1/events`: opens the SSE stream. It ends when the consumer stops iterating or the connection

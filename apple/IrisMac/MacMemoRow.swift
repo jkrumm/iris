@@ -3,7 +3,7 @@ import IrisUI
 import SwiftUI
 
 /// One memo in the popover (`mac.html` `.menu .m`): the headline on one line with the time right, then a status dot and the
-/// route / state in muted text. A click opens the memo in the main window; the context menu has the list's actions.
+/// kind / state in muted text. A click opens the memo in the main window; the context menu has the list's actions.
 struct MacMemoRow: View {
   let root: MacCompositionRoot
   let model: HistoryModel

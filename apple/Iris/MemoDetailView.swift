@@ -9,17 +9,11 @@ struct MemoDetailView: View {
   @State private var playback: MemoPlayback
   private let refreshToken: () -> Int
   private let onReply: (Memo) -> Void
-  private let makeRouteAnswer: ((Memo) -> RouteAnswerModel)?
-  private let onRouted: (Memo) -> Void
-  @State private var routing: Memo?
 
   /// - Parameters:
   ///   - onReply: The reply hook: History opens the composer from here, continuing `memo.threadId`.
-  ///   - makeRouteAnswer: Builds the route sheet's model (answer a parked memo, correct a finished one); nil hides both.
-  ///   - onRouted: Told the memo the server answered with, so History shows it at once.
   init(
-    model: MemoDetailModel, refreshToken: @escaping () -> Int = { 0 }, onReply: @escaping (Memo) -> Void = { _ in },
-    makeRouteAnswer: ((Memo) -> RouteAnswerModel)? = nil, onRouted: @escaping (Memo) -> Void = { _ in }
+    model: MemoDetailModel, refreshToken: @escaping () -> Int = { 0 }, onReply: @escaping (Memo) -> Void = { _ in }
   ) {
     _model = State(initialValue: model)
     _playback = State(
@@ -27,19 +21,17 @@ struct MemoDetailView: View {
         memoID: model.memo.id, recordingDuration: model.memo.audioSeconds ?? 0, speech: model.speech))
     self.refreshToken = refreshToken
     self.onReply = onReply
-    self.makeRouteAnswer = makeRouteAnswer
-    self.onRouted = onRouted
   }
 
   var body: some View {
     ScrollView {
       VStack(alignment: .leading, spacing: Theme.Spacing.sectionTop) {
         header
-        routeCard
         if model.audioRequest != nil { player }
         steps
         transcript
         reply
+        actionsLine
         footer
       }
       .padding(.horizontal, Theme.Spacing.screenMargin)
@@ -73,18 +65,10 @@ struct MemoDetailView: View {
         }
       }
     }
-    .routeAnswerSheet(
-      item: $routing, make: makeRouteAnswer,
-      onRouted: { routed in
-        onRouted(routed)
-        Task { await model.didRoute(routed) }
-      }
-    )
     .task(id: refreshToken()) { await model.load() }
     .task(id: model.audioRequest) { await playback.recording.load(model.audioRequest) }
     .onAppear { playback.attach() }
-    // The sheet is hosted here: a screen covered by it is still on screen, so its players stay.
-    .onDisappear { if routing == nil { playback.teardown() } }
+    .onDisappear { playback.teardown() }
   }
 
   // MARK: Sections
@@ -93,19 +77,10 @@ struct MemoDetailView: View {
     let memo = model.memo
     return VStack(alignment: .leading, spacing: Theme.Spacing.cozy) {
       HStack(spacing: Theme.Spacing.sm) {
-        RouteChip(label: memo.routeLabel, systemImage: memo.routeChipIcon)
+        KindChip(label: memo.kindLabel, systemImage: memo.kindIcon)
         Text(verbatim: metaLine(memo))
           .themeFont(.footnote)
           .foregroundStyle(Theme.Ink.muted)
-        if canCorrectRoute {
-          Spacer(minLength: Theme.Spacing.sm)
-          Button(String(localized: "Wrong route?", comment: "Corrects the route of a finished memo")) {
-            routing = memo
-          }
-          .buttonStyle(.borderless)
-          .themeFont(.footnote, weight: .medium)
-          .accessibilityIdentifier("detail.route.correct")
-        }
       }
       VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
         Text(verbatim: memo.rowHeadline)
@@ -123,52 +98,6 @@ struct MemoDetailView: View {
         }
       }
     }
-  }
-
-  /// A finished memo's route can be corrected (the server only logs it); a parked one is answered in ``routeCard``.
-  private var canCorrectRoute: Bool {
-    makeRouteAnswer != nil && model.memo.state != .needsRoute && RouteAnswerModel.canRoute(model.memo)
-  }
-
-  /// Why the memo is parked and the button that answers it.
-  @ViewBuilder private var routeCard: some View {
-    let memo = model.memo
-    if makeRouteAnswer != nil, memo.state == .needsRoute {
-      VStack(alignment: .leading, spacing: Theme.Spacing.md) {
-        Label {
-          Text(verbatim: parkReason(memo))
-        } icon: {
-          Image(systemName: "questionmark.circle.fill").foregroundStyle(Theme.Status.warn)
-        }
-        .themeFont(.callout)
-        .foregroundStyle(Theme.Ink.secondary)
-        .accessibilityIdentifier("detail.route.reason")
-        Button {
-          routing = memo
-        } label: {
-          Label(routeActionTitle(memo), systemImage: "arrow.triangle.branch")
-            .frame(maxWidth: .infinity)
-        }
-        .buttonStyle(.borderedProminent)
-        .tint(Theme.Accent.fill)
-        .accessibilityIdentifier("detail.route.answer")
-      }
-      .padding(.horizontal, Theme.Spacing.cardInsetHorizontal)
-      .padding(.vertical, Theme.Spacing.cardInsetVertical)
-      .frame(maxWidth: .infinity, alignment: .leading)
-      .detailCard()
-    }
-  }
-
-  private func parkReason(_ memo: Memo) -> String {
-    memo.routeReason ?? String(localized: "Where should this go?", comment: "Detail: parked memo")
-  }
-
-  private func routeActionTitle(_ memo: Memo) -> String {
-    guard let suggestion = memo.routeSuggestion.flatMap(RouteDestination.init(spoken:)) else {
-      return String(localized: "Choose a route…", comment: "Detail action on a parked memo")
-    }
-    return String(localized: "Route to \(suggestion.title)…", comment: "Detail action with the model's suggestion")
   }
 
   private func metaLine(_ memo: Memo) -> String {
@@ -235,6 +164,21 @@ struct MemoDetailView: View {
           .modifier(TextCard())
           .accessibilityIdentifier("detail.reply")
       }
+    }
+  }
+
+  /// What Hermes used for the memo, one quiet line under the reply; nothing when it used no tool.
+  @ViewBuilder private var actionsLine: some View {
+    let actions = model.memo.actions
+    if !actions.isEmpty {
+      let tools = actions.joined(separator: ", ")
+      Text(
+        verbatim: String(
+          localized: "Hermes used: \(tools)", comment: "Detail: the tools Hermes ran for the memo, names are data")
+      )
+      .themeFont(.caption)
+      .foregroundStyle(Theme.Ink.muted)
+      .accessibilityIdentifier("detail.actions")
     }
   }
 

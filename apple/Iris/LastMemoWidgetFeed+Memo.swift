@@ -3,19 +3,19 @@ import IrisUI
 import WidgetKit
 
 extension Memo {
-  /// What the widgets may know of this memo (`LastMemoSnapshot`): the state, the route chip once it is routed, and the
+  /// What the widgets may know of this memo (`LastMemoSnapshot`): the state, the kind chip once Hermes (or an old route) named one, and the
   /// server's summary headline. Never the transcript (a memo without a summary has no headline: the widget says what
-  /// state it is in), the reply, the park reason or an error.
+  /// state it is in), the reply or an error.
   var widgetObservation: WidgetMemoObservation {
     let phase: LastMemoSnapshot.Phase =
       switch state {
       case .failed: .failed
-      case .notified: .done
-      case .needsRoute: done ? .done : .needsRoute
+      case .notified, .needsRoute: .done  // an old memo that was never routed is finished
       case .receiving, .received, .transcribed, .routed, .acted, .summarized: .processing
       }
     return WidgetMemoObservation(
-      id: id, createdAt: createdAt, phase: phase, routeChip: route == nil ? nil : routeLabel,
+      id: id, createdAt: createdAt, phase: phase,
+      routeChip: hasKind || route != nil || mode == .transcribe ? kindLabel : nil,
       headline: summary?.headline, isDeleted: isDeleted)
   }
 }

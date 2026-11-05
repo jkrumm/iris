@@ -5,7 +5,7 @@ public struct WidgetMemoObservation: Equatable, Sendable {
   public var id: String
   public var createdAt: Date
   public var phase: LastMemoSnapshot.Phase
-  /// Where the memo went; `nil` before it is routed (the mode is not a route).
+  /// The memo's kind as Hermes labelled it; `nil` before the reply is in.
   public var routeChip: String?
   /// The server's summary headline. Never a transcript clip.
   public var headline: String?

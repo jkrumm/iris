@@ -54,18 +54,6 @@ public struct RetryMemoRequest: Codable, Hashable, Sendable {
   }
 }
 
-/// Body of `POST /v1/memos/:id/route`. `tab` is required for `herdr` and rejected for the others; it is
-/// omitted when `nil`.
-public struct RouteRequest: Codable, Hashable, Sendable {
-  public var destination: RouteDestination
-  public var tab: String?
-
-  public init(destination: RouteDestination, tab: String? = nil) {
-    self.destination = destination
-    self.tab = tab
-  }
-}
-
 public struct ActivityTokenRequest: Codable, Hashable, Sendable {
   /// The Live Activity push token, hex-encoded (at most 1024 characters).
   public var token: String
@@ -90,43 +78,35 @@ public struct SetFlagsRequest: Codable, Hashable, Sendable {
 }
 
 /// Query of `GET /v1/memos`. `q` searches the transcript and summary headline (case, umlaut and prefix insensitive,
-/// terms ANDed, at most 200 characters); `route` and `state` filter exactly. `favorite` keeps the favorites, `archived`
-/// lists only the archived memos (they are hidden otherwise), `kind` keeps the memos whose thread has that kind (the
-/// Chats filter). The server accepts `favorite` and `archived` only as `true`, so `false` sends nothing. All combine.
+/// terms ANDed, at most 200 characters); `state` filters exactly. `favorite` keeps the favorites, `archived`
+/// lists only the archived memos (they are hidden otherwise), `kind` keeps the memos of that Hermes kind (exact,
+/// case-insensitive), `thread` the memos that belong to a thread. The server accepts `favorite` and `archived` only as `true`, so `false` sends nothing. All combine.
 public struct ListMemosQuery: Hashable, Sendable {
   public var limit: Int?
   public var cursor: String?
   public var q: String?
-  public var route: RouteDestination?
   public var state: MemoState?
   public var favorite: Bool
   public var archived: Bool
-  /// Legacy thread-kind filter; sent as `thread=true` (the memos of a conversation: a thread with at least two memos).
-  public var kind: ThreadKind?
   /// The memo kind to keep (e.g. "note"); the wire's `kind`.
-  public var memoKind: String?
+  public var kind: String?
   /// Keeps the memos of a conversation (a continued thread, at least two memos); the wire's `thread`, only ever `true`.
   public var thread: Bool
 
   public init(
-    limit: Int? = nil, cursor: String? = nil, q: String? = nil, route: RouteDestination? = nil,
-    state: MemoState? = nil, favorite: Bool = false, archived: Bool = false, kind: ThreadKind? = nil,
-    memoKind: String? = nil, thread: Bool = false
+    limit: Int? = nil, cursor: String? = nil, q: String? = nil,
+    state: MemoState? = nil, favorite: Bool = false, archived: Bool = false, kind: String? = nil,
+    thread: Bool = false
   ) {
     self.limit = limit
     self.cursor = cursor
     self.q = q
-    self.route = route
     self.state = state
     self.favorite = favorite
     self.archived = archived
     self.kind = kind
-    self.memoKind = memoKind
     self.thread = thread
   }
-
-  /// Whether the query asks for thread memos: the `thread` flag or the legacy chat/hermes kind.
-  private var wantsThread: Bool { thread || (kind != nil && kind != .unknown) }
 
   public var queryItems: [URLQueryItem] {
     var items: [URLQueryItem] = []
@@ -136,8 +116,8 @@ public struct ListMemosQuery: Hashable, Sendable {
     if let state { items.append(URLQueryItem(name: "state", value: state.rawValue)) }
     if favorite { items.append(URLQueryItem(name: "favorite", value: "true")) }
     if archived { items.append(URLQueryItem(name: "archived", value: "true")) }
-    if let memoKind { items.append(URLQueryItem(name: "kind", value: memoKind)) }
-    if wantsThread { items.append(URLQueryItem(name: "thread", value: "true")) }
+    if let kind { items.append(URLQueryItem(name: "kind", value: kind)) }
+    if thread { items.append(URLQueryItem(name: "thread", value: "true")) }
     return items
   }
 }
@@ -145,7 +125,7 @@ public struct ListMemosQuery: Hashable, Sendable {
 /// The query as the contract fixtures spell it: the values of the query string, so a flag is the string `"true"`.
 extension ListMemosQuery: Codable {
   private enum CodingKeys: String, CodingKey {
-    case limit, cursor, q, route, state, favorite, archived, kind, thread
+    case limit, cursor, q, state, favorite, archived, kind, thread
   }
 
   public init(from decoder: any Decoder) throws {
@@ -154,11 +134,10 @@ extension ListMemosQuery: Codable {
       limit: try container.decodeIfPresent(Int.self, forKey: .limit),
       cursor: try container.decodeIfPresent(String.self, forKey: .cursor),
       q: try container.decodeIfPresent(String.self, forKey: .q),
-      route: try container.decodeIfPresent(RouteDestination.self, forKey: .route),
       state: try container.decodeIfPresent(MemoState.self, forKey: .state),
       favorite: try Self.decodeFlag(container, .favorite),
       archived: try Self.decodeFlag(container, .archived),
-      memoKind: try container.decodeIfPresent(String.self, forKey: .kind),
+      kind: try container.decodeIfPresent(String.self, forKey: .kind),
       thread: try Self.decodeFlag(container, .thread))
   }
 
@@ -167,12 +146,11 @@ extension ListMemosQuery: Codable {
     try container.encodeIfPresent(limit, forKey: .limit)
     try container.encodeIfPresent(cursor, forKey: .cursor)
     try container.encodeIfPresent(q, forKey: .q)
-    try container.encodeIfPresent(route, forKey: .route)
     try container.encodeIfPresent(state, forKey: .state)
     if favorite { try container.encode("true", forKey: .favorite) }
     if archived { try container.encode("true", forKey: .archived) }
-    try container.encodeIfPresent(memoKind, forKey: .kind)
-    if wantsThread { try container.encode("true", forKey: .thread) }
+    try container.encodeIfPresent(kind, forKey: .kind)
+    if thread { try container.encode("true", forKey: .thread) }
   }
 
   private static func decodeFlag(

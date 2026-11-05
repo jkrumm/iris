@@ -8,7 +8,7 @@ struct FakeAPIClientTests {
   private let started = Date(timeIntervalSince1970: 1_773_480_000)
 
   private func create(_ fake: FakeAPIClient, id: String = "m1") async throws -> Memo {
-    try await fake.createMemo(CreateMemoRequest(id: id, mode: .auto, startedAt: started))
+    try await fake.createMemo(CreateMemoRequest(id: id, mode: .hermes, startedAt: started))
   }
 
   @Test("createMemo is idempotent and the call log records everything")
@@ -45,10 +45,10 @@ struct FakeAPIClientTests {
     // A family emoji is one Character but five code points.
     let family = "👨‍👩‍👧"
     let fits = String(repeating: family, count: CreateTextMemoRequest.maxTextCharacters / 5)
-    _ = try await fake.createTextMemo(CreateTextMemoRequest(id: "t3", mode: .auto, startedAt: started, text: fits))
+    _ = try await fake.createTextMemo(CreateTextMemoRequest(id: "t3", mode: .hermes, startedAt: started, text: fits))
     await #expect(throws: APIError.self) {
       try await fake.createTextMemo(
-        CreateTextMemoRequest(id: "t4", mode: .auto, startedAt: started, text: fits + family))
+        CreateTextMemoRequest(id: "t4", mode: .hermes, startedAt: started, text: fits + family))
     }
   }
 
@@ -57,12 +57,12 @@ struct FakeAPIClientTests {
     let fake = FakeAPIClient()
     for text in ["", "  \n ", String(repeating: "x", count: CreateTextMemoRequest.maxTextCharacters + 1)] {
       await #expect(throws: APIError.self) {
-        try await fake.createTextMemo(CreateTextMemoRequest(id: "t2", mode: .auto, startedAt: started, text: text))
+        try await fake.createTextMemo(CreateTextMemoRequest(id: "t2", mode: .hermes, startedAt: started, text: text))
       }
     }
   }
 
-  private func seededThread(_ fake: FakeAPIClient, id: String = "t1", kind: ThreadKind = .chat) async -> MemoThread {
+  private func seededThread(_ fake: FakeAPIClient, id: String = "t1", kind: String = "hermes") async -> MemoThread {
     let thread = MemoThread(id: id, kind: kind, title: "earlier", createdAt: started, updatedAt: started)
     await fake.seed(ThreadDetail(thread: thread, memos: [], messages: []))
     return thread
@@ -73,13 +73,13 @@ struct FakeAPIClientTests {
     let fake = FakeAPIClient(now: { Date(timeIntervalSince1970: 1_773_480_100) })
     await #expect(throws: APIError.self) {
       try await fake.createTextMemo(
-        CreateTextMemoRequest(id: "m1", mode: .chat, startedAt: started, text: "hi", threadId: "nope"))
+        CreateTextMemoRequest(id: "m1", mode: .hermes, startedAt: started, text: "hi", threadId: "nope"))
     }
     #expect(await fake.memos["m1"] == nil)
 
     _ = await seededThread(fake)
     let memo = try await fake.createTextMemo(
-      CreateTextMemoRequest(id: "m1", mode: .chat, startedAt: started, text: "hi", threadId: "t1"))
+      CreateTextMemoRequest(id: "m1", mode: .hermes, startedAt: started, text: "hi", threadId: "t1"))
     #expect(memo.threadId == "t1")
     let detail = try await fake.thread(id: "t1")
     #expect(detail.memos.map(\.id) == ["m1"])
@@ -89,7 +89,7 @@ struct FakeAPIClientTests {
     #expect(detail.thread.updatedAt == Date(timeIntervalSince1970: 1_773_480_100))
 
     let recorded = try await fake.createMemo(
-      CreateMemoRequest(id: "m2", mode: .chat, startedAt: started, threadId: "t1"))
+      CreateMemoRequest(id: "m2", mode: .hermes, startedAt: started, threadId: "t1"))
     #expect(recorded.threadId == "t1")
     #expect(try await fake.thread(id: "t1").memos.map(\.id) == ["m1", "m2"])
   }
@@ -99,7 +99,7 @@ struct FakeAPIClientTests {
     let fake = FakeAPIClient()
     _ = await seededThread(fake)
     _ = await seededThread(fake, id: "t2")
-    let request = CreateMemoRequest(id: "m1", mode: .chat, startedAt: started, threadId: "t1")
+    let request = CreateMemoRequest(id: "m1", mode: .hermes, startedAt: started, threadId: "t1")
     let first = try await fake.createMemo(request)
     #expect(try await fake.createMemo(request) == first)
 
@@ -110,11 +110,11 @@ struct FakeAPIClientTests {
     await #expect(throws: APIError.self) { try await fake.createMemo(other) }
   }
 
-  @Test("listThreads pages newest update first and filters by kind; an unknown thread is a 404")
+  @Test("listThreads pages newest update first; an unknown thread is a 404")
   func threadList() async throws {
     let fake = FakeAPIClient()
-    for (index, kind) in [ThreadKind.chat, .hermes, .chat].enumerated() {
-      var thread = await seededThread(fake, id: "t\(index)", kind: kind)
+    for index in 0..<3 {
+      var thread = await seededThread(fake, id: "t\(index)")
       thread.updatedAt = Date(timeIntervalSince1970: 1_773_480_000 + Double(index))
       await fake.seed(ThreadDetail(thread: thread, memos: [], messages: []))
     }
@@ -123,7 +123,6 @@ struct FakeAPIClientTests {
     let second = try await fake.listThreads(ListThreadsQuery(limit: 2, cursor: first.nextCursor))
     #expect(second.items.map(\.id) == ["t0"])
     #expect(second.nextCursor == nil)
-    #expect(try await fake.listThreads(ListThreadsQuery(kind: .chat)).items.map(\.id) == ["t2", "t0"])
     await #expect(throws: APIError.self) { try await fake.thread(id: "nope") }
     #expect(await fake.calls.last == .thread(id: "nope"))
   }
@@ -180,43 +179,6 @@ struct FakeAPIClientTests {
     #expect(try await fake.result(id: "m1", query: MemoResultQuery()) == .ready(done))
   }
 
-  private func parked(_ fake: FakeAPIClient) async throws -> Memo {
-    var memo = try await create(fake)
-    memo.state = .needsRoute
-    memo.routeReason = "journal not available"
-    await fake.seed(MemoDetail(memo: memo, steps: []))
-    return memo
-  }
-
-  @Test("routeMemo routes a parked memo and clears the park details")
-  func routeAnswer() async throws {
-    let fake = FakeAPIClient()
-    _ = try await parked(fake)
-    let routed = try await fake.routeMemo(id: "m1", request: RouteRequest(destination: .hermes))
-    #expect(routed.state == .routed)
-    #expect(routed.route == "hermes")
-    #expect(routed.routeReason == nil)
-    #expect(await fake.calls.last == .routeMemo(id: "m1", request: RouteRequest(destination: .hermes)))
-  }
-
-  @Test("routeMemo after act leaves the memo as it is; other states and a second answer are 409")
-  func routeCorrectionAndConflict() async throws {
-    let fake = FakeAPIClient()
-    var memo = try await create(fake)
-    memo.state = .notified
-    await fake.seed(MemoDetail(memo: memo, steps: []))
-    #expect(try await fake.routeMemo(id: "m1", request: RouteRequest(destination: .hermes)) == memo)
-
-    memo.state = .transcribed
-    await fake.seed(MemoDetail(memo: memo, steps: []))
-    await #expect(
-      throws: APIError.server(
-        status: 409, body: ErrorBody(error: .badState, message: "only parked or acted memos take a route"))
-    ) {
-      try await fake.routeMemo(id: "m1", request: RouteRequest(destination: .hermes))
-    }
-  }
-
   @Test("retry from summarize works on a notified memo whose summarize step failed, and on nothing else")
   func retrySummarizeOnNotified() async throws {
     let fake = FakeAPIClient()
@@ -252,17 +214,6 @@ struct FakeAPIClientTests {
     await #expect(throws: APIError.unexpectedStatus(500)) { try await fake.stats(StatsQuery()) }
   }
 
-  @Test("routeMemo wants a tab for herdr and only for herdr")
-  func routeTabRule() async throws {
-    let fake = FakeAPIClient()
-    _ = try await parked(fake)
-    for request in [RouteRequest(destination: .herdr), RouteRequest(destination: .hermes, tab: "w1:t1")] {
-      await #expect(throws: APIError.self) { try await fake.routeMemo(id: "m1", request: request) }
-    }
-    #expect(
-      try await fake.routeMemo(id: "m1", request: RouteRequest(destination: .herdr, tab: "w1:t1")).route == "herdr")
-  }
-
   @Test("list pages newest first with a cursor")
   func listing() async throws {
     let fake = FakeAPIClient(now: { Date(timeIntervalSince1970: 1_773_480_100) })
@@ -276,23 +227,12 @@ struct FakeAPIClientTests {
     #expect(second.nextCursor == nil)
   }
 
-  @Test("list searches, filters and pins needs_route memos on the first page")
-  func searchingAndPinning() async throws {
+  @Test("list searches and never pins")
+  func searching() async throws {
     let fake = FakeAPIClient(now: { Date(timeIntervalSince1970: 1_773_480_100) })
     for id in ["a", "b"] { _ = try await create(fake, id: id) }
-    let parkedMemo = try await parked(fake)
-
-    let first = try await fake.listMemos(ListMemosQuery())
-    #expect(first.pinned.map(\.id) == [parkedMemo.id])
-    #expect(first.items.map(\.id).sorted() == ["a", "b"])
-    let later = try await fake.listMemos(ListMemosQuery(limit: 1, cursor: "1"))
-    #expect(later.pinned.isEmpty)
-
-    let onlyParked = try await fake.listMemos(ListMemosQuery(state: .needsRoute))
-    #expect(onlyParked.items.isEmpty)
-    #expect(onlyParked.pinned.count == 1)
+    #expect(try await fake.listMemos(ListMemosQuery()).items.map(\.id).sorted() == ["a", "b"])
     #expect(try await fake.listMemos(ListMemosQuery(q: "nichts-davon")).items.isEmpty)
-    #expect(try await fake.listMemos(ListMemosQuery(route: .journal)).items.isEmpty)
   }
 
   @Test("emit feeds the events stream")
@@ -309,20 +249,17 @@ struct FakeAPIClientTests {
 
   private func seedMemo(
     _ fake: FakeAPIClient, id: String, state: MemoState = .notified, createdAt: TimeInterval = 1_773_480_000,
-    threadId: String? = nil
+    threadId: String? = nil, kind: String? = nil
   ) async {
     let date = Date(timeIntervalSince1970: createdAt)
     let memo = Memo(
-      id: id, mode: .auto, device: "fake-device", startedAt: date, state: state, threadId: threadId, createdAt: date,
-      updatedAt: date)
+      id: id, mode: .hermes, device: "fake-device", startedAt: date, state: state, threadId: threadId, kind: kind,
+      createdAt: date, updatedAt: date)
     await fake.seed(MemoDetail(memo: memo, steps: []))
   }
 
-  private func listedIDs(_ fake: FakeAPIClient, _ query: ListMemosQuery = ListMemosQuery()) async throws -> (
-    items: [String], pinned: [String]
-  ) {
-    let page = try await fake.listMemos(query)
-    return (page.items.map(\.id), page.pinned.map(\.id))
+  private func listedIDs(_ fake: FakeAPIClient, _ query: ListMemosQuery = ListMemosQuery()) async throws -> [String] {
+    try await fake.listMemos(query).items.map(\.id)
   }
 
   @Test("setFlags sets only the given flags, and 400s for none")
@@ -374,41 +311,36 @@ struct FakeAPIClientTests {
     #expect(await fake.memos["m1"] == nil)
   }
 
-  @Test("listMemos hides deleted and archived memos and filters favorites, archived and kind")
+  @Test("listMemos hides deleted and archived memos and filters favorites, archived, kind and thread")
   func listFilters() async throws {
     let fake = FakeAPIClient()
-    for (index, id) in ["plain", "star", "archived", "gone", "chat"].enumerated() {
+    let kinds: [String: String] = ["task": "task", "note": "Note", "github": "github issue"]
+    // "task" and "note" share a session (a conversation); "github" is alone in its own; "plain" shares one with the deleted "gone".
+    let threadIDs: [String: String] = ["task": "t1", "note": "t1", "github": "github", "plain": "t2", "gone": "t2"]
+    for (index, id) in ["plain", "star", "archived", "gone", "task", "note", "github"].enumerated() {
       await seedMemo(
-        fake, id: id, createdAt: 1_773_480_000 + Double(index), threadId: id == "chat" ? "t1" : nil)
+        fake, id: id, createdAt: 1_773_480_000 + Double(index), threadId: threadIDs[id], kind: kinds[id])
     }
-    await fake.seed(
-      ThreadDetail(
-        thread: MemoThread(id: "t1", kind: .chat, title: "t", createdAt: Date(), updatedAt: Date()), memos: [],
-        messages: []))
     _ = try await fake.setFlags(id: "star", done: nil, favorite: true, archived: nil)
     _ = try await fake.setFlags(id: "archived", done: nil, favorite: nil, archived: true)
     _ = try await fake.deleteMemo(id: "gone")
 
-    #expect(try await listedIDs(fake).items == ["chat", "star", "plain"])
-    #expect(try await listedIDs(fake, ListMemosQuery(favorite: true)).items == ["star"])
-    #expect(try await listedIDs(fake, ListMemosQuery(archived: true)).items == ["archived"])
-    #expect(try await listedIDs(fake, ListMemosQuery(kind: .chat)).items == ["chat"])
-    #expect(try await listedIDs(fake, ListMemosQuery(kind: .hermes)).items.isEmpty)
+    #expect(try await listedIDs(fake) == ["github", "note", "task", "star", "plain"])
+    #expect(try await listedIDs(fake, ListMemosQuery(favorite: true)) == ["star"])
+    #expect(try await listedIDs(fake, ListMemosQuery(archived: true)) == ["archived"])
+    #expect(try await listedIDs(fake, ListMemosQuery(kind: "task")) == ["task"])
+    #expect(try await listedIDs(fake, ListMemosQuery(kind: " NOTE ")) == ["note"])
+    #expect(try await listedIDs(fake, ListMemosQuery(kind: "github issue")) == ["github"])
+    #expect(try await listedIDs(fake, ListMemosQuery(kind: "answer")).isEmpty)
+    #expect(try await listedIDs(fake, ListMemosQuery(thread: true)) == ["note", "task"])
   }
 
-  @Test("A done needs_route memo is not pinned and is paged instead; a deleted one is in neither")
-  func pinnedSkipsDone() async throws {
+  @Test("a memo parked at needs_route in an old row is paged like any other, never pinned")
+  func oldParkedRowIsPaged() async throws {
     let fake = FakeAPIClient()
     await seedMemo(fake, id: "open", state: .needsRoute, createdAt: 1_773_480_002)
-    await seedMemo(fake, id: "handled", state: .needsRoute, createdAt: 1_773_480_001)
-    await seedMemo(fake, id: "dropped", state: .needsRoute, createdAt: 1_773_480_000)
-    _ = try await fake.setFlags(id: "handled", done: true, favorite: nil, archived: nil)
-    #expect(try await listedIDs(fake).pinned == ["open", "dropped"])
-    #expect(try await listedIDs(fake).items == ["handled"])
-
-    _ = try await fake.deleteMemo(id: "dropped")
-    let page = try await listedIDs(fake)
-    #expect(page.pinned == ["open"] && page.items == ["handled"])
+    await seedMemo(fake, id: "done", state: .notified, createdAt: 1_773_480_001)
+    #expect(try await listedIDs(fake) == ["open", "done"])
   }
 
   @Test("a held response applies its effect at once and answers only after the gate opens")
@@ -464,7 +396,7 @@ struct FakeAPIClientPipelineTests {
     let fake = FakeAPIClient()
     await fake.seed(
       ThreadDetail(
-        thread: MemoThread(id: "t1", kind: .hermes, title: "Thread", createdAt: started, updatedAt: started),
+        thread: MemoThread(id: "t1", kind: "hermes", title: "Thread", createdAt: started, updatedAt: started),
         memos: [], messages: []))
     _ = try await fake.createMemo(CreateMemoRequest(id: "m1", mode: .hermes, startedAt: started, threadId: "t1"))
     var events = fake.events().makeAsyncIterator()

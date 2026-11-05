@@ -13,17 +13,17 @@ struct ThreadModelTests {
   let threadID = "t"
 
   private func memo(
-    _ id: String, age: TimeInterval, state: MemoState = .notified, mode: MemoMode = .chat, reply: String? = nil,
+    _ id: String, age: TimeInterval, state: MemoState = .notified, mode: MemoMode = .hermes, reply: String? = nil,
     blocks: [ReplyBlock] = [], error: String? = nil
   ) -> Memo {
     let created = MemoFactory.now.addingTimeInterval(-age)
     return Memo(
       id: id, mode: mode, device: "iphone", startedAt: created, state: state, error: error,
-      transcript: "question \(id)", route: "hermes", replyText: reply, replyBlocks: blocks, threadId: threadID,
+      transcript: "question \(id)", replyText: reply, replyBlocks: blocks, threadId: threadID,
       isTyped: true, createdAt: created, updatedAt: created.addingTimeInterval(5))
   }
 
-  private func detail(_ memos: [Memo], kind: ThreadKind = .chat) -> ThreadDetail {
+  private func detail(_ memos: [Memo], kind: String = "hermes") -> ThreadDetail {
     var messages: [ThreadMessage] = []
     for memo in memos {
       messages.append(
@@ -73,7 +73,7 @@ struct ThreadModelTests {
       Issue.record("expected a pending turn")
       return
     }
-    #expect(progress == StepProgress(completed: 2, total: 5))
+    #expect(progress == StepProgress(completed: 1, total: 3))
     #expect(!caption.isEmpty)
   }
 
@@ -151,14 +151,10 @@ struct ThreadModelTests {
     #expect(thread.memoIDs == ["a", "b"])
   }
 
-  @Test("replies are created in the thread's mode: a chat stays a chat, anything else goes through Hermes")
-  func replyMode() async {
-    await client.seed(detail([memo("a", age: 1)], kind: .hermes))
-    let hermes = model()
-    await hermes.load()
-    #expect(hermes.replyMode == .hermes)
-    let chat = ComposerRequest.reply(toThread: "t", kind: .chat)
-    #expect(chat.mode == .chat && chat.threadId == "t")
+  @Test("a reply into a thread carries the thread id")
+  func replyContinuesTheThread() {
+    let reply = ComposerRequest.reply(toThread: "t")
+    #expect(reply.threadId == "t")
   }
 
   @Test("a fetch that was in flight when a memo was sent does not drop that memo when it lands")
@@ -197,9 +193,9 @@ struct ThreadModelTests {
     clock.now = MemoFactory.now.addingTimeInterval(3)
     let sent = try #require(await thread.endVoice(cancelled: false))
 
-    #expect(voice.requests == [VoiceReplyRequest(threadId: threadID, mode: .chat)])
+    #expect(voice.requests == [VoiceReplyRequest(threadId: threadID, mode: .hermes)])
     #expect(sent.state == .receiving, "the memo is created; its recording is on the way up")
-    #expect(sent.threadId == threadID && sent.mode == .chat)
+    #expect(sent.threadId == threadID && sent.mode == .hermes)
     #expect(thread.voiceStartedAt == nil)
     #expect(thread.memoIDs.last == sent.id)
   }

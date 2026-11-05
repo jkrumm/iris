@@ -73,7 +73,7 @@ struct ServerBoundOutboxTests {
     await fakeA.enqueueFailure(.transport(.notConnectedToInternet), for: .createTextMemo)
 
     let outcome = await service.submitText(
-      TextSubmission(id: MemoID(), mode: .auto, text: "for A", threadId: nil, startedAt: MemoFactory.now),
+      TextSubmission(id: MemoID(), mode: .hermes, text: "for A", threadId: nil, startedAt: MemoFactory.now),
       window: .milliseconds(200))
     #expect(outcome == .queued)
     #expect(await createCalls(fakeA) == 1)

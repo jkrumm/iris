@@ -86,7 +86,7 @@ final class MemoDetailUITests: IrisUITestCase {
     // A failed memo opens its waterfall on its own: the failed step and its retry are on screen.
     let stepRetry = app.buttons["detail.step.retry"]
     XCTAssertTrue(waitForPresence(stepRetry, timeout: 10))
-    XCTAssertTrue(waitForPresence(app.staticTexts["agw job failed: upstream 503"], timeout: 2))
+    XCTAssertTrue(waitForPresence(app.staticTexts["hermes request failed: upstream 503"], timeout: 2))
 
     // The bottom retry icon restarts from the step that failed; the fake server then reports the memo as received.
     app.buttons["detail.action.retry"].tap()
