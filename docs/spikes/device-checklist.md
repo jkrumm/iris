@@ -40,7 +40,7 @@ Findings that change the design go to the matching spike file and into `docs/TDD
 
 Device: iPhone 15 (`iPhone15,4`), iOS 26.6.1, Personal Team. Ordered to cost the owner the least: a step is one `ask-human.sh ask '<text>' --cmd true`, a click means "owner says done",
 a timeout means not run. **A row passes only on headless proof**; a click alone never does. Exact owner wording and per-step checks: S1 (`D2-1`, `D2-2`, `D2-3`, `D2-9`) and S2 (`D2-6`, `D2-10`) below the Procedure,
-the rest here. Install first: `lockf -t 900 /tmp/iris-apple.lock make device` (same team and bundle id, never uninstall, never reset the outbox).
+the rest here. Install first: `lockf -t 1800 /tmp/iris-apple.lock make device` (same team and bundle id, never uninstall, never reset the outbox).
 
 **Status:** everything ran except the car (D2-10) and the reply bar's keyboard icon. D2-2 failed at its first press (the control does nothing), D2-5 was dropped by the owner (text sizes are out of scope), D2-6 crashed the app. The owner steps
 were rewritten in German after the first hour (`docs/design/feedback-device-1.md` §9). What each step showed is in the Result column and the S1/S2 findings.
@@ -52,7 +52,7 @@ Lessons for the next run: the owner stops a take before clicking Run, so a scree
 
 | Need | Command | Status |
 |-|-|-|
-| Look at the phone | `lockf -t 900 /tmp/iris-apple.lock make device-screenshot NAME=d2-<step>` -> `.artifacts/d2-<step>.png` (`Read` it) | ran in D1 and D2; shows the Lock Screen, the Live Activity card and the island too, but only with the display on: a sleeping or call-covered phone gives a black frame or someone's call screen (delete such a frame) |
+| Look at the phone | `lockf -t 1800 /tmp/iris-apple.lock make device-screenshot NAME=d2-<step>` -> `.artifacts/d2-<step>.png` (`Read` it) | ran in D1 and D2; shows the Lock Screen, the Live Activity card and the island too, but only with the display on: a sleeping or call-covered phone gives a black frame or someone's call screen (delete such a frame) |
 | Locked / unlocked, app alive | `devicectl device info lockState`, `devicectl device info processes` (the Iris process id; a changed id means iOS or the owner killed it) | ran: `lockState` shows only `passcodeRequired`/`unlockedSinceBoot` (a locked phone is told by `process launch` failing with `Locked`), `processes` lists the app and its widget extension pid |
 | The memo the take made | token: `T=$(secrets-run read op://mini/iris/device-tokens \| tr ',' '\n' \| awk -F= '$2=="iphone"{print $1}')`, never printed; `curl -s -H "Authorization: Bearer $T" http://127.0.0.1:7730/v1/memos?limit=5`; detail has `state`, `segmentCount`, `audioSeconds`, `transcript`, `device` | skill `memo-debug`, ran |
 | Audio of a take | `curl -s -H "Authorization: Bearer $T" http://127.0.0.1:7730/v1/memos/<id>/audio -o x.m4a; ffprobe x.m4a` (duration vs wall clock = the gap check) | endpoint exists; the pipeline over a device take ran in D1b |
