@@ -8,7 +8,7 @@
   Hermes, which may act on them (tasks, notes): the owner's call, the lead does not retry them.
 - **P1** #121 (pane t12k): code done, paid device build + install + APNs registration worked pre-rebase (`devices.iphone` has a sandbox token;
   a typed memo `a2855744` notified with no `no_token` / rejection). **Owner step:** App Group `group.com.jkrumm.iris` in the developer portal on
-  the three App IDs (until then device builds need `DEVICE_DROP_ENTITLEMENTS=com.apple.security.application-groups`). After 07:00: re-run
+  the three App IDs (done 2026-11-05, Issue 77: the group is on all three App IDs and `DEVICE_DROP_ENTITLEMENTS` is gone). After 07:00: re-run
   `PushRegistrarTests`, `make check-apple`, `make device` on the rebased head, banner screenshot, Live Activity `end` push.
 - **A1** #122 (pane t12g): three-button row, Transcribe control, Mac pair, routing UI removed, written but **never compiled** (load stop). After
   07:00: rebase on master, validation, row renders into `docs/design/fidelity/w21.md`.
