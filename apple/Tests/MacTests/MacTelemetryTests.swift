@@ -174,8 +174,8 @@ struct MacTelemetryTests {
     #expect(
       [MacLifecyclePhase.launch, .quit].map(\.telemetryName) == ["launch", "quit"])
     #expect(
-      [QueuedItem.Kind.voiceMemo, .voiceReply, .typedMemo, .chatMessage, .textReply, .removal].map(\.telemetryName)
-        == ["voiceMemo", "voiceReply", "typedMemo", "chatMessage", "textReply", "removal"])
+      [QueuedItem.Kind.voiceMemo, .voiceReply, .typedMemo, .textReply, .removal].map(\.telemetryName)
+        == ["voiceMemo", "voiceReply", "typedMemo", "textReply", "removal"])
     let failures: [RecordingPanelModel.Failure] = [
       .notConfigured, .microphoneDenied, .couldNotStart, .nothingRecorded, .stoppedEarly, .lost,
     ]

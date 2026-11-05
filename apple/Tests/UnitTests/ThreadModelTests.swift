@@ -151,10 +151,10 @@ struct ThreadModelTests {
     #expect(thread.memoIDs == ["a", "b"])
   }
 
-  @Test("replies continue the thread through Hermes")
-  func replyMode() {
+  @Test("a reply into a thread carries the thread id")
+  func replyContinuesTheThread() {
     let reply = ComposerRequest.reply(toThread: "t")
-    #expect(reply.mode == .hermes && reply.threadId == "t")
+    #expect(reply.threadId == "t")
   }
 
   @Test("a fetch that was in flight when a memo was sent does not drop that memo when it lands")
