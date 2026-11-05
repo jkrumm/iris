@@ -14,3 +14,14 @@
   07:00: rebase on master, validation, row renders into `docs/design/fidelity/w21.md`.
 - **Load stop (owner-approved, software-factory session):** no xcodebuild / simulator until 2026-11-05 07:00.
 - Then: A1 + P1 batch (`w21-batch-1`), one `apple.yml`, `agw review` on both, merge, close out.
+
+## Wave 22 (started 2026-11-04 ~23:50 on the mother's order; same lead)
+Briefs (gitignored): `.artifacts/w22-briefs/`. All three write code tonight; Apple builds and proofs only after the 07:00 load stop.
+Morning lock order: A1 + P1 validation → batch → U1 → M2 / P2 proofs.
+Open gates (none finished):
+- [ ] U1 `w22-u1-less-chrome` (queued for capacity): built on A1's branch (merges, never rebases); renders into `docs/design/fidelity/w22.md`.
+- [ ] P2 `w22-p2-testflight` (t12t): `make testflight UPLOAD=0` signed `.ipa` export headless; poller hooks off until `~/.iris/release.env`.
+      Upload waits for the App Store Connect app record (owner session 2026-11-05).
+- [ ] M2 `w22-m2-sparkle` (t12v): Sparkle + EdDSA + Check for Updates + `make mac-release IDENTITY=development PUBLISH=draft`; Developer ID,
+      notarization, the MacBook install/update proof and the EdDSA key's 1Password backup
+      (`~/.local/state/apple-developer/sparkle-ed25519.key`) wait for the owner session. Menu items land after A1 merges.
