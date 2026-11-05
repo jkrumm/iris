@@ -90,6 +90,16 @@ enum RecorderDestination: String, AppEnum {
   ]
 }
 
+/// The one thing the Transcribe control opens. Its own type: every `OpenIntent` needs a target type no other one has.
+enum TranscribeRecorderDestination: String, AppEnum {
+  case recorder
+
+  static let typeDisplayRepresentation = TypeDisplayRepresentation(name: "Transcribe recorder")
+  static let caseDisplayRepresentations: [TranscribeRecorderDestination: DisplayRepresentation] = [
+    .recorder: DisplayRepresentation(title: "Transcribe recorder")
+  ]
+}
+
 /// What the Record control runs. WidgetKit performs a control's intent in the widget extension, in the background, and the
 /// extension cannot record; only an `OpenIntent` that is in both targets makes the system bring the app to the foreground
 /// and perform the intent there. On the Lock Screen a button is inactive until the device is unlocked, so the policy asks for
@@ -124,7 +134,7 @@ struct OpenTranscribeRecorderIntent: OpenIntent {
   static let authenticationPolicy: IntentAuthenticationPolicy = .requiresAuthentication
 
   @Parameter(title: "Destination")
-  var target: RecorderDestination
+  var target: TranscribeRecorderDestination
 
   init() { target = .recorder }
 
