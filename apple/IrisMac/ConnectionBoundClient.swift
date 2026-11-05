@@ -46,9 +46,6 @@ nonisolated struct ConnectionBoundClient: APIClient {
   func retryMemo(id: String, request: RetryMemoRequest) async throws -> Memo {
     try await base.retryMemo(id: id, request: request)
   }
-  func routeMemo(id: String, request: RouteRequest) async throws -> Memo {
-    try await base.routeMemo(id: id, request: request)
-  }
   func setFlags(id: String, done: Bool?, favorite: Bool?, archived: Bool?) async throws -> Memo {
     try await base.setFlags(id: id, done: done, favorite: favorite, archived: archived)
   }
@@ -67,7 +64,6 @@ nonisolated struct ConnectionBoundClient: APIClient {
   func setActivityToken(memoID: String, request: ActivityTokenRequest) async throws {
     try await base.setActivityToken(memoID: memoID, request: request)
   }
-  func herd() async throws -> Herd { try await base.herd() }
   func stats(_ query: StatsQuery) async throws -> Stats { try await base.stats(query) }
   func events() -> AsyncThrowingStream<ServerEvent, any Error> { base.events() }
 }

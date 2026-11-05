@@ -120,14 +120,6 @@ struct URLSessionAPIClientTests {
     #expect(try jsonValue(requests[1].body) == jsonValue(Contracts.fixtureData("memos.retry.request")))
   }
 
-  @Test("routeMemo maps a 409 to the server error")
-  func routeMemoConflict() async throws {
-    let server = StubServer { _ in try .json(409, fixture: "error.bad-state") }
-    await #expect(throws: APIError.self) {
-      try await server.makeClient().routeMemo(id: memoID, request: RouteRequest(destination: .hermes))
-    }
-  }
-
   @Test("listMemos sends limit and cursor as query items")
   func listMemos() async throws {
     let server = StubServer { _ in try .json(fixture: "memos.list.response") }
@@ -141,13 +133,12 @@ struct URLSessionAPIClientTests {
       request.queryItems == [URLQueryItem(name: "limit", value: "20"), URLQueryItem(name: "cursor", value: "41")])
   }
 
-  @Test("listMemos sends q and state (the retired route filter is not sent) and decodes a page without pinned")
+  @Test("listMemos sends q and state")
   func listMemosSearch() async throws {
     let server = StubServer { _ in try .json(fixture: "memos.list.response") }
-    let query = ListMemosQuery(limit: 20, q: "kalender termin", route: .hermes, state: .notified)
+    let query = ListMemosQuery(limit: 20, q: "kalender termin", state: .notified)
     let page = try await server.makeClient().listMemos(query)
 
-    #expect(page.pinned.isEmpty && !page.pinnedTruncated)
     #expect(page.items.count == 3)
     let request = try #require(server.request)
     #expect(
@@ -157,18 +148,17 @@ struct URLSessionAPIClientTests {
       ])
   }
 
-  @Test("listMemos sends the favorite, archived, kind and thread filters; a legacy ThreadKind becomes thread=true")
+  @Test("listMemos sends the favorite, archived, kind and thread filters")
   func listMemosFilters() async throws {
     let server = StubServer { _ in try .json(fixture: "memos.list.response.empty") }
-    _ = try await server.makeClient().listMemos(ListMemosQuery(favorite: true, archived: true, kind: .chat))
+    _ = try await server.makeClient().listMemos(ListMemosQuery(favorite: true, archived: true))
     #expect(
       server.request?.queryItems == [
         URLQueryItem(name: "favorite", value: "true"), URLQueryItem(name: "archived", value: "true"),
-        URLQueryItem(name: "thread", value: "true"),
       ])
 
     let kinded = StubServer { _ in try .json(fixture: "memos.list.response.empty") }
-    _ = try await kinded.makeClient().listMemos(ListMemosQuery(memoKind: "note", thread: true))
+    _ = try await kinded.makeClient().listMemos(ListMemosQuery(kind: "note", thread: true))
     #expect(
       kinded.request?.queryItems == [
         URLQueryItem(name: "kind", value: "note"), URLQueryItem(name: "thread", value: "true"),
@@ -259,9 +249,9 @@ struct URLSessionAPIClientTests {
   @Test("listThreads sends limit and cursor as query items and no kind")
   func listThreads() async throws {
     let server = StubServer { _ in try .json(fixture: "threads.list.response") }
-    let page = try await server.makeClient().listThreads(ListThreadsQuery(kind: .chat, limit: 20, cursor: "abc"))
+    let page = try await server.makeClient().listThreads(ListThreadsQuery(limit: 20, cursor: "abc"))
 
-    #expect(page.items.map(\.kind) == [.chat, .hermes])
+    #expect(page.items.map(\.kind) == ["chat", "hermes"])
     #expect(page.nextCursor != nil)
     let request = try #require(server.request)
     #expect(request.method == "GET")
@@ -347,8 +337,7 @@ struct URLSessionAPIClientTests {
     let stats = try await server.makeClient().stats(StatsQuery(days: 7))
     #expect(stats.days == 7)
     #expect(stats.perDay.contains(StatsDayCount(date: "2026-03-12", kind: nil, count: 1)))
-    #expect(stats.perDay.contains { $0.kind == "task" && $0.route == "task" })
-    #expect(stats.perDay.contains { $0.kind == nil && $0.route == "unrouted" })
+    #expect(stats.perDay.contains { $0.kind == "task" })
     #expect(
       stats.stepMedians.map(\.step) == [
         .transcribe, .transcribe, .transcribe, .transcribe, .act, .act, .notify, .notify,
@@ -357,8 +346,7 @@ struct URLSessionAPIClientTests {
       stats.stepMedians.first { $0.step == .transcribe && $0.kind == "task" }
         == StatsStepMedian(step: .transcribe, kind: "task", medianMs: 4120, samples: 3))
     #expect(stats.costPerKind.first { $0.kind == "task" }?.costUsd == 0.0421)
-    #expect(stats.costPerRoute == stats.costPerKind)
-    #expect(stats.costPerKind.first?.kind == nil && stats.costPerKind.first?.route == "unrouted")
+    #expect(stats.costPerKind.first?.kind == nil)
     #expect(server.request?.url.path == "/v1/stats")
     #expect(server.request?.queryItems == [URLQueryItem(name: "days", value: "7")])
   }
@@ -367,7 +355,7 @@ struct URLSessionAPIClientTests {
   func statsEmpty() async throws {
     let server = StubServer { _ in try .json(fixture: "stats.response.empty") }
     let stats = try await server.makeClient().stats(StatsQuery())
-    #expect(stats.perDay.isEmpty && stats.perWeek.isEmpty && stats.stepMedians.isEmpty && stats.costPerRoute.isEmpty)
+    #expect(stats.perDay.isEmpty && stats.perWeek.isEmpty && stats.stepMedians.isEmpty && stats.costPerKind.isEmpty)
     #expect(server.request?.url.query == nil)
   }
 
@@ -428,7 +416,7 @@ struct URLSessionAPIClientTests {
       try await client.uploadSegment(memoID: memoID, index: 0, data: Data(count: 10))
     }
     await #expect(throws: APIError.tooLarge(message: "segment exceeds 1048576 bytes", maxBytes: 1_048_576)) {
-      try await client.herd()
+      try await client.whoami()
     }
   }
 

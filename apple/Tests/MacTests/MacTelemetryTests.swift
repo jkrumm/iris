@@ -170,12 +170,12 @@ struct MacTelemetryTests {
   @Test("the attribute values the Mac writes for its enums are spelled out, not derived from the case names")
   func enumNames() {
     #expect(
-      [Announcement.done, .needsRoute, .failed].map(\.telemetryName) == ["done", "needsRoute", "failed"])
+      [Announcement.done, .failed].map(\.telemetryName) == ["done", "failed"])
     #expect(
       [MacLifecyclePhase.launch, .quit].map(\.telemetryName) == ["launch", "quit"])
     #expect(
-      [QueuedItem.Kind.voiceMemo, .voiceReply, .typedMemo, .chatMessage, .textReply, .removal].map(\.telemetryName)
-        == ["voiceMemo", "voiceReply", "typedMemo", "chatMessage", "textReply", "removal"])
+      [QueuedItem.Kind.voiceMemo, .voiceReply, .typedMemo, .textReply, .removal].map(\.telemetryName)
+        == ["voiceMemo", "voiceReply", "typedMemo", "textReply", "removal"])
     let failures: [RecordingPanelModel.Failure] = [
       .notConfigured, .microphoneDenied, .couldNotStart, .nothingRecorded, .stoppedEarly, .lost,
     ]

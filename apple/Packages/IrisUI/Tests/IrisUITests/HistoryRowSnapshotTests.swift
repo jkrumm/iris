@@ -22,33 +22,13 @@
       .background { HistoryRowBackground(needsAttention: needsAttention) }
     }
 
-    @Test("a settled row: route, audio length, summary line", .tags(.snapshot))
+    @Test("a settled row: kind, audio length, summary line", .tags(.snapshot))
     func settled() {
       SnapshotSupport.assertLightAndDark(
         row(
-          .settled(route: "Hermes", dot: Theme.Accent.tint, duration: "38 s"),
+          .settled(kind: "Answer", dot: KindPalette.color(forKind: "Answer"), duration: "38 s"),
           headline: "Wochenplan abgestimmt, Release am Donnerstag",
           secondary: "Montag PR-Review, Mittwoch Feature-Freeze, Donnerstag Release"),
-        width: 390, height: 120)
-    }
-
-    @Test("a parked row is tinted and says what to do", .tags(.snapshot))
-    func needsRoute() {
-      SnapshotSupport.assertLightAndDark(
-        row(
-          .alert(label: "Needs route", color: Theme.Status.warn),
-          headline: "Where does “Router bestellen und Netzwerkplan prüfen” go?", secondary: "Tap to decide",
-          time: "9:48", needsAttention: true),
-        width: 390, height: 120)
-    }
-
-    @Test("a parked row names the route the decision model suggested", .tags(.snapshot))
-    func needsRouteSuggested() {
-      SnapshotSupport.assertLightAndDark(
-        row(
-          .alert(label: "Needs route", color: Theme.Status.warn),
-          headline: "Where does “Router bestellen und Netzwerkplan prüfen” go?",
-          secondary: "Hermes suggested — tap to decide", time: "9:48", needsAttention: true),
         width: 390, height: 120)
     }
 
@@ -56,7 +36,7 @@
     func chatThread() {
       SnapshotSupport.assertLightAndDark(
         row(
-          .settled(route: "Chat", dot: Theme.Accent.tint, duration: "14 s"),
+          .settled(kind: "Chat", dot: KindPalette.color(forKind: "Chat"), duration: "14 s"),
           headline: "Which Postgres index fits the herd snapshot query?", time: "9:46", favorite: true, thread: true),
         width: 390, height: 100)
     }
@@ -75,7 +55,7 @@
     func inFlight() {
       SnapshotSupport.assertLightAndDark(
         row(
-          .inFlight(route: "Hermes", dot: Theme.Accent.tint, label: "Acting"),
+          .inFlight(kind: "Task", dot: KindPalette.color(forKind: "Task"), label: "Acting"),
           headline: "Which Postgres index fits the herd snapshot query?", time: "9:46"),
         width: 390, height: 100)
     }
@@ -85,7 +65,8 @@
       SnapshotSupport.assertLightAndDark(
         row(
           .inFlight(
-            route: "Hermes", dot: Theme.Accent.tint, label: "Acting", progress: StepProgress(completed: 3, total: 5)),
+            kind: "Task", dot: KindPalette.color(forKind: "Task"), label: "Acting",
+            progress: StepProgress(completed: 3, total: 5)),
           headline: "Which Postgres index fits the herd snapshot query?", time: "9:46"),
         width: 390, height: 100)
     }
@@ -94,7 +75,7 @@
     func doneFavorite() {
       SnapshotSupport.assertLightAndDark(
         row(
-          .settled(route: "docs", dot: Theme.Ink.secondary, duration: "21 s"),
+          .settled(kind: "Github issue", dot: KindPalette.color(forKind: "Github issue"), duration: "21 s"),
           headline: "Docs tab adds a troubleshooting section for upload retries", done: true, favorite: true),
         width: 390, height: 100)
     }

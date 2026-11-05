@@ -14,12 +14,6 @@ struct HistoryView: View {
   let makeComposer: (ComposerRequest) -> ComposerModel
   /// Builds the model of a conversation screen.
   let makeThread: (ThreadRoute) -> ThreadModel
-  /// Builds the model of the route sheet (the memo detail presents it itself).
-  let makeRouteAnswer: (Memo) -> RouteAnswerModel
-  /// Asks the app to open the route sheet for a pinned needs-route memo. `RootView` presents it: a `.sheet(item:)` over
-  /// `RouteAnswerSheet` in this view's modifier chain made the list's top scroll edge mis-size on some launches (a blur over
-  /// the bar and the first rows that ate their touches, TDD §4), where an empty sheet or none did not.
-  let onRoute: (Memo) -> Void
   /// The mockup's row: 12 pt above and below, 20 pt screen margin on both sides (`history.html` `.row`).
   private static let rowInsets = EdgeInsets(
     top: Theme.Spacing.rowVertical, leading: Theme.Spacing.screenMargin, bottom: Theme.Spacing.rowVertical,
@@ -42,10 +36,12 @@ struct HistoryView: View {
         .listRowInsets(EdgeInsets())
         .listRowSeparator(.hidden)
         .listRowBackground(Color.clear)
-        HistoryFilterBar(filters: $model.filters)
-          .listRowInsets(EdgeInsets())
-          .listRowSeparator(.hidden)
-          .listRowBackground(Color.clear)
+        HistoryFilterBar(
+          filters: $model.filters, kinds: model.filters.kinds(in: model.memos, limit: HistoryFilters.kindChipLimit)
+        )
+        .listRowInsets(EdgeInsets())
+        .listRowSeparator(.hidden)
+        .listRowBackground(Color.clear)
         let sections = model.sections
         ForEach(sections) { section in
           Section {
@@ -58,8 +54,8 @@ struct HistoryView: View {
               }
               .accessibilityIdentifier("history.row")
               .listRowInsets(Self.rowInsets)
-              .listRowBackground(HistoryRowBackground(needsAttention: memo.isOpenNeedsRoute))
-              .modifier(MemoSwipeActions(memo: memo, model: model, onRoute: onRoute))
+              .listRowBackground(HistoryRowBackground(needsAttention: false))
+              .modifier(MemoSwipeActions(memo: memo, model: model))
               .task { await model.loadMoreIfNeeded(current: memo) }
             }
           } header: {
@@ -96,15 +92,14 @@ struct HistoryView: View {
       .navigationTitle(String(localized: "History", comment: "Navigation title of the memo list"))
       .toolbar(.hidden, for: .navigationBar)
       .navigationDestination(for: Memo.self) { memo in
-        // A chat or a continued thread opens as a conversation; the rest is a single memo.
+        // A memo in a thread opens as a conversation; the rest is a single memo.
         if memo.opensThread, let route = memo.threadRoute {
           threadView(route)
         } else {
           BuiltOnce(make: { makeDetail(memo) }) { detail in
             MemoDetailView(
               model: detail, refreshToken: { model.revision(of: memo.id) },
-              onReply: { composer = .reply(to: $0) }, makeRouteAnswer: makeRouteAnswer,
-              onRouted: { model.insert($0) })
+              onReply: { composer = .reply(to: $0) })
           }
           .id(memo.id)
         }
@@ -127,7 +122,8 @@ struct HistoryView: View {
         HistoryFilterSheet(
           filters: $model.filters,
           resultCount: HistoryResultCount.exact(
-            memos: model.memos.count, isSettled: model.hasLoaded && !model.isLoading)
+            memos: model.memos.count, isSettled: model.hasLoaded && !model.isLoading),
+          kinds: model.filters.kinds(in: model.memos)
         )
         .presentationDragIndicator(.visible)
       }

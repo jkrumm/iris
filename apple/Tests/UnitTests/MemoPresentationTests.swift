@@ -1,3 +1,4 @@
+import Foundation
 import IrisCore
 import IrisUI
 import Testing
@@ -15,13 +16,43 @@ struct MemoPresentationTests {
     #expect(DurationText.string(seconds: seconds) == expected)
   }
 
-  @Test("the route is where the memo went, a tab by its name, the mode only before routing")
-  func routeLabel() {
-    #expect(MemoFactory.memo("a", route: "hermes").routeLabel == "Hermes")
-    #expect(MemoFactory.memo("a", route: "journal").routeLabel == "Journal")
-    #expect(MemoFactory.memo("a", route: "tab", destinationRef: "docs").routeLabel == "docs")
-    #expect(MemoFactory.memo("a", route: "herdr", destinationRef: "dotfiles").routeLabel == "dotfiles")
-    #expect(MemoFactory.memo("a", mode: .auto).routeLabel == "Auto")
+  @Test("the kind label is Hermes' kind with its first letter upper-cased, at most 24 code points")
+  func kindLabel() {
+    #expect(MemoFactory.memo("a", kind: "answer").kindLabel == "Answer")
+    #expect(MemoFactory.memo("a", kind: "github issue").kindLabel == "Github issue")
+    #expect(MemoFactory.memo("a", kind: "tab Prompt").kindLabel == "Tab Prompt")
+    #expect(MemoFactory.memo("a", kind: "  note ").kindLabel == "Note")
+    let long = String(repeating: "x", count: 40)
+    #expect(MemoFactory.memo("a", kind: long).kindLabel == "X" + String(repeating: "x", count: 23))
+    #expect(Memo.capitalizedKind("éclair").hasPrefix("É"))
+  }
+
+  @Test("a memo without a kind reads its old route, a tab by its name")
+  func oldRouteLabel() {
+    #expect(MemoFactory.memo("a", route: "hermes").kindLabel == "Hermes")
+    #expect(MemoFactory.memo("a", route: "journal").kindLabel == "Journal")
+    #expect(MemoFactory.memo("a", route: "chat").kindLabel == "Chat")
+    #expect(MemoFactory.memo("a", route: "tab", destinationRef: "docs").kindLabel == "docs")
+    #expect(MemoFactory.memo("a", route: "herdr", destinationRef: "dotfiles").kindLabel == "dotfiles")
+    #expect(MemoFactory.memo("a", route: "tab").kindLabel == "Tab")
+    #expect(MemoFactory.memo("a", route: "journal", kind: "note").kindLabel == "Note", "a kind wins over a route")
+  }
+
+  @Test("a transcript-only memo is Transcript, a Hermes memo not yet classified is Hermes")
+  func transcriptAndInFlightLabels() {
+    let memo = MemoFactory.memo("a", mode: .transcribe)
+    #expect(memo.kindLabel == "Transcript")
+    #expect(memo.kindIcon == "text.alignleft")
+    #expect(memo.kindDotColor == Theme.Ink.faint)
+    let flying = MemoFactory.memo("a", state: .received)
+    #expect(flying.kindLabel == "Hermes")
+    #expect(flying.kindIcon == "tag.fill")
+  }
+
+  @Test("the kind dot follows the palette")
+  func kindDot() {
+    #expect(MemoFactory.memo("a", kind: "task").kindDotColor == KindPalette.color(forKind: "task"))
+    #expect(MemoFactory.memo("a", kind: "research").kindDotColor == Theme.Ink.faint)
   }
 
   @Test("the headline is the summary's; without one it is the transcript on one line, clipped to 60 characters")
@@ -52,62 +83,56 @@ struct MemoPresentationTests {
     #expect(Memo.clipped(String(repeating: "x", count: 80)) == String(repeating: "x", count: 60) + "…")
   }
 
-  @Test("a parked memo's row names the route the decision model suggested, else only asks")
-  func needsRouteHint() {
-    #expect(MemoFactory.memo("a", state: .needsRoute).rowSecondary == "Tap to decide")
-    #expect(
-      MemoFactory.memo("a", state: .needsRoute, routeSuggestion: "hermes").rowSecondary
-        == "Hermes suggested — tap to decide")
-    #expect(
-      MemoFactory.memo("a", state: .needsRoute, routeSuggestion: "tab").rowSecondary == "Tab suggested — tap to decide")
-    #expect(MemoFactory.memo("a", state: .needsRoute, routeSuggestion: "nonsense").rowSecondary == "Tap to decide")
-  }
-
   @Test("every mode has a glyph of its own")
   func modeGlyphsAreDistinct() {
-    let modes: [MemoMode] = [.auto, .journal, .hermes, .tab, .chat, .transcribe]
-    #expect(Set(modes.map(\.composerIcon)).count == modes.count)
+    let modes = MemoMode.allCases
+    #expect(Set(modes.map(\.recordIcon)).count == modes.count)
   }
 
-  @Test("a settled memo shows route and audio length, no cost")
+  @Test("a settled memo shows its kind and audio length, no cost")
   func settledStatus() {
-    let memo = MemoFactory.memo("a", route: "hermes", audioSeconds: 38.4)
-    #expect(memo.rowStatus == .settled(route: "Hermes", dot: memo.routeDotColor, duration: "38 s"))
-    #expect(
-      MemoFactory.memo("a", route: "journal").rowStatus
-        == .settled(route: "Journal", dot: MemoFactory.memo("a", route: "journal").routeDotColor, duration: nil))
+    let memo = MemoFactory.memo("a", audioSeconds: 38.4, kind: "task")
+    #expect(memo.rowStatus == .settled(kind: "Task", dot: memo.kindDotColor, duration: "38 s"))
+    let old = MemoFactory.memo("a", route: "journal")
+    #expect(old.rowStatus == .settled(kind: "Journal", dot: old.kindDotColor, duration: nil))
   }
 
-  @Test("a memo that needs the user replaces the route with the coloured state")
+  @Test("a failed memo replaces the kind with the coloured state")
   func alertStatus() {
-    #expect(
-      MemoFactory.memo("a", state: .needsRoute).rowStatus == .alert(label: "Needs route", color: Theme.Status.warn))
     #expect(
       MemoFactory.memo("a", state: .failed, failedStep: .summarize).rowStatus
         == .alert(label: "Failed · Summarize", color: Theme.Status.bad))
   }
 
-  @Test("a memo the pipeline is driving says Acting next to its route")
+  @Test("an old memo parked at needs_route reads as a plain, neutral status with no route prompt")
+  func oldNeedsRoute() {
+    let memo = MemoFactory.memo("a", state: .needsRoute, done: true)
+    #expect(memo.rowStatus == .alert(label: "Not delivered", color: Theme.Status.neutral))
+    #expect(memo.rowSecondary == nil)
+    #expect(MemoState.needsRoute.label == "Not delivered")
+  }
+
+  @Test("a memo the pipeline is driving says Acting next to its kind")
   func inFlightStatus() {
-    let memo = MemoFactory.memo("a", state: .acted, route: "hermes")
+    let memo = MemoFactory.memo("a", state: .acted, kind: "answer")
     #expect(
       memo.rowStatus
         == .inFlight(
-          route: "Hermes", dot: memo.routeDotColor, label: "Acting", progress: StepProgress(completed: 3, total: 5)))
+          kind: "Answer", dot: memo.kindDotColor, label: "Acting", progress: StepProgress(completed: 2, total: 3)))
     #expect(MemoFactory.memo("a", state: .received).rowStatus.isInFlight)
   }
 
   @Test(
     "the dashes count the steps the state says are done",
     arguments: [
-      (MemoState.receiving, 0), (.received, 0), (.transcribed, 1), (.needsRoute, 1), (.routed, 2), (.acted, 3),
-      (.summarized, 4), (.notified, 5),
+      (MemoState.receiving, 0), (.received, 0), (.transcribed, 1), (.routed, 1), (.acted, 2), (.summarized, 2),
+      (.notified, 3),
     ])
   func stepProgress(state: MemoState, completed: Int) {
-    #expect(MemoFactory.memo("a", state: state).stepProgress == StepProgress(completed: completed, total: 5))
+    #expect(MemoFactory.memo("a", state: state).stepProgress == StepProgress(completed: completed, total: 3))
   }
 
-  @Test("the secondary line: failure hint, parked hint, else the summary's first line")
+  @Test("the secondary line: failure hint, else the summary's first line")
   func secondaryLine() {
     let failed = MemoFactory.memo(
       "a", state: .failed, failedStep: .summarize, error: "agw job failed (upstream 503)", transcript: "Prompt an Tab")
@@ -115,11 +140,9 @@ struct MemoPresentationTests {
 
     // Without a transcript the error is the headline, so the secondary line is only the hint.
     let noTranscript = Memo(
-      id: "b", mode: .auto, device: "iphone", startedAt: MemoFactory.now, state: .failed, failedStep: .transcribe,
+      id: "b", mode: .hermes, device: "iphone", startedAt: MemoFactory.now, state: .failed, failedStep: .transcribe,
       error: "transcribe failed: 502", createdAt: MemoFactory.now, updatedAt: MemoFactory.now)
     #expect(noTranscript.rowSecondary == "retry from Transcribe")
-
-    #expect(MemoFactory.memo("a", state: .needsRoute).rowSecondary == "Tap to decide")
 
     let summary = MemoSummary(headline: "H", detail: "Montag PR-Review\nMittwoch Feature-Freeze", spoken: "s")
     #expect(MemoFactory.memo("a", summary: summary).rowSecondary == "Montag PR-Review")
@@ -128,20 +151,21 @@ struct MemoPresentationTests {
 
   @Test("a typed memo's pipeline skips transcribe, a spoken one runs every step")
   func applicableSteps() {
-    #expect(PipelineSteps.applicable(to: MemoFactory.memo("a")) == [.transcribe, .route, .act, .summarize, .notify])
-    #expect(PipelineSteps.applicable(to: MemoFactory.memo("t", typed: true)) == [.route, .act, .summarize, .notify])
+    #expect(PipelineSteps.applicable(to: MemoFactory.memo("a")) == [.transcribe, .act, .notify])
+    #expect(PipelineSteps.applicable(to: MemoFactory.memo("t", typed: true)) == [.act, .notify])
+    #expect(
+      PipelineSteps.legacy(for: MemoFactory.memo("a", route: "hermes"))
+        == [.transcribe, .route, .act, .summarize, .notify])
   }
 
-  @Test("a transcribe memo reads as its transcript: mode as the route, two steps, no reply or summary line")
+  @Test("a transcribe memo reads as its transcript: Transcript chip, no reply or summary line")
   func transcribeMemo() {
     let memo = MemoFactory.memo(
       "a", mode: .transcribe, audioSeconds: 17.3, transcript: "Ideen für das Wochenende: früh los zum See")
-    #expect(memo.routeLabel == "Transcribe")
+    #expect(memo.kindLabel == "Transcript")
     #expect(memo.rowHeadline == "Ideen für das Wochenende: früh los zum See")
     #expect(memo.rowSecondary == nil)
-    #expect(memo.rowStatus == .settled(route: "Transcribe", dot: memo.routeDotColor, duration: "17 s"))
-    #expect(memo.routeChipIcon == "text.alignleft")
-    #expect(MemoFactory.memo("a", mode: .hermes).routeChipIcon == "arrow.triangle.branch")
+    #expect(memo.rowStatus == .settled(kind: "Transcript", dot: memo.kindDotColor, duration: "17 s"))
   }
 
   @Test("a transcribe memo goes through transcribe and notify only, and its dashes count two")
@@ -157,12 +181,19 @@ struct MemoPresentationTests {
     #expect(spoken.stepProgress == StepProgress(completed: 2, total: 2))
   }
 
-  @Test("the record control offers Transcribe with its own icon and wording")
-  func transcribeInModePicker() {
-    #expect(MemoMode.voiceModes.contains(.transcribe))
-    #expect(MemoMode.transcribe.composerTitle == "Transcribe")
-    #expect(MemoMode.transcribe.composerIcon == "text.alignleft")
-    #expect(!MemoMode.transcribe.summary.isEmpty)
+  @Test("a retired or unknown mode decodes to Hermes")
+  func modeDecoding() throws {
+    for raw in ["auto", "chat", "journal", "tab", "something new", "hermes"] {
+      let data = Data("\"\(raw)\"".utf8)
+      #expect(try JSONDecoder().decode(MemoMode.self, from: data) == .hermes)
+    }
+    #expect(try JSONDecoder().decode(MemoMode.self, from: Data("\"transcribe\"".utf8)) == .transcribe)
+  }
+
+  @Test("the record row names Hermes and Transcribe with an icon each")
+  func recordRowModes() {
+    #expect(MemoMode.hermes.recordTitle == "Hermes" && MemoMode.hermes.recordIcon == "sparkles")
+    #expect(MemoMode.transcribe.recordTitle == "Transcribe" && MemoMode.transcribe.recordIcon == "text.alignleft")
   }
 }
 

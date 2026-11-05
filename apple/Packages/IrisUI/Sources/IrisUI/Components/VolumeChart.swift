@@ -1,7 +1,7 @@
 import Charts
 import SwiftUI
 
-/// One bar of the volume chart: a day or a week, with its memo count per route series.
+/// One bar of the volume chart: a day or a week, with its memo count per series.
 public struct VolumeBar: Identifiable, Equatable, Sendable {
   public var id: String
   /// The short axis label ("M", "W44").
@@ -20,22 +20,25 @@ public struct VolumeBar: Identifiable, Equatable, Sendable {
   public var total: Int { counts.values.reduce(0, +) }
 }
 
-/// Memos per route as stacked bars. Touching a bar selects it; the readout above the plot names it and shows its
+/// Memos per kind as stacked bars. Touching a bar selects it; the readout above the plot names it and shows its
 /// counts (the latest bar until then). `names` are the localized series names, also used by the legend.
 public struct VolumeChart: View {
   private let bars: [VolumeBar]
+  private let series: [VolumeSeries]
   private let names: [VolumeSeries: String]
   private let summary: String
   @State private var selection: String?
 
-  public init(bars: [VolumeBar], names: [VolumeSeries: String], summary: String) {
+  /// `series` is the ordered list to draw and name in the legend; a series no bar has a count for is left out of the legend.
+  public init(bars: [VolumeBar], series: [VolumeSeries], names: [VolumeSeries: String], summary: String) {
     self.bars = bars
+    self.series = series
     self.names = names
     self.summary = summary
   }
 
   private var shown: [VolumeSeries] {
-    VolumeSeries.allCases.filter { series in bars.contains { $0.counts[series, default: 0] > 0 } }
+    series.filter { series in bars.contains { $0.counts[series, default: 0] > 0 } }
   }
 
   private var selectedBar: VolumeBar? {
@@ -59,16 +62,16 @@ public struct VolumeChart: View {
           .cornerRadius(6)
       }
       ForEach(bars) { bar in
-        ForEach(VolumeSeries.allCases) { series in
+        ForEach(series) { series in
           if let count = bar.counts[series], count > 0 {
             BarMark(x: .value("Period", bar.id), y: .value("Memos", count), width: .ratio(0.58))
-              .foregroundStyle(by: .value("Route", series.rawValue))
+              .foregroundStyle(by: .value("Kind", series.id))
           }
         }
       }
     }
     .chartForegroundStyleScale(
-      domain: VolumeSeries.allCases.map(\.rawValue), range: VolumeSeries.allCases.map(\.color)
+      domain: series.map(\.id), range: series.map(\.color)
     )
     .chartLegend(.hidden)
     // Every period keeps its slot, also the ones without a memo.
@@ -109,7 +112,7 @@ public struct VolumeChart: View {
             .foregroundStyle(Theme.Ink.secondary)
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel(Text(verbatim: "\(names[series] ?? series.rawValue) \(bar.counts[series, default: 0])"))
+        .accessibilityLabel(Text(verbatim: "\(names[series] ?? series.id) \(bar.counts[series, default: 0])"))
       }
       Spacer(minLength: 0)
     }
@@ -124,7 +127,7 @@ public struct VolumeChart: View {
       ForEach(shown) { series in
         HStack(spacing: Theme.Spacing.xs) {
           RoundedRectangle(cornerRadius: 3).fill(series.color).frame(width: 9, height: 9)
-          Text(verbatim: names[series] ?? series.rawValue)
+          Text(verbatim: names[series] ?? series.id)
             .themeFont(.caption, weight: .semibold)
             .foregroundStyle(Theme.Ink.secondary)
         }

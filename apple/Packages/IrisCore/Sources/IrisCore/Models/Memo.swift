@@ -49,9 +49,8 @@ public struct ReplyBlock: Codable, Hashable, Sendable {
   }
 }
 
-/// A memo as returned by create, complete, retry, route, result and list. Every key is always present on the
-/// wire, unset ones as explicit `null`, which `encode(to:)` reproduces; the exceptions are `routeReason`,
-/// `routeSuggestion`, `threadId`, `typed`, `replyBlocks`, `deletedAt` and `purgeAt`, which are omitted when `nil` / `false` / empty.
+/// A memo as returned by create, complete, retry, result and list. Every key is always present on the
+/// wire, unset ones as explicit `null`, which `encode(to:)` reproduces; the exceptions are `threadId`, `typed`, `replyBlocks`, `deletedAt` and `purgeAt`, which are omitted when `nil` / `false` / empty.
 public struct Memo: Codable, Hashable, Sendable, Identifiable {
   public var id: String
   public var mode: MemoMode
@@ -73,16 +72,11 @@ public struct Memo: Codable, Hashable, Sendable, Identifiable {
   /// The Hermes session (chat or not) the memo belongs to: set when `act` ran in it, or at creation for a memo that continues
   /// a thread (`CreateMemoRequest.threadId`); omitted (never `null`) otherwise.
   public var threadId: String?
-  /// Why the memo parked; present only while it is `needs_route`, omitted (never `null`) otherwise.
-  public var routeReason: String?
-  /// The decision model's best guess on a low-confidence park; same presence rule as `routeReason`.
-  public var routeSuggestion: String?
   /// What the memo is (Hermes decides, e.g. "task", "note"); omitted (never `null`) when not classified.
   public var kind: String?
   /// The tools Hermes ran for the memo; empty when none, never `null` on the wire, omitted then.
   public var actions: [String]
-  /// User flags (swipe actions), always on the wire. None of them changes the pipeline; `done` dims a row, and a `done`
-  /// `needs_route` memo is no longer pinned.
+  /// User flags (swipe actions), always on the wire. None of them changes the pipeline; `done` dims a row.
   public var done: Bool
   public var favorite: Bool
   public var archived: Bool
@@ -117,8 +111,6 @@ public struct Memo: Codable, Hashable, Sendable, Identifiable {
     replyBlocks: [ReplyBlock] = [],
     summary: MemoSummary? = nil,
     threadId: String? = nil,
-    routeReason: String? = nil,
-    routeSuggestion: String? = nil,
     kind: String? = nil,
     actions: [String] = [],
     isTyped: Bool = false,
@@ -146,8 +138,6 @@ public struct Memo: Codable, Hashable, Sendable, Identifiable {
     self.replyBlocks = replyBlocks
     self.summary = summary
     self.threadId = threadId
-    self.routeReason = routeReason
-    self.routeSuggestion = routeSuggestion
     self.kind = kind
     self.actions = actions
     self.isTyped = isTyped
@@ -162,7 +152,7 @@ public struct Memo: Codable, Hashable, Sendable, Identifiable {
 
   private enum CodingKeys: String, CodingKey {
     case id, mode, device, startedAt, state, failedStep, error, segmentCount, audioSeconds, transcript, route
-    case destinationRef, replyText, replyBlocks, summary, threadId, routeReason, routeSuggestion, createdAt, updatedAt
+    case destinationRef, replyText, replyBlocks, summary, threadId, createdAt, updatedAt
     case done, favorite, archived, deletedAt, purgeAt, kind, actions
     case isTyped = "typed"
   }
@@ -185,8 +175,6 @@ public struct Memo: Codable, Hashable, Sendable, Identifiable {
     replyBlocks = try container.decodeIfPresent([ReplyBlock].self, forKey: .replyBlocks) ?? []
     summary = try container.decode(MemoSummary?.self, forKey: .summary)
     threadId = try container.decodeIfPresent(String.self, forKey: .threadId)
-    routeReason = try container.decodeIfPresent(String.self, forKey: .routeReason)
-    routeSuggestion = try container.decodeIfPresent(String.self, forKey: .routeSuggestion)
     kind = try container.decodeIfPresent(String.self, forKey: .kind)
     actions = try container.decodeIfPresent([String].self, forKey: .actions) ?? []
     isTyped = try container.decodeIfPresent(Bool.self, forKey: .isTyped) ?? false
@@ -218,8 +206,6 @@ public struct Memo: Codable, Hashable, Sendable, Identifiable {
     if !replyBlocks.isEmpty { try container.encode(replyBlocks, forKey: .replyBlocks) }
     try container.encode(summary, forKey: .summary)
     try container.encodeIfPresent(threadId, forKey: .threadId)
-    try container.encodeIfPresent(routeReason, forKey: .routeReason)
-    try container.encodeIfPresent(routeSuggestion, forKey: .routeSuggestion)
     if isTyped { try container.encode(true, forKey: .isTyped) }
     try container.encode(done, forKey: .done)
     try container.encode(favorite, forKey: .favorite)
@@ -326,41 +312,23 @@ public struct MemoDetail: Codable, Hashable, Sendable, Identifiable {
   }
 }
 
-/// `GET /v1/memos`: one page, newest first. `nextCursor` is `nil` on the last page. `items` never holds an open
-/// `needs_route` memo (one that is not `done`): the first page (no cursor) carries every one matching the filters in
-/// `pinned` (newest first, at most 50), later pages carry none. Soft-deleted memos are in neither list.
-/// `pinnedTruncated` is `true` when more than 50 matched and the oldest were left out of `pinned`; it is `false` on
-/// every later page.
+/// `GET /v1/memos`: one page, newest first. `nextCursor` is `nil` on the last page. Soft-deleted memos are not listed.
 public struct MemoPage: Codable, Hashable, Sendable {
   public var items: [Memo]
-  public var pinned: [Memo]
-  public var pinnedTruncated: Bool
   public var nextCursor: String?
 
-  public init(items: [Memo], pinned: [Memo] = [], pinnedTruncated: Bool = false, nextCursor: String? = nil) {
+  public init(items: [Memo], nextCursor: String? = nil) {
     self.items = items
-    self.pinned = pinned
-    self.pinnedTruncated = pinnedTruncated
     self.nextCursor = nextCursor
   }
 
   private enum CodingKeys: String, CodingKey {
-    case items, pinned, pinnedTruncated, nextCursor
-  }
-
-  public init(from decoder: any Decoder) throws {
-    let container = try decoder.container(keyedBy: CodingKeys.self)
-    items = try container.decode([Memo].self, forKey: .items)
-    pinned = try container.decodeIfPresent([Memo].self, forKey: .pinned) ?? []
-    pinnedTruncated = try container.decodeIfPresent(Bool.self, forKey: .pinnedTruncated) ?? false
-    nextCursor = try container.decodeIfPresent(String.self, forKey: .nextCursor)
+    case items, nextCursor
   }
 
   public func encode(to encoder: any Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
     try container.encode(items, forKey: .items)
-    if !pinned.isEmpty { try container.encode(pinned, forKey: .pinned) }
-    if pinnedTruncated { try container.encode(true, forKey: .pinnedTruncated) }
     try container.encode(nextCursor, forKey: .nextCursor)
   }
 }

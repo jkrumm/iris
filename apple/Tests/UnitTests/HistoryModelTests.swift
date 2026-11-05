@@ -26,39 +26,19 @@ struct HistoryModelTests {
 
   // MARK: Loading
 
-  @Test("a parked memo is pinned above the newest-first list")
-  func pinnedOnTop() async {
-    await seed(
-      MemoFactory.memo("old", age: 300), MemoFactory.memo("new", age: 10),
-      MemoFactory.memo("parked", age: 600, state: .needsRoute))
-    await model.load()
-    #expect(ids == ["parked", "new", "old"])
-    #expect(model.pinned.map(\.id) == ["parked"])
-  }
-
-  @Test("a done parked memo is no longer pinned")
-  func doneIsNotPinned() async {
-    await seed(MemoFactory.memo("new", age: 10), MemoFactory.memo("handled", age: 600, state: .needsRoute, done: true))
-    await model.load()
-    #expect(model.pinned.isEmpty)
-    #expect(ids == ["new", "handled"])
-  }
-
-  @Test("paging appends the next page without repeating a memo that was pinned")
+  @Test("paging appends the next page without repeating a memo")
   func pagingDedupes() async {
     let page = HistoryFilters.pageSize
-    await seed(MemoFactory.memo("parked", age: 10_000, state: .needsRoute))
     for index in 0..<page + 4 { await seed(MemoFactory.memo("m\(index)", age: Double(index))) }
     await model.load()
     #expect(model.items.count == page)
 
-    // The parked memo is answered after the first page: the server now lists it as an item on page two.
-    _ = try? await client.routeMemo(id: "parked", request: RouteRequest(destination: .journal))
+    // A memo that arrives after the first page shows up once on page two.
+    await seed(MemoFactory.memo("late", age: Double(page + 2) + 0.5))
     await model.loadMoreIfNeeded(current: model.items[page - 1])
 
     #expect(ids.count == page + 5)
     #expect(Set(ids).count == ids.count)
-    #expect(model.pinned.map(\.id) == ["parked"])
   }
 
   @Test("only the last row triggers the next page")
@@ -126,16 +106,15 @@ struct HistoryModelTests {
 
   // MARK: Flag actions
 
-  @Test("done unpins a parked memo, dims it in place and tells the server")
-  func doneUnpins() async throws {
-    await seed(MemoFactory.memo("new", age: 10), MemoFactory.memo("parked", age: 600, state: .needsRoute))
+  @Test("done dims a memo in place and tells the server")
+  func doneDims() async throws {
+    await seed(MemoFactory.memo("new", age: 10), MemoFactory.memo("older", age: 600))
     await model.load()
-    await model.toggleDone(try #require(model.pinned.first))
-    #expect(model.pinned.isEmpty)
-    #expect(ids == ["new", "parked"])
+    await model.toggleDone(try #require(model.memos.last))
+    #expect(ids == ["new", "older"])
     #expect(model.memos[1].done)
-    #expect(try await serverFlags("parked").done)
-    #expect(await client.calls.contains(.setFlags(id: "parked", done: true, favorite: nil, archived: nil)))
+    #expect(try await serverFlags("older").done)
+    #expect(await client.calls.contains(.setFlags(id: "older", done: true, favorite: nil, archived: nil)))
   }
 
   @Test("a second done swipe undoes it")
@@ -341,20 +320,6 @@ struct HistoryModelTests {
     await model.handle(event("b"))
     await model.handle(event("fresh"))
     #expect(ids == ["fresh", "a", "b", "c"])
-  }
-
-  @Test("a memo that reaches needs_route is pinned, and answered it is not")
-  func eventPins() async throws {
-    await seed(MemoFactory.memo("a", age: 1), MemoFactory.memo("m", age: 2, state: .transcribed))
-    await model.load()
-    await seed(MemoFactory.memo("m", age: 2, state: .needsRoute))
-    await model.handle(event("m", .needsRoute))
-    #expect(model.pinned.map(\.id) == ["m"])
-
-    _ = try await client.routeMemo(id: "m", request: RouteRequest(destination: .journal))
-    await model.handle(event("m", .routed))
-    #expect(model.pinned.isEmpty)
-    #expect(ids == ["a", "m"])
   }
 
   @Test("a memo that no longer matches the active filter leaves the list")

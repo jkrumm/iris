@@ -72,14 +72,10 @@ final class ThreadModel {
   }
 
   var title: String { detail?.thread.title ?? route.title ?? "" }
-  var kind: ThreadKind { detail?.thread.kind ?? .chat }
   var memoIDs: [String] { detail?.memos.map(\.id) ?? [] }
-  /// Replies wait for the first load: a thread's kind (chat or Hermes) decides the mode they are created in.
+  /// Replies wait for the first load.
   var canReply: Bool { detail != nil }
   var canRecordVoice: Bool { voice.isAvailable && !isEndingVoice }
-
-  /// The mode a reply is created in: a chat keeps its marker, every other thread continues through Hermes.
-  var replyMode: MemoMode { ComposerRequest.reply(toThread: route.id, kind: kind).mode }
 
   // MARK: Turns
 
@@ -160,7 +156,7 @@ final class ThreadModel {
   func beginVoice() {
     guard voiceStartedAt == nil, !isEndingVoice, voice.isAvailable else { return }
     voiceStartedAt = now()
-    let request = VoiceReplyRequest(threadId: route.id, mode: replyMode)
+    let request = VoiceReplyRequest(threadId: route.id, mode: .hermes)
     beginTask = Task {
       do {
         try await voice.begin(request)

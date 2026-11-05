@@ -153,7 +153,10 @@ final class MemoDetailModel {
     {
       return [.summarize]
     }
-    let steps = PipelineSteps.applicable(to: memo)
+    // An old memo failed at a step the new pipeline no longer has.
+    let steps =
+      memo.failedStep == .route || memo.failedStep == .summarize
+      ? PipelineSteps.legacy(for: memo) : PipelineSteps.applicable(to: memo)
     guard memo.state == .failed, let failed = memo.failedStep, let last = steps.firstIndex(of: failed) else {
       return []
     }
@@ -176,12 +179,6 @@ final class MemoDetailModel {
       logger.error("retry failed: \(String(describing: error), privacy: .public)")
       showFailure(String(localized: "Could not retry the memo", comment: "Toast when a retry failed"))
     }
-  }
-
-  /// The server accepted a route for the memo: the screen shows the answer at once and reloads the timeline.
-  func didRoute(_ routed: Memo) async {
-    detail.memo = routed
-    await load()
   }
 
   func dismissFailure() {

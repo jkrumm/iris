@@ -15,6 +15,7 @@ struct MacMemoSections: View {
         let showsOwnTurn = !memo.opensThread || model.threadFailed
         if memo.opensThread { conversation }
         if showsOwnTurn { reply(memo) }
+        actionsLine(memo)
         summary(memo)
         if showsOwnTurn { transcript(memo) }
         steps(memo)
@@ -30,6 +31,20 @@ struct MacMemoSections: View {
         MessageContentView(markdown: text, textRole: .footnote)
           .accessibilityIdentifier("mac.detail.reply")
       }
+    }
+  }
+
+  /// What Hermes used for the memo, one quiet line under the reply; nothing when it used no tool.
+  @ViewBuilder private func actionsLine(_ memo: Memo) -> some View {
+    if !memo.actions.isEmpty {
+      let tools = memo.actions.joined(separator: ", ")
+      Text(
+        verbatim: String(
+          localized: "Hermes used: \(tools)", comment: "Detail: the tools Hermes ran for the memo, names are data")
+      )
+      .macFont(.caption)
+      .foregroundStyle(Theme.Ink.muted)
+      .accessibilityIdentifier("mac.detail.actions")
     }
   }
 
@@ -92,7 +107,7 @@ struct MacMemoSections: View {
         Text(
           message.role == .user
             ? String(localized: "You", comment: "Thread turn: the person")
-            : String(localized: "Hermes", comment: "Route name")
+            : String(localized: "Hermes", comment: "Name of the assistant in a thread turn")
         )
         .macFont(.caption, weight: .semibold)
         Text(verbatim: message.createdAt.formatted(date: .omitted, time: .shortened))

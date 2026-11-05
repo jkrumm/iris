@@ -7,21 +7,26 @@ description: Put Iris on the paired iPhone — make device (build, sign, install
 
 Hardware-only rows live in `docs/spikes/device-checklist.md`; spike briefs in `docs/spikes/`. Everything below ran on 2026-10-30 against the
 owner's iPhone 15 (`iPhone15,4`, iOS 26.6.1, Developer Mode on, paired over the CoreDevice network tunnel) unless a line says **unverified**.
-Wrap every command that touches Xcode or the phone in `lockf -t 900 /tmp/iris-apple.lock …` (one Apple job at a time on the mini).
+Wrap every command that touches Xcode or the phone in `lockf -t 1800 /tmp/iris-apple.lock …` (one Apple job at a time on the mini).
 
 ```bash
-lockf -t 900 /tmp/iris-apple.lock make device          # ran: generate, signed build, install, launch, screenshot -> .artifacts/device-<time>.png
-lockf -t 900 /tmp/iris-apple.lock make device-run ARGS="-SomeFlag 1"   # reinstall the last build, launch with arguments, screenshot
-lockf -t 900 /tmp/iris-apple.lock make device-screenshot NAME=label    # ran: just the screenshot
+lockf -t 1800 /tmp/iris-apple.lock make device          # ran: generate, signed build, install, launch, screenshot -> .artifacts/device-<time>.png
+lockf -t 1800 /tmp/iris-apple.lock make device-run ARGS="-SomeFlag 1"   # reinstall the last build, launch with arguments, screenshot
+lockf -t 1800 /tmp/iris-apple.lock make device-screenshot NAME=label    # ran: just the screenshot
 xcrun devicectl list devices                           # ran: the phone is `connected`, Reality `physical`; simulators are `simulated`
 D=$(. scripts/device-lib.sh; device_id)                # the devicectl identifier, resolved at runtime (never commit it)
 xcrun devicectl device process launch --device $D --terminate-existing --console com.jkrumm.iris   # ran; --console shows stdout only, not os.Logger
 xcrun devicectl device capture screenshot --device $D --destination out.png   # ran (Xcode 27): the screenshot route
 ```
 
-- Signing: `DEVICE_SIGNING=personal` (default, free Personal Team) or `paid`; `TEAM=<id>` and `IRIS_DEVICE_ID` override. Team and phone resolve at runtime
-  (`scripts/device-lib.sh`). A Personal Team signs without `aps-environment` and the App Group; details, limits and the gated list: AGENTS.md "Device".
-  Do not rename bundle ids (10 App IDs per 7 days). Install over the same bundle id keeps the app's data (Keychain, outbox).
+- Signing: `DEVICE_SIGNING=paid` (default; the paid team, headless with the ASC Team key read through `secrets-run`, key file 0600 and deleted on exit) or
+  `personal` (fallback: free team, no Push/App Groups); `TEAM=<id>` and `IRIS_DEVICE_ID` override. The phone resolves at runtime (`scripts/device-lib.sh`);
+  the flags, the key lifecycle and the Personal Team limits: AGENTS.md "Device". Do not rename bundle ids. Install over the same bundle id keeps the app's data (Keychain, outbox).
+- APNs proof after `make device` (ran 2026-11-04, paid team, sandbox): the server row `sqlite3 -readonly ~/.iris/data/iris.db "select device,apns_env,apns_token is not null from devices"` shows `iphone|sandbox|1`
+  (never print the token); send a typed memo (`IRIS_TOKEN=<iphone token from secrets-run> bun scripts/send-memo.ts --text '…' --mode hermes`) and read `~/Library/Logs/iris.log`: **a delivered push logs nothing**
+  (only `notify.apns_rejected|apns_transient|no_token` log), so success is the memo reaching `notified` with none of those lines for its id. A banner needs the notification permission (the app asks once, German "Erlauben")
+  and an unlocked, idle phone: a screenshot can show a call or other private content, look before keeping it.
+- The App Group is not yet in the portal: build with `DEVICE_DROP_ENTITLEMENTS=com.apple.security.application-groups` until the owner creates it (AGENTS.md "Device").
 - First install: iOS refuses to launch until the developer is trusted on the phone (Settings > General > VPN & Device Management); that is an owner step.
 - `pymobiledevice3` **does not work** here: `usbmux list` is empty (the phone is on a network tunnel) and an RSD tunnel needs root. Use `devicectl`.
 - Logs: `os.Logger` subsystem `com.jkrumm.iris`; **no headless route** (ran 2026-10-30): `/usr/bin/log collect --device*` says "Must be root to collect logs from attached device" (`log` is a zsh builtin: use the full
@@ -34,7 +39,7 @@ xcrun devicectl device capture screenshot --device $D --destination out.png   # 
 - Owner steps are German (his phone is German; iOS settings by their German path, `docs/design/feedback-device-1.md` §9). Keep a step short, one action group per dialog. `sips -c` crops from the centre: add `--cropOffset 0 0` for the status bar.
 - Read-only phone state (ran): `devicectl device info processes|apps|files|displays`, `device copy from --domain-type appDataContainer --domain-identifier com.jkrumm.iris --source 'Library/Application Support/Iris/outbox.json'`.
   `info lockState` gives only `passcodeRequired` / `unlockedSinceBoot`.
-- `GET /v1/memos` lists memos parked at `needs_route` under `pinned`, not `items`: read both.
+- `GET /v1/memos` returns every memo in `items` (no `pinned`); a memo carries the `kind` Hermes reported and the `actions` it ran. An old parked memo is `failed` at `act`: [Retry from Act] delivers it.
 - Connecting the app: no launch-argument route (no backdoor); the owner types the server URL and the `iphone` device token in Settings > Connection once
   (ran 2026-10-30; a typed memo reached `done`, see the checklist). The tailnet VPN must be on, or Safari shows `NOT_FOUND` and the app "Could not load memos".
   `op://mini/iris/device-tokens` holds every device as `token=device,...`: the owner needs only the part before `=iphone`, which is easy to get wrong and

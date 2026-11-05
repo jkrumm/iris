@@ -93,7 +93,7 @@
   /// Fake snapshots for the widget tests: one per state the last-memo widget has.
   enum WidgetSamples {
     static func line(_ phase: LastMemoSnapshot.Phase, headline: String? = nil) -> LastMemoWidgetContent {
-      .memo(.init(phase: phase, routeChip: "Hermes", headline: headline, age: .text("3 min")))
+      .memo(.init(phase: phase, routeChip: "Answer", headline: headline, age: .text("3 min")))
     }
 
     static let states: [(name: String, content: LastMemoWidgetContent)] = [
@@ -101,7 +101,6 @@
       ("idle", .idle),
       ("processing", line(.processing)),
       ("done", line(.done, headline: "Wochenplan abgestimmt, Release am Donnerstag")),
-      ("needs-route", line(.needsRoute, headline: "Router bestellen und Netzwerkplan prüfen")),
       ("failed", line(.failed)),
     ]
   }

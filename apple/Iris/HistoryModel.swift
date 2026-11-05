@@ -7,10 +7,6 @@ import os
 /// updates and the optimistic flag actions, all through an `APIClient`.
 @Observable
 final class HistoryModel {
-  /// Open `needs_route` memos, newest first. They sit above `items` and are never paged.
-  private(set) var pinned: [Memo] = [] {
-    didSet { regroup() }
-  }
   private(set) var items: [Memo] = [] {
     didSet { regroup() }
   }
@@ -38,7 +34,7 @@ final class HistoryModel {
   /// Bumped for a memo on each `memo.updated` event, so an open detail screen knows to reload.
   private(set) var revisions: [String: Int] = [:]
 
-  var memos: [Memo] { pinned + items }
+  var memos: [Memo] { items }
 
   /// ``memos`` grouped into day sections, rebuilt when the list changes rather than by every evaluation of the view.
   private(set) var sections: [HistoryDaySection] = []
@@ -114,10 +110,7 @@ final class HistoryModel {
     do {
       let page = try await client.listMemos(requested.query())
       guard current == generation, server == serverKey() else { return }
-      // A memo answered after the first page can repeat across pinned and items: pinned first, then the new ids.
-      let pinnedIDs = Set(page.pinned.map(\.id))
-      pinned = page.pinned.filter { !hidden.contains($0.id) }
-      items = page.items.filter { !pinnedIDs.contains($0.id) && !hidden.contains($0.id) }
+      items = page.items.filter { !hidden.contains($0.id) }
       nextCursor = page.nextCursor
       loadedFilters = requested
       loadedServer = server
@@ -125,7 +118,7 @@ final class HistoryModel {
       hasLoaded = true
       link = .live
       if !requested.isFiltering,
-        let newest = (page.pinned + page.items).filter({ !hidden.contains($0.id) }).max(by: Self.isOlder)
+        let newest = items.max(by: Self.isOlder)
       {
         onMemoObserved?(newest)
       }
@@ -147,7 +140,6 @@ final class HistoryModel {
 
   /// Drops the rows and the cursor of filters that no longer apply.
   private func reset() {
-    pinned = []
     items = []
     nextCursor = nil
     loadedFilters = nil
@@ -424,23 +416,18 @@ final class HistoryModel {
   }
 
   private func remove(_ id: String) {
-    pinned.removeAll { $0.id == id }
     items.removeAll { $0.id == id }
   }
 
-  /// Puts `memo` where the server's list would: replaced in place, moved between pinned and items by its state, or
-  /// dropped when it no longer matches the filters. A memo the list never held is skipped while it would belong to a
+  /// Puts `memo` where the server's list would: replaced in place, or dropped when it
+  /// no longer matches the filters. A memo the list never held is skipped while it would belong to a
   /// page that is not loaded yet, unless `force` says the caller knows better (a rollback, an undo).
   private func place(_ memo: Memo, force: Bool = false) {
     let known = held(memo.id) != nil
     remove(memo.id)
     guard !hidden.contains(memo.id), filters.matches(memo) else { return }
     if !known, !force, nextCursor != nil, let tail = items.last, Self.isNewer(tail, than: memo) { return }
-    if memo.isOpenNeedsRoute {
-      Self.insert(memo, into: &pinned)
-    } else {
-      Self.insert(memo, into: &items)
-    }
+    Self.insert(memo, into: &items)
   }
 
   private static func isOlder(_ lhs: Memo, _ rhs: Memo) -> Bool {

@@ -54,7 +54,7 @@ final class ReplyFlowReviewUITests: IrisUITestCase {
     let list = app.descendants(matching: .any)["history.list"]
     XCTAssertTrue(waitForPresence(list, timeout: 10))
 
-    let row = revealRow(containing: "How the step runner retries", in: app)
+    let row = revealRow(containing: "Hang guards are not retried", in: app)
     row.tap()
 
     XCTAssertTrue(waitForPresence(app.descendants(matching: .any)["thread.view"], timeout: 10))

@@ -41,11 +41,11 @@ struct CaptureTakeEngineTests {
 
   private func seconds(_ value: Int) -> Int { value * 16_000 }
 
-  @Test("a take of 12 s reaches the server as a memo with two segments, in mode auto")
+  @Test("a take of 12 s reaches the server as a memo with two segments, in mode hermes")
   func takeReachesTheServer() async throws {
     let rig = rig()
     defer { try? FileManager.default.removeItem(at: rig.directory) }
-    _ = try await rig.engine.start()
+    _ = try await rig.engine.start(mode: .hermes)
     await rig.recorder.feed(frames: seconds(12))
     #expect(try await rig.engine.stop() == .queued)
     #expect(
@@ -55,14 +55,27 @@ struct CaptureTakeEngineTests {
       })
     let id = await rig.api.segments.keys.first
     let memo = try await rig.api.memo(id: try #require(id)).memo
-    #expect(memo.mode == .auto)
+    #expect(memo.mode == .hermes)
+  }
+
+  @Test("a Transcribe take reaches the server in mode transcribe")
+  func transcribeTake() async throws {
+    let rig = rig()
+    defer { try? FileManager.default.removeItem(at: rig.directory) }
+    _ = try await rig.engine.start(mode: .transcribe)
+    await rig.recorder.feed(frames: seconds(3))
+    #expect(try await rig.engine.stop() == .queued)
+    #expect(await eventually { await rig.api.segments.keys.first != nil })
+    let id = await rig.api.segments.keys.first
+    let memo = try await rig.api.memo(id: try #require(id)).memo
+    #expect(memo.mode == .transcribe)
   }
 
   @Test("a take with no audio is dropped, not sent")
   func emptyTake() async throws {
     let rig = rig()
     defer { try? FileManager.default.removeItem(at: rig.directory) }
-    _ = try await rig.engine.start()
+    _ = try await rig.engine.start(mode: .hermes)
     #expect(try await rig.engine.stop() == .nothingRecorded)
     #expect(await rig.api.segments.isEmpty)
   }
@@ -71,7 +84,7 @@ struct CaptureTakeEngineTests {
   func inputIsRestored() async throws {
     let rig = rig()
     defer { try? FileManager.default.removeItem(at: rig.directory) }
-    _ = try await rig.engine.start()
+    _ = try await rig.engine.start(mode: .hermes)
     try await rig.engine.select(microphone: FakeAudioDeviceDirectory.usb.uid)
     #expect(rig.devices.defaultInput()?.uid == FakeAudioDeviceDirectory.usb.uid)
     #expect(await rig.engine.microphones().current?.uid == FakeAudioDeviceDirectory.usb.uid)
@@ -84,7 +97,7 @@ struct CaptureTakeEngineTests {
   func cancelledTake() async throws {
     let rig = rig()
     defer { try? FileManager.default.removeItem(at: rig.directory) }
-    _ = try await rig.engine.start()
+    _ = try await rig.engine.start(mode: .hermes)
     try await rig.engine.select(microphone: FakeAudioDeviceDirectory.usb.uid)
     await rig.recorder.feed(frames: seconds(3))
     await rig.engine.cancel()
@@ -109,7 +122,7 @@ struct CaptureTakeEngineTests {
     defer { try? FileManager.default.removeItem(at: rig.directory) }
     let forgotten = IDs()
     await rig.created.setForgottenHandler { id in forgotten.add(id) }
-    _ = try await rig.engine.start()
+    _ = try await rig.engine.start(mode: .hermes)
     await rig.recorder.feed(frames: seconds(12))
     #expect(await eventually { await !rig.api.segments.isEmpty })  // the server has created the memo
     let id = try #require(await rig.api.segments.keys.first)
@@ -121,7 +134,7 @@ struct CaptureTakeEngineTests {
   func partialTake() async throws {
     let rig = rig()
     defer { try? FileManager.default.removeItem(at: rig.directory) }
-    _ = try await rig.engine.start()
+    _ = try await rig.engine.start(mode: .hermes)
     await rig.recorder.feed(frames: seconds(12))
     await rig.recorder.fail(reason: "the disk is full")
     #expect(try await rig.engine.stop() == .partial)
@@ -135,7 +148,7 @@ struct CaptureTakeEngineTests {
       let stream = rig.engine.levels
       let seen = IDs()
       let consumer = Task { for await _ in stream { seen.add("level") } }
-      _ = try await rig.engine.start()
+      _ = try await rig.engine.start(mode: .hermes)
       #expect(
         await eventually {
           await rig.recorder.feed(frames: seconds(1))
@@ -154,7 +167,7 @@ struct CaptureTakeEngineTests {
     await rig.routes.setRule(fingerprint: "fake-mac-speakers", preferredPortUID: FakeAudioDeviceDirectory.usb.uid)
     for _ in 1...3 {
       let panel = rig.engine.microphoneChanges()
-      _ = try await rig.engine.start()
+      _ = try await rig.engine.start(mode: .hermes)
       #expect(rig.devices.defaultInput()?.uid == FakeAudioDeviceDirectory.usb.uid)
       var changes = panel.makeAsyncIterator()
       try rig.devices.setDefaultInput(uid: FakeAudioDeviceDirectory.builtIn.uid)
@@ -172,7 +185,7 @@ struct CaptureTakeEngineTests {
     await rig.routes.setRule(fingerprint: "fake-mac-speakers", preferredPortUID: FakeAudioDeviceDirectory.usb.uid)
     // The recorder is busy, so the session's start throws after it applied the rule.
     try await rig.recorder.start(memoID: MemoID())
-    await #expect(throws: (any Error).self) { try await rig.engine.start() }
+    await #expect(throws: (any Error).self) { try await rig.engine.start(mode: .hermes) }
     #expect(rig.devices.defaultInput()?.uid == FakeAudioDeviceDirectory.builtIn.uid)
   }
 
@@ -181,7 +194,7 @@ struct CaptureTakeEngineTests {
     let headset = InputPort(uid: "fake-mac-headset", name: "Headset", kind: .bluetoothHFP)
     let rig = rig(inputs: [FakeAudioDeviceDirectory.builtIn, FakeAudioDeviceDirectory.usb, headset])
     defer { try? FileManager.default.removeItem(at: rig.directory) }
-    _ = try await rig.engine.start()
+    _ = try await rig.engine.start(mode: .hermes)
     try await rig.engine.select(microphone: FakeAudioDeviceDirectory.usb.uid)
     try rig.devices.setDefaultInput(uid: headset.uid)
     _ = try await rig.engine.stop()

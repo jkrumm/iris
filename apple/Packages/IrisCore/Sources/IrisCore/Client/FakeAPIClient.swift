@@ -16,7 +16,6 @@ public actor FakeAPIClient: APIClient {
     case uploadSegment(memoID: String, index: Int, byteCount: Int)
     case completeMemo(id: String, request: CompleteMemoRequest)
     case retryMemo(id: String, request: RetryMemoRequest)
-    case routeMemo(id: String, request: RouteRequest)
     case setFlags(id: String, done: Bool?, favorite: Bool?, archived: Bool?)
     case deleteMemo(id: String)
     case restoreMemo(id: String)
@@ -27,16 +26,15 @@ public actor FakeAPIClient: APIClient {
     case result(id: String, query: MemoResultQuery)
     case registerDevice(RegisterDeviceRequest)
     case setActivityToken(memoID: String, request: ActivityTokenRequest)
-    case herd
     case stats(StatsQuery)
   }
 
   /// The endpoints a failure can be scripted for.
   public enum Endpoint: Hashable, Sendable {
-    case health, whoami, createMemo, createTextMemo, uploadSegment, completeMemo, retryMemo, routeMemo
+    case health, whoami, createMemo, createTextMemo, uploadSegment, completeMemo, retryMemo
     case setFlags, deleteMemo, restoreMemo
     case listMemos, memo, listThreads, thread, result
-    case registerDevice, setActivityToken, herd, stats
+    case registerDevice, setActivityToken, stats
   }
 
   /// A response a test holds back. The call runs against the fake's state at once; only its answer waits.
@@ -76,7 +74,6 @@ public actor FakeAPIClient: APIClient {
   public private(set) var activityTokens: [String: String] = [:]
   public var deviceID: String
   public var healthResponse = Health(status: .ok, degraded: [], inflight: 0)
-  public var herdResponse = Herd(tabs: [])
   public var statsResponse = Stats(days: 30, from: "1970-01-01", to: "1970-01-30")
 
   private let now: @Sendable () -> Date
@@ -162,8 +159,6 @@ public actor FakeAPIClient: APIClient {
   }
 
   public func setHealth(_ health: Health) { healthResponse = health }
-
-  public func setHerd(_ herd: Herd) { herdResponse = herd }
 
   public func setStats(_ stats: Stats) { statsResponse = stats }
 
@@ -290,33 +285,6 @@ public actor FakeAPIClient: APIClient {
     return detail.memo
   }
 
-  /// Mirrors the server's rules without a runner: a parked memo becomes `routed` (nothing drives it on),
-  /// a memo past `act` is left as it is, anything else is a 409.
-  public func routeMemo(id: String, request: RouteRequest) async throws -> Memo {
-    calls.append(.routeMemo(id: id, request: request))
-    try failIfScripted(.routeMemo)
-    guard var detail = memos[id] else { throw notFound("memo not found") }
-    guard (request.destination == .herdr) == (request.tab != nil) else {
-      throw APIError.server(
-        status: 400, body: ErrorBody(error: .badRequest, message: "tab is required for herdr and only for herdr"))
-    }
-    switch detail.memo.state {
-    case .needsRoute:
-      detail.memo.state = .routed
-      detail.memo.route = request.destination.rawValue
-      detail.memo.routeReason = nil
-      detail.memo.routeSuggestion = nil
-      detail.memo.updatedAt = now()
-      memos[id] = detail
-    case .acted, .summarized, .notified:
-      break
-    default:
-      throw APIError.server(
-        status: 409, body: ErrorBody(error: .badState, message: "only parked or acted memos take a route"))
-    }
-    return detail.memo
-  }
-
   /// Soft-deletes (`DELETE`), flags (`PATCH`) and restores like the server; a deleted memo past `purgeWindow` is gone
   /// the next time anything looks, which is the server's purge.
   public func setFlags(id: String, done: Bool?, favorite: Bool?, archived: Bool?) async throws -> Memo {
@@ -370,8 +338,8 @@ public actor FakeAPIClient: APIClient {
     }
   }
 
-  /// Mirrors the server's list rules: deleted memos never show, archived ones only with `archived`, and an open
-  /// `needs_route` memo (not `done`) is pinned on the first page instead of paged.
+  /// Mirrors the server's list rules: deleted memos never show, archived ones only with `archived`, `kind` matches the
+  /// memo's kind (exact, case- and whitespace-insensitive) and `thread` keeps the memos of a conversation (a thread with two or more live memos).
   public func listMemos(_ query: ListMemosQuery) async throws -> MemoPage {
     calls.append(.listMemos(query))
     return try await respond(.listMemos) { page(for: query) }
@@ -379,26 +347,28 @@ public actor FakeAPIClient: APIClient {
 
   private func page(for query: ListMemosQuery) -> MemoPage {
     purgeExpired()
+    // A conversation is a thread with at least two live memos (a memo alone in its own session is none), like the server.
+    let liveInThread = Dictionary(
+      grouping: memos.values.map(\.memo).filter { !$0.isDeleted }.compactMap(\.threadId), by: { $0 }
+    ).mapValues(\.count)
     let matching = memos.values.map(\.memo)
       .filter { memo in
         !memo.isDeleted && memo.archived == query.archived && (!query.favorite || memo.favorite)
-          && (query.route.map { memo.route == $0.rawValue } ?? true)
           && (query.state.map { memo.state == $0 } ?? true)
-          && (query.kind.map { threads[memo.threadId ?? ""]?.thread.kind == $0 } ?? true)
+          && (query.kind.map { Self.normalized($0) == memo.kind.map(Self.normalized) } ?? true)
+          && (!query.thread || memo.threadId.map { liveInThread[$0, default: 0] >= 2 } ?? false)
           && Self.matches(memo, search: query.q)
       }
       .sorted { ($0.createdAt, $0.id) > ($1.createdAt, $1.id) }
-    let isOpen: (Memo) -> Bool = { $0.state == .needsRoute && !$0.done }
-    let pinned =
-      query.cursor == nil && (query.state == nil || query.state == .needsRoute)
-      ? Array(matching.filter(isOpen).prefix(50)) : []
-    let newestFirst = matching.filter { !isOpen($0) }
     let start = query.cursor.flatMap(Int.init) ?? 0
     let limit = query.limit ?? 50
-    guard start < newestFirst.count else { return MemoPage(items: [], pinned: pinned) }
-    let end = min(start + limit, newestFirst.count)
-    return MemoPage(
-      items: Array(newestFirst[start..<end]), pinned: pinned, nextCursor: end < newestFirst.count ? String(end) : nil)
+    guard start < matching.count else { return MemoPage(items: []) }
+    let end = min(start + limit, matching.count)
+    return MemoPage(items: Array(matching[start..<end]), nextCursor: end < matching.count ? String(end) : nil)
+  }
+
+  private static func normalized(_ kind: String) -> String {
+    kind.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
   }
 
   /// Every term of `search` is a case- and diacritic-insensitive prefix of a word of the transcript or headline.
@@ -427,7 +397,6 @@ public actor FakeAPIClient: APIClient {
     calls.append(.listThreads(query))
     try failIfScripted(.listThreads)
     let newestFirst = threads.values.map(\.thread)
-      .filter { query.kind == nil || $0.kind == query.kind }
       .sorted { ($0.updatedAt, $0.id) > ($1.updatedAt, $1.id) }
     let start = query.cursor.flatMap(Int.init) ?? 0
     let limit = query.limit ?? 20
@@ -473,12 +442,6 @@ public actor FakeAPIClient: APIClient {
       guard memos[memoID] != nil else { throw notFound("memo not found") }
       activityTokens[memoID] = request.token
     }
-  }
-
-  public func herd() async throws -> Herd {
-    calls.append(.herd)
-    try failIfScripted(.herd)
-    return herdResponse
   }
 
   public func stats(_ query: StatsQuery) async throws -> Stats {

@@ -70,14 +70,16 @@ struct LastMemoWidgetWiringTests {
     #expect(!json.contains("geheim"))
   }
 
-  @Test("a parked memo is needsRoute until the user marks it done")
-  func parked() async {
+  @Test("an old memo parked at needs_route reads as done, and the chip is its kind, else its old route")
+  func parked() async throws {
     await client.seed(MemoFactory.detail(MemoFactory.memo("p", state: .needsRoute)))
     await update("p", .needsRoute)
-    #expect(store.load()?.phase == .needsRoute)
-    await client.seed(MemoFactory.detail(MemoFactory.memo("p", state: .needsRoute, done: true)))
-    await update("p", .needsRoute)
     #expect(store.load()?.phase == .done)
+    await client.seed(MemoFactory.detail(MemoFactory.memo("q", state: .notified, kind: "github issue")))
+    await update("q", .notified)
+    #expect(try #require(store.load()).routeChip == "Github issue")
+    #expect(MemoFactory.memo("a", route: "journal").widgetObservation.routeChip == "Journal")
+    #expect(MemoFactory.memo("a", state: .received).widgetObservation.routeChip == nil, "not classified yet")
   }
 
   @Test("a refresh asked of the old server that answers after a connection switch does not feed the widget")

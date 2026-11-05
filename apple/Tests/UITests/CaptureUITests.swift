@@ -17,10 +17,10 @@ final class CaptureUITests: IrisUITestCase {
     app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", text)).firstMatch
   }
 
-  /// Opens the seeded chat thread (its row is below the fold until the list has scrolled to it).
+  /// Opens the seeded conversation (its row is below the fold until the list has scrolled to it).
   @MainActor
   private func openChatThread(_ app: XCUIApplication) {
-    let row = revealRow(containing: "How the step runner retries", in: app)
+    let row = revealRow(containing: "Hang guards are not retried", in: app)
     row.tap()
     XCTAssertTrue(waitForPresence(app.descendants(matching: .any)["thread.view"], timeout: 10))
   }
@@ -54,7 +54,6 @@ final class CaptureUITests: IrisUITestCase {
     let app = launch(offline: true)
 
     app.buttons["history.compose"].tap()
-    app.buttons["Chat"].tap()
     let field = app.textViews["composer.field"]
     XCTAssertTrue(waitForPresence(field, timeout: 5))
     field.tap()

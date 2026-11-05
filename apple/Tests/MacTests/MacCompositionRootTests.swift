@@ -115,13 +115,13 @@ struct MacCompositionRootTests {
     #expect(root.windowHistory.filters.quick == .favorites)
     #expect(root.history.filters == HistoryFilters())
     root.windowHistory.filters.searchText = "journal"
-    root.scope = .hermesThreads
-    #expect(root.windowHistory.filters.kind == .hermes && root.windowHistory.filters.quick == nil)
+    root.scope = .threads
+    #expect(root.windowHistory.filters.query().thread && root.windowHistory.filters.quick == nil)
     #expect(root.windowHistory.filters.searchText == "journal", "a scope change keeps the search")
     root.scope = nil
-    #expect(root.scope == .hermesThreads, "a deselect keeps the scope")
+    #expect(root.scope == .threads, "a deselect keeps the scope")
     root.scope = .all
-    #expect(root.windowHistory.filters.quick == nil && root.windowHistory.filters.kind == nil)
+    #expect(root.windowHistory.filters.quick == nil && !root.windowHistory.filters.query().thread)
   }
 
   /// The window's list loads from its own view; a test loads it (the sample memos are seeded by `begin()`, so the first loads may be empty).
@@ -213,39 +213,49 @@ struct MacCompositionRootTests {
     #expect(root.selectedMemoID == memo.id && root.deletingIDs.isEmpty)
   }
 
-  @Test("the detail and route models are one per memo until another is asked for or the connection changes")
+  @Test("the detail model is one per memo until another is asked for or the connection changes")
   func modelsAreCached() throws {
     let root = fakeRoot()
     let first = root.detailModel(for: "a")
     #expect(root.detailModel(for: "a") === first && root.detailModel(for: "b") !== first)
-    let memo = Memo(
-      id: "a", mode: .auto, device: "d", startedAt: .now, state: .needsRoute, createdAt: .now, updatedAt: .now)
-    let route = root.routeAnswerModel(for: memo)
-    #expect(root.routeAnswerModel(for: memo) === route)
-    // A → B → A is a new pane: the route model (and its `onStale`) goes with the detail model.
-    _ = root.detailModel(for: "b")
-    _ = root.detailModel(for: "a")
-    #expect(root.routeAnswerModel(for: memo) !== route)
     let before = root.detailModel(for: "a")
     switchServer(root)
     #expect(root.detailModel(for: "a") !== before)
   }
 
-  @Test("the sidebar scopes map onto the shared filters, and the needs-route badge is the popover's pinned count")
-  func scopesMapOntoFilters() async {
+  @Test("the sidebar scopes map onto the shared filters: All, Favorites, Archive and Threads")
+  func scopesMapOntoFilters() {
     var filters = HistoryFilters()
-    MacLibraryScope.needsRoute.apply(to: &filters)
-    #expect(filters.effectiveState == .needsRoute)
+    MacLibraryScope.all.apply(to: &filters)
+    #expect(filters.query() == HistoryFilters().query() && !filters.isFiltering)
+    MacLibraryScope.favorites.apply(to: &filters)
+    #expect(filters.query().favorite && !filters.query().archived && !filters.query().thread)
     MacLibraryScope.archive.apply(to: &filters)
-    #expect(filters.query().archived == true && filters.effectiveState == nil)
-    MacLibraryScope.chats.apply(to: &filters)
-    #expect(filters.query().kind == .chat)
-    MacLibraryScope.hermesThreads.apply(to: &filters)
-    #expect(filters.query().kind == .hermes && filters.needsServerMatching)
+    #expect(filters.query().archived && !filters.query().favorite)
+    MacLibraryScope.threads.apply(to: &filters)
+    #expect(filters.query().thread && !filters.query().archived && filters.needsServerMatching)
+    MacLibraryScope.all.apply(to: &filters)
+    #expect(!filters.query().thread && !filters.isFiltering, "the next scope drops the previous narrowing")
+  }
+
+  @Test("the popover's Hermes and Transcribe buttons start a take in their own mode; the hotkey starts Hermes")
+  func popoverPairStartsItsMode() async throws {
     let root = fakeRoot()
-    root.begin()
-    #expect(await eventually { !root.history.pinned.isEmpty })
-    #expect(root.history.pinned.allSatisfy { $0.state == .needsRoute })
+    let engine = try #require(root.fakeTake)
+    root.recording.toggle(mode: .transcribe)
+    await root.recording.settled()
+    #expect(root.recording.isRecording && engine.startedModes == [.transcribe])
+    root.recording.stop()
+    await root.recording.settled()
+    root.recording.toggle(mode: .hermes)
+    await root.recording.settled()
+    root.recording.stop()
+    await root.recording.settled()
+    root.recording.toggle()
+    await root.recording.settled()
+    #expect(engine.startedModes == [.transcribe, .hermes, .hermes])
+    root.recording.cancel()
+    await root.recording.settled()
   }
 
   @Test("the window list loads its first page and finds the sample memos")
@@ -592,7 +602,7 @@ struct MacServerBindingTests {
     switchServer(root, to: "https://other.example.com")
     let current = try credentials("https://other.example.com").serverKey
     let memo = Memo(
-      id: "11111111-2222-4333-8444-555555555555", mode: .auto, device: "mac", startedAt: .now, state: .received,
+      id: "11111111-2222-4333-8444-555555555555", mode: .hermes, device: "mac", startedAt: .now, state: .received,
       createdAt: .now, updatedAt: .now)
     root.history.insert(memo, origin: "some-other-server")
     #expect(root.history.memos.isEmpty)

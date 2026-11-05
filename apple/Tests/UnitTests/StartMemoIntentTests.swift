@@ -17,6 +17,14 @@ extension CaptureHandlerSuites {
       return await condition()
     }
 
+    /// A take that has just started has written `.recording` and nothing later. The follower also writes a `.recording` update
+    /// (it carries the input name) once it has subscribed, so the count is not fixed; the phases are.
+    private func expectOnlyRecordingSoFar(_ activity: RecordingLiveActivity) async {
+      let phases = await activity.phases
+      #expect(phases.first == .recording)
+      #expect(phases.allSatisfy { $0 == .recording }, "no phase beyond recording before the take stops: \(phases)")
+    }
+
     @Test("performing the intent records a take in auto mode and requests the Live Activity")
     func performStartsTheTakeAndTheActivity() async throws {
       let root = CompositionRoot(arguments: ["-IrisFakeCapture"], credentials: InMemoryCredentialStore())
@@ -27,8 +35,8 @@ extension CaptureHandlerSuites {
 
       let starts = await activity.starts
       #expect(starts.count == 1)
-      #expect(starts.first?.mode == .auto)
-      #expect(await activity.phases == [.recording])
+      #expect(starts.first?.mode == .hermes)
+      await expectOnlyRecordingSoFar(activity)
 
       // The silent microphone feeds the take; stopping finishes the memo and the outbox sends it.
       let result = try #require(try await root.stopMemo())
@@ -54,8 +62,25 @@ extension CaptureHandlerSuites {
       _ = try await OpenRecorderIntent().perform()
 
       #expect(await activity.starts.count == 1)
-      #expect(await activity.phases == [.recording])
+      await expectOnlyRecordingSoFar(activity)
       #expect(root.take.failure == nil)
+      _ = try await root.stopMemo()
+    }
+
+    @Test("the Transcribe control's OpenIntent starts a transcribe take through the same road")
+    func transcribeControlStartsATranscribeTake() async throws {
+      let root = CompositionRoot(arguments: ["-IrisFakeCapture"], credentials: InMemoryCredentialStore())
+      let activity = try #require(root.fakeLiveActivity)
+
+      _ = try await OpenTranscribeRecorderIntent().perform()
+
+      let starts = await activity.starts
+      #expect(starts.count == 1)
+      #expect(starts.first?.mode == .transcribe)
+      await expectOnlyRecordingSoFar(activity)
+      #expect(root.take.failure == nil)
+      #expect(OpenTranscribeRecorderIntent.authenticationPolicy == .requiresAuthentication)
+      #expect(OpenTranscribeRecorderIntent().target == .recorder)
       _ = try await root.stopMemo()
     }
 
@@ -128,6 +153,7 @@ private final class CountingHandler: CaptureIntentHandler {
   private(set) var calls: [String] = []
 
   func startMemo() async throws { calls.append("start") }
+  func startTranscribeMemo() async throws { calls.append("startTranscribe") }
   func endTake() async throws { calls.append("end") }
   func toggleTakePause() async { calls.append("pause") }
   func switchTakeInput() async throws { calls.append("switch") }
@@ -209,7 +235,7 @@ struct TakeLiveActivityTests {
     let coordinator = TakeLiveActivityCoordinator(activity: activity, stack: rig.stack, created: rig.created)
     let session = try await rig.stack.session()
     let id = try await session.start(request)
-    await coordinator.begin(memoID: id, mode: .auto, startedAt: MemoFactory.now)
+    await coordinator.begin(memoID: id, mode: .hermes, startedAt: MemoFactory.now)
     await rig.capture.recordWithoutClock(seconds: 3)
     _ = try await session.stop()
     return (coordinator, id)
@@ -222,7 +248,7 @@ struct TakeLiveActivityTests {
     let coordinator = TakeLiveActivityCoordinator(activity: activity, stack: rig.stack, created: rig.created)
     let session = try await rig.stack.session()
     let id = try await session.start(TakeRequest(mode: "auto", title: "Voice memo"))
-    await coordinator.begin(memoID: id, mode: .auto, startedAt: MemoFactory.now)
+    await coordinator.begin(memoID: id, mode: .hermes, startedAt: MemoFactory.now)
 
     await rig.capture.recordWithoutClock(seconds: 3)
     await rig.capture.interrupt()
@@ -347,7 +373,7 @@ struct UnavailableQueueTests {
   let client = FakeAPIClient(now: { MemoFactory.now })
 
   private func submission(_ text: String = "hello") -> TextSubmission {
-    TextSubmission(id: MemoID(), mode: .chat, text: text, threadId: nil, startedAt: MemoFactory.now)
+    TextSubmission(id: MemoID(), mode: .hermes, text: text, threadId: nil, startedAt: MemoFactory.now)
   }
 
   @Test("while the store cannot be read nothing is accepted, and nothing is queued into a throwaway list")
@@ -442,7 +468,7 @@ struct QueuePersistenceTests {
   let client = FakeAPIClient(now: { MemoFactory.now })
 
   private func submission(_ text: String = "keep me") -> TextSubmission {
-    TextSubmission(id: MemoID(), mode: .chat, text: text, threadId: nil, startedAt: MemoFactory.now)
+    TextSubmission(id: MemoID(), mode: .hermes, text: text, threadId: nil, startedAt: MemoFactory.now)
   }
 
   @Test("a memo whose queue write failed is refused, not reported as queued, and the composer keeps the text")

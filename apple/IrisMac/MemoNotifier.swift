@@ -38,17 +38,15 @@ nonisolated protocol NotificationPoster: Sendable {
 nonisolated enum Announcement: Equatable, Sendable {
   /// `notified`: finished.
   case done
-  /// `needs_route`: parked, waiting for the user to pick a destination.
-  case needsRoute
   /// `failed`: stopped on a step.
   case failed
 
   init?(state: MemoState) {
     switch state {
     case .notified: self = .done
-    case .needsRoute: self = .needsRoute
     case .failed: self = .failed
-    case .receiving, .received, .transcribed, .routed, .acted, .summarized: return nil
+    // `needs_route` is an old memo that was never routed: nothing to announce.
+    case .receiving, .received, .transcribed, .routed, .needsRoute, .acted, .summarized: return nil
     }
   }
 }
@@ -62,7 +60,7 @@ nonisolated enum NotifierEvent: Equatable, Sendable {
   case caughtUp(announced: Int, seen: Int)
 }
 
-/// Local notifications for memos that finished, parked or failed while the app runs (TDD §5). Three feeds, one rule:
+/// Local notifications for memos that finished or failed while the app runs (TDD §5). Three feeds, one rule:
 ///
 /// - the event stream (`memo.updated` carries the state; `memo.done` only the id),
 /// - the catch-up after the stream (re)connects: an unfiltered fetch of the newest memos, so one that finished while the stream
@@ -70,7 +68,7 @@ nonisolated enum NotifierEvent: Equatable, Sendable {
 /// - nothing else: APNs for an app that is asleep comes later.
 ///
 /// **Transition-based:** ``announced`` holds the kind each memo was last announced as. A memo announces when it is in a kind it was
-/// not announced as; it leaves the record when it runs again (a retry, a route answer), so the next finish is a new transition.
+/// not announced as; it leaves the record when it runs again (a retry), so the next finish is a new transition.
 /// A repeated event, a second feed for the same memo, or a catch-up that sees what an event already said, posts nothing.
 ///
 /// Before posting, an event's memo is fetched and must be in an announceable state, so a stale copy never announces a running
@@ -168,7 +166,7 @@ final class MemoNotifier {
 
   /// Records what an event says about a memo's state. `true` when the memo is now in a kind it was not announced as: the caller
   /// delivers it (``memoDone(id:generation:)``). A state that is not announceable clears the record, so the memo's next
-  /// finish (after a retry or a route answer) is a new transition.
+  /// finish (after a retry) is a new transition.
   func noteState(of event: MemoEvent, generation expected: Int? = nil) -> Bool {
     guard (expected ?? generation) == generation else { return false }
     seen.insert(event.id)
@@ -330,7 +328,7 @@ final class MemoNotifier {
       }
       seen.insert(id)
       report(.posted(memoID: id, kind: kind))
-      // The memo moved on while the banner was posted (a retry, a route answer): what the newer state needs is already recorded,
+      // The memo moved on while the banner was posted (a retry): what the newer state needs is already recorded,
       // and this kind must not overwrite it.
       if stateChanges[id, default: 0] == changesBefore { announced[id] = kind }
       return .settled
@@ -354,21 +352,18 @@ final class MemoNotifier {
     }
   }
 
-  /// What a banner says. Never the transcript, the reply or the park reason (a reason can hold a spoken tab name; the alert
-  /// contract, AGENTS.md): a finished memo shows its route and the summary's headline, a parked or failed one generic words.
+  /// What a banner says. Never the transcript or the reply (the alert contract, AGENTS.md): a finished memo shows its kind and
+  /// the summary's headline, a failed one generic words.
   /// `rowHeadline` is not used: without a summary it is the transcript.
   static func notification(for memo: Memo, connectionID: String) -> MemoNotification {
     let title: String
     let body: String
     switch memo.state {
-    case .needsRoute:
-      title = String(localized: "Where should this go?", comment: "Notification title: a parked memo")
-      body = String(localized: "Open Iris to choose a route.", comment: "Notification body: a parked memo")
     case .failed:
       title = String(localized: "Memo failed", comment: "Notification title: a failed memo")
       body = String(localized: "Open Iris to retry it.", comment: "Notification body: a failed memo")
     default:
-      title = memo.routeLabel
+      title = memo.kindLabel
       body = memo.summary?.headline ?? String(localized: "Done.", comment: "Notification body: no summary")
     }
     return MemoNotification(memoID: memo.id, connectionID: connectionID, title: title, body: body)

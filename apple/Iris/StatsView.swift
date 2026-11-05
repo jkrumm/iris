@@ -2,7 +2,7 @@ import IrisCore
 import IrisUI
 import SwiftUI
 
-/// The Stats tab: memo volume per route as bars over days or weeks, three headline tiles and a trend per route.
+/// The Stats tab: memo volume per kind as bars over days or weeks, three headline tiles and a trend per kind.
 struct StatsView: View {
   @Bindable var model: StatsModel
 
@@ -75,7 +75,7 @@ struct StatsView: View {
 
       VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
         VStack(alignment: .leading, spacing: Theme.Spacing.hair) {
-          Text("Memos per route", comment: "Stats chart title")
+          Text("Memos per kind", comment: "Stats chart title")
             .themeFont(.subheadline, weight: .semibold)
             .foregroundStyle(Theme.Ink.primary)
             .accessibilityAddTraits(.isHeader)
@@ -83,7 +83,7 @@ struct StatsView: View {
             .themeFont(.caption)
             .foregroundStyle(Theme.Ink.muted)
         }
-        VolumeChart(bars: report.bars, names: Self.seriesNames, summary: summary(report))
+        VolumeChart(bars: report.bars, series: report.series, names: report.names, summary: summary(report))
       }
       .padding(.horizontal, Theme.Spacing.cardInsetHorizontal)
       .padding(.top, Theme.Spacing.inset)
@@ -95,7 +95,7 @@ struct StatsView: View {
           ForEach(Array(report.trends.enumerated()), id: \.element.id) { index, trend in
             if index > 0 { Divider().overlay(Theme.divider) }
             TrendRow(
-              series: trend.series, name: Self.seriesNames[trend.series] ?? "", points: trend.points,
+              series: trend.series, name: report.names[trend.series] ?? "", points: trend.points,
               total: trend.total, changeText: trend.change, direction: trend.direction)
           }
         }
@@ -110,9 +110,9 @@ struct StatsView: View {
 
   private var chartSubtitle: String {
     switch model.granularity {
-    case .days: String(localized: "Stacked by route, per day. Today is partial.", comment: "Stats chart subtitle")
+    case .days: String(localized: "Stacked by kind, per day. Today is partial.", comment: "Stats chart subtitle")
     case .weeks:
-      String(localized: "Stacked by route, per week. The current week is partial.", comment: "Stats chart subtitle")
+      String(localized: "Stacked by kind, per week. The current week is partial.", comment: "Stats chart subtitle")
     }
   }
 
@@ -126,15 +126,6 @@ struct StatsView: View {
   }
 
   private func summary(_ report: StatsReport) -> String {
-    String(localized: "Memos per route. \(report.rangeText)", comment: "VoiceOver label of the volume chart")
-  }
-
-  static var seriesNames: [VolumeSeries: String] {
-    [
-      .hermes: String(localized: "Hermes", comment: "Route name"),
-      .journal: String(localized: "Journal", comment: "Route name"),
-      .tabs: String(localized: "Tabs", comment: "Route name"),
-      .unrouted: String(localized: "Unrouted", comment: "Stats series for memos without a route"),
-    ]
+    String(localized: "Memos per kind. \(report.rangeText)", comment: "VoiceOver label of the volume chart")
   }
 }

@@ -17,7 +17,7 @@ struct StaleActivityRuleTests {
   @Test("without a push token an activity ends once the server is done with its memo, on that result")
   func endsOnTheResult() {
     for (state, phase) in [
-      (MemoState.notified, LiveActivityPhase.done), (.failed, .failed), (.needsRoute, .needsRoute),
+      (MemoState.notified, LiveActivityPhase.done), (.failed, .failed), (.needsRoute, .done),
     ] {
       let verdict = StaleActivityRule.verdict(for: activity(), memo: MemoFactory.memo("m1", state: state), now: now)
       guard case .end(let final?) = verdict else {
@@ -68,7 +68,6 @@ struct StaleActivityRuleTests {
     #expect(StaleActivityRule.yieldsToNewTake(activity(phase: .done, remote: true)))
     #expect(StaleActivityRule.yieldsToNewTake(activity(phase: .failed)))
     #expect(StaleActivityRule.yieldsToNewTake(activity(phase: .processing, remote: false)))
-    #expect(StaleActivityRule.yieldsToNewTake(activity(phase: .needsRoute, remote: false)))
     #expect(!StaleActivityRule.yieldsToNewTake(activity(phase: .processing, remote: true)))
     #expect(!StaleActivityRule.yieldsToNewTake(activity(phase: .recording)))
   }
@@ -126,15 +125,15 @@ struct StaleActivitySweeperTests {
     "the app is suspended: an activity no push will move on ends now, for the system to remove; a pushed one stays")
   func endUnreachableEndsTheOnesNobodyCanFollow() async {
     let catalog = FakeCatalog([
-      activity("sent", phase: .processing), activity("parked", phase: .needsRoute), activity("pushed", remote: true),
+      activity("sent", phase: .processing), activity("second", phase: .processing), activity("pushed", remote: true),
     ])
 
     await sweeper(catalog).endUnreachable()
 
-    #expect(Set(catalog.ended.map(\.id)) == ["sent", "parked"])
+    #expect(Set(catalog.ended.map(\.id)) == ["sent", "second"])
     #expect(catalog.ended.allSatisfy { $0.dismissal == .soon })
     #expect(
-      Set(catalog.ended.compactMap { $0.final?.phase }) == [.processing, .needsRoute], "it keeps showing what it showed"
+      Set(catalog.ended.compactMap { $0.final?.phase }) == [.processing], "it keeps showing what it showed"
     )
     #expect(Set(catalog.activities.map(\.memoID)) == ["pushed"])
   }

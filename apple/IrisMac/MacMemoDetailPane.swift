@@ -2,14 +2,12 @@ import IrisCore
 import IrisUI
 import SwiftUI
 
-/// The main window's detail column: one memo laid out like a document. The headline and one quiet metadata line, the route
-/// answer for a parked memo, then the reply, summary, transcript and steps as plain sections with small uppercase labels. Actions
+/// The main window's detail column: one memo laid out like a document. The headline and one quiet metadata line, then the reply, summary, transcript and steps as plain sections with small uppercase labels. Actions
 /// sit in the window toolbar. It reloads when `refreshToken` changes (the window's list bumps it on a `memo.updated` event).
 struct MacMemoDetailPane: View {
   let root: MacCompositionRoot
   let player: MacAudioPlayer
   @State private var model: MacMemoDetailModel
-  @State private var isCorrecting = false
 
   init(root: MacCompositionRoot, model: MacMemoDetailModel, player: MacAudioPlayer) {
     self.root = root
@@ -45,10 +43,6 @@ struct MacMemoDetailPane: View {
             .foregroundStyle(Theme.Status.bad)
             .accessibilityIdentifier("mac.detail.player-failure")
         }
-        if memo.state == .needsRoute {
-          MacRouteAnswerBar(model: root.routeAnswerModel(for: memo, onStale: reload), onRouted: routed)
-            .id(memo.id)
-        }
         MacMemoSections(model: model)
         if let failure = model.failure {
           Text(verbatim: failure).macFont(.body).foregroundStyle(Theme.Status.bad)
@@ -68,13 +62,6 @@ struct MacMemoDetailPane: View {
     model.detail.flatMap { WaterfallBuilder.totals(for: $0, now: .now) }
   }
 
-  private func reload() { Task { await model.load() } }
-
-  private func routed(_ memo: Memo) {
-    reload()
-    root.windowHistory.onMemoUpdated?(memo.id)
-  }
-
   // MARK: Toolbar
 
   /// The memo as the list has it (a flag toggled a moment ago shows at once), else the detail's.
@@ -89,23 +76,6 @@ struct MacMemoDetailPane: View {
         playButtons(memo)
         copyMenu
         retryControl
-        if RouteAnswerModel.canRoute(memo) && memo.state != .needsRoute {
-          Button(
-            String(localized: "Route…", comment: "Detail toolbar: corrects the route"),
-            systemImage: "arrow.triangle.branch"
-          ) {
-            isCorrecting = true
-          }
-          .help(String(localized: "Send it somewhere else", comment: "Detail: corrects the route of a finished memo"))
-          .popover(isPresented: $isCorrecting, arrowEdge: .bottom) {
-            MacRouteAnswerBar(model: root.routeAnswerModel(for: memo, onStale: reload)) {
-              isCorrecting = false
-              routed($0)
-            }
-            .frame(width: Theme.Spacing.windowDetailMin)
-            .padding(Theme.Spacing.macBarInset)
-          }
-        }
       }
       ToolbarItemGroup(placement: .primaryAction) {
         Button(
@@ -204,7 +174,7 @@ struct MacMemoDetailPane: View {
   }
 }
 
-/// The headline (18 pt semibold, selectable) and one quiet line under it: where it went, when, how long, what it cost, which device.
+/// The headline (18 pt semibold, selectable) and one quiet line under it: what it is, when, how long, what it cost, which device.
 private struct MacMemoHeader: View {
   let memo: Memo
   let totals: WaterfallBuilder.Totals?
@@ -218,7 +188,8 @@ private struct MacMemoHeader: View {
         .textSelection(.enabled)
         .accessibilityAddTraits(.isHeader)
       HStack(spacing: Theme.Spacing.snug) {
-        routeChip
+        KindChip(label: memo.kindLabel, systemImage: memo.kindIcon)
+          .accessibilityIdentifier("mac.detail.kind")
         Text(verbatim: metadata).lineLimit(1)
       }
       .macFont(.caption)
@@ -228,20 +199,6 @@ private struct MacMemoHeader: View {
           .textSelection(.enabled)
       }
     }
-  }
-
-  /// The route as a small capsule with its dot (Iris's route colours), the one coloured thing in the line.
-  private var routeChip: some View {
-    HStack(spacing: Theme.Spacing.xs) {
-      Circle().fill(memo.macRowMeta.dot).frame(width: Theme.Spacing.macDot, height: Theme.Spacing.macDot)
-        .accessibilityHidden(true)
-      Text(verbatim: memo.routeLabel)
-    }
-    .padding(.horizontal, Theme.Spacing.macChipHorizontal)
-    .padding(.vertical, Theme.Spacing.macChipVertical)
-    .background(Theme.Surface.subtle, in: .capsule)
-    .foregroundStyle(Theme.Ink.secondary)
-    .accessibilityIdentifier("mac.detail.route")
   }
 
   private var metadata: String {

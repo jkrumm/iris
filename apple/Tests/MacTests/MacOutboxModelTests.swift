@@ -15,7 +15,7 @@ struct MacOutboxModelTests {
     id: "22222222-2222-4222-8222-222222222222", kind: .typedMemo, title: "Pick up the parcel", queuedAt: Date(),
     state: .failed(retryAt: Date().addingTimeInterval(60), reason: nil))
   private static let sending = QueuedItem(
-    id: "33333333-3333-4333-8333-333333333333", kind: .chatMessage, title: "Hello", queuedAt: Date(), state: .sending)
+    id: "33333333-3333-4333-8333-333333333333", kind: .textReply, title: "Hello", queuedAt: Date(), state: .sending)
 
   private func model(_ items: [QueuedItem]) async -> (MacOutboxModel, ScriptedQueue) {
     let queue = ScriptedQueue(items)

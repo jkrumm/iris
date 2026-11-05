@@ -234,9 +234,10 @@ ui-snapshot: sim ## Semantic UI element tree of the foreground app -> .artifacts
 	@scripts/mbm ui-automation snapshot-ui --simulator-id $(SIM_UDID) > $(ARTIFACTS)/ui-snapshot.txt
 	@cat $(ARTIFACTS)/ui-snapshot.txt
 
-# --- Device (the paired iPhone; TDD §13, skill `device`). Wrap in `lockf -t 900 /tmp/iris-apple.lock` like every xcodebuild/devicectl job. ---
-# DEVICE_SIGNING=personal (default: the free Personal Team, no Push/App Groups) | paid (the paid team, entitlements as tracked); TEAM=<id> overrides
-# the team Xcode knows; IRIS_DEVICE_ID overrides the phone. Nothing here is tracked: team and device resolve at runtime (scripts/device-lib.sh).
+# --- Device (the paired iPhone; TDD §13, skill `device`). Wrap in `lockf -t 1800 /tmp/iris-apple.lock` like every xcodebuild/devicectl job. ---
+# DEVICE_SIGNING=paid (default: the paid team, headless with the ASC Team key from op://mini/apple-developer, entitlements as tracked) | personal
+# (the free Personal Team Xcode knows, no Push/App Groups); TEAM=<id> overrides the team; IRIS_DEVICE_ID overrides the phone. Nothing here is
+# tracked: team, key and device resolve at runtime (scripts/device-lib.sh).
 # --- TestFlight (Wave 22 P2, skill `apple-dev`). Wrap in `lockf -t 1800 /tmp/iris-apple.lock` like every xcodebuild job; the poller's release hook does. ---
 # UPLOAD=0 (default until the App Store Connect app record exists): a signed .ipa in .artifacts/testflight/export; UPLOAD=1: export and upload.
 # Team id and the ASC Team key come from op://mini/apple-developer via secrets-run (scripts/apple-signing-key.sh); CFBundleVersion = <commit count>.<UTC epoch hours> (a same-sha rebuild still gets a new number).

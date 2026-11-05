@@ -73,13 +73,6 @@ public struct LiveActivityPanel<Controls: View, DoneAction: View>: View {
         }
         ActivityStageDashes(phase: presentation.phase, onDark: style == .island)
       }
-    case .needsRoute:
-      VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
-        Text(verbatim: presentation.subtitle ?? presentation.phaseTitle)
-          .themeFont(.body, weight: .semibold)
-          .foregroundStyle(primary)
-        if let routeChip = presentation.routeChip { chip(routeChip) }
-      }
     case .done:
       VStack(alignment: .leading, spacing: Theme.Spacing.hair) {
         // First-text-baseline alignment with the same font on the mark and the headline keeps the check on the first line,
@@ -119,15 +112,6 @@ public struct LiveActivityPanel<Controls: View, DoneAction: View>: View {
     }
     .themeFont(.footnote, weight: .medium)
     .foregroundStyle(secondary)
-  }
-
-  private func chip(_ label: String) -> some View {
-    Text(verbatim: label)
-      .themeFont(.footnote, weight: .medium)
-      .foregroundStyle(secondary)
-      .padding(.horizontal, Theme.Spacing.sm)
-      .padding(.vertical, Theme.Spacing.tick)
-      .background(style == .island ? Color.white.opacity(0.14) : Theme.Surface.subtle, in: .capsule)
   }
 
   private func noteRow(_ note: String) -> some View {

@@ -75,13 +75,13 @@ struct MacMemoContextMenu: View {
 }
 
 extension Memo {
-  /// The status dot and the line next to it on a row: the route and the audio length, the state of a memo that needs the user.
+  /// The status dot and the line next to it on a row: the kind and the audio length, the state of a memo that needs the user.
   var macRowMeta: (dot: Color, text: String) {
     switch rowStatus {
-    case .settled(let route, let dot, let duration):
-      (dot, [route, duration].compactMap { $0 }.joined(separator: " · "))
-    case .inFlight(let route, let dot, let label, _):
-      (dot, "\(route) · \(label)")
+    case .settled(let kind, let dot, let duration):
+      (dot, [kind, duration].compactMap { $0 }.joined(separator: " · "))
+    case .inFlight(let kind, let dot, let label, _):
+      (dot, "\(kind) · \(label)")
     case .alert(let label, let color):
       (color, label)
     }

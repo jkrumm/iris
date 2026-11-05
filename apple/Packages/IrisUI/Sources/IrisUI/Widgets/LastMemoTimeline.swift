@@ -33,10 +33,9 @@ public struct LastMemoTimelinePlan: Equatable, Sendable {
     entries = [current, Entry(date: staleAt, content: .idle, relevance: nil)]
   }
 
-  /// A parked or failed memo asks for attention for an hour, a running or just-finished one for a while.
+  /// A failed memo asks for attention for an hour, a running or just-finished one for a while.
   static func relevance(_ snapshot: LastMemoSnapshot) -> Relevance {
     switch snapshot.phase {
-    case .needsRoute: Relevance(score: 100, duration: 60 * 60)
     case .failed: Relevance(score: 60, duration: 60 * 60)
     case .processing: Relevance(score: 40, duration: 10 * 60)
     case .done: Relevance(score: 20, duration: 15 * 60)
