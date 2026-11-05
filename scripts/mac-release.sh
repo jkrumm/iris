@@ -5,8 +5,8 @@
 #   IDENTITY=developer-id  Developer ID Application signature, notarized and stapled with the ASC Team key. Needs the certificate
 #                          (with its private key) in the login keychain: the Account Holder creates it, not this script.
 #   PUBLISH=draft          a draft GitHub release: `releases/latest` never serves it (default for development)
-#   PUBLISH=release        a published release: every installed app finds it (default for developer-id; needs a clean tree
-#                          and a HEAD that is on origin)
+#   PUBLISH=release        a published release: every installed app finds it (default for developer-id; needs a clean tree)
+#   Both need a HEAD that is on origin (the release's target).
 #
 # Steps: xcodegen, archive IrisMac (Release, CURRENT_PROJECT_VERSION = `git rev-list --count HEAD`), check the signature (team,
 # Hardened Runtime, audio-input, no sandbox), [notarize + staple], ditto zip, appcast through `generate_appcast`, verify the
@@ -53,9 +53,10 @@ for tool in xcodebuild xcodegen codesign ditto jq secrets-run xcrun; do
   command -v "$tool" >/dev/null || { echo "  missing tool: $tool" >&2; exit 1; }
 done
 [ -r "$SPARKLE_KEY_FILE" ] || { echo "  no Sparkle EdDSA key file at $SPARKLE_KEY_FILE (generate_keys -x <file>, or SPARKLE_KEY_FILE=)" >&2; exit 1; }
+# The release's target is HEAD: GitHub rejects a commit it does not have (422 target_commitish), a draft included.
+[ -n "$(git branch -r --contains "$SHA" 2>/dev/null)" ] || { echo "  HEAD is not on origin (push first)" >&2; exit 1; }
 if [ "$PUBLISH" = "release" ]; then
   [ -z "$(git status --porcelain)" ] || { echo "  refusing a release from a dirty tree" >&2; exit 1; }
-  [ -n "$(git branch -r --contains "$SHA" 2>/dev/null)" ] || { echo "  refusing a release: HEAD is not on origin (push first)" >&2; exit 1; }
 fi
 
 KEY_FILE=""
