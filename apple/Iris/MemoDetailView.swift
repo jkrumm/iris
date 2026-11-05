@@ -147,7 +147,8 @@ struct MemoDetailView: View {
     let memo = model.memo
     return VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
       idRow(String(localized: "Memo ID", comment: "Detail: label of the memo's id"), memo.id)
-      if let threadId = memo.threadId {
+      // A memo in its own Hermes session has the memo's id as its thread id: one id says it.
+      if let threadId = memo.threadId, threadId != memo.id {
         idRow(String(localized: "Thread ID", comment: "Detail: label of the thread's id"), threadId)
       }
       Text(verbatim: deviceLine(memo))

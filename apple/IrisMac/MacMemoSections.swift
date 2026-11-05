@@ -157,7 +157,8 @@ struct MacMemoSections: View {
   private func ids(_ memo: Memo) -> some View {
     Grid(alignment: .leading, horizontalSpacing: Theme.Spacing.lg, verticalSpacing: Theme.Spacing.snug) {
       idRow(String(localized: "Memo ID", comment: "Detail: label of the memo's id"), memo.id)
-      if let threadId = memo.threadId {
+      // A memo in its own Hermes session has the memo's id as its thread id: one id says it.
+      if let threadId = memo.threadId, threadId != memo.id {
         idRow(String(localized: "Thread ID", comment: "Detail: label of the thread's id"), threadId)
       }
       idRow(String(localized: "Device", comment: "Detail: label of the recording device"), memo.device)
