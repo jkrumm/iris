@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// One route's trend: its name, a sparkline over the periods, the total and the change against the period before. Laid out as
+/// One kind's trend: its name, a sparkline over the periods, the total and the change against the period before. Laid out as
 /// the `.trow` grid of `docs/design/mockups/stats.html`: name 78 pt, the sparkline takes the rest, total and change right-aligned.
 public struct TrendRow: View {
   public enum Direction: Sendable { case up, down, flat }

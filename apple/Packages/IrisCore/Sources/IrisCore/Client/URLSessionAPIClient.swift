@@ -47,10 +47,6 @@ public struct URLSessionAPIClient: APIClient {
     try await decode(Memo.self, from: makeJSONRequest("POST", ["v1", "memos", id, "retry"], body: body))
   }
 
-  public func routeMemo(id: String, request body: RouteRequest) async throws -> Memo {
-    try await decode(Memo.self, from: makeJSONRequest("POST", ["v1", "memos", id, "route"], body: body))
-  }
-
   public func setFlags(id: String, done: Bool?, favorite: Bool?, archived: Bool?) async throws -> Memo {
     let body = SetFlagsRequest(done: done, favorite: favorite, archived: archived)
     return try await decode(Memo.self, from: makeJSONRequest("PATCH", ["v1", "memos", id], body: body))
@@ -97,10 +93,6 @@ public struct URLSessionAPIClient: APIClient {
   public func setActivityToken(memoID: String, request body: ActivityTokenRequest) async throws {
     let request = try makeJSONRequest("PUT", ["v1", "memos", memoID, "activity-token"], body: body)
     _ = try await perform { try await session.data(for: request) }
-  }
-
-  public func herd() async throws -> Herd {
-    try await decode(Herd.self, from: makeRequest("GET", ["v1", "herd"]))
   }
 
   public func stats(_ query: StatsQuery) async throws -> Stats {

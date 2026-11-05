@@ -30,12 +30,11 @@
       case .paused: (title, subtitle) = ("Paused", nil)
       case .uploading: (title, subtitle) = ("Uploading", "Sending the recording")
       case .processing: (title, subtitle) = ("Processing", "Iris is working on it")
-      case .needsRoute: (title, subtitle) = ("Needs a route", "Where should this go?")
       case .done: (title, subtitle) = ("Done", nil)
       case .failed: (title, subtitle) = ("Failed", "Iris could not send this memo")
       }
       return ActivityPresentation(
-        phase: phase, phaseTitle: title, modeLabel: "Auto", subtitle: subtitle,
+        phase: phase, phaseTitle: title, modeLabel: "Hermes", subtitle: subtitle,
         inputName: phase == .recording || phase == .paused ? "iPhone Microphone" : nil, routeChip: routeChip,
         headline: headline, note: note, start: start, timerFrozenAt: now)
     }

@@ -23,23 +23,16 @@ public enum MemoState: String, Codable, Hashable, Sendable, CaseIterable {
   public var isDeletable: Bool { isResultReady || self == .receiving }
 }
 
-/// The one tolerant enum: a mode this build does not know decodes to `.unknown` instead of failing the whole page
-/// (an older client reading a list that holds memos of a newer mode). `.unknown` is not a mode to send and is not in `allCases`.
+/// Every memo goes to Hermes except `transcribe`. Decoding is tolerant: any other string (the retired `auto`, `chat`,
+/// `journal`, `tab`, or one this build does not know) reads as `.hermes`.
 public enum MemoMode: String, Codable, Hashable, Sendable, CaseIterable {
-  case auto
-  case journal
   case hermes
-  case tab
-  case chat
-  /// Transcript only: the pipeline stops after `transcribe` (no route, act or summarize) and the memo ends `notified`.
+  /// Transcript only: the pipeline stops after `transcribe` (no act or summarize) and the memo ends `notified`.
   case transcribe
-  case unknown
-
-  public static var allCases: [MemoMode] { [.auto, .journal, .hermes, .tab, .chat, .transcribe] }
 
   public init(from decoder: any Decoder) throws {
     let raw = try decoder.singleValueContainer().decode(String.self)
-    self = MemoMode(rawValue: raw) ?? .unknown
+    self = MemoMode(rawValue: raw) ?? .hermes
   }
 }
 
@@ -51,13 +44,6 @@ public enum MemoStep: String, Codable, Hashable, Sendable, CaseIterable {
   case act
   case summarize
   case notify
-}
-
-/// A destination the user can route a memo to (`POST /v1/memos/:id/route`).
-public enum RouteDestination: String, Codable, Hashable, Sendable, CaseIterable {
-  case hermes
-  case journal
-  case herdr
 }
 
 public enum StepStatus: String, Codable, Hashable, Sendable, CaseIterable {
@@ -81,23 +67,13 @@ public enum HealthStatus: String, Codable, Hashable, Sendable, CaseIterable {
   case degraded
 }
 
-/// The agent state of a herdr tab. The schema's own `unknown` case covers anything herdr cannot classify.
-public enum AgentState: String, Codable, Hashable, Sendable, CaseIterable {
-  case idle
-  case working
-  case blocked
-  case done
-  case unknown
-}
-
 /// The phase of the Live Activity. `recording`, `paused` and `uploading` are the client's own, set locally while the take
-/// is on the phone; the server's pushes only ever carry `processing`, `needsRoute`, `done` and `failed`.
+/// is on the phone; the server's pushes only ever carry `processing`, `done` and `failed`.
 public enum LiveActivityPhase: String, Codable, Hashable, Sendable, CaseIterable {
   case recording
   case paused
   case uploading
   case processing
-  case needsRoute
   case done
   case failed
 
@@ -106,7 +82,7 @@ public enum LiveActivityPhase: String, Codable, Hashable, Sendable, CaseIterable
   public var isClientPhase: Bool {
     switch self {
     case .recording, .paused, .uploading: true
-    case .processing, .needsRoute, .done, .failed: false
+    case .processing, .done, .failed: false
     }
   }
 }

@@ -27,7 +27,6 @@
 			<key>UNNotificationExtensionCategory</key>
 			<array>
 				<string>MEMO_DONE</string>
-				<string>MEMO_NEEDS_ROUTE</string>
 			</array>
 			<key>UNNotificationExtensionDefaultContentHidden</key>
 			<true/>

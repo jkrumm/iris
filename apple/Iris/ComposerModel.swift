@@ -6,29 +6,26 @@ import Observation
 /// What opens the composer: a new memo, or a reply that continues a thread (`POST /v1/memos/text` takes `threadId`).
 struct ComposerRequest: Identifiable, Equatable {
   let id = UUID()
-  var mode: MemoMode = .auto
   var threadId: String?
 
-  /// A reply into a thread screen: a chat stays a chat, anything else continues through Hermes.
-  static func reply(toThread id: String, kind: ThreadKind) -> ComposerRequest {
-    ComposerRequest(mode: kind == .chat ? .chat : .hermes, threadId: id)
+  /// A reply into a thread screen: it continues through Hermes.
+  static func reply(toThread id: String) -> ComposerRequest {
+    ComposerRequest(threadId: id)
   }
 
-  /// A reply to `memo`: its thread when it has one, else a fresh chat about it (a memo outside a thread has nothing
-  /// to continue).
+  /// A reply to `memo`: its thread when it has one, else a fresh Hermes memo (a memo outside a thread has nothing to
+  /// continue).
   static func reply(to memo: Memo) -> ComposerRequest {
-    guard let threadId = memo.threadId else { return ComposerRequest(mode: .chat) }
-    return ComposerRequest(mode: memo.mode == .unknown ? .chat : memo.mode, threadId: threadId)
+    ComposerRequest(threadId: memo.threadId)
   }
 }
 
-/// The typed-memo composer: text, a mode, and one send. The send hands the text to the outbox, which creates the memo by id
+/// The typed-memo composer: text and two send targets (Hermes, Transcribe). The send hands the text to the outbox, which creates the memo by id
 /// (idempotent on the server) and keeps trying until it has: the sheet closes either way, with the memo, or with
 /// "queued" when the server could not be reached.
 @Observable
 final class ComposerModel {
   var text = ""
-  var mode: MemoMode
   let threadId: String?
   private(set) var isSending = false
   /// Why the last send was refused (the outbox could not be opened, or the server said no for good); the text stays. Cleared
@@ -43,15 +40,14 @@ final class ComposerModel {
     request: ComposerRequest, outbox: OutboxService, now: @escaping () -> Date = { Date() },
     makeID: @escaping () -> MemoID = { MemoID() }
   ) {
-    mode = request.mode
     threadId = request.threadId
     self.outbox = outbox
     self.now = now
     self.makeID = makeID
   }
 
-  /// The modes the server accepts for a typed memo.
-  static let modes: [MemoMode] = MemoMode.allCases
+  /// A reply into a thread continues through Hermes only (the server refuses `threadId` with Transcribe).
+  var offersTranscribe: Bool { threadId == nil }
 
   var trimmedText: String { text.trimmingCharacters(in: .whitespacesAndNewlines) }
 
@@ -65,10 +61,10 @@ final class ComposerModel {
   /// Cancel closes the sheet and would drop the answer of a send that is already on the wire.
   var canCancel: Bool { !isSending }
 
-  /// Hands the text over; nil when there is nothing to send, the outbox refused it or the server did for good (``failure``
-  /// says so).
-  func send() async -> SendOutcome? {
-    guard canSend else { return nil }
+  /// Hands the text over as a memo of `mode`; nil when there is nothing to send, `mode` is Transcribe in a thread reply, the
+  /// outbox refused it or the server did for good (``failure`` says so).
+  func send(mode: MemoMode = .hermes) async -> SendOutcome? {
+    guard canSend, mode == .hermes || offersTranscribe else { return nil }
     isSending = true
     failure = nil
     defer { isSending = false }

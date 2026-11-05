@@ -3,6 +3,7 @@ import SwiftUI
 
 @main
 struct IrisApp: App {
+  @UIApplicationDelegateAdaptor(PushAppDelegate.self) private var pushDelegate
   @State private var root = CompositionRoot()
   @Environment(\.scenePhase) private var scenePhase
 
@@ -20,11 +21,12 @@ struct IrisApp: App {
         diagnostics: root.diagnostics, micRules: root.micRules, spokenReplies: root.spokenReplies,
         connectionForm: root.connectionForm, startsOnSettings: root.opensOnSettings,
         makeDetail: root.detailModel(for:), makeComposer: root.composerModel(for:),
-        makeThread: root.threadModel(for:), makeRouteAnswer: root.routeAnswerModel(for:)
+        makeThread: root.threadModel(for:)
       )
       .environment(\.replyImageStore, root.replyImages)
       .task { DeviceLog.shared.sceneChanged(to: scenePhase.telemetryName) }
       .task(id: root.connectionRevision) { await root.start() }
+      .task(id: root.connectionRevision) { await PushRegistrar.shared.connectionChanged() }
       .onChange(of: scenePhase) { _, phase in
         DeviceLog.shared.sceneChanged(to: phase.telemetryName)
         root.spokenReplies.isForeground = phase == .active

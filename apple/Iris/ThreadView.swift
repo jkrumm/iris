@@ -112,10 +112,9 @@ struct ThreadView: View {
   private var header: some View {
     VStack(alignment: .leading, spacing: Theme.Spacing.cozy) {
       HStack(spacing: Theme.Spacing.sm) {
-        RouteChip(
-          label: model.kind == .chat
-            ? String(localized: "Chat", comment: "Thread kind") : String(localized: "Hermes", comment: "Thread kind"),
-          systemImage: model.kind == .chat ? "bubble.left.and.bubble.right" : "arrow.triangle.branch")
+        KindChip(
+          label: String(localized: "Thread", comment: "Kind chip of a conversation screen"),
+          systemImage: "bubble.left.and.bubble.right")
         if model.detail != nil {
           Text(verbatim: ThreadCopy.turnCount(model.turnCount))
             .themeFont(.footnote)
@@ -174,7 +173,7 @@ struct ThreadView: View {
   private var replyBar: some View {
     ThreadReplyBar(
       holdStartedAt: model.voiceStartedAt, isVoiceAvailable: model.canRecordVoice,
-      onType: { composer = .reply(toThread: model.route.id, kind: model.kind) },
+      onType: { composer = .reply(toThread: model.route.id) },
       onHoldBegan: { model.beginVoice() },
       onHoldEnded: { cancelled in
         Task {

@@ -22,9 +22,9 @@ final class ThreadUITests: IrisUITestCase {
   }
 
   @MainActor
-  func testAChatRowOpensTheThreadAndATypedReplyJoinsIt() {
+  func testAThreadRowOpensTheThreadAndATypedReplyJoinsIt() {
     let app = launch()
-    let row = revealRow(containing: "How the step runner retries", in: app)
+    let row = revealRow(containing: "Hang guards are not retried", in: app)
     row.tap()
 
     let thread = app.descendants(matching: .any)["thread.view"]
@@ -41,11 +41,11 @@ final class ThreadUITests: IrisUITestCase {
     app.buttons["thread.diagram.close"].tap()
     XCTAssertTrue(waitForPresence(thread, timeout: 10))
 
-    // Reply by text: the composer is bound to the thread (no mode chips), the sent text joins the thread with a pending answer, then the answer.
+    // Reply by text: the composer is bound to the thread (no Transcribe send), the sent text joins the thread with a pending answer, then the answer.
     app.buttons["thread.reply.text"].tap()
     let field = app.textViews["composer.field"]
     XCTAssertTrue(waitForPresence(field, timeout: 5))
-    XCTAssertTrue(waitForAbsence(app.descendants(matching: .any)["composer.modes"], timeout: 1))
+    XCTAssertTrue(waitForAbsence(app.buttons["composer.send.transcribe"], timeout: 1))
     field.tap()
     field.typeText("What about the narrow table?")
     app.buttons["composer.send"].tap()

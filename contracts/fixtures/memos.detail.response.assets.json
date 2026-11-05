@@ -1,6 +1,6 @@
 {
   "id": "c3a7e1f4-52d8-4b96-8a0e-7d1f6b2c9e35",
-  "mode": "chat",
+  "mode": "hermes",
   "device": "iphone",
   "startedAt": "2026-03-14T09:20:41.000Z",
   "state": "notified",

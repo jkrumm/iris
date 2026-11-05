@@ -11,26 +11,6 @@
         }
       }
     },
-    "Auto" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Auto"
-          }
-        }
-      }
-    },
-    "Chat" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Chat"
-          }
-        }
-      }
-    },
     "Connect Iris to your server in Settings first." : {
       "localizations" : {
         "de" : {
@@ -141,16 +121,6 @@
         }
       }
     },
-    "Journal" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Journal"
-          }
-        }
-      }
-    },
     "Memo" : {
       "localizations" : {
         "de" : {
@@ -161,12 +131,12 @@
         }
       }
     },
-    "Needs a route" : {
+    "Open Iris and start a voice memo that is only transcribed." : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Route erforderlich"
+            "value" : "Iris öffnen und ein Sprachmemo starten, das nur transkribiert wird."
           }
         }
       }
@@ -311,6 +281,16 @@
         }
       }
     },
+    "Start a voice memo that is only transcribed." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ein Sprachmemo starten, das nur transkribiert wird."
+          }
+        }
+      }
+    },
     "Start a voice memo." : {
       "localizations" : {
         "de" : {
@@ -351,16 +331,6 @@
         }
       }
     },
-    "Tab" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Tab"
-          }
-        }
-      }
-    },
     "This memo has no reply to play." : {
       "localizations" : {
         "de" : {
@@ -381,22 +351,32 @@
         }
       }
     },
+    "Transcribe recorder" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Transkriptions-Rekorder"
+          }
+        }
+      }
+    },
+    "Transcribe with Iris" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mit Iris transkribieren"
+          }
+        }
+      }
+    },
     "Uploading" : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Wird hochgeladen"
-          }
-        }
-      }
-    },
-    "Where should this go?" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Wohin damit?"
           }
         }
       }

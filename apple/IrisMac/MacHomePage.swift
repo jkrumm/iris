@@ -3,12 +3,14 @@ import IrisCore
 import IrisUI
 import SwiftUI
 
-/// The popover's home (`mac.html` `.menu`): the title with the Record button, the newest memos, the two menu lines and the
+/// The popover's home (`mac.html` `.menu`): the title with the Hermes and Transcribe buttons, the newest memos, the two menu lines and the
 /// connection line.
 struct MacHomePage: View {
   let root: MacCompositionRoot
   /// The mockup shows four rows; the newest five fit a popover.
   private static let recentCount = 5
+  /// The symbol of the Hermes button.
+  private static let hermesSymbol = "sparkles"
 
   var body: some View {
     VStack(alignment: .leading, spacing: Theme.Spacing.menuGap) {
@@ -46,38 +48,57 @@ struct MacHomePage: View {
         .themeFont(.callout, weight: .semibold)
         .foregroundStyle(Theme.Ink.primary)
       Spacer()
-      recordButton
+      takeButtons
     }
     .padding(.top, Theme.Spacing.menuHeaderTop)
     .padding(.bottom, Theme.Spacing.menuHeaderBottom)
     .padding(.horizontal, Theme.Spacing.menuHeaderSide)
   }
 
-  /// Toggles a take like the global key does.
-  private var recordButton: some View {
-    Button {
-      root.recording.toggle()
-    } label: {
-      HStack(spacing: Theme.Spacing.xs) {
-        Image(systemName: root.recording.isRecording ? "stop.fill" : "mic")
-        Text(
-          root.recording.isRecording
-            ? String(localized: "Stop", comment: "Stops the take")
-            : String(localized: "Record", comment: "Starts a take from the menu-bar panel")
-        )
-        if !root.recording.isRecording, let shortcut = root.hotkey.shortcutDescription {
-          Text(verbatim: shortcut).fontWeight(.medium).opacity(0.7)
+  /// Hermes (primary, with the global key's shortcut) and Transcribe start a take in their mode; while a take runs one Stop
+  /// button ends it, whichever mode it is in.
+  @ViewBuilder private var takeButtons: some View {
+    if root.recording.isRecording {
+      Button {
+        root.recording.toggle(mode: .hermes)
+      } label: {
+        HStack(spacing: Theme.Spacing.xs) {
+          Image(systemName: "stop.fill")
+          Text(String(localized: "Stop", comment: "Stops the take"))
         }
+        .modifier(TakeButtonStyle(prominent: true))
       }
-      .themeFont(.footnote, weight: .semibold)
-      .foregroundStyle(Theme.Accent.tint)
-      .padding(.horizontal, Theme.Spacing.menuButtonHorizontal)
-      .padding(.vertical, Theme.Spacing.menuButtonVertical)
-      .background(Theme.Accent.tint.opacity(0.18), in: .capsule)
-      .contentShape(.capsule)
+      .buttonStyle(.plain)
+      .accessibilityIdentifier("mac.record")
+    } else {
+      HStack(spacing: Theme.Spacing.xs) {
+        Button {
+          root.recording.toggle(mode: .transcribe)
+        } label: {
+          HStack(spacing: Theme.Spacing.xs) {
+            Image(systemName: "text.alignleft")
+            Text(String(localized: "Transcribe", comment: "Starts a transcript-only take from the menu-bar panel"))
+          }
+          .modifier(TakeButtonStyle(prominent: false))
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("mac.record.transcribe")
+        Button {
+          root.recording.toggle(mode: .hermes)
+        } label: {
+          HStack(spacing: Theme.Spacing.xs) {
+            Image(systemName: Self.hermesSymbol)
+            Text(String(localized: "Hermes", comment: "Starts a take Hermes acts on, from the menu-bar panel"))
+            if let shortcut = root.hotkey.shortcutDescription {
+              Text(verbatim: shortcut).fontWeight(.medium).opacity(0.7)
+            }
+          }
+          .modifier(TakeButtonStyle(prominent: true))
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("mac.record")
+      }
     }
-    .buttonStyle(.plain)
-    .accessibilityIdentifier("mac.record")
   }
 
   @ViewBuilder private var recent: some View {
@@ -136,5 +157,21 @@ struct MacMenuLine: View {
     .buttonStyle(.plain)
     .onHover { hovering = $0 }
     .accessibilityIdentifier(id)
+  }
+}
+
+/// A capsule button face of the popover's header: the accent one is the primary take, the muted one the secondary.
+private struct TakeButtonStyle: ViewModifier {
+  let prominent: Bool
+
+  func body(content: Content) -> some View {
+    let color = prominent ? Theme.Accent.tint : Theme.Ink.secondary
+    content
+      .themeFont(.footnote, weight: .semibold)
+      .foregroundStyle(color)
+      .padding(.horizontal, Theme.Spacing.menuButtonHorizontal)
+      .padding(.vertical, Theme.Spacing.menuButtonVertical)
+      .background(color.opacity(prominent ? 0.18 : 0.12), in: .capsule)
+      .contentShape(.capsule)
   }
 }

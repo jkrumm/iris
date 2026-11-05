@@ -66,7 +66,7 @@ struct TakeFollowsLateOutboxTests {
 
     // The queue opens (Reset outbox, the first unlock, a refresh all end up here) and a take starts.
     await rig.service.resume()
-    try await controller.start(mode: .auto)
+    try await controller.start(mode: .hermes)
 
     #expect(await waitFor { model.state.phase == .recording && model.showsFull }, "the update reached the take screen")
     for _ in 0..<200 where model.levels.last != 0.5 {

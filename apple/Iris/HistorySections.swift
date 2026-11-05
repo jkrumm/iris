@@ -1,11 +1,10 @@
 import Foundation
 import IrisCore
 
-/// A run of consecutive memos from one calendar day. History is already newest first (pinned rows on top), so the
-/// sections follow the list order: a pinned memo from an older day gets its own header above Today.
+/// A run of consecutive memos from one calendar day. History is already newest first, so the sections follow the list order.
 struct HistoryDaySection: Identifiable {
-  /// The day alone is not an identity: a pinned memo from yesterday and yesterday's own memos are two sections of the same
-  /// day, with today's in between. `occurrence` counts the sections of that day in list order (0 for the first).
+  /// The day alone is not an identity: `occurrence` counts the sections of that day in list order (0 for the first), so
+  /// two runs of one day never share an id.
   struct ID: Hashable {
     let day: Date
     let occurrence: Int

@@ -38,19 +38,18 @@ struct ComposerModelTests {
   @Test("the text is sent trimmed with the chosen mode, and the memo comes back typed")
   func sends() async throws {
     let (composer, _) = model()
-    composer.mode = .chat
     composer.text = "  Which Postgres index fits? \n"
-    guard case .sent(let memo)? = await composer.send() else {
+    guard case .sent(let memo)? = await composer.send(mode: .transcribe) else {
       Issue.record("expected the memo")
       return
     }
 
-    #expect(memo.isTyped && memo.mode == .chat && memo.transcript == "Which Postgres index fits?")
+    #expect(memo.isTyped && memo.mode == .transcribe && memo.transcript == "Which Postgres index fits?")
     #expect(
       await client.calls == [
         .createTextMemo(
           CreateTextMemoRequest(
-            id: firstID, mode: .chat, startedAt: MemoFactory.now, text: "Which Postgres index fits?"))
+            id: firstID, mode: .transcribe, startedAt: MemoFactory.now, text: "Which Postgres index fits?"))
       ])
   }
 
@@ -58,7 +57,7 @@ struct ComposerModelTests {
     "a refusal the server will repeat keeps the composer open with the text and the reason, and sends nothing twice")
   func stalledKeepsTheText() async throws {
     // An unknown thread is a 404: waiting does not help.
-    let (composer, rig) = model(ComposerRequest(mode: .hermes, threadId: "gone"))
+    let (composer, rig) = model(ComposerRequest(threadId: "gone"))
     composer.text = "do not lose me"
 
     #expect(await composer.send() == nil, "the sheet stays open")
@@ -100,13 +99,12 @@ struct ComposerModelTests {
 
   @Test("a reply continues the thread of the memo it answers")
   func replyContinuesTheThread() async throws {
-    var spoken = MemoFactory.memo("m", mode: .chat)
-    spoken.threadId = "thread-1"
+    let spoken = MemoFactory.memo("m", threadId: "thread-1")
     let request = ComposerRequest.reply(to: spoken)
-    #expect(request.threadId == "thread-1" && request.mode == .chat)
+    #expect(request.threadId == "thread-1")
 
     let thread = MemoThread(
-      id: "thread-1", kind: .chat, title: "Q", createdAt: MemoFactory.now, updatedAt: MemoFactory.now)
+      id: "thread-1", kind: "hermes", title: "Q", createdAt: MemoFactory.now, updatedAt: MemoFactory.now)
     await client.seed(ThreadDetail(thread: thread, memos: [], messages: []))
     let (composer, _) = model(request)
     composer.text = "and a second question"
@@ -117,15 +115,37 @@ struct ComposerModelTests {
     #expect(memo.threadId == "thread-1")
   }
 
-  @Test("a memo outside a thread is answered with a fresh chat")
+  @Test("a memo outside a thread is answered with a fresh Hermes memo")
   func replyWithoutAThread() {
     let request = ComposerRequest.reply(to: MemoFactory.memo("m", mode: .hermes))
-    #expect(request.threadId == nil && request.mode == .chat)
+    #expect(request.threadId == nil)
   }
 
-  @Test("the composer offers every mode the server accepts")
-  func modes() {
-    #expect(ComposerModel.modes == [.auto, .journal, .hermes, .tab, .chat, .transcribe])
+  @Test("each send button sends its own mode; Hermes is the default")
+  func twoSends() async throws {
+    let (composer, _) = model()
+    #expect(composer.offersTranscribe)
+    composer.text = "first"
+    guard case .sent(let hermes)? = await composer.send() else {
+      Issue.record("expected the memo")
+      return
+    }
+    #expect(hermes.mode == .hermes)
+    composer.text = "second"
+    guard case .sent(let transcript)? = await composer.send(mode: .transcribe) else {
+      Issue.record("expected the memo")
+      return
+    }
+    #expect(transcript.mode == .transcribe)
+  }
+
+  @Test("a reply in a thread offers only the Hermes send and refuses Transcribe")
+  func threadReplyIsHermesOnly() async {
+    let (composer, _) = model(.reply(toThread: "thread-1"))
+    composer.text = "and more"
+    #expect(!composer.offersTranscribe)
+    #expect(await composer.send(mode: .transcribe) == nil)
+    #expect(await client.calls.isEmpty, "nothing reached the server")
   }
 
   @Test("Cancel is off while a send is on the wire and back once it answers")

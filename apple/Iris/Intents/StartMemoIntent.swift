@@ -4,8 +4,10 @@ import AppIntents
 /// the widget extension too (the Control names the type), where no handler exists and `perform()` is never the one that runs.
 @MainActor
 protocol CaptureIntentHandler: AnyObject {
-  /// Starts a take in `auto` mode and the Live Activity that goes with it (Apple stops a background recording that has none).
+  /// Starts a take in `hermes` mode and the Live Activity that goes with it (Apple stops a background recording that has none).
   func startMemo() async throws
+  /// Starts a take in `transcribe` mode (only the transcript comes back) with its Live Activity: the Transcribe control.
+  func startTranscribeMemo() async throws
   /// Ends the running take and sends it (the Live Activity's Stop). Nothing running is not an error.
   func endTake() async throws
   /// Pauses the running take, or resumes a paused one (the Live Activity's pause button).
@@ -88,6 +90,16 @@ enum RecorderDestination: String, AppEnum {
   ]
 }
 
+/// The one thing the Transcribe control opens. Its own type: every `OpenIntent` needs a target type no other one has.
+enum TranscribeRecorderDestination: String, AppEnum {
+  case recorder
+
+  static let typeDisplayRepresentation = TypeDisplayRepresentation(name: "Transcribe recorder")
+  static let caseDisplayRepresentations: [TranscribeRecorderDestination: DisplayRepresentation] = [
+    .recorder: DisplayRepresentation(title: "Transcribe recorder")
+  ]
+}
+
 /// What the Record control runs. WidgetKit performs a control's intent in the widget extension, in the background, and the
 /// extension cannot record; only an `OpenIntent` that is in both targets makes the system bring the app to the foreground
 /// and perform the intent there. On the Lock Screen a button is inactive until the device is unlocked, so the policy asks for
@@ -109,6 +121,26 @@ struct OpenRecorderIntent: OpenIntent {
   @MainActor
   func perform() async throws -> some IntentResult {
     try await CaptureIntents.run(self, named: "OpenRecorderIntent") { try await $0.startMemo() }
+    return .result()
+  }
+}
+
+/// What the Transcribe control runs: the same road as ``OpenRecorderIntent`` (unlock, open the app, start in the foreground),
+/// for a take whose memo is only transcribed. A second type, not a parameter, because a control's intent takes none.
+struct OpenTranscribeRecorderIntent: OpenIntent {
+  static let title: LocalizedStringResource = "Transcribe with Iris"
+  static let description = IntentDescription("Open Iris and start a voice memo that is only transcribed.")
+  static let isDiscoverable = false
+  static let authenticationPolicy: IntentAuthenticationPolicy = .requiresAuthentication
+
+  @Parameter(title: "Destination")
+  var target: TranscribeRecorderDestination
+
+  init() { target = .recorder }
+
+  @MainActor
+  func perform() async throws -> some IntentResult {
+    try await CaptureIntents.run(self, named: "OpenTranscribeRecorderIntent") { try await $0.startTranscribeMemo() }
     return .result()
   }
 }

@@ -35,7 +35,7 @@ final class MacCompositionRoot {
   }
 
   let mode: Mode
-  /// The popover's memo list (always unfiltered: the newest memos, the needs-route count) of the current connection; a
+  /// The popover's memo list (always unfiltered: the newest memos) of the current connection; a
   /// connection change replaces it, so nothing of the old server stays.
   private(set) var history: HistoryModel
   /// The main window's own list: the sidebar scope and the search narrow it, so it never fights the popover's. It loads and follows
@@ -121,9 +121,8 @@ final class MacCompositionRoot {
   private var baseAPI: any APIClient
   /// Every event of the current connection's one stream, mirrored for the main window's list.
   private var windowEvents: AsyncStream<ServerEvent>
-  /// The detail pane's model and the route answer's, one each (see ``detailModel(for:)``).
+  /// The detail pane's model (see ``detailModel(for:)``).
   @ObservationIgnored private var detailCache: MacMemoDetailModel?
-  @ObservationIgnored private var routeCache: RouteAnswerModel?
   /// The main window is on screen: its list takes the mirrored events.
   private var isWindowOpen = false
   private var following: Task<Void, Never>?
@@ -201,7 +200,7 @@ final class MacCompositionRoot {
     // The catch-up reads the newest memos with no filter: History's filters decide what its list shows, not what is announced.
     notifier.fetchRecent = { [weak self] in
       guard let page = try? await self?.api.listMemos(ListMemosQuery(limit: 50)) else { return nil }
-      return page.pinned + page.items
+      return page.items
     }
     wireCreatedMemos()
     wireTelemetry()
@@ -499,21 +498,10 @@ final class MacCompositionRoot {
     }
   }
 
-  /// The model that answers a parked memo (or corrects a finished one) from the detail pane. `onStale` reloads the memo. One per
-  /// memo and state, kept until another is asked for: the views ask on every render and must get the same model.
-  func routeAnswerModel(for memo: Memo, onStale: @escaping () -> Void = {}) -> RouteAnswerModel {
-    if let cached = routeCache, cached.memo.id == memo.id, cached.memo.state == memo.state { return cached }
-    let model = RouteAnswerModel(memo: memo, client: api, onStale: onStale)
-    routeCache = model
-    return model
-  }
-
   /// The model behind the detail pane for `id`: the list's copy of the memo shows at once, the first load brings the steps. One per
   /// memo, kept until another memo is asked for or the connection changes.
   func detailModel(for id: String) -> MacMemoDetailModel {
     if let cached = detailCache, cached.memoID == id { return cached }
-    // A new detail model is a new pane: the route model's `onStale` belongs to the old pane, so it goes too.
-    routeCache = nil
     let model = MacMemoDetailModel(
       memoID: id, memo: (windowHistory.memos + history.memos).first { $0.id == id }, client: api,
       pasteboard: MacPasteboard())
@@ -541,7 +529,6 @@ final class MacCompositionRoot {
     queues = [:]
     deletingIDs = []
     detailCache = nil
-    routeCache = nil
     capture?.reconnect(credentials.load())
     log.serverChanged(credentials.load()?.serverURL)
     selectedMemoID = nil

@@ -78,32 +78,32 @@
       WidgetSnapshotSupport.assertBare(
         lastMemo(done, .systemSmall, background: false), family: .systemSmall, name: "last-memo-done", wallpaper: false)
       WidgetSnapshotSupport.assertBare(
-        lastMemo(WidgetSamples.line(.needsRoute, headline: "Router bestellen"), .systemSmall, background: false),
-        family: .systemSmall, name: "last-memo-needs-route", wallpaper: false)
+        lastMemo(WidgetSamples.line(.failed), .systemSmall, background: false),
+        family: .systemSmall, name: "last-memo-failed", wallpaper: false)
       WidgetSnapshotSupport.assertBare(
         record(.systemSmall), family: .systemSmall, name: "record", wallpaper: false)
     }
 
     @Test("German strings fit: small and rectangular", .tags(.snapshot))
     func german() {
-      let needsRoute = WidgetSamples.line(.needsRoute, headline: "Router bestellen und Netzwerkplan prüfen")
+      let done = WidgetSamples.line(.done, headline: "Router bestellen und Netzwerkplan prüfen")
       WidgetSnapshotSupport.assertHome(
-        lastMemo(needsRoute, .systemSmall), family: .systemSmall, name: "small-needs-route", locale: "de")
+        lastMemo(done, .systemSmall), family: .systemSmall, name: "small-done", locale: "de")
       WidgetSnapshotSupport.assertHome(
         lastMemo(.noData, .systemMedium), family: .systemMedium, name: "medium-no-data", locale: "de")
       WidgetSnapshotSupport.assertBare(
         lastMemo(WidgetSamples.line(.processing), .accessoryRectangular, rendering: .vibrant, background: false),
         family: .accessoryRectangular, name: "rectangular-processing", locale: "de")
       WidgetSnapshotSupport.assertBare(
-        lastMemo(needsRoute, .accessoryInline, rendering: .vibrant, background: false),
-        family: .accessoryInline, name: "inline-needs-route", locale: "de")
+        lastMemo(done, .accessoryInline, rendering: .vibrant, background: false),
+        family: .accessoryInline, name: "inline-done", locale: "de")
     }
 
     @Test("accented and vibrant rendering: no state color, the accent group marked", .tags(.snapshot))
     func monochrome() {
-      let needsRoute = WidgetSamples.line(.needsRoute, headline: "Router bestellen und Netzwerkplan prüfen")
+      let done = WidgetSamples.line(.done, headline: "Router bestellen und Netzwerkplan prüfen")
       WidgetSnapshotSupport.assertBare(
-        lastMemo(needsRoute, .systemSmall, rendering: .accented, background: false), family: .systemSmall,
+        lastMemo(done, .systemSmall, rendering: .accented, background: false), family: .systemSmall,
         name: "last-memo-accented")
       WidgetSnapshotSupport.assertBare(
         record(.systemSmall, rendering: .accented), family: .systemSmall, name: "record-accented")

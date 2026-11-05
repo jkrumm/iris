@@ -43,8 +43,8 @@ struct MemoDetailModelTests {
     await client.setStats(
       Stats(
         days: 30, from: "a", to: "b",
-        stepMedians: [StatsStepMedian(step: .act, route: "hermes", medianMs: 5_000, samples: 30)]))
-    let memo = MemoFactory.memo("m", route: "hermes")
+        stepMedians: [StatsStepMedian(step: .act, kind: "task", medianMs: 5_000, samples: 30)]))
+    let memo = MemoFactory.memo("m", kind: "task")
     let detail = await model(memo, steps: [MemoFactory.step(.act, at: 0, for: 10)])
     #expect(detail.detail.steps.isEmpty)
 
@@ -79,6 +79,13 @@ struct MemoDetailModelTests {
     let detail = await model(failed())
     #expect(detail.retrySteps == [.transcribe, .route, .act, .summarize])
     #expect(detail.primaryRetryStep == .summarize)
+  }
+
+  @Test("a new memo that failed at act retries from transcribe or act, never from the retired steps")
+  func newPipelineRetryChoices() async {
+    let detail = await model(MemoFactory.memo("f", state: .failed, failedStep: .act, error: "boom"))
+    #expect(detail.retrySteps == [.transcribe, .act])
+    #expect(detail.primaryRetryStep == .act)
   }
 
   @Test("a typed memo has no recording, so it cannot retry from transcribe")

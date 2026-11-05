@@ -43,7 +43,7 @@ describe("notify", () => {
     expect(events(lines)).toEqual(["notify.no_token"]);
   });
 
-  it("sends the Live Activity end and the alert to the device's environment", async () => {
+  it("sends only the Live Activity end, carrying the alert, to the device's environment", async () => {
     const { notifier, memo, transport, devices } = setup({ apnsEnv: "production" });
     devices.registerDevice({ ...phone, apnsToken: "aa11" });
     devices.setActivityToken({ memoId: memo.id, token: "bb22" });
@@ -57,10 +57,13 @@ describe("notify", () => {
         c.headers.pushType,
         c.headers.topic,
       ]),
-    ).toEqual([
-      ["bb22", "production", "liveactivity", `${TOPIC}.push-type.liveactivity`],
-      ["aa11", "production", "alert", TOPIC],
-    ]);
+    ).toEqual([["bb22", "production", "liveactivity", `${TOPIC}.push-type.liveactivity`]]);
+    expect(transport.calls[0]?.payload).toMatchObject({
+      aps: {
+        event: "end",
+        alert: { title: "Iris", body: "Buy milk", sound: "default" },
+      },
+    });
   });
 
   it("defaults to the sandbox when the device never reported an environment", async () => {
@@ -191,10 +194,9 @@ describe("notify", () => {
 
   it("sends the alert with the memo id as collapse id so a retry replaces the banner", async () => {
     const { notifier, memo, devices, transport } = setup({
-      results: [{ ok: true }, { ok: false, status: 503, reason: "ServiceUnavailable" }],
+      results: [{ ok: false, status: 503, reason: "ServiceUnavailable" }],
     });
     devices.registerDevice({ ...phone, apnsToken: "aa11" });
-    devices.setActivityToken({ memoId: memo.id, token: "bb22" });
 
     await expect(notifier.notify({ memo, summary })).rejects.toThrow("503");
     await notifier.notify({ memo, summary });
@@ -248,7 +250,7 @@ describe("notify", () => {
     expect(devices.getDevice("iphone")?.apnsToken).toBe("aa11");
   });
 
-  it("still sends the alert when the Live Activity end failed transiently, then throws", async () => {
+  it("throws without an alert when the Live Activity end failed transiently, and a retry re-sends the end only", async () => {
     const { notifier, memo, devices, transport } = setup({
       results: [{ ok: false, status: 503, reason: "ServiceUnavailable" }],
     });
@@ -256,7 +258,25 @@ describe("notify", () => {
     devices.setActivityToken({ memoId: memo.id, token: "bb22" });
 
     await expect(notifier.notify({ memo, summary })).rejects.toThrow("503");
-    expect(transport.calls).toHaveLength(2);
+    await notifier.notify({ memo, summary });
+    expect(transport.calls.map((c) => c.headers.pushType)).toEqual([
+      "liveactivity",
+      "liveactivity",
+    ]);
+  });
+
+  it("falls back to the alert when the Live Activity end is refused for good (the activity is gone)", async () => {
+    const { notifier, memo, devices, transport } = setup({
+      results: [{ ok: false, status: 410, reason: "Unregistered" }],
+    });
+    devices.registerDevice({ ...phone, apnsToken: "aa11" });
+    devices.setActivityToken({ memoId: memo.id, token: "bb22" });
+
+    await notifier.notify({ memo, summary });
+
+    expect(transport.calls.map((c) => c.headers.pushType)).toEqual(["liveactivity", "alert"]);
+    expect(devices.getActivityToken(memo.id)).toBeNull();
+    expect(devices.getDevice("iphone")?.apnsToken).toBe("aa11");
   });
 });
 

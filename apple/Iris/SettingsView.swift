@@ -22,7 +22,6 @@ struct SettingsView: View {
           outbox
           setAside
           playback
-          RouteConfigEntry(micRules: micRules)
           microphone
         }
         .padding(.horizontal, Theme.Spacing.screenMargin)
@@ -367,7 +366,7 @@ extension QueuedItem.Kind {
     switch self {
     case .voiceMemo, .voiceReply: "waveform"
     case .typedMemo: "square.and.pencil"
-    case .chatMessage, .textReply: "text.bubble"
+    case .textReply: "text.bubble"
     case .removal: "trash"
     }
   }
@@ -377,7 +376,6 @@ extension QueuedItem.Kind {
     case .voiceMemo: String(localized: "Voice memo", comment: "Outbox item kind")
     case .voiceReply: String(localized: "Voice reply", comment: "Outbox item kind")
     case .typedMemo: String(localized: "Typed memo", comment: "Outbox item kind")
-    case .chatMessage: String(localized: "Chat message", comment: "Outbox item kind")
     case .textReply: String(localized: "Reply", comment: "Outbox item kind")
     case .removal:
       String(localized: "Discarded memo", comment: "Outbox item kind: its removal from the server is queued")

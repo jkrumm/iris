@@ -65,7 +65,7 @@ struct LastMemoSnapshotTests {
     let old = Self.t0.addingTimeInterval(LastMemoSnapshot.staleAfter + 1)
     #expect(snapshot(phase: .processing).isStale(at: old))
     #expect(!snapshot(phase: .processing).isStale(at: Self.t0.addingTimeInterval(60)))
-    for settled in [LastMemoSnapshot.Phase.done, .failed, .needsRoute] {
+    for settled in [LastMemoSnapshot.Phase.done, .failed] {
       #expect(!snapshot(phase: settled).isStale(at: old.addingTimeInterval(86_400)))
     }
   }
@@ -73,7 +73,7 @@ struct LastMemoSnapshotTests {
 
 struct LastMemoSnapshotStoreTests {
   private static let value = LastMemoSnapshot(
-    memoID: "memo-1", createdAt: Date(timeIntervalSince1970: 1_800_000_000), phase: .needsRoute, routeChip: "Hermes",
+    memoID: "memo-1", createdAt: Date(timeIntervalSince1970: 1_800_000_000), phase: .failed, routeChip: "Answer",
     headline: "Router bestellen", updatedAt: Date(timeIntervalSince1970: 1_800_000_060))
 
   private func temporaryDirectory() -> URL {
@@ -117,6 +117,19 @@ struct LastMemoSnapshotStoreTests {
     defer { try? FileManager.default.removeItem(at: directory) }
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
     try Data("{not json".utf8).write(to: directory.appending(path: FileLastMemoSnapshotStore.fileName))
+    #expect(FileLastMemoSnapshotStore(directory: directory).load() == nil)
+  }
+
+  @Test("a file a previous build wrote with the retired needsRoute phase reads as no data")
+  func legacyPhase() throws {
+    let directory = temporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: directory) }
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    let legacy = """
+      {"createdAt":"2026-10-30T10:00:00Z","headline":"Router bestellen","memoID":"memo-1","phase":"needsRoute",\
+      "routeChip":"Hermes","updatedAt":"2026-10-30T10:01:00Z"}
+      """
+    try Data(legacy.utf8).write(to: directory.appending(path: FileLastMemoSnapshotStore.fileName))
     #expect(FileLastMemoSnapshotStore(directory: directory).load() == nil)
   }
 
@@ -351,7 +364,7 @@ struct LastMemoTimelinePlanTests {
 
   @Test("settled snapshots have a single entry however old they are")
   func settled() {
-    for phase in [LastMemoSnapshot.Phase.done, .failed, .needsRoute] {
+    for phase in [LastMemoSnapshot.Phase.done, .failed] {
       let plan = LastMemoTimelinePlan(snapshot: snapshot(phase), now: Self.now.addingTimeInterval(86_400))
       #expect(plan.entries.count == 1)
       #expect(plan.entries[0].content != .idle)
@@ -365,12 +378,11 @@ struct LastMemoTimelinePlanTests {
     #expect(plan.entries == [.init(date: late, content: .idle, relevance: nil)])
   }
 
-  @Test("relevance: needs a route outranks failed, processing and done")
+  @Test("relevance: failed outranks processing and done")
   func relevance() throws {
     func score(_ phase: LastMemoSnapshot.Phase) throws -> Float {
       try #require(LastMemoTimelinePlan(snapshot: snapshot(phase), now: Self.now).entries[0].relevance).score
     }
-    #expect(try score(.needsRoute) > score(.failed))
     #expect(try score(.failed) > score(.processing))
     #expect(try score(.processing) > score(.done))
     #expect(try score(.done) > 0)

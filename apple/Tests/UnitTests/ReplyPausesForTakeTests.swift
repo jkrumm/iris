@@ -65,7 +65,7 @@ struct ReplyPausesForTakeTests {
     await speech.play(memo, source: source)
     #expect(speech.isPlaying(memo.id) && !controller.captureActive)
 
-    try await controller.start(mode: .auto)
+    try await controller.start(mode: .hermes)
 
     #expect(probe.sawActive == true, "set on entry to begin, before the permission or the session")
     #expect(controller.captureActive)
@@ -76,7 +76,7 @@ struct ReplyPausesForTakeTests {
     #expect(!speech.isPlaying(memo.id), "ending the take does not resume it")
 
     let refused = makeController(OutboxRig(client: client), speech: SpeechPlayer(), isConfigured: false)
-    await #expect(throws: StartMemoError.self) { try await refused.start(mode: .auto) }
+    await #expect(throws: StartMemoError.self) { try await refused.start(mode: .hermes) }
     #expect(!refused.captureActive, "a start that never began leaves no claim")
   }
 
@@ -86,7 +86,7 @@ struct ReplyPausesForTakeTests {
     let rig = OutboxRig(client: client, recorder: { StopGatedRecorder(base: $0, gate: gate) })
     let speech = SpeechPlayer()
     let controller = makeController(rig, speech: speech)
-    try await controller.start(mode: .auto)
+    try await controller.start(mode: .hermes)
     await rig.capture.recordWithoutClock(seconds: 12)
 
     let stopping = Task { try await controller.stop() }
@@ -109,7 +109,7 @@ struct ReplyPausesForTakeTests {
     playback.attach()
     await playback.recording.load(source.audio(for: memo))
 
-    try await controller.start(mode: .auto)
+    try await controller.start(mode: .hermes)
     // A Play that fetched its memo before the take reaches the player now.
     #expect(await speech.play(memo, source: source) == false)
     await speech.toggle(memo, source: source)
@@ -134,7 +134,7 @@ struct ReplyPausesForTakeTests {
 
     let voice = rig.voice(
       claim: { controller.claimCapture() }, release: { await controller.releaseCapture($0) })
-    try await voice.begin(VoiceReplyRequest(threadId: "thread-1", mode: .chat))
+    try await voice.begin(VoiceReplyRequest(threadId: "thread-1", mode: .hermes))
 
     #expect(controller.captureActive && !speech.isPlaying(memo.id))
     #expect(await speech.play(memo, source: source) == false)
@@ -154,7 +154,7 @@ struct ReplyPausesForTakeTests {
       claim: { controller.claimCapture() }, release: { await controller.releaseCapture($0) })
 
     await #expect(throws: CaptureError.self) {
-      try await voice.begin(VoiceReplyRequest(threadId: "thread-1", mode: .chat))
+      try await voice.begin(VoiceReplyRequest(threadId: "thread-1", mode: .hermes))
     }
     #expect(!controller.captureActive, "the take never opened")
   }
@@ -184,7 +184,7 @@ struct ReplyPausesForTakeTests {
     let speech = SpeechPlayer()
     let controller = makeController(rig, speech: speech)
 
-    try await controller.start(mode: .auto)
+    try await controller.start(mode: .hermes)
 
     #expect(!speech.isBusy && speech.memoID == nil)
     try await controller.stop()

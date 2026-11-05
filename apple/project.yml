@@ -22,7 +22,7 @@ settings:
     GENERATE_INFOPLIST_FILE: NO
     ENABLE_USER_SCRIPT_SANDBOXING: YES
     # Signing is injected per invocation (simulator builds pass CODE_SIGNING_ALLOWED=NO; device and TestFlight
-    # builds pass DEVELOPMENT_TEAM). No team id is tracked here.
+    # builds pass DEVELOPMENT_TEAM, read from op://mini/apple-developer). No team id is tracked here.
     CODE_SIGN_STYLE: Automatic
     # String catalogs (TDD §4 "Localization"): the compiler extracts every localizable literal of every target, and
     # `scripts/check-strings.ts` holds the catalogs to it.
@@ -73,7 +73,7 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.jkrumm.iris
         TARGETED_DEVICE_FAMILY: "1"
         IRIS_BUILD_SHA: dev
-        # `scripts/device-build.sh` points these at copies without `aps-environment` (app) and the App Group (all three) while the team is a Personal Team.
+        # `scripts/device-build.sh` points these at copies without `aps-environment` (app) and the App Group (all three) for DEVICE_SIGNING=personal only; the paid default keeps the tracked files.
         IRIS_APP_ENTITLEMENTS: Iris/Iris.entitlements
         CODE_SIGN_ENTITLEMENTS: $(IRIS_APP_ENTITLEMENTS)
     dependencies:
@@ -121,7 +121,7 @@ targets:
           NSExtensionPointIdentifier: com.apple.usernotifications.content-extension
           NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).NotificationViewController
           NSExtensionAttributes:
-            UNNotificationExtensionCategory: [MEMO_DONE, MEMO_NEEDS_ROUTE]
+            UNNotificationExtensionCategory: [MEMO_DONE]
             UNNotificationExtensionInitialContentSizeRatio: 0.4
             UNNotificationExtensionDefaultContentHidden: true
     settings:
@@ -161,8 +161,7 @@ targets:
       - Iris/WaterfallBuilder.swift
       - Iris/ReplyMarkdown.swift
       - Iris/Pasteboard.swift
-      # The desktop app: the route answer, the media download behind Play, the thread read.
-      - Iris/RouteAnswerModel.swift
+      # The desktop app: the media download behind Play, the thread read.
       - Iris/MediaDownloader.swift
       - Iris/MemoMediaSource.swift
       - Iris/FakeDiagramImage.swift

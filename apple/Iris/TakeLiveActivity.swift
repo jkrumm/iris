@@ -95,7 +95,6 @@ nonisolated enum StaleActivityRule {
   static func finalState(of memo: Memo) -> LiveActivityContentState {
     switch memo.state {
     case .failed: LiveActivityContentState(phase: .failed, hasReply: false)
-    case .needsRoute: LiveActivityContentState(phase: .needsRoute, hasReply: false)
     default: LiveActivityContentState(phase: .done, hasReply: memo.hasReply && !memo.isDeleted)
     }
   }
@@ -105,7 +104,7 @@ nonisolated enum StaleActivityRule {
   static func yieldsToNewTake(_ activity: HandedOverActivity) -> Bool {
     switch activity.phase {
     case .done, .failed: true
-    case .processing, .needsRoute: !activity.remoteUpdates
+    case .processing: !activity.remoteUpdates
     case .recording, .paused, .uploading: false
     }
   }
