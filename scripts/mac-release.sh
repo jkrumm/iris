@@ -12,7 +12,7 @@
 # Hardened Runtime, audio-input, no sandbox), [notarize + staple], ditto zip, appcast through `generate_appcast`, verify the
 # appcast's EdDSA signature against the zip, `gh release create` with the zip + appcast.xml. Nothing is written back to the repo.
 #
-# Secrets (never in argv or a log): team id and the ASC Team key from op://mini/apple-developer via secrets-run (never `op`),
+# Secrets (never in argv or a log, except the signing keychain's password, which `security unlock-keychain` only takes as -p): team id and the ASC Team key from op://mini/apple-developer via secrets-run (never `op`),
 # the Sparkle EdDSA key from SPARKLE_KEY_FILE (default ~/.local/state/apple-developer/sparkle-ed25519.key, `generate_keys -x`):
 # `sign_update` and `generate_appcast` hang on the login keychain's access prompt when run headless, so the key file is the path.
 # The GitHub token is the mini's (op://mini/github/token) unless GH_TOKEN is set.
@@ -22,8 +22,7 @@
 # script stops with the submission id; RESUME_BUILD=<build> RESUME_NOTARY_ID=<id> picks the same archive up again (no rebuild, no
 # re-sign: a changed byte would void the submission) and waits on that submission.
 #
-# SIGNING_ONLY=1 stops after the signature check (no zip, no release). Mirrors P1's scripts/device-lib.sh helpers (pem_normalize,
-# apple_dev_field, paid_signing_setup); fold them into one library when both are on master.
+# SIGNING_ONLY=1 stops after the signature check (no zip, no release). The team key helpers are scripts/apple-signing-key.sh.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -44,7 +43,6 @@ fi
 
 REPO="${RELEASE_REPO:-jkrumm/iris}"
 APPLE_DIR="${APPLE_DIR:-apple}"
-APPLE_DEV_ITEM="op://mini/apple-developer"
 SPARKLE_KEY_FILE="${SPARKLE_KEY_FILE:-$HOME/.local/state/apple-developer/sparkle-ed25519.key}"
 BUILD="${RESUME_BUILD:-$(git rev-list --count HEAD)}"
 SHA="$(git rev-parse HEAD)"
@@ -69,30 +67,11 @@ trap cleanup EXIT
 
 # --- secrets -------------------------------------------------------------------------------------------------------------
 
-# The key as xcodebuild / notarytool need it: real newlines, 64-character body lines, whatever shape the value arrives in
-# (1Password turns the newlines of a concealed field into spaces; an env file holds a literal \n). Same rule as `normalizePem`
-# (server/src/notify/select.ts). Anything that is not one PEM block is printed as given.
-pem_normalize() {
-  local value label body
-  value="$(printf '%s' "$1" | sed 's/\\n/ /g' | tr -s '[:space:]' ' ')"
-  label="$(printf '%s' "$value" | sed -nE 's/^ *-----BEGIN ([A-Z0-9 ]+)----- .*/\1/p')"
-  if [ -z "$label" ]; then printf '%s\n' "$1"; return; fi
-  body="$(printf '%s' "$value" | sed -E "s/^ *-----BEGIN $label----- *//; s/ *-----END $label----- *\$//" | tr -d '[:space:]')"
-  printf -- '-----BEGIN %s-----\n%s\n-----END %s-----\n' "$label" "$(printf '%s' "$body" | fold -w 64)" "$label"
-}
-
-apple_dev_field() {
-  secrets-run read "$APPLE_DEV_ITEM/$1" || { echo "  secrets-run read $APPLE_DEV_ITEM/$1 failed (make secrets-seed)" >&2; return 1; }
-}
-
+. scripts/apple-signing-key.sh
 TEAM="${TEAM:-$(apple_dev_field team-id)}"
-KEY_ID="$(apple_dev_field asc-key-id)"
-ISSUER="$(apple_dev_field asc-issuer-id)"
-KEY_FILE="$(mktemp "${TMPDIR:-/tmp}/iris-asc-key.XXXXXX")"
-chmod 600 "$KEY_FILE"
-P8="$(apple_dev_field asc-key-p8)"
-pem_normalize "$P8" >"$KEY_FILE"
-unset P8
+paid_signing_setup
+KEY_ID="$ASC_KEY_ID"
+ISSUER="$ASC_ISSUER_ID"
 
 # --- build ---------------------------------------------------------------------------------------------------------------
 

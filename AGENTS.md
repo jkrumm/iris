@@ -144,7 +144,7 @@ the phone (`devicectl list devices`, the connected physical iOS device) resolves
   of the App IDs (the ASC API key cannot create or attach it: owner step, portal > Identifiers > App Groups). The file itself sits at the container root,
   outside what `devicectl copy from` may read (`Library`, `Documents`, `tmp` only): read the log line, not the file.
   `make testflight UPLOAD=0` with the tracked entitlements signs with Apple Distribution, `aps-environment` production and the group on the app and both extensions (verified 2026-11-05).
-- **The key file's life:** 1Password flattened the `.p8` newlines into spaces, so `pem_normalize` (`scripts/device-lib.sh`, the same rule as
+- **The key file's life:** 1Password flattened the `.p8` newlines into spaces, so `pem_normalize` (`scripts/apple-signing-key.sh`, shared by device, TestFlight and Mac release; the same rule as
   `normalizePem` in `server/src/notify/select.ts`) rebuilds real newlines and 64-character body lines into a `mktemp` file with mode 0600; a `trap` on
   `EXIT` deletes it on every exit path. Only the path, key id and issuer id are in argv; the key is in no log and no tracked file.
 - **Personal Team is the fallback** (`DEVICE_SIGNING=personal`): the free team Xcode knows (`defaults export com.apple.dt.Xcode`), no key file. It signs

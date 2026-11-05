@@ -1,5 +1,4 @@
-# Sourced by scripts/testflight.sh (and later device-lib.sh, Wave 21 P1, which defines the same functions today: this file is the
-# shared home once both are merged). The App Store Connect Team key and the team id from op://mini/apple-developer, headless.
+# Sourced by scripts/testflight.sh, device-lib.sh and mac-release.sh: the one home of the signing-key helpers. The App Store Connect Team key and the team id from op://mini/apple-developer, headless.
 # Not run on its own; callers `set -euo pipefail` first and install `trap 'rm -f "${KEY_FILE:-}"' EXIT` before paid_signing_setup.
 
 APPLE_DEV_ITEM="op://mini/apple-developer"
