@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+# apple-slot [--sim] <cmd…> — run an Apple build or test inside the mini's machine budget (reset row 7b).
+#
+#   on the mini  `lockf` (one Apple job at a time: the factory's test slots default to two and are host-wide, not per name)
+#                then `factory slot run --name iris-apple` (the host's load budget; waits on contention, runs the command
+#                anyway only when the factory server is down)
+#   elsewhere    (hosted CI, no `factory`): the bare command
+#
+# --sim   the command may boot a simulator: shut every one down when it ends, success or failure, inside the slot
+#         (KEEP_SIM=1 keeps it for the next step of a hands-on session; `make sim-down` ends it).
+# Re-entrant: IRIS_APPLE_SLOT marks a running wrapper, so a make target called by another one (or by the release hook) runs bare.
+# Exit 75 = no slot or lock within the wait (APPLE_LOCK_WAIT seconds, default 1800 for the lock; FACTORY_SLOT_WAIT_MS for the slot).
+set -u
+
+sim=0
+if [[ "${1:-}" == "--sim" ]]; then
+  sim=1
+  shift
+fi
+[[ $# -gt 0 ]] || { echo "usage: apple-slot [--sim] <cmd…>" >&2; exit 2; }
+
+run() {
+  if (( sim )) && [[ "${KEEP_SIM:-}" != 1 ]]; then
+    trap 'xcrun simctl shutdown all >/dev/null 2>&1 || true' EXIT
+    trap 'exit 143' TERM HUP INT
+  fi
+  "$@"
+}
+
+if [[ -n "${IRIS_APPLE_SLOT:-}" ]]; then
+  run "$@"
+  exit $?
+fi
+
+if ! command -v factory >/dev/null 2>&1; then
+  run "$@"
+  exit $?
+fi
+
+export IRIS_APPLE_SLOT=1
+if (( sim )); then
+  inner=("$0" --sim "$@")
+else
+  inner=("$@")
+fi
+if command -v lockf >/dev/null 2>&1; then
+  exec lockf -t "${APPLE_LOCK_WAIT:-1800}" "${APPLE_LOCK:-/tmp/iris-apple.lock}" factory slot run --name iris-apple -- "${inner[@]}"
+fi
+exec factory slot run --name iris-apple -- "${inner[@]}"

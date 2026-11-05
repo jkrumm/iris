@@ -16,7 +16,7 @@
 # the Sparkle EdDSA key from SPARKLE_KEY_FILE (default ~/.local/state/apple-developer/sparkle-ed25519.key, `generate_keys -x`):
 # `sign_update` and `generate_appcast` hang on the login keychain's access prompt when run headless, so the key file is the path.
 # The GitHub token is the mini's (op://mini/github/token) unless GH_TOKEN is set.
-# Run under the lock like every xcodebuild: `lockf -t 1800 /tmp/iris-apple.lock timeout 2400 make mac-release ...`.
+# `make mac-release` runs this through scripts/apple-slot like every xcodebuild job; a bare call takes `scripts/apple-slot timeout 2400 make mac-release ...`.
 #
 # Notarization can queue for hours (first submissions especially): NOTARY_TIMEOUT (default 30m) bounds the wait. When it runs out the
 # script stops with the submission id; RESUME_BUILD=<build> RESUME_NOTARY_ID=<id> picks the same archive up again (no rebuild, no

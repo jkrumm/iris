@@ -5,7 +5,7 @@
 # Team id and the App Store Connect Team key come from op://mini/apple-developer via secrets-run (scripts/apple-signing-key.sh); the key is a
 # 0600 temp file deleted on every exit, nothing secret reaches argv or a log. CFBundleVersion = "<commit count>.<UTC epoch hours>", never committed:
 # App Store Connect rejects a repeated build number, so a same-sha weekly rebuild must still raise it (the second component).
-# Wrap in `lockf -t 1800 /tmp/iris-apple.lock` like every xcodebuild job (the poller's release hook does).
+# `make testflight` runs this through scripts/apple-slot like every xcodebuild job (the poller's release hook wraps its make call the same way).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 . scripts/apple-signing-key.sh

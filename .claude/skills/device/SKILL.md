@@ -7,12 +7,12 @@ description: Put Iris on the paired iPhone — make device (build, sign, install
 
 Hardware-only rows live in `docs/spikes/device-checklist.md`; spike briefs in `docs/spikes/`. Everything below ran on 2026-10-30 against the
 owner's iPhone 15 (`iPhone15,4`, iOS 26.6.1, Developer Mode on, paired over the CoreDevice network tunnel) unless a line says **unverified**.
-Wrap every command that touches Xcode or the phone in `lockf -t 1800 /tmp/iris-apple.lock …` (one Apple job at a time on the mini).
+`make device`, `device-build` and `device-run` take the Apple slot themselves (`scripts/apple-slot`: the Apple lock + the factory test slot, one Apple job at a time on the mini); never type `lockf`. Locally: at most one targeted Apple run per change.
 
 ```bash
-lockf -t 1800 /tmp/iris-apple.lock make device          # ran: generate, signed build, install, launch, screenshot -> .artifacts/device-<time>.png
-lockf -t 1800 /tmp/iris-apple.lock make device-run ARGS="-SomeFlag 1"   # reinstall the last build, launch with arguments, screenshot
-lockf -t 1800 /tmp/iris-apple.lock make device-screenshot NAME=label    # ran: just the screenshot
+make device                                      # ran: generate, signed build, install, launch, screenshot -> .artifacts/device-<time>.png
+make device-run ARGS="-SomeFlag 1"   # reinstall the last build, launch with arguments, screenshot
+make device-screenshot NAME=label    # ran: just the screenshot
 xcrun devicectl list devices                           # ran: the phone is `connected`, Reality `physical`; simulators are `simulated`
 D=$(. scripts/device-lib.sh; device_id)                # the devicectl identifier, resolved at runtime (never commit it)
 xcrun devicectl device process launch --device $D --terminate-existing --console com.jkrumm.iris   # ran; --console shows stdout only, not os.Logger

@@ -19,10 +19,9 @@ set -u
 RELEASE_HOME="${RELEASE_HOME:-$HOME/.iris}"
 APP_DIR="${APP_DIR:-$RELEASE_HOME/app}"
 RELEASE_ENV="$RELEASE_HOME/release.env"
-APPLE_LOCK="/tmp/iris-apple.lock"
 WEEK_SECS=604800
 FAILED_HOLD_SECS=3600
-# lockf waits up to 30 min for the Apple lock (other workers share it); the build itself gets 40 min; jobrun's deadline covers both.
+# scripts/apple-slot waits up to 30 min for the Apple lock and the factory test slot (other workers share them); the build itself gets 40 min; jobrun's deadline covers both.
 LOCK_WAIT_SECS=1800
 BUILD_SECS=2400
 JOB_DEADLINE_SECS=4800
@@ -103,7 +102,7 @@ decide() { # <sha>
       continue
     fi
     if [[ "${DRY_RUN:-}" == 1 ]]; then
-      log "$hook DRY_RUN would start: make $target at ${sha[1,12]} ($reason); lockf $APPLE_LOCK, nice -n 10, detached jobrun com.jkrumm.iris-release-$hook"
+      log "$hook DRY_RUN would start: make $target at ${sha[1,12]} ($reason); scripts/apple-slot, nice -n 10, detached jobrun com.jkrumm.iris-release-$hook"
       continue
     fi
     log "$hook starting detached: make $target at ${sha[1,12]} ($reason); output in ~/Library/Logs/iris-release-$hook.log"
@@ -111,7 +110,7 @@ decide() { # <sha>
   done
 }
 
-# The detached job (under jobrun, which holds iris-release-<hook>): a worktree at the SHA, the Apple lock, the make target, the marker.
+# The detached job (under jobrun, which holds iris-release-<hook>): a worktree at the SHA, the Apple slot, the make target, the marker.
 run_hook() { # <hook> <sha>
   local hook="$1" sha="$2" marker tree target rc
   marker=$(hook_field "$hook" marker)
@@ -125,9 +124,9 @@ run_hook() { # <hook> <sha>
     git -C "$APP_DIR" worktree prune
     git -C "$APP_DIR" worktree add --quiet --detach "$tree" "$sha" || { log "$hook: worktree add failed"; return 1; }
   fi
-  log "$hook: make $target (Apple lock, nice 10)"
+  log "$hook: make $target (apple-slot, nice 10)"
   # shellcheck disable=SC2086  # $target is "testflight UPLOAD=1": two words on purpose
-  (cd "$tree" && lockf -t "$LOCK_WAIT_SECS" "$APPLE_LOCK" nice -n 10 timeout "$BUILD_SECS" make ${=target})
+  (cd "$tree" && APPLE_LOCK_WAIT="$LOCK_WAIT_SECS" scripts/apple-slot nice -n 10 timeout "$BUILD_SECS" make ${=target})
   rc=$?
   if (( rc != 0 )); then
     log "$hook: FAILED rc=$rc — held off for $(( FAILED_HOLD_SECS / 60 )) min"

@@ -9,6 +9,8 @@ Every command below was run on the mini (Xcode 27.1 / 27A9275, Swift 6.4, 2026-1
 unless a line says **unverified**. No MCP servers (TDD D17, owner decision): UI automation goes through the
 `mobilebuildmcp` CLI. Never start dev servers; simulators are fine, shut them down when done (`simctl shutdown`).
 
+**Machine budget:** every make target below that runs `xcodebuild`, `swift test` or boots a simulator goes through `scripts/apple-slot` itself (Apple lock + `factory slot run --name iris-apple` on the mini, bare in CI) and shuts the simulators down when it ends (`KEEP_SIM=1` keeps one; `make sim-down`). For a raw `xcodebuild` / `simctl` command outside those targets, prefix `scripts/apple-slot` (add `--sim` if it boots a simulator). Never `lockf` by hand. At most one targeted local run per change; test runs are capped (`-parallel-testing-enabled NO`, one destination, `swift test --jobs 2`); `make uitest` needs `ONLY=` locally.
+
 ## Toolchain
 
 | Piece | Where | Notes |
@@ -120,8 +122,8 @@ Pairing a phone with the mini is an owner step (trust prompt on the phone, Devel
 Flag names checked against `xcodebuild -help` and `xcrun altool --help` on Xcode 27.1 (27A9275, 2026-11-04, help text only); what ran is marked.
 
 ```bash
-lockf -t 1800 /tmp/iris-apple.lock make testflight            # UPLOAD=0 (default): signed .ipa in .artifacts/testflight/export, then codesign -dvv + aps-environment printed
-lockf -t 1800 /tmp/iris-apple.lock make testflight UPLOAD=1   # destination upload: the export step sends the build to App Store Connect
+make testflight                                  # UPLOAD=0 (default): signed .ipa in .artifacts/testflight/export, then codesign -dvv + aps-environment printed
+make testflight UPLOAD=1                         # destination upload: the export step sends the build to App Store Connect
 ```
 
 - `scripts/testflight.sh`: `xcodegen generate`, `xcodebuild archive` (Release, `-destination 'generic/platform=iOS'`, `CURRENT_PROJECT_VERSION=<git rev-list --count HEAD>.<UTC epoch hours>` (App Store Connect rejects a repeated build number; the weekly same-sha rebuild raises the second component),
@@ -139,8 +141,8 @@ lockf -t 1800 /tmp/iris-apple.lock make testflight UPLOAD=1   # destination uplo
 
 ## Mac release (Sparkle)
 
-`make mac-release IDENTITY=development|developer-id [PUBLISH=draft|release]` (`scripts/mac-release.sh`; AGENTS.md "Mac releases"). Run it
-under the lock: `lockf -t 1800 /tmp/iris-apple.lock timeout 2400 make mac-release IDENTITY=development PUBLISH=draft`.
+`make mac-release IDENTITY=development|developer-id [PUBLISH=draft|release]` (`scripts/mac-release.sh`; AGENTS.md "Mac releases"). The target
+takes the Apple slot itself; add a deadline with `scripts/apple-slot timeout 2400 make mac-release IDENTITY=development PUBLISH=draft`.
 
 - Tools: Sparkle 2.10.1's `generate_keys`, `sign_update`, `generate_appcast` come with the SPM package
   (`apple/.dd.noindex/SourcePackages/artifacts/sparkle/Sparkle/bin`); a download of the release tarball in `~/.local/share/sparkle/<version>/bin` is the
