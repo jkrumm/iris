@@ -7,7 +7,20 @@ import IrisCore
 /// route and summarize steps). Shared with the Mac target until the real client lands.
 enum SampleData {
   static func details(now: Date = Date()) -> [MemoDetail] {
-    baseDetails(now: now) + threadDetails(now: now).flatMap(\.memos).map { MemoDetail(memo: $0, steps: []) }
+    baseDetails(now: now).map(inOwnSession)
+      + threadDetails(now: now).flatMap(\.memos).map { MemoDetail(memo: $0, steps: []) }
+  }
+
+  /// What `act` does to a Hermes memo: its own session id becomes its `threadId`. An old routed memo to another destination
+  /// and a memo that has not reached `act` have none.
+  private static func inOwnSession(_ detail: MemoDetail) -> MemoDetail {
+    var detail = detail
+    let memo = detail.memo
+    guard memo.threadId == nil, memo.destinationRef != nil, memo.route == nil || memo.route == "hermes" else {
+      return detail
+    }
+    detail.memo.threadId = memo.id
+    return detail
   }
 
   private static func baseDetails(now: Date) -> [MemoDetail] {

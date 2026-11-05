@@ -339,7 +339,7 @@ public actor FakeAPIClient: APIClient {
   }
 
   /// Mirrors the server's list rules: deleted memos never show, archived ones only with `archived`, `kind` matches the
-  /// memo's kind (exact, case- and whitespace-insensitive) and `thread` keeps the memos that belong to a thread.
+  /// memo's kind (exact, case- and whitespace-insensitive) and `thread` keeps the memos of a conversation (a thread with two or more live memos).
   public func listMemos(_ query: ListMemosQuery) async throws -> MemoPage {
     calls.append(.listMemos(query))
     return try await respond(.listMemos) { page(for: query) }
@@ -347,12 +347,16 @@ public actor FakeAPIClient: APIClient {
 
   private func page(for query: ListMemosQuery) -> MemoPage {
     purgeExpired()
+    // A conversation is a thread with at least two live memos (a memo alone in its own session is none), like the server.
+    let liveInThread = Dictionary(
+      grouping: memos.values.map(\.memo).filter { !$0.isDeleted }.compactMap(\.threadId), by: { $0 }
+    ).mapValues(\.count)
     let matching = memos.values.map(\.memo)
       .filter { memo in
         !memo.isDeleted && memo.archived == query.archived && (!query.favorite || memo.favorite)
           && (query.state.map { memo.state == $0 } ?? true)
           && (query.kind.map { Self.normalized($0) == memo.kind.map(Self.normalized) } ?? true)
-          && (!query.thread || memo.threadId != nil)
+          && (!query.thread || memo.threadId.map { liveInThread[$0, default: 0] >= 2 } ?? false)
           && Self.matches(memo, search: query.q)
       }
       .sorted { ($0.createdAt, $0.id) > ($1.createdAt, $1.id) }

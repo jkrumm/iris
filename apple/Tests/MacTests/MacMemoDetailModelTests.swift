@@ -105,7 +105,7 @@ struct MacMemoDetailModelTests {
     let api = FakeAPIClient()
     await SampleData.seed(api)
     let chat = MacMemoDetailModel(
-      memoID: SampleData.chatThreadID, client: api, pasteboard: RecordingPasteboard())
+      memoID: SampleData.chatFollowUpID, client: api, pasteboard: RecordingPasteboard())
     await chat.load()
     #expect(chat.memo?.opensThread == true)
     let thread = try #require(chat.thread)
@@ -121,7 +121,7 @@ struct MacMemoDetailModelTests {
     await SampleData.seed(api)
     await api.enqueueFailure(.transport(.notConnectedToInternet), for: .thread)
     let chat = MacMemoDetailModel(
-      memoID: SampleData.chatThreadID, client: api, pasteboard: RecordingPasteboard())
+      memoID: SampleData.chatFollowUpID, client: api, pasteboard: RecordingPasteboard())
     await chat.load()
     #expect(chat.memo?.opensThread == true && chat.thread == nil && chat.threadFailed)
     await chat.load()
