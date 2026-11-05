@@ -103,6 +103,14 @@ case "$IDENTITY" in
     AUTH=(-allowProvisioningUpdates -authenticationKeyPath "$KEY_FILE" -authenticationKeyID "$KEY_ID" -authenticationKeyIssuerID "$ISSUER")
     ;;
   developer-id)
+    # The Developer ID identity lives in a dedicated keychain (on the user search list, partition list allows codesign) that a
+    # reboot leaves locked. The password file is 0600 and outside every repo; the password is read once, only into this call.
+    SIGNING_KEYCHAIN="${SIGNING_KEYCHAIN:-$HOME/Library/Keychains/iris-signing.keychain-db}"
+    SIGNING_KEYCHAIN_PASS_FILE="${SIGNING_KEYCHAIN_PASS_FILE:-$HOME/.local/state/apple-developer/signing-keychain.pass}"
+    if [ -r "$SIGNING_KEYCHAIN_PASS_FILE" ] && [ -e "$SIGNING_KEYCHAIN" ]; then
+      security unlock-keychain -p "$(cat "$SIGNING_KEYCHAIN_PASS_FILE")" "$SIGNING_KEYCHAIN" ||
+        { echo "  could not unlock $SIGNING_KEYCHAIN" >&2; exit 1; }
+    fi
     if ! security find-identity -v -p codesigning | grep -q "Developer ID Application.*($TEAM)"; then
       echo "  no 'Developer ID Application' identity of the paid team in the login keychain: the Account Holder creates the certificate" >&2
       echo "  (docs/research/2026-11-04-apple-paid-team.md); import the .p12 with its private key, then re-run" >&2

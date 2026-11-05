@@ -130,7 +130,7 @@ under the lock: `lockf -t 1800 /tmp/iris-apple.lock timeout 2400 make mac-releas
   `<dir>/appcast.xml` from the zip's Info.plist.
 - `IDENTITY=development`: Apple Development of the paid team through `-allowProvisioningUpdates` and the ASC Team key, Hardened Runtime and
   `--timestamp`, no notarization, drafts only. `developer-id` needs a "Developer ID Application (<team>)" identity with its private key in the login
-  keychain, then `notarytool submit --key/--key-id/--issuer --wait`, `stapler staple`, `spctl --assess`. **Unrun until the certificate exists.**
+  keychain (the mini keeps it in the dedicated `iris-signing` keychain, on the search list with no auto-lock and a partition list that allows `codesign`; a reboot leaves it locked, so the script runs `security unlock-keychain` with the password read from a 0600 file under `~/.local/state/apple-developer/`, overridable with `SIGNING_KEYCHAIN` / `SIGNING_KEYCHAIN_PASS_FILE`; never echo it), then `notarytool submit --key/--key-id/--issuer --wait`, `stapler staple`, `spctl --assess`. **Not yet proven end to end (PR #125 carries the result).**
 - Check a signature: `codesign -dvv --entitlements - IrisMac.app` shows `flags=0x10000(runtime)`, `TeamIdentifier`, `Timestamp`, the audio-input
   entitlement, no `app-sandbox`, no `get-task-allow`. `SIGNING_ONLY=1` stops there.
 - Drafts are not `releases/latest`; delete a proof with `gh release delete <tag> --yes --cleanup-tag`.
