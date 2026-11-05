@@ -18,6 +18,10 @@
 # The GitHub token is the mini's (op://mini/github/token) unless GH_TOKEN is set.
 # Run under the lock like every xcodebuild: `lockf -t 1800 /tmp/iris-apple.lock timeout 2400 make mac-release ...`.
 #
+# Notarization can queue for hours (first submissions especially): NOTARY_TIMEOUT (default 30m) bounds the wait. When it runs out the
+# script stops with the submission id; RESUME_BUILD=<build> RESUME_NOTARY_ID=<id> picks the same archive up again (no rebuild, no
+# re-sign: a changed byte would void the submission) and waits on that submission.
+#
 # SIGNING_ONLY=1 stops after the signature check (no zip, no release). Mirrors P1's scripts/device-lib.sh helpers (pem_normalize,
 # apple_dev_field, paid_signing_setup); fold them into one library when both are on master.
 set -euo pipefail
@@ -42,7 +46,7 @@ REPO="${RELEASE_REPO:-jkrumm/iris}"
 APPLE_DIR="${APPLE_DIR:-apple}"
 APPLE_DEV_ITEM="op://mini/apple-developer"
 SPARKLE_KEY_FILE="${SPARKLE_KEY_FILE:-$HOME/.local/state/apple-developer/sparkle-ed25519.key}"
-BUILD="$(git rev-list --count HEAD)"
+BUILD="${RESUME_BUILD:-$(git rev-list --count HEAD)}"
 SHA="$(git rev-parse HEAD)"
 WORK="$PWD/.artifacts/mac-release/$BUILD"
 ARCHIVE="$WORK/IrisMac.xcarchive"
@@ -122,12 +126,18 @@ case "$IDENTITY" in
 esac
 
 echo "  mac-release: identity=$IDENTITY publish=$PUBLISH build=$BUILD team=<resolved>"
+if [ -n "${RESUME_BUILD:-}" ]; then
+  [ -d "$ARCHIVE" ] || { echo "  RESUME_BUILD=$BUILD: no archive at $ARCHIVE" >&2; exit 1; }
+  rm -rf "$UPLOAD"
+  mkdir -p "$UPLOAD"
+else
 rm -rf "$WORK"
 mkdir -p "$UPLOAD"
 (cd "$APPLE_DIR" && xcodegen generate --spec project.yml >/dev/null)
 xcodebuild archive -project "$APPLE_DIR/Iris.xcodeproj" -scheme IrisMac -configuration Release \
   -destination 'generic/platform=macOS' -archivePath "$ARCHIVE" -derivedDataPath "$DERIVED" \
   ${AUTH[@]+"${AUTH[@]}"} "${SIGN[@]}"
+fi
 
 APP="$ARCHIVE/Products/Applications/IrisMac.app"
 [ -d "$APP" ] || { echo "  archive holds no IrisMac.app at $APP" >&2; exit 1; }
@@ -164,7 +174,7 @@ resign_sparkle() {
   done
   codesign --force --options runtime --timestamp --entitlements "$ents" --sign "$id" "$APP"
 }
-if [ "$IDENTITY" = "developer-id" ]; then resign_sparkle; fi
+if [ "$IDENTITY" = "developer-id" ] && [ -z "${RESUME_BUILD:-}" ]; then resign_sparkle; fi
 
 check_signature "$APP"
 [ "${SIGNING_ONLY:-0}" != "1" ] || { echo "  SIGNING_ONLY: stopping after the signature check"; exit 0; }
@@ -172,14 +182,21 @@ check_signature "$APP"
 # --- notarize (Developer ID only) ----------------------------------------------------------------------------------------
 
 if [ "$IDENTITY" = "developer-id" ]; then
-  ditto -c -k --sequesterRsrc --keepParent "$APP" "$WORK/notary.zip"
+  NOTARY_TIMEOUT="${NOTARY_TIMEOUT:-30m}"
   # `submit --wait` exits 0 on an Invalid verdict: read the status, and show Apple's log when it is not Accepted.
-  NOTARY="$(xcrun notarytool submit "$WORK/notary.zip" --key "$KEY_FILE" --key-id "$KEY_ID" --issuer "$ISSUER" --wait --timeout 30m \
-    --output-format json)"
-  NOTARY_ID="$(jq -r '.id // empty' <<<"$NOTARY")"
+  if [ -n "${RESUME_NOTARY_ID:-}" ]; then
+    NOTARY="$(xcrun notarytool wait "$RESUME_NOTARY_ID" --key "$KEY_FILE" --key-id "$KEY_ID" --issuer "$ISSUER" \
+      --timeout "$NOTARY_TIMEOUT" --output-format json || true)"
+  else
+    ditto -c -k --sequesterRsrc --keepParent "$APP" "$WORK/notary.zip"
+    NOTARY="$(xcrun notarytool submit "$WORK/notary.zip" --key "$KEY_FILE" --key-id "$KEY_ID" --issuer "$ISSUER" --wait \
+      --timeout "$NOTARY_TIMEOUT" --output-format json || true)"
+  fi
+  NOTARY_ID="${RESUME_NOTARY_ID:-$(jq -r '.id // empty' <<<"$NOTARY")}"
   NOTARY_STATUS="$(jq -r '.status // empty' <<<"$NOTARY")"
   echo "  notarytool: id=$NOTARY_ID status=$NOTARY_STATUS"
   if [ "$NOTARY_STATUS" != "Accepted" ]; then
+    echo "  to continue: RESUME_BUILD=$BUILD RESUME_NOTARY_ID=$NOTARY_ID make mac-release IDENTITY=$IDENTITY PUBLISH=$PUBLISH" >&2
     xcrun notarytool log "$NOTARY_ID" --key "$KEY_FILE" --key-id "$KEY_ID" --issuer "$ISSUER" >&2 || true
     echo "  notarization was not accepted" >&2
     exit 1
