@@ -31,39 +31,11 @@ device_id() {
   printf '%s\n' "$ids"
 }
 
-APPLE_DEV_ITEM="op://mini/apple-developer"
-
-# The key as `xcodebuild -authenticationKeyPath` needs it: real newlines, 64-character body lines, whatever shape the value
-# arrives in (1Password turns the newlines of a concealed field into spaces; an env file holds a literal \n). Same rule as
-# `normalizePem` (server/src/notify/select.ts). Anything that is not one PEM block is printed as given.
-pem_normalize() {
-  local value label body
-  value="$(printf '%s' "$1" | sed 's/\\n/ /g' | tr -s '[:space:]' ' ')"
-  label="$(printf '%s' "$value" | sed -nE 's/^ *-----BEGIN ([A-Z0-9 ]+)----- .*/\1/p')"
-  if [ -z "$label" ]; then printf '%s\n' "$1"; return; fi
-  body="$(printf '%s' "$value" | sed -E "s/^ *-----BEGIN $label----- *//; s/ *-----END $label----- *\$//" | tr -d '[:space:]')"
-  printf -- '-----BEGIN %s-----\n%s\n-----END %s-----\n' "$label" "$(printf '%s' "$body" | fold -w 64)" "$label"
-}
-
-# Reads one field of the team-wide apple-developer item from the offline secrets cache (never `op`: it hangs on the mini).
-apple_dev_field() {
-  secrets-run read "$APPLE_DEV_ITEM/$1" || { echo "  secrets-run read $APPLE_DEV_ITEM/$1 failed (make secrets-seed)" >&2; return 1; }
-}
-
-# Paid signing without Xcode's account: sets SIGNING_ARGS (xcodebuild flags) and KEY_FILE (a 0600 temp file holding the ASC
-# Team key). The caller owns the cleanup: `trap 'rm -f "${KEY_FILE:-}"' EXIT` before calling. No key material reaches argv or a log.
-SIGNING_ARGS=()
-KEY_FILE=""
-paid_signing_setup() {
-  local key key_id issuer
-  key="$(apple_dev_field asc-key-p8)" || return 1
-  key_id="$(apple_dev_field asc-key-id)" || return 1
-  issuer="$(apple_dev_field asc-issuer-id)" || return 1
-  KEY_FILE="$(mktemp "${TMPDIR:-/tmp}/iris-asc-key.XXXXXX")"
-  chmod 600 "$KEY_FILE"
-  pem_normalize "$key" >"$KEY_FILE"
-  SIGNING_ARGS=(-allowProvisioningUpdates -authenticationKeyPath "$KEY_FILE" -authenticationKeyID "$key_id" -authenticationKeyIssuerID "$issuer")
-}
+# pem_normalize, apple_dev_field and paid_signing_setup (SIGNING_ARGS, KEY_FILE) live in scripts/apple-signing-key.sh, shared with
+# scripts/testflight.sh and scripts/mac-release.sh. The caller owns the key file's cleanup: `trap 'rm -f "${KEY_FILE:-}"' EXIT`
+# before paid_signing_setup.
+# shellcheck source=apple-signing-key.sh
+. scripts/apple-signing-key.sh
 
 signing_team() {
   if [ -n "${TEAM:-}" ]; then printf '%s\n' "$TEAM"; return; fi

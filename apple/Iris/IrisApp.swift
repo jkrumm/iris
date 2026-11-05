@@ -33,6 +33,7 @@ struct IrisApp: App {
         if phase == .background { Task { await root.backgrounded() } }
         guard phase == .active else { return }
         Task { await root.foregrounded() }
+        Task { await PushRegistrar.shared.foregrounded() }
       }
     }
   }
