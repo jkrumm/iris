@@ -17,6 +17,14 @@ extension CaptureHandlerSuites {
       return await condition()
     }
 
+    /// A take that has just started has written `.recording` and nothing later. The follower also writes a `.recording` update
+    /// (it carries the input name) once it has subscribed, so the count is not fixed; the phases are.
+    private func expectOnlyRecordingSoFar(_ activity: RecordingLiveActivity) async {
+      let phases = await activity.phases
+      #expect(phases.first == .recording)
+      #expect(phases.allSatisfy { $0 == .recording }, "no phase beyond recording before the take stops: \(phases)")
+    }
+
     @Test("performing the intent records a take in auto mode and requests the Live Activity")
     func performStartsTheTakeAndTheActivity() async throws {
       let root = CompositionRoot(arguments: ["-IrisFakeCapture"], credentials: InMemoryCredentialStore())
@@ -28,7 +36,7 @@ extension CaptureHandlerSuites {
       let starts = await activity.starts
       #expect(starts.count == 1)
       #expect(starts.first?.mode == .hermes)
-      #expect(await activity.phases == [.recording])
+      await expectOnlyRecordingSoFar(activity)
 
       // The silent microphone feeds the take; stopping finishes the memo and the outbox sends it.
       let result = try #require(try await root.stopMemo())
@@ -54,7 +62,7 @@ extension CaptureHandlerSuites {
       _ = try await OpenRecorderIntent().perform()
 
       #expect(await activity.starts.count == 1)
-      #expect(await activity.phases == [.recording])
+      await expectOnlyRecordingSoFar(activity)
       #expect(root.take.failure == nil)
       _ = try await root.stopMemo()
     }
@@ -69,6 +77,7 @@ extension CaptureHandlerSuites {
       let starts = await activity.starts
       #expect(starts.count == 1)
       #expect(starts.first?.mode == .transcribe)
+      await expectOnlyRecordingSoFar(activity)
       #expect(root.take.failure == nil)
       #expect(OpenTranscribeRecorderIntent.authenticationPolicy == .requiresAuthentication)
       #expect(OpenTranscribeRecorderIntent().target == .recorder)
