@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- The TestFlight export. `scripts/testflight.sh` copies this and adds `teamID` (from op://mini/apple-developer, never tracked)
+	     and `destination` (`export` = a local .ipa, `upload` = App Store Connect) to the copy. -->
+	<key>method</key>
+	<string>app-store-connect</string>
+	<key>signingStyle</key>
+	<string>automatic</string>
+	<!-- CFBundleVersion is "<commit count>.<UTC epoch hours>", set by the script, not by Xcode. -->
+	<key>manageAppVersionAndBuildNumber</key>
+	<false/>
+	<key>uploadSymbols</key>
+	<true/>
+	<!-- Internal group only: the build can never go to external TestFlight or the App Store. -->
+	<key>testFlightInternalTestingOnly</key>
+	<true/>
+</dict>
+</plist>
