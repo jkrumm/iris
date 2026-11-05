@@ -18,7 +18,7 @@ struct MacSettingsView: View {
         MacRecordingForm(hotkey: root.hotkey)
       }
       Tab(String(localized: "General", comment: "Settings tab"), systemImage: "gearshape", value: .general) {
-        MacGeneralForm()
+        MacGeneralForm(updater: root.updater)
       }
     }
     .frame(width: Theme.Spacing.macSettingsWidth, height: Theme.Spacing.macSettingsHeight)
@@ -201,6 +201,8 @@ struct MacRecordingForm: View {
 
 /// Launch at login (`SMAppService.mainApp`) and Quit.
 struct MacGeneralForm: View {
+  /// Nil under `-IrisFakeData`: no "Check for Updates…".
+  let updater: Updater?
   @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
   @State private var failed = false
 
@@ -218,6 +220,7 @@ struct MacGeneralForm: View {
       }
       Section {
         HStack {
+          if let updater { CheckForUpdatesButton(updater: updater) }
           Spacer()
           Button(String(localized: "Quit Iris", comment: "Quits the menu-bar app")) {
             NSApplication.shared.terminate(nil)

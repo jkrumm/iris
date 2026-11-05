@@ -189,6 +189,7 @@ never record. A build signed with a stable Apple Development identity keeps its 
   `xcodebuild build -scheme IrisMac -destination 'platform=macOS,arch=arm64' CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=<sha1 from security find-identity -v -p codesigning> CODE_SIGN_ENTITLEMENTS=<that copy>`.
   Not done on the mini and not needed for the rows: `-allowProvisioningUpdates` with `DEVELOPMENT_TEAM` would register the `com.jkrumm.iris.mac` App ID, and a Personal Team has 10 App IDs per 7 days
   (the iPhone targets use three).
+  **Superseded by Wave 22 M2:** `IrisMac` is no longer sandboxed and its entitlements are the Hardened Runtime audio-input key only (no App Group), so no entitlements copy is needed; `make mac-release IDENTITY=development` signs it (AGENTS.md "Mac releases").
 - **The mini cannot** show the microphone prompt, grant it, or press a key for the Mac: TCC prompts need a person at a screen, and the mini has no input device.
 - **On the MacBook** the same recipe works with the MacBook's own Apple Development identity (`security find-identity -v -p codesigning`), run from a checkout of this
   branch. Build it once, keep that app in `~/Applications`, and rebuild with the same identity: the grant stays. Iris is a menu-bar app (`LSUIElement`): the icon is a waveform in the menu bar.

@@ -137,6 +137,26 @@ lockf -t 1800 /tmp/iris-apple.lock make testflight UPLOAD=1   # destination uplo
   The App Group `group.com.jkrumm.iris` must exist in the portal (Account Holder) or the profile does not match the tracked entitlements. The upload also needs the App Store Connect app record for `com.jkrumm.iris`.
 - Poller: `release-hooks.sh` runs this detached after a deploy when `apple/**` changed, weekly otherwise; off without `TESTFLIGHT=1` in `~/.iris/release.env` (AGENTS.md "Release hooks"). A run in progress shows in `~/Library/Logs/iris-release-testflight.log`; one at a time by the Apple lock.
 
+## Mac release (Sparkle)
+
+`make mac-release IDENTITY=development|developer-id [PUBLISH=draft|release]` (`scripts/mac-release.sh`; AGENTS.md "Mac releases"). Run it
+under the lock: `lockf -t 1800 /tmp/iris-apple.lock timeout 2400 make mac-release IDENTITY=development PUBLISH=draft`.
+
+- Tools: Sparkle 2.10.1's `generate_keys`, `sign_update`, `generate_appcast` come with the SPM package
+  (`apple/.dd.noindex/SourcePackages/artifacts/sparkle/Sparkle/bin`); a download of the release tarball in `~/.local/share/sparkle/<version>/bin` is the
+  fallback (`gh release download <version> -R sparkle-project/Sparkle -p 'Sparkle-*.tar.xz'`, unpack in its own directory).
+- EdDSA key: `generate_keys` stored it in the login keychain (works headless); `generate_keys -p` prints the public half; `-x <file>` exports the
+  private key (0600, outside every repo; the backup for 1Password). **`sign_update` / `generate_appcast` hang headless on the keychain's access prompt**
+  (verified 2026-11-04): always pass `--ed-key-file <exported file>`. Verify with `sign_update --verify --ed-key-file <key> <zip> <edSignature>`
+  (exit 1 and "failed to pass signing verification" when wrong). `generate_appcast --ed-key-file <key> --download-url-prefix <url> <dir>` writes
+  `<dir>/appcast.xml` from the zip's Info.plist.
+- `IDENTITY=development`: Apple Development of the paid team through `-allowProvisioningUpdates` and the ASC Team key, Hardened Runtime and
+  `--timestamp`, no notarization, drafts only. `developer-id` needs a "Developer ID Application (<team>)" identity with its private key in the login
+  keychain (the mini keeps it in the dedicated `iris-signing` keychain, on the search list with no auto-lock and a partition list that allows `codesign`; a reboot leaves it locked, so the script runs `security unlock-keychain` with the password read from a 0600 file under `~/.local/state/apple-developer/`, overridable with `SIGNING_KEYCHAIN` / `SIGNING_KEYCHAIN_PASS_FILE`; never echo it), then `notarytool submit --key/--key-id/--issuer --wait`, `stapler staple`, `spctl --assess`. Proven 2026-11-05 on the mini as a draft: Accepted, `stapler validate`, `spctl -a -vv -t exec` = `source=Notarized Developer ID`. Sparkle's helpers ship ad-hoc signed and notarization rejects them, so the script re-signs `XPCServices/*.xpc`, `Autoupdate`, `Updater.app`, the framework and the app (in that order, `--options runtime --timestamp`). `notarytool submit --wait` exits 0 on `Invalid`: the script reads the JSON status. Apple's queue can take over 30 min on a new account: the script then prints `RESUME_BUILD=<n> RESUME_NOTARY_ID=<id>` to continue without rebuilding or re-signing.
+- Check a signature: `codesign -dvv --entitlements - IrisMac.app` shows `flags=0x10000(runtime)`, `TeamIdentifier`, `Timestamp`, the audio-input
+  entitlement, no `app-sandbox`, no `get-task-allow`. `SIGNING_ONLY=1` stops there.
+- Drafts are not `releases/latest`; delete a proof with `gh release delete <tag> --yes --cleanup-tag`.
+
 ## Failure modes
 
 | Symptom | Cause / fix |
@@ -146,3 +166,4 @@ lockf -t 1800 /tmp/iris-apple.lock make testflight UPLOAD=1   # destination uplo
 | `snapshot-ui` times out | app or sim not settled; wait and retry |
 | snapshot test diffs on a clean tree | different simulator or runtime than the reference |
 | `Source is not authorized` on push | notification permission not granted |
+| `xcodebuild` / `swift package resolve` hangs at "Downloading binary artifact" (an SPM `binaryTarget`, Sparkle) | SwiftPM blocks on its artifact-cache lock while `curl` of the URL takes a second. Put the zip at `~/Library/Caches/org.swift.swiftpm/artifacts/<url with every non-alphanumeric char as _>` (for Sparkle 2.10.1: `https___github_com_sparkle_project_Sparkle_releases_download_2_10_1_Sparkle_for_Swift_Package_Manager_zip`) and resolve again: "Fetched … from cache" |

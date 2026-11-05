@@ -30,6 +30,15 @@ struct MacHomePage: View {
         hint: "⌘,"  // l10n:ignore key hint
       ) { root.showSettings() }
       .keyboardShortcut(",")
+      // Absent under `-IrisFakeData` (the root has no updater): snapshots and tests never show it.
+      if let updater = root.updater {
+        MacMenuLine(
+          title: String(localized: "Check for Updates…", comment: "Menu line: looks for a new version of Iris"),
+          id: "mac.menu.update",
+          hint: ""
+        ) { updater.checkForUpdates() }
+        .disabled(!updater.canCheckForUpdates)
+      }
       MacMenuLine(
         title: String(localized: "Quit Iris", comment: "Quits the menu-bar app"),
         id: "mac.menu.quit",

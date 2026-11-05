@@ -223,6 +223,17 @@
         }
       }
     },
+    "Check for Updates…" : {
+      "comment" : "Menu item and Settings button: looks for a new version of Iris",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nach Updates suchen…"
+          }
+        }
+      }
+    },
     "Close" : {
       "localizations" : {
         "de" : {

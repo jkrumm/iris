@@ -262,3 +262,10 @@ device-screenshot: ## Full-resolution PNG of the iPhone -> .artifacts/device-<ti
 device: ## Build, sign, install, launch and screenshot Iris on the paired iPhone (in sequence, also under make -j)
 	$(MAKE) device-build
 	$(MAKE) device-run
+
+# --- Mac release (TDD §5 "Updates", skill `apple-dev`). Wrap in `lockf -t 1800 /tmp/iris-apple.lock timeout 2400` like every xcodebuild job. ---
+# IDENTITY=development (Apple Development, no notarization, draft only) | developer-id (notarized + stapled; needs the certificate in the keychain);
+# PUBLISH=draft (never served as releases/latest) | release. SIGNING_ONLY=1 stops after the signature check.
+.PHONY: mac-release
+mac-release: ## Sign, zip and publish a Sparkle release of IrisMac: IDENTITY=development|developer-id [PUBLISH=draft|release]
+	scripts/mac-release.sh

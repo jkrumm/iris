@@ -42,6 +42,11 @@ packages:
   KeyboardShortcuts:
     url: https://github.com/sindresorhus/KeyboardShortcuts
     exactVersion: 3.1.0
+  # The Mac's updater (TDD §5 "Updates"). 2.9.6 fixed a local privilege escalation, so never below it; the release script takes
+  # `generate_appcast` / `sign_update` from this package's artifact bundle, so tools and framework always match.
+  Sparkle:
+    url: https://github.com/sparkle-project/Sparkle
+    from: 2.10.1
 
 targets:
   Iris:
@@ -175,20 +180,28 @@ targets:
       - Iris/TelemetryBootstrap.swift
       - Iris/ObservedSegmentUploader.swift
       - Iris/Intents/IntentEvents.swift
+    # Developer ID, not the App Store: no App Sandbox (Sparkle swaps the bundle in place, the microphone is the Hardened Runtime
+    # audio-input entitlement). Nothing reads the App Group on the Mac, and a Developer ID app would need a profile for it.
     entitlements:
       path: IrisMac/IrisMac.entitlements
       properties:
-        com.apple.security.app-sandbox: true
         com.apple.security.device.audio-input: true
-        com.apple.security.network.client: true
-        com.apple.security.application-groups: [group.com.jkrumm.iris]
     info:
       path: IrisMac/Info.plist
       properties:
         CFBundleDisplayName: Iris
+        # `scripts/mac-release.sh` passes CURRENT_PROJECT_VERSION (the commit count): Sparkle compares CFBundleVersion.
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         LSUIElement: true
         LSMinimumSystemVersion: "26.0"
         NSMicrophoneUsageDescription: Iris records your voice memos.
+        # Sparkle: the appcast is a GitHub Release asset of this repo, signed with the EdDSA key whose public half is below.
+        SUFeedURL: https://github.com/jkrumm/iris/releases/latest/download/appcast.xml
+        # A public key (`generate_keys -p`). The folded scalar keeps it off the `KEY: value` shape `make guard` takes for a secret.
+        SUPublicEDKey: >-
+          HJBv33H0mUWzaaGRx0kiWy4OnSa4l0oATaBQmNsWJ7E=
+        SUEnableAutomaticChecks: true
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.jkrumm.iris.mac
@@ -200,6 +213,7 @@ targets:
       - package: IrisUI
       - package: IrisTelemetry
       - package: KeyboardShortcuts
+      - package: Sparkle
       - sdk: AppIntents.framework
 
   # Hosted in the app: `@testable import Iris` reaches the history model and filters.
