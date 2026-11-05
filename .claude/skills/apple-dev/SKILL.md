@@ -113,9 +113,29 @@ Pairing a phone with the mini is an owner step (trust prompt on the phone, Devel
 - Mac apps (MenuBarExtra, hotkey, mic) need a **stable signing identity**: TCC (microphone, accessibility) grants are keyed to
   the code signature, so ad-hoc builds lose the grant on every rebuild. Reset a stuck grant with `tccutil reset Microphone <bundle id>`.
   Unverified until the Mac target exists.
-- TestFlight: `xcodebuild -exportArchive -archivePath … -exportOptionsPlist ExportOptions.plist` with
-  `method: app-store-connect` and `destination: upload`, or `xcrun altool --upload-app` (the binary exists in this
-  Xcode). **Unverified until enrollment**; `make testflight` is a fleet task.
+- TestFlight: see "TestFlight (`make testflight`)" below.
+
+## TestFlight (`make testflight`)
+
+Flag names checked against `xcodebuild -help` and `xcrun altool --help` on Xcode 27.1 (27A9275, 2026-11-04, help text only); what ran is marked.
+
+```bash
+lockf -t 1800 /tmp/iris-apple.lock make testflight            # UPLOAD=0 (default): signed .ipa in .artifacts/testflight/export, then codesign -dvv + aps-environment printed
+lockf -t 1800 /tmp/iris-apple.lock make testflight UPLOAD=1   # destination upload: the export step sends the build to App Store Connect
+```
+
+- `scripts/testflight.sh`: `xcodegen generate`, `xcodebuild archive` (Release, `-destination 'generic/platform=iOS'`, `CURRENT_PROJECT_VERSION=<git rev-list --count HEAD>.<UTC epoch hours>` (App Store Connect rejects a repeated build number; the weekly same-sha rebuild raises the second component),
+  `IRIS_BUILD_SHA`, `DEVELOPMENT_TEAM` from `team-id`), then `xcodebuild -exportArchive -exportOptionsPlist <tracked apple/ExportOptions.plist + teamID + destination>`.
+  Both steps get `-allowProvisioningUpdates -authenticationKeyPath <0600 temp file> -authenticationKeyID -authenticationKeyIssuerID` from the ASC Team key
+  (`scripts/apple-signing-key.sh`: `secrets-run read op://mini/apple-developer/{asc-key-p8,asc-key-id,asc-issuer-id,team-id}`, `pem_normalize`, `trap` deletes the file). Full output goes to `.artifacts/testflight/testflight.log`, only the tail on failure.
+- Export options (`xcodebuild -help`): `method app-store-connect` (`app-store` is deprecated), `destination` `export|upload`, `manageAppVersionAndBuildNumber false` (the build number is ours),
+  `signingStyle automatic`, `testFlightInternalTestingOnly true` (the build can never reach external TestFlight or the App Store), `uploadSymbols`.
+- The three `Info.plist` files hold a literal `CFBundleVersion`, so the build setting does not reach them: the script sets it in the archive's plists before the export (the export re-signs). Making the plists
+  `$(CURRENT_PROJECT_VERSION)` removes the patch step.
+- `altool` is not used (the export uploads). If it is ever needed: `xcrun altool --upload-app -f <ipa> --api-key <id> --api-issuer <issuer> --p8-file-path <file>` (`--api-key`/`--api-issuer`, not the older `--apiKey`; `--p8-file-path` avoids the `~/.private_keys` lookup). **Unverified.**
+- Cloud signing at export is **unverified until the first run**. If it fails with a missing distribution certificate, the script says so: the Team key needs the Admin role (or an Apple Distribution certificate with its private key goes into the mini's login keychain, Account Holder). It never creates certificates.
+  The App Group `group.com.jkrumm.iris` must exist in the portal (Account Holder) or the profile does not match the tracked entitlements. The upload also needs the App Store Connect app record for `com.jkrumm.iris`.
+- Poller: `release-hooks.sh` runs this detached after a deploy when `apple/**` changed, weekly otherwise; off without `TESTFLIGHT=1` in `~/.iris/release.env` (AGENTS.md "Release hooks"). A run in progress shows in `~/Library/Logs/iris-release-testflight.log`; one at a time by the Apple lock.
 
 ## Mac release (Sparkle)
 

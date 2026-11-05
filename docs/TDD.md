@@ -1499,10 +1499,20 @@ the `IrisCore` dependency when R1 wires them together.
   - logs in `~/Library/Logs/iris*.log`;
   - registered in `dotfiles/docs/architecture.md`.
 - **App distribution:**
-  - TestFlight internal: `xcodebuild archive` → `-exportArchive` →
-    upload with an App Store Connect API key from 1Password (the upload command
-    is verified when enrollment completes);
-  - builds come from the mini via `make testflight`, and devices auto-update.
+  - TestFlight internal (Wave 22 P2): `make testflight` runs `xcodebuild archive`
+    (Release, `generic/platform=iOS`, `CFBundleVersion` = `<git rev-list --count
+    HEAD>.<UTC epoch hours>`, never committed: strictly increasing per upload,
+    so the weekly same-sha rebuild is not a repeated build number) and `-exportArchive` with `apple/ExportOptions.plist`
+    (`method app-store-connect`, `testFlightInternalTestingOnly`, `destination`
+    `export` for a local `.ipa` or `upload` for App Store Connect), both signed
+    headless with the App Store Connect Team key from `op://mini/apple-developer`
+    (`-allowProvisioningUpdates`, cloud signing; a 0600 key file deleted on every
+    exit). The upload is the export's `destination upload`; `altool` is not used.
+    The Release build registers its APNs token as `production`;
+  - the deploy poller starts the build detached when `apple/**` changed on a
+    green master, plus a weekly rebuild (builds expire after 90 days); the
+    internal group's automatic distribution installs it on the phone, and
+    `make device` stays for debugging (AGENTS.md "Release hooks").
   - Until enrollment: a free team, then `devicectl` install over Wi-Fi after
     one cabled pairing plus Developer Mode.
 - **Bundle ids:** `com.jkrumm.iris`, `.widgets`, `.notifications`,
