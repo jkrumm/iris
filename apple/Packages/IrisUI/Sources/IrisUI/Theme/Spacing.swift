@@ -20,9 +20,6 @@ extension Theme.Spacing {
   /// Gap above a section label, and below it before the first row.
   public static let sectionTop = inset
   public static let sectionBottom = snug
-  /// Large title: space above and below it.
-  public static let titleTop: CGFloat = 18
-  public static let titleBottom = snug
   /// A list row: vertical padding, gap between its columns, gap between its lines.
   public static let rowVertical = md
   public static let rowColumnGap = md

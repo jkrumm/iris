@@ -2,8 +2,9 @@ import IrisCore
 import IrisUI
 import SwiftUI
 
-/// The memo detail: headline, the recording's player, the step waterfall (collapsed to its total), transcript and reply
-/// with a Copy button each, and the icon-only actions at the bottom. It reloads when `refreshToken` changes (History bumps it on a `memo.updated` event).
+/// The memo detail, top to bottom: headline with the kind chip and one meta line, the reply, the recording's player, the
+/// transcript, and Details (step waterfall, ids; collapsed, open on a failed memo), then the icon-only actions at the
+/// bottom. It reloads when `refreshToken` changes (History bumps it on a `memo.updated` event).
 struct MemoDetailView: View {
   @State private var model: MemoDetailModel
   @State private var playback: MemoPlayback
@@ -27,12 +28,11 @@ struct MemoDetailView: View {
     ScrollView {
       VStack(alignment: .leading, spacing: Theme.Spacing.sectionTop) {
         header
-        if model.audioRequest != nil { player }
-        steps
-        transcript
         reply
         actionsLine
-        footer
+        if model.audioRequest != nil { player }
+        transcript
+        details
       }
       .padding(.horizontal, Theme.Spacing.screenMargin)
       .padding(.top, Theme.Spacing.sm)
@@ -76,32 +76,35 @@ struct MemoDetailView: View {
   private var header: some View {
     let memo = model.memo
     return VStack(alignment: .leading, spacing: Theme.Spacing.cozy) {
+      Text(verbatim: memo.rowHeadline)
+        .themeFont(.title, weight: .bold)
+        .foregroundStyle(Theme.Ink.primary)
+        .fixedSize(horizontal: false, vertical: true)
       HStack(spacing: Theme.Spacing.sm) {
         KindChip(label: memo.kindLabel, systemImage: memo.kindIcon)
         Text(verbatim: metaLine(memo))
           .themeFont(.footnote)
           .foregroundStyle(Theme.Ink.muted)
       }
-      VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
-        Text(verbatim: memo.rowHeadline)
-          .themeFont(.title, weight: .bold)
-          .foregroundStyle(Theme.Ink.primary)
-          .fixedSize(horizontal: false, vertical: true)
-        if memo.state == .failed, let error = memo.error {
-          Text(verbatim: error)
-            .themeFont(.callout)
-            .foregroundStyle(Theme.Status.bad)
-        } else if let detail = memo.summary?.detail {
-          Text(verbatim: detail)
-            .themeFont(.callout)
-            .foregroundStyle(Theme.Ink.secondary)
-        }
+      if memo.state == .failed, let error = memo.error {
+        Text(verbatim: error)
+          .themeFont(.callout)
+          .foregroundStyle(Theme.Status.bad)
+      } else if let detail = memo.summary?.detail {
+        Text(verbatim: detail)
+          .themeFont(.callout)
+          .foregroundStyle(Theme.Ink.secondary)
       }
     }
   }
 
+  /// Time · recording length · what the run cost; the steps' own cost is in Details.
   private func metaLine(_ memo: Memo) -> String {
-    [memo.timeText, memo.audioSeconds.map(DurationText.string(seconds:))].compactMap { $0 }.joined(separator: " · ")
+    [
+      memo.timeText, memo.audioSeconds.map(DurationText.string(seconds:)),
+      model.totalCostUsd.map { StepText.dollars($0) },
+    ]
+    .compactMap { $0 }.joined(separator: " · ")
   }
 
   private var player: some View {
@@ -113,16 +116,15 @@ struct MemoDetailView: View {
       onSkipBack: { audio.skipBack() })
   }
 
-  @ViewBuilder private var steps: some View {
-    VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
-      DetailSectionLabel(String(localized: "Steps", comment: "Section label of the step waterfall"))
-      if model.memo.state.isResultReady {
-        waterfall(now: .now)
-      } else {
-        // A running step's bar grows with the clock.
-        TimelineView(.periodic(from: .now, by: 1)) { context in
-          waterfall(now: context.date)
-        }
+  /// Details: the line reads the run's total time and cost; opened it shows every step (duration, cost, attempts, the
+  /// failed step's retry) and the ids. Collapsed unless the memo failed (see ``MemoDetailModel/isWaterfallExpanded``).
+  @ViewBuilder private var details: some View {
+    if model.memo.state.isResultReady {
+      waterfall(now: .now)
+    } else {
+      // A running step's bar grows with the clock.
+      TimelineView(.periodic(from: .now, by: 1)) { context in
+        waterfall(now: context.date)
       }
     }
   }
@@ -130,12 +132,48 @@ struct MemoDetailView: View {
   private func waterfall(now: Date) -> some View {
     StepWaterfall(
       rows: model.rows(now: now),
-      totalTitle: model.memo.state.isResultReady
-        ? String(localized: "Total", comment: "Footer of the step waterfall")
-        : String(localized: "Total so far", comment: "Footer of the step waterfall while the memo runs"),
-      totalValue: model.totalValue(now: now),
+      totalTitle: String(localized: "Details", comment: "Section line of the memo detail: steps, cost, ids"),
+      // Details collapse before the steps have loaded too: the line never goes away for want of a total.
+      totalValue: model.totalValue(now: now) ?? "",
       isExpanded: $model.isWaterfallExpanded,
-      onRetry: retry)
+      onRetry: retry
+    ) {
+      idsFooter
+    }
+  }
+
+  /// The ids to quote when something is wrong, then the device and the recording's segments.
+  private var idsFooter: some View {
+    let memo = model.memo
+    return VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
+      idRow(String(localized: "Memo ID", comment: "Detail: label of the memo's id"), memo.id)
+      // A memo in its own Hermes session has the memo's id as its thread id: one id says it.
+      if let threadId = memo.threadId, threadId != memo.id {
+        idRow(String(localized: "Thread ID", comment: "Detail: label of the thread's id"), threadId)
+      }
+      Text(verbatim: deviceLine(memo))
+        .themeFont(.caption)
+        .foregroundStyle(Theme.Ink.faint)
+    }
+    .padding(.horizontal, Theme.Spacing.cardInsetHorizontal)
+    .padding(.vertical, Theme.Spacing.cardInsetVertical)
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .accessibilityIdentifier("detail.ids")
+  }
+
+  private func idRow(_ title: String, _ value: String) -> some View {
+    VStack(alignment: .leading, spacing: Theme.Spacing.hair) {
+      Text(verbatim: title)
+        .themeFont(.caption)
+        .foregroundStyle(Theme.Ink.muted)
+      IDValueField(value)
+    }
+  }
+
+  private func deviceLine(_ memo: Memo) -> String {
+    guard let count = memo.segmentCount else { return memo.device }
+    return memo.device + " · "
+      + String(localized: "\(count) segments", comment: "Footer of the memo detail: uploaded recording segments")
   }
 
   @ViewBuilder private var transcript: some View {
@@ -202,17 +240,6 @@ struct MemoDetailView: View {
       .foregroundStyle(copied ? Theme.Status.good : Theme.Accent.tint)
       .sensoryFeedback(.success, trigger: copied) { _, now in now }
       .accessibilityIdentifier("detail.\(name).copy")
-    }
-  }
-
-  @ViewBuilder private var footer: some View {
-    if let count = model.memo.segmentCount {
-      Text(
-        verbatim: "\(model.memo.device) · "
-          + String(localized: "\(count) segments", comment: "Footer of the memo detail: uploaded recording segments")
-      )
-      .themeFont(.caption)
-      .foregroundStyle(Theme.Ink.faint)
     }
   }
 

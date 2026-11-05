@@ -45,18 +45,4 @@ struct HistoryDaySection: Identifiable {
     }
     return day.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated))
   }
-
-  /// "6 memos today · 4 min 52 s of audio", counted over the memos in the list; `nil` when none is from today.
-  static func subtitle(for memos: [Memo], now: Date = Date(), calendar: Calendar = .current) -> String? {
-    let today = memos.filter { calendar.isDate($0.createdAt, inSameDayAs: now) }
-    guard !today.isEmpty else { return nil }
-    let count =
-      today.count == 1
-      ? String(localized: "1 memo today", comment: "History subtitle")
-      : String(localized: "\(today.count) memos today", comment: "History subtitle")
-    let audio = today.compactMap(\.audioSeconds).reduce(0, +)
-    guard audio >= 1 else { return count }
-    let length = DurationText.string(seconds: audio)
-    return String(localized: "\(count) · \(length) of audio", comment: "History subtitle: memo count, audio length")
-  }
 }

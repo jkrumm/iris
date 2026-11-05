@@ -1,10 +1,13 @@
 import SwiftUI
 
-/// The step waterfall: collapsed it is one line, "Total · duration · cost", and a tap on it opens the steps. Expanded,
+/// The step waterfall: collapsed it is one line, the caller's title and value (the memo detail passes "Details" and the run's
+/// "duration · cost"), and a tap on it opens the steps. Expanded,
 /// one row per step with its `duration · cost` chip, the faster/slower tag and the attempt count where they apply, and
 /// a bar along the row's bottom edge that spans the card like a border. Steps advancing animate subtly (none under
-/// Reduce Motion). Without a total there is nothing to collapse to, so the rows show.
-public struct StepWaterfall: View {
+/// Reduce Motion). Without a total there is nothing to collapse to, so the rows show. A footer (ids, the device) sits under
+/// the rows and shows and hides with them.
+public struct StepWaterfall<Footer: View>: View {
+  private let footer: Footer
   private let rows: [StepWaterfallRow]
   private let totalTitle: String?
   private let totalValue: String?
@@ -13,13 +16,15 @@ public struct StepWaterfall: View {
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
   /// - Parameters:
-  ///   - totalTitle: The summary line's label ("Total"); the line is drawn when both strings are set.
+  ///   - totalTitle: The summary line's label ("Details" in the memo detail); the line is drawn when both strings are set.
   ///   - isExpanded: Whether the steps show under the summary line.
   ///   - onRetry: Called with the id of the row whose retry button was tapped.
+  ///   - footer: Drawn inside the card under the last row, with the rows.
   public init(
     rows: [StepWaterfallRow], totalTitle: String? = nil, totalValue: String? = nil, isExpanded: Binding<Bool>,
-    onRetry: @escaping (String) -> Void = { _ in }
+    onRetry: @escaping (String) -> Void = { _ in }, @ViewBuilder footer: () -> Footer
   ) {
+    self.footer = footer()
     self.rows = rows
     self.totalTitle = totalTitle
     self.totalValue = totalValue
@@ -37,6 +42,7 @@ public struct StepWaterfall: View {
           WaterfallRowView(row: row, onRetry: onRetry)
             .transition(.opacity)
         }
+        footer
       }
     }
     .animation(reduceMotion ? nil : .smooth(duration: 0.4), value: rows)
@@ -81,6 +87,17 @@ public struct StepWaterfall: View {
       Text("Shows or hides the steps", bundle: #bundle, comment: "VoiceOver hint of the step summary line")
     )
     .accessibilityIdentifier("detail.steps.toggle")
+  }
+}
+
+extension StepWaterfall where Footer == EmptyView {
+  public init(
+    rows: [StepWaterfallRow], totalTitle: String? = nil, totalValue: String? = nil, isExpanded: Binding<Bool>,
+    onRetry: @escaping (String) -> Void = { _ in }
+  ) {
+    self.init(
+      rows: rows, totalTitle: totalTitle, totalValue: totalValue, isExpanded: isExpanded, onRetry: onRetry,
+      footer: { EmptyView() })
   }
 }
 

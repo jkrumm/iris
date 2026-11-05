@@ -59,28 +59,6 @@ struct HistorySectionsTests {
     #expect(titles[1] == "Yesterday")
     #expect(!titles[2].isEmpty && titles[2] != "Today" && titles[2] != "Yesterday")
   }
-
-  @Test("the subtitle counts today's memos and sums their audio")
-  func subtitle() {
-    let memos = [
-      MemoFactory.memo("a", audioSeconds: 38.4), MemoFactory.memo("b", age: hour, audioSeconds: 253.6),
-      MemoFactory.memo("old", age: 2 * day, audioSeconds: 600),
-    ]
-    #expect(
-      HistoryDaySection.subtitle(for: memos, now: MemoFactory.now, calendar: calendar)
-        == "2 memos today · 4 min 52 s of audio")
-  }
-
-  @Test("the subtitle leaves out audio when there is none, says memo once and is absent without today's memos")
-  func subtitleEdges() {
-    #expect(
-      HistoryDaySection.subtitle(for: [MemoFactory.memo("a")], now: MemoFactory.now, calendar: calendar)
-        == "1 memo today")
-    #expect(
-      HistoryDaySection.subtitle(for: [MemoFactory.memo("a", age: 2 * day)], now: MemoFactory.now, calendar: calendar)
-        == nil)
-    #expect(HistoryDaySection.subtitle(for: [], now: MemoFactory.now, calendar: calendar) == nil)
-  }
 }
 
 @MainActor

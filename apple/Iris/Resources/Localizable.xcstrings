@@ -31,16 +31,6 @@
         }
       }
     },
-    "%@ · %@ of audio" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%1$@ · %2$@ Audio"
-          }
-        }
-      }
-    },
     "%@%lld %% vs prior" : {
       "localizations" : {
         "de" : {
@@ -221,16 +211,6 @@
         }
       }
     },
-    "%lld memos today" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%lld Memos heute"
-          }
-        }
-      }
-    },
     "%lld of %lld characters" : {
       "localizations" : {
         "de" : {
@@ -337,16 +317,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "1 früheres Memo wird noch gesendet"
-          }
-        }
-      }
-    },
-    "1 memo today" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "1 Memo heute"
           }
         }
       }
@@ -832,6 +802,16 @@
         }
       }
     },
+    "Details" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Details"
+          }
+        }
+      }
+    },
     "Device token" : {
       "localizations" : {
         "de" : {
@@ -1118,6 +1098,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Memo gelöscht"
+          }
+        }
+      }
+    },
+    "Memo ID" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Memo-ID"
           }
         }
       }
@@ -1864,16 +1854,6 @@
         }
       }
     },
-    "Steps" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Schritte"
-          }
-        }
-      }
-    },
     "Stop and send" : {
       "localizations" : {
         "de" : {
@@ -2158,6 +2138,16 @@
         }
       }
     },
+    "Thread ID" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Unterhaltungs-ID"
+          }
+        }
+      }
+    },
     "Today" : {
       "localizations" : {
         "de" : {
@@ -2174,26 +2164,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Token abgelehnt"
-          }
-        }
-      }
-    },
-    "Total" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Gesamt"
-          }
-        }
-      }
-    },
-    "Total so far" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Bisher gesamt"
           }
         }
       }

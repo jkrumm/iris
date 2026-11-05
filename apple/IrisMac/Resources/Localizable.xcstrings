@@ -11,16 +11,6 @@
         }
       }
     },
-    "%@ · %@ of audio" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%1$@ · %2$@ Audio"
-          }
-        }
-      }
-    },
     "%lld attempts" : {
       "localizations" : {
         "en" : {
@@ -57,16 +47,6 @@
                 }
               }
             }
-          }
-        }
-      }
-    },
-    "%lld memos today" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%lld Memos heute"
           }
         }
       }
@@ -129,16 +109,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "+%lld %% langsamer"
-          }
-        }
-      }
-    },
-    "1 memo today" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "1 Memo heute"
           }
         }
       }
@@ -483,6 +453,26 @@
         }
       }
     },
+    "Details" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Details"
+          }
+        }
+      }
+    },
+    "Device" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gerät"
+          }
+        }
+      }
+    },
     "Device token" : {
       "localizations" : {
         "de" : {
@@ -671,6 +661,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Bibliothek"
+          }
+        }
+      }
+    },
+    "Memo ID" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Memo-ID"
           }
         }
       }
@@ -1178,16 +1178,6 @@
         }
       }
     },
-    "Steps" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Schritte"
-          }
-        }
-      }
-    },
     "Stop" : {
       "localizations" : {
         "de" : {
@@ -1390,6 +1380,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Diese Taste ist nicht aktiv. Möglicherweise belegt sie eine andere App; eine andere Taste aufzeichnen."
+          }
+        }
+      }
+    },
+    "Thread ID" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Unterhaltungs-ID"
           }
         }
       }
