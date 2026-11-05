@@ -1218,9 +1218,10 @@ Two `StaticConfiguration` widgets in `IrisWidgets/HomeWidgets.swift`; the views,
   Releases: `make mac-release` (`scripts/mac-release.sh`; AGENTS.md "Mac releases") archives, signs, zips with `ditto`, runs
   `generate_appcast`, verifies the EdDSA signature and creates a GitHub release with `IrisMac-<version>-<build>.zip` and
   `appcast.xml` (drafts are never `releases/latest`). The EdDSA key lives in the mini's login keychain; the tools read it from
-  `--ed-key-file` because the keychain prompt hangs headless. *Open until the Developer ID certificate exists:* notarization and
-  stapling (implemented, never run), first install without Open Anyway, an update with no admin prompt on the MacBook, and
-  `xattr -l` on the updated bundle.
+  `--ed-key-file` because the keychain prompt hangs headless. Sparkle's helpers (Autoupdate, Updater.app, the XPC services) are
+  shipped ad-hoc signed, so a Developer ID release re-signs them inside out, then the app, before `notarytool`. Proven on the mini
+  (2026-11-05): notarytool Accepted, `stapler validate`, `spctl -a -vv -t exec` = Notarized Developer ID. *Open (needs the MacBook):*
+  first install without Open Anyway, an update with no admin prompt, and `xattr -l` on the updated bundle.
 - **Outbox panel (Wave 19 M1):** a strip under the panel header on every page, only while the queue holds something or cannot
   be opened or saved (`MacOutboxStrip` over `MacOutboxModel`). It reads the iPhone's `QueuedItemSource` (`OutboxService`, compiled
   in; no second model of the outbox): a count ("2 of 3 could not be sent"), the first stalled item's reason, and per item the
