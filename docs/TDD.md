@@ -312,8 +312,12 @@ machine, Retries); retention (audio deleted 30 days after `notified`) is not bui
    `{headline (≤60), detail (≤240), spoken (≤300 characters, the cap standing for two sentences), model, attempts, latencyMs, usage}`, stored as `summary` (`costUsd` null is stored as null). The step is optional (§Memo state machine, Optional steps): without a summarizer (`AGW_URL` + `AGW_API_SECRET` unset, `/health` lists `summarize` in `degraded`) or when triage fails for good, it fails, is skipped and the memo goes on to `notify` with `summary` null.
 5. **notify:** announces `memo.summary.headline`; without a summary the headline is `memo.hermes_headline`, and without that the transcript, whitespace collapsed, clipped to 60 code points (`transcriptSummary`: detail 240, `spoken` empty). A memo that never reached either (mode `transcribe`, a failed `summarize` and a Hermes reply with no valid block) is announced the same way.
    - a Live Activity `update` (priority 5) for each phase change (`processing`, `done`, `failed`; an old `needs_route` state maps to `processing`), plus a final
-     `end` with the result content state and `dismissal-date` = now + 15 min; the content state carries `routeChip` = the memo's `kind` capitalised (≤ 30 code points; no chip when the kind is null);
-   - one alert (priority 10, `mutable-content: 1`, `category: MEMO_DONE`, the only category, `thread-id: memo`, a `memo` id in the custom payload), titled with the same kind chip or "Iris" when there is none;
+     `end` (priority 10) with the result content state and `dismissal-date` = now + 15 min; the content state carries `routeChip` = the memo's `kind` capitalised (≤ 30 code points; no chip when the kind is null).
+     **The `end` carries the announcement (owner 2026-11-05, after the first real Live Activity proof showed the end plus a banner, "doppelt gemoppelt"):** `aps.alert` = `{title: kind chip or "Iris", body: headline (≤ 200), sound: "default"}`, which lights the device and plays the sound
+     (Apple, [Starting and updating Live Activities with ActivityKit push notifications](https://developer.apple.com/documentation/activitykit/starting-and-updating-live-activities-with-activitykit-push-notifications): an optional `alert` with `title`, `body` and `sound` "to light up their device and display the expanded presentation on devices that support the Dynamic Island or a banner on devices that don't"; the
+     docs' examples put `sound` inside `alert`; [Generating a remote notification](https://developer.apple.com/documentation/usernotifications/generating-a-remote-notification) lists the alert keys and `default` as the system sound; the [HIG](https://developer.apple.com/design/human-interface-guidelines/live-activities) says alerts play the notification sound by default and not to pair a push notification with a Live Activity for the same update).
+     Not documented by Apple, so device-verified only: an `alert` on an `end` event, `sound: "default"` inside it, and the Notification Center entry (a developer report says none appears on iPhone; the accepted tradeoff is that such a memo has none, History keeps it);
+   - one alert push (priority 10, `mutable-content: 1`, `category: MEMO_DONE`, the only category, `thread-id: memo`, `apns-collapse-id` = memo id, a `memo` id in the custom payload, titled with the same kind chip or "Iris" when there is none) **only for a memo without a Live Activity token** (every typed memo, a take whose activity never started) or when the `end` push is refused for good (the activity is gone: 410, BadDeviceToken); a transient `end` failure throws and the retry re-sends the `end` only;
    - SSE `memo.done`;
    - a `log` stand-in when APNs is not configured.
 
@@ -1014,9 +1018,16 @@ Two `StaticConfiguration` widgets in `IrisWidgets/HomeWidgets.swift`; the views,
 
 ### Notifications
 
-- **Registration:** `registerForRemoteNotifications()` on every launch, with
-  the token sent via `devices/register`. The push-to-start token comes from
-  `Activity<MemoAttributes>.pushToStartTokenUpdates`.
+- **Registration** (`PushRegistrar`, `PushAppDelegate`; built Wave 21 P1): once a connection is saved (never on a first launch before it) the app
+  registers the `MEMO_DONE` category (no actions yet; the content extension declares it), asks for alert, sound and badge once, and calls
+  `registerForRemoteNotifications()` on every launch. The hex token goes through `devices/register` with `apnsEnv`: `sandbox` on a Debug build
+  (`#if DEBUG`; Xcode development builds talk to the sandbox host), `production` on Release (TestFlight, Wave 22). It is sent again only when
+  the token, the environment or the server changes, and a failed send is retried on the next foreground. The simulator has no APNs: the failure is
+  an info-level `push.register_failed` and nothing else. Events (`push.authorization|token|registered|register_failed`) never carry the token.
+  The push-to-start token comes from `Activity<MemoAttributes>.pushToStartTokenUpdates`.
+- **Device signing:** `make device` signs with the paid team by default, headless (`-allowProvisioningUpdates` with the App Store Connect Team key
+  from `op://mini/apple-developer`, written to a 0600 temp file for the build only), so `aps-environment` and the App Group are in the build.
+  `DEVICE_SIGNING=personal` stays as the free-team fallback without both entitlements (AGENTS.md "Device").
 - **Categories:**
   - `MEMO_DONE`: [Play] [Reply by voice] [Open];
   - [Reply by voice] opens the app in recording mode bound to `threadId`

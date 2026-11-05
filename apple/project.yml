@@ -22,7 +22,7 @@ settings:
     GENERATE_INFOPLIST_FILE: NO
     ENABLE_USER_SCRIPT_SANDBOXING: YES
     # Signing is injected per invocation (simulator builds pass CODE_SIGNING_ALLOWED=NO; device and TestFlight
-    # builds pass DEVELOPMENT_TEAM). No team id is tracked here.
+    # builds pass DEVELOPMENT_TEAM, read from op://mini/apple-developer). No team id is tracked here.
     CODE_SIGN_STYLE: Automatic
     # String catalogs (TDD §4 "Localization"): the compiler extracts every localizable literal of every target, and
     # `scripts/check-strings.ts` holds the catalogs to it.
@@ -68,7 +68,7 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.jkrumm.iris
         TARGETED_DEVICE_FAMILY: "1"
         IRIS_BUILD_SHA: dev
-        # `scripts/device-build.sh` points these at copies without `aps-environment` (app) and the App Group (all three) while the team is a Personal Team.
+        # `scripts/device-build.sh` points these at copies without `aps-environment` (app) and the App Group (all three) for DEVICE_SIGNING=personal only; the paid default keeps the tracked files.
         IRIS_APP_ENTITLEMENTS: Iris/Iris.entitlements
         CODE_SIGN_ENTITLEMENTS: $(IRIS_APP_ENTITLEMENTS)
     dependencies:

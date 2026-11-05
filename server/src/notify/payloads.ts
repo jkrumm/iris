@@ -109,7 +109,11 @@ export function buildLiveActivityUpdate(params: {
   };
 }
 
-/** The final state: the memo is still `acted` when notify runs, so the phase is fixed to done. */
+/**
+ * The final state: the memo is still `acted` when notify runs, so the phase is fixed to done.
+ * The `alert` (kind chip or "Iris", the headline, the default sound) is what lights the device and plays the sound: a memo with a
+ * Live Activity gets this push and no separate banner (TDD §3 notify). Apple puts `sound` inside the Live Activity `alert`.
+ */
 export function buildLiveActivityEnd(params: {
   topic: string;
   memo: Memo;
@@ -125,6 +129,11 @@ export function buildLiveActivityEnd(params: {
         event: "end",
         "dismissal-date": epochSeconds(new Date(now.getTime() + DISMISS_AFTER_MS)),
         "content-state": contentState({ memo, phase: "done", headline: summary.headline }),
+        alert: {
+          title: kindChip(memo.kind) ?? "Iris",
+          body: truncate(summary.headline, ALERT_BODY_MAX),
+          sound: "default",
+        },
       },
     },
   };

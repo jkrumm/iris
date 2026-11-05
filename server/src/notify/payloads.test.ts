@@ -145,9 +145,20 @@ describe("Live Activity end", () => {
             headline: "Buy milk",
             hasReply: true,
           },
+          alert: { title: "Note", body: "Buy milk", sound: "default" },
         },
       },
     });
+  });
+
+  it("titles the alert Iris without a kind", () => {
+    const { payload } = buildLiveActivityEnd({
+      topic: TOPIC,
+      memo: memoWith({}),
+      summary,
+      now: NOW,
+    });
+    expect(payload).toMatchObject({ aps: { alert: { title: "Iris" } } });
   });
 
   it("stays under 4 KB", () => {
