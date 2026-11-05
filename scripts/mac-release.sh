@@ -148,6 +148,24 @@ check_signature() {
   if grep -q 'com.apple.security.app-sandbox' <<<"$ents"; then echo "  the app is sandboxed" >&2; return 1; fi
   if grep -q 'com.apple.security.get-task-allow' <<<"$ents"; then echo "  get-task-allow is set (notarization refuses it)" >&2; return 1; fi
 }
+# Sparkle ships its helpers (Autoupdate, Updater.app, the XPC services) ad-hoc signed, and Xcode only re-signs the framework itself:
+# notarization refuses them ("not signed with a valid Developer ID certificate", no secure timestamp). Re-sign inside out with the
+# identity, then the app, whose seal covers the framework; the app keeps its entitlements.
+resign_sparkle() {
+  local id fw ents item
+  id="$(security find-identity -v -p codesigning | sed -n "s/.*\"\(Developer ID Application: .*($TEAM)\)\".*/\1/p" | head -n 1)"
+  [ -n "$id" ] || { echo "  no Developer ID Application identity for team $TEAM" >&2; return 1; }
+  fw="$APP/Contents/Frameworks/Sparkle.framework"
+  ents="$WORK/app.entitlements"
+  codesign -d --entitlements - --xml "$APP" >"$ents" 2>/dev/null
+  for item in "$fw"/Versions/B/XPCServices/*.xpc "$fw/Versions/B/Autoupdate" "$fw/Versions/B/Updater.app" "$fw"; do
+    [ -e "$item" ] || continue
+    codesign --force --options runtime --timestamp --sign "$id" "$item"
+  done
+  codesign --force --options runtime --timestamp --entitlements "$ents" --sign "$id" "$APP"
+}
+if [ "$IDENTITY" = "developer-id" ]; then resign_sparkle; fi
+
 check_signature "$APP"
 [ "${SIGNING_ONLY:-0}" != "1" ] || { echo "  SIGNING_ONLY: stopping after the signature check"; exit 0; }
 
@@ -155,7 +173,17 @@ check_signature "$APP"
 
 if [ "$IDENTITY" = "developer-id" ]; then
   ditto -c -k --sequesterRsrc --keepParent "$APP" "$WORK/notary.zip"
-  xcrun notarytool submit "$WORK/notary.zip" --key "$KEY_FILE" --key-id "$KEY_ID" --issuer "$ISSUER" --wait --timeout 30m
+  # `submit --wait` exits 0 on an Invalid verdict: read the status, and show Apple's log when it is not Accepted.
+  NOTARY="$(xcrun notarytool submit "$WORK/notary.zip" --key "$KEY_FILE" --key-id "$KEY_ID" --issuer "$ISSUER" --wait --timeout 30m \
+    --output-format json)"
+  NOTARY_ID="$(jq -r '.id // empty' <<<"$NOTARY")"
+  NOTARY_STATUS="$(jq -r '.status // empty' <<<"$NOTARY")"
+  echo "  notarytool: id=$NOTARY_ID status=$NOTARY_STATUS"
+  if [ "$NOTARY_STATUS" != "Accepted" ]; then
+    xcrun notarytool log "$NOTARY_ID" --key "$KEY_FILE" --key-id "$KEY_ID" --issuer "$ISSUER" >&2 || true
+    echo "  notarization was not accepted" >&2
+    exit 1
+  fi
   xcrun stapler staple "$APP"
   xcrun stapler validate "$APP"
   spctl --assess --type execute --verbose=2 "$APP"
