@@ -100,4 +100,5 @@ app="$(find "$TMP_DIR/ipa/Payload" -maxdepth 1 -name '*.app' | head -n 1)"
 echo "  exported $ipa"
 echo "  signature of $(basename "$app") (the team id, the Authority chain):"
 codesign -dvv "$app" 2>&1 | grep -E '^(Identifier|Authority|TeamIdentifier|Signed Time)=' | sed 's/^/    /'
-echo "  aps-environment: $(codesign -d --entitlements :- "$app" 2>/dev/null | /usr/libexec/PlistBuddy -c 'Print :aps-environment' /dev/stdin 2>/dev/null || echo '<none>')"
+codesign -d --entitlements :- "$app" >"$TMP_DIR/entitlements.plist" 2>/dev/null || true
+echo "  aps-environment: $(/usr/libexec/PlistBuddy -c 'Print :aps-environment' "$TMP_DIR/entitlements.plist" 2>/dev/null || echo '<none>')"
