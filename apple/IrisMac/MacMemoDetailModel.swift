@@ -63,8 +63,8 @@ final class MacMemoDetailModel {
 
   var memo: Memo? { detail?.memo }
 
-  /// The step rows show under the waterfall's total line: collapsed until the owner opens them, except for a failed memo,
-  /// whose failed step (and its retry) is what the owner came for.
+  /// Details (the step rows and the ids) show under their line: collapsed until the owner opens them, except for a failed
+  /// memo, whose failed step (and its retry) is what the owner came for.
   var isWaterfallExpanded: Bool {
     get { waterfallChoice ?? (memo?.state == .failed) }
     set { waterfallChoice = newValue }
