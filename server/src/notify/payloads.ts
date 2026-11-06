@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { t } from "elysia";
 import { HEADLINE_MAX, type Memo, type MemoState, type Summary } from "../memo/memo.js";
 import type { ApnsMessage } from "../ports/apns.js";
@@ -161,5 +162,46 @@ export function buildAlert(params: { topic: string; memo: Memo; summary: Summary
   return {
     headers: { topic, pushType: "alert", priority: 10, collapseId: memo.id },
     payload,
+  };
+}
+
+const FACTORY_TITLE_MAX = 80;
+
+/**
+ * A new decision ask of the software factory: Apple's `aps` dict plus the custom `factory` key (the ask id and its Issue) the app
+ * opens the card from. No `category` or `mutable-content`: the title and body are shown as the factory wrote them.
+ */
+export const FactoryAlertPayload = t.Object({
+  aps: t.Object({
+    alert: t.Object({ title: t.String(), body: t.String() }),
+    "thread-id": t.Literal("factory"),
+    sound: t.Literal("default"),
+  }),
+  factory: t.Object({ askId: t.String(), issue: t.Nullable(t.Number({ multipleOf: 1 })) }),
+});
+
+/**
+ * A new decision ask of the software factory: its `short` and `summary` as written (free text, not localized), the
+ * `factory` key the app opens the card from, and a collapse id derived from the ask id (a hash, APNs allows 64 bytes).
+ */
+export function buildFactoryAlert(params: {
+  topic: string;
+  ask: { id: string; issue: number | null; short: string; summary: string };
+}): ApnsMessage {
+  const { topic, ask } = params;
+  const collapseId = `f-${createHash("sha256").update(ask.id).digest("hex").slice(0, 32)}`;
+  return {
+    headers: { topic, pushType: "alert", priority: 10, collapseId },
+    payload: {
+      aps: {
+        alert: {
+          title: truncate(ask.short || ask.summary || "Factory", FACTORY_TITLE_MAX),
+          body: truncate(ask.summary || ask.short, ALERT_BODY_MAX),
+        },
+        "thread-id": "factory",
+        sound: "default",
+      },
+      factory: { askId: ask.id, issue: ask.issue },
+    },
   };
 }

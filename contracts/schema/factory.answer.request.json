@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "askId": {
+      "maxLength": 512,
+      "minLength": 1,
+      "type": "string"
+    },
+    "callId": {
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$",
+      "type": "string"
+    },
+    "text": {
+      "maxLength": 2000,
+      "minLength": 2,
+      "type": "string"
+    }
+  },
+  "required": [
+    "askId",
+    "text",
+    "callId"
+  ],
+  "title": "factory.answer.request",
+  "type": "object"
+}

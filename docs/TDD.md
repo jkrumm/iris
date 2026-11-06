@@ -420,12 +420,13 @@ The research gateway was down for this item (503), so the facts above come from 
 | `AUDIO_DOOR_URL`, `AUDIO_DOOR_TOKEN` | The audio door base (with `/v1`) and the `iris` caller token. Both register `transcribe` and `speech`. The URL is a plain value in `.env.local.tpl`; `launch.sh` reads the token from the local `door-tokens` file (no 1Password ref) |
 | `AGW_URL`, `AGW_API_SECRET` | The agent-workflows host (`http://127.0.0.1:7791`) and its bearer (`op://mini/agent-workflows/API_SECRET`). Both register `summarize` (agw `triage`); unset, the step is skipped and `summarize` is `degraded` |
 | `HERMES_URL`, `HERMES_TOKEN` | Hermes endpoint and bearer. Both register `act`, the one destination; unset leaves every memo waiting at `transcribed` and `act` in `/health` `degraded` |
+| `FACTORY_URL`, `FACTORY_TOKEN` | The software-factory read API (loopback `http://127.0.0.1:<port>`) and its bearer (`op://mini/software-factory/FACTORY_TOKEN`). Both register the `factory` reader, the `/v1/factory` routes and the decision-ask watcher; unset, `factory` is in `/health` `degraded` |
 | `APNS_KEY_P8`, `APNS_KEY_ID`, `APNS_TEAM_ID`, `APNS_TOPIC` | APNs credentials |
 | `IRIS_FAKES` | Boots every downstream port from in-memory fakes (`make e2e`); `degraded` then lists `fakes`. Never set in production (`launch.sh` refuses) |
 | `OTEL_*` | Telemetry export |
 
 `env.ts` parses only these. `HERDR_SOCKET`, `HC_BIN`, `HC_SOCKET` and `BRAIN_DIR` were removed with the routing (Wave 21 S1). `/health` `degraded` lists
-only `otel` (no OTLP endpoint), `fakes`, `device-tokens` (empty map), `transcribe`, `act`, `summarize` and `speech` (a missing port); APNs falls back to the log notifier without being listed.
+only `otel` (no OTLP endpoint), `fakes`, `device-tokens` (empty map), `transcribe`, `act`, `summarize`, `speech` and `factory` (a missing port; `factory` = the software-factory read API, AGENTS.md "Software factory"); APNs falls back to the log notifier without being listed.
 
 New refs go into `dotfiles-private/headless.refs`.
 
@@ -1189,7 +1190,7 @@ Two `StaticConfiguration` widgets in `IrisWidgets/HomeWidgets.swift`; the views,
     the system prompt runs on the side. A memo in flight twice (an event while a catch-up delivers it) is delivered once, and looks
     again fresh when the first delivery is through; a delivery whose memo changed state while its banner was being posted (a retry) does not
     record its kind. Catch-ups run one at a time in the order asked, so a later fetch cannot become the baseline over an earlier one. **Limit:** a memo that finished while the *app was not running* is not announced
-    (the baseline records it); APNs for an asleep app comes later.
+    (the baseline records it); the Mac notifier reads the event stream only, the server's APNs alerts go to devices that registered a token.
   - *Connection change:* the connection gets its own client and a new `HistoryModel`; the notifier is cleared (every event, fetch and
     catch-up carries the notifier's generation from when it started and re-checks it after each await, so a task of the old server
     posts and records nothing; a banner the system took while the switch ran is withdrawn again, and the switch withdraws every

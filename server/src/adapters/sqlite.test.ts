@@ -897,7 +897,7 @@ describe("migrations", () => {
 
     it("fails an open needs_route memo at act with a failed act step, leaving done and deleted ones alone", () => {
       const db = version13();
-      migrate(db);
+      migrate(db, MIGRATIONS.slice(0, 14));
       expect(userVersion(db)).toBe(14);
 
       expect(stateOf(db, "open")).toEqual({ state: "failed", failed_step: "act", error: PARKED });

@@ -1,0 +1,14 @@
+{
+  "aps": {
+    "alert": {
+      "title": "Which cache layer?",
+      "body": "The lead needs a call: keep Redis or move to the in-process cache."
+    },
+    "thread-id": "factory",
+    "sound": "default"
+  },
+  "factory": {
+    "askId": "decision:113:1:ask:0198e5a0-7c1d-7000-8000-000000000001",
+    "issue": 113
+  }
+}

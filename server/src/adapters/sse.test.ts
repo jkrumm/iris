@@ -82,3 +82,12 @@ describe("readSseFrames", () => {
     expect(error).toBeInstanceOf(SseIdleError);
   });
 });
+
+describe("readSseFrames id", () => {
+  it("carries the id line of a frame, and only when there is one", async () => {
+    expect(await collect(["id: i1.s2\nevent: fleet\ndata: {}\n\nevent: b\ndata: x\n\n"])).toEqual([
+      { event: "fleet", data: "{}", id: "i1.s2" },
+      { event: "b", data: "x" },
+    ]);
+  });
+});

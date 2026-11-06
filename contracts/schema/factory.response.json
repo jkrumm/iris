@@ -1,0 +1,146 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "asks": {
+      "items": {
+        "properties": {
+          "answerable": {
+            "type": "boolean"
+          },
+          "at": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "issue": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "kind": {
+            "enum": [
+              "blocker",
+              "question",
+              "human",
+              "note",
+              "permission",
+              "other"
+            ],
+            "type": "string"
+          },
+          "options": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "short": {
+            "type": "string"
+          },
+          "source": {
+            "enum": [
+              "hc",
+              "wait",
+              "factory",
+              "decision",
+              "queue",
+              "reply",
+              "other"
+            ],
+            "type": "string"
+          },
+          "stale": {
+            "type": "boolean"
+          },
+          "summary": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "issue",
+          "short",
+          "summary",
+          "source",
+          "kind",
+          "at",
+          "stale",
+          "answerable",
+          "options"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "builtAt": {
+      "type": "string"
+    },
+    "counts": {
+      "properties": {
+        "asks": {
+          "type": "integer"
+        },
+        "health": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "asks",
+        "health"
+      ],
+      "type": "object"
+    },
+    "health": {
+      "items": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "park",
+              "silent",
+              "over_budget",
+              "regressions",
+              "machine",
+              "other"
+            ],
+            "type": "string"
+          },
+          "short": {
+            "type": "string"
+          },
+          "since": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "short",
+          "summary",
+          "since"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "asks",
+    "health",
+    "counts",
+    "builtAt"
+  ],
+  "title": "factory.response",
+  "type": "object"
+}

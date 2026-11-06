@@ -1,17 +1,23 @@
 export interface SseFrame {
   event: string;
   data: string;
+  /** The `id:` line, when the frame has one (a resume cursor). */
+  id?: string;
 }
 
 function parseBlock(block: string): SseFrame | null {
   let event = "message";
+  let id: string | undefined;
   const data: string[] = [];
   for (const line of block.split("\n")) {
     if (line === "" || line.startsWith(":")) continue;
-    if (line.startsWith("event:")) event = line.slice(6).trim();
+    if (line.startsWith("id:")) id = line.slice(3).trim();
+    else if (line.startsWith("event:")) event = line.slice(6).trim();
     else if (line.startsWith("data:")) data.push(line.slice(5).replace(/^ /, ""));
   }
-  return data.length === 0 ? null : { event, data: data.join("\n") };
+  return data.length === 0
+    ? null
+    : { event, data: data.join("\n"), ...(id !== undefined && { id }) };
 }
 
 export class SseIdleError extends Error {

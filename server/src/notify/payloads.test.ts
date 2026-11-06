@@ -3,6 +3,7 @@ import { seedMemo, testStore } from "../memo/test-support.js";
 import type { Memo, MemoState } from "../memo/memo.js";
 import {
   buildAlert,
+  buildFactoryAlert,
   buildLiveActivityEnd,
   buildLiveActivityUpdate,
   MAX_PAYLOAD_BYTES,
@@ -185,5 +186,45 @@ describe("helpers", () => {
     expect(Array.from(kindChip("k".repeat(100)) as string)).toHaveLength(30);
     expect(kindChip(null)).toBeNull();
     expect(kindChip("")).toBeNull();
+  });
+});
+
+describe("buildFactoryAlert", () => {
+  const ask = {
+    id: "decision:113:1:ask:0198e5a0-7c1d-7000-8000-000000000001",
+    issue: 113,
+    short: "Which cache layer?",
+    summary: "Keep Redis or not.",
+  };
+
+  it("is a default-sound alert on the factory thread, carrying the ask for the app", () => {
+    const message = buildFactoryAlert({ topic: TOPIC, ask });
+    expect(message.headers).toMatchObject({ topic: TOPIC, pushType: "alert", priority: 10 });
+    expect(message.payload).toEqual({
+      aps: {
+        alert: { title: "Which cache layer?", body: "Keep Redis or not." },
+        "thread-id": "factory",
+        sound: "default",
+      },
+      factory: { askId: ask.id, issue: 113 },
+    });
+  });
+
+  it("collapses by a short stable hash of the ask id", () => {
+    const a = buildFactoryAlert({ topic: TOPIC, ask }).headers.collapseId ?? "";
+    expect(a).toBe(buildFactoryAlert({ topic: TOPIC, ask }).headers.collapseId ?? "");
+    expect(a).not.toBe(
+      buildFactoryAlert({ topic: TOPIC, ask: { ...ask, id: `${ask.id}x` } }).headers.collapseId ??
+        "",
+    );
+    expect(new TextEncoder().encode(a).length).toBeLessThanOrEqual(64);
+  });
+
+  it("clips long text and stays under the payload limit", () => {
+    const message = buildFactoryAlert({
+      topic: TOPIC,
+      ask: { ...ask, short: "t".repeat(500), summary: "b".repeat(5000) },
+    });
+    expect(bytes(message.payload)).toBeLessThan(MAX_PAYLOAD_BYTES);
   });
 });

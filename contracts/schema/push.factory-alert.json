@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "aps": {
+      "properties": {
+        "alert": {
+          "properties": {
+            "body": {
+              "type": "string"
+            },
+            "title": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "title",
+            "body"
+          ],
+          "type": "object"
+        },
+        "sound": {
+          "const": "default",
+          "type": "string"
+        },
+        "thread-id": {
+          "const": "factory",
+          "type": "string"
+        }
+      },
+      "required": [
+        "alert",
+        "thread-id",
+        "sound"
+      ],
+      "type": "object"
+    },
+    "factory": {
+      "properties": {
+        "askId": {
+          "type": "string"
+        },
+        "issue": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "askId",
+        "issue"
+      ],
+      "type": "object"
+    }
+  },
+  "required": [
+    "aps",
+    "factory"
+  ],
+  "title": "push.factory-alert",
+  "type": "object"
+}

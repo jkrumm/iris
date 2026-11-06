@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "duplicate": {
+      "type": "boolean"
+    },
+    "issue": {
+      "type": "integer"
+    },
+    "state": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "issue",
+    "state",
+    "duplicate"
+  ],
+  "title": "factory.answer.response",
+  "type": "object"
+}

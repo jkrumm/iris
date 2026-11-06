@@ -205,4 +205,13 @@ export const MIGRATIONS: readonly string[] = [
 
   UPDATE memos SET state = 'transcribed' WHERE state = 'routed';
   `,
+  // Asks of the software factory already announced by push: a restart or a replayed change stream never sends one twice.
+  // The `*baseline*` row marks the first-ever scan (finished when its `pushed_at` is set); `pushed_at` NULL = seen, not announced yet.
+  `
+  CREATE TABLE factory_ask_pushes (
+    ask_id TEXT PRIMARY KEY,
+    first_seen_at TEXT NOT NULL,
+    pushed_at TEXT
+  );
+  `,
 ];

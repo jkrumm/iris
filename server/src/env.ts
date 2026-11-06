@@ -34,6 +34,10 @@ export const Env = z.object({
   // (`op://mini/agent-workflows/API_SECRET`). Both are required for it to register.
   AGW_URL: z.preprocess(emptyToUndefined, bearerUrl("AGW_URL").optional()),
   AGW_API_SECRET: z.preprocess(emptyToUndefined, z.string().trim().optional()),
+  // The software factory's token API on this machine (`http://127.0.0.1:7793`) and its bearer (`op://mini/software-factory/FACTORY_TOKEN`):
+  // the asks and health line for the app, answers forwarded, one push per new decision ask. Both are required; without them `/health` lists `factory`.
+  FACTORY_URL: z.preprocess(emptyToUndefined, bearerUrl("FACTORY_URL").optional()),
+  FACTORY_TOKEN: z.preprocess(emptyToUndefined, z.string().trim().optional()),
   // The Hermes API server and its key: the one destination, where every memo but a `transcribe` one goes. Both are required for `act` to register.
   HERMES_URL: z.preprocess(emptyToUndefined, z.url().optional()),
   HERMES_TOKEN: z.preprocess(emptyToUndefined, z.string().optional()),

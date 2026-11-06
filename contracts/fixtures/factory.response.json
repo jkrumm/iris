@@ -1,0 +1,45 @@
+{
+  "asks": [
+    {
+      "id": "decision:113:1:ask:0198e5a0-7c1d-7000-8000-000000000001",
+      "issue": 113,
+      "short": "Which cache layer?",
+      "summary": "The lead needs a call: keep Redis or move to the in-process cache.",
+      "source": "decision",
+      "kind": "question",
+      "at": "2026-11-06T09:30:00.000Z",
+      "stale": false,
+      "answerable": true,
+      "options": [
+        "Keep Redis",
+        "Move in-process"
+      ]
+    },
+    {
+      "id": "hc:lead-114-1:blocker",
+      "issue": null,
+      "short": "Waiting on a review",
+      "summary": "A lead has waited for a go-ahead since yesterday.",
+      "source": "hc",
+      "kind": "blocker",
+      "at": "2026-11-05T08:00:00.000Z",
+      "stale": true,
+      "answerable": false,
+      "options": []
+    }
+  ],
+  "health": [
+    {
+      "id": "park:114",
+      "kind": "park",
+      "short": "One Issue is parked",
+      "summary": "Issue 114 stopped after three failed attempts and waits for you.",
+      "since": "2026-11-06T08:00:00.000Z"
+    }
+  ],
+  "counts": {
+    "asks": 2,
+    "health": 1
+  },
+  "builtAt": "2026-11-06T10:00:00.000Z"
+}

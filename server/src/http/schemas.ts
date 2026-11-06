@@ -2,6 +2,7 @@ import { t } from "elysia";
 import { MEMO_ERROR_CODES } from "../memo/errors.js";
 import { MEMO_MODES, MEMO_STATES, STEPS, THREAD_KINDS } from "../memo/memo.js";
 import { APNS_ENVS, PLATFORMS } from "../ports/devices.js";
+import { ASK_KINDS, ASK_SOURCES, HEALTH_KINDS } from "../ports/factory.js";
 import { TELEMETRY_MAX_RECORDS } from "../telemetry/limits.js";
 
 // Every request and response shape on the wire, in one file. Pure TypeBox (no Transform or custom
@@ -280,6 +281,50 @@ export const StatsResponse = t.Object({
     t.Object({ step: Step, kind: Nullable(t.String()), medianMs: Int, samples: Int }),
   ),
   costPerKind: t.Array(t.Object({ kind: Nullable(t.String()), costUsd: t.Number(), memos: Int })),
+});
+
+// ── Factory ──────────────────────────────────────────────────────────────────
+
+// The software factory's asks and health line for the app. Display text is `short` and `summary` as the factory wrote them;
+// ids are for linking only. Enums carry `other` for values the factory adds later; `repo` paths are never sent.
+export const FactoryAsk = t.Object({
+  id: t.String(),
+  issue: Nullable(Int),
+  short: t.String(),
+  summary: t.String(),
+  source: t.UnionEnum([...ASK_SOURCES]),
+  kind: t.UnionEnum([...ASK_KINDS]),
+  at: t.String(),
+  stale: t.Boolean(),
+  /** A decision ask of an Issue: `POST /factory/answer` takes it. Everything else is read-only. */
+  answerable: t.Boolean(),
+  /** The open question's offered answers; empty for a free-text one or an ask that is not answerable. */
+  options: t.Array(t.String()),
+});
+export const FactoryHealthLine = t.Object({
+  id: t.String(),
+  kind: t.UnionEnum([...HEALTH_KINDS]),
+  short: t.String(),
+  summary: t.String(),
+  since: t.String(),
+});
+export const FactoryResponse = t.Object({
+  asks: t.Array(FactoryAsk),
+  health: t.Array(FactoryHealthLine),
+  counts: t.Object({ asks: Int, health: Int }),
+  builtAt: t.String(),
+});
+export const FactoryAnswerBody = t.Object({
+  askId: t.String({ minLength: 1, maxLength: 512 }),
+  /** 2..2000 characters after trimming (the factory's bound). */
+  text: t.String({ minLength: 2, maxLength: 2000 }),
+  /** The app's id for this answer, kept across retries: one event at the factory. The factory's call-id charset. */
+  callId: t.String({ pattern: "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$" }),
+});
+export const FactoryAnswerResponse = t.Object({
+  issue: Int,
+  state: t.String(),
+  duplicate: t.Boolean(),
 });
 
 // ── Service ──────────────────────────────────────────────────────────────────

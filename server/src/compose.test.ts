@@ -171,6 +171,7 @@ describe("compose", () => {
       "act",
       "summarize",
       "speech",
+      "factory",
     ]);
     expect(composed.notifierKind).toBe("log");
     expect(composed.deviceTokens.size).toBe(0);
@@ -204,6 +205,8 @@ describe("compose", () => {
       AGW_API_SECRET: "agw-secret",
       HERMES_URL: "http://127.0.0.1:1",
       HERMES_TOKEN: "token",
+      FACTORY_URL: "http://127.0.0.1:1",
+      FACTORY_TOKEN: "factory-token",
     });
     const { transcriber, destination, summarizer, speaker } = composed.ports;
     for (const port of [transcriber, destination, summarizer, speaker]) {
@@ -249,5 +252,22 @@ describe("compose", () => {
     const { composed } = build({ HERMES_URL: "http://127.0.0.1:1", HERMES_TOKEN: "t" });
     expect(composed.ports.destination).toBeDefined();
     expect(composed.degraded).not.toContain("act");
+  });
+
+  it("the factory needs both its URL and its token, else it is degraded; fakes mode has it and its alerter", () => {
+    const url = "http://127.0.0.1:1";
+    for (const env of [{ FACTORY_URL: url }, { FACTORY_TOKEN: "t" }]) {
+      const { composed } = build(env);
+      expect(composed.factory).toBeUndefined();
+      expect(composed.degraded).toContain("factory");
+    }
+    const both = build({ FACTORY_URL: url, FACTORY_TOKEN: "t" }).composed;
+    expect(both.factory).toBeDefined();
+    expect(both.degraded).not.toContain("factory");
+    expect(both.factoryAlerter).toBeDefined();
+
+    const fakes = build({ IRIS_FAKES: true }).composed;
+    expect(fakes.factory).toBeDefined();
+    expect(fakes.degraded).toEqual(["otel", "fakes", "device-tokens"]);
   });
 });

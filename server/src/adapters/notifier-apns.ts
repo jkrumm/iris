@@ -1,4 +1,10 @@
 import type { Memo } from "../memo/memo.js";
+import {
+  isDeadToken,
+  isEnvironmentMismatch,
+  isTransient,
+  type ApnsFailure,
+} from "../notify/apns-result.js";
 import { buildAlert, buildLiveActivityEnd, buildLiveActivityUpdate } from "../notify/payloads.js";
 import type { ApnsMessage, ApnsResult, ApnsTransport } from "../ports/apns.js";
 import type { Clock } from "../ports/clock.js";
@@ -7,28 +13,8 @@ import type { Notifier } from "../ports/notifier.js";
 import { TransientError } from "../ports/transient.js";
 import { log } from "../telemetry/log.js";
 
-type Failure = Extract<ApnsResult, { ok: false }>;
+type Failure = ApnsFailure;
 type Kind = "alert" | "live_activity_update" | "live_activity_end";
-
-/** Worth a retry: no response, throttled, APNs-side trouble, or a provider token node-apn could not refresh. */
-const isTransient = ({ status, reason }: Failure) =>
-  status === 0 ||
-  status === 408 ||
-  status === 429 ||
-  status >= 500 ||
-  (status === 403 && reason === "ExpiredProviderToken");
-
-/** The token itself is dead: APNs will never accept it again. */
-const isDeadToken = ({ status, reason }: Failure) =>
-  status === 410 || reason === "BadDeviceToken" || reason === "Unregistered";
-
-/**
- * BadDeviceToken from a device that never registered its environment: the push went to the
- * sandbox by guess, and a valid production token is rejected exactly like this. Only an explicitly
- * registered environment makes BadDeviceToken proof of a dead token (410 / Unregistered always are).
- */
-const isEnvironmentMismatch = ({ status, reason }: Failure, apnsEnv: ApnsEnv | null) =>
-  apnsEnv === null && status !== 410 && reason === "BadDeviceToken";
 
 /**
  * Pushes through an `ApnsTransport`. A rejected token never fails the memo (it is logged, and

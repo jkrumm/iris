@@ -1,6 +1,7 @@
 import { createApp } from "../app.js";
 import { createSqliteDeviceStore } from "../adapters/sqlite-devices.js";
 import { createSqliteStatsStore } from "../adapters/sqlite-stats.js";
+import { createFactoryService } from "../factory/service.js";
 import { createMemoEvents, type MemoEvents } from "../memo/events.js";
 import type { HandlerStep } from "../memo/memo.js";
 import { createRunner, type StepHandler } from "../memo/runner.js";
@@ -8,6 +9,7 @@ import { createMemoMedia } from "../memo/media.js";
 import { createMemoService } from "../memo/service.js";
 import type { MemoStore } from "../memo/store.js";
 import { fakeAudio, testStore } from "../memo/test-support.js";
+import type { FactoryReader } from "../ports/factory.js";
 import { fakeAssetStore, fakeCombiner, fakeSpeaker, fakeSpeechCache } from "../ports/fakes.js";
 import { fakeOtlpExporter } from "../telemetry/fakes.js";
 import { createTelemetryRelay } from "../telemetry/relay.js";
@@ -37,6 +39,8 @@ export function testApp(
     otlp?: ReturnType<typeof fakeOtlpExporter>;
     /** `false` leaves the telemetry relay unconfigured (503). */
     telemetry?: false;
+    /** The software factory's read API; absent leaves `/v1/factory` unconfigured (503). */
+    factory?: FactoryReader;
   } = {},
 ) {
   const { store, clock, db } = testStore();
@@ -88,6 +92,7 @@ export function testApp(
     deviceTokens: parseDeviceTokens(TOKENS),
     memos,
     stats: createSqliteStatsStore({ db, clock }),
+    factory: options.factory && createFactoryService({ reader: options.factory }),
     devices,
     media,
     telemetry: options.telemetry === false ? undefined : telemetry,
