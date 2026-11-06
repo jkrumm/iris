@@ -622,16 +622,6 @@
         }
       }
     },
-    "Copy" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Kopieren"
-          }
-        }
-      }
-    },
     "Copy a memo id for debugging" : {
       "localizations" : {
         "de" : {
@@ -648,6 +638,28 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Memo-ID kopieren"
+          }
+        }
+      }
+    },
+    "Copy reply" : {
+      "comment" : "Detail: copies the reply as plain text",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Antwort kopieren"
+          }
+        }
+      }
+    },
+    "Copy transcript" : {
+      "comment" : "Detail: copies the transcript as plain text",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Transkript kopieren"
           }
         }
       }
@@ -2733,7 +2745,24 @@
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Threads"
+            "value" : "Unterhaltungen"
+          }
+        }
+      }
+    },
+    "View" : {
+      "comment" : "Filter sheet group: Favorites, Threads, Archived",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ansicht"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "View"
           }
         }
       }

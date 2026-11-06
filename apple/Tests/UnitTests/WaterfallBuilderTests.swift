@@ -91,7 +91,7 @@ struct WaterfallBuilderTests {
         ]),
       baselines: StepBaselines(), now: now)
     #expect(rows.map(\.id) == ["transcribe", "act", "notify"], "a new memo has no route or summarize row")
-    #expect(rows[1].title == "Act · Github issue")
+    #expect(rows[1].title == "Act · GitHub issue")
     let plain = MemoFactory.memo("p", state: .notified)
     let transcript = WaterfallBuilder.rows(
       for: MemoFactory.detail(plain, steps: [MemoFactory.step(.act, at: 0, for: 1)]), baselines: StepBaselines(),

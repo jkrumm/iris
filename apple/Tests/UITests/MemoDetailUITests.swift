@@ -48,9 +48,10 @@ final class MemoDetailUITests: IrisUITestCase {
   }
 
   @MainActor
-  func testTranscriptAndReplyHaveACopyButtonThatConfirms() {
+  func testDetailsHaveCopyRowsForTranscriptAndReplyThatConfirm() {
     let app = launch(holdCopied: true)
     openRow(containing: "Wochenplan abgestimmt", in: app)
+    expandSteps(in: app)
 
     let copy = app.buttons["detail.transcript.copy"]
     XCTAssertTrue(waitForPresence(copy, timeout: 10))
@@ -62,7 +63,7 @@ final class MemoDetailUITests: IrisUITestCase {
   }
 
   @MainActor
-  func testDetailShowsTheStepWaterfallTranscriptAndPlayer() {
+  func testDetailShowsTheStepWaterfallTranscriptBubbleAndPlayer() {
     let app = launch()
     openRow(containing: "Wochenplan abgestimmt", in: app)
 
@@ -71,10 +72,17 @@ final class MemoDetailUITests: IrisUITestCase {
     XCTAssertTrue(waitForPresence(app.staticTexts["Transcribe"], timeout: 2))
     XCTAssertTrue(waitForPresence(app.staticTexts["Notify"], timeout: 2))
     XCTAssertTrue(waitForPresence(app.descendants(matching: .any)["detail.transcript"], timeout: 2))
+    XCTAssertTrue(waitForPresence(app.descendants(matching: .any)["detail.reply"], timeout: 2))
 
-    // Play flips to Pause; skipping back at the start stays put and does not break the player.
+    // The recording is a collapsed line in the user's bubble: no timeline until the chevron opens it.
     let toggle = app.buttons["detail.player.toggle"]
     XCTAssertTrue(waitForPresence(toggle, timeout: 5))
+    XCTAssertTrue(waitForAbsence(app.buttons["detail.player.back"], timeout: 2), "collapsed by default")
+    app.buttons["detail.player.expand"].tap()
+    XCTAssertTrue(waitForPresence(app.buttons["detail.player.back"], timeout: 5))
+    XCTAssertTrue(waitForPresence(app.descendants(matching: .any)["detail.player.slider"], timeout: 2))
+
+    // Play flips to Pause; skipping back at the start stays put and does not break the player.
     XCTAssertEqual(toggle.label, "Play")
     toggle.tap()
     XCTAssertEqual(app.buttons["detail.player.toggle"].label, "Pause")

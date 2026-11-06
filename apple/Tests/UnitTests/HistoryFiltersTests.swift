@@ -64,7 +64,7 @@ struct HistoryFiltersTests {
     #expect(
       filters.query(cursor: "50")
         == ListMemosQuery(limit: 50, cursor: "50", q: "release", state: .failed, favorite: true, kind: "task"))
-    #expect(filters.sheetFilterCount == 2)
+    #expect(filters.activeFilterCount == 3)
   }
 
   @Test("a blank search sends no q")
@@ -75,15 +75,17 @@ struct HistoryFiltersTests {
     #expect(!filters.isFiltering)
   }
 
-  @Test("reset clears the sheet and keeps the chip and the search")
-  func resetSheet() {
+  @Test("reset clears the quick filter, kind and state and keeps the search")
+  func resetFilters() {
     var filters = HistoryFilters()
     filters.toggle(.favorites)
     filters.toggleKind("note")
     filters.toggleState(.failed)
     filters.searchText = "plan"
-    filters.resetSheet()
-    #expect(filters.query() == ListMemosQuery(limit: 50, q: "plan", favorite: true))
+    #expect(filters.activeFilterCount == 3)
+    filters.resetFilters()
+    #expect(filters.activeFilterCount == 0)
+    #expect(filters.query() == ListMemosQuery(limit: 50, q: "plan"))
   }
 
   @Test("matches judges flags, kind and state, and never shows an archived or deleted memo by default")
@@ -119,11 +121,11 @@ struct HistoryFiltersTests {
     #expect(filters.kinds(in: []).isEmpty)
   }
 
-  @Test("the quick row shows at most five kinds")
+  @Test("a limit caps the kinds, none returns them all")
   func kindCap() {
     let filters = HistoryFilters()
     let loaded = memos(["a", "b", "c", "d", "e", "f", "g"])
-    #expect(filters.kinds(in: loaded, limit: HistoryFilters.kindChipLimit) == ["a", "b", "c", "d", "e"])
+    #expect(filters.kinds(in: loaded, limit: 5) == ["a", "b", "c", "d", "e"])
     #expect(filters.kinds(in: loaded).count == 7)
   }
 

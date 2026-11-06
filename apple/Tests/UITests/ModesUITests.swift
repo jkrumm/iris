@@ -73,7 +73,7 @@ final class ModesUITests: IrisUITestCase {
   // MARK: Play and the record row
 
   @MainActor
-  func testPlayTheReplyFromTheDetail() {
+  func testPlayTheReplyFromTheReplyBubble() {
     let app = launch()
     openRow(containing: "Wochenplan abgestimmt", in: app)
 
@@ -130,14 +130,23 @@ final class ModesUITests: IrisUITestCase {
 
   // MARK: Detail
 
+  /// The tools line lives in Details, which start collapsed.
+  @MainActor
+  private func expandDetails(in app: XCUIApplication) {
+    let toggle = app.buttons["detail.steps.toggle"]
+    XCTAssertTrue(waitForPresence(toggle, timeout: 10))
+    toggle.tap()
+  }
+
   @MainActor
   func testTheDetailShowsTheKindChipAndWhatHermesUsed() {
     let app = launch()
     openRow(containing: "Mach ein GitHub-Issue", in: app)
 
     let chip = app.descendants(matching: .any)
-      .matching(NSPredicate(format: "label == %@", "Kind: Github issue")).firstMatch
+      .matching(NSPredicate(format: "label == %@", "Kind: GitHub issue")).firstMatch
     XCTAssertTrue(waitForPresence(chip, timeout: 10), "the free-form kind is the chip, capitalised")
+    expandDetails(in: app)
     let actions = element(app, "detail.actions")
     XCTAssertTrue(waitForPresence(actions, timeout: 2))
     XCTAssertEqual(actions.label, "Hermes used: terminal, github")
@@ -151,6 +160,7 @@ final class ModesUITests: IrisUITestCase {
       waitForPresence(
         app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Kind: Answer")).firstMatch,
         timeout: 10))
+    expandDetails(in: app)
     XCTAssertTrue(waitForAbsence(element(app, "detail.actions"), timeout: 1))
   }
 
@@ -161,6 +171,7 @@ final class ModesUITests: IrisUITestCase {
     let chip = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Kind: Transcript"))
       .firstMatch
     XCTAssertTrue(waitForPresence(chip, timeout: 10))
+    expandDetails(in: app)
     XCTAssertTrue(waitForAbsence(element(app, "detail.actions"), timeout: 1))
   }
 

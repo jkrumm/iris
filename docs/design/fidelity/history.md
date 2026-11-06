@@ -18,14 +18,11 @@ iPhone 17 / 27.0 after: [light](history/after-i17-light.png), [dark](history/aft
 | List top | Navigation bar | none: status bar, then the title | a 44 pt glass button row (compose, filter) above the title; title baseline ~140 pt from the top vs ~100 | bar hidden; compose moved into the title row; filter into the bottom bar |
 | List top | Title | 30 pt bold, leading 20, 18 above, 6 below | system large title, leading 16 | `HistoryTitleBlock`: `screenMargin`, `titleTop`, `titleBottom` |
 | List top | Subtitle | 13 pt faint, leading 20, 6 below | system subtitle, leading 16 | same block, `titleBottom` |
-| List top | Search | floating glass capsule above the dock, 44 pt, side inset 14, with a round 44 pt filter button and a count badge | search field in the navigation drawer under the title; filter button in the top bar | `HistorySearchBar` in a bottom `safeAreaInset`: `barInset`, `barGap`, `barControlSize`; badge shows `sheetFilterCount` |
-| Chips | Leading margin | 20 | 16 | `screenMargin` (as scroll content margin) |
-| Chips | Gap | 6 | 8 | `chipGap` |
-| Chips | Gap above the row | 8 | 25 (search drawer plus list row inset) | `chipRowTop`, list row insets zero |
-| Chips | Height / padding | 30 / 12 | ~30 (text plus 8 above and below) | `FilterChip(size: .compact)` (`chipHeight` as `minHeight`, `chipInsetHorizontal`), set only in the History bar; the composer and route sheet keep `.standard`, the original sizing |
-| Controls | Tap area | n/a | chips 30 pt, filter-sheet chips 36 pt, search clear button ~17 pt | 44 pt (`tapTarget`) with the drawn shape unchanged: a content shape on the chips (`chipTapOverhang` comes out of the space around the row), `lineSpacing` in the sheet's flow layout, a 44 pt clear button reaching into the capsule's padding |
+| List top | Search | floating glass capsule above the dock, 44 pt, side inset 14, with a round 44 pt filter button and a count badge | search field in the navigation drawer under the title; filter button in the top bar | `HistorySearchBar` in a bottom `safeAreaInset`: `barInset`, `barGap`, `barControlSize`; badge shows `activeFilterCount` (quick filter, kind, state) |
+| Chips | Quick-filter row | chips above the list | none | removed by owner feedback: Favorites, Threads and Archived are the "View" group of the filter sheet, kinds and states follow; nothing but the list sits above the rows |
+| Controls | Tap area | n/a | chips 30 pt, filter-sheet chips 36 pt, search clear button ~17 pt | 44 pt (`tapTarget`) with the drawn shape unchanged: a content shape on the sheet chips, `lineSpacing` in the sheet's flow layout, a 44 pt clear button reaching into the capsule's padding |
 | Search | Field height | 44 | fixed 44 | `minHeight` 44 plus `sm` vertical padding, so Dynamic Type can grow it |
-| Sections | Gap from chips to day label | 14 | 49 | `sectionTop`; `listSectionSpacing(0)`, `defaultMinListHeaderHeight` 0 |
+| Sections | Gap above the day label | 14 | 49 | `sectionTop`; `listSectionSpacing(0)`, `defaultMinListHeaderHeight` 0 |
 | Sections | Day label to first row | 6 + row padding 12 | 37 | `sectionBottom`; header insets `screenMargin` |
 | Sections | Day label leading | 20 | 16 | `headerInsets` (`screenMargin`) |
 | Rows | Vertical padding | 12 above and below | about 28 from the separator to the first text line (8 in the row plus the list's default inset) | `rowVertical` through `listRowInsets`; the row view carries none |

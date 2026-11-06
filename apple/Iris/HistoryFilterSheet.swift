@@ -20,7 +20,7 @@ enum HistoryResultCount {
   }
 }
 
-/// The bottom sheet (round 2): kind and state, applied live. Search and the quick chips stay as they are.
+/// The bottom sheet: the view (Favorites, Threads, Archived), kind and state, applied live. The search stays as it is.
 struct HistoryFilterSheet: View {
   @Binding var filters: HistoryFilters
   /// ``HistoryResultCount/exact(memos:isSettled:)`` of the list behind the sheet.
@@ -40,10 +40,20 @@ struct HistoryFilterSheet: View {
           .foregroundStyle(Theme.Ink.primary)
         Spacer()
         Button(String(localized: "Reset", comment: "Clears the sheet filters")) {
-          withAnimation(.snappy) { filters.resetSheet() }
+          withAnimation(.snappy) { filters.resetFilters() }
         }
-        .disabled(filters.sheetFilterCount == 0)
+        .disabled(filters.activeFilterCount == 0)
         .accessibilityIdentifier("history.filter.reset")
+      }
+      group(String(localized: "View", comment: "Filter sheet group: Favorites, Threads, Archived")) {
+        ForEach(QuickFilter.allCases, id: \.self) { filter in
+          FilterChip(
+            title: filter.title, systemImage: filter.systemImage, isOn: filters.quick == filter, size: .regular
+          ) {
+            withAnimation(.snappy) { filters.toggle(filter) }
+          }
+          .accessibilityIdentifier("history.filter.quick.\(filter.identifier)")
+        }
       }
       if !kinds.isEmpty {
         group(String(localized: "Kind", comment: "Filter sheet group")) {
@@ -54,6 +64,7 @@ struct HistoryFilterSheet: View {
             ) {
               withAnimation(.snappy) { filters.toggleKind(kind) }
             }
+            .accessibilityIdentifier("history.filter.kind.\(kind)")
           }
         }
       }

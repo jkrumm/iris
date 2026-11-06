@@ -162,7 +162,6 @@ targets:
       - Iris/ConnectionModel.swift
       - Iris/ReconfigurableAPIClient.swift
       - Iris/HistorySections.swift
-      - Iris/HistoryFilterBar.swift
       - Iris/StepBaselines.swift
       - Iris/StepText.swift
       - Iris/WaterfallBuilder.swift

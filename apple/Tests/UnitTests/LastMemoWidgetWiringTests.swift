@@ -77,7 +77,7 @@ struct LastMemoWidgetWiringTests {
     #expect(store.load()?.phase == .done)
     await client.seed(MemoFactory.detail(MemoFactory.memo("q", state: .notified, kind: "github issue")))
     await update("q", .notified)
-    #expect(try #require(store.load()).routeChip == "Github issue")
+    #expect(try #require(store.load()).routeChip == "GitHub issue")
     #expect(MemoFactory.memo("a", route: "journal").widgetObservation.routeChip == "Journal")
     #expect(MemoFactory.memo("a", state: .received).widgetObservation.routeChip == nil, "not classified yet")
   }

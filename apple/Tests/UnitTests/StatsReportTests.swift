@@ -56,7 +56,7 @@ struct StatsReportTests {
   func names() {
     let report = StatsReport(stats: stats, granularity: .days, locale: english)
     #expect(report.names[note] == "Note")
-    #expect(report.names[issue] == "Github issue")
+    #expect(report.names[issue] == "GitHub issue")
     #expect(report.names[.other] == "Other")
     #expect(report.names[.transcript] == "Transcript")
   }

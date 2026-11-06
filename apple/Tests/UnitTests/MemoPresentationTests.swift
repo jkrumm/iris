@@ -16,12 +16,23 @@ struct MemoPresentationTests {
     #expect(DurationText.string(seconds: seconds) == expected)
   }
 
-  @Test("the kind label is Hermes' kind with its first letter upper-cased, at most 24 code points")
+  @Test("a known kind reads by its catalog name, in any case and padding")
+  func knownKindLabel() {
+    for kind in ["answer", "task", "note", "github issue", "chat"] {
+      let name = KindPalette.localizedName(forKind: kind)
+      #expect(name != nil)
+      #expect(Memo.capitalizedKind(kind) == name)
+      #expect(Memo.capitalizedKind("  \(kind.uppercased()) ") == name)
+      #expect(MemoFactory.memo("a", kind: kind).kindLabel == name)
+    }
+    #expect(KindPalette.localizedName(forKind: "deep dive") == nil)
+    #expect(KindPalette.normalized("  Github Issue ") == "github issue")
+  }
+
+  @Test("an unknown kind is Hermes' kind with its first letter upper-cased, at most 24 code points")
   func kindLabel() {
-    #expect(MemoFactory.memo("a", kind: "answer").kindLabel == "Answer")
-    #expect(MemoFactory.memo("a", kind: "github issue").kindLabel == "Github issue")
+    #expect(MemoFactory.memo("a", kind: "deep dive").kindLabel == "Deep dive")
     #expect(MemoFactory.memo("a", kind: "tab Prompt").kindLabel == "Tab Prompt")
-    #expect(MemoFactory.memo("a", kind: "  note ").kindLabel == "Note")
     let long = String(repeating: "x", count: 40)
     #expect(MemoFactory.memo("a", kind: long).kindLabel == "X" + String(repeating: "x", count: 23))
     #expect(Memo.capitalizedKind("éclair").hasPrefix("É"))
@@ -35,7 +46,8 @@ struct MemoPresentationTests {
     #expect(MemoFactory.memo("a", route: "tab", destinationRef: "docs").kindLabel == "docs")
     #expect(MemoFactory.memo("a", route: "herdr", destinationRef: "dotfiles").kindLabel == "dotfiles")
     #expect(MemoFactory.memo("a", route: "tab").kindLabel == "Tab")
-    #expect(MemoFactory.memo("a", route: "journal", kind: "note").kindLabel == "Note", "a kind wins over a route")
+    #expect(
+      MemoFactory.memo("a", route: "journal", kind: "deep dive").kindLabel == "Deep dive", "a kind wins over a route")
   }
 
   @Test("a transcript-only memo is Transcript, a Hermes memo not yet classified is Hermes")

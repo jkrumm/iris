@@ -148,6 +148,39 @@
       Self.assert(view, width: 390, height: 260)
     }
 
+    @Test("a single memo as a two-bubble chat: the recording and Play reply sit inside the bubbles", .tags(.snapshot))
+    func memoBubbles() {
+      let view = VStack(alignment: .leading, spacing: Theme.Spacing.inset) {
+        UserTurnView(
+          text: "Explain how the step runner retries a failed step.", time: "9:41 AM", identifier: "detail.transcript"
+        ) {
+          MemoPlayerBar(
+            position: 0, duration: 38, isPlaying: false, isExpanded: .constant(false), onToggle: {}, onSeek: { _ in },
+            onSkipBack: {})
+        }
+        AssistantTurnView(
+          markdown: Self.reply, time: "9:42 AM", mermaid: [0: Self.asset], identifier: "detail.reply"
+        ) {
+          ReplyPlayButton(isPlaying: false, onToggle: {})
+        }
+      }
+      .padding(Theme.Spacing.lg)
+      .environment(\.replyImageStore, Self.store())
+      Self.assert(ScrollView { view }, width: 390, height: 1100)
+    }
+
+    @Test("a long unbroken line and a wide table stay inside a user-width bubble", .tags(.snapshot))
+    func bubbleWidth() {
+      let table = "| State | Meaning | Retried automatically |\n|-|-|-|\n| received | All segments stored | yes |"
+      let view = VStack(alignment: .leading, spacing: Theme.Spacing.inset) {
+        UserTurnView(
+          text: "https://example.com/a/very/long/path/that/never/breaks/anywhere/at/all/in/the/line", time: "9:41 AM")
+        AssistantTurnView(markdown: table, time: "9:41 AM")
+      }
+      .padding(Theme.Spacing.lg)
+      Self.assert(view, width: 390, height: 360)
+    }
+
     @Test("a second exchange opens with a divider", .tags(.snapshot))
     func exchanges() {
       let view = VStack(alignment: .leading, spacing: Theme.Spacing.lg) {

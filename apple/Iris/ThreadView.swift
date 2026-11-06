@@ -111,6 +111,11 @@ struct ThreadView: View {
 
   private var header: some View {
     VStack(alignment: .leading, spacing: Theme.Spacing.cozy) {
+      Text(verbatim: model.title)
+        .themeFont(.title, weight: .bold)
+        .foregroundStyle(Theme.Ink.primary)
+        .fixedSize(horizontal: false, vertical: true)
+        .accessibilityAddTraits(.isHeader)
       HStack(spacing: Theme.Spacing.sm) {
         KindChip(
           label: String(localized: "Thread", comment: "Kind chip of a conversation screen"),
@@ -126,11 +131,6 @@ struct ThreadView: View {
             .foregroundStyle(Theme.Ink.muted)
         }
       }
-      Text(verbatim: model.title)
-        .themeFont(.title, weight: .bold)
-        .foregroundStyle(Theme.Ink.primary)
-        .fixedSize(horizontal: false, vertical: true)
-        .accessibilityAddTraits(.isHeader)
     }
   }
 

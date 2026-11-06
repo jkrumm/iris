@@ -1,15 +1,25 @@
+import CoreGraphics
 import IrisCore
 import IrisUI
 import SwiftUI
 
-/// The memo detail, top to bottom: headline with the kind chip and one meta line, the reply, the recording's player, the
-/// transcript, and Details (step waterfall, ids; collapsed, open on a failed memo), then the icon-only actions at the
-/// bottom. It reloads when `refreshToken` changes (History bumps it on a `memo.updated` event).
+/// The memo detail, top to bottom: headline with the kind chip and one meta line (day, time, cost), the memo as a two-bubble chat
+/// (what was said, with the compact recording player inside its bubble; Hermes's reply as a rendered document, with Play reply
+/// inside its bubble; a pending bubble while the answer is on its way), and Details (step waterfall, copy rows, the tools Hermes
+/// used, ids; collapsed, open on a failed memo), then the icon-only actions at the bottom. It reloads when `refreshToken`
+/// changes (History bumps it on a `memo.updated` event).
 struct MemoDetailView: View {
   @State private var model: MemoDetailModel
   @State private var playback: MemoPlayback
+  @State private var isRecordingExpanded = false
+  @State private var zoomed: ZoomedImage?
   private let refreshToken: () -> Int
   private let onReply: (Memo) -> Void
+
+  private struct ZoomedImage: Identifiable {
+    let id = UUID()
+    let image: CGImage
+  }
 
   /// - Parameters:
   ///   - onReply: The reply hook: History opens the composer from here, continuing `memo.threadId`.
@@ -28,10 +38,7 @@ struct MemoDetailView: View {
     ScrollView {
       VStack(alignment: .leading, spacing: Theme.Spacing.sectionTop) {
         header
-        reply
-        actionsLine
-        if model.audioRequest != nil { player }
-        transcript
+        conversation
         details
       }
       .padding(.horizontal, Theme.Spacing.screenMargin)
@@ -69,6 +76,11 @@ struct MemoDetailView: View {
     .task(id: model.audioRequest) { await playback.recording.load(model.audioRequest) }
     .onAppear { playback.attach() }
     .onDisappear { playback.teardown() }
+    .fullScreenCover(item: $zoomed) { item in
+      ZoomableImageView(
+        image: item.image, title: String(localized: "Diagram", comment: "Title of the full diagram view"),
+        onClose: { zoomed = nil })
+    }
   }
 
   // MARK: Sections
@@ -90,27 +102,57 @@ struct MemoDetailView: View {
         Text(verbatim: error)
           .themeFont(.callout)
           .foregroundStyle(Theme.Status.bad)
-      } else if let detail = memo.summary?.detail {
-        Text(verbatim: detail)
-          .themeFont(.callout)
-          .foregroundStyle(Theme.Ink.secondary)
       }
     }
   }
 
-  /// Time · recording length · what the run cost; the steps' own cost is in Details.
+  /// Day · time · what the run cost; the steps' own cost is in Details.
   private func metaLine(_ memo: Memo) -> String {
     [
-      memo.timeText, memo.audioSeconds.map(DurationText.string(seconds:)),
-      model.totalCostUsd.map { StepText.dollars($0) },
+      HistoryDaySection.title(of: memo.createdAt), memo.timeText, model.totalCostUsd.map { StepText.dollars($0) },
     ]
     .compactMap { $0 }.joined(separator: " · ")
+  }
+
+  // MARK: Conversation
+
+  /// What was said, then the answer: the user's bubble (the transcript, with the recording's player in it), then Iris's bubble, or
+  /// the pending one while the pipeline works. A failed memo has the error in the header and no answer bubble.
+  @ViewBuilder private var conversation: some View {
+    let memo = model.memo
+    VStack(alignment: .leading, spacing: Theme.Spacing.sectionTop) {
+      if let text = memo.plainTranscript {
+        UserTurnView(
+          text: text, time: memo.timeText, identifier: "detail.transcript", onCopy: { model.copy(.transcript) },
+          hasFooter: model.audioRequest != nil
+        ) {
+          player
+        }
+      } else if model.audioRequest != nil {
+        // Failed or still transcribing: there is a recording to replay but nothing to put in a bubble.
+        player
+      }
+      if let reply = memo.replyText {
+        AssistantTurnView(
+          markdown: reply, time: memo.updatedAt.formatted(date: .omitted, time: .shortened),
+          mermaid: memo.mermaidAssets, identifier: "detail.reply", onOpenImage: { zoomed = ZoomedImage(image: $0) },
+          onCopy: { model.copy(.reply) }, hasFooter: model.canPlayReply
+        ) {
+          ReplyPlayButton(isPlaying: playback.isReplyPlaying) {
+            Task { await playback.toggleReply(model.memo, source: model.media) }
+          }
+        }
+      } else if memo.state != .failed, !memo.state.isResultReady {
+        PendingTurnView(progress: memo.stepProgress, caption: memo.pendingCaption)
+      }
+    }
   }
 
   private var player: some View {
     let audio = playback.recording
     return MemoPlayerBar(
       position: audio.position, duration: audio.duration, isPlaying: audio.isPlaying, isEnabled: audio.isLoaded,
+      isExpanded: $isRecordingExpanded,
       onToggle: playback.toggleRecording,
       onSeek: { audio.seek(to: $0) },
       onSkipBack: { audio.skipBack() })
@@ -138,7 +180,12 @@ struct MemoDetailView: View {
       isExpanded: $model.isWaterfallExpanded,
       onRetry: retry
     ) {
-      idsFooter
+      VStack(alignment: .leading, spacing: 0) {
+        copyRow(.transcript)
+        copyRow(.reply)
+        actionsLine
+        idsFooter
+      }
     }
   }
 
@@ -176,36 +223,37 @@ struct MemoDetailView: View {
       + String(localized: "\(count) segments", comment: "Footer of the memo detail: uploaded recording segments")
   }
 
-  @ViewBuilder private var transcript: some View {
-    if let text = model.memo.transcript {
-      VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
-        sectionHeader(String(localized: "Transcript", comment: "Section label of the transcript"), copying: .transcript)
-        Text(verbatim: text)
-          .themeFont(.callout)
-          .foregroundStyle(Theme.Ink.primary)
-          .textSelection(.enabled)
-          .modifier(TextCard())
-          .accessibilityIdentifier("detail.transcript")
+  /// One row of Details that copies the transcript or the reply as plain text and confirms with "Copied".
+  @ViewBuilder private func copyRow(_ target: MemoDetailModel.CopyTarget) -> some View {
+    let text = target == .transcript ? model.memo.plainTranscript : model.memo.plainReply
+    if text != nil {
+      let copied = model.copied == target
+      let title =
+        target == .transcript
+        ? String(localized: "Copy transcript", comment: "Detail: copies the transcript as plain text")
+        : String(localized: "Copy reply", comment: "Detail: copies the reply as plain text")
+      Button {
+        model.copy(target)
+      } label: {
+        Label(
+          copied ? String(localized: "Copied", comment: "Detail: confirmation after Copy") : title,
+          systemImage: copied ? "checkmark" : "doc.on.doc"
+        )
+        .themeFont(.subheadline)
+        .foregroundStyle(copied ? Theme.Status.good : Theme.Accent.tint)
+        .padding(.horizontal, Theme.Spacing.cardInsetHorizontal)
+        .padding(.vertical, Theme.Spacing.cardInsetVertical)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(.rect)
       }
+      .buttonStyle(.plain)
+      .sensoryFeedback(.success, trigger: copied) { _, now in now }
+      .accessibilityIdentifier(target == .transcript ? "detail.transcript.copy" : "detail.reply.copy")
+      Theme.divider.frame(height: 1)
     }
   }
 
-  @ViewBuilder private var reply: some View {
-    if let text = model.memo.replyText {
-      VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
-        sectionHeader(String(localized: "Reply", comment: "Section label of the reply"), copying: .reply)
-        Text(ReplyMarkdown.attributed(text))
-          .themeFont(.subheadline)
-          .foregroundStyle(Theme.Ink.secondary)
-          .tint(Theme.Accent.tint)
-          .textSelection(.enabled)
-          .modifier(TextCard())
-          .accessibilityIdentifier("detail.reply")
-      }
-    }
-  }
-
-  /// What Hermes used for the memo, one quiet line under the reply; nothing when it used no tool.
+  /// What Hermes used for the memo, one quiet line in Details; nothing when it used no tool.
   @ViewBuilder private var actionsLine: some View {
     let actions = model.memo.actions
     if !actions.isEmpty {
@@ -216,30 +264,10 @@ struct MemoDetailView: View {
       )
       .themeFont(.caption)
       .foregroundStyle(Theme.Ink.muted)
+      .padding(.horizontal, Theme.Spacing.cardInsetHorizontal)
+      .padding(.vertical, Theme.Spacing.cardInsetVertical)
+      .frame(maxWidth: .infinity, alignment: .leading)
       .accessibilityIdentifier("detail.actions")
-    }
-  }
-
-  /// The section label with the button that copies the section as plain text.
-  private func sectionHeader(_ title: String, copying target: MemoDetailModel.CopyTarget) -> some View {
-    let copied = model.copied == target
-    let name = target == .transcript ? "transcript" : "reply"
-    return HStack(spacing: Theme.Spacing.sm) {
-      DetailSectionLabel(title)
-      Button {
-        model.copy(target)
-      } label: {
-        Label(
-          copied
-            ? String(localized: "Copied", comment: "Detail: confirmation after Copy")
-            : String(localized: "Copy", comment: "Detail: copies the section as plain text"),
-          systemImage: copied ? "checkmark" : "doc.on.doc")
-      }
-      .buttonStyle(.borderless)
-      .themeFont(.caption, weight: .semibold)
-      .foregroundStyle(copied ? Theme.Status.good : Theme.Accent.tint)
-      .sensoryFeedback(.success, trigger: copied) { _, now in now }
-      .accessibilityIdentifier("detail.\(name).copy")
     }
   }
 
@@ -247,12 +275,9 @@ struct MemoDetailView: View {
 
   private var actions: some View {
     DetailActionBar(
-      isPlayingReply: playback.isReplyPlaying,
-      canPlayReply: model.canPlayReply,
       canReply: model.canReply,
       retryOptions: model.retrySteps.map { DetailRetryOption(id: $0.rawValue, title: $0.title) },
       primaryRetryID: model.primaryRetryStep?.rawValue,
-      onPlayReply: { Task { await playback.toggleReply(model.memo, source: model.media) } },
       onReply: { onReply(model.memo) },
       onRetry: retry
     )
@@ -272,16 +297,5 @@ struct MemoDetailView: View {
         .transition(.move(edge: .bottom).combined(with: .opacity))
         .accessibilityIdentifier("detail.toast")
     }
-  }
-}
-
-/// The padded panel under a transcript or reply.
-private struct TextCard: ViewModifier {
-  func body(content: Content) -> some View {
-    content
-      .frame(maxWidth: .infinity, alignment: .leading)
-      .padding(.horizontal, Theme.Spacing.cardInsetHorizontal)
-      .padding(.vertical, Theme.Spacing.cardInsetVertical)
-      .detailCard()
   }
 }

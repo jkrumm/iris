@@ -11,35 +11,26 @@ public struct DetailRetryOption: Identifiable, Equatable, Sendable {
   }
 }
 
-/// The detail screen's bottom actions: icon-only play (reply speech), reply and retry on one glass group. Retry is
+/// The detail screen's bottom actions: icon-only reply and retry (the reply's speech plays from its bubble, ``ReplyPlayButton``) on one glass group. Retry is
 /// a menu of steps whose plain tap restarts from `primaryRetryID`; it is absent while `retryOptions` is empty. The symbols are
 /// all outline glyphs at one weight; each glass circle sits on a solid disc so nothing reads through it.
 public struct DetailActionBar: View {
-  private let isPlayingReply: Bool
-  private let canPlayReply: Bool
   private let canReply: Bool
   private let retryOptions: [DetailRetryOption]
   private let primaryRetryID: String?
-  private let onPlayReply: () -> Void
   private let onReply: () -> Void
   private let onRetry: (String) -> Void
 
   public init(
-    isPlayingReply: Bool,
-    canPlayReply: Bool,
     canReply: Bool,
     retryOptions: [DetailRetryOption],
     primaryRetryID: String?,
-    onPlayReply: @escaping () -> Void,
     onReply: @escaping () -> Void,
     onRetry: @escaping (String) -> Void
   ) {
-    self.isPlayingReply = isPlayingReply
-    self.canPlayReply = canPlayReply
     self.canReply = canReply
     self.retryOptions = retryOptions
     self.primaryRetryID = primaryRetryID
-    self.onPlayReply = onPlayReply
     self.onReply = onReply
     self.onRetry = onRetry
   }
@@ -47,17 +38,6 @@ public struct DetailActionBar: View {
   public var body: some View {
     GlassEffectContainer(spacing: Theme.Spacing.barGap) {
       HStack(spacing: Theme.Spacing.barGap) {
-        Button(action: onPlayReply) {
-          icon(isPlayingReply ? "stop" : "speaker.wave.2", isEnabled: canPlayReply)
-        }
-        .disabled(!canPlayReply)
-        .accessibilityLabel(
-          isPlayingReply
-            ? Text("Stop reply", bundle: #bundle, comment: "VoiceOver label of the stop button while the reply plays")
-            : Text("Play reply", bundle: #bundle, comment: "VoiceOver label of the button that speaks the reply")
-        )
-        .accessibilityIdentifier("detail.action.play")
-
         Button(action: onReply) { icon("arrowshape.turn.up.left", isEnabled: canReply) }
           .disabled(!canReply)
           .accessibilityLabel(

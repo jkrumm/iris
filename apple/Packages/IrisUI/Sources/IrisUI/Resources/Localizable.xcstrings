@@ -76,6 +76,23 @@
         }
       }
     },
+    "Answer" : {
+      "comment" : "Memo kind chip: Hermes answered a question",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Antwort"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Answer"
+          }
+        }
+      }
+    },
     "Back 10 seconds" : {
       "comment" : "VoiceOver label of the player's skip-back button",
       "localizations" : {
@@ -89,6 +106,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Back 10 seconds"
+          }
+        }
+      }
+    },
+    "Chat" : {
+      "comment" : "Memo kind chip: a conversation",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Chat"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Chat"
           }
         }
       }
@@ -134,6 +168,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Unterhaltung"
+          }
+        }
+      }
+    },
+    "Copy" : {
+      "comment" : "Context menu of a chat bubble: copies its text",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kopieren"
           }
         }
       }
@@ -291,6 +336,23 @@
         }
       }
     },
+    "GitHub issue" : {
+      "comment" : "Memo kind chip: Hermes filed an issue",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "GitHub-Issue"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "GitHub issue"
+          }
+        }
+      }
+    },
     "Iris" : {
       "comment" : "Who spoke a turn in a thread",
       "localizations" : {
@@ -406,6 +468,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Marked done"
+          }
+        }
+      }
+    },
+    "Note" : {
+      "comment" : "Memo kind chip: Hermes saved a note",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Notiz"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Note"
           }
         }
       }
@@ -648,6 +727,28 @@
         }
       }
     },
+    "Recording %@" : {
+      "comment" : "Collapsed recording player of the memo detail: the label with the recording's length as m:ss",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aufnahme %@"
+          }
+        }
+      }
+    },
+    "Recording controls" : {
+      "comment" : "VoiceOver label of the button that opens or closes the player",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aufnahme-Steuerung"
+          }
+        }
+      }
+    },
     "Release to cancel" : {
       "comment" : "Hint while holding the talk button",
       "localizations" : {
@@ -831,6 +932,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Tap to start, tap send when done"
+          }
+        }
+      }
+    },
+    "Task" : {
+      "comment" : "Memo kind chip: Hermes did a piece of work",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aufgabe"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Task"
           }
         }
       }

@@ -35,9 +35,11 @@ extension Memo {
   /// The longest a kind label reads: the wire's own limit, in code points.
   nonisolated static let kindLimit = 24
 
-  /// Hermes' kind as the server's alert writes it: the first character upper-cased, the rest as sent ("github issue"
-  /// becomes "Github issue"), at most ``kindLimit`` code points.
+  /// A known kind ("answer", "note", "task", "github issue", "chat") by its localized name; any other kind as the
+  /// server's alert writes it: the first character upper-cased, the rest as sent ("deep dive" becomes "Deep dive"), at
+  /// most ``kindLimit`` code points.
   nonisolated static func capitalizedKind(_ kind: String) -> String {
+    if let name = KindPalette.localizedName(forKind: kind) { return name }
     let trimmed = kind.trimmingCharacters(in: .whitespacesAndNewlines)
     guard let first = trimmed.first else { return "" }
     let text = first.uppercased() + trimmed.dropFirst()

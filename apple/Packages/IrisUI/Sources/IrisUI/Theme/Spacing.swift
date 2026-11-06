@@ -30,10 +30,6 @@ extension Theme.Spacing {
   /// Chip height: the quick-filter row, and the larger chips of the filter sheet (`.fc` in `history.html`).
   public static let chipHeight: CGFloat = 30
   public static let chipHeightLarge: CGFloat = 36
-  /// Space between the filter row and the section label under it is the section's own top; the row adds this above.
-  public static let chipRowTop = sm
-  /// The part of a chip's 44 pt tap area that lies outside its drawn 30 pt: the row removes it from the space around it.
-  public static let chipTapOverhang = (tapTarget - chipHeight) / 2
   /// A bottom sheet's side and bottom inset (`.fsheet`).
   public static let sheetInset: CGFloat = 18
   /// Floating bars (search, tab dock, record): side inset and gap between neighbours.
@@ -142,4 +138,21 @@ extension Theme.Spacing {
   public static let macOnboardingGap: CGFloat = 16
   /// A status dot's diameter next to a route or state.
   public static let macDot: CGFloat = 7
+}
+
+/// Chat bubbles of the memo detail and the thread (iMessage-style: the user right, Iris left). No mockup page draws them; the
+/// insets reuse the card steps and the radius is the usual 18 pt message-bubble corner.
+extension Theme.Spacing {
+  /// Padding inside a bubble.
+  public static let bubbleInsetHorizontal = inset
+  public static let bubbleInsetVertical = cozy
+  /// The corner radius, and the small one at the corner that points at the speaker.
+  public static let bubbleRadius: CGFloat = 18
+  public static let bubbleTailRadius = xs
+  /// The widest a bubble grows, as a fraction of the row: the user's leaves room on the left, Iris's a little on the right.
+  public static let bubbleUserWidthFraction: CGFloat = 0.85
+  public static let bubbleAssistantWidthFraction: CGFloat = 0.95
+  /// Bubble to the time caption under it, and the caption's inset from the bubble's edge.
+  public static let bubbleCaptionGap = hair
+  public static let bubbleCaptionInset = snug
 }

@@ -1,32 +1,46 @@
 import SwiftUI
 
-/// What the user said (spoken or typed) as a turn of the thread: a card in the accent tint under the speaker line.
-public struct UserTurnView: View {
+/// What the user said (spoken or typed) as a turn of the conversation: a bubble in the accent tint on the right with the time under
+/// it. A `footer` (the memo detail's recording player) sits inside the bubble under the text; `onCopy` adds Copy to its long press.
+public struct UserTurnView<Footer: View>: View {
   private let text: String
   private let time: String
+  private let identifier: String
+  private let onCopy: (() -> Void)?
+  private let hasFooter: Bool
+  private let footer: Footer
 
-  public init(text: String, time: String) {
+  /// - Parameter hasFooter: `false` when the footer builds nothing (an `if` that did not hold): no hairline, no empty row.
+  public init(
+    text: String, time: String, identifier: String = "thread.turn.user", onCopy: (() -> Void)? = nil,
+    hasFooter: Bool = true, @ViewBuilder footer: () -> Footer
+  ) {
     self.text = text
     self.time = time
+    self.identifier = identifier
+    self.onCopy = onCopy
+    self.hasFooter = hasFooter
+    self.footer = footer()
   }
 
   public var body: some View {
-    VStack(alignment: .leading, spacing: Theme.Spacing.snug) {
-      TurnHeader(speaker: .user, time: time)
+    ChatBubble(side: .user, time: time, onCopy: onCopy, hasFooter: hasFooter) {
       Text(verbatim: text)
         .themeFont(.subheadline)
-        .foregroundStyle(Theme.Ink.secondary)
+        .foregroundStyle(Theme.Ink.primary)
         .textSelection(.enabled)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, Theme.Spacing.cardInsetHorizontal)
-        .padding(.vertical, Theme.Spacing.cardInsetVertical)
-        .background(Theme.Accent.tint.opacity(0.1), in: .rect(cornerRadius: Theme.Radius.card))
-        .overlay {
-          RoundedRectangle(cornerRadius: Theme.Radius.card)
-            .strokeBorder(Theme.Accent.tint.opacity(0.25), lineWidth: 0.5)
-        }
+    } footer: {
+      footer
     }
     .accessibilityElement(children: .contain)
-    .accessibilityIdentifier("thread.turn.user")
+    .accessibilityLabel(Text("You", bundle: #bundle, comment: "Who spoke a turn in a thread"))
+    .accessibilityIdentifier(identifier)
+  }
+}
+
+extension UserTurnView where Footer == EmptyView {
+  public init(text: String, time: String, identifier: String = "thread.turn.user", onCopy: (() -> Void)? = nil) {
+    self.init(text: text, time: time, identifier: identifier, onCopy: onCopy, hasFooter: false, footer: { EmptyView() })
   }
 }

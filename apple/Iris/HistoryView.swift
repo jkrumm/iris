@@ -26,16 +26,8 @@ struct HistoryView: View {
   var body: some View {
     NavigationStack {
       List {
-        // The chips are the list's first row, not a bar pinned with `safeAreaBar` around the list: the list stays the
-        // navigation stack's root scroll content, so they scroll with it. There is no title: the tab bar says where you are.
-        HistoryFilterBar(
-          filters: $model.filters, kinds: model.filters.kinds(in: model.memos, limit: HistoryFilters.kindChipLimit)
-        )
-        .listRowInsets(EdgeInsets())
-        .listRowSeparator(.hidden)
-        .listRowBackground(Color.clear)
-        let sections = model.sections
-        ForEach(sections) { section in
+        // There is no title and no filter row: the tab bar says where you are, the bottom bar holds the filters.
+        ForEach(model.sections) { section in
           Section {
             ForEach(section.memos) { memo in
               NavigationLink(value: memo) {
@@ -55,12 +47,7 @@ struct HistoryView: View {
               .themeFont(.caption, weight: .semibold)
               .textCase(.uppercase)
               .foregroundStyle(Theme.Ink.muted)
-              // The first label follows the chips, whose tap area already takes the top of that gap.
-              .padding(
-                .top,
-                section.id == sections.first?.id
-                  ? Theme.Spacing.sectionTop - Theme.Spacing.chipTapOverhang : Theme.Spacing.sectionTop
-              )
+              .padding(.top, Theme.Spacing.sectionTop)
               .padding(.bottom, Theme.Spacing.sectionBottom)
               .padding(.horizontal, Theme.Spacing.screenMargin)
               .frame(maxWidth: .infinity, alignment: .leading)
@@ -101,7 +88,7 @@ struct HistoryView: View {
       }
       .safeAreaInset(edge: .bottom, spacing: 0) {
         HistorySearchBar(
-          text: $model.filters.searchText, filterCount: model.filters.sheetFilterCount,
+          text: $model.filters.searchText, filterCount: model.filters.activeFilterCount,
           onFilter: { showingFilters = true }, onCompose: { composer = ComposerRequest() }
         )
         // Solid down to the screen edge: the Record accessory and the tab bar (also the minimized one under a take banner)
