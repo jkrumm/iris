@@ -17,6 +17,13 @@ jobs:
         with:
           bun-version: latest
       - run: make check
+      # The runner's Azure apt mirror can crawl (a 9 MB package stalled 2.5 min and the full install ran past the job's 15 min,
+      # run 42218403920): no recommends (99 packages down to the codec libraries ffmpeg needs), short per-request timeout, retries.
       - name: Install ffmpeg
-        run: command -v ffmpeg >/dev/null || (sudo apt-get update && sudo apt-get install -y ffmpeg)
+        timeout-minutes: 8
+        run: |
+          command -v ffmpeg >/dev/null && command -v ffprobe >/dev/null && exit 0
+          APT=(-o Acquire::http::Timeout=20 -o Acquire::Retries=5)
+          sudo apt-get "${APT[@]}" update
+          sudo apt-get "${APT[@]}" install -y --no-install-recommends ffmpeg
       - run: make e2e
