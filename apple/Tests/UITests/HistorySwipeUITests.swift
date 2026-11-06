@@ -42,11 +42,10 @@ final class HistorySwipeUITests: IrisUITestCase {
     let start = origin.withOffset(CGVector(dx: frame.minX + frame.width * fromX, dy: frame.midY))
     let end = origin.withOffset(CGVector(dx: frame.minX + frame.width * toX, dy: frame.midY))
     for _ in 0..<3 {
-      if QueryRetry.attempt({ start.press(forDuration: 0.1, thenDragTo: end, withVelocity: .slow, thenHoldForDuration: 0.3) })
-        != nil
-      {
-        return
+      let ran: Void? = QueryRetry.attempt {
+        start.press(forDuration: 0.1, thenDragTo: end, withVelocity: .slow, thenHoldForDuration: 0.3)
       }
+      if ran != nil { return }
     }
     XCTFail("the drag never ran: the app did not answer its queries")
   }
