@@ -56,6 +56,9 @@ struct DecisionsModelTests {
     #expect(model.loadProblem == nil)
   }
 
+  // The card removal once read `board` while writing into it: an exclusivity trap that only the optimizer's evaluation order
+  // exposes (TestFlight 702 crashed; the Debug unit run stays green). Reproduce it with
+  // `xcodebuild test -configuration Release ENABLE_TESTABILITY=YES -only-testing:IrisTests/DecisionsModelTests`.
   @Test("an answer is sent once, removes the card and refreshes")
   func answerSucceeds() async {
     await seed()
