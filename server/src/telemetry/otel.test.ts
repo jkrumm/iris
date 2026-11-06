@@ -242,7 +242,13 @@ describe("postCounted", () => {
   const url = "http://collector.invalid/v1/traces";
 
   it("rejects without a fetch once MAX_IN_FLIGHT posts are outstanding, and recovers when they settle", async () => {
+    // `inFlight` is module state shared by the whole `bun test` process: a post another test left outstanding would
+    // take a slot and make this test count fetches wrongly, so start from an empty set.
+    await flushOtel();
     const pending: Array<(res: unknown) => void> = [];
+    const settle = () => {
+      for (const resolve of pending.splice(0)) resolve({ ok: true, status: 200, statusText: "OK" });
+    };
     let fetches = 0;
     await withStubbedFetch(
       () => {
@@ -253,20 +259,26 @@ describe("postCounted", () => {
         const held = Array.from({ length: _test.maxInFlight }, () =>
           _test.postCounted(url, "traces", {}),
         );
-        expect(fetches).toBe(_test.maxInFlight);
+        try {
+          expect(fetches).toBe(_test.maxInFlight);
 
-        await expect(_test.postCounted(url, "traces", {})).rejects.toThrow(
-          `traces export skipped: ${_test.maxInFlight} posts already in flight`,
-        );
-        expect(fetches).toBe(_test.maxInFlight);
+          await expect(_test.postCounted(url, "traces", {})).rejects.toThrow(
+            `traces export skipped: ${_test.maxInFlight} posts already in flight`,
+          );
+          expect(fetches).toBe(_test.maxInFlight);
 
-        for (const resolve of pending) resolve({ ok: true, status: 200, statusText: "OK" });
-        await Promise.all(held);
+          settle();
+          await Promise.all(held);
 
-        const after = _test.postCounted(url, "traces", {});
-        expect(fetches).toBe(_test.maxInFlight + 1);
-        pending.at(-1)?.({ ok: true, status: 200, statusText: "OK" });
-        await expect(after).resolves.toBeUndefined();
+          const after = _test.postCounted(url, "traces", {});
+          expect(fetches).toBe(_test.maxInFlight + 1);
+          settle();
+          await expect(after).resolves.toBeUndefined();
+        } finally {
+          // A failed assertion must not leave stubbed posts pending: they would hold slots for every later test.
+          settle();
+          await Promise.allSettled(held);
+        }
       },
     );
   });
