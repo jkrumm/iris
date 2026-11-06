@@ -246,7 +246,11 @@ final class CompositionRoot: CaptureIntentHandler, PlaybackIntentHandler {
 
   /// The model behind one open memo detail.
   func detailModel(for memo: Memo) -> MemoDetailModel {
-    MemoDetailModel(memo: memo, client: api, media: mediaSource(), speech: speech)
+    // UI tests hold the "Copied" confirmation (`-IrisCopiedSeconds 600`) so no query races the timer on a slow runner.
+    let held = UserDefaults.standard.double(forKey: "IrisCopiedSeconds")
+    return MemoDetailModel(
+      memo: memo, client: api, media: mediaSource(), speech: speech,
+      copiedDuration: held > 0 ? .seconds(held) : .seconds(1.5))
   }
 
   /// The model behind one open composer sheet.
