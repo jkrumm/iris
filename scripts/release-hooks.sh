@@ -8,7 +8,7 @@
 #
 # Hooks (name, switch in ~/.iris/release.env, make target, marker):
 #   testflight  TESTFLIGHT=1   `make testflight UPLOAD=1`   ~/.iris/testflight-sha
-#   mac         MAC_RELEASE=1  `make mac-release`           ~/.iris/mac-release-sha   (only when the Makefile has the target)
+#   mac         MAC_RELEASE=1  `make mac-release IDENTITY=developer-id`  ~/.iris/mac-release-sha   (only when the Makefile has the target)
 # `~/.iris/release.env` is untracked and holds only those switches; absent or a switch not `1` = hook off (logged as skipped, once per tick).
 # A hook runs when apple/** changed since its marker's SHA, or the marker is older than 7 days (TestFlight builds expire after 90 days).
 # The marker is written only after the make target succeeded; a failure writes `<hook>-failed` and holds the hook off for an hour.
@@ -43,7 +43,7 @@ hook_field() { # <hook> <field>
     testflight:target) print "testflight UPLOAD=1" ;;
     testflight:marker) print "$RELEASE_HOME/testflight-sha" ;;
     mac:switch) print MAC_RELEASE ;;
-    mac:target) print "mac-release" ;;
+    mac:target) print "mac-release IDENTITY=developer-id" ;;
     mac:marker) print "$RELEASE_HOME/mac-release-sha" ;;
   esac
 }
