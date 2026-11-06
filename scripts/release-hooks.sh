@@ -10,7 +10,7 @@
 #   testflight  TESTFLIGHT=1   `make testflight UPLOAD=1`   ~/.iris/testflight-sha
 #   mac         MAC_RELEASE=1  `make mac-release IDENTITY=developer-id`  ~/.iris/mac-release-sha   (only when the Makefile has the target)
 # `~/.iris/release.env` is untracked and holds only those switches; absent or a switch not `1` = hook off (logged as skipped, once per tick).
-# A hook runs when apple/** changed since its marker's SHA, or the marker is older than 7 days (TestFlight builds expire after 90 days).
+# A hook runs when apple/** changed since its marker's SHA, or (testflight only) the marker is older than 7 days (TestFlight builds expire after 90 days).
 # The marker is written only after the make target succeeded; a failure writes `<hook>-failed` and holds the hook off for an hour.
 # Runs from the app clone, but every release builds in its own worktree (~/.iris/release-src/<hook>) at the exact SHA, so the poller's
 # `git reset --hard` never moves sources under a running archive.
@@ -67,6 +67,8 @@ due_reason() { # <hook> <sha>
     print "apple/** changed since ${last[1,12]}"
     return
   fi
+  # The weekly rebuild is for TestFlight's 90-day expiry. A Mac release has none, and its tag (build = commit count) would already exist.
+  [[ "$hook" == mac ]] && return
   age=$(file_age_secs "$marker") || return
   if (( age > WEEK_SECS )); then
     print "marker is $(( age / 86400 )) days old (weekly rebuild)"
