@@ -78,6 +78,10 @@ nonisolated final class ReconfigurableAPIClient: APIClient {
     try await current().setActivityToken(memoID: memoID, request: request)
   }
   func stats(_ query: StatsQuery) async throws -> Stats { try await current().stats(query) }
+  func factory() async throws -> FactoryBoard { try await current().factory() }
+  func answerFactoryAsk(_ request: FactoryAnswerRequest) async throws -> FactoryAnswerResponse {
+    try await current().answerFactoryAsk(request)
+  }
 
   func events() -> AsyncThrowingStream<ServerEvent, any Error> {
     do {

@@ -45,6 +45,11 @@ public protocol APIClient: Sendable {
   func setActivityToken(memoID: String, request: ActivityTokenRequest) async throws
   /// `GET /v1/stats`: aggregates over the last `query.days` local days of the server (default 30).
   func stats(_ query: StatsQuery) async throws -> Stats
+  /// `GET /v1/factory`: what waits for the owner and what needs a look. A 503 `unavailable` when the factory is unconfigured or unreachable.
+  func factory() async throws -> FactoryBoard
+  /// `POST /v1/factory/answer`. A 404 `not_found` when the ask is gone, a 409 `bad_state` when it holds no open question.
+  /// Reuse `request.callId` on a retry: the factory takes it once.
+  func answerFactoryAsk(_ request: FactoryAnswerRequest) async throws -> FactoryAnswerResponse
   /// `GET /v1/events`: opens the SSE stream. It ends when the consumer stops iterating or the connection
   /// drops (the stream then throws); there is no replay, so a consumer refetches the list on reconnect.
   func events() -> AsyncThrowingStream<ServerEvent, any Error>

@@ -27,6 +27,8 @@ public actor FakeAPIClient: APIClient {
     case registerDevice(RegisterDeviceRequest)
     case setActivityToken(memoID: String, request: ActivityTokenRequest)
     case stats(StatsQuery)
+    case factory
+    case answerFactoryAsk(FactoryAnswerRequest)
   }
 
   /// The endpoints a failure can be scripted for.
@@ -35,6 +37,7 @@ public actor FakeAPIClient: APIClient {
     case setFlags, deleteMemo, restoreMemo
     case listMemos, memo, listThreads, thread, result
     case registerDevice, setActivityToken, stats
+    case factory, answerFactoryAsk
   }
 
   /// A response a test holds back. The call runs against the fake's state at once; only its answer waits.
@@ -75,6 +78,8 @@ public actor FakeAPIClient: APIClient {
   public var deviceID: String
   public var healthResponse = Health(status: .ok, degraded: [], inflight: 0)
   public var statsResponse = Stats(days: 30, from: "1970-01-01", to: "1970-01-30")
+  public private(set) var factoryBoard = FactoryBoard(builtAt: Date(timeIntervalSince1970: 0))
+  private var answeredCalls: [String: FactoryAnswerResponse] = [:]
 
   private let now: @Sendable () -> Date
   private var failures: [Endpoint: [APIError]] = [:]
@@ -161,6 +166,9 @@ public actor FakeAPIClient: APIClient {
   public func setHealth(_ health: Health) { healthResponse = health }
 
   public func setStats(_ stats: Stats) { statsResponse = stats }
+
+  /// Replaces what `factory()` answers. An answered ask leaves it, as on the server.
+  public func setFactoryBoard(_ board: FactoryBoard) { factoryBoard = board }
 
   /// Pushes an event to the consumer of `events()`. The stream has a single consumer.
   public nonisolated func emit(_ event: ServerEvent) {
@@ -447,6 +455,33 @@ public actor FakeAPIClient: APIClient {
   public func stats(_ query: StatsQuery) async throws -> Stats {
     calls.append(.stats(query))
     return try await respond(.stats) { statsResponse }
+  }
+
+  public func factory() async throws -> FactoryBoard {
+    calls.append(.factory)
+    return try await respond(.factory) { factoryBoard }
+  }
+
+  /// A known `callId` answers again with `duplicate: true` and changes nothing. An unknown ask is a 404, one that takes no
+  /// answer a 409; an answered ask leaves the board.
+  public func answerFactoryAsk(_ request: FactoryAnswerRequest) async throws -> FactoryAnswerResponse {
+    calls.append(.answerFactoryAsk(request))
+    return try await respond(.answerFactoryAsk) {
+      if let earlier = answeredCalls[request.callId] {
+        return FactoryAnswerResponse(issue: earlier.issue, state: earlier.state, duplicate: true)
+      }
+      guard let ask = factoryBoard.asks.first(where: { $0.id == request.askId }) else {
+        throw notFound("ask not found")
+      }
+      guard ask.answerable else {
+        throw APIError.server(status: 409, body: ErrorBody(error: .badState, message: "ask has no open question"))
+      }
+      let response = FactoryAnswerResponse(issue: ask.issue ?? 0, state: "working", duplicate: false)
+      answeredCalls[request.callId] = response
+      factoryBoard.asks.removeAll { $0.id == ask.id }
+      factoryBoard.counts.asks = factoryBoard.asks.count
+      return response
+    }
   }
 
   public nonisolated func events() -> AsyncThrowingStream<ServerEvent, any Error> {

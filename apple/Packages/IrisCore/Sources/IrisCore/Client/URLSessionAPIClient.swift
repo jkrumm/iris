@@ -99,6 +99,15 @@ public struct URLSessionAPIClient: APIClient {
     try await decode(Stats.self, from: makeRequest("GET", ["v1", "stats"], query: query.queryItems))
   }
 
+  public func factory() async throws -> FactoryBoard {
+    try await decode(FactoryBoard.self, from: makeRequest("GET", ["v1", "factory"]))
+  }
+
+  public func answerFactoryAsk(_ body: FactoryAnswerRequest) async throws -> FactoryAnswerResponse {
+    try await decode(
+      FactoryAnswerResponse.self, from: makeJSONRequest("POST", ["v1", "factory", "answer"], body: body))
+  }
+
   public func events() -> AsyncThrowingStream<ServerEvent, any Error> {
     let session = session
     let request: URLRequest

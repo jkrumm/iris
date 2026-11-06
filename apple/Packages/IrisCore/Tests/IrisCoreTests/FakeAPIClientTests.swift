@@ -431,4 +431,35 @@ struct FakeAPIClientPipelineTests {
     let fake = FakeAPIClient()
     await #expect(throws: APIError.self) { try await fake.advance("nope", to: .notified) }
   }
+
+  @Test(
+    "factory answers the board; an answer removes the ask, a repeated callId is a duplicate, unknown and closed asks fail"
+  )
+  func factoryBoardAndAnswer() async throws {
+    let fake = FakeAPIClient()
+    let at = Date(timeIntervalSince1970: 1_700_000_000)
+    await fake.setFactoryBoard(
+      FactoryBoard(
+        asks: [
+          FactoryAsk(id: "open", issue: 7, short: "Pick", summary: "Pick one", at: at, options: ["A", "B"]),
+          FactoryAsk(id: "closed", short: "Wait", summary: "Waiting", at: at, answerable: false),
+        ], builtAt: at))
+    #expect(try await fake.factory().counts == FactoryCounts(asks: 2, health: 0))
+
+    let request = FactoryAnswerRequest(askId: "open", text: "A", callId: "call-1")
+    #expect(
+      try await fake.answerFactoryAsk(request) == FactoryAnswerResponse(issue: 7, state: "working", duplicate: false))
+    #expect(try await fake.answerFactoryAsk(request).duplicate)
+    let board = try await fake.factory()
+    #expect(board.asks.map(\.id) == ["closed"] && board.counts.asks == 1)
+
+    await #expect(throws: APIError.self) {
+      try await fake.answerFactoryAsk(FactoryAnswerRequest(askId: "open", text: "A", callId: "call-2"))
+    }
+    await #expect(throws: APIError.self) {
+      try await fake.answerFactoryAsk(FactoryAnswerRequest(askId: "closed", text: "A", callId: "call-3"))
+    }
+    await fake.enqueueFailure(.unexpectedStatus(503), for: .factory)
+    await #expect(throws: APIError.unexpectedStatus(503)) { try await fake.factory() }
+  }
 }
