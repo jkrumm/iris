@@ -26,9 +26,11 @@ final class HistorySwipeUITests: IrisUITestCase {
     return app.descendants(matching: .any).matching(predicate).firstMatch
   }
 
-  /// Drags across `target` from `fromX` to `toX` (fractions of its width). The row's frame is read once, through the retrying
-  /// query, and the drag runs on screen coordinates: a drag on the row's own coordinate asks the app for the row again, and
-  /// on a loaded runner that query timed out three times in a row (run 41614503885, 287 s) and failed the test.
+  /// Drags across `target` from `fromX` to `toX` (fractions of its width), slowly and with a hold at the end. The row's frame is
+  /// read once, through the retrying query, and the drag runs on screen coordinates: a drag on the row's own coordinate asks the
+  /// app for the row again, and on a loaded runner that query timed out three times in a row (run 41614503885, 287 s). The
+  /// velocity is fixed on purpose: a fast short drag carries momentum and SwiftUI takes it for a full swipe (archive instead of
+  /// the revealed buttons), and a fast long one can end before the loaded app has seen enough touch events to cross the threshold.
   @MainActor
   private func drag(_ target: XCUIElement, in app: XCUIApplication, fromX: Double, toX: Double) {
     var frame: CGRect?
@@ -40,21 +42,35 @@ final class HistorySwipeUITests: IrisUITestCase {
     let start = origin.withOffset(CGVector(dx: frame.minX + frame.width * fromX, dy: frame.midY))
     let end = origin.withOffset(CGVector(dx: frame.minX + frame.width * toX, dy: frame.midY))
     for _ in 0..<3 {
-      if QueryRetry.attempt({ start.press(forDuration: 0.1, thenDragTo: end) }) != nil { return }
+      if QueryRetry.attempt({ start.press(forDuration: 0.1, thenDragTo: end, withVelocity: .slow, thenHoldForDuration: 0.3) })
+        != nil
+      {
+        return
+      }
     }
     XCTFail("the drag never ran: the app did not answer its queries")
+  }
+
+  /// Drags until `outcome` shows, at most three times. Each drag gets a full wait for its outcome first, so a swipe that took
+  /// effect late is never repeated (a second full swipe would undo the first).
+  @MainActor
+  private func drag(
+    _ target: XCUIElement, in app: XCUIApplication, fromX: Double, toX: Double, until outcome: XCUIElement
+  ) {
+    for _ in 0..<3 {
+      drag(target, in: app, fromX: fromX, toX: toX)
+      if waitForPresence(outcome, timeout: 8) { return }
+    }
   }
 
   @MainActor
   func testSwipeRightMarksTheRowDone() {
     let app = launch()
-    let target = row(in: app)
-    XCTAssertTrue(waitForPresence(target, timeout: 10))
-    target.scrollIntoClearBand(of: app.descendants(matching: .any)["history.list"], app: app)
-    XCTAssertTrue(waitForAbsence(markedDone(in: app), timeout: 1))
+    let target = revealRow(containing: headline, in: app)
+    XCTAssertTrue(waitForAbsence(markedDone(in: app), timeout: 5))
 
     // Dragging past the full-swipe threshold fires the first action; `swipeRight()` can stop short of it.
-    drag(target, in: app, fromX: 0.1, toX: 0.98)
+    drag(target, in: app, fromX: 0.1, toX: 0.98, until: markedDone(in: app))
 
     XCTAssertTrue(waitForPresence(markedDone(in: app), timeout: 10))
   }
@@ -62,13 +78,11 @@ final class HistorySwipeUITests: IrisUITestCase {
   @MainActor
   func testDeleteRemovesTheRowAndUndoBringsItBack() {
     let app = launch()
-    let target = row(in: app)
-    XCTAssertTrue(waitForPresence(target, timeout: 10))
-    target.scrollIntoClearBand(of: app.descendants(matching: .any)["history.list"], app: app)
+    let target = revealRow(containing: headline, in: app)
 
-    // A short drag reveals the buttons; a full swipe would archive instead.
-    drag(target, in: app, fromX: 0.9, toX: 0.55)
+    // A short, slow drag reveals the buttons; a full swipe would archive instead.
     let delete = app.buttons["history.swipe.delete"]
+    drag(target, in: app, fromX: 0.9, toX: 0.55, until: delete)
     XCTAssertTrue(waitForPresence(delete, timeout: 5))
     delete.tap()
 

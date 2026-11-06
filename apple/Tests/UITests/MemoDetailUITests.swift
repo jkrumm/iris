@@ -2,9 +2,11 @@ import XCTest
 
 final class MemoDetailUITests: IrisUITestCase {
   @MainActor
-  private func launch() -> XCUIApplication {
+  private func launch(holdCopied: Bool = false) -> XCUIApplication {
     let app = XCUIApplication()
-    app.launchArguments = SampleClock.arguments
+    // "Copied" lasts 1.5 s in the app; a loaded runner can query past that, so the copy test holds it for ten minutes and
+    // asserts on a state it controls instead of racing the timer.
+    app.launchArguments = SampleClock.arguments + (holdCopied ? ["-IrisCopiedSeconds", "600"] : [])
     start(app)
     XCTAssertTrue(waitForPresence(app.descendants(matching: .any)["history.list"], timeout: 10))
     return app
@@ -47,7 +49,7 @@ final class MemoDetailUITests: IrisUITestCase {
 
   @MainActor
   func testTranscriptAndReplyHaveACopyButtonThatConfirms() {
-    let app = launch()
+    let app = launch(holdCopied: true)
     openRow(containing: "Wochenplan abgestimmt", in: app)
 
     let copy = app.buttons["detail.transcript.copy"]
