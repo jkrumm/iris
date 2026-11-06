@@ -79,17 +79,19 @@ final class PushAppDelegate: NSObject, UIApplicationDelegate, UNUserNotification
     return true
   }
 
-  nonisolated func userNotificationCenter(
+  @MainActor
+  func userNotificationCenter(
     _ center: UNUserNotificationCenter, willPresent notification: UNNotification
   ) async -> UNNotificationPresentationOptions {
     FactoryPush.askID(userInfo: notification.request.content.userInfo) == nil ? [] : [.banner, .sound]
   }
 
-  nonisolated func userNotificationCenter(
+  @MainActor
+  func userNotificationCenter(
     _ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse
   ) async {
     guard let askID = FactoryPush.askID(userInfo: response.notification.request.content.userInfo) else { return }
-    await FactoryTapRouter.shared.tapped(askID: askID)
+    FactoryTapRouter.shared.tapped(askID: askID)
   }
 
   func application(
