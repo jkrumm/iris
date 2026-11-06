@@ -179,6 +179,10 @@ generate: ## xcodegen: apple/project.yml -> apple/Iris.xcodeproj (gitignored)
 theme: ## Regenerate IrisUI/Theme from the pinned basalt-ui tokens
 	cd $(APPLE_DIR)/tools && bun install --frozen-lockfile && bun gen-theme.ts
 
+.PHONY: icons
+icons: ## Render the iOS and Mac app icons from apple/branding/logo.svg
+	cd $(APPLE_DIR)/tools && bun install --frozen-lockfile && bun gen-app-icons.ts
+
 .PHONY: lint-apple
 lint-apple: ## swift format lint --strict over every Swift source
 	swift format lint --strict -r $(SWIFT_DIRS)

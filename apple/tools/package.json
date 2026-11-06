@@ -4,5 +4,8 @@
   "type": "module",
   "devDependencies": {
     "basalt-ui": "2.29.0"
+  },
+  "dependencies": {
+    "@resvg/resvg-js": "2.6.2"
   }
 }
