@@ -3,7 +3,7 @@
 #   UPLOAD=0|1   0 (default until the App Store Connect app record exists): destination `export`, the .ipa lands in .artifacts/testflight/export
 #                1: destination `upload`, xcodebuild -exportArchive sends the build to App Store Connect
 # Team id and the App Store Connect Team key come from op://mini/apple-developer via secrets-run (scripts/apple-signing-key.sh); the key is a
-# 0600 temp file deleted on every exit, nothing secret reaches argv or a log. CFBundleVersion = "<commit count>.<UTC epoch hours>", never committed:
+# 0600 temp file deleted on every exit, nothing secret reaches argv or a log. CFBundleVersion = "<commit count>.<UTC epoch hours>" (passed as CURRENT_PROJECT_VERSION, the Info.plists read it), never committed:
 # App Store Connect rejects a repeated build number, so a same-sha weekly rebuild must still raise it (the second component).
 # `make testflight` runs this through scripts/apple-slot like every xcodebuild job (the poller's release hook wraps its make call the same way).
 set -euo pipefail
@@ -52,7 +52,7 @@ hint() {
   This script never creates certificates.
 MSG
   fi
-  if grep -qiE "application-groups|App Group" "$LOG"; then
+  if grep -qiE "doesn.t (include|support) the (com\.apple\.security\.application-groups entitlement|App Groups? capability)|App Group .*(not (found|registered)|cannot be)" "$LOG"; then
     echo "  The App Group group.com.jkrumm.iris is missing from the portal: the Account Holder creates it (Identifiers > App Groups) and adds it to the three App IDs." >&2
   fi
   if grep -qiE "No profiles for|Cannot find|app record|appstoreconnect.*not found|App Store Connect app" "$LOG" && [ "$UPLOAD" = 1 ]; then
@@ -66,18 +66,6 @@ step "archive (Release, generic/platform=iOS)" \
   xcodebuild archive -project "$APPLE_DIR/Iris.xcodeproj" -scheme Iris -configuration Release \
   -destination 'generic/platform=iOS' -archivePath "$ARCHIVE" -derivedDataPath "$APPLE_DIR/.dd.noindex" \
   "${SIGNING_ARGS[@]}" DEVELOPMENT_TEAM="$team" CURRENT_PROJECT_VERSION="$build" IRIS_BUILD_SHA="$sha"
-
-# The three Info.plists carry a literal CFBundleVersion, so the build setting above does not reach them. Set it in the archive: the export
-# re-signs everything. (The proper fix is `$(CURRENT_PROJECT_VERSION)` in the plists; then this loop finds nothing to change.)
-patched=0
-while IFS= read -r plist; do
-  current="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$plist" 2>/dev/null || true)"
-  if [ -n "$current" ] && [ "$current" != "$build" ]; then
-    /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $build" "$plist"
-    patched=$((patched + 1))
-  fi
-done < <(find "$ARCHIVE/Products/Applications" -name Info.plist -path '*.app/Info.plist' -o -name Info.plist -path '*.appex/Info.plist')
-echo "  CFBundleVersion set to $build in $patched plist(s) of the archive"
 
 # The export options: the tracked template plus the team id and the destination, in a temp copy.
 options="$TMP_DIR/ExportOptions.plist"
