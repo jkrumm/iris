@@ -94,8 +94,11 @@ final class DecisionsModel {
       _ = try await client.answerFactoryAsk(FactoryAnswerRequest(askId: askID, text: trimmed, callId: callID))
       answers[askID] = nil
       callIDs[askID] = nil
-      board?.asks.removeAll { $0.id == askID }
-      board?.counts.asks = board?.asks.count ?? 0
+      if var current = board {
+        current.asks.removeAll { $0.id == askID }
+        current.counts.asks = current.asks.count
+        board = current
+      }
       await load()
     } catch is CancellationError {
       answers[askID] = nil
