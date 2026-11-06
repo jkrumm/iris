@@ -275,6 +275,10 @@ _ui-snapshot: _sim
 	@scripts/mbm ui-automation snapshot-ui --simulator-id $(SIM_UDID) > $(ARTIFACTS)/ui-snapshot.txt
 	@cat $(ARTIFACTS)/ui-snapshot.txt
 
+.PHONY: proof-apple
+proof-apple: generate ## A verifier's proof of an Apple change in one slot: iOS simulator screenshot + UI tree, Mac window PNGs -> .artifacts/proof/<time>/ (PROOF_IOS=0 / PROOF_MAC=0 skip a half)
+	@$(APPLE_SIM) scripts/apple-proof.sh
+
 # --- Device (the paired iPhone; TDD §13, skill `device`). Every xcodebuild/devicectl job goes through scripts/apple-slot (the targets do it themselves). ---
 # DEVICE_SIGNING=paid (default: the paid team, headless with the ASC Team key from op://mini/apple-developer, entitlements as tracked) | personal
 # (the free Personal Team Xcode knows, no Push/App Groups); TEAM=<id> overrides the team; IRIS_DEVICE_ID overrides the phone. Nothing here is
