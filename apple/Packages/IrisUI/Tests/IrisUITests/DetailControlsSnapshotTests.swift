@@ -15,6 +15,7 @@
         onToggle: {}, onSeek: { _ in }, onSkipBack: {}
       )
       .padding(Theme.Spacing.lg)
+      .environment(\.locale, Locale(identifier: "en"))
     }
 
     @Test("the collapsed player: play, 'Recording 0:38' and a chevron on one line", .tags(.snapshot))
@@ -49,6 +50,8 @@
       }
       .padding(Theme.Spacing.lg)
       .frame(maxWidth: .infinity, alignment: .leading)
+      // Pinned: the strings come from the catalog, and the simulator's own language must not decide the reference.
+      .environment(\.locale, Locale(identifier: "en"))
       SnapshotSupport.assertLightAndDark(view, width: 390, height: 130)
     }
 
