@@ -1516,8 +1516,12 @@ the `IrisCore` dependency when R1 wires them together.
     green master, plus a weekly rebuild (builds expire after 90 days); the
     internal group's automatic distribution installs it on the phone, and
     `make device` stays for debugging (AGENTS.md "Release hooks").
-  - Until enrollment: a free team, then `devicectl` install over Wi-Fi after
-    one cabled pairing plus Developer Mode.
+  - First upload 2026-11-06: build `687.498322` of app record `Iris Agents`
+    reached `processingState VALID` and the internal group `Internal` (`IN_BETA_TESTING`)
+    without a review; nothing is listed in the App Store. The first attempt failed in
+    `-exportArchive` for want of an app icon and because the Info.plists hardcoded
+    `CFBundleVersion` 1 (the archive's own version must equal the exported one).
+  - `make device` (free or paid team, `devicectl`) stays for debugging.
 - **Bundle ids:** `com.jkrumm.iris`, `.widgets`, `.notifications`,
   `com.jkrumm.iris.mac`.
 
