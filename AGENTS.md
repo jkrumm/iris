@@ -225,6 +225,9 @@ does, and prints transcript, reply, `kind`, `actions`, summary, step timings and
 
 ## Deploy
 
+`project.yaml` is the factory manifest (`deploy.mode make`, target `mini`, verify `make verify`, ship by push). `make version` prints the sha in
+`~/.iris/deployed-sha` (read-only, one line), which the factory compares with a shipped commit after its hold.
+
 Push to master deploys. LaunchAgent `com.jkrumm.iris` (KeepAlive, `ExitTimeOut` 60 s) runs
 `scripts/launch.sh` from the deploy clone `~/.iris/app`, never this checkout; data lives in
 `~/.iris/data`; it listens on `127.0.0.1:7730`. Doors: `iris.test` (local) and

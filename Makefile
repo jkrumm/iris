@@ -138,6 +138,10 @@ verify: ## Probe production: exit 0 iff /health answers ok and no launchd change
 		|| { echo "  agent-workflows host not healthy ($(AGW_HEALTH_URL))"; exit 1; }
 	@echo "  agent-workflows host healthy ($(AGW_HEALTH_URL))"
 
+.PHONY: version
+version: ## Print the deployed commit sha (one line, read-only; what the factory checks a shipped commit against)
+	@cat "$(HOME)/.iris/deployed-sha" 2>/dev/null || { echo "unknown (no deploy recorded: make deploy)" >&2; exit 1; }
+
 .PHONY: logs
 logs: ## Bounded tail (last $(LINES) lines) of the production logs, then exits (no -f)
 	@tail -n $(LINES) "$(HOME)/Library/Logs/iris.log" "$(HOME)/Library/Logs/iris.err" "$(HOME)/Library/Logs/iris-deploy.log"

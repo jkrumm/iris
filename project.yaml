@@ -1,0 +1,12 @@
+# How the factory ships this project (software-factory docs/design.md §9).
+apiVersion: factory/v2
+name: iris
+deploy:
+  mode: make # push to master deploys: the mini's poller (`make deploy` runs one tick) gates on CI, restarts for runtime paths and records the sha; `make verify` probes :7730, the audio door and the agw host
+  targets:
+    - { name: mini, host: mini, verify: make verify }
+  hold: 10m # CI (~2 min) plus the poller's 120 s tick must land before `make version` is read
+  migrations: [] # SQLite migrations are code (server/src/adapters/sqlite-migrations.ts), applied at boot
+ship:
+  - { paths: ["**"], via: push }
+leads: 1
