@@ -216,6 +216,16 @@ never record. A build signed with a stable Apple Development identity keeps its 
 | M18 | **Banner nach Verbindungsabbruch.** Wlan/Tailscale aus, vom iPhone ein Memo aufnehmen, das fertig wird, Wlan wieder an. | Der Mac zeigt nach der Wiederverbindung genau einen Banner für das Memo (Art und Überschrift, kein Transkript); ein Memo, das „Failed" wurde, zeigt den allgemeinen Text. Kein zweiter Banner beim nächsten Wechsel. |  |
 | M19 | **Mac-Telemetrie.** Einen Take aufnehmen und stoppen. In HyperDX nach `service.name=iris-macos` und der Memo-ID ohne Bindestriche suchen (`/otel`). | `take.phase`, `capture.segment.closed`, `outbox.segment.upload`, `mac.panel` und `notify.mac` erscheinen auf einer Trace; keine Transkriptworte, kein Token, keine Geräte-ID in den Attributen. |  |
 
+**Release rows (Wave 22 M2, Developer ID + Sparkle; Issue 166).** First published release: `mac-v0.1.0-693` (Developer ID Application, notarized and stapled, `source=Notarized Developer ID`). Run on the owner's MacBook (macOS 26.7.1) over `ssh iumac` with a simulated browser download (`com.apple.quarantine` written by hand on the unzipped bundle); the owner's own Finder drag is the confirming repeat.
+
+| # | Check | Pass when | Result |
+|-|-|-|-|
+| R1 | **Install.** The release zip unzipped into `~/Applications` (replaces the 2026-11-03 development build). | `spctl -a -vv` says `accepted`, `source=Notarized Developer ID`; `stapler validate` works offline. | 2026-11-06 pass (build 693) |
+| R2 | **First launch without Open Anyway.** `open ~/Applications/Iris.app` with the quarantine flag set. | The app starts at once, no Gatekeeper block, no "Open Anyway" in System Settings. | 2026-11-06 pass (process up after 6 s; flag `0083` → `00c3`, user-approved by the launch) |
+| R3 | **Sparkle update, no admin prompt.** A second release (higher build) is published; the installed app finds it and installs. | The app is replaced with the new build, no password or Touch ID prompt for an admin. | |
+| R4 | **No quarantine after the update.** `xattr -l ~/Applications/Iris.app` on the updated bundle. | No `com.apple.quarantine` line; `spctl -a -vv` still `accepted`. | |
+| R5 | **Icon on macOS Tahoe.** Finder, Get Info and Sparkle's alert show the bundled `AppIcon`. | The owner sees the logo icon, and says whether Tahoe treats the rounded-square PNG (frame, shadow, squircle mask). | |
+
 ## Wave 18 I7: re-test of the three device failures (fixes built, device proof pending)
 
 Fixes (PR `w18-i7-device-failures`), none verified on the phone yet: row 1 the Record control is an `OpenIntent` that asks for the unlock, opens the app and starts the take in the foreground
