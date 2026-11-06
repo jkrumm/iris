@@ -17,21 +17,20 @@ jobs:
         with:
           bun-version: latest
       - run: make check
-      # The runner's Azure apt mirror can crawl (a 9 MB package stalled 2.5 min and the full install ran past the job's 15 min,
-      # run 42218403920): no recommends (99 packages down to the codec libraries ffmpeg needs), short per-request timeout, retries.
-      # `Acquire::http::Timeout` is per idle read, so a mirror that trickles bytes never trips it and the whole step stalled to its
-      # limit twice more (runs 42278842768, and f8d50cf's): each attempt now has a hard 150 s ceiling and the next one resumes from the
-      # .debs already downloaded.
+      # The runner's Azure apt mirror stalls for the whole step (runs 42278842768, f8d50cf, 13549f1: even four 150 s attempts with
+      # resume got nowhere), so ffmpeg and ffprobe come from a static build on GitHub Releases, which the runner reaches fast,
+      # checked against the checksum file published beside it.
       - name: Install ffmpeg
-        timeout-minutes: 10
+        timeout-minutes: 8
         run: |
           command -v ffmpeg >/dev/null && command -v ffprobe >/dev/null && exit 0
-          APT=(-o Acquire::http::Timeout=20 -o Acquire::Retries=5)
-          for attempt in 1 2 3 4; do
-            sudo timeout 150 apt-get "${APT[@]}" update || true
-            sudo timeout 150 apt-get "${APT[@]}" install -y --no-install-recommends ffmpeg && exit 0
-            echo "ffmpeg install attempt $attempt did not finish"
-            sudo dpkg --configure -a || true
-          done
-          exit 1
+          BASE=https://github.com/BtbN/FFmpeg-Builds/releases/download/latest
+          ARCHIVE=ffmpeg-master-latest-linux64-gpl.tar.xz
+          cd "$(mktemp -d)"
+          curl -fsSL --retry 3 --max-time 300 -o "$ARCHIVE" "$BASE/$ARCHIVE"
+          curl -fsSL --retry 3 --max-time 60 -o checksums.sha256 "$BASE/checksums.sha256"
+          grep " $ARCHIVE\$" checksums.sha256 | sha256sum -c -
+          tar -xJf "$ARCHIVE" --strip-components=2 --wildcards '*/bin/ffmpeg' '*/bin/ffprobe'
+          sudo install -m 0755 ffmpeg ffprobe /usr/local/bin/
+          ffmpeg -version | head -n 1
       - run: make e2e
