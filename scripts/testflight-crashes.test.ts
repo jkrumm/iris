@@ -223,6 +223,39 @@ describe("run", () => {
     expect(grouped?.facts["reports"]).toHaveLength(2);
   });
 
+  it("reuses the Issue key for a later report of the same crash and build, and files a new Issue for a new build", async () => {
+    reports = [
+      {
+        id: "FIRST",
+        createdDate: "2026-11-06T16:00:00Z",
+        comment: "",
+        log: crashLog({ top: board }),
+      },
+    ];
+    const { deps, filed } = await harness();
+    await run(deps, { dryRun: false, baseline: false });
+    reports.push(
+      {
+        id: "AGAIN",
+        createdDate: "2026-11-07T08:00:00Z",
+        comment: "",
+        log: crashLog({ top: board }),
+      },
+      {
+        id: "NEWBUILD",
+        createdDate: "2026-11-07T09:00:00Z",
+        comment: "",
+        log: crashLog({ top: board, build: "710.1" }),
+      },
+    );
+    await run(deps, { dryRun: false, baseline: false });
+    expect(filed.map((f) => f.key)).toEqual([
+      "testflight-crash-FIRST",
+      "testflight-crash-FIRST",
+      "testflight-crash-NEWBUILD",
+    ]);
+  });
+
   it("files a report whose log is missing, on its own", async () => {
     reports = [{ id: "NOLOG", createdDate: "2026-11-06T16:00:00Z", comment: "no log", log: null }];
     const { deps, filed } = await harness();

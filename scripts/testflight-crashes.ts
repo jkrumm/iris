@@ -14,6 +14,7 @@
  * The `--key testflight-crash-<oldest submission id of the group>` of each Issue makes a lost state file harmless:
  * the same group is filed again as the same Issue. Raw logs go to the gitignored `.artifacts/testflight-crashes/`
  * (0600); the tester's email and device facts never leave the API response.
+ * The signature -> key map in the same file makes a later report of an already filed crash (same exception, top frame and build) reuse the Issue.
  * Exit codes: 0 ok, 1 an API, state or filing failure (a failed group stays unseen and is retried next hour), 2 usage.
  */
 import { createPrivateKey, sign } from "node:crypto";
@@ -121,13 +122,18 @@ export function parseCrashLog(logText: string): ParsedLog {
   return { exceptionType, build, irisFrames, topSymbol: top?.symbol ?? "" };
 }
 
-/** Reports with the same exception type and top app symbol are one crash; a report without a symbol stands alone. */
+/** One crash = same exception type, top app symbol and build. A report without a resolved symbol stands alone. */
+export function signatureOf(report: Report): string {
+  return report.topSymbol
+    ? `${report.exceptionType}|${report.topSymbol}|${report.build}`
+    : `alone|${report.id}`;
+}
+
+/** Groups the new reports by signature. */
 export function groupReports(reports: Report[]): Report[][] {
   const groups = new Map<string, Report[]>();
   for (const report of reports) {
-    const signature = report.topSymbol
-      ? `${report.exceptionType}|${report.topSymbol}`
-      : `alone|${report.id}`;
+    const signature = signatureOf(report);
     groups.set(signature, [...(groups.get(signature) ?? []), report]);
   }
   return [...groups.values()];
@@ -285,7 +291,7 @@ async function loadCredentials(): Promise<AscCredentials> {
 /**
  * The key as node:crypto needs it: 1Password turns the newlines of a concealed field into spaces and an env file holds a
  * literal `\n`; this rebuilds one PEM block with 64-character body lines (same rule as `pem_normalize` in
- * `scripts/apple-signing-key.sh`). Anything that is not one PEM block is returned as given.
+ * `scripts/apple-signing-key.sh` and `normalizePem` in `server/src/notify/select.ts`: keep the three in step; the server module is not imported because it pulls the whole notifier graph). Anything that is not one PEM block is returned as given.
  */
 export function normalizePem(value: string): string {
   const flat = value.replaceAll("\\n", " ").replace(/\s+/g, " ").trim();
@@ -299,19 +305,35 @@ export function normalizePem(value: string): string {
 // ---------------------------------------------------------------------------------------------------------------------
 // State and filing
 
-async function loadSeen(stateFile: string): Promise<Set<string>> {
-  if (!existsSync(stateFile)) return new Set();
-  const parsed: unknown = JSON.parse(readFileSync(stateFile, "utf8"));
-  const seen = asRecord(parsed)["seen"];
-  return new Set(
-    Array.isArray(seen) ? seen.filter((id): id is string => typeof id === "string") : [],
-  );
+interface State {
+  /** Submission ids already handled (filed or baselined). */
+  seen: Set<string>;
+  /** Issue key per signature: a later report of the same crash reuses it, so the factory files nothing new. */
+  keys: Record<string, string>;
 }
 
-async function saveSeen(stateFile: string, seen: Set<string>): Promise<void> {
+async function loadState(stateFile: string): Promise<State> {
+  if (!existsSync(stateFile)) return { seen: new Set(), keys: {} };
+  const parsed = asRecord(JSON.parse(readFileSync(stateFile, "utf8")));
+  const seen = parsed["seen"];
+  const keys = asRecord(parsed["keys"]);
+  return {
+    seen: new Set(
+      Array.isArray(seen) ? seen.filter((id): id is string => typeof id === "string") : [],
+    ),
+    keys: Object.fromEntries(
+      Object.entries(keys).filter(
+        (entry): entry is [string, string] => typeof entry[1] === "string",
+      ),
+    ),
+  };
+}
+
+async function saveState(stateFile: string, state: State): Promise<void> {
   await mkdir(dirname(stateFile), { recursive: true });
   const tmp = `${stateFile}.tmp`;
-  await writeFile(tmp, `${JSON.stringify({ seen: [...seen].sort() }, null, 2)}\n`, { mode: 0o600 });
+  const body = JSON.stringify({ seen: [...state.seen].sort(), keys: state.keys }, null, 2);
+  await writeFile(tmp, `${body}\n`, { mode: 0o600 });
   await rename(tmp, stateFile);
 }
 
@@ -349,16 +371,16 @@ async function writeLogs(group: Report[], artifactsDir: string): Promise<Map<str
 
 export async function run(deps: Deps, options: Options): Promise<Outcome> {
   const submissions = await deps.api.listSubmissions();
-  const seen = await loadSeen(deps.stateFile);
+  const state = await loadState(deps.stateFile);
   const fresh = submissions
-    .filter((s) => !seen.has(s.id))
+    .filter((s) => !state.seen.has(s.id))
     .sort((a, b) => a.createdDate.localeCompare(b.createdDate));
   const outcome: Outcome = { filed: 0, seenBefore: submissions.length - fresh.length, failed: 0 };
 
   if (options.baseline) {
     if (!options.dryRun) {
-      for (const s of fresh) seen.add(s.id);
-      await saveSeen(deps.stateFile, seen);
+      for (const s of fresh) state.seen.add(s.id);
+      await saveState(deps.stateFile, state);
     }
     out(
       `  baseline: ${fresh.length} report(s) marked seen${options.dryRun ? " (dry run: nothing written)" : ""}`,
@@ -381,10 +403,19 @@ export async function run(deps: Deps, options: Options): Promise<Outcome> {
   }
 
   for (const group of groupReports(reports)) {
+    const signature = signatureOf(group[0] as Report);
     const paths = options.dryRun
       ? new Map<string, string>()
-      : await writeLogs(group, deps.artifactsDir).catch(() => new Map<string, string>());
+      : await writeLogs(group, deps.artifactsDir).catch((error: unknown) => {
+          err(
+            `  could not write the crash logs: ${error instanceof Error ? error.message : String(error)}`,
+          );
+          return new Map<string, string>();
+        });
     const issue = buildIssue(group, paths);
+    // The same crash seen again (same signature and build) reuses its Issue's key: the factory answers with the stored Issue.
+    const earlierKey = state.keys[signature];
+    if (earlierKey) issue.key = earlierKey;
     if (options.dryRun) {
       out(`  would file ${issue.key}: ${issue.title} (${group.length} report(s))`);
       for (const report of group) {
@@ -396,8 +427,9 @@ export async function run(deps: Deps, options: Options): Promise<Outcome> {
     }
     try {
       await deps.fileIssue(issue);
-      for (const report of group) seen.add(report.id);
-      await saveSeen(deps.stateFile, seen);
+      for (const report of group) state.seen.add(report.id);
+      if (!signature.startsWith("alone|")) state.keys[signature] = issue.key;
+      await saveState(deps.stateFile, state);
       outcome.filed += 1;
     } catch (error) {
       outcome.failed += 1;
