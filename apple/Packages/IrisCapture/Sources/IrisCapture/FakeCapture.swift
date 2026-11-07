@@ -59,21 +59,36 @@ public actor FakeAudioSessionController: AudioSessionController {
 public actor FakeAppActivity: AppActivity {
   private let continuation: AsyncStream<Void>.Continuation
   private let stream: AsyncStream<Void>
-  public private(set) var isActive: Bool
+  private var active: Bool
+  private var readsBeforeActive: Int?
+
+  /// Each read counts towards `becomeActive(afterReads:)`.
+  public var isActive: Bool {
+    let current = active
+    if let left = readsBeforeActive {
+      readsBeforeActive = left > 1 ? left - 1 : nil
+      if left <= 1 { active = true }
+    }
+    return current
+  }
 
   public init(isActive: Bool = true) {
-    self.isActive = isActive
+    active = isActive
     (stream, continuation) = AsyncStream.makeStream(of: Void.self)
   }
 
   public nonisolated func activations() -> AsyncStream<Void> { stream }
 
   /// Script hook: the app goes to the background (`false`) or comes back (`true`, yields once).
-  public func setActive(_ active: Bool) {
-    let becameActive = active && !isActive
-    isActive = active
+  public func setActive(_ newValue: Bool) {
+    let becameActive = newValue && !active
+    active = newValue
     if becameActive { continuation.yield() }
   }
+
+  /// Script hook: the app is inactive for the next `reads` reads of `isActive` and active from then on (no event: the code under
+  /// test saw the transition only through the state, as when it happens between two checks).
+  public func becomeActive(afterReads reads: Int) { readsBeforeActive = reads }
 }
 
 public actor FakeRouteManager: RouteManager {

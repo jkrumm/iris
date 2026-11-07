@@ -161,6 +161,24 @@ struct BackgroundResumeTests {
     await finish(rig)
   }
 
+  @Test func anAppThatComesToTheFrontBetweenTheRefusalAndTheVerdictGetsOneMoreActivation() async throws {
+    let rig = try await makeRig()
+    try await rig.session.start(request)
+    await rig.fake.record(seconds: 5)
+    await rig.fake.session.deliver(.began)
+    try await wait(.paused, in: rig.session)
+    await rig.fake.appActivity.setActive(false)
+    await rig.fake.session.failActivations(1, refused: true)
+    // `retrying` reads the app as inactive and gives up at once; by the verdict it is active.
+    await rig.fake.appActivity.becomeActive(afterReads: 1)
+    await rig.fake.session.deliver(.ended(shouldResume: true))
+    try await wait(.recording, in: rig.session)
+
+    #expect(await rig.session.current.failure == nil)
+    await rig.session.cancel()
+    await finish(rig)
+  }
+
   @Test func aRefusalWhileTheAppIsActiveStillFailsTheTake() async throws {
     let rig = try await makeRig()
     let id = try await rig.session.start(request)
