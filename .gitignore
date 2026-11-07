@@ -17,6 +17,8 @@ DerivedData/
 .artifacts/
 *.xcresult
 apple/tools/node_modules/
+# xcodebuild rewrites a local package's lockfile with the whole project's pins (KeyboardShortcuts, Sparkle) and dirties the release tree; the packages pin exactly in Package.swift
+apple/Packages/*/Package.resolved
 
 # Design mockups: PNG renders and presigned links stay local (the repo is public)
 docs/design/renders/
