@@ -9,6 +9,7 @@ LAUNCHAGENTS := $(HOME)/Library/LaunchAgents
 REPO_URL     := https://github.com/jkrumm/iris.git
 LABEL        := com.jkrumm.iris
 LABEL_DEPLOY := com.jkrumm.iris-deploy
+LABEL_CRASHES := com.jkrumm.iris-testflight-crashes
 HEALTH_URL   := http://127.0.0.1:7730/health
 AUDIO_DOOR_HEALTH_URL := http://127.0.0.1:7792/health
 AGW_HEALTH_URL := http://127.0.0.1:7791/health
@@ -77,30 +78,36 @@ mini-setup: ## Clone/update the deploy clone, install deps, install the LaunchAg
 	@git -C "$(APP_DIR)" rev-parse HEAD > "$(HOME)/.iris/deployed-sha"
 
 .PHONY: launchd-install
-launchd-install: ## Render the plist templates (__HOME__ substituted) and (re)load both LaunchAgents
+launchd-install: ## Render the plist templates (__HOME__ substituted) and (re)load the three LaunchAgents
 	@mkdir -p "$(LAUNCHAGENTS)" "$(HOME)/Library/Logs"
 	@sed "s|__HOME__|$(HOME)|g" "$(LAUNCHD_DIR)/$(LABEL).plist.template" > "$(LAUNCHAGENTS)/$(LABEL).plist"
 	@sed "s|__HOME__|$(HOME)|g" "$(LAUNCHD_DIR)/$(LABEL_DEPLOY).plist.template" > "$(LAUNCHAGENTS)/$(LABEL_DEPLOY).plist"
+	@sed "s|__HOME__|$(HOME)|g" "$(LAUNCHD_DIR)/$(LABEL_CRASHES).plist.template" > "$(LAUNCHAGENTS)/$(LABEL_CRASHES).plist"
 	@launchctl bootout "gui/$$(id -u)/$(LABEL)" 2>/dev/null || true
 	@launchctl bootstrap "gui/$$(id -u)" "$(LAUNCHAGENTS)/$(LABEL).plist"
 	@launchctl bootout "gui/$$(id -u)/$(LABEL_DEPLOY)" 2>/dev/null || true
 	@launchctl bootstrap "gui/$$(id -u)" "$(LAUNCHAGENTS)/$(LABEL_DEPLOY).plist"
+	@launchctl bootout "gui/$$(id -u)/$(LABEL_CRASHES)" 2>/dev/null || true
+	@launchctl bootstrap "gui/$$(id -u)" "$(LAUNCHAGENTS)/$(LABEL_CRASHES).plist"
 	@rm -f "$(HOME)/.iris/launchd-pending"
-	@echo "installed $(LABEL), $(LABEL_DEPLOY)"
+	@echo "installed $(LABEL), $(LABEL_DEPLOY), $(LABEL_CRASHES)"
 
 .PHONY: launchd-uninstall
-launchd-uninstall: ## Unload and remove both LaunchAgents
+launchd-uninstall: ## Unload and remove the three LaunchAgents
+	@launchctl bootout "gui/$$(id -u)/$(LABEL_CRASHES)" 2>/dev/null || true
 	@launchctl bootout "gui/$$(id -u)/$(LABEL_DEPLOY)" 2>/dev/null || true
 	@launchctl bootout "gui/$$(id -u)/$(LABEL)" 2>/dev/null || true
-	@rm -f "$(HOME)/.local/state/jobs/$(LABEL_DEPLOY).json"
-	@rm -f "$(LAUNCHAGENTS)/$(LABEL_DEPLOY).plist" "$(LAUNCHAGENTS)/$(LABEL).plist"
-	@echo "removed $(LABEL), $(LABEL_DEPLOY)"
+	@rm -f "$(HOME)/.local/state/jobs/$(LABEL_DEPLOY).json" "$(HOME)/.local/state/jobs/$(LABEL_CRASHES).json"
+	@rm -f "$(LAUNCHAGENTS)/$(LABEL_DEPLOY).plist" "$(LAUNCHAGENTS)/$(LABEL).plist" "$(LAUNCHAGENTS)/$(LABEL_CRASHES).plist"
+	@echo "removed $(LABEL), $(LABEL_DEPLOY), $(LABEL_CRASHES)"
 
 .PHONY: launchd-status
-launchd-status: ## launchctl state for both LaunchAgents + curl /health
+launchd-status: ## launchctl state for the LaunchAgents + curl /health
 	@launchctl print "gui/$$(id -u)/$(LABEL)" 2>&1 | head -n 30
 	@echo ""
 	@launchctl print "gui/$$(id -u)/$(LABEL_DEPLOY)" 2>&1 | head -n 20
+	@echo ""
+	@launchctl print "gui/$$(id -u)/$(LABEL_CRASHES)" 2>&1 | head -n 20
 	@echo ""
 	@curl -s $(HEALTH_URL) || echo "$(HEALTH_URL) unreachable"
 	@echo ""
@@ -117,7 +124,15 @@ launchd-restart: ## Kickstart (restart) the server; refuses while a memo is mid-
 
 .PHONY: launchd-logs
 launchd-logs: ## Tail the iris LaunchAgent logs on this machine
-	@tail -n 100 -f "$(HOME)/Library/Logs/iris.log" "$(HOME)/Library/Logs/iris.err" "$(HOME)/Library/Logs/iris-deploy.log"
+	@tail -n 100 -f "$(HOME)/Library/Logs/iris.log" "$(HOME)/Library/Logs/iris.err" "$(HOME)/Library/Logs/iris-deploy.log" "$(HOME)/Library/Logs/iris-testflight-crashes.log"
+
+.PHONY: testflight-crashes
+testflight-crashes: ## Read TestFlight crash reports now and file an Issue per new one (the hourly job's run; ARGS="--dry-run" prints only)
+	@"$(HOME)/.local/bin/jobrun" $(LABEL_CRASHES) --owner iris --every 3600 --timeout 600 -- bun "$(APP_DIR)/scripts/testflight-crashes.ts" $(ARGS)
+
+.PHONY: testflight-crashes-baseline
+testflight-crashes-baseline: ## Mark every TestFlight crash report that exists now as seen, filing none (once, before the first hourly run)
+	@bun "$(APP_DIR)/scripts/testflight-crashes.ts" --baseline
 
 # Repo contract (dotfiles/docs/agent-platform.md): `check` above; deploy, probe, read logs.
 

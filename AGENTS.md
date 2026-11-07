@@ -14,7 +14,7 @@ the finished wave chain (Waves 1-22) is archived in `docs/waves/archive/PLAN.md`
 | `apple/project.yml` | XcodeGen spec: `Iris`, `IrisWidgets`, `IrisNotifications`, `IrisMac`, `IrisUITests`; `Iris.xcodeproj` is generated and gitignored |
 | `apple/Packages/` | `IrisCore` (models, API client, SSE), `IrisCapture` (session, rotation, outbox), `IrisUI` (Theme from basalt-ui incl. the one spacing scale `Theme.Spacing`, components), `IrisTelemetry` |
 | `apple/{Iris,IrisWidgets,IrisNotifications,IrisMac}` | thin app targets (`IrisWidgets`: the Record and Transcribe controls, the Live Activity); `apple/Tests/UITests` XCUITest smoke; `apple/tools/` Theme generator (Bun) |
-| `scripts/` | `send-memo.ts` (driver), `check-strings.ts` (catalog check), `e2e.ts`, `smoke.sh`, `launch.sh`, `mini-deploy.sh`, `public-guard.ts`, `mbm` (mobilebuildmcp CLI wrapper) |
+| `scripts/` | `send-memo.ts` (driver), `check-strings.ts` (catalog check), `e2e.ts`, `smoke.sh`, `launch.sh`, `mini-deploy.sh`, `public-guard.ts`, `testflight-crashes.ts` (hourly TestFlight crash intake), `mbm` (mobilebuildmcp CLI wrapper) |
 | `launchd/` | LaunchAgent plist templates for the mini |
 | `fixtures/audio/` | the German smoke recording and how it was made |
 | `.claude/rules/`, `.claude/skills/` | rules and skills, indexed below |
@@ -88,7 +88,7 @@ Never start dev servers for a human to look at; simulators are fine, shut them d
 - `server/src/compose.ts` — `compose({env, db, devices, clock, dataDir})`: builds the stats store over `db` and is the one place a downstream port is chosen (fake under
   `IRIS_FAKES=1`, real adapter when its env is set, else absent and named in `degraded`); also the notifier and the device tokens.
   A new port is one entry there, its fake in `fakePorts`, and its env var in `env.ts`.
-- `scripts/` — `send-memo.ts` (driver), `e2e.ts` (`make e2e`), `smoke.sh`, `launch.sh` (LaunchAgent entry), `mini-deploy.sh` (poller tick);
+- `scripts/` — `send-memo.ts` (driver), `e2e.ts` (`make e2e`), `smoke.sh`, `launch.sh` (LaunchAgent entry), `mini-deploy.sh` (poller tick), `testflight-crashes.ts`;
   `launchd/` — plist templates; `fixtures/audio/` — the German smoke recording.
 
 
@@ -240,6 +240,7 @@ Push to master deploys. LaunchAgent `com.jkrumm.iris` (KeepAlive, `ExitTimeOut` 
   `launchd/` do not; `launchd/` prints a warning), and writes `~/.iris/deployed-sha` once the new
   pid answers `/health`. `make deploy` runs one tick now.
 - First install or a changed `launchd/` template: `make mini-setup` / `make launchd-install` on the mini.
+- **TestFlight crash intake** (`com.jkrumm.iris-testflight-crashes`, hourly through `jobrun`, `launchd/com.jkrumm.iris-testflight-crashes.plist.template`, log `~/Library/Logs/iris-testflight-crashes.log`): `scripts/testflight-crashes.ts` lists the `betaFeedbackCrashSubmissions` of `com.jkrumm.iris` over the App Store Connect API (Team key from `op://mini/apple-developer/asc-*` through `secrets-run`, ES256 JWT in memory, nothing in argv or logs), reads each new report's symbolicated `logText`, groups the new reports by exception type + top app frame (a frame that is only `<deduplicated_symbol>` stands alone) and files **one factory Issue per group** with `rd issue iris` (`--key testflight-crash-<oldest submission id of the group>`; facts: build, date, the owner's comment, exception type, the crashed thread's app frames, the log path). Seen submission ids live in `~/.iris/testflight-crashes-seen.json`; a lost file re-files the same groups under the same keys, which the factory treats as no-ops. Raw logs are written 0600 to the gitignored `.artifacts/testflight-crashes/` of the deploy clone (`~/.iris/app`); the tester's email and device facts are never copied. An API or `rd` failure exits 1 (`jobs-grade` reports it; a group that failed stays unseen and is retried next hour). `make testflight-crashes [ARGS=--dry-run]` runs one tick now (`--dry-run` prints what it would file, writes nothing); **`make testflight-crashes-baseline` once after the first install** marks the reports that exist as seen without filing (the three of 2026-11-06 are build 702, fixed in 705/708, Issue 211). Tests: `scripts/testflight-crashes.test.ts` (fake ASC server, signature-verified JWT).
 - Secrets: `.env.local.tpl` + `.env.mini.tpl` (+ optional `.env.mini.otel.tpl`) via `secrets-run`.
   `launch.sh` refuses to start if a base ref does not resolve; a missing OTel overlay starts degraded.
   Device tokens and the OTLP endpoint live in `op://mini/iris/*` (listed in
