@@ -4,6 +4,7 @@ import type { Memo, MemoState } from "../memo/memo.js";
 import {
   buildAlert,
   buildFactoryAlert,
+  buildLiveActivityDone,
   buildLiveActivityEnd,
   buildLiveActivityUpdate,
   MAX_PAYLOAD_BYTES,
@@ -126,10 +127,10 @@ describe("Live Activity update", () => {
   });
 });
 
-describe("Live Activity end", () => {
-  it("is priority 10, dismisses 15 minutes later and carries the final state", () => {
+describe("Live Activity done update", () => {
+  it("is an update at priority 10 carrying the alert with the sound and the final state", () => {
     const memo = memoWith({ kind: "note", replyText: "ok" });
-    expect(buildLiveActivityEnd({ topic: TOPIC, memo, summary, now: NOW })).toEqual({
+    expect(buildLiveActivityDone({ topic: TOPIC, memo, summary, now: NOW })).toEqual({
       headers: {
         topic: `${TOPIC}.push-type.liveactivity`,
         pushType: "liveactivity",
@@ -138,8 +139,7 @@ describe("Live Activity end", () => {
       payload: {
         aps: {
           timestamp: NOW_SECONDS,
-          event: "end",
-          "dismissal-date": NOW_SECONDS + 900,
+          event: "update",
           "content-state": {
             phase: "done",
             routeChip: "Note",
@@ -153,7 +153,7 @@ describe("Live Activity end", () => {
   });
 
   it("titles the alert Iris without a kind", () => {
-    const { payload } = buildLiveActivityEnd({
+    const { payload } = buildLiveActivityDone({
       topic: TOPIC,
       memo: memoWith({}),
       summary,
@@ -164,13 +164,39 @@ describe("Live Activity end", () => {
 
   it("stays under 4 KB", () => {
     const huge = { headline: "𝒳".repeat(5000), detail: "d", spoken: "s" };
-    const { payload } = buildLiveActivityEnd({
+    const { payload } = buildLiveActivityDone({
       topic: TOPIC,
       memo: memoWith({ kind: "r".repeat(500) }),
       summary: huge,
       now: NOW,
     });
     expect(bytes(payload)).toBeLessThan(MAX_PAYLOAD_BYTES);
+  });
+});
+
+describe("Live Activity end", () => {
+  it("carries no alert, is stamped one second after the done update and dismisses 15 minutes later", () => {
+    const memo = memoWith({ kind: "note", replyText: "ok" });
+    expect(buildLiveActivityEnd({ topic: TOPIC, memo, summary, now: NOW })).toEqual({
+      headers: {
+        topic: `${TOPIC}.push-type.liveactivity`,
+        pushType: "liveactivity",
+        priority: 10,
+      },
+      payload: {
+        aps: {
+          timestamp: NOW_SECONDS + 1,
+          event: "end",
+          "dismissal-date": NOW_SECONDS + 900,
+          "content-state": {
+            phase: "done",
+            routeChip: "Note",
+            headline: "Buy milk",
+            hasReply: true,
+          },
+        },
+      },
+    });
   });
 });
 

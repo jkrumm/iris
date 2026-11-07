@@ -43,7 +43,7 @@ describe("notify", () => {
     expect(events(lines)).toEqual(["notify.no_token"]);
   });
 
-  it("sends only the Live Activity end, carrying the alert, to the device's environment", async () => {
+  it("sends only a done update carrying the alert, then an end without one, to the device's environment", async () => {
     const { notifier, memo, transport, devices } = setup({ apnsEnv: "production" });
     devices.registerDevice({ ...phone, apnsToken: "aa11" });
     devices.setActivityToken({ memoId: memo.id, token: "bb22" });
@@ -57,13 +57,18 @@ describe("notify", () => {
         c.headers.pushType,
         c.headers.topic,
       ]),
-    ).toEqual([["bb22", "production", "liveactivity", `${TOPIC}.push-type.liveactivity`]]);
+    ).toEqual([
+      ["bb22", "production", "liveactivity", `${TOPIC}.push-type.liveactivity`],
+      ["bb22", "production", "liveactivity", `${TOPIC}.push-type.liveactivity`],
+    ]);
     expect(transport.calls[0]?.payload).toMatchObject({
       aps: {
-        event: "end",
+        event: "update",
         alert: { title: "Iris", body: "Buy milk", sound: "default" },
       },
     });
+    expect(transport.calls[1]?.payload).toMatchObject({ aps: { event: "end" } });
+    expect(JSON.stringify(transport.calls[1]?.payload)).not.toContain("alert");
   });
 
   it("logs every delivered push with its type, event, alert and sound but not its text", async () => {
@@ -90,13 +95,25 @@ describe("notify", () => {
       {
         memo_id: memo.id,
         device: "iphone",
+        kind: "live_activity_done",
+        push_type: "liveactivity",
+        priority: 10,
+        environment: "production",
+        event: "update",
+        alert_present: true,
+        sound: "default",
+        status: 200,
+      },
+      {
+        memo_id: memo.id,
+        device: "iphone",
         kind: "live_activity_end",
         push_type: "liveactivity",
         priority: 10,
         environment: "production",
         event: "end",
-        alert_present: true,
-        sound: "default",
+        alert_present: false,
+        sound: null,
         status: 200,
       },
     ]);
@@ -109,7 +126,7 @@ describe("notify", () => {
     expect(transport.calls.map((c) => c.environment)).toEqual(["sandbox"]);
   });
 
-  it("sends only the alert without an activity token, and only the end without an apns token", async () => {
+  it("sends only the alert without an activity token, and only the done update and end without an apns token", async () => {
     const a = setup();
     a.devices.registerDevice({ ...phone, apnsToken: "aa11" });
     await a.notifier.notify({ memo: a.memo, summary });
@@ -118,7 +135,10 @@ describe("notify", () => {
     const b = setup();
     b.devices.setActivityToken({ memoId: b.memo.id, token: "bb22" });
     await b.notifier.notify({ memo: b.memo, summary });
-    expect(b.transport.calls.map((c) => c.headers.pushType)).toEqual(["liveactivity"]);
+    expect(b.transport.calls.map((c) => c.headers.pushType)).toEqual([
+      "liveactivity",
+      "liveactivity",
+    ]);
   });
 
   it("logs a rejection and clears a dead alert token without failing", async () => {
@@ -286,7 +306,7 @@ describe("notify", () => {
     expect(devices.getDevice("iphone")?.apnsToken).toBe("aa11");
   });
 
-  it("throws without an alert when the Live Activity end failed transiently, and a retry re-sends the end only", async () => {
+  it("throws without an alert when the done update failed transiently, and a retry sends the done update and the end", async () => {
     const { notifier, memo, devices, transport } = setup({
       results: [{ ok: false, status: 503, reason: "ServiceUnavailable" }],
     });
@@ -298,10 +318,11 @@ describe("notify", () => {
     expect(transport.calls.map((c) => c.headers.pushType)).toEqual([
       "liveactivity",
       "liveactivity",
+      "liveactivity",
     ]);
   });
 
-  it("falls back to the alert when the Live Activity end is refused for good (the activity is gone)", async () => {
+  it("falls back to the alert, without an end, when the done update is refused for good (the activity is gone)", async () => {
     const { notifier, memo, devices, transport } = setup({
       results: [{ ok: false, status: 410, reason: "Unregistered" }],
     });

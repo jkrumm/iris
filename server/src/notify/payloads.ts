@@ -111,9 +111,38 @@ export function buildLiveActivityUpdate(params: {
 }
 
 /**
- * The final state: the memo is still `acted` when notify runs, so the phase is fixed to done.
- * The `alert` (kind chip or "Iris", the headline, the default sound) is what lights the device and plays the sound: a memo with a
- * Live Activity gets this push and no separate banner (TDD §3 notify). Apple puts `sound` inside the Live Activity `alert`.
+ * The announcement of a finished take: a final `update` (phase fixed to done, the memo is still `acted` when notify runs) that carries
+ * the `alert` (kind chip or "Iris", the headline, the default sound). Apple documents the alert sound for `update`, not for `end`
+ * (device D1-7: an `end` alert played none, docs/research/2026-11-07-live-activity-end-sound.md), so the sound rides this push; the
+ * Lock Screen card lights up and there is no separate banner (TDD §3 notify). Apple puts `sound` inside the Live Activity `alert`.
+ */
+export function buildLiveActivityDone(params: {
+  topic: string;
+  memo: Memo;
+  summary: Summary;
+  now: Date;
+}): ApnsMessage {
+  const { topic, memo, summary, now } = params;
+  return {
+    headers: { topic: `${topic}.push-type.liveactivity`, pushType: "liveactivity", priority: 10 },
+    payload: {
+      aps: {
+        timestamp: epochSeconds(now),
+        event: "update",
+        "content-state": contentState({ memo, phase: "done", headline: summary.headline }),
+        alert: {
+          title: kindChip(memo.kind) ?? "Iris",
+          body: truncate(summary.headline, ALERT_BODY_MAX),
+          sound: "default",
+        },
+      },
+    },
+  };
+}
+
+/**
+ * The end, sent after `buildLiveActivityDone` and without an alert: the final state and `dismissal-date`. Its timestamp is one second
+ * after `now` so the system, which shows the most recent timestamp, never treats it as older than the done update.
  */
 export function buildLiveActivityEnd(params: {
   topic: string;
@@ -126,15 +155,10 @@ export function buildLiveActivityEnd(params: {
     headers: { topic: `${topic}.push-type.liveactivity`, pushType: "liveactivity", priority: 10 },
     payload: {
       aps: {
-        timestamp: epochSeconds(now),
+        timestamp: epochSeconds(now) + 1,
         event: "end",
         "dismissal-date": epochSeconds(new Date(now.getTime() + DISMISS_AFTER_MS)),
         "content-state": contentState({ memo, phase: "done", headline: summary.headline }),
-        alert: {
-          title: kindChip(memo.kind) ?? "Iris",
-          body: truncate(summary.headline, ALERT_BODY_MAX),
-          sound: "default",
-        },
       },
     },
   };

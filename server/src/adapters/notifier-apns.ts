@@ -5,7 +5,12 @@ import {
   isTransient,
   type ApnsFailure,
 } from "../notify/apns-result.js";
-import { buildAlert, buildLiveActivityEnd, buildLiveActivityUpdate } from "../notify/payloads.js";
+import {
+  buildAlert,
+  buildLiveActivityDone,
+  buildLiveActivityEnd,
+  buildLiveActivityUpdate,
+} from "../notify/payloads.js";
 import type { ApnsMessage, ApnsResult, ApnsTransport } from "../ports/apns.js";
 import type { Clock } from "../ports/clock.js";
 import type { ApnsEnv, DeviceStore } from "../ports/devices.js";
@@ -14,7 +19,7 @@ import { TransientError } from "../ports/transient.js";
 import { log } from "../telemetry/log.js";
 
 type Failure = ApnsFailure;
-type Kind = "alert" | "live_activity_update" | "live_activity_end";
+type Kind = "alert" | "live_activity_update" | "live_activity_done" | "live_activity_end";
 
 /** What the device was told, for the log: the Live Activity `event` and whether an alert and its sound went out (never their text). */
 function describePayload(payload: Record<string, unknown>) {
@@ -115,21 +120,33 @@ export function createApnsNotifier(deps: {
 
       const now = clock.now();
       const results: ApnsResult[] = [];
-      // A memo with a Live Activity gets its end push (which carries the alert) and no banner. Without an activity token, or when
-      // that push is finally refused (the activity is gone), the alert push is the only way the device hears of the memo.
+      // A memo with a Live Activity is announced by a final `update` carrying the alert and its sound (Apple documents the alert sound for
+      // `update`, not `end`; Issue 223), then the `end` without one: no separate banner. Without an activity token, or when the done push
+      // is finally refused (the activity is gone), the alert push is the only way the device hears of the memo.
       if (activityToken) {
-        const end = await push({
-          kind: "live_activity_end",
+        const done = await push({
+          kind: "live_activity_done",
           memo,
           token: activityToken,
-          message: buildLiveActivityEnd({ topic, memo, summary, now }),
+          message: buildLiveActivityDone({ topic, memo, summary, now }),
           clearToken: clearActivityToken(memo, activityToken),
         });
-        results.push(end);
+        results.push(done);
+        if (done.ok) {
+          results.push(
+            await push({
+              kind: "live_activity_end",
+              memo,
+              token: activityToken,
+              message: buildLiveActivityEnd({ topic, memo, summary, now }),
+              clearToken: clearActivityToken(memo, activityToken),
+            }),
+          );
+        }
       }
-      const endDelivered = results[0]?.ok === true;
-      const endTransient = results[0] !== undefined && !results[0].ok && isTransient(results[0]);
-      if (alertToken && !endDelivered && !endTransient) {
+      const announced = results[0]?.ok === true;
+      const doneTransient = results[0] !== undefined && !results[0].ok && isTransient(results[0]);
+      if (alertToken && !announced && !doneTransient) {
         results.push(
           await push({
             kind: "alert",
