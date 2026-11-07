@@ -14,10 +14,7 @@ struct MacMemoListRow: View {
           .macFont(.body, weight: .semibold)
           .lineLimit(2)
         HStack(spacing: Theme.Spacing.snug) {
-          Circle()
-            .fill(memo.macRowMeta.dot)
-            .frame(width: Theme.Spacing.macDot, height: Theme.Spacing.macDot)
-            .accessibilityHidden(true)
+          MacRowStatusMark(memo: memo)
           Text(verbatim: memo.macRowMeta.text).lineLimit(1)
         }
         .macFont(.caption)

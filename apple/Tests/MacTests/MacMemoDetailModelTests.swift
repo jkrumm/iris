@@ -127,4 +127,55 @@ struct MacMemoDetailModelTests {
     await chat.load()
     #expect(chat.thread != nil && !chat.threadFailed)
   }
+
+  @Test("a memo in a Hermes session is a chat from the list's copy; its turns come from the thread once it has loaded")
+  func chatTurns() async {
+    let api = FakeAPIClient()
+    await SampleData.seed(api)
+    let memo = try? await api.memo(id: SampleData.chatFollowUpID).memo
+    let chat = MacMemoDetailModel(
+      memoID: SampleData.chatFollowUpID, memo: memo, client: api, pasteboard: RecordingPasteboard())
+    #expect(chat.isChat && chat.thread == nil)
+    #expect(chat.turns.map(\.id) == ["\(SampleData.chatFollowUpID).user", "\(SampleData.chatFollowUpID).reply"])
+    await chat.load()
+    #expect(chat.thread != nil && chat.turns.count == 4, "the first question and answer join the follow-up")
+  }
+
+  @Test("a memo alone in its session whose thread cannot be read still shows its own turns")
+  func ownSessionWithoutThread() async {
+    let model = await model()
+    #expect(model.memo?.threadId == Self.finished && model.isChat)
+    await model.load()
+    #expect(model.thread == nil && model.threadFailed && !model.isConversation)
+    #expect(model.turns.map(\.id) == ["\(Self.finished).user", "\(Self.finished).reply"])
+  }
+
+  @Test("a memo that failed before act and a transcript stay documents")
+  func documents() async {
+    let api = FakeAPIClient()
+    await SampleData.seed(api)
+    for id in ["9e2c4b70-1a58-4d36-8f07-5b3a6d1c8e24", "e8b3d2f0-4a17-4c59-8d60-1b7f3a9e5c24"] {
+      let model = MacMemoDetailModel(memoID: id, client: api, pasteboard: RecordingPasteboard())
+      await model.load()
+      #expect(model.memo != nil && !model.isChat, "\(id) is a document")
+    }
+  }
+
+  @Test("a running turn is a pending bubble; a reply sent from this Mac shows at once and keeps the chat")
+  func runningAndSent() async throws {
+    let api = FakeAPIClient()
+    await SampleData.seed(api)
+    let model = MacMemoDetailModel(
+      memoID: SampleData.hermesFollowUpID, client: api, pasteboard: RecordingPasteboard())
+    await model.load()
+    let thread = try #require(model.thread)
+    #expect(model.isChat && model.turns.last?.id == "\(SampleData.hermesFollowUpID).pending")
+    let sent = Memo(
+      id: "sent-1", mode: .hermes, device: "mac", startedAt: .now, state: .transcribed, transcript: "And then?",
+      threadId: thread.id, isTyped: true, createdAt: .now, updatedAt: .now)
+    model.didSend(sent)
+    #expect(model.turns.suffix(2).map(\.id) == ["sent-1.user", "sent-1.pending"])
+    model.didSend(sent)
+    #expect(model.turns.filter { $0.id == "sent-1.user" }.count == 1, "a second hand-over adds nothing")
+  }
 }

@@ -13,6 +13,16 @@ struct MacPasteboard: Pasteboard {
   }
 }
 
+extension Memo {
+  /// The detail lays the memo out as a chat: it has a Hermes session (`threadId`; `act` gives every Hermes memo one), or it is a
+  /// Hermes memo still on its way to `act`, which has none yet. A transcript-only memo and one that failed before `act` stay documents.
+  var showsChat: Bool {
+    guard !isDeleted else { return false }
+    if threadId != nil { return true }
+    return mode != .transcribe && state != .failed && !state.isResultReady
+  }
+}
+
 /// One memo open in the main window's detail pane: its steps, the stats baselines the step durations are judged against, the
 /// conversation of a thread memo, Copy and retry. The iOS `MemoDetailModel` also owns the recording and spoken-reply players,
 /// which configure an `AVAudioSession`; on the Mac the window owns one ``MacAudioPlayer`` and the pane drives it.
@@ -24,11 +34,17 @@ final class MacMemoDetailModel {
 
   /// `nil` until the memo is known: the list had it when the panel opened, else the first ``load()`` brings it.
   private(set) var detail: MemoDetail?
-  /// The conversation a chat or continued-thread memo belongs to (`GET /v1/threads/:id`), read only; nil for any other memo or
-  /// while it loads. A failed read leaves the memo's own transcript and reply on screen.
+  /// The conversation a memo in a Hermes session belongs to (`GET /v1/threads/:id`); nil for a memo without one or while it
+  /// loads. A failed read leaves the memo's own turns on screen.
   private(set) var thread: ThreadDetail?
-  /// The conversation could not be read: the view says so and shows the memo's own transcript and reply instead.
+  /// The conversation could not be read: the view says so (for a conversation of several memos) and shows the memo's own turns.
   private(set) var threadFailed = false
+  /// What the conversation shows, oldest first: the loaded thread's turns, else the open memo's own (the list's copy shows at once,
+  /// and a thread that cannot be read still shows the memo's turn).
+  private(set) var turns: [ThreadTurn] = []
+  /// The pane lays the memo out as a chat. Once a memo has shown as one it stays one: a Hermes memo has no `threadId` until `act`
+  /// has run, and the chat must not turn into a document when it does not (or does) get one.
+  private(set) var isChat = false
   private(set) var baselines = StepBaselines()
   private(set) var isRetrying = false
   private(set) var loadFailed = false
@@ -59,9 +75,47 @@ final class MacMemoDetailModel {
     self.client = client
     self.pasteboard = pasteboard
     self.copiedDuration = copiedDuration
+    refreshConversation()
   }
 
   var memo: Memo? { detail?.memo }
+
+  /// The open memo continues a conversation another memo started (a reply, not a first question).
+  var isConversation: Bool { memo?.opensThread ?? false }
+
+  /// The composer's thread: only a memo that has a Hermes session can be replied to.
+  var replyThreadID: String? {
+    guard let memo, !memo.isDeleted else { return nil }
+    return memo.threadId
+  }
+
+  private func refreshConversation() {
+    guard let memo else {
+      turns = []
+      return
+    }
+    if memo.showsChat { isChat = true }
+    turns = thread == nil ? ThreadTurn.make(memo: memo) : ThreadTurn.make(from: thread)
+  }
+
+  /// A memo this Mac just created in the open conversation shows at once, as a user turn with its pending answer, before the next
+  /// load brings the server's version.
+  func didSend(_ memo: Memo) {
+    guard var current = thread, !current.memos.contains(where: { $0.id == memo.id }) else { return }
+    current.memos.append(memo)
+    if let transcript = memo.transcript {
+      current.messages.append(
+        ThreadMessage(memoId: memo.id, role: .user, content: transcript, createdAt: memo.createdAt))
+    }
+    generation += 1
+    thread = current
+    refreshConversation()
+  }
+
+  /// Puts one turn's text on the pasteboard (an answer as plain text).
+  func copyTurn(_ text: String) {
+    pasteboard.copy(text)
+  }
 
   /// Details (the step rows and the ids) show under their line: collapsed until the owner opens them, except for a failed
   /// memo, whose failed step (and its retry) is what the owner came for.
@@ -93,7 +147,9 @@ final class MacMemoDetailModel {
       guard !Task.isCancelled, current == generation else { return }
       detail = fresh
       loadFailed = false
+      refreshConversation()
       await loadThread(of: fresh.memo, generation: current)
+      refreshConversation()
     } catch is CancellationError {
       return
     } catch {
@@ -114,7 +170,7 @@ final class MacMemoDetailModel {
   }
 
   private func loadThread(of memo: Memo, generation current: Int) async {
-    guard memo.opensThread, let threadId = memo.threadId else {
+    guard !memo.isDeleted, let threadId = memo.threadId else {
       thread = nil
       threadFailed = false
       return
@@ -185,6 +241,7 @@ final class MacMemoDetailModel {
       // The retried memo is newer than any load that is still on the wire.
       generation += 1
       detail?.memo = retried
+      refreshConversation()
       await load()
     } catch is CancellationError {
       return

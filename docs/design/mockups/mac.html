@@ -26,16 +26,12 @@
   .win pre i { font-style: normal; color: var(--accent); } .win pre u { text-decoration: none; color: var(--status-good); } .win pre em { font-style: normal; color: var(--faint); }
 
   /* Floating non-activating panel for the take */
-  .panel { position: absolute; left: 540px; top: 120px; width: 360px; border-radius: 26px; padding: 16px 18px 16px; display: flex; flex-direction: column; gap: 12px; color: var(--ink); }
-  .panel .hd { display: flex; align-items: center; gap: 8px; font-size: var(--text-sm); font-weight: 600; color: var(--status-bad); text-transform: uppercase; letter-spacing: .04em; }
-  .panel .hd .sp { flex: 1; } .panel .hd .kb { color: var(--faint); text-transform: none; letter-spacing: 0; font-weight: 500; }
-  .panel .tm { font-size: 54px; font-weight: 300; letter-spacing: -.02em; line-height: 1; }
-  .panel .tm small { font-size: var(--text-md); color: var(--faint); margin-left: 4px; }
-  .panel .lvl { height: 38px; display: flex; align-items: center; } .panel .lvl .wave { width: 100%; justify-content: space-between; gap: 0; } .panel .lvl .wave b { width: 3px; }
-  .panel .ft { display: flex; align-items: center; gap: 8px; }
-  .panel .ft .chip { height: 30px; font-size: var(--text-sm); }
-  .panel .ft .sp { flex: 1; }
-  .panel .btn { height: 34px; padding: 0 14px; }
+  .panel { position: absolute; left: 520px; top: 120px; width: 340px; border-radius: 28px; padding: 10px; display: flex; align-items: center; gap: 8px; color: var(--ink); }
+  .panel .btn.stop { width: 34px; height: 34px; padding: 0; flex: none; }
+  .panel .tm { font-size: 22px; font-weight: 500; line-height: 1; }
+  .panel .wave { flex: 1; height: 24px; justify-content: space-between; gap: 0; } .panel .wave b { width: 3px; }
+  .panel .chip { height: 30px; padding: 0 10px; gap: 2px; flex: none; }
+  .panel .btn.x { width: 30px; height: 30px; padding: 0; flex: none; }
 
   /* MenuBarExtra window */
   .menu { position: absolute; right: 56px; top: 42px; width: 340px; border-radius: 22px; padding: 12px; color: var(--ink); display: flex; flex-direction: column; gap: 2px; }
@@ -50,6 +46,24 @@
   .menu .ln { display: flex; justify-content: space-between; padding: 7px 10px; font-size: var(--text-md); border-radius: 8px; }
   .menu .ln span:last-child { color: var(--faint); font-size: var(--text-sm); }
   .menu .st { display: flex; gap: 6px; align-items: center; padding: 6px 10px 2px; font-size: var(--text-xs); color: var(--faint); }
+
+  /* Main window "Iris": sidebar | list | chat. The detail of a Hermes memo is a conversation with the composer pinned at the foot;
+     with nothing selected it is the New memo page (same composer, an empty conversation above it). */
+  .chatwin { position: absolute; left: 120px; top: 70px; width: 1100px; height: 720px; border-radius: 14px; background: var(--surface-bg); color: var(--ink); display: flex; box-shadow: 0 24px 60px rgb(0 0 0 / .35), inset 0 0 0 .5px var(--surface-border); overflow: hidden; }
+  .chatwin .side { width: 220px; background: var(--surface-subtle); }
+  .chatwin .list { width: 340px; border-right: .5px solid var(--divider); }
+  .chatwin .det { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+  .chatwin .scroll { flex: 1; overflow: hidden; padding: 24px; display: flex; flex-direction: column; gap: 20px; }
+  .chatwin .col { width: 100%; max-width: 680px; margin: 0 auto; display: flex; flex-direction: column; gap: 14px; }
+  .chatwin .turn { max-width: 85%; padding: 10px 14px; border-radius: 18px; font-size: var(--text-sm); }
+  .chatwin .turn.u { align-self: flex-end; background: color-mix(in srgb, var(--accent) 10%, transparent); box-shadow: inset 0 0 0 .5px color-mix(in srgb, var(--accent) 25%, transparent); border-bottom-right-radius: 4px; }
+  .chatwin .turn.a { align-self: flex-start; max-width: 95%; background: var(--surface-panel); box-shadow: inset 0 0 0 .5px var(--surface-border); border-bottom-left-radius: 4px; }
+  .chatwin .turn small { display: block; margin-top: 2px; font-size: var(--text-xs); color: var(--faint); }
+  .chatwin .composer { padding: 14px 24px; }
+  .chatwin .composer .bar { max-width: 680px; margin: 0 auto; display: flex; align-items: flex-end; gap: 6px; }
+  .chatwin .composer .field { flex: 1; min-height: 28px; padding: 6px 10px; border-radius: 12px; background: var(--surface-panel); box-shadow: inset 0 0 0 .5px var(--surface-border); font-size: var(--text-sm); }
+  .chatwin .composer .send { width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; background: var(--accent-fill); color: #fff; flex: none; }
+  .chatwin .empty { margin: auto; text-align: center; display: flex; flex-direction: column; align-items: center; gap: 10px; color: var(--muted); }
 
   /* Native notification banner */
   .banner { position: absolute; right: 18px; top: 46px; width: 372px; border-radius: 22px; padding: 12px 14px; display: flex; gap: 12px; color: var(--ink); }
@@ -91,15 +105,11 @@
   </div>
 
   <div class="panel glass strong" data-v="panel">
-    <div class="hd"><span class="dot live"></span>Recording<span class="sp"></span><span class="kb">⌃⌥ I to stop</span></div>
-    <div class="tm num">03:12<small>min</small></div>
-    <div class="lvl"><div class="wave" data-bars="56" data-h="34" data-seed="21" data-live></div></div>
-    <div class="ft">
-      <span class="chip glass"><i data-i="laptop"></i>MacBook Pro Microphone<i data-i="down"></i></span>
-      <span class="sp"></span>
-      <span class="btn glass red"><i data-i="stop" class="fill"></i>Stop</span>
-    </div>
-    <div class="ft" style="margin-top:-2px"><span class="chip glass"><i data-i="spark"></i>Auto</span><span class="chip glass">Journal</span><span class="chip glass">Hermes</span><span class="chip glass">dotfiles</span></div>
+    <span class="btn glass red stop" title="⌃⌥ I to stop"><i data-i="stop" class="fill"></i></span>
+    <div class="tm num">03:12</div>
+    <div class="wave" data-bars="28" data-h="24" data-seed="21" data-live></div>
+    <span class="chip glass" title="MacBook Pro Microphone"><i data-i="mic"></i><i data-i="down"></i></span>
+    <span class="btn glass x"><i data-i="x"></i></span>
   </div>
 
   <div class="menu glass strong" data-v="menu">
@@ -112,6 +122,33 @@
     <div class="ln"><span>Open history</span><span>⌘ H</span></div>
     <div class="ln"><span>Settings…</span><span>⌘ ,</span></div>
     <div class="st"><span class="dot journal"></span>Connected · live updates on</div>
+  </div>
+
+  <div class="chatwin" data-v="chat">
+    <div class="side"></div>
+    <div class="list"></div>
+    <div class="det">
+      <div class="scroll">
+        <div class="col">
+          <b>Which Postgres index fits the herd snapshot query?</b>
+          <div class="turn u">Which Postgres index fits the herd snapshot query?<small>9:46</small></div>
+          <div class="turn a">A <b>partial index</b> on (repo, last_activity) covers it.<small>9:46</small></div>
+          <div class="turn u">Show me the migration for it.<small>9:48</small></div>
+          <div class="turn a"><span class="dot hermes"></span> Asking Hermes…</div>
+        </div>
+      </div>
+      <div class="composer"><div class="bar"><span class="field">Reply to Hermes…</span><span class="send"><i data-i="send"></i></span></div></div>
+    </div>
+  </div>
+
+  <!-- New memo: nothing selected, an empty conversation and the same composer. -->
+  <div class="chatwin" data-v="chat-new">
+    <div class="side"></div>
+    <div class="list"></div>
+    <div class="det">
+      <div class="scroll"><div class="empty"><i data-i="spark"></i><b>What should Iris do?</b><span>Type here, or press ⌃⌥ M to talk.</span></div></div>
+      <div class="composer"><div class="bar"><span class="field">What should Iris do?</span><span class="send"><i data-i="send"></i></span></div></div>
+    </div>
   </div>
 
   <div class="banner glass strong" data-v="notify">

@@ -9,7 +9,7 @@
 #      to PNG and quits; the mini has no Screen Recording grant, so screencapture cannot see it)
 #   4. shuts every simulator down and prints the artifacts, the simulator state and the load (start, peak, end)
 #
-# Output: .artifacts/proof/<time>/{ios/,mac/,proof.txt}. Exit 0 only when the iOS screenshot and every expected Mac PNG exist
+# Output: .artifacts/proof/<time>/{ios/,mac/,mac-de/,proof.txt} (mac/ English, mac-de/ German). Exit 0 only when the iOS screenshot and every expected Mac PNG exist
 # and no simulator is left booted. This proves "it builds, launches and looks right"; the test suites stay CI's.
 # Env: SIM_NAME / SIM_OS (the Makefile's pinned simulator), IOS_ARGS (extra launch arguments for Iris), PROOF_MAC=0 / PROOF_IOS=0
 # (skip a half), UI_SETTLE (seconds before the UI tree, default 8), MAC_TIMEOUT (seconds for the Mac snapshot run, default 180).
@@ -25,10 +25,11 @@ DD=apple/.dd.noindex
 # Capped like the Makefile's test runners: 2 build jobs (an uncapped cold build of both schemes peaked at a 1-minute load of 408 on 12 cores), low priority.
 XCB=(nice -n 10 xcodebuild -project apple/Iris.xcodeproj -derivedDataPath "$DD" CODE_SIGNING_ALLOWED=NO -jobs "${SWIFT_JOBS:-2}"
   IDEBuildOperationMaxNumberOfConcurrentCompileTasks="${SWIFT_JOBS:-2}" SWIFT_COMPILATION_MODE=incremental)
-MAC_EXPECTED=(menu window-all window-thread window-filtered settings-connection settings-recording settings-general onboarding recording recording-refused)
+MAC_EXPECTED=(menu window-all window-thread window-chat-mermaid window-running window-filtered window-new window-composer window-sent
+  window-answered settings-connection settings-recording settings-general onboarding recording recording-refused)
 
 out=.artifacts/proof/$(date +%Y%m%d-%H%M%S)
-mkdir -p "$out/ios" "$out/mac"
+mkdir -p "$out/ios" "$out/mac" "$out/mac-de"
 report="$out/proof.txt"
 failures=0
 
@@ -99,22 +100,29 @@ if [[ "${PROOF_MAC:-1}" != 0 ]]; then
   if "${XCB[@]}" -scheme IrisMac -destination 'platform=macOS' build >"$out/mac/build.log" 2>&1; then
     phase mac-run
     bin="$DD/Build/Products/Debug/IrisMac.app/Contents/MacOS/IrisMac"
-    mkdir -p "$out/mac"
-    # The flags order matters: -IrisMacSnapshot goes after -IrisMacPanelWindow (TDD §5).
-    "$bin" -IrisFakeData -IrisMacPanelWindow -IrisMacSnapshot "$PWD/$out/mac" -AppleLanguages "(en)" -AppleLocale en_US >"$out/mac/run.log" 2>&1 &
-    pid=$!
-    waited=0
-    while kill -0 "$pid" 2>/dev/null && ((waited < MAC_TIMEOUT)); do
-      sleep 2
-      waited=$((waited + 2))
-    done
-    if kill -0 "$pid" 2>/dev/null; then
-      kill "$pid" 2>/dev/null
-      fail "mac: snapshot run still alive after ${MAC_TIMEOUT}s, killed"
-    fi
-    for name in "${MAC_EXPECTED[@]}"; do
-      [[ -s "$out/mac/$name.png" ]] || fail "mac: $name.png missing"
-    done
+    # One build, two launches: English into mac/, German into mac-de/ (window titles are localized; the run looks them up in the
+    # language it runs in). The same names are expected from both.
+    mac_snapshot() { # <directory> <language> <locale>
+      local dir=$1 lang=$2 locale=$3
+      mkdir -p "$out/$dir"
+      # The flags order matters: -IrisMacSnapshot goes after -IrisMacPanelWindow (TDD §5).
+      "$bin" -IrisFakeData -IrisMacPanelWindow -IrisMacSnapshot "$PWD/$out/$dir" -AppleLanguages "($lang)" -AppleLocale "$locale" >"$out/$dir/run.log" 2>&1 &
+      local pid=$!
+      local waited=0
+      while kill -0 "$pid" 2>/dev/null && ((waited < MAC_TIMEOUT)); do
+        sleep 2
+        waited=$((waited + 2))
+      done
+      if kill -0 "$pid" 2>/dev/null; then
+        kill "$pid" 2>/dev/null
+        fail "mac ($lang): snapshot run still alive after ${MAC_TIMEOUT}s, killed"
+      fi
+      for name in "${MAC_EXPECTED[@]}"; do
+        [[ -s "$out/$dir/$name.png" ]] || fail "mac ($lang): $name.png missing"
+      done
+    }
+    mac_snapshot mac en en_US
+    mac_snapshot mac-de de de_DE
   else
     fail "mac: build failed, tail of $out/mac/build.log:"
     tail -n 15 "$out/mac/build.log" | tee -a "$report"

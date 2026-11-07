@@ -9,19 +9,7 @@ import os
 /// again; when the reply lands, the pending turn turns into the answer in place.
 @Observable
 final class ThreadModel {
-  /// One block of the document, in the order it is read.
-  struct Turn: Identifiable, Equatable {
-    enum Content: Equatable {
-      case user(String)
-      case assistant(String, mermaid: [Int: MermaidAsset])
-      case pending(StepProgress, caption: String)
-      case failed(String)
-    }
-
-    let id: String
-    let date: Date?
-    let content: Content
-  }
+  typealias Turn = ThreadTurn
 
   let route: ThreadRoute
   private(set) var detail: ThreadDetail?
@@ -77,43 +65,9 @@ final class ThreadModel {
   var canReply: Bool { detail != nil }
   var canRecordVoice: Bool { voice.isAvailable && !isEndingVoice }
 
-  // MARK: Turns
-
-  private static func makeTurns(_ detail: ThreadDetail?) -> [Turn] {
-    guard let detail else { return [] }
-    var users: [String: ThreadMessage] = [:]
-    var replies: [String: ThreadMessage] = [:]
-    for message in detail.messages {
-      if message.role == .user { users[message.memoId] = message } else { replies[message.memoId] = message }
-    }
-    var turns: [Turn] = []
-    for memo in detail.memos {
-      if let user = users[memo.id] {
-        turns.append(Turn(id: "\(memo.id).user", date: user.createdAt, content: .user(user.content)))
-      }
-      if let reply = replies[memo.id] {
-        turns.append(
-          Turn(
-            id: "\(memo.id).reply", date: reply.createdAt,
-            content: .assistant(reply.content, mermaid: memo.mermaidAssets)))
-      } else if memo.state == .failed {
-        turns.append(
-          Turn(
-            id: "\(memo.id).failed", date: memo.updatedAt,
-            content: .failed(memo.error ?? String(localized: "This turn failed.", comment: "Failed turn in a thread"))))
-      } else if !memo.state.isResultReady {
-        turns.append(
-          Turn(
-            id: "\(memo.id).pending", date: nil,
-            content: .pending(memo.stepProgress, caption: memo.pendingCaption)))
-      }
-    }
-    return turns
-  }
-
   private func apply(_ fresh: ThreadDetail) {
     detail = fresh
-    turns = Self.makeTurns(fresh)
+    turns = ThreadTurn.make(from: fresh)
     turnCount = turns.count { if case .user = $0.content { true } else { false } }
   }
 

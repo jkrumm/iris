@@ -9,21 +9,25 @@ public struct AssistantTurnView<Footer: View>: View {
   private let time: String
   private let mermaid: [Int: MermaidAsset]
   private let identifier: String
+  private let textRole: Theme.TextRole
   private let onOpenImage: (CGImage) -> Void
   private let onCopy: (() -> Void)?
   private let hasFooter: Bool
   private let footer: Footer
 
-  /// - Parameter hasFooter: `false` when the footer builds nothing (an `if` that did not hold): no hairline, no empty row.
+  /// - Parameters:
+  ///   - textRole: The body size of the reply (`MessageContentView`): the iPhone's 16 pt `.callout`, the Mac passes `.footnote`.
+  ///   - hasFooter: `false` when the footer builds nothing (an `if` that did not hold): no hairline, no empty row.
   public init(
     markdown: String, time: String, mermaid: [Int: MermaidAsset] = [:], identifier: String = "thread.turn.assistant",
-    onOpenImage: @escaping (CGImage) -> Void = { _ in }, onCopy: (() -> Void)? = nil, hasFooter: Bool = true,
-    @ViewBuilder footer: () -> Footer
+    textRole: Theme.TextRole = .callout, onOpenImage: @escaping (CGImage) -> Void = { _ in },
+    onCopy: (() -> Void)? = nil, hasFooter: Bool = true, @ViewBuilder footer: () -> Footer
   ) {
     self.markdown = markdown
     self.time = time
     self.mermaid = mermaid
     self.identifier = identifier
+    self.textRole = textRole
     self.onOpenImage = onOpenImage
     self.onCopy = onCopy
     self.hasFooter = hasFooter
@@ -32,7 +36,7 @@ public struct AssistantTurnView<Footer: View>: View {
 
   public var body: some View {
     ChatBubble(side: .assistant, time: time, onCopy: onCopy, hasFooter: hasFooter) {
-      MessageContentView(markdown: markdown, mermaid: mermaid, onOpenImage: onOpenImage)
+      MessageContentView(markdown: markdown, mermaid: mermaid, textRole: textRole, onOpenImage: onOpenImage)
     } footer: {
       footer
     }
@@ -45,10 +49,11 @@ public struct AssistantTurnView<Footer: View>: View {
 extension AssistantTurnView where Footer == EmptyView {
   public init(
     markdown: String, time: String, mermaid: [Int: MermaidAsset] = [:], identifier: String = "thread.turn.assistant",
-    onOpenImage: @escaping (CGImage) -> Void = { _ in }, onCopy: (() -> Void)? = nil
+    textRole: Theme.TextRole = .callout, onOpenImage: @escaping (CGImage) -> Void = { _ in },
+    onCopy: (() -> Void)? = nil
   ) {
     self.init(
-      markdown: markdown, time: time, mermaid: mermaid, identifier: identifier, onOpenImage: onOpenImage,
-      onCopy: onCopy, hasFooter: false, footer: { EmptyView() })
+      markdown: markdown, time: time, mermaid: mermaid, identifier: identifier, textRole: textRole,
+      onOpenImage: onOpenImage, onCopy: onCopy, hasFooter: false, footer: { EmptyView() })
   }
 }

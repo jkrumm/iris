@@ -6,18 +6,22 @@ public struct UserTurnView<Footer: View>: View {
   private let text: String
   private let time: String
   private let identifier: String
+  private let textRole: Theme.TextRole
   private let onCopy: (() -> Void)?
   private let hasFooter: Bool
   private let footer: Footer
 
-  /// - Parameter hasFooter: `false` when the footer builds nothing (an `if` that did not hold): no hairline, no empty row.
+  /// - Parameters:
+  ///   - textRole: The size of the text: the iPhone's 15 pt `.subheadline`, the Mac passes `.footnote`.
+  ///   - hasFooter: `false` when the footer builds nothing (an `if` that did not hold): no hairline, no empty row.
   public init(
-    text: String, time: String, identifier: String = "thread.turn.user", onCopy: (() -> Void)? = nil,
-    hasFooter: Bool = true, @ViewBuilder footer: () -> Footer
+    text: String, time: String, identifier: String = "thread.turn.user", textRole: Theme.TextRole = .subheadline,
+    onCopy: (() -> Void)? = nil, hasFooter: Bool = true, @ViewBuilder footer: () -> Footer
   ) {
     self.text = text
     self.time = time
     self.identifier = identifier
+    self.textRole = textRole
     self.onCopy = onCopy
     self.hasFooter = hasFooter
     self.footer = footer()
@@ -26,7 +30,7 @@ public struct UserTurnView<Footer: View>: View {
   public var body: some View {
     ChatBubble(side: .user, time: time, onCopy: onCopy, hasFooter: hasFooter) {
       Text(verbatim: text)
-        .themeFont(.subheadline)
+        .themeFont(textRole)
         .foregroundStyle(Theme.Ink.primary)
         .textSelection(.enabled)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -40,7 +44,12 @@ public struct UserTurnView<Footer: View>: View {
 }
 
 extension UserTurnView where Footer == EmptyView {
-  public init(text: String, time: String, identifier: String = "thread.turn.user", onCopy: (() -> Void)? = nil) {
-    self.init(text: text, time: time, identifier: identifier, onCopy: onCopy, hasFooter: false, footer: { EmptyView() })
+  public init(
+    text: String, time: String, identifier: String = "thread.turn.user", textRole: Theme.TextRole = .subheadline,
+    onCopy: (() -> Void)? = nil
+  ) {
+    self.init(
+      text: text, time: time, identifier: identifier, textRole: textRole, onCopy: onCopy, hasFooter: false,
+      footer: { EmptyView() })
   }
 }

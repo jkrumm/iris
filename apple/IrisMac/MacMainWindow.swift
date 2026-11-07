@@ -29,6 +29,20 @@ struct MacMainWindow: View {
       minWidth: Theme.Spacing.windowSidebarMin + Theme.Spacing.windowListMin + Theme.Spacing.windowDetailMin,
       minHeight: 480
     )
+    .toolbar {
+      ToolbarItem(placement: .navigation) {
+        Button(
+          String(localized: "New memo", comment: "Main window toolbar: opens the New memo page"),
+          systemImage: "square.and.pencil"
+        ) {
+          root.newMemo()
+        }
+        .keyboardShortcut("n")
+        .help(String(localized: "New memo", comment: "Main window toolbar: opens the New memo page"))
+        .accessibilityIdentifier("mac.toolbar.new-memo")
+      }
+    }
+    .environment(\.replyImageStore, root.replyImages)
     .macToast(root: root, model: root.windowHistory)
     .onAppear {
       root.windowDidAppear()
@@ -48,9 +62,7 @@ struct MacMainWindow: View {
       MacMemoDetailPane(root: root, model: root.detailModel(for: id), player: player)
         .id(id)
     } else {
-      ContentUnavailableView(
-        String(localized: "No memo selected", comment: "Detail panel without a memo"), systemImage: "waveform",
-        description: Text("Select a memo to read it.", comment: "Detail pane without a selection"))
+      MacNewMemoPage(root: root)
     }
   }
 
