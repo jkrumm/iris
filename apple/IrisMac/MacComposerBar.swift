@@ -59,7 +59,7 @@ struct MacComposerBar: View {
       .accessibilityIdentifier("mac.composer.field")
   }
 
-  /// Return sends, Shift-Return adds a line (Command-Return is the Send button's key).
+  /// Return sends, Shift-Return adds a line at the end of the text (the caret is not read); Command-Return is the Send button's key.
   private func handleReturn(_ press: KeyPress) -> KeyPress.Result {
     if press.modifiers.contains(.shift) {
       model.text.append("\n")
