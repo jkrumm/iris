@@ -63,11 +63,11 @@ const IssueBody = z.object({
     )
     .default([]),
 });
+// The answer route's reply: the Decision, and the Issue as it stands after (null when it is gone).
 const AnswerAck = z.object({
-  issue: z.number().int(),
-  state: z.string(),
-  duplicate: z.boolean(),
+  issue: z.object({ id: z.string().regex(/^issue_\d+$/), state: z.string() }).nullable(),
 });
+const IssueState = z.object({ state: z.string() });
 
 /** An unknown enum value is `other`: the factory adds values within `/v1`. */
 const known = <T extends string>(values: readonly T[], value: string | undefined): T =>
@@ -184,8 +184,18 @@ export function createFactoryHttp(opts: FactoryHttpOptions): FactoryReader {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ id: callId, answer: text }),
         signal: AbortSignal.timeout(timeoutMs),
+      }).catch((err: unknown) => {
+        // 409 no_open_decision: it was answered already (a retry, or another surface): the old `duplicate: true`.
+        if (err instanceof FactoryError && err.code === "conflict") return null;
+        throw err;
       });
-      return json("answer", res, AnswerAck);
+      if (!res) {
+        const now = await json("answer", await get("answer", `/v1/issues/${issue}`), IssueState);
+        return { issue, state: now.state, duplicate: true };
+      }
+      const ack = await json("answer", res, AnswerAck);
+      const number = ack.issue ? Number(ack.issue.id.slice("issue_".length)) : issue;
+      return { issue: number, state: ack.issue?.state ?? "unknown", duplicate: false };
     },
 
     async *follow(since, signal) {

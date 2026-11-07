@@ -106,7 +106,13 @@ describe("factory http reader", () => {
 
   it("answers outside /v1 with the call id and the text, no decision", async () => {
     const { calls, reader } = setup(() =>
-      Response.json({ issue: 113, key: "k", duplicate: false, state: "working" }, { status: 201 }),
+      Response.json(
+        {
+          decision: { id: "decision_1", answer: "Keep Redis" },
+          issue: { id: "issue_113", state: "working" },
+        },
+        { status: 201 },
+      ),
     );
     expect(await reader.answer({ issue: 113, callId: "call-1", text: "Keep Redis" })).toEqual({
       issue: 113,
