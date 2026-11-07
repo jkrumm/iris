@@ -2,6 +2,7 @@ import Foundation
 import IrisCapture
 import IrisCore
 import Testing
+import os
 
 @testable import Iris
 
@@ -20,10 +21,14 @@ struct LiveActivityTimerTests {
     return await condition()
   }
 
-  /// A clock the test moves by hand; the follower reads it on the main actor.
-  private final class Instant: @unchecked Sendable {  // only read and set from the main actor in these tests
-    var value: Date
-    init(_ value: Date) { self.value = value }
+  /// A clock the test moves by hand; the follower reads it from its own task, so the value sits behind a lock.
+  private nonisolated final class Instant: Sendable {
+    private let stored: OSAllocatedUnfairLock<Date>
+    init(_ value: Date) { stored = OSAllocatedUnfairLock(initialState: value) }
+    var value: Date {
+      get { stored.withLock { $0 } }
+      set { stored.withLock { $0 = newValue } }
+    }
   }
 
   @Test("paused carries the frozen instant, the resume shifts the start and unfreezes, a failure freezes again")
