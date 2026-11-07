@@ -1,6 +1,8 @@
 import AppKit
 import Foundation
+import IrisCapture
 import IrisCore
+import IrisUI
 import CryptoKit
 import Observation
 import Synchronization
@@ -103,6 +105,20 @@ final class MacCompositionRoot {
   let fakeTake: FakeTakeEngine?
   /// Production only: the outbox the takes go through, and the client its uploader talks to.
   private let capture: MacCaptureStack?
+  /// The outbox a typed memo goes through: the takes' own in production, one on the fake API (and fake pipeline) under
+  /// `-IrisFakeData`.
+  let textOutbox: OutboxService
+  /// The memos that outbox created on the server, the source of what History is told at once.
+  private let createdLog: CreatedMemoLog
+  /// The decoded Mermaid images of every reply on screen, shared by the conversation views.
+  let replyImages: ReplyImageStore
+  /// One composer per conversation (nil key: the New memo page), so a draft survives switching memos.
+  @ObservationIgnored private var composers: [String: ComposerModel] = [:]
+  /// The composer whose memo went to the outbox instead of the server: its bar says so for a few seconds.
+  private(set) var queuedNote: ObjectIdentifier?
+  @ObservationIgnored private var queuedTimer: Task<Void, Never>?
+  /// How long the "Queued" note stays.
+  @ObservationIgnored var queuedNoteDuration = Duration.seconds(4)
   private var hotkeyListening: Task<Void, Never>?
   private var createdListening: Task<Void, Never>?
   private var outboxObserving: Task<Void, Never>?
@@ -158,6 +174,13 @@ final class MacCompositionRoot {
       fakeAPI = fake
       self.credentials = store
       capture = nil
+      // A typed memo goes create -> acted -> notified with the fake reply, through an outbox of its own (no microphone, no disk).
+      let fakeCreated = CreatedMemoLog()
+      createdLog = fakeCreated
+      textOutbox = Self.fakeOutbox(
+        client: fake, created: fakeCreated, log: log, step: Self.fakePipelineStep(arguments))
+      replyImages = ReplyImageStore(
+        loader: MediaAssetLoader(source: { FakeMediaSource() }, downloader: .shared))
     } else {
       let saved = store.load()
       let reconfigurable = ReconfigurableAPIClient(credentials: saved)
@@ -165,7 +188,16 @@ final class MacCompositionRoot {
       client = reconfigurable
       fakeAPI = nil
       self.credentials = store
-      capture = MacCaptureStack.production(credentials: saved, log: log)
+      let stack = MacCaptureStack.production(credentials: saved, log: log)
+      capture = stack
+      createdLog = stack.created
+      textOutbox = stack.service
+      replyImages = ReplyImageStore(
+        loader: MediaAssetLoader(
+          source: {
+            guard let saved = store.load() else { return UnavailableMediaSource() }
+            return AuthenticatedMediaSource(baseURL: saved.serverURL, bearerToken: saved.token)
+          }, downloader: .shared))
     }
     let tap = TappedConnection(base: client)
     streamReady = tap.ready
@@ -261,7 +293,7 @@ final class MacCompositionRoot {
   /// take's memo goes from it at once and stays out until the server `DELETE` has settled (the iPhone's hide/settle lifecycle).
   /// One stream, one consumer: a discard and its delete settling reach History in the order they happened.
   private func wireCreatedMemos() {
-    guard let created = capture?.created else { return }
+    let created = createdLog
     let (changes, changed) = AsyncStream.makeStream(of: CreatedChange.self)
     // Owned by the root, which lives as long as the app. Reads `history` per change: the model of the current connection.
     createdListening = Task { [weak self] in
@@ -425,6 +457,96 @@ final class MacCompositionRoot {
     showMainWindow(source: source)
   }
 
+  /// A fresh memo to type: the New memo page in the main window, which is opened or raised.
+  func newMemo() {
+    selectedMemoID = nil
+    showMainWindow(source: "new-memo")
+  }
+
+  // MARK: Typed memos
+
+  /// The composer of a conversation (`threadId`) or of the New memo page (nil). One per key, kept until the connection changes,
+  /// so what was typed survives a look at another memo.
+  func composer(for threadId: String?) -> ComposerModel {
+    let key = threadId ?? ""
+    if let cached = composers[key] { return cached }
+    let model = ComposerModel(request: ComposerRequest(threadId: threadId), outbox: textOutbox)
+    composers[key] = model
+    return model
+  }
+
+  /// Sends what `model` holds as a memo of `mode`. A memo the server has, or the outbox keeps for later, clears the text; a refusal
+  /// leaves it with the reason in ``ComposerModel/failure``. A new memo opens in the window; a reply stays in its conversation,
+  /// which shows it at once.
+  func sendTyped(_ model: ComposerModel, mode: MemoMode) async {
+    let revision = connectionRevision
+    guard let outcome = await model.send(mode: mode), revision == connectionRevision else { return }
+    switch outcome {
+    case .sent(let memo):
+      model.text = ""
+      didSend(memo, from: model)
+    case .queued:
+      model.text = ""
+      noteQueued(model)
+    case .refused, .stalled:
+      return
+    }
+  }
+
+  private func didSend(_ memo: Memo, from model: ComposerModel) {
+    if let threadId = model.threadId, let open = detailCache, open.memoID == selectedMemoID,
+      open.memo?.threadId == threadId
+    {
+      open.didSend(memo)
+      return
+    }
+    if detailCache?.memoID != memo.id {
+      detailCache = MacMemoDetailModel(
+        memoID: memo.id, memo: memo, client: api, pasteboard: MacPasteboard())
+    }
+    selectedMemoID = memo.id
+  }
+
+  private func noteQueued(_ model: ComposerModel) {
+    queuedTimer?.cancel()
+    let id = ObjectIdentifier(model)
+    queuedNote = id
+    let duration = queuedNoteDuration
+    // Owned by the root, replaced by the next note.
+    queuedTimer = Task { [weak self] in
+      guard (try? await Task.sleep(for: duration)) != nil, self?.queuedNote == id else { return }
+      self?.queuedNote = nil
+    }
+  }
+
+  /// How long each fake pipeline stage takes: 1.2 s, or `-IrisFakeStepMs <n>` (tests ask for a fast server).
+  private static func fakePipelineStep(_ arguments: [String]) -> Duration {
+    guard let index = arguments.firstIndex(of: "-IrisFakeStepMs"), arguments.indices.contains(index + 1),
+      let milliseconds = Int(arguments[index + 1]), milliseconds > 0
+    else { return .milliseconds(1_200) }
+    return .milliseconds(milliseconds)
+  }
+
+  /// The outbox of `-IrisFakeData`: the real queue over the fake API on fake audio, and the fake pipeline walks a typed memo to
+  /// `notified` with the fake reply. A slow first retry keeps a failed item visible.
+  private static func fakeOutbox(
+    client: FakeAPIClient, created: CreatedMemoLog, log: DeviceLog, step: Duration
+  ) -> OutboxService {
+    let fakeCapture = FakeCapture(
+      directory: FileManager.default.temporaryDirectory.appending(path: "iris-fake-capture"))
+    let stack = CaptureStack(
+      .init(
+        session: fakeCapture.session, routes: fakeCapture.routes, recorder: fakeCapture.recorder,
+        clock: SystemCaptureClock(), store: InMemoryOutboxStore(),
+        uploader: ObservedSegmentUploader(
+          FakePipelineUploader(
+            base: APIOutboxUploader(client: client, created: created),
+            pipeline: FakePipeline(client: client, step: step)),
+          log: log),
+        policy: OutboxPolicy(baseDelay: 30), events: DeviceLogCaptureEvents(log: log), deletesFilesWhenDone: false))
+    return OutboxService(stack: stack, created: created)
+  }
+
   func beginDelete(_ id: String) -> Bool { deletingIDs.insert(id).inserted }
   func endDelete(_ id: String) { deletingIDs.remove(id) }
 
@@ -529,6 +651,9 @@ final class MacCompositionRoot {
     queues = [:]
     deletingIDs = []
     detailCache = nil
+    composers = [:]
+    queuedTimer?.cancel()
+    queuedNote = nil
     capture?.reconnect(credentials.load())
     log.serverChanged(credentials.load()?.serverURL)
     selectedMemoID = nil

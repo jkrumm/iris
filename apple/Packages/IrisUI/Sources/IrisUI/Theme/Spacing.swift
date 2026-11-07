@@ -77,20 +77,22 @@ extension Theme.Spacing {
   public static let menuButtonHorizontal = cozy
 }
 
-/// The Mac recording panel (`mac.html`, variant `panel`: `.panel`, `.panel .hd`, `.lvl`, `.ft`, `.btn`).
+/// The Mac recording panel (`mac.html`, variant `panel`: `.panel`, `.panel .btn.stop`, `.panel .tm`, `.panel .wave`, `.panel .chip`, `.panel .btn.x`).
 extension Theme.Spacing {
-  /// `.panel` is 360 wide in the mockup; the real strings (German, a long microphone name) need more, and nothing may clip.
-  public static let panelWidth: CGFloat = 420
-  /// `.panel` radius 26, padding 16 / 18, gap 12.
-  public static let panelRadius: CGFloat = 26
-  public static let panelVertical = lg
-  public static let panelHorizontal: CGFloat = 18
-  public static let panelGap = md
-  /// `.panel .lvl` height.
-  public static let panelLevelHeight: CGFloat = 38
-  /// `.panel .btn` height 34, padding 14; `.panel .ft .chip` height 30.
-  public static let panelButtonHeight: CGFloat = 34
-  public static let panelButtonInset = inset
+  /// `.panel` is 340 wide; the microphone is an icon, so German strings and a long device name cannot clip.
+  public static let panelWidth: CGFloat = 340
+  /// `.panel` radius 28: half the one-row height (a capsule); a failure message keeps the same corner.
+  public static let panelRadius: CGFloat = 28
+  /// `.panel` padding 10 / 10, gap 8 between its children.
+  public static let panelVertical = cozy
+  public static let panelHorizontal = cozy
+  public static let panelGap = sm
+  /// `.panel .wave` height.
+  public static let panelLevelHeight: CGFloat = 24
+  /// `.panel .btn.stop` diameter 34 (round, red); `.panel .btn.x` diameter 30 (cancel).
+  public static let panelStopSize: CGFloat = 34
+  public static let panelButtonHeight: CGFloat = 30
+  /// `.panel .chip` height 30 (microphone icon and chevron).
   public static let panelChipHeight = chipHeight
 }
 
@@ -155,4 +157,24 @@ extension Theme.Spacing {
   /// Bubble to the time caption under it, and the caption's inset from the bubble's edge.
   public static let bubbleCaptionGap = hair
   public static let bubbleCaptionInset = snug
+}
+
+/// The Mac chat (`mac.html`, variants `chat` and `chat-new`: `.chatwin .scroll`, `.col`, `.turn`, `.composer`, `.composer .field`, `.composer .send`, `.empty`).
+extension Theme.Spacing {
+  /// `.chatwin .col` gap: between two turns of the conversation.
+  public static let macTurnGap = inset
+  /// `.chatwin .composer` padding 14 / 24 (the detail margin at the sides), gap 6 between field and buttons.
+  public static let macComposerInsetVertical = inset
+  public static let macComposerGap = snug
+  /// `.chatwin .composer .field`: radius 12, padding 6 / 10.
+  public static let macComposerRadius: CGFloat = 12
+  public static let macComposerFieldHorizontal = cozy
+  public static let macComposerFieldVertical = snug
+  /// `.chatwin .composer .send` diameter 28.
+  public static let macComposerButtonSize: CGFloat = 28
+  /// `.chatwin .empty` gap 10 between the symbol, the title and the line.
+  public static let macEmptyGap = cozy
+  /// The zoomed diagram's sheet (a diagram is the reading width and about 3:2).
+  public static let macSheetWidth: CGFloat = 760
+  public static let macSheetHeight: CGFloat = 520
 }

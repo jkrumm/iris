@@ -19,6 +19,12 @@ struct MacHomePage: View {
       recent
       MacMenuDivider()
       MacMenuLine(
+        title: String(localized: "New memo…", comment: "Menu line: opens the main window on the New memo page"),
+        id: "mac.menu.new",
+        hint: "⌘N"  // l10n:ignore key hint
+      ) { root.newMemo() }
+      .keyboardShortcut("n")
+      MacMenuLine(
         title: String(localized: "Open Iris", comment: "Menu line: opens the main window"),
         id: "mac.menu.open",
         hint: "⌘O"  // l10n:ignore key hint

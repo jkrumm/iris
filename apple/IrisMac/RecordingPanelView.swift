@@ -3,12 +3,12 @@ import IrisCapture
 import IrisUI
 import SwiftUI
 
-/// The floating panel's content: the running time, the level, the microphone and Stop / Cancel while a take records, and a
-/// short message when it could not start or lost something.
+/// The floating panel's content: one row of Stop, the running time, the level, the microphone and Cancel while a take
+/// records, and a short message when it could not start or lost something.
 struct RecordingPanelView: View {
   static let width = Theme.Spacing.panelWidth
-  /// `.panel .tm`: 54 pt, light. The type scale stops at 30, so the one display size of this panel is named here.
-  private static let timerSize: CGFloat = 54
+  /// `.panel .tm`: 22 pt, medium. The type scale has no 22, so the timer's size is named here.
+  private static let timerSize: CGFloat = 22
   let model: RecordingPanelModel
   /// The recorded key ("⌃⌥M"); nil when none is set. Read when the view draws.
   var shortcut: () -> String? = { nil }
@@ -47,69 +47,44 @@ struct RecordingPanelView: View {
     }
   }
 
+  /// `.panel`: one row, stop beside the timer, then the level, the microphone and cancel.
   private func recording(since: Date) -> some View {
-    VStack(alignment: .leading, spacing: Theme.Spacing.panelGap) {
-      header
-      HStack(alignment: .firstTextBaseline, spacing: Theme.Spacing.xs) {
-        ElapsedTimerText(start: since)
-          .font(.system(size: Self.timerSize, weight: .light))
-          .tracking(-1)
-          .foregroundStyle(Theme.Ink.primary)
-          .lineLimit(1)
-          .accessibilityIdentifier("mac.recording.time")
-        Text("min", comment: "Unit after the running time in the recording panel")
-          .themeFont(.subheadline)
-          .foregroundStyle(Theme.Ink.faint)
-      }
+    HStack(spacing: Theme.Spacing.panelGap) {
+      stopButton
+      ElapsedTimerText(start: since)
+        .font(.system(size: Self.timerSize, weight: .medium))
+        .foregroundStyle(Theme.Ink.primary)
+        .lineLimit(1)
+        .fixedSize(horizontal: true, vertical: false)
+        .accessibilityIdentifier("mac.recording.time")
       LevelWaveform(levels: model.recentLevels)
         .frame(height: Theme.Spacing.panelLevelHeight)
         .accessibilityIdentifier("mac.recording.level")
-      HStack(spacing: Theme.Spacing.sm) {
-        microphonePicker
-        Spacer(minLength: Theme.Spacing.sm)
-        cancelButton.layoutPriority(1)
-        stopButton.layoutPriority(1)
-      }
+      microphonePicker.layoutPriority(1)
+      cancelButton.layoutPriority(1)
     }
   }
 
-  /// `.panel .hd`: the red "RECORDING" and the key that stops it.
-  private var header: some View {
-    HStack(spacing: Theme.Spacing.sm) {
-      Circle().fill(Theme.Status.bad).frame(width: Theme.Spacing.sm, height: Theme.Spacing.sm)
-        .accessibilityHidden(true)
-      Text("Recording", comment: "Recording panel header while a take runs")
-        .textCase(.uppercase)
-        .tracking(0.5)
-        .foregroundStyle(Theme.Status.bad)
-        .fontWeight(.semibold)
-      Spacer(minLength: Theme.Spacing.sm)
-      if let key = shortcut() {
-        Text("\(key) to stop", comment: "Recording panel: the key that stops the take, e.g. ⌃⌥M")
-          .foregroundStyle(Theme.Ink.faint)
-          .lineLimit(1)
-      }
-    }
-    .themeFont(.footnote, weight: .medium)
-  }
-
+  /// `.panel .btn.stop`: the one red element. The key that stops the take is its tooltip and VoiceOver hint.
   private var stopButton: some View {
-    Button {
+    let hint = shortcut().map {
+      String(localized: "\($0) to stop", comment: "Recording panel: the key that stops the take, e.g. ⌃⌥M")
+    }
+    return Button {
       model.stop()
     } label: {
-      HStack(spacing: Theme.Spacing.snug) {
-        Image(systemName: "stop.fill").accessibilityHidden(true)
-        Text("Stop", comment: "Ends the running take and sends it")
-      }
-      .themeFont(.subheadline, weight: .semibold)
-      .foregroundStyle(Theme.Accent.onFill)
-      .padding(.horizontal, Theme.Spacing.panelButtonInset)
-      .frame(height: Theme.Spacing.panelButtonHeight)
-      .background(Theme.Status.bad, in: .capsule)
-      .contentShape(.capsule)
+      Image(systemName: "stop.fill")
+        .themeFont(.footnote)
+        .foregroundStyle(Theme.Accent.onFill)
+        .frame(width: Theme.Spacing.panelStopSize, height: Theme.Spacing.panelStopSize)
+        .background(Theme.Status.bad, in: .circle)
+        .contentShape(.circle)
     }
     .buttonStyle(.plain)
     .keyboardShortcut(.defaultAction)
+    .help(hint ?? String(localized: "Stop", comment: "Ends the running take and sends it"))
+    .accessibilityLabel(String(localized: "Stop", comment: "Ends the running take and sends it"))
+    .accessibilityHint(hint ?? "")
     .accessibilityIdentifier("mac.recording.stop")
   }
 
@@ -132,19 +107,17 @@ struct RecordingPanelView: View {
     .accessibilityIdentifier("mac.recording.cancel")
   }
 
-  /// `.panel .ft .chip`: the microphone, truncated when its name is long.
+  /// `.panel .chip`: the microphone as an icon and a chevron; the device's name is the tooltip and the VoiceOver value.
   private var microphonePicker: some View {
     let inputs = model.microphones.inputs
+    let name = model.microphones.current?.name ?? ""
     return Menu {
       ForEach(inputs, id: \.uid) { input in
         Button(input.name) { model.select(microphone: input.uid) }
       }
     } label: {
-      HStack(spacing: Theme.Spacing.snug) {
+      HStack(spacing: Theme.Spacing.hair) {
         Image(systemName: "mic").accessibilityHidden(true)
-        Text(verbatim: model.microphones.current?.name ?? "")
-          .lineLimit(1)
-          .truncationMode(.tail)
         Image(systemName: "chevron.down").themeFont(.micro, weight: .semibold).accessibilityHidden(true)
       }
       .themeFont(.footnote, weight: .medium)
@@ -159,7 +132,9 @@ struct RecordingPanelView: View {
     .buttonStyle(.plain)
     .menuIndicator(.hidden)
     .disabled(inputs.count < 2)
+    .help(name)
     .accessibilityLabel(String(localized: "Microphone", comment: "Recording panel microphone picker"))
+    .accessibilityValue(name)
     .accessibilityIdentifier("mac.recording.microphone")
   }
 

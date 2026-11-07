@@ -34,8 +34,7 @@ struct MacMemoRow: View {
         }
         .themeFont(.caption)
         HStack(spacing: Theme.Spacing.snug) {
-          Circle().fill(memo.macRowMeta.dot).frame(width: Theme.Spacing.macDot, height: Theme.Spacing.macDot)
-            .accessibilityHidden(true)
+          MacRowStatusMark(memo: memo)
           Text(verbatim: memo.macRowMeta.text).lineLimit(1).truncationMode(.tail)
         }
         .themeFont(.caption)

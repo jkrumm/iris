@@ -74,7 +74,31 @@ struct MacMemoContextMenu: View {
   }
 }
 
+/// The mark before a row's status line: the status dot, or a small spinner while the memo is still in the pipeline, so a running
+/// turn reads as alive (the dot under Reduce Motion).
+struct MacRowStatusMark: View {
+  let memo: Memo
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+  var body: some View {
+    if memo.macIsRunning && !reduceMotion {
+      ProgressView()
+        .controlSize(.mini)
+        .frame(width: Theme.Spacing.macDot, height: Theme.Spacing.macDot)
+        .accessibilityHidden(true)
+    } else {
+      Circle()
+        .fill(memo.macRowMeta.dot)
+        .frame(width: Theme.Spacing.macDot, height: Theme.Spacing.macDot)
+        .accessibilityHidden(true)
+    }
+  }
+}
+
 extension Memo {
+  /// The memo is still in the pipeline: not finished and not failed.
+  var macIsRunning: Bool { !state.isResultReady && state != .failed }
+
   /// The status dot and the line next to it on a row: the kind and the audio length, the state of a memo that needs the user.
   var macRowMeta: (dot: Color, text: String) {
     switch rowStatus {

@@ -2,6 +2,7 @@
   import AppKit
   import Foundation
   import IrisCapture
+  import IrisCore
   import IrisUI
   import SwiftUI
   import os
@@ -66,6 +67,13 @@
       root.selectedMemoID = threadMemoID
       try? await Task.sleep(for: .seconds(2))
       write(windowTitled: Self.mainTitle, as: "window-thread")
+      // The diagram of the first answer has been fetched by now.
+      try? await Task.sleep(for: .seconds(2))
+      write(windowTitled: Self.mainTitle, as: "window-chat-mermaid")
+      // A turn in flight: the pending bubble with the pipeline's dashes.
+      root.selectedMemoID = SampleData.hermesFollowUpID
+      try? await Task.sleep(for: .seconds(2))
+      write(windowTitled: Self.mainTitle, as: "window-running")
       // A thread that cannot be read: its own reply and transcript show, with the reason (another memo in between drops the cached model).
       root.selectedMemoID = replyMemoID
       try? await Task.sleep(for: .seconds(1))
@@ -78,6 +86,25 @@
       try? await Task.sleep(for: .seconds(2))
       write(windowTitled: Self.mainTitle, as: "window-filtered")
       root.scope = .all
+      await writeNewMemo()
+    }
+
+    /// The New memo page, empty and with a draft; then the draft sent through the fake outbox: the new memo opens with its question
+    /// and the pending answer, and a moment later with the fake answer.
+    private func writeNewMemo() async {
+      root.newMemo()
+      try? await Task.sleep(for: .seconds(1))
+      write(windowTitled: Self.mainTitle, as: "window-new")
+      let composer = root.composer(for: nil)
+      // l10n:ignore sample text typed into the field
+      composer.text = "Draft a short status update for the Friday release."
+      try? await Task.sleep(for: .seconds(1))
+      write(windowTitled: Self.mainTitle, as: "window-composer")
+      await root.sendTyped(composer, mode: .hermes)
+      try? await Task.sleep(for: .seconds(1.6))
+      write(windowTitled: Self.mainTitle, as: "window-sent")
+      try? await Task.sleep(for: .seconds(2.4))
+      write(windowTitled: Self.mainTitle, as: "window-answered")
     }
 
     /// Each Settings tab, the connection form filled in and probed so the result line is in the picture.

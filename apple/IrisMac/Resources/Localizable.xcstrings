@@ -716,12 +716,166 @@
         }
       }
     },
-    "No memo selected" : {
+    "%lld of %lld characters" : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Kein Memo ausgewählt"
+            "value" : "%1$lld von %2$lld Zeichen"
+          }
+        }
+      }
+    },
+    "Connect Iris in Settings first." : {
+      "comment" : "Composer placeholder without a connection",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Verbinde Iris zuerst in den Einstellungen."
+          }
+        }
+      }
+    },
+    "Could not queue the memo. Your text is still here." : {
+      "comment" : "Composer error when the outbox is closed",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Das Memo ließ sich nicht einreihen. Der Text ist noch da."
+          }
+        }
+      }
+    },
+    "Diagram" : {
+      "comment" : "Accessibility label of a rendered Mermaid diagram",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Diagramm"
+          }
+        }
+      }
+    },
+    "New memo" : {
+      "comment" : "Main window toolbar: opens the New memo page",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Neues Memo"
+          }
+        }
+      }
+    },
+    "New memo…" : {
+      "comment" : "Menu line: opens the main window on the New memo page",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Neues Memo …"
+          }
+        }
+      }
+    },
+    "Reply to Hermes…" : {
+      "comment" : "Composer placeholder when continuing a conversation",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hermes antworten …"
+          }
+        }
+      }
+    },
+    "Send to Hermes" : {
+      "comment" : "Composer: sends the text to Hermes",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "An Hermes senden"
+          }
+        }
+      }
+    },
+    "Talk to Hermes" : {
+      "comment" : "Composer: starts a voice memo for Hermes",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mit Hermes sprechen"
+          }
+        }
+      }
+    },
+    "The server refused it: %@. Your text is still here." : {
+      "comment" : "Composer error when the server refused the memo for good",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Der Server hat es abgelehnt: %@. Der Text ist noch da."
+          }
+        }
+      }
+    },
+    "This turn failed." : {
+      "comment" : "Failed turn in a thread",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Diese Runde ist fehlgeschlagen."
+          }
+        }
+      }
+    },
+    "Transcribe only" : {
+      "comment" : "Composer: sends the text as a memo that is only transcribed",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nur transkribieren"
+          }
+        }
+      }
+    },
+    "Type here, or press %@ to talk." : {
+      "comment" : "New memo page: the line under the title, the placeholder is the global key",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tippe hier oder drücke %@, um zu sprechen."
+          }
+        }
+      }
+    },
+    "Type here." : {
+      "comment" : "New memo page: the line under the title without a global key",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tippe hier."
+          }
+        }
+      }
+    },
+    "What should Iris do?" : {
+      "comment" : "Composer placeholder",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Was soll Iris tun?"
           }
         }
       }
@@ -1074,16 +1228,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Transkripte durchsuchen"
-          }
-        }
-      }
-    },
-    "Select a memo to read it." : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Wähle ein Memo aus, um es zu lesen."
           }
         }
       }
@@ -1634,26 +1778,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Gestern"
-          }
-        }
-      }
-    },
-    "You" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Du"
-          }
-        }
-      }
-    },
-    "min" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Min."
           }
         }
       }
