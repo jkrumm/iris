@@ -16,6 +16,18 @@ import { log } from "../telemetry/log.js";
 type Failure = ApnsFailure;
 type Kind = "alert" | "live_activity_update" | "live_activity_end";
 
+/** What the device was told, for the log: the Live Activity `event` and whether an alert and its sound went out (never their text). */
+function describePayload(payload: Record<string, unknown>) {
+  const aps = (payload["aps"] ?? {}) as { event?: unknown; alert?: unknown; sound?: unknown };
+  const alert = typeof aps.alert === "object" && aps.alert !== null ? aps.alert : null;
+  const sound = aps.sound ?? (alert as { sound?: unknown } | null)?.sound ?? null;
+  return {
+    ...(typeof aps.event === "string" && { event: aps.event }),
+    alert_present: alert !== null,
+    sound: typeof sound === "string" ? sound : null,
+  };
+}
+
 /**
  * Pushes through an `ApnsTransport`. A rejected token never fails the memo (it is logged, and
  * cleared when dead); a transient failure of the final push throws so the notify step fails and
@@ -47,7 +59,19 @@ export function createApnsNotifier(deps: {
       environment: apnsEnv ?? "sandbox",
       deviceToken: token,
     });
-    if (result.ok) return result;
+    if (result.ok) {
+      logger("notify.apns_sent", {
+        memo_id: memo.id,
+        device: memo.device,
+        kind,
+        push_type: message.headers.pushType,
+        priority: message.headers.priority,
+        environment: apnsEnv ?? "sandbox",
+        ...describePayload(message.payload),
+        status: 200,
+      });
+      return result;
+    }
     const fields = {
       memo_id: memo.id,
       device: memo.device,

@@ -66,6 +66,42 @@ describe("notify", () => {
     });
   });
 
+  it("logs every delivered push with its type, event, alert and sound but not its text", async () => {
+    const { notifier, memo, devices, lines } = setup({ apnsEnv: "production" });
+    devices.setActivityToken({ memoId: memo.id, token: "bb22" });
+
+    await notifier.phase({ memo });
+    await notifier.notify({ memo, summary });
+
+    const sent = lines.filter((l) => l.event === "notify.apns_sent").map((l) => l.fields);
+    expect(sent).toEqual([
+      {
+        memo_id: memo.id,
+        device: "iphone",
+        kind: "live_activity_update",
+        push_type: "liveactivity",
+        priority: 5,
+        environment: "production",
+        event: "update",
+        alert_present: false,
+        sound: null,
+        status: 200,
+      },
+      {
+        memo_id: memo.id,
+        device: "iphone",
+        kind: "live_activity_end",
+        push_type: "liveactivity",
+        priority: 10,
+        environment: "production",
+        event: "end",
+        alert_present: true,
+        sound: "default",
+        status: 200,
+      },
+    ]);
+  });
+
   it("defaults to the sandbox when the device never reported an environment", async () => {
     const { notifier, memo, transport, devices } = setup({ apnsEnv: null });
     devices.registerDevice({ ...phone, apnsToken: "aa11" });
