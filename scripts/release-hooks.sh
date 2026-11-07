@@ -10,7 +10,13 @@
 #   testflight  TESTFLIGHT=1   `make testflight UPLOAD=1`   ~/.iris/testflight-sha
 #   mac         MAC_RELEASE=1  `make mac-release IDENTITY=developer-id`  ~/.iris/mac-release-sha   (only when the Makefile has the target)
 # `~/.iris/release.env` is untracked and holds only those switches; absent or a switch not `1` = hook off (logged as skipped, once per tick).
-# A hook runs when apple/** changed since its marker's SHA, or (testflight only) the marker is older than 7 days (TestFlight builds expire after 90 days).
+# A hook is DUE when apple/** changed since its marker's SHA, or (testflight only) the marker is older than 7 days (TestFlight builds expire after 90 days).
+# A due hook starts only when the automatic-release gate is open: the last release (the marker's mtime) is at least 12 h old, the local hour is in the
+# night window (02:00-05:59), and the Apple lock is free. So a day of apple/** commits yields at most one automatic release per hook, and no commit starts
+# one by itself. `make testflight` / `make mac-release` by hand never come through here. Overrides (tests): RELEASE_MIN_INTERVAL_SECS, RELEASE_NIGHT_START,
+# RELEASE_NIGHT_END (hours, end exclusive), RELEASE_NOW_HOUR, APPLE_LOCK.
+# Each job caps xcodebuild at SWIFT_JOBS (default 2, the Makefile's and apple-proof's number) and samples its process tree's resident memory; the peak
+# lands in the job state as `peak_rss_mb` (jobrun rewrites its state file when the command ends, so the wrapper merges the number in afterwards).
 # The marker is written only after the make target succeeded; a failure writes `<hook>-failed` and holds the hook off for an hour.
 # Runs from the app clone, but every release builds in its own worktree (~/.iris/release-src/<hook>) at the exact SHA, so the poller's
 # `git reset --hard` never moves sources under a running archive.
@@ -21,6 +27,13 @@ APP_DIR="${APP_DIR:-$RELEASE_HOME/app}"
 RELEASE_ENV="$RELEASE_HOME/release.env"
 WEEK_SECS=604800
 FAILED_HOLD_SECS=3600
+MIN_INTERVAL_SECS="${RELEASE_MIN_INTERVAL_SECS:-43200}"
+NIGHT_START="${RELEASE_NIGHT_START:-2}"
+NIGHT_END="${RELEASE_NIGHT_END:-6}"
+APPLE_LOCK="${APPLE_LOCK:-/tmp/iris-apple.lock}"
+JOBS_CAP="${SWIFT_JOBS:-2}"
+SAMPLE_SECS=5
+JOBS_STATE_DIR="${JOBS_STATE_DIR:-$HOME/.local/state/jobs}"
 # scripts/apple-slot waits up to 30 min for the Apple lock and the factory test slot (other workers share them); the build itself gets 40 min; jobrun's deadline covers both.
 LOCK_WAIT_SECS=1800
 BUILD_SECS=2400
@@ -75,17 +88,40 @@ due_reason() { # <hook> <sha>
   fi
 }
 
+# The automatic-release gate: prints why it is closed, or nothing when open.
+gate_closed_reason() { # <hook>
+  local marker age hour
+  marker=$(hook_field "$1" marker)
+  if age=$(file_age_secs "$marker") && (( age < MIN_INTERVAL_SECS )); then
+    print "last release $(( age / 60 )) min ago (minimum $(( MIN_INTERVAL_SECS / 3600 )) h between automatic releases)"
+    return
+  fi
+  hour=$(( 10#${RELEASE_NOW_HOUR:-$(date +%H)} ))
+  if (( hour < NIGHT_START || hour >= NIGHT_END )); then
+    print "outside the night window (${NIGHT_START}:00-${NIGHT_END}:00, now ${hour}h)"
+    return
+  fi
+  if command -v lockf >/dev/null 2>&1 && ! lockf -t 0 "$APPLE_LOCK" true 2>/dev/null; then
+    print "the Apple lock is held"
+  fi
+}
+
 start_detached() { # <hook> <sha>
   local hook="$1" sha="$2" logfile="$HOME/Library/Logs/iris-release-$1.log"
   # A real session of its own (perl's setsid): the poller's jobrun kills its process group on a deadline. Output goes to the log file so
   # the poller's pipes close at once.
   perl -MPOSIX -e 'POSIX::setsid(); exec @ARGV or die "exec: $!"' -- \
-    jobrun "com.jkrumm.iris-release-$hook" --owner iris --timeout "$JOB_DEADLINE_SECS" --lock "iris-release-$hook" -- \
-    "$APP_DIR/scripts/release-hooks.sh" --run "$hook" "$sha" </dev/null >>"$logfile" 2>&1 &
+    zsh -c '
+      began=$(date +%s)
+      jobrun "com.jkrumm.iris-release-$1" --owner iris --timeout "$2" --lock "iris-release-$1" -- "$3/scripts/release-hooks.sh" --run "$1" "$4"
+      rc=$?
+      "$3/scripts/release-hooks.sh" --record-peak "$1" "$began"
+      exit $rc
+    ' release-hooks "$hook" "$JOB_DEADLINE_SECS" "$APP_DIR" "$sha" </dev/null >>"$logfile" 2>&1 &
 }
 
 decide() { # <sha>
-  local sha="$1" hook sw reason failed_age target
+  local sha="$1" hook sw reason failed_age target gated
   for hook in testflight mac; do
     sw=$(hook_field "$hook" switch)
     if ! switch_on "$sw"; then
@@ -103,6 +139,10 @@ decide() { # <sha>
       log "$hook held off: it failed $(( failed_age / 60 )) min ago (retries after $(( FAILED_HOLD_SECS / 60 )) min)"
       continue
     fi
+    if gated=$(gate_closed_reason "$hook") && [[ -n "$gated" ]]; then
+      log "$hook due ($reason) but waiting: $gated"
+      continue
+    fi
     if [[ "${DRY_RUN:-}" == 1 ]]; then
       log "$hook DRY_RUN would start: make $target at ${sha[1,12]} ($reason); scripts/apple-slot, nice -n 10, detached jobrun com.jkrumm.iris-release-$hook"
       continue
@@ -110,6 +150,31 @@ decide() { # <sha>
     log "$hook starting detached: make $target at ${sha[1,12]} ($reason); output in ~/Library/Logs/iris-release-$hook.log"
     start_detached "$hook" "$sha"
   done
+}
+
+# Peak resident memory (KB, summed over the process tree below <root pid>) sampled every SAMPLE_SECS into <file>. RSS counts shared pages once per process,
+# so this is an upper bound of the build's footprint, which is the safe direction for a budget.
+sample_peak() { # <root pid> <file>
+  local peak=0 now
+  while true; do
+    now=$(ps -axo pid=,ppid=,rss= | awk -v root="$1" '{ rss[$1]=$3; par[$1]=$2 } END { for (p in par) { q=p; while (q != "" && q != 0 && q != root) q=par[q]; if (q == root) s+=rss[p] } print s+0 }')
+    (( now > peak )) && peak=$now && print -r -- "$peak" > "$2"
+    sleep "$SAMPLE_SECS"
+  done
+}
+
+# After jobrun ended (it rewrites the state file from scratch): add the peak to this run's state, only when jobrun really ran in this wrapper (a lock-held skip
+# leaves the old state, and the running job's peak file alone).
+record_peak() { # <hook> <wrapper start epoch>
+  local hook="$1" began="$2" file state tmp kb
+  file="$RELEASE_HOME/peak-$hook.kb"
+  state="$JOBS_STATE_DIR/com.jkrumm.iris-release-$hook.json"
+  [[ -f "$file" && -f "$state" ]] || return 0
+  kb=$(cat "$file")
+  tmp="$state.peak.$$"
+  jq -e --argjson kb "${kb:-0}" --argjson began "$began" \
+    'select((.started | sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601) >= $began) | .peak_rss_mb = (($kb / 1024) | floor) | .peak_rss_run_id = .run_id' \
+    "$state" > "$tmp" && mv -f "$tmp" "$state" && rm -f "$file" || rm -f "$tmp"
 }
 
 # The detached job (under jobrun, which holds iris-release-<hook>): a worktree at the SHA, the Apple slot, the make target, the marker.
@@ -126,10 +191,15 @@ run_hook() { # <hook> <sha>
     git -C "$APP_DIR" worktree prune
     git -C "$APP_DIR" worktree add --quiet --detach "$tree" "$sha" || { log "$hook: worktree add failed"; return 1; }
   fi
-  log "$hook: make $target (apple-slot, nice 10)"
+  log "$hook: make $target (apple-slot, nice 10, xcodebuild -jobs $JOBS_CAP)"
+  rm -f "$RELEASE_HOME/peak-$hook.kb"
+  sample_peak $$ "$RELEASE_HOME/peak-$hook.kb" &
+  local sampler=$!
   # shellcheck disable=SC2086  # $target is "testflight UPLOAD=1": two words on purpose
-  (cd "$tree" && APPLE_LOCK_WAIT="$LOCK_WAIT_SECS" scripts/apple-slot nice -n 10 timeout "$BUILD_SECS" make ${=target})
+  (cd "$tree" && SWIFT_JOBS="$JOBS_CAP" APPLE_LOCK_WAIT="$LOCK_WAIT_SECS" scripts/apple-slot nice -n 10 timeout "$BUILD_SECS" make ${=target})
   rc=$?
+  kill "$sampler" 2>/dev/null
+  log "$hook: peak memory $(( $(cat "$RELEASE_HOME/peak-$hook.kb" 2>/dev/null || print 0) / 1024 )) MB (process-tree RSS)"
   if (( rc != 0 )); then
     log "$hook: FAILED rc=$rc — held off for $(( FAILED_HOLD_SECS / 60 )) min"
     print -r -- "$sha" > "$RELEASE_HOME/$hook-failed"
@@ -143,6 +213,10 @@ run_hook() { # <hook> <sha>
 main() {
   if [[ "${1:-}" == "--run" ]]; then
     run_hook "${2:?hook}" "${3:?sha}"
+    return
+  fi
+  if [[ "${1:-}" == "--record-peak" ]]; then
+    record_peak "${2:?hook}" "${3:?wrapper start epoch}"
     return
   fi
   local sha="${1:?usage: release-hooks.sh <sha> | --run <hook> <sha>}"

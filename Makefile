@@ -178,13 +178,15 @@ APPLE_DIR  := apple
 PACKAGES   := IrisCore IrisCapture IrisUI IrisTelemetry
 SWIFT_DIRS := $(APPLE_DIR)/Iris $(APPLE_DIR)/IrisWidgets $(APPLE_DIR)/IrisNotifications $(APPLE_DIR)/IrisMac $(APPLE_DIR)/Tests \
               $(foreach p,$(PACKAGES),$(APPLE_DIR)/Packages/$(p)/Sources $(APPLE_DIR)/Packages/$(p)/Tests)
-XCB        := xcodebuild -project $(APPLE_DIR)/Iris.xcodeproj -derivedDataPath $(APPLE_DIR)/.dd.noindex CODE_SIGNING_ALLOWED=NO
+# Build jobs cap: one number for every xcodebuild and swift run here, the release scripts (testflight.sh, mac-release.sh read SWIFT_JOBS, default 2) and apple-proof.
+SWIFT_JOBS ?= 2
+export SWIFT_JOBS
+XCB        := xcodebuild -project $(APPLE_DIR)/Iris.xcodeproj -derivedDataPath $(APPLE_DIR)/.dd.noindex CODE_SIGNING_ALLOWED=NO -jobs $(SWIFT_JOBS)
 # Machine budget (reset row 7b): every heavy Apple job runs through scripts/apple-slot (the Apple lock + the factory test slot on the mini,
 # bare in CI); `APPLE_SIM` also shuts every simulator down when the job ends. Test runners are capped: one worker, one destination, 2 build jobs.
 APPLE      := scripts/apple-slot
 APPLE_SIM  := scripts/apple-slot --sim
 XCB_TEST   := -parallel-testing-enabled NO -maximum-parallel-testing-workers 1
-SWIFT_JOBS ?= 2
 
 .PHONY: generate
 generate: ## xcodegen: apple/project.yml -> apple/Iris.xcodeproj (gitignored)

@@ -50,6 +50,7 @@ WORK="$PWD/.artifacts/mac-release/$BUILD"
 ARCHIVE="$WORK/IrisMac.xcarchive"
 UPLOAD="$WORK/upload"
 DERIVED="$PWD/$APPLE_DIR/.dd.noindex"
+JOBS="${SWIFT_JOBS:-2}"  # the same build-jobs cap as the Makefile and apple-proof
 
 for tool in xcodebuild xcodegen codesign ditto jq secrets-run xcrun; do
   command -v "$tool" >/dev/null || { echo "  missing tool: $tool" >&2; exit 1; }
@@ -113,8 +114,10 @@ else
 rm -rf "$WORK"
 mkdir -p "$UPLOAD"
 (cd "$APPLE_DIR" && xcodegen generate --spec project.yml >/dev/null)
+echo "  mac-release: xcodebuild -jobs $JOBS"
 xcodebuild archive -project "$APPLE_DIR/Iris.xcodeproj" -scheme IrisMac -configuration Release \
   -destination 'generic/platform=macOS' -archivePath "$ARCHIVE" -derivedDataPath "$DERIVED" \
+  -jobs "$JOBS" \
   ${AUTH[@]+"${AUTH[@]}"} "${SIGN[@]}"
 fi
 

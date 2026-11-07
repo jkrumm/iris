@@ -28,7 +28,9 @@ team="${TEAM:-$(apple_dev_field team-id)}"
 paid_signing_setup
 rm -rf "$OUT"
 mkdir -p "$OUT"
+JOBS="${SWIFT_JOBS:-2}"  # the same build-jobs cap as the Makefile and apple-proof: an uncapped archive starves the mini
 echo "  testflight: build=$build sha=$sha team=<resolved> upload=$UPLOAD"
+echo "  testflight: xcodebuild -jobs $JOBS"
 
 # Runs one xcodebuild step with its whole output in $LOG; a failure prints the tail and the hints below.
 step() {
@@ -65,6 +67,7 @@ MSG
 step "archive (Release, generic/platform=iOS)" \
   xcodebuild archive -project "$APPLE_DIR/Iris.xcodeproj" -scheme Iris -configuration Release \
   -destination 'generic/platform=iOS' -archivePath "$ARCHIVE" -derivedDataPath "$APPLE_DIR/.dd.noindex" \
+  -jobs "$JOBS" \
   "${SIGNING_ARGS[@]}" DEVELOPMENT_TEAM="$team" CURRENT_PROJECT_VERSION="$build" IRIS_BUILD_SHA="$sha"
 
 # The export options: the tracked template plus the team id and the destination, in a temp copy.
