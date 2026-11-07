@@ -98,7 +98,7 @@ extension ActivityViewContext<MemoAttributes> {
       phase: phase, phaseTitle: state.phase.title, modeLabel: attributes.mode.title,
       subtitle: state.phase.subtitle, inputName: state.inputName, routeChip: state.routeChip,
       headline: state.headline, note: phase == .recording || phase == .paused ? state.headline : nil,
-      start: attributes.startedAt)
+      start: state.timerStart ?? attributes.startedAt, timerFrozenAt: state.timerFrozenAt)
   }
 }
 

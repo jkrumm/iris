@@ -13,6 +13,15 @@ public protocol AudioSessionController: Sendable {
   func deactivate() async throws
 }
 
+/// Whether the app is frontmost and active. Activating a non-mixable audio session from the background is refused (`!int`),
+/// so a take that cannot resume waits for the app to come back. Production: `UIKitAppActivity` (iOS). Fake: `FakeAppActivity`.
+/// `CaptureSession` without one treats the app as always active.
+public protocol AppActivity: Sendable {
+  var isActive: Bool { get async }
+  /// Yields each time the app becomes active. One consumer.
+  func activations() -> AsyncStream<Void>
+}
+
 /// Lists inputs, applies the preferred input and owns the per-route preference rules.
 /// Production: `AVAudioSessionRouteManager` (iOS only). Fake: `FakeRouteManager`.
 public protocol RouteManager: Sendable {

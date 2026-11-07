@@ -55,6 +55,8 @@ actor CaptureStack {
     var segmentFiles: (any SegmentFileStore)?
     /// The server the uploader sends to now; items are bound to it when queued (``Outbox``). `nil` binds nothing.
     var serverKey: @Sendable () -> String? = { nil }
+    /// Whether the app is frontmost, so a refused resume in the background waits for it. `nil` (the Mac, fakes): always active.
+    var appActivity: (any AppActivity)?
   }
 
   private typealias Built = (outbox: Outbox, session: CaptureSession)
@@ -224,7 +226,8 @@ actor CaptureStack {
     await outbox.resume()
     let session = CaptureSession(
       session: parts.session, routes: parts.routes, recorder: parts.recorder, outbox: outbox, clock: parts.clock,
-      events: parts.events, files: parts.segmentFiles)
+      events: parts.events, files: parts.segmentFiles,
+      appActivity: parts.appActivity)
     return .success((outbox, session))
   }
 }

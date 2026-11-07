@@ -126,3 +126,103 @@ extension CaptureHandlerSuites {
     }
   }
 }
+
+/// The timer of the take screen and the banner: counts while the recorder runs, stands still while it is stopped (paused or
+/// failed), and leaves the paused time out.
+@MainActor
+@Suite("Take timer")
+struct TakeTimerTests {
+  let client = FakeAPIClient(now: { MemoFactory.now })
+  let started = Date(timeIntervalSince1970: 1_800_000_000)
+
+  private func snapshot(_ phase: TakePhase, memo: MemoID) -> TakeState {
+    var take = TakeState.idle
+    take.phase = phase
+    take.memoID = memo
+    take.startedAt = started
+    take.request = TakeRequest(mode: "hermes", title: "Voice memo")
+    return take
+  }
+
+  private func model(clock: Clock) -> TakeModel {
+    let rig = OutboxRig(client: client)
+    let controller = TakeController(
+      stack: rig.stack,
+      liveActivity: TakeLiveActivityCoordinator(
+        activity: RecordingLiveActivity(), stack: rig.stack, created: rig.created),
+      outbox: rig.service, microphone: nil, canRecord: true, isConfigured: { true }, requestPermission: { true },
+      preview: nil)
+    return TakeModel(controller: controller, now: { clock.now })
+  }
+
+  /// A settable instant for the model's clock.
+  final class Clock {
+    var now: Date
+    init(_ now: Date) { self.now = now }
+  }
+
+  @Test("a failed recorder freezes the timer at the instant it stopped, across further failed snapshots")
+  func failureFreezes() throws {
+    let clock = Clock(started.addingTimeInterval(10))
+    let take = model(clock: clock)
+    let memo = MemoID()
+    take.apply(snapshot(.recording, memo: memo))
+    #expect(take.timerFrozenAt == nil)
+
+    clock.now = started.addingTimeInterval(25)
+    take.apply(snapshot(.failed, memo: memo))
+    #expect(take.timerFrozenAt == started.addingTimeInterval(25))
+
+    clock.now = started.addingTimeInterval(60)
+    take.apply(snapshot(.failed, memo: memo))
+    #expect(take.timerFrozenAt == started.addingTimeInterval(25))
+    #expect(take.timerStart == started)
+  }
+
+  @Test("a pause that turns into a failure keeps the instant of the pause")
+  func pausedThenFailed() throws {
+    let clock = Clock(started.addingTimeInterval(10))
+    let take = model(clock: clock)
+    let memo = MemoID()
+    take.apply(snapshot(.recording, memo: memo))
+    clock.now = started.addingTimeInterval(20)
+    take.apply(snapshot(.paused, memo: memo))
+    clock.now = started.addingTimeInterval(40)
+    take.apply(snapshot(.failed, memo: memo))
+    #expect(take.timerFrozenAt == started.addingTimeInterval(20))
+  }
+
+  @Test("the time spent paused moves the timer's start forward")
+  func pausedTimeIsLeftOut() throws {
+    let clock = Clock(started.addingTimeInterval(10))
+    let take = model(clock: clock)
+    let memo = MemoID()
+    take.apply(snapshot(.recording, memo: memo))
+    clock.now = started.addingTimeInterval(20)
+    take.apply(snapshot(.paused, memo: memo))
+    clock.now = started.addingTimeInterval(50)
+    take.apply(snapshot(.recording, memo: memo))
+    #expect(take.timerFrozenAt == nil)
+    #expect(take.timerStart == started.addingTimeInterval(30))
+
+    clock.now = started.addingTimeInterval(60)
+    take.apply(snapshot(.failed, memo: memo))
+    #expect(take.timerFrozenAt == started.addingTimeInterval(60))
+    #expect(take.timerStart == started.addingTimeInterval(30))
+  }
+
+  @Test("a new take starts with a running timer")
+  func newTakeResets() throws {
+    let clock = Clock(started.addingTimeInterval(10))
+    let take = model(clock: clock)
+    let first = MemoID()
+    take.apply(snapshot(.recording, memo: first))
+    clock.now = started.addingTimeInterval(20)
+    take.apply(snapshot(.failed, memo: first))
+    #expect(take.timerFrozenAt != nil)
+
+    take.apply(snapshot(.recording, memo: MemoID()))
+    #expect(take.timerFrozenAt == nil)
+    #expect(take.timerStart == started)
+  }
+}

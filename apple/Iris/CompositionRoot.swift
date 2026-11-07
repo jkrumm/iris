@@ -393,7 +393,7 @@ final class CompositionRoot: CaptureIntentHandler, PlaybackIntentHandler {
   /// What a Shortcut shows for a start that failed: a recorder or audio session failure in words, anything else as it is.
   private static func startError(for error: any Error) -> any Error {
     switch error as? CaptureError {
-    case .sessionFailure, .engineFailure, .recordingFailed: StartMemoError.recordingFailed
+    case .sessionFailure, .sessionRefused, .engineFailure, .recordingFailed: StartMemoError.recordingFailed
     default: error
     }
   }
@@ -489,7 +489,8 @@ final class CompositionRoot: CaptureIntentHandler, PlaybackIntentHandler {
         recorder: recorder ?? UnavailableSegmentRecorder(), clock: SystemCaptureClock(),
         store: JSONFileOutboxStore(fileURL: root.appending(path: "outbox.json"), segmentDirectory: captureDirectory),
         uploader: ObservedSegmentUploader(APIOutboxUploader(client: client, created: created, keeping: segmentFiles)),
-        events: events, segmentFiles: segmentFiles, serverKey: { client.serverKey }))
+        events: events, segmentFiles: segmentFiles, serverKey: { client.serverKey },
+        appActivity: UIKitAppActivity()))
     return (stack, recorder != nil, recorder.map { .speech(tap: $0) })
   }
 }

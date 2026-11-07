@@ -227,6 +227,7 @@ extension CaptureHandlerSuites {
     @Test("only session and engine failures count as a refusal")
     func classification() {
       #expect(BackgroundStartRefusal.isRefusal(CaptureError.sessionFailure("!int")))
+      #expect(BackgroundStartRefusal.isRefusal(CaptureError.sessionRefused("!int")))
       #expect(BackgroundStartRefusal.isRefusal(CaptureError.engineFailure("!rec")))
       #expect(!BackgroundStartRefusal.isRefusal(CaptureError.alreadyRecording))
       #expect(!BackgroundStartRefusal.isRefusal(StartMemoError.microphoneDenied))

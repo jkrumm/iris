@@ -1,6 +1,7 @@
 #if os(iOS)
   import AVFAudio
   import Foundation
+  import UIKit
 
   // Production adapters over AVAudioSession. Thin on purpose: all decisions live in the pure types.
   // Device-verified in spike S1/S2 (docs/spikes); they are only compile-checked in the package tests.
@@ -39,9 +40,17 @@
         try AVAudioSession.sharedInstance().setActive(true)
       } catch {
         events.sessionError(call: "setActive", error: error)
+        // `!int` and `!rec`: the system refuses right now (a non-mixable activation from the background).
+        if [Self.refusedInterruption, Self.refusedRecording].contains((error as NSError).code) {
+          throw CaptureError.sessionRefused(String(describing: error))
+        }
         throw CaptureError.sessionFailure(String(describing: error))
       }
     }
+
+    /// `!int` (560557684) and `!rec` (561145187).
+    private static let refusedInterruption = 560_557_684
+    private static let refusedRecording = 561_145_187
 
     public func deactivate() throws {
       do {
@@ -129,6 +138,28 @@
           }
         }
       }
+    }
+  }
+
+  /// Whether the app is frontmost, from UIKit. `activations()` forwards `didBecomeActive`.
+  public final class UIKitAppActivity: AppActivity {
+    public init() {}
+
+    public var isActive: Bool {
+      get async { await MainActor.run { UIApplication.shared.applicationState == .active } }
+    }
+
+    public func activations() -> AsyncStream<Void> {
+      let (stream, continuation) = AsyncStream.makeStream(of: Void.self, bufferingPolicy: .bufferingNewest(1))
+      // Owned by the stream: cancelled when its consumer ends (the capture session's pump, at shutdown).
+      let forwarder = Task {
+        for await _ in NotificationCenter.default.notifications(named: UIApplication.didBecomeActiveNotification) {
+          continuation.yield()
+        }
+        continuation.finish()
+      }
+      continuation.onTermination = { _ in forwarder.cancel() }
+      return stream
     }
   }
 

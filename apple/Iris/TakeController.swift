@@ -250,7 +250,7 @@ final class TakeController {
 nonisolated enum BackgroundStartRefusal {
   static func isRefusal(_ error: any Error) -> Bool {
     switch error as? CaptureError {
-    case .sessionFailure, .engineFailure: true
+    case .sessionFailure, .sessionRefused, .engineFailure: true
     default: false
     }
   }

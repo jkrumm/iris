@@ -35,12 +35,14 @@ final class TakeModel {
   private var currentMemo: MemoID?
 
   private let controller: TakeController
+  private let now: () -> Date
   /// The text of the on-device live preview, shown on the take screen only.
   let preview: LivePreviewModel
   private let logger = Logger(subsystem: "com.jkrumm.iris", category: "take")
 
-  init(controller: TakeController) {
+  init(controller: TakeController, now: @escaping () -> Date = { Date() }) {
     self.controller = controller
+    self.now = now
     preview = LivePreviewModel(source: controller.preview)
   }
 
@@ -68,8 +70,9 @@ final class TakeModel {
   /// The instant the timer counts from: the take's start moved forward by what was paused.
   var timerStart: Date? { state.startedAt?.addingTimeInterval(pausedTotal) }
 
-  /// Where the timer stands still while the take is paused.
-  var timerFrozenAt: Date? { isPaused ? pausedAt : nil }
+  /// Where the timer stands still while the take is paused or its recorder failed.
+  /// A failed take's recorder has stopped too, so its timer stands still from that moment.
+  var timerFrozenAt: Date? { state.phase == .paused || state.phase == .failed ? pausedAt : nil }
 
   var modeTitle: String {
     (state.request.flatMap { MemoMode(rawValue: $0.mode) } ?? .hermes).recordTitle
@@ -151,10 +154,12 @@ final class TakeModel {
       // A take opens on the full screen; the banner is what it becomes when the user browses on.
       if take.phase != .idle, take.request?.threadID == nil { showsFull = true }
     }
-    if take.phase == .paused, pausedAt == nil {
-      pausedAt = Date()
-    } else if take.phase != .paused, let pausedAt {
-      pausedTotal += Date().timeIntervalSince(pausedAt)
+    // The recorder is not running while paused or failed: the timer stands still from the first such snapshot.
+    let stopped = take.phase == .paused || take.phase == .failed
+    if stopped, pausedAt == nil {
+      pausedAt = now()
+    } else if !stopped, let pausedAt {
+      pausedTotal += now().timeIntervalSince(pausedAt)
       self.pausedAt = nil
     }
     if !isCapturing, Self.isCapturing(take.phase) { takesStarted += 1 }

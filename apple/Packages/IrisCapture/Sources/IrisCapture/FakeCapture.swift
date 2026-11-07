@@ -12,6 +12,7 @@ public actor FakeAudioSessionController: AudioSessionController {
   public private(set) var configureCount = 0
   public private(set) var activationCount = 0
   private var failingActivations = 0
+  private var refusesActivations = false
   private var failingConfigures = 0
 
   public init() {
@@ -33,6 +34,7 @@ public actor FakeAudioSessionController: AudioSessionController {
   public func activate() throws {
     if failingActivations > 0 {
       failingActivations -= 1
+      if refusesActivations { throw CaptureError.sessionRefused("session activation refused (!int)") }
       throw CaptureError.sessionFailure("session could not be activated")
     }
     isActive = true
@@ -40,12 +42,37 @@ public actor FakeAudioSessionController: AudioSessionController {
   }
 
   /// Script hook: the next `count` activations throw (the session is not ready right after an interruption).
-  public func failActivations(_ count: Int) { failingActivations = count }
+  /// `refused`: they throw `.sessionRefused` (`!int` from the background) instead of `.sessionFailure`.
+  public func failActivations(_ count: Int, refused: Bool = false) {
+    failingActivations = count
+    refusesActivations = refused
+  }
   public func deactivate() { isActive = false }
 
   /// Script hook: deliver an interruption event to the consumer.
   public func deliver(_ event: InterruptionEvent) {
     continuation.yield(event)
+  }
+}
+
+/// Scripted app activity: starts active; `setActive(true)` yields on `activations()`.
+public actor FakeAppActivity: AppActivity {
+  private let continuation: AsyncStream<Void>.Continuation
+  private let stream: AsyncStream<Void>
+  public private(set) var isActive: Bool
+
+  public init(isActive: Bool = true) {
+    self.isActive = isActive
+    (stream, continuation) = AsyncStream.makeStream(of: Void.self)
+  }
+
+  public nonisolated func activations() -> AsyncStream<Void> { stream }
+
+  /// Script hook: the app goes to the background (`false`) or comes back (`true`, yields once).
+  public func setActive(_ active: Bool) {
+    let becameActive = active && !isActive
+    isActive = active
+    if becameActive { continuation.yield() }
   }
 }
 
@@ -226,6 +253,7 @@ public actor FakeCapture {
   public nonisolated let routes: FakeRouteManager
   public nonisolated let recorder: FakeSegmentRecorder
   public nonisolated let clock: ManualClock
+  public nonisolated let appActivity: FakeAppActivity
   private let policy: SegmentRotationPolicy
   private(set) var isInterrupted = false
 
@@ -233,8 +261,10 @@ public actor FakeCapture {
     directory: URL,
     clock: ManualClock = ManualClock(),
     policy: SegmentRotationPolicy = SegmentRotationPolicy(),
-    routes: FakeRouteManager = FakeRouteManager()
+    routes: FakeRouteManager = FakeRouteManager(),
+    appActivity: FakeAppActivity = FakeAppActivity()
   ) {
+    self.appActivity = appActivity
     self.clock = clock
     self.policy = policy
     self.routes = routes

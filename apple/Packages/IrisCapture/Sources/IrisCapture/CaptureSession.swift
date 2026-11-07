@@ -82,6 +82,14 @@ public actor CaptureSession {
   /// How long to wait between attempts to reactivate the audio session after an interruption or a media-services reset.
   private let reactivationDelay: TimeInterval
   private static let reactivationAttempts = 4
+  /// Whether the app is frontmost; `nil` = always (the Mac, tests). Decides if a refused activation waits or fails the take.
+  private let appActivity: (any AppActivity)?
+  /// How long a take waits, paused, for the app to come back before it is finished with what it has: a forgotten take must
+  /// not sit paused for ever.
+  private let backgroundResumeLimit: TimeInterval
+  /// A paused take whose resume the system refused in the background: it resumes when the app becomes active. The timer
+  /// is owned here and cancelled when the wait ends (resume, stop, cancel, failure, shutdown).
+  private var resumeWait: (memoID: MemoID, id: UUID, timer: Task<Void, Never>)?
 
   private var state = TakeState.idle
   private var observers: [UUID: AsyncStream<TakeState>.Continuation] = [:]
@@ -120,8 +128,11 @@ public actor CaptureSession {
   public init(
     session: any AudioSessionController, routes: any RouteManager, recorder: any SegmentRecorder, outbox: Outbox,
     clock: any CaptureClock, stopTimeout: TimeInterval = 10, reactivationDelay: TimeInterval = 0.5,
-    events deviceEvents: any CaptureEvents = NoCaptureEvents(), files: (any SegmentFileStore)? = nil
+    events deviceEvents: any CaptureEvents = NoCaptureEvents(), files: (any SegmentFileStore)? = nil,
+    appActivity: (any AppActivity)? = nil, backgroundResumeLimit: TimeInterval = 600
   ) {
+    self.appActivity = appActivity
+    self.backgroundResumeLimit = backgroundResumeLimit
     self.deviceEvents = deviceEvents
     self.files = files
     self.session = session
@@ -209,6 +220,7 @@ public actor CaptureSession {
     // A failed take's recorder was stopped when the failure came in.
     let recorderStopped = state.phase == .failed
     state.phase = .stopping
+    clearResumeWait()
     publish()
     var recorderAnswered = true
     if !recorderStopped {
@@ -284,6 +296,7 @@ public actor CaptureSession {
     defer { leave() }
     guard let memoID = state.memoID, state.phase != .idle else { return nil }
     state.phase = .stopping
+    clearResumeWait()
     publish()
     // Discarded first so a segment that closes while the recorder stops is deleted, not queued.
     cancelled.insert(memoID)
@@ -342,6 +355,7 @@ public actor CaptureSession {
     guard state.phase == .paused else { return }
     await recorder.resume()
     guard state.phase == .paused else { return }
+    clearResumeWait()
     state.phase = .recording
     publish()
     await endGap()
@@ -364,6 +378,7 @@ public actor CaptureSession {
     pumps = []
     for timer in lateFinish.values { timer.cancel() }
     lateFinish = [:]
+    clearResumeWait()
     // A stop still waiting for the recorder's last event would wait for ever once the pumps are gone.
     if let waiter = finishWaiter {
       finishWaiter = nil
@@ -461,6 +476,12 @@ public actor CaptureSession {
         for await _ in routeChanges { await self.routeChanged() }
       },
     ]
+    guard let appActivity else { return }
+    let activations = appActivity.activations()
+    pumps.append(
+      Task {
+        for await _ in activations { await self.appBecameActive() }
+      })
   }
 
   /// The recorder reported a failure. Called from the event pump, so it never waits for the gate: a `stop()` holding the
@@ -476,6 +497,7 @@ public actor CaptureSession {
 
   /// The take is recording or paused and its recorder has failed: stop the recorder and hold the take for the user.
   private func failTake(_ memoID: MemoID, _ reason: String) async {
+    clearResumeWait()
     state.phase = .failed
     state.failure = reason
     publish()
@@ -517,6 +539,7 @@ public actor CaptureSession {
   }
 
   private func forget(_ memoID: MemoID) {
+    if resumeWait?.memoID == memoID { clearResumeWait() }
     closedCounts[memoID] = nil
     failures[memoID] = nil
     finished[memoID] = nil
@@ -716,11 +739,15 @@ public actor CaptureSession {
 
   /// Reactivates the session (a session an interruption deactivated makes `engine.start()` fail) and restarts the recorder.
   /// Behind the gate. A session that stays inactive fails the take: its segments are closed, queued and finished.
+  ///
+  /// Shared by an interruption's end and a media-services reset, so a reset whose activation is refused in the background waits
+  /// for the app too. The user's own `resume()` waits the same way.
   private func resumeRecorder() async {
     guard await restoreSession(type: "resume") else { return }
     guard state.phase == .paused else { return }
     await recorder.resume()
     guard state.phase == .paused else { return }
+    clearResumeWait()
     state.phase = .recording
     publish()
     deviceEvents.event("audio.interruption", memoID: state.memoID, ["type": "resume", "resume.result": "ok"])
@@ -736,11 +763,72 @@ public actor CaptureSession {
     } catch {
       var attributes = CaptureErrorDetail.attributes(of: error)
       attributes["type"] = .string(type)
+      if await refusedInBackground(error) {
+        attributes["type"] = "resume_deferred"
+        attributes["resume.kind"] = .string(type)
+        attributes["app.active"] = false
+        deviceEvents.event("audio.interruption", memoID: state.memoID, attributes)
+        await beginResumeWait()
+        return false
+      }
       attributes["resume.result"] = "error"
       deviceEvents.event("audio.interruption", memoID: state.memoID, error: true, attributes)
       await sessionLost(error)
       return false
     }
+  }
+
+  /// The system refused the activation and the app is not frontmost: the foreground can fix it, so the take waits.
+  private func refusedInBackground(_ error: any Error) async -> Bool {
+    guard case CaptureError.sessionRefused = error, let appActivity else { return false }
+    return await !appActivity.isActive
+  }
+
+  /// Records that the paused take waits for the app, with the timer that ends the wait.
+  private func beginResumeWait() async {
+    guard let memoID = state.memoID, state.phase == .paused else { return }
+    if resumeWait?.memoID == memoID { return }
+    clearResumeWait()
+    let deadline = await clock.now().addingTimeInterval(backgroundResumeLimit)
+    // Re-checked: a stop in the suspension has taken the take.
+    guard state.memoID == memoID, state.phase == .paused, resumeWait == nil else { return }
+    // Owned by `resumeWait`; cancelled when the wait ends.
+    let id = UUID()
+    let timer = Task { [clock] in
+      do { try await clock.sleep(until: deadline) } catch { return }
+      await self.resumeWaitExpired(memoID, id: id)
+    }
+    resumeWait = (memoID, id, timer)
+  }
+
+  private func clearResumeWait() {
+    resumeWait?.timer.cancel()
+    resumeWait = nil
+  }
+
+  /// The app came back: a take that waits for it resumes (behind the gate). A take the user paused, or that is no longer paused,
+  /// is left alone.
+  private func appBecameActive() async {
+    await enter()
+    defer { leave() }
+    guard let wait = resumeWait, state.memoID == wait.memoID, state.phase == .paused else { return }
+    clearResumeWait()
+    await resumeRecorder()
+  }
+
+  private func resumeWaitExpired(_ memoID: MemoID, id: UUID) async {
+    await enter()
+    defer { leave() }
+    // Cancelled or replaced while this waited for the gate: the wait no longer exists.
+    guard let wait = resumeWait, wait.id == id, state.memoID == memoID, state.phase == .paused
+    else { return }
+    resumeWait = nil
+    deviceEvents.event(
+      "audio.interruption", memoID: memoID, error: true, ["type": "resume_expired", "app.active": false])
+    let reason = "recording was not resumed in time"
+    Log.capture.error("\(reason, privacy: .public)")
+    if failures[memoID] == nil { failures[memoID] = reason }
+    await failTake(memoID, reason)
   }
 
   /// Runs a session call that fails while the audio daemon is not ready, a few times with a pause between, for as long as the
@@ -753,6 +841,8 @@ public actor CaptureSession {
         return
       } catch {
         guard attempt < Self.reactivationAttempts, state.phase == .paused else { throw error }
+        // A refusal in the background will not clear by waiting 1.5 s: hand it to the caller at once.
+        if await refusedInBackground(error) { throw error }
         Log.capture.error("session call failed, try \(attempt): \(String(describing: error), privacy: .public)")
         attempt += 1
         let deadline = await clock.now().addingTimeInterval(reactivationDelay)

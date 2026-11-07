@@ -259,6 +259,25 @@ struct StaleActivitySweeper {
   }
 }
 
+/// What the Live Activity's timer shows for a take: counts from the start moved forward by the time the recorder was stopped
+/// (paused or failed), and stands still while it is stopped. The same arithmetic as ``TakeModel``.
+nonisolated struct TakeTimer: Equatable, Sendable {
+  private var stoppedAt: Date?
+  private var stoppedTotal: TimeInterval = 0
+
+  /// Feeds one snapshot of the take; returns the timer fields for it (`start` nil without a start instant).
+  mutating func observe(_ take: TakeState, now: Date) -> (start: Date?, frozenAt: Date?) {
+    let stopped = take.phase == .paused || take.phase == .failed
+    if stopped, stoppedAt == nil {
+      stoppedAt = now
+    } else if !stopped, let at = stoppedAt {
+      stoppedTotal += now.timeIntervalSince(at)
+      stoppedAt = nil
+    }
+    return (take.startedAt?.addingTimeInterval(stoppedTotal), stopped ? stoppedAt : nil)
+  }
+}
+
 /// Drives the Live Activity of a take the app started on its own (the start intent): recording while the take runs,
 /// paused during an interruption, uploading from the stop until the outbox has sent the memo, then `processing`, from where
 /// the server's pushes (registered per memo) carry it. A failure that will be retried (no network, a 5xx) keeps the
@@ -274,11 +293,16 @@ final class TakeLiveActivityCoordinator {
   private var followers: [MemoID: Task<Void, Never>] = [:]
   /// Takes this process started whose activity has not settled: from the request of the activity until its follower is done.
   private var live: Set<MemoID> = []
+  private let now: @Sendable () -> Date
 
-  init(activity: any TakeLiveActivity, stack: CaptureStack, created: CreatedMemoLog) {
+  init(
+    activity: any TakeLiveActivity, stack: CaptureStack, created: CreatedMemoLog,
+    now: @escaping @Sendable () -> Date = { Date() }
+  ) {
     self.activity = activity
     self.stack = stack
     self.created = created
+    self.now = now
   }
 
   /// Requests the activity for the take that just started and follows it until the memo is sent. A refusal is ignored: the
@@ -328,21 +352,32 @@ final class TakeLiveActivityCoordinator {
     _ memoID: MemoID, updates: AsyncStream<TakeState>, changes: AsyncStream<Void>, outbox: Outbox
   ) async {
     let id = memoID.wireID
+    var timer = TakeTimer()
     // Until the take ends: a snapshot of another take (or of none) means this one is over.
     for await take in updates {
       guard !Task.isCancelled, take.memoID == memoID else { break }
+      let (timerStart, frozenAt) = timer.observe(take, now: now())
       switch take.phase {
       case .starting, .idle: break
       case .recording:
         await activity.update(
-          memoID: id, Self.state(.recording, inputName: take.inputName, note: otherMemosNote(besides: memoID)))
+          memoID: id,
+          Self.state(
+            .recording, inputName: take.inputName, note: otherMemosNote(besides: memoID), timerStart: timerStart,
+            timerFrozenAt: frozenAt))
       case .paused:
         await activity.update(
-          memoID: id, Self.state(.paused, inputName: take.inputName, note: otherMemosNote(besides: memoID)))
+          memoID: id,
+          Self.state(
+            .paused, inputName: take.inputName, note: otherMemosNote(besides: memoID), timerStart: timerStart,
+            timerFrozenAt: frozenAt))
       case .stopping: await activity.update(memoID: id, Self.state(.uploading, inputName: take.inputName))
       case .failed:
         // The recorder died: the take will not get better. A memo that was kept goes on in the outbox without it.
-        await activity.end(memoID: id, finalState: Self.state(.failed, inputName: nil), dismissal: .later)
+        await activity.end(
+          memoID: id,
+          finalState: Self.state(.failed, inputName: nil, timerStart: timerStart, timerFrozenAt: frozenAt),
+          dismissal: .later)
         return
       }
     }
@@ -421,8 +456,15 @@ final class TakeLiveActivityCoordinator {
 
   /// The state of a client phase. `note` rides in `headline` (a short line about another memo still being sent, well under
   /// the 60 characters, never transcript or reply text); the widget shows it as a note while the take records.
-  static func state(_ phase: LiveActivityPhase, inputName: String?, note: String? = nil) -> LiveActivityContentState {
-    LiveActivityContentState(phase: phase, headline: note, hasReply: false, inputName: inputName)
+  /// `timerStart` / `timerFrozenAt` are the device-side timer fields (see ``TakeTimer``); `nil` leaves the card on the start of
+  /// its attributes.
+  static func state(
+    _ phase: LiveActivityPhase, inputName: String?, note: String? = nil, timerStart: Date? = nil,
+    timerFrozenAt: Date? = nil
+  ) -> LiveActivityContentState {
+    LiveActivityContentState(
+      phase: phase, headline: note, hasReply: false, inputName: inputName, timerStart: timerStart,
+      timerFrozenAt: timerFrozenAt)
   }
 
   /// "1 earlier memo is still sending" while other memos of this run are still on their way up, so the activity of a new

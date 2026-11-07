@@ -118,6 +118,9 @@ public enum CaptureError: Error, Sendable, Equatable {
   case inputUnavailable(uid: String)
   case engineFailure(String)
   case sessionFailure(String)
+  /// The system refuses the activation right now (`!int`, `!rec`): a non-mixable session cannot be activated from the
+  /// background. The foreground can fix it, so a take waits for it instead of failing.
+  case sessionRefused(String)
   /// The recorder failed mid-take (a write error, the engine would not restart) and no segment was kept.
   case recordingFailed(String)
 }

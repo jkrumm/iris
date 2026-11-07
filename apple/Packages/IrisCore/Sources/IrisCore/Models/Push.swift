@@ -1,7 +1,7 @@
 import Foundation
 
-/// The `aps.content-state` of a Live Activity update or end push. The server never sends `inputName`
-/// (the device knows it), so the client declares it optional; it is omitted when `nil`. `routeChip` and
+/// The `aps.content-state` of a Live Activity update or end push. The server never sends `inputName`, `timerStart` or
+/// `timerFrozenAt` (the device knows them), so the client declares them optional; they are omitted when `nil`. `routeChip` and
 /// `headline` are omitted, not `null`, while unknown.
 public struct LiveActivityContentState: Codable, Hashable, Sendable {
   public var phase: LiveActivityPhase
@@ -9,19 +9,27 @@ public struct LiveActivityContentState: Codable, Hashable, Sendable {
   public var headline: String?
   public var hasReply: Bool
   public var inputName: String?
+  /// Device-side only: the instant the timer counts from (the take's start moved forward by what was paused).
+  public var timerStart: Date?
+  /// Device-side only: where the timer stands still (paused or failed take); `nil` while it runs.
+  public var timerFrozenAt: Date?
 
   public init(
     phase: LiveActivityPhase,
     routeChip: String? = nil,
     headline: String? = nil,
     hasReply: Bool,
-    inputName: String? = nil
+    inputName: String? = nil,
+    timerStart: Date? = nil,
+    timerFrozenAt: Date? = nil
   ) {
     self.phase = phase
     self.routeChip = routeChip
     self.headline = headline
     self.hasReply = hasReply
     self.inputName = inputName
+    self.timerStart = timerStart
+    self.timerFrozenAt = timerFrozenAt
   }
 }
 
