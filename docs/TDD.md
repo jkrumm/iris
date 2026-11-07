@@ -1188,7 +1188,7 @@ run shows nothing and never blocks or fails a take.
     search field is on top (the iPhone's is a bottom bar), and `listSectionSpacing` does not exist on macOS (a plain list has none).
   - *Proof:* a menu-bar popover cannot be opened without a click and the mini has no Screen Recording grant, so
     `-IrisMacPanelWindow` shows the same panel as a regular window and `-IrisMacSnapshot <dir>` has the app write PNGs of its own
-    windows (the popover, the main window in four states, the Settings tabs, onboarding, the recording panel and its refused message) and quit (any further launch flag, such as `-IrisMacStalled`,
+    windows (the popover, the main window as a document, as conversations (running, answered, with a diagram), the New memo page with and without text and a memo just sent, the Settings tabs, onboarding, the recording panel and its refused message) and quit (any further launch flag, such as `-IrisMacStalled`,
     goes **after** `-IrisMacSnapshot <dir>`: between `-IrisMacPanelWindow` and it, the panel window is not created); snapshot mode only exists on the fake composition. Unit tests: `IrisMacTests`,
     hosted in the app (launched with `-IrisFakeData`), run by `make check-apple`.
 - **Signing:** a stable identity. Ad-hoc signing resets TCC

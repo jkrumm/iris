@@ -48,7 +48,7 @@
       await writeSettings()
       await writeOnboarding()
       await writeRecordingPanel()
-      // A long microphone name must truncate, not push Stop out of the panel.
+      // A long microphone name must not widen the panel (the picker is an icon; the name is its tooltip).
       let long = InputPort(
         uid: "fake-long", name: "Yeti Nano Professional Studio Condenser Microphone (USB)", kind: .usb)
       root.fakeTake?.setMicrophones(Microphones(inputs: [FakeAudioDeviceDirectory.builtIn, long], current: long))
