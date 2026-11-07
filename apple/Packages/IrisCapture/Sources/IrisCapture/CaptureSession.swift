@@ -771,6 +771,11 @@ public actor CaptureSession {
         await beginResumeWait()
         return false
       }
+      // `retrying` gave up at once on a refusal in the background; if the app came to the front since, the foreground is what the
+      // wait would have been for, so activate once more before the take is lost.
+      if case CaptureError.sessionRefused = error, appActivity != nil, (try? await session.activate()) != nil {
+        return true
+      }
       attributes["resume.result"] = "error"
       deviceEvents.event("audio.interruption", memoID: state.memoID, error: true, attributes)
       await sessionLost(error)
