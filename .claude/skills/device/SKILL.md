@@ -27,8 +27,7 @@ xcrun devicectl device capture screenshot --device $D --destination out.png   # 
   (only `notify.apns_rejected|apns_transient|no_token` log), so success is the memo reaching `notified` with none of those lines for its id. A banner needs the notification permission (the app asks once, German "Erlauben")
   and an unlocked, idle phone: a screenshot can show a call or other private content, look before keeping it.
 - App Group proof (ran 2026-11-05, paid): `codesign -d --entitlements :- apple/.dd.noindex/Build/Products/Debug-iphoneos/Iris.app[/PlugIns/*.appex] | plutil -convert json -o - -` shows
-  `com.apple.security.application-groups: [group.com.jkrumm.iris]` on all three; the app's `widget.container` (`available=true`) and `widget.snapshot` (`saved=true`, `phase`) records in HyperDX
-  (`service.name=iris-ios`, `agw otel`) are the container proof; send a typed memo to make the feed write. `devicectl copy from` cannot read `last-memo.json` (container root). A provisioning error
+  `com.apple.security.application-groups: [group.com.jkrumm.iris]` on all three. A provisioning error
   naming `application-groups` = the group is missing in the portal or on an App ID: owner step (AGENTS.md "Device").
 - First install: iOS refuses to launch until the developer is trusted on the phone (Settings > General > VPN & Device Management); that is an owner step.
 - `pymobiledevice3` **does not work** here: `usbmux list` is empty (the phone is on a network tunnel) and an RSD tunnel needs root. Use `devicectl`.

@@ -25,12 +25,6 @@ final class HistoryModel {
   var onMemoDone: ((String) -> Void)?
   /// Told the id of a memo on each `memo.updated`, before the list is refreshed: the moment the event reached the app.
   var onMemoUpdated: ((String) -> Void)?
-  /// Told every memo History learned about from the server it talks to now (an event's refresh, the newest of an unfiltered first
-  /// page, a create hand-off), before the filters decide whether a row shows it; the widget's last-memo feed reads it. Never
-  /// told a memo of a server History has left, nor one the user discarded.
-  var onMemoObserved: ((Memo) -> Void)?
-  /// Told the id of a memo that is gone from this app for good: discarded (``hide(_:)``) or purged (a 404).
-  var onMemoForgotten: ((String) -> Void)?
   /// Bumped for a memo on each `memo.updated` event, so an open detail screen knows to reload.
   private(set) var revisions: [String: Int] = [:]
 
@@ -117,11 +111,6 @@ final class HistoryModel {
       loadFailed = false
       hasLoaded = true
       link = .live
-      if !requested.isFiltering,
-        let newest = items.max(by: Self.isOlder)
-      {
-        onMemoObserved?(newest)
-      }
     } catch is CancellationError {
       return
     } catch {
@@ -243,7 +232,6 @@ final class HistoryModel {
       let memo = try await client.memo(id: id).memo
       guard lifecycle[id] == started, server == serverKey() else { return }
       if memo.isDeleted { evictMedia(id) }
-      if !hidden.contains(id) { onMemoObserved?(memo) }
       place(memo)
     } catch let error as APIError {
       if case .server(404, _) = error {
@@ -251,7 +239,6 @@ final class HistoryModel {
         guard lifecycle[id] == started, server == serverKey() else { return }
         remove(id)
         evictMedia(id)
-        onMemoForgotten?(id)
       } else {
         logger.error("history refresh failed: \(String(describing: error), privacy: .public)")
       }
@@ -323,13 +310,11 @@ final class HistoryModel {
   func insert(_ memo: Memo, origin: String? = nil) {
     if let origin, origin != serverKey() { return }
     guard !unhiddenThisSession.contains(memo.id) else { return }
-    if !hidden.contains(memo.id) { onMemoObserved?(memo) }
     place(memo, force: true)
   }
 
   /// Drops a memo this device discarded (a cancelled take) and keeps it out of the list from here on.
   func hide(_ id: String) {
-    onMemoForgotten?(id)
     restoredHidden.remove(id)
     lifecycle[id, default: 0] += 1
     // The server's delete was over before this arrived: the row goes, but nothing is left that would unhide the id again.
@@ -428,10 +413,6 @@ final class HistoryModel {
     guard !hidden.contains(memo.id), filters.matches(memo) else { return }
     if !known, !force, nextCursor != nil, let tail = items.last, Self.isNewer(tail, than: memo) { return }
     Self.insert(memo, into: &items)
-  }
-
-  private static func isOlder(_ lhs: Memo, _ rhs: Memo) -> Bool {
-    isNewer(rhs, than: lhs)
   }
 
   private static func isNewer(_ lhs: Memo, than rhs: Memo) -> Bool {
