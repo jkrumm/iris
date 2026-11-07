@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { mkdir, mkdtemp, readFile, rm, utimes, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, rm, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -50,11 +50,18 @@ function decide(sha: string, env: Record<string, string> = {}) {
       RELEASE_HOME: home,
       APP_DIR: app,
       APPLE_LOCK: join(dir, "apple.lock"),
-      RELEASE_NOW_HOUR: "03",
+      FACTORY_BIN: join(dir, "factory-stub"),
       ...env,
     },
   });
   return r.stdout.toString() + r.stderr.toString();
+}
+
+// A stand-in for `factory slot run`: exits with <rc> (75 = no test slot free) without running the command.
+async function writeStub(rc: number) {
+  const file = join(dir, "factory-stub");
+  await writeFile(file, `#!/bin/sh\nexit ${rc}\n`);
+  await chmod(file, 0o755);
 }
 
 const starts = (out: string, hook: string) =>
@@ -70,10 +77,11 @@ describe.skipIf(!ready)("release-hooks gate", () => {
     await writeFile(join(home, "release.env"), "TESTFLIGHT=1\nMAC_RELEASE=1\n");
     git("init", "-q");
     await writeFile(join(app, "Makefile"), "mac-release:\n\t@true\n");
+    await writeStub(0);
   });
   afterEach(() => rm(dir, { recursive: true, force: true }));
 
-  it("several apple/ commits in a day start one release per hook, at night", async () => {
+  it("several apple/ commits in a day start one release per hook", async () => {
     const base = await commit("apple/a.swift", "1");
     await setMarker("testflight", base, 13 * HOUR);
     await setMarker("mac-release", base, 13 * HOUR);
@@ -85,16 +93,15 @@ describe.skipIf(!ready)("release-hooks gate", () => {
     expect(starts(out, "mac")).toBe(1);
   });
 
-  it("waits outside the night window", async () => {
+  it("starts whatever the hour: only the interval, the Apple lock and the slots gate", async () => {
     const base = await commit("apple/a.swift", "1");
     await setMarker("testflight", base, 13 * HOUR);
     await setMarker("mac-release", base, 13 * HOUR);
     const head = await commit("apple/a.swift", "2");
-    for (const hour of ["01", "06", "14", "23"]) {
-      const out = decide(head, { RELEASE_NOW_HOUR: hour });
-      expect(starts(out, "testflight")).toBe(0);
-      expect(out).toContain("outside the night window");
-    }
+    const out = decide(head);
+    expect(starts(out, "testflight")).toBe(1);
+    expect(starts(out, "mac")).toBe(1);
+    expect(out).not.toContain("night");
   });
 
   it("waits until the last release is 12 hours old", async () => {
@@ -128,10 +135,17 @@ describe.skipIf(!ready)("release-hooks gate", () => {
     expect(starts(out, "mac")).toBe(0);
   });
 
-  it("starts the first release (no marker) only at night", async () => {
+  it("starts the first release (no marker) when the machine is free", async () => {
     const head = await commit("apple/a.swift", "1");
     expect(starts(decide(head), "testflight")).toBe(1);
-    expect(starts(decide(head, { RELEASE_NOW_HOUR: "15" }), "testflight")).toBe(0);
+  });
+
+  it("waits while the factory test slots are busy", async () => {
+    const head = await commit("apple/a.swift", "1");
+    await writeStub(75);
+    const out = decide(head);
+    expect(starts(out, "testflight")).toBe(0);
+    expect(out).toContain("the factory test slots are busy");
   });
 
   it("waits while the Apple lock is held", async () => {

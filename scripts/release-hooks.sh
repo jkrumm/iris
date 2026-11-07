@@ -11,10 +11,10 @@
 #   mac         MAC_RELEASE=1  `make mac-release IDENTITY=developer-id`  ~/.iris/mac-release-sha   (only when the Makefile has the target)
 # `~/.iris/release.env` is untracked and holds only those switches; absent or a switch not `1` = hook off (logged as skipped, once per tick).
 # A hook is DUE when apple/** changed since its marker's SHA, or (testflight only) the marker is older than 7 days (TestFlight builds expire after 90 days).
-# A due hook starts only when the automatic-release gate is open: the last release (the marker's mtime) is at least 12 h old, the local hour is in the
-# night window (02:00-05:59), and the Apple lock is free. So a day of apple/** commits yields at most one automatic release per hook, and no commit starts
-# one by itself. `make testflight` / `make mac-release` by hand never come through here. Overrides (tests): RELEASE_MIN_INTERVAL_SECS, RELEASE_NIGHT_START,
-# RELEASE_NIGHT_END (hours, end exclusive), RELEASE_NOW_HOUR, APPLE_LOCK.
+# A due hook starts, at any hour, only when the automatic-release gate is open: the last release (the marker's mtime) is at least 12 h old, the Apple lock
+# is free, and a factory test slot is free (so a release never runs next to another release or a lead's check). So a day of apple/** commits yields at
+# most one automatic release per hook, and no commit starts one by itself. `make testflight` / `make mac-release` by hand never come through here.
+# Overrides (tests): RELEASE_MIN_INTERVAL_SECS, APPLE_LOCK, FACTORY_BIN.
 # Each job caps xcodebuild at SWIFT_JOBS (default 2, the Makefile's and apple-proof's number) and samples its process tree's resident memory; the peak
 # lands in the job state as `peak_rss_mb` (jobrun rewrites its state file when the command ends, so the wrapper merges the number in afterwards).
 # The marker is written only after the make target succeeded; a failure writes `<hook>-failed` and holds the hook off for an hour.
@@ -28,8 +28,7 @@ RELEASE_ENV="$RELEASE_HOME/release.env"
 WEEK_SECS=604800
 FAILED_HOLD_SECS=3600
 MIN_INTERVAL_SECS="${RELEASE_MIN_INTERVAL_SECS:-43200}"
-NIGHT_START="${RELEASE_NIGHT_START:-2}"
-NIGHT_END="${RELEASE_NIGHT_END:-6}"
+FACTORY_BIN="${FACTORY_BIN:-factory}"
 APPLE_LOCK="${APPLE_LOCK:-/tmp/iris-apple.lock}"
 JOBS_CAP="${SWIFT_JOBS:-2}"
 SAMPLE_SECS=5
@@ -90,20 +89,27 @@ due_reason() { # <hook> <sha>
 
 # The automatic-release gate: prints why it is closed, or nothing when open.
 gate_closed_reason() { # <hook>
-  local marker age hour
+  local marker age
   marker=$(hook_field "$1" marker)
   if age=$(file_age_secs "$marker") && (( age < MIN_INTERVAL_SECS )); then
     print "last release $(( age / 60 )) min ago (minimum $(( MIN_INTERVAL_SECS / 3600 )) h between automatic releases)"
     return
   fi
-  hour=$(( 10#${RELEASE_NOW_HOUR:-$(date +%H)} ))
-  if (( hour < NIGHT_START || hour >= NIGHT_END )); then
-    print "outside the night window (${NIGHT_START}:00-${NIGHT_END}:00, now ${hour}h)"
-    return
-  fi
   if command -v lockf >/dev/null 2>&1 && ! lockf -t 0 "$APPLE_LOCK" true 2>/dev/null; then
     print "the Apple lock is held"
+    return
   fi
+  if test_slot_busy; then
+    print "the factory test slots are busy"
+  fi
+}
+
+# True when no factory test slot is free right now: a lease on one for no wait (exit 75 = none within the wait), given back at once.
+# No `factory` (or a server outage, which `slot run` answers by running the command) counts as free.
+test_slot_busy() {
+  command -v "$FACTORY_BIN" >/dev/null 2>&1 || return 1
+  FACTORY_SLOT_WAIT_MS=1 "$FACTORY_BIN" slot run --name iris-release-gate -- true >/dev/null 2>&1
+  (( $? == 75 ))
 }
 
 start_detached() { # <hook> <sha>
