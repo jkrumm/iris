@@ -54,11 +54,11 @@ final class TakeController {
   /// Starts a take in `mode` with its Live Activity. Starts that overlap are one take: the later call returns the memo the
   /// first one started, and so does a start that finds a take already running.
   @discardableResult
-  func start(mode: MemoMode, source: String = "app") async throws -> MemoID {
+  func start(mode: MemoMode, source: String = "app", activityFirst: Bool = false) async throws -> MemoID {
     DeviceLog.shared.commandSource = source
     if let starting { return try await starting.value }
     let claim = claimCapture()
-    let task = Task { try await beginOrJoinRunning(mode: mode) }
+    let task = Task { try await beginOrJoinRunning(mode: mode, activityFirst: activityFirst) }
     starting = task
     defer { starting = nil }
     do {
@@ -106,9 +106,9 @@ final class TakeController {
   }
 
   /// The shared start: callers that joined it get the same answer, the recovery included.
-  private func beginOrJoinRunning(mode: MemoMode) async throws -> MemoID {
+  private func beginOrJoinRunning(mode: MemoMode, activityFirst: Bool) async throws -> MemoID {
     do {
-      return try await begin(mode: mode)
+      return try await begin(mode: mode, activityFirst: activityFirst)
     } catch CaptureError.alreadyRecording {
       // A take that was already running (started by something that is not in flight any more): that is the take.
       guard let session = try? await stack.session(), let running = await runningMemoID(of: session) else {
@@ -128,17 +128,43 @@ final class TakeController {
     }
   }
 
-  private func begin(mode: MemoMode) async throws -> MemoID {
+  private func begin(mode: MemoMode, activityFirst: Bool) async throws -> MemoID {
     guard isConfigured() else { throw StartMemoError.notConfigured }
     guard canRecord else { throw StartMemoError.queueUnavailable }
     guard await requestPermission() else { throw StartMemoError.microphoneDenied }
     guard let session = try? await stack.session() else { throw StartMemoError.queueUnavailable }
     let request = TakeRequest(
       mode: mode.rawValue, title: String(localized: "Voice memo", comment: "Outbox row of a recorded memo"))
+    if activityFirst { return try await beginActivityFirst(request, mode: mode, session: session) }
     let id = try await session.start(request)
     microphone?.start()
     let startedAt = await session.current.startedAt ?? Date()
     await liveActivity.begin(memoID: id, mode: mode, startedAt: startedAt)
+    return id
+  }
+
+  /// A start from the background (Shortcuts, Siri): the system may refuse to activate the audio session of an app that has not
+  /// requested its Live Activity yet (D1-3: `setActive` failed with `!int` before the activity was ever asked for), so the activity
+  /// goes first, under the memo id the session then uses. A refusal of either ends here with nothing left behind and surfaces as
+  /// ``StartMemoError/backgroundStartRefused``, which the intent answers by continuing in the foreground. Not verified on a device.
+  private func beginActivityFirst(
+    _ request: TakeRequest, mode: MemoMode, session: CaptureSession
+  ) async throws -> MemoID {
+    let id = MemoID()
+    let result = await liveActivity.requestActivity(memoID: id, mode: mode, startedAt: Date())
+    if case .refused = result {
+      await liveActivity.abandon(memoID: id, endActivity: false)
+      throw StartMemoError.backgroundStartRefused
+    }
+    do {
+      try await session.start(request, memoID: id)
+    } catch {
+      // The session has discarded its outbox item; the card that was requested goes with it.
+      await liveActivity.abandon(memoID: id, endActivity: true)
+      throw BackgroundStartRefusal.isRefusal(error) ? StartMemoError.backgroundStartRefused : error
+    }
+    microphone?.start()
+    await liveActivity.attach(memoID: id)
     return id
   }
 
@@ -217,4 +243,15 @@ final class TakeController {
   func queueChanges() async -> AsyncStream<Void> { await outbox.changes() }
 
   func queuedItems() async -> [QueuedItem] { await outbox.queuedItems() }
+}
+
+/// Which failures of a background start the foreground can fix: the audio session would not activate (`!int`) or the engine would
+/// not start (`!rec`). Anything else (a take already running, a denied microphone) would fail the same way in the foreground.
+nonisolated enum BackgroundStartRefusal {
+  static func isRefusal(_ error: any Error) -> Bool {
+    switch error as? CaptureError {
+    case .sessionFailure, .engineFailure: true
+    default: false
+    }
+  }
 }

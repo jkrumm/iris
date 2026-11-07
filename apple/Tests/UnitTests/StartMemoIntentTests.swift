@@ -145,6 +145,7 @@ private final class RecordingSink: IntentEventSink {
 
   func intentPerformed(_ run: IntentRun) { performed.append(run) }
   func intentFinished(intent: String, error: String?) { finished.append((intent, error)) }
+  func intentRoad(intent: String, road: String) {}
 }
 
 /// What the intents call into, counting the calls.
@@ -153,6 +154,7 @@ private final class CountingHandler: CaptureIntentHandler {
   private(set) var calls: [String] = []
 
   func startMemo() async throws { calls.append("start") }
+  func startMemoFromShortcut() async throws { calls.append("start") }
   func startTranscribeMemo() async throws { calls.append("startTranscribe") }
   func endTake() async throws { calls.append("end") }
   func toggleTakePause() async { calls.append("pause") }

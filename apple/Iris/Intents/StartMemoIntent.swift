@@ -6,6 +6,10 @@ import AppIntents
 protocol CaptureIntentHandler: AnyObject {
   /// Starts a take in `hermes` mode and the Live Activity that goes with it (Apple stops a background recording that has none).
   func startMemo() async throws
+  /// The Shortcuts / Siri start. With the app in the background the Live Activity is requested before the audio session is
+  /// activated, and a refusal throws ``StartMemoError/backgroundStartRefused`` with nothing left behind; with the app active it is
+  /// ``startMemo()``.
+  func startMemoFromShortcut() async throws
   /// Starts a take in `transcribe` mode (only the transcript comes back) with its Live Activity: the Transcribe control.
   func startTranscribeMemo() async throws
   /// Ends the running take and sends it (the Live Activity's Stop). Nothing running is not an error.
@@ -52,6 +56,10 @@ enum StartMemoError: Error, CustomLocalizedStringResourceConvertible {
   case notConfigured
   case microphoneDenied
   case queueUnavailable
+  /// A start from the background was refused (the Live Activity, the audio session or the engine); the foreground can still do it.
+  case backgroundStartRefused
+  /// The microphone would not start in the foreground either.
+  case recordingFailed
 
   var localizedStringResource: LocalizedStringResource {
     switch self {
@@ -59,6 +67,33 @@ enum StartMemoError: Error, CustomLocalizedStringResourceConvertible {
     case .notConfigured: "Connect Iris to your server in Settings first."
     case .microphoneDenied: "Iris needs microphone access to record."
     case .queueUnavailable: "Iris cannot open its outbox right now, so it cannot record."
+    case .backgroundStartRefused: "iOS did not let Iris start recording in the background. Open Iris and try again."
+    case .recordingFailed: "Iris could not start the microphone."
+    }
+  }
+}
+
+/// Try the start in the background; if the system refused it, ask to continue in the foreground and start there. The intent
+/// supplies the system's side as closures, so the decision runs in tests without an `AppIntent` runtime.
+@MainActor
+enum StartMemoFallback {
+  static let foregroundDialog: LocalizedStringResource = "Iris needs to open to record."
+
+  static func run(
+    canContinueInForeground: () -> Bool,
+    background: () async throws -> Void,
+    continueInForeground: () async throws -> Void,
+    foreground: () async throws -> Void,
+    road: (StartRoad) -> Void
+  ) async throws {
+    do {
+      try await background()
+      road(.background)
+    } catch StartMemoError.backgroundStartRefused {
+      guard canContinueInForeground() else { throw StartMemoError.backgroundStartRefused }
+      try await continueInForeground()
+      try await foreground()
+      road(.foregroundFallback)
     }
   }
 }
@@ -69,13 +104,27 @@ enum StartMemoError: Error, CustomLocalizedStringResourceConvertible {
 /// the app being in the foreground. `AudioRecordingIntent` alone does neither (it only shows the recording indicator and
 /// obliges the Live Activity), so the Record control did nothing: `perform()` ran in `IrisWidgets`, found no handler and threw.
 /// The Live Activity request is part of `startMemo()`.
+///
+/// With the app in the background the Live Activity is requested first and the session starts after it; when the system refuses
+/// either, the intent continues in the foreground (`supportedModes`) and starts there. Built on the D1-3 failure, not yet
+/// verified on a device.
 struct StartMemoIntent: AudioRecordingIntent, LiveActivityIntent {
   static let title: LocalizedStringResource = "Record with Iris"
   static let description = IntentDescription("Start a voice memo.")
+  static let supportedModes: IntentModes = [.background, .foreground(.dynamic)]
 
   @MainActor
   func perform() async throws -> some IntentResult {
-    try await CaptureIntents.run(self, named: "StartMemoIntent") { try await $0.startMemo() }
+    try await CaptureIntents.run(self, named: "StartMemoIntent") { handler in
+      try await StartMemoFallback.run(
+        canContinueInForeground: { systemContext.currentMode.canContinueInForeground },
+        background: { try await handler.startMemoFromShortcut() },
+        continueInForeground: {
+          try await continueInForeground(IntentDialog(StartMemoFallback.foregroundDialog), alwaysConfirm: false)
+        },
+        foreground: { try await handler.startMemo() },
+        road: { IntentEvents.road($0, intent: "StartMemoIntent") })
+    }
     return .result()
   }
 }

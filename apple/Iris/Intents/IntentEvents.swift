@@ -26,10 +26,18 @@ struct IntentRun: Sendable {
   let pressLagMilliseconds: Int?
 }
 
+/// The road a start from Shortcuts or Siri took.
+enum StartRoad: String, Equatable, Sendable {
+  case background
+  case foregroundFallback = "foreground_fallback"
+}
+
 @MainActor
 protocol IntentEventSink: AnyObject {
   func intentPerformed(_ run: IntentRun)
   func intentFinished(intent: String, error: String?)
+  /// Which road a start took (`intent.road`): `background`, or `foreground_fallback` after the background was refused.
+  func intentRoad(intent: String, road: String)
 }
 
 @MainActor
@@ -67,6 +75,12 @@ enum IntentEvents {
       deliver(finished: (name, description))
       throw error
     }
+  }
+
+  /// Reports the road the named intent's start ran (``StartRoad``).
+  static func road(_ road: StartRoad, intent name: String) {
+    logger.notice("intent.road \(name, privacy: .public) road=\(road.rawValue, privacy: .public)")
+    sink?.intentRoad(intent: name, road: road.rawValue)
   }
 
   /// The error's type and, for an enum, its case: never the payload, which can carry a server's words or a path.

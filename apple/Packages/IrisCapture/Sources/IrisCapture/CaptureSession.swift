@@ -153,15 +153,16 @@ public actor CaptureSession {
 
   // MARK: Take
 
-  /// Starts a take and returns its memo id (minted here: it is also the trace id).
+  /// Starts a take and returns its memo id (minted here unless the caller minted it first: it is also the trace id). A caller
+  /// that needs the id before the session starts (the Live Activity of a background start is requested first) passes it in.
   @discardableResult
-  public func start(_ request: TakeRequest) async throws -> MemoID {
+  public func start(_ request: TakeRequest, memoID preMinted: MemoID? = nil) async throws -> MemoID {
     await enter()
     defer { leave() }
     guard state.phase == .idle else { throw CaptureError.alreadyRecording }
     // A recorder that never answered its stop may still hold the microphone: a new take waits until it has.
     guard unreturnedStops.isEmpty else { throw CaptureError.engineFailure("the recorder is still stopping") }
-    let memoID = MemoID()
+    let memoID = preMinted ?? MemoID()
     deactivationPending = false  // this take activates the session itself
     // Claimed with no suspension between the guard and here (the gate is ours): nothing else sees an idle session.
     state = TakeState(phase: .starting, memoID: memoID, startedAt: nil, inputName: nil, request: request)

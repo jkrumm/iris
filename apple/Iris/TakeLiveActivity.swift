@@ -25,11 +25,21 @@ nonisolated enum ActivityDismissal: Equatable, Sendable {
   }
 }
 
+/// How a Live Activity request ended.
+nonisolated enum LiveActivityRequestResult: Equatable, Sendable {
+  case started
+  /// The system (or the settings) said no. `reason` is the platform's error text: never a token or a memo's words.
+  case refused(reason: String)
+}
+
 /// The Live Activity of one take, as the app sees it. Every call names the memo whose activity it is for: a take can start
 /// while the previous one is still being sent, and the two activities must not touch each other. Production is ActivityKit
 /// (``ActivityKitTakeLiveActivity``); the tests record the calls.
 protocol TakeLiveActivity {
-  func start(memoID: String, mode: MemoMode, startedAt: Date, state: LiveActivityContentState) async
+  /// Requests the activity. A refusal is an answer, not a throw: the caller decides whether the take goes on without it.
+  func start(
+    memoID: String, mode: MemoMode, startedAt: Date, state: LiveActivityContentState
+  ) async -> LiveActivityRequestResult
   func update(memoID: String, _ state: LiveActivityContentState) async
   /// The server has the memo: the activity's push token can be registered for it (the server answers 404 before that).
   func memoCreated(memoID: String) async
@@ -271,12 +281,25 @@ final class TakeLiveActivityCoordinator {
     self.created = created
   }
 
-  /// Requests the activity for the take that just started and follows it until the memo is sent.
+  /// Requests the activity for the take that just started and follows it until the memo is sent. A refusal is ignored: the
+  /// take goes on without the card.
   func begin(memoID: MemoID, mode: MemoMode, startedAt: Date) async {
+    _ = await requestActivity(memoID: memoID, mode: mode, startedAt: startedAt)
+    await attach(memoID: memoID)
+  }
+
+  /// The first half of ``begin(memoID:mode:startedAt:)``: asks for the activity of a take that may not have started its session
+  /// yet (a start from the background asks first). Nothing follows the take until ``attach(memoID:)``, because the follower
+  /// stops on a snapshot of another take or of none.
+  func requestActivity(memoID: MemoID, mode: MemoMode, startedAt: Date) async -> LiveActivityRequestResult {
     live.insert(memoID)
-    await activity.start(
+    return await activity.start(
       memoID: memoID.wireID, mode: mode, startedAt: startedAt,
       state: Self.state(.recording, inputName: nil, note: otherMemosNote(besides: memoID)))
+  }
+
+  /// The second half: follows the take whose session is running until the memo is sent.
+  func attach(memoID: MemoID) async {
     guard let session = try? await stack.session(), let outbox = try? await stack.outbox() else {
       live.remove(memoID)
       return
@@ -290,6 +313,15 @@ final class TakeLiveActivityCoordinator {
       followers[memoID] = nil
       live.remove(memoID)
     }
+  }
+
+  /// A take whose activity was requested never started (or its request was refused): nothing is left behind. With
+  /// `endActivity` the card that was requested goes at once.
+  func abandon(memoID: MemoID, endActivity: Bool) async {
+    if endActivity {
+      await activity.end(memoID: memoID.wireID, finalState: nil, dismissal: .immediate)
+    }
+    live.remove(memoID)
   }
 
   private func follow(
@@ -445,12 +477,14 @@ final class TakeLiveActivityCoordinator {
       tokens = ActivityTokenRegistrar(client: client)
     }
 
-    func start(memoID: String, mode: MemoMode, startedAt: Date, state content: LiveActivityContentState) async {
+    func start(
+      memoID: String, mode: MemoMode, startedAt: Date, state content: LiveActivityContentState
+    ) async -> LiveActivityRequestResult {
       guard ActivityAuthorizationInfo().areActivitiesEnabled else {
         DeviceLog.shared.event(
           "liveactivity.request", memoWireID: memoID, severity: .warn,
           ["phase": .string(content.phase.rawValue), "ok": false, "error": "activities_disabled"])
-        return
+        return .refused(reason: "activities_disabled")
       }
       // The island shows one activity: the running take's wins over finished ones and over ones nothing will update.
       await sweeper.makeRoomForTake()
@@ -471,20 +505,31 @@ final class TakeLiveActivityCoordinator {
           "liveactivity.request", memoWireID: memoID,
           [
             "activity.id": .string(activity.id), "phase": .string(content.phase.rawValue), "ok": true,
-            "push": .string(push),
+            "push": .string(push), "in_foreground": .bool(isForeground()),
           ])
         tokens.begin(memoID)
         followToken(of: activity, memoID: memoID)
+        return .started
       } catch {
-        // The system refused (the app is not allowed to start it from here). The take goes on without it.
-        logger.error("live activity not started: \(String(describing: error), privacy: .public)")
+        // The system refused (the app is not allowed to start it from here, ActivityKit's `visibility`: "Target is not
+        // foreground"). The caller decides whether the take goes on without it.
+        let reason = Self.refusalReason(error)
+        logger.error("live activity not started: \(reason, privacy: .public)")
         DeviceLog.shared.event(
           "liveactivity.request", memoWireID: memoID, severity: .error,
           [
-            "phase": .string(content.phase.rawValue), "ok": false,
-            "error": .string(String(describing: error)),
+            "phase": .string(content.phase.rawValue), "ok": false, "error": .string(reason),
+            "in_foreground": .bool(isForeground()),
           ])
+        return .refused(reason: reason)
       }
+    }
+
+    /// The platform's error as `String(describing:)` (the case) plus its domain, code and message, capped.
+    private static func refusalReason(_ error: any Error) -> String {
+      let nsError = error as NSError
+      let text = "\(String(describing: error)) [\(nsError.domain) \(nsError.code)]: \(nsError.localizedDescription)"
+      return String(text.prefix(300))
     }
 
     func update(memoID: String, _ content: LiveActivityContentState) async {
@@ -628,6 +673,9 @@ final class RecordingLiveActivity: TakeLiveActivity {
   }
 
   private(set) var starts: [Start] = []
+  /// The memos whose activity request was refused (``refuseStarts(reason:)``).
+  private(set) var refusedIDs: [String] = []
+  private var refusal: String?
   private(set) var states: [LiveActivityContentState] = []
   /// The memo of each entry of ``states``.
   private(set) var stateOwners: [String] = []
@@ -641,9 +689,21 @@ final class RecordingLiveActivity: TakeLiveActivity {
   /// The memos each orphan sweep spared.
   private(set) var sparedBySweeps: [Set<String>] = []
 
-  func start(memoID: String, mode: MemoMode, startedAt: Date, state: LiveActivityContentState) {
+  /// The next requests are refused with `reason` (the system said no) until ``acceptStarts()``.
+  func refuseStarts(reason: String) { refusal = reason }
+
+  func acceptStarts() { refusal = nil }
+
+  func start(
+    memoID: String, mode: MemoMode, startedAt: Date, state: LiveActivityContentState
+  ) -> LiveActivityRequestResult {
+    if let refusal {
+      refusedIDs.append(memoID)
+      return .refused(reason: refusal)
+    }
     starts.append(Start(memoID: memoID, mode: mode, startedAt: startedAt))
     record(memoID, state)
+    return .started
   }
 
   func update(memoID: String, _ state: LiveActivityContentState) { record(memoID, state) }
@@ -682,6 +742,9 @@ final class RecordingLiveActivity: TakeLiveActivity {
 
   /// Some activity was ended for good (not handed to the server).
   var ended: Bool { !ends.isEmpty }
+
+  /// Requested and neither ended nor handed to the server: the cards a failed start must not leave behind.
+  var liveIDs: [String] { starts.map(\.memoID).filter { !endedIDs.contains($0) && !handedOverIDs.contains($0) } }
 }
 
 /// The fake mode's stand-in for the ActivityKit adapter's records: every call the app makes is a `liveactivity.*` event, so a
@@ -695,10 +758,20 @@ final class ObservedTakeLiveActivity: TakeLiveActivity {
     self.log = log
   }
 
-  func start(memoID: String, mode: MemoMode, startedAt: Date, state: LiveActivityContentState) async {
-    await base.start(memoID: memoID, mode: mode, startedAt: startedAt, state: state)
-    log.event(
-      "liveactivity.request", memoWireID: memoID, ["phase": .string(state.phase.rawValue), "ok": true, "fake": true])
+  func start(
+    memoID: String, mode: MemoMode, startedAt: Date, state: LiveActivityContentState
+  ) async -> LiveActivityRequestResult {
+    let result = await base.start(memoID: memoID, mode: mode, startedAt: startedAt, state: state)
+    switch result {
+    case .started:
+      log.event(
+        "liveactivity.request", memoWireID: memoID, ["phase": .string(state.phase.rawValue), "ok": true, "fake": true])
+    case .refused(let reason):
+      log.event(
+        "liveactivity.request", memoWireID: memoID, severity: .error,
+        ["phase": .string(state.phase.rawValue), "ok": false, "error": .string(reason), "fake": true])
+    }
+    return result
   }
 
   func update(memoID: String, _ state: LiveActivityContentState) async {

@@ -61,6 +61,16 @@
         }
       }
     },
+    "iOS did not let Iris start recording in the background. Open Iris and try again." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "iOS hat Iris das Aufnehmen im Hintergrund nicht erlaubt. Öffne Iris und versuche es erneut."
+          }
+        }
+      }
+    },
     "Iris cannot open its outbox right now, so it cannot record." : {
       "localizations" : {
         "de" : {
@@ -77,6 +87,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Iris konnte dieses Memo nicht abschließen"
+          }
+        }
+      }
+    },
+    "Iris could not start the microphone." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Iris konnte das Mikrofon nicht starten."
           }
         }
       }
@@ -117,6 +137,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Iris braucht Mikrofonzugriff, um aufzunehmen."
+          }
+        }
+      }
+    },
+    "Iris needs to open to record." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Iris muss sich zum Aufnehmen öffnen."
           }
         }
       }

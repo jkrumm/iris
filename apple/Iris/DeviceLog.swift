@@ -298,6 +298,14 @@ final class DeviceLogIntentSink: IntentEventSink {
   }
 }
 
+extension DeviceLogIntentSink {
+  func intentRoad(intent: String, road: String) {
+    log.event(
+      "intent.road", memoWireID: log.currentTake?.uuidString.lowercased(),
+      ["intent": .string(intent), "road": .string(road)])
+  }
+}
+
 /// `ui.screen` for a view that appears and disappears: a pushed detail, a thread, a composer.
 struct ReportsScreen: ViewModifier {
   let name: String

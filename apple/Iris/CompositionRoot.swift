@@ -78,6 +78,8 @@ final class CompositionRoot: CaptureIntentHandler, PlaybackIntentHandler {
   private let liveActivity: TakeLiveActivityCoordinator
   private let takeController: TakeController
   private let simulatesOffline: Bool
+  /// Whether the app is in the foreground and running; the tests set it.
+  @ObservationIgnored var isAppActive: @MainActor () -> Bool = { UIApplication.shared.applicationState == .active }
 
   init(
     arguments: [String] = ProcessInfo.processInfo.arguments,
@@ -366,12 +368,31 @@ final class CompositionRoot: CaptureIntentHandler, PlaybackIntentHandler {
     try await startTake(mode: .transcribe)
   }
 
-  private func startTake(mode: MemoMode) async throws {
+  /// The Shortcuts / Siri start (`StartMemoIntent`): with the app not active the Live Activity is requested before the audio
+  /// session (``TakeController/start(mode:source:activityFirst:)``). The Control's `OpenRecorderIntent` and an app in the
+  /// foreground start in today's order.
+  func startMemoFromShortcut() async throws {
+    try await startTake(mode: .hermes, fromShortcut: true)
+  }
+
+  private func startTake(mode: MemoMode, fromShortcut: Bool = false) async throws {
+    let activityFirst = fromShortcut && !isAppActive()
     do {
-      try await takeController.start(mode: mode, source: "intent")
+      try await takeController.start(mode: mode, source: "intent", activityFirst: activityFirst)
+    } catch StartMemoError.backgroundStartRefused {
+      // The intent continues in the foreground, or shows this: the take screen has nothing to say yet.
+      throw StartMemoError.backgroundStartRefused
     } catch {
       take.reportStartFailure(error)
-      throw error
+      throw fromShortcut ? Self.startError(for: error) : error
+    }
+  }
+
+  /// What a Shortcut shows for a start that failed: a recorder or audio session failure in words, anything else as it is.
+  private static func startError(for error: any Error) -> any Error {
+    switch error as? CaptureError {
+    case .sessionFailure, .engineFailure, .recordingFailed: StartMemoError.recordingFailed
+    default: error
     }
   }
 
