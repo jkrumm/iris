@@ -23,8 +23,8 @@ xcrun devicectl device capture screenshot --device $D --destination out.png   # 
   `personal` (fallback: free team, no Push/App Groups; the build drops both keys); `TEAM=<id>` and `IRIS_DEVICE_ID` override. The phone resolves at runtime (`scripts/device-lib.sh`);
   the flags, the key lifecycle and the Personal Team limits: AGENTS.md "Device". Do not rename bundle ids. Install over the same bundle id keeps the app's data (Keychain, outbox).
 - APNs proof after `make device` (ran 2026-11-04, paid team, sandbox): the server row `sqlite3 -readonly ~/.iris/data/iris.db "select device,apns_env,apns_token is not null from devices"` shows `iphone|sandbox|1`
-  (never print the token); send a typed memo (`IRIS_TOKEN=<iphone token from secrets-run> bun scripts/send-memo.ts --text '…' --mode hermes`) and read `~/Library/Logs/iris.log`: **a delivered push logs nothing**
-  (only `notify.apns_rejected|apns_transient|no_token` log), so success is the memo reaching `notified` with none of those lines for its id. A banner needs the notification permission (the app asks once, German "Erlauben")
+  (never print the token); send a typed memo (`IRIS_TOKEN=<iphone token from secrets-run> bun scripts/send-memo.ts --text '…' --mode hermes`) and read `~/Library/Logs/iris.log`: **a delivered push logs
+  `notify.apns_sent`** (`kind`, `push_type`, `priority`, `event`, `alert_present`, `sound`, `status`; Issue 223), a refused one `notify.apns_rejected|apns_transient`, no token `notify.no_token`, so success is the memo reaching `notified` with an `apns_sent` line for its id. A banner needs the notification permission (the app asks once, German "Erlauben")
   and an unlocked, idle phone: a screenshot can show a call or other private content, look before keeping it.
 - App Group proof (ran 2026-11-05, paid): `codesign -d --entitlements :- apple/.dd.noindex/Build/Products/Debug-iphoneos/Iris.app[/PlugIns/*.appex] | plutil -convert json -o - -` shows
   `com.apple.security.application-groups: [group.com.jkrumm.iris]` on all three. A provisioning error

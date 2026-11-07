@@ -356,7 +356,7 @@ Push to master deploys. LaunchAgent `com.jkrumm.iris` (KeepAlive, `ExitTimeOut` 
   an explicitly registered env makes BadDeviceToken clear it (410 / Unregistered always do, via the conditional `clearApnsToken`). `notify` sends one push per memo: the Live Activity `end` when the memo has an
   activity token (it carries `aps.alert` {kind chip or "Iris", headline, `sound: "default"`}, so the device lights up and plays the sound; no separate banner, owner 2026-11-05, TDD §3 notify), else the alert push
   (if the device has an `apnsToken`; also the fallback when the `end` is refused for good); neither registered logs `notify.no_token` and succeeds. A transient `end` failure throws without sending the alert.
-  A rejected token never fails the memo: `notify.apns_rejected` is logged, and BadDeviceToken / 410 Unregistered clear the
+  Every delivered push logs `notify.apns_sent` (kind, push_type, priority, event, alert_present, sound, status; no text). A rejected token never fails the memo: `notify.apns_rejected` is logged, and BadDeviceToken / 410 Unregistered clear the
   stored token (only if it is still the one we sent to); other 4xx (e.g. 403 InvalidProviderToken) are logged, tokens kept.
   Transient failures (status 0, 408, 429, 5xx, 403 ExpiredProviderToken) throw a `TransientError`, so the runner retries notify twice (2 s, 8 s) and then fails it for `POST /retry`
   (a retry re-sends the push by the same rule; the alert carries `apns-collapse-id` = memo id, so a re-send replaces the banner instead of duplicating it). `phase` (Live Activity `update`, priority 5) is bound to memo events by
