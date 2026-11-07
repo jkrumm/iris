@@ -344,6 +344,16 @@ extension CaptureHandlerSuites {
       #expect(await root.outbox.queuedItems().isEmpty)
     }
 
+    @Test("the foreground-continued Shortcut start sees a localized recorder error too")
+    func continuedForegroundFailureIsLocalized() async throws {
+      let (root, _) = try root()
+      let capture = try #require(root.fakeCapture)
+      await capture.session.failActivations(1)
+
+      await #expect(throws: StartMemoError.recordingFailed) { try await root.startMemoFromShortcutInForeground() }
+      #expect(await root.outbox.queuedItems().isEmpty)
+    }
+
     @Test("the Control's start keeps the foreground order whatever the app state says")
     func controlIgnoresAppState() async throws {
       let (root, activity) = try root()

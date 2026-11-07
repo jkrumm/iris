@@ -129,6 +129,18 @@ extension CaptureHandlerSuites {
       await #expect(throws: StartMemoError.self) { _ = try await OpenRecorderIntent().perform() }
     }
 
+    @Test("a refused Shortcut start goes through the Shortcut entry points, never plain startMemo")
+    func refusedShortcutStartUsesTheShortcutRoad() async {
+      let handler = CountingHandler()
+      handler.shortcutFailure = StartMemoError.backgroundStartRefused
+      CaptureIntents.handler = handler
+      defer { CaptureIntents.handler = nil }
+
+      // Outside an AppIntent runtime the system cannot continue in the foreground, so the refusal is what comes out.
+      await #expect(throws: StartMemoError.backgroundStartRefused) { _ = try await StartMemoIntent().perform() }
+      #expect(handler.calls == ["startShortcut"])
+    }
+
     @Test("the intent says so when the app has not registered a handler")
     func noHandler() async {
       CaptureIntents.handler = nil
@@ -152,9 +164,14 @@ private final class RecordingSink: IntentEventSink {
 @MainActor
 private final class CountingHandler: CaptureIntentHandler {
   private(set) var calls: [String] = []
+  var shortcutFailure: (any Error)?
 
   func startMemo() async throws { calls.append("start") }
-  func startMemoFromShortcut() async throws { calls.append("start") }
+  func startMemoFromShortcut() async throws {
+    calls.append("startShortcut")
+    if let shortcutFailure { throw shortcutFailure }
+  }
+  func startMemoFromShortcutInForeground() async throws { calls.append("startShortcutForeground") }
   func startTranscribeMemo() async throws { calls.append("startTranscribe") }
   func endTake() async throws { calls.append("end") }
   func toggleTakePause() async { calls.append("pause") }
@@ -167,7 +184,7 @@ extension CaptureHandlerSuites {
   @Suite("Intents wait for the composition root")
   struct IntentReadyTests {
     private let intents: [(name: String, run: @MainActor () async throws -> Void, call: String)] = [
-      ("StartMemoIntent", { _ = try await StartMemoIntent().perform() }, "start"),
+      ("StartMemoIntent", { _ = try await StartMemoIntent().perform() }, "startShortcut"),
       ("StopMemoIntent", { _ = try await StopMemoIntent().perform() }, "end"),
       ("PauseMemoIntent", { _ = try await PauseMemoIntent().perform() }, "pause"),
       ("SwitchInputIntent", { _ = try await SwitchInputIntent().perform() }, "switch"),

@@ -10,6 +10,9 @@ protocol CaptureIntentHandler: AnyObject {
   /// activated, and a refusal throws ``StartMemoError/backgroundStartRefused`` with nothing left behind; with the app active it is
   /// ``startMemo()``.
   func startMemoFromShortcut() async throws
+  /// The Shortcuts start once the intent has continued in the foreground after a refusal: ``startMemo()`` with the Shortcut's
+  /// localized recorder errors.
+  func startMemoFromShortcutInForeground() async throws
   /// Starts a take in `transcribe` mode (only the transcript comes back) with its Live Activity: the Transcribe control.
   func startTranscribeMemo() async throws
   /// Ends the running take and sends it (the Live Activity's Stop). Nothing running is not an error.
@@ -122,7 +125,7 @@ struct StartMemoIntent: AudioRecordingIntent, LiveActivityIntent {
         continueInForeground: {
           try await continueInForeground(IntentDialog(StartMemoFallback.foregroundDialog), alwaysConfirm: false)
         },
-        foreground: { try await handler.startMemo() },
+        foreground: { try await handler.startMemoFromShortcutInForeground() },
         road: { IntentEvents.road($0, intent: "StartMemoIntent") })
     }
     return .result()

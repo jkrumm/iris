@@ -375,8 +375,14 @@ final class CompositionRoot: CaptureIntentHandler, PlaybackIntentHandler {
     try await startTake(mode: .hermes, fromShortcut: true)
   }
 
-  private func startTake(mode: MemoMode, fromShortcut: Bool = false) async throws {
-    let activityFirst = fromShortcut && !isAppActive()
+  /// The Shortcut's start after the system refused the background one and the intent continued in the foreground: today's
+  /// order, with the same localized recorder errors as ``startMemoFromShortcut()``.
+  func startMemoFromShortcutInForeground() async throws {
+    try await startTake(mode: .hermes, fromShortcut: true, activityFirst: false)
+  }
+
+  private func startTake(mode: MemoMode, fromShortcut: Bool = false, activityFirst: Bool? = nil) async throws {
+    let activityFirst = activityFirst ?? (fromShortcut && !isAppActive())
     do {
       try await takeController.start(mode: mode, source: "intent", activityFirst: activityFirst)
     } catch StartMemoError.backgroundStartRefused {
