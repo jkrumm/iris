@@ -317,7 +317,7 @@ has no `capture.session.error`, and **no** record carries any transcript text (`
 - **Not reachable from the mini right now:** the phone (`devicectl list devices`: JoPhone `unavailable`, so no headless screenshot, install or crash-log copy until it is awake and on the tunnel) and the MacBook (`ssh iumac` timed out on port 2222). Evidence for the iPhone rows is therefore the server memo, HyperDX records (`agw otel`, `service.name=iris-ios`, `run.id=d1`) and the owner's narration in the take's transcript; a screenshot is added whenever the phone is reachable during the session.
 - No local simulator loop and no `make device`: a TestFlight build is installed by the TestFlight app, not by the mini.
 
-**Owner prep (once, 2 min).** TestFlight: update Iris to `693 (498323)`. Phone unlocked, Tailscale VPN on, Iris › Einstellungen › Diagnose › Lauf-ID `d1`, notifications and Live Activities allowed for Iris, Iris-Steuerelement im Sperrbildschirm und Kontrollzentrum, ein Iris-Widget (klein und mittel) und das Sperrbildschirm-Widget auf dem Home-Bildschirm, AirPods geladen. Lauten Ton an (Stumm-Schalter aus, Lautstärke hoch) for the sound row.
+**Owner prep (once, 2 min).** TestFlight: update Iris to `693 (498323)`. Phone unlocked, Tailscale VPN on, Iris › Einstellungen › Diagnose › Lauf-ID `d1`, notifications and Live Activities allowed for Iris, Iris-Steuerelement im Sperrbildschirm und Kontrollzentrum, AirPods geladen. Lauten Ton an (Stumm-Schalter aus, Lautstärke hoch) for the sound row.
 
 | # | Check (rows) | Owner steps (German, in order) | Headless proof (agent) | Result |
 |-|-|-|-|-|

@@ -180,7 +180,7 @@ the action was.
 | R2 — Routing | journal + herdr + the decision model + [Play] + mic preferences | Use it for everything I speak |
 | R3 — History | history + filters, detail, retry, Hermes threads, Chat mode, reply by voice, typed memos, stats | Leave Slack voice memos |
 | R4 — Mac | menu-bar app | Use it at the desk |
-| R5 — Polish | live on-device preview, widgets, spoken-replies mode | — |
+| R5 — Polish | live on-device preview, spoken-replies mode (widgets dropped, owner 2026-11-06) | — |
 | R6 — Agent inbox | agents reach me through Iris, reply by voice | Mute Slack `#agents` |
 
 ## Later (after R5, not scheduled)
