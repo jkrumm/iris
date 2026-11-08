@@ -388,12 +388,12 @@ final class CompositionRoot: CaptureIntentHandler, PlaybackIntentHandler {
   }
 
   /// Ends the take and sends it: the Live Activity's Stop.
-  func endTake() async throws {
-    _ = try await takeController.stop(source: "island")
+  func endTake(memoID: String?) async throws {
+    _ = try await takeController.stop(source: "island", ifMemo: memoID)
   }
 
-  func toggleTakePause() async {
-    await takeController.togglePause(source: "island")
+  func toggleTakePause(memoID: String?) async {
+    await takeController.togglePause(source: "island", ifMemo: memoID)
   }
 
   func switchTakeInput() async throws {

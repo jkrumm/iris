@@ -170,8 +170,9 @@ final class TakeController {
 
   /// Ends the take: the memo is finished in the outbox. `nil` when there is none, or nothing was said.
   @discardableResult
-  func stop(source: String = "app") async throws -> TakeResult? {
+  func stop(source: String = "app", ifMemo memoID: String? = nil) async throws -> TakeResult? {
     DeviceLog.shared.commandSource = source
+    guard await isCurrentTake(memoID) else { return nil }
     let claim = captureClaim
     await microphone?.stop()
     do {
@@ -197,10 +198,22 @@ final class TakeController {
     if let id { await outbox.created.forget(id.wireID) }
   }
 
+  /// Whether a control that names `memoID` (a Live Activity button) is about the take the session holds. A stale button of an
+  /// earlier take, or of the take of another screen (a thread's hold-to-talk), must not act on this one. No id (a control of an
+  /// activity that predates the id) matches any take.
+  private func isCurrentTake(_ memoID: String?) async -> Bool {
+    guard let memoID else { return true }
+    guard let session = try? await stack.session() else { return false }
+    let matches = await session.current.memoID?.wireID == memoID
+    if !matches { DeviceLog.shared.event("take.control_ignored", ["memo": .string(memoID)]) }
+    return matches
+  }
+
   /// Pauses a recording take, resumes a paused one.
-  func togglePause(source: String = "app") async {
+  func togglePause(source: String = "app", ifMemo memoID: String? = nil) async {
     DeviceLog.shared.commandSource = source
     guard let session = try? await stack.session() else { return }
+    guard await isCurrentTake(memoID) else { return }
     if await session.current.phase == .paused {
       await session.resume()
     } else {

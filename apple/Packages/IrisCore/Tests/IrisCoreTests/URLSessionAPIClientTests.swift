@@ -472,6 +472,24 @@ struct URLSessionAPIClientTests {
     #expect(request.header("Authorization") == "Bearer test-token")
   }
 
+  @Test("events skips an undecodable event (an unknown state) and keeps the stream open")
+  func eventsSkipUndecodable() async throws {
+    let done = try compactFixture("events.memo-done")
+    let unknownState = done.replacingOccurrences(of: "\"notified\"", with: "\"from_the_future\"")
+    #expect(unknownState != done, "the fixture carries the state to replace")
+    let body =
+      "event: memo.updated\ndata: \(unknownState)\n\nevent: memo.done\ndata: \(done)\n\nevent: ready\ndata: {}\n\n"
+    let server = StubServer { _ in
+      StubResponse(status: 200, headers: ["Content-Type": "text/event-stream"], chunks: [Data(body.utf8)])
+    }
+
+    var received: [ServerEvent] = []
+    for try await event in server.makeClient().events() { received.append(event) }
+
+    #expect(received.count == 2)
+    #expect(received.last == .ready)
+  }
+
   @Test("events throws unauthorized on a 401")
   func eventsUnauthorized() async {
     let server = StubServer { _ in .text(401, "Unauthorized") }

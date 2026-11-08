@@ -15,10 +15,11 @@ protocol CaptureIntentHandler: AnyObject {
   func startMemoFromShortcutInForeground() async throws
   /// Starts a take in `transcribe` mode (only the transcript comes back) with its Live Activity: the Transcribe control.
   func startTranscribeMemo() async throws
-  /// Ends the running take and sends it (the Live Activity's Stop). Nothing running is not an error.
-  func endTake() async throws
+  /// Ends the running take and sends it (the Live Activity's Stop). Nothing running is not an error; a `memoID` that is not the
+  /// running take's (a stale button) changes nothing.
+  func endTake(memoID: String?) async throws
   /// Pauses the running take, or resumes a paused one (the Live Activity's pause button).
-  func toggleTakePause() async
+  func toggleTakePause(memoID: String?) async
   /// Moves the running take to the next available microphone (the Live Activity's mic-swap button).
   func switchTakeInput() async throws
 }

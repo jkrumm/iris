@@ -180,12 +180,19 @@
     public nonisolated let routeChanges: AsyncStream<RouteChange>
     private let continuation: AsyncStream<RouteChange>.Continuation
     private let defaults: UserDefaults
-    private var observerTask: Task<Void, Never>?
+    private let observerTask: Task<Void, Never>
     private static let rulesKey = "com.jkrumm.iris.capture.routeRules"
 
-    public init(defaults: UserDefaults = .standard, events: any CaptureEvents = NoCaptureEvents()) {
+    /// Publishes `routeChanges` from construction on: the mic rule and the segment rotation on a route change depend on it.
+    public init(
+      defaults: UserDefaults = .standard, events: any CaptureEvents = NoCaptureEvents(),
+      notificationCenter: NotificationCenter = .default
+    ) {
       self.defaults = defaults
-      (routeChanges, continuation) = AsyncStream.makeStream(of: RouteChange.self)
+      let (stream, continuation) = AsyncStream.makeStream(of: RouteChange.self)
+      routeChanges = stream
+      self.continuation = continuation
+      observerTask = Self.observeRouteChanges(on: notificationCenter, into: continuation)
       Self.logRouteChanges(to: events)
     }
 
@@ -258,15 +265,12 @@
       defaults.set(current, forKey: Self.rulesKey)
     }
 
-    /// Starts publishing route changes. Call once after the session is configured.
-    public func startObserving() {
-      guard observerTask == nil else { return }
-      let sink = continuation
-      // Owned by this manager; ends with the process (the manager lives for the app's lifetime).
-      observerTask = Task {
-        for await notification in NotificationCenter.default.notifications(
-          named: AVAudioSession.routeChangeNotification)
-        {
+    // Owned by this manager; ends with the process (the manager lives for the app's lifetime).
+    private static func observeRouteChanges(
+      on center: NotificationCenter, into sink: AsyncStream<RouteChange>.Continuation
+    ) -> Task<Void, Never> {
+      Task {
+        for await notification in center.notifications(named: AVAudioSession.routeChangeNotification) {
           let rawReason = notification.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt
           let reason = rawReason.flatMap(AVAudioSession.RouteChangeReason.init(rawValue:))
           sink.yield(
@@ -274,6 +278,7 @@
               snapshot: Self.snapshot(of: AVAudioSession.sharedInstance()),
               reason: Self.map(reason)))
         }
+        sink.finish()
       }
     }
 

@@ -173,8 +173,8 @@ private final class CountingHandler: CaptureIntentHandler {
   }
   func startMemoFromShortcutInForeground() async throws { calls.append("startShortcutForeground") }
   func startTranscribeMemo() async throws { calls.append("startTranscribe") }
-  func endTake() async throws { calls.append("end") }
-  func toggleTakePause() async { calls.append("pause") }
+  func endTake(memoID: String?) async throws { calls.append("end") }
+  func toggleTakePause(memoID: String?) async { calls.append("pause") }
   func switchTakeInput() async throws { calls.append("switch") }
 }
 

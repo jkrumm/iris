@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 /// A typed `GET /v1/events` event.
 public enum ServerEvent: Hashable, Sendable {
@@ -17,6 +18,20 @@ public enum ServerEvent: Hashable, Sendable {
     case "memo.done":
       return .memoDone(try decodePayload(event))
     default:
+      return nil
+    }
+  }
+
+  /// ``decode(_:)`` for a live stream: an event that does not decode (a state or step a newer server added, while this build is
+  /// old) is logged and skipped, so one event never ends the stream, which would reconnect and reload the list every few seconds.
+  public static func decodeSkippingMalformed(_ event: SSEEvent) -> ServerEvent? {
+    do {
+      return try decode(event)
+    } catch {
+      Logger(subsystem: "com.jkrumm.iris", category: "events")
+        .error(
+          "skipped an undecodable \(event.event, privacy: .public) event: \(String(describing: error), privacy: .public)"
+        )
       return nil
     }
   }

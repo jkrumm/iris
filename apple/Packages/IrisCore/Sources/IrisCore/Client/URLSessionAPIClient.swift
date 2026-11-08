@@ -181,13 +181,16 @@ public struct URLSessionAPIClient: APIClient {
     guard let http = response as? HTTPURLResponse else { throw APIError.transport(.badServerResponse) }
     guard (200..<300).contains(http.statusCode) else {
       var body = Data()
-      for try await byte in bytes where body.count < maxErrorBodyBytes { body.append(byte) }
+      for try await byte in bytes {
+        guard body.count < maxErrorBodyBytes else { break }
+        body.append(byte)
+      }
       throw APIError.from(status: http.statusCode, body: body)
     }
     var parser = SSEParser()
     for try await byte in bytes {
       for sse in parser.feed(CollectionOfOne(byte)) {
-        if let event = try ServerEvent.decode(sse) { continuation.yield(event) }
+        if let event = ServerEvent.decodeSkippingMalformed(sse) { continuation.yield(event) }
       }
     }
   }

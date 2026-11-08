@@ -368,6 +368,24 @@ struct PauseGateTests {
     #expect(gate.accepts(after))
   }
 
+  @Test func aHeldGateTakesNoNewBufferButStillAcceptsTheQueuedOnes() throws {
+    let gate = PauseGate()
+    gate.begin()
+    let queued = try #require(gate.stamp())
+    gate.hold()
+    #expect(gate.isHeld)
+    #expect(gate.stamp() == nil, "nothing new is captured")
+    #expect(gate.accepts(queued), "what the tap delivered before the pause is the take's")
+    gate.pause()
+    #expect(!gate.isHeld)
+    #expect(!gate.accepts(queued), "and once the pause completed, it is stale")
+  }
+
+  @Test func theMarkerIsNeverTakenForAudio() {
+    #expect(TapChunk.marker.isMarker)
+    #expect(!TapChunk(epoch: 3, samples: []).isMarker)
+  }
+
   @Test func aChunkOfAnEarlierTakeIsStale() throws {
     let gate = PauseGate()
     gate.begin()

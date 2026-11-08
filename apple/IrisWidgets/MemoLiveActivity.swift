@@ -12,7 +12,7 @@ struct MemoLiveActivity: Widget {
   var body: some WidgetConfiguration {
     ActivityConfiguration(for: MemoAttributes.self) { context in
       LiveActivityPanel(context.presentation) {
-        RecordingControls(paused: context.state.phase == .paused, onDark: false)
+        RecordingControls(memoID: context.attributes.memoId, paused: context.state.phase == .paused, onDark: false)
       } doneAction: {
         PlayReplyControl(memoID: context.attributes.memoId, onDark: false)
       }
@@ -31,7 +31,7 @@ struct MemoLiveActivity: Widget {
         }
         DynamicIslandExpandedRegion(.bottom) {
           LiveActivityPanel(presentation, style: .island) {
-            RecordingControls(paused: context.state.phase == .paused, onDark: true)
+            RecordingControls(memoID: context.attributes.memoId, paused: context.state.phase == .paused, onDark: true)
           } doneAction: {
             PlayReplyControl(memoID: context.attributes.memoId, onDark: true)
           }
@@ -49,12 +49,13 @@ struct MemoLiveActivity: Widget {
 
 /// Stop, swap the microphone, pause or resume: each an intent that runs in the app, which holds the take.
 private struct RecordingControls: View {
+  let memoID: String
   let paused: Bool
   let onDark: Bool
 
   var body: some View {
     ActivityControlsRow {
-      Button(intent: StopMemoIntent()) {
+      Button(intent: StopMemoIntent(memoID: memoID)) {
         ActivityControlLabel(.stop, title: String(localized: "Stop", comment: "Live Activity control"))
       }
     } switchInput: {
@@ -64,7 +65,7 @@ private struct RecordingControls: View {
           onDark: onDark)
       }
     } pause: {
-      Button(intent: PauseMemoIntent()) {
+      Button(intent: PauseMemoIntent(memoID: memoID)) {
         ActivityControlLabel(
           paused ? .resume : .pause,
           title: paused

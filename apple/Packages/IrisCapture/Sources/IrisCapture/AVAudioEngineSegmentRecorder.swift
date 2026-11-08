@@ -28,6 +28,8 @@
     /// last one before `.stopped`.
     private let closer: SegmentCloser
     private var sampleSink: AsyncStream<TapChunk>.Continuation?
+    /// A `pause()` waiting for the consumer to reach the marker it queued behind the tap's buffered samples.
+    private var drainWaiter: CheckedContinuation<Void, Never>?
     private var consumeTask: Task<Void, Never>?
     private var configurationTask: Task<Void, Never>?
     private var run = EngineRun()
@@ -79,7 +81,7 @@
         rotator = SegmentRotator(policy: policy)
         // Owned by the recorder; ends when `stop()` finishes the stream.
         consumeTask = Task {
-          for await chunk in stream { self.ingest(chunk) }
+          for await chunk in stream { self.consume(chunk) }
         }
         observeConfigurationChanges()
         eventContinuation.yield(.started(memoID))
@@ -100,12 +102,12 @@
       configurationGapStart = nil
       configurationTask?.cancel()
       configurationTask = nil
-      engine.inputNode.removeTap(onBus: 0)
-      engine.stop()
+      InputTapEngine.tearDown(engine)
       sampleSink?.finish()
       sampleSink = nil
       await consumeTask?.value
       consumeTask = nil
+      finishDrain()
       apply(rotator.finish(), samples: [])
       await closer.idle()
       eventContinuation.yield(.stopped(memoID, segmentCount: rotator.closedCount))
@@ -125,7 +127,14 @@
     /// stops the hardware, the app loses the right to record, and the island's Resume (a `LiveActivityIntent` that runs with the
     /// app in the background) then cannot start it again ("engine resume failed", `!rec`). The microphone indicator stays on
     /// while paused; nothing is written.
-    public func pause() {
+    ///
+    /// The samples the tap already delivered (about 0.1 to 0.25 s) belong to the segment that is closing: the tap is held, the
+    /// consumer drains what is queued, and only then the segment rotates and the gate drops the rest.
+    public func pause() async {
+      guard take.isRecording, !run.isPaused, !gate.isHeld else { return }
+      gate.hold()
+      await drainTapSamples()
+      // A stop or a discard ran while the consumer drained: nothing is left to pause.
       guard take.isRecording, !run.isPaused else { return }
       gate.pause()
       apply(rotator.rotate(for: .interruption), samples: [])
@@ -223,6 +232,12 @@
       let generation: Int
 
       var isRunning: Bool { engine.isRunning }
+
+      /// Teardown of a take's engine, with the same exception net as every other engine call.
+      static func tearDown(_ engine: AVAudioEngine) {
+        guarded("removing the tap") { engine.inputNode.removeTap(onBus: 0) }
+        guarded("stopping the engine") { engine.stop() }
+      }
 
       func removeTap() { Self.guarded("removing the tap") { engine.inputNode.removeTap(onBus: 0) } }
 
@@ -400,6 +415,28 @@
     private var isStillPaused: Bool { take.isRecording && run.isPaused }
 
     // MARK: Segments
+
+    private func consume(_ chunk: TapChunk) {
+      guard !chunk.isMarker else {
+        finishDrain()
+        return
+      }
+      ingest(chunk)
+    }
+
+    /// Returns once the consumer has processed every chunk the tap yielded before this call (or the take ended).
+    private func drainTapSamples() async {
+      guard let sink = sampleSink, consumeTask != nil, drainWaiter == nil else { return }
+      await withCheckedContinuation { waiter in
+        drainWaiter = waiter
+        sink.yield(.marker)
+      }
+    }
+
+    private func finishDrain() {
+      drainWaiter?.resume()
+      drainWaiter = nil
+    }
 
     private func ingest(_ chunk: TapChunk) {
       let samples = chunk.samples

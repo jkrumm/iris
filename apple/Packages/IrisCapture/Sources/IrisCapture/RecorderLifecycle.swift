@@ -192,6 +192,10 @@ struct EngineRun: Sendable, Equatable {
 struct TapChunk: Sendable {
   let epoch: Int
   let samples: [Float]
+
+  /// Queued behind the samples already delivered: the consumer reaching it has ingested all of them (see `pause()`).
+  static let marker = TapChunk(epoch: -1, samples: [])
+  var isMarker: Bool { epoch == -1 && samples.isEmpty }
 }
 
 /// Decides at capture time, on the audio thread, whether a buffer belongs to the take. A pause keeps the engine running (the
@@ -204,6 +208,8 @@ final class PauseGate: Sendable {
   private struct State {
     var epoch = 0
     var paused = false
+    /// Paused for new buffers, but the chunks already queued still belong to the take (a pause that is draining them).
+    var draining = false
   }
 
   private let state = Mutex(State())
@@ -213,13 +219,25 @@ final class PauseGate: Sendable {
     state.withLock {
       $0.epoch += 1
       $0.paused = false
+      $0.draining = false
     }
   }
+
+  /// The first half of a pause: no new buffer is taken, the queued chunks are still accepted. ``pause()`` finishes it.
+  func hold() {
+    state.withLock {
+      $0.paused = true
+      $0.draining = true
+    }
+  }
+
+  var isHeld: Bool { state.withLock { $0.draining } }
 
   func pause() {
     state.withLock {
       $0.epoch += 1
       $0.paused = true
+      $0.draining = false
     }
   }
 
@@ -227,6 +245,7 @@ final class PauseGate: Sendable {
     state.withLock {
       $0.epoch += 1
       $0.paused = false
+      $0.draining = false
     }
   }
 
@@ -237,6 +256,6 @@ final class PauseGate: Sendable {
 
   /// Whether a chunk stamped `epoch` still belongs to the take.
   func accepts(_ epoch: Int) -> Bool {
-    state.withLock { !$0.paused && $0.epoch == epoch }
+    state.withLock { ($0.draining || !$0.paused) && $0.epoch == epoch }
   }
 }
