@@ -198,7 +198,9 @@ main() {
   if [[ "$deps_changed" -eq 1 ]]; then
     log "server/package.json or bun.lock changed — bun install --frozen-lockfile --production"
     if ! (cd "$APP_DIR/server" && bun install --frozen-lockfile --production); then
-      log "ERROR: bun install failed — leaving the service on its current running build"
+      log "ERROR: bun install failed — resetting to ${prev_head[1,12]} so a restart never runs new code on old node_modules"
+      git -C "$APP_DIR" reset --hard "$prev_head" >/dev/null
+      (cd "$APP_DIR/server" && bun install --frozen-lockfile --production) || log "ERROR: bun install of the previous lockfile failed too"
       return 1
     fi
   fi

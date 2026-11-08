@@ -26,12 +26,13 @@ CHECK_APPLE := $(if $(shell command -v xcodebuild 2>/dev/null),check-apple)
 check: check-server check-contracts check-strings guard $(CHECK_APPLE) ## Everything CI runs except e2e (check-apple joins where Xcode exists)
 
 .PHONY: check-server
-check-server: ## oxlint, oxfmt --check, tsc --noEmit, bun test
+check-server: ## oxlint, oxfmt --check, tsc --noEmit, bun test (server and scripts)
 	cd server && bun install --frozen-lockfile
 	cd server && bun run lint
 	cd server && bun run format:check
 	cd server && bun run typecheck
 	cd server && bun run test
+	bun test scripts
 
 .PHONY: check-strings
 check-strings: ## String catalogs: every key translated to de, none stale, no hard-coded user-facing literal (needs only bun)
