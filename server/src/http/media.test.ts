@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import { createApp } from "../app.js";
 import type { MemoPatch } from "../memo/memo.js";
-import { seedMemo } from "../memo/test-support.js";
+import { seedMemo, transition } from "../memo/test-support.js";
 import { createReplyAssets } from "../memo/reply-assets.js";
 import { fakeAssetStore, fakeCombiner, fakeDiagramRenderer, fakeSpeaker } from "../ports/fakes.js";
 import { parseDeviceTokens } from "./auth.js";
@@ -12,9 +12,10 @@ type Harness = ReturnType<typeof testApp>;
 
 /** A received memo with two stored segments. */
 function received(h: Harness) {
-  const memo = seedMemo(h.store, "received");
+  const memo = seedMemo(h.store);
   h.store.recordSegment({ id: memo.id, index: 1, bytes: 1, sha256: "b" });
   h.store.recordSegment({ id: memo.id, index: 0, bytes: 1, sha256: "a" });
+  h.store.markReceived({ id: memo.id, segmentCount: 2 });
   return memo.id;
 }
 
@@ -192,7 +193,7 @@ const speech = (h: Harness, id: string) => call(h.app, { path: `/v1/memos/${id}/
 /** Sets the step-written fields the way the pipeline would. */
 function withResult(h: Harness, patch: MemoPatch) {
   const memo = seedMemo(h.store, "acted");
-  h.store.transition({ id: memo.id, from: "acted", to: "summarized" });
+  transition(h.store, { id: memo.id, from: "acted", to: "summarized" });
   h.store.completeStep({
     id: memo.id,
     step: "summarize",

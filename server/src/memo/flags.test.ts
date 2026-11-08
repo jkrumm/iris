@@ -4,7 +4,14 @@ import { createMemoEvents, type MemoEvent } from "./events.js";
 import { PURGE_AFTER_MS, type MemoState } from "./memo.js";
 import { createRunner } from "./runner.js";
 import { createMemoService } from "./service.js";
-import { deferred, fakeAudio, legacyParkedMemo, seedMemo, testStore } from "./test-support.js";
+import {
+  deferred,
+  fakeAudio,
+  legacyParkedMemo,
+  markFailed,
+  seedMemo,
+  testStore,
+} from "./test-support.js";
 
 function setup() {
   const { store, clock } = testStore();
@@ -81,7 +88,7 @@ describe("delete", () => {
     const { store, clock, service, seen } = setup();
     for (const state of ["notified", "failed"] as const) {
       const { id } = seedMemo(store, state === "failed" ? "transcribed" : state);
-      if (state === "failed") store.markStepFailed({ id, step: "route", error: "boom" });
+      if (state === "failed") markFailed(store, { id, step: "route", error: "boom" });
       seen.length = 0;
       const deleted = service.delete(id);
       expect(deleted.deletedAt).toBe(clock.now().toISOString());
@@ -148,7 +155,7 @@ describe("delete", () => {
   it("rejects retry on a deleted memo", () => {
     const { store, service } = setup();
     const failed = seedMemo(store, "transcribed").id;
-    store.markStepFailed({ id: failed, step: "act", error: "boom" });
+    markFailed(store, { id: failed, step: "act", error: "boom" });
     service.delete(failed);
     expect(codeOf(() => service.retry({ id: failed, from: "act" }))).toBe("bad_state");
 

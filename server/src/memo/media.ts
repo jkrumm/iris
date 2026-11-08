@@ -71,6 +71,7 @@ export function createMemoMedia(deps: {
         if (cached) return cached;
         const segmentPaths = store
           .listSegmentIndices(id)
+          .filter((index) => memo.segmentCount === null || index < memo.segmentCount)
           .toSorted((a, b) => a - b)
           .map((index) => audio.path({ id, index }));
         const bytes = await combiner.combine(segmentPaths);

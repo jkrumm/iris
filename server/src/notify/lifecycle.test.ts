@@ -2,7 +2,7 @@ import { describe, expect, it } from "bun:test";
 import { createSqliteDeviceStore } from "../adapters/sqlite-devices.js";
 import { createMemoEvents, memoEvent } from "../memo/events.js";
 import type { Memo } from "../memo/memo.js";
-import { deferred, seedMemo, testStore } from "../memo/test-support.js";
+import { deferred, seedMemo, testStore, transition } from "../memo/test-support.js";
 import { fakeNotifier } from "../ports/fakes.js";
 import { createNotifyLifecycle } from "./lifecycle.js";
 import { bindPhaseUpdates } from "./phases.js";
@@ -20,7 +20,7 @@ function setup(options: { closeTransport?: () => Promise<void> } = {}) {
   const phases = bindPhaseUpdates({ events, store, devices, notifier });
   const lifecycle = createNotifyLifecycle({ phases, ...options });
   const emit = () => {
-    store.transition({ id: memo.id, from: "received", to: "transcribed" });
+    transition(store, { id: memo.id, from: "received", to: "transcribed" });
     events.publish(memoEvent({ memo: store.getMemo(memo.id) as Memo, step: "transcribe", clock }));
   };
   return { lifecycle, push, emit };

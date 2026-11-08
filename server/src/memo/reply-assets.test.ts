@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import { fakeAssetStore, fakeDiagramRenderer } from "../ports/fakes.js";
 import { MAX_BLOCKS, createReplyAssets, extractMermaidBlocks } from "./reply-assets.js";
-import { captureLogs, seedMemo, testStore } from "./test-support.js";
+import { captureLogs, markFailed, seedMemo, testStore, transition } from "./test-support.js";
 
 const fence = (source: string, info = "mermaid") => `\`\`\`${info}\n${source}\n\`\`\``;
 
@@ -269,7 +269,7 @@ describe("sync and the commit of the reply", () => {
     await replies.sync({ memoId: id, replyText: fence("X-->Y") });
     expect(assets.files.size).toBe(8);
     // The memo moved on (retried, parked elsewhere) while the handler rendered.
-    store.transition({ id, from: "acted", to: "needs_route" });
+    transition(store, { id, from: "acted", to: "needs_route" });
 
     const { lines } = await captureLogs(async () => {
       expect(commit(fence("X-->Y"))).toBe(false);
@@ -285,7 +285,7 @@ describe("sync and the commit of the reply", () => {
     const id = transcribedMemo(store);
     const reply = fence("A-->B");
     await replies.sync({ memoId: id, replyText: reply });
-    store.transition({ id, from: "transcribed", to: "needs_route" });
+    transition(store, { id, from: "transcribed", to: "needs_route" });
 
     const { lines } = await captureLogs(async () => {
       expect(commitAct(store, id, reply)).toBe(false);
@@ -309,7 +309,7 @@ describe("sync and the commit of the reply", () => {
     const { store, replies, assets } = setup();
     const id = transcribedMemo(store);
     await replies.sync({ memoId: id, replyText: fence("A-->B") });
-    store.transition({ id, from: "transcribed", to: "needs_route" });
+    transition(store, { id, from: "transcribed", to: "needs_route" });
     // A second run renders its own reply before the first one's lost commit is reconciled.
     await replies.sync({ memoId: id, replyText: fence("X-->Y") });
 
@@ -317,7 +317,7 @@ describe("sync and the commit of the reply", () => {
     await replies.idle();
     expect(assets.files.size).toBe(4);
 
-    store.transition({ id, from: "needs_route", to: "transcribed" });
+    transition(store, { id, from: "needs_route", to: "transcribed" });
     expect(commitAct(store, id, fence("X-->Y"))).toBe(true);
     await replies.idle();
     expect(store.getMemo(id)?.replyBlocks).toHaveLength(1);
@@ -402,7 +402,7 @@ describe("backfill", () => {
     const render = renderer.render.bind(renderer);
     renderer.render = async (source) => {
       // A retry cleared the reply while the diagram rendered.
-      store.markStepFailed({ id, step: "act", error: "x" });
+      markFailed(store, { id, step: "act", error: "x" });
       store.resetForRetry({ id, from: "act" });
       return render(source);
     };
@@ -504,7 +504,7 @@ describe("backfill", () => {
     expect(await replies.backfill()).toBe(0);
 
     // A retry from act produces another reply, committed without a render pass (no replyAssets wired).
-    store.markStepFailed({ id, step: "act", error: "boom" });
+    markFailed(store, { id, step: "act", error: "boom" });
     store.resetForRetry({ id, from: "act" });
     store.markStepStarted({ id, step: "act" });
     commitAct(store, id, fence("A-->B"));

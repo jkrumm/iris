@@ -81,12 +81,9 @@ export interface MemoStore extends ThreadStore {
   recordSegment(params: { id: string; index: number; bytes: number; sha256: string }): boolean;
   getSegment(params: { id: string; index: number }): { bytes: number; sha256: string } | null;
   listSegmentIndices(id: string): number[];
-  deleteSegments(id: string): void;
 
   /** receiving → received compare-and-set; false when the memo is not `receiving` or is soft-deleted. */
   markReceived(params: { id: string; segmentCount: number }): boolean;
-  /** Compare-and-set on state; false when the memo is not in `from`. */
-  transition(params: { id: string; from: MemoState; to: MemoState }): boolean;
 
   /** Replaces any earlier row for the step, so a re-run starts a clean timeline entry. */
   markStepStarted(params: { id: string; step: Step }): void;
@@ -95,12 +92,6 @@ export interface MemoStore extends ThreadStore {
    * `error` (cleared again when a try succeeds). Returns the new attempt number, null when the step is not running.
    */
   markStepRetrying(params: { id: string; step: Step; error: string }): number | null;
-  markStepDone(params: {
-    id: string;
-    step: Step;
-    usage?: unknown;
-    costUsd?: number | undefined;
-  }): void;
   /**
    * Atomic step completion: compare-and-set `from` → `to` first; only when it won, marks the step
    * done and applies `patch`, all in one transaction. False (nothing written) when the memo is no
@@ -115,8 +106,8 @@ export interface MemoStore extends ThreadStore {
     costUsd?: number | undefined;
     patch?: MemoPatch | undefined;
   }): boolean;
-  /** Also moves the memo to `failed` and records `failedStep` and `error`. */
-  markStepFailed(params: { id: string; step: Step; error: string }): void;
+  /** Also moves the memo to `failed` and records `failedStep` and `error`, compare-and-set from `from`; false (nothing written) when the memo left `from`. */
+  markStepFailed(params: { id: string; step: Step; from: MemoState; error: string }): boolean;
   /**
    * An optional step failed for good: records the failure on its step row (error and attempts stay) and moves the memo
    * on to the state the step would have reached, compare-and-set from `from`, without marking the memo failed. False
@@ -153,7 +144,7 @@ export interface MemoStore extends ThreadStore {
    * of an earlier committed reply stay, and `onSettled("discarded")` follows (the new files are the caller's to remove).
    * A winning patch with any other reply text drops the rows (they describe a reply that is gone). Only the latest
    * staging of a memo is tracked, in memory: a newer one settles the older as discarded. `resetForRetry` from `act`
-   * discards it too, `purge` forgets it. A restart re-runs the step. False when the memo is unknown (nothing staged).
+   * discards it too, `purge` discards it too. A restart re-runs the step. False when the memo is unknown (nothing staged).
    */
   stageReplyAssets(id: string, staged: StagedReplyAssets): boolean;
   /**

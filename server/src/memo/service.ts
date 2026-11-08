@@ -319,7 +319,15 @@ export function createMemoService(deps: {
         );
       }
       assertLive(memo);
-      const have = new Set(store.listSegmentIndices(id));
+      const indices = store.listSegmentIndices(id);
+      const extra = indices.filter((i) => i >= segmentCount);
+      if (extra.length > 0) {
+        throw new MemoError(
+          "conflict",
+          `memo ${id} holds segments past segmentCount ${segmentCount}: ${extra.join(", ")}`,
+        );
+      }
+      const have = new Set(indices);
       const missing = Array.from({ length: segmentCount }, (_, i) => i).filter((i) => !have.has(i));
       if (missing.length > 0) {
         throw new MemoError("missing_segments", `${missing.length} segments missing`, { missing });

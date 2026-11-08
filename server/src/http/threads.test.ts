@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { fakeAudio } from "../memo/test-support.js";
+import { fakeAudio, markFailed } from "../memo/test-support.js";
 import { createStepHandlers } from "../pipeline/steps.js";
 import { fakeDestination, fakeNotifier } from "../ports/fakes.js";
 import { call, MAC, PHONE, testApp } from "./test-support.js";
@@ -356,7 +356,7 @@ describe("continuing a thread", () => {
     const first = await say(ctx, { text: "start" });
     ctx.hermes.calls.length = 0;
     const id = await say(ctx, { text: "again", threadId: first });
-    ctx.store.markStepFailed({ id, step: "notify", error: "boom" });
+    markFailed(ctx.store, { id, step: "notify", error: "boom" });
 
     const res = await call(ctx.app, {
       method: "POST",

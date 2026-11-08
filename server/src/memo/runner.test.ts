@@ -6,7 +6,15 @@ import { createAgwClient } from "../adapters/agw-client.js";
 import { createAgwSummarizer } from "../adapters/agw.js";
 import { TransientError } from "../ports/transient.js";
 import { createRunner, RETRY_DELAYS_MS, type StepHandler } from "./runner.js";
-import { captureLogs, deferred, legacyParkedMemo, seedMemo, testStore } from "./test-support.js";
+import {
+  captureLogs,
+  deferred,
+  legacyParkedMemo,
+  markFailed,
+  seedMemo,
+  testStore,
+  transition,
+} from "./test-support.js";
 
 const STEPS: HandlerStep[] = ["transcribe", "act", "summarize", "notify"];
 
@@ -196,7 +204,7 @@ function failedOldAtRoute() {
   const ctx = setup();
   const { id } = seedMemo(ctx.store, "transcribed");
   ctx.store.markStepStarted({ id, step: "route" });
-  ctx.store.markStepFailed({ id, step: "route", error: "old failure" });
+  markFailed(ctx.store, { id, step: "route", error: "old failure" });
   return { ...ctx, id };
 }
 
@@ -257,7 +265,7 @@ describe("retry", () => {
     });
     store.markReceived({ id: memo.id, segmentCount: 1 });
     store.markStepStarted({ id: memo.id, step: "transcribe" });
-    store.markStepFailed({ id: memo.id, step: "transcribe", error: "boom" });
+    markFailed(store, { id: memo.id, step: "transcribe", error: "boom" });
     expect(codeOf(() => runner.retry({ id: memo.id, from: "act" }))).toBe("bad_request");
   });
 
@@ -336,7 +344,7 @@ describe("optional summarize", () => {
       const driven = runner.drive(id);
       await Promise.resolve();
       await Promise.resolve();
-      store.transition({ id, from: "acted", to: "summarized" });
+      transition(store, { id, from: "acted", to: "summarized" });
       gate.resolve();
       await driven;
     });
@@ -425,7 +433,7 @@ describe("atomic completion", () => {
     const running = runner.drive(id);
     await started.promise;
     // Another writer moves the memo while the handler is in flight.
-    store.transition({ id, from: "received", to: "transcribed" });
+    transition(store, { id, from: "received", to: "transcribed" });
     gate.resolve();
     await running;
 
@@ -951,6 +959,28 @@ describe("automatic retries", () => {
     await runner.drive(id);
 
     expect(state.calls).toBe(1);
+    expect(store.getMemo(id)?.state).toBe("received");
+    expect(stepRecord(store, id, "transcribe")?.status).toBe("running");
+  });
+
+  it("ends a wait behind another turn at stop(): the task never starts and the step stays running", async () => {
+    const busy = deferred();
+    let started = false;
+    const { store, runner } = setup({
+      transcribe: async ({ whileWaiting }) => {
+        await (whileWaiting ?? ((wait) => wait))(busy.promise);
+        started = true;
+        return {};
+      },
+    });
+    const { id } = seedMemo(store, "received");
+    const driving = runner.drive(id);
+    await Bun.sleep(0);
+    runner.stop();
+    busy.resolve();
+    await driving;
+
+    expect(started).toBe(false);
     expect(store.getMemo(id)?.state).toBe("received");
     expect(stepRecord(store, id, "transcribe")?.status).toBe("running");
   });

@@ -3,11 +3,11 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createApp } from "../app.js";
-import { createSqliteMemoStore, openDatabase } from "../adapters/sqlite.js";
+import { openDatabase } from "../adapters/sqlite.js";
 import { createMemoEvents } from "../memo/events.js";
 import { createRunner } from "../memo/runner.js";
 import { createMemoService } from "../memo/service.js";
-import { fakeAudio, seedMemo } from "../memo/test-support.js";
+import { fakeAudio, seedMemo, sqliteTestStore } from "../memo/test-support.js";
 import type { StepHandler } from "../memo/runner.js";
 import { manualClock } from "../ports/clock.js";
 import { parseDeviceTokens } from "./auth.js";
@@ -273,11 +273,11 @@ describe("restart recovery", () => {
     const clock = manualClock();
 
     const before = openDatabase(file);
-    const id = seedMemo(createSqliteMemoStore({ db: before, clock }), "transcribed").id;
+    const id = seedMemo(sqliteTestStore({ db: before, clock }), "transcribed").id;
     before.close();
 
     const db = openDatabase(file);
-    const store = createSqliteMemoStore({ db, clock });
+    const store = sqliteTestStore({ db, clock });
     const events = createMemoEvents();
     const runner = createRunner({ store, handlers: fakeHandlers, events, clock });
     const memos = createMemoService({

@@ -19,6 +19,14 @@ import {
 } from "./memo.js";
 import type { MemoStore } from "./store.js";
 
+/** Thrown out of `whileWaiting` once `stop()` ran: the step is left running for the next boot, like an interrupted backoff. */
+class Stopped extends Error {
+  constructor() {
+    super("runner stopped");
+    this.name = "Stopped";
+  }
+}
+
 export interface StepResult {
   usage?: unknown;
   costUsd?: number;
@@ -146,15 +154,24 @@ export function createRunner(deps: {
    */
   async function attempt(params: { memo: Memo; step: HandlerStep; handler: StepHandler }) {
     const { memo, step, handler } = params;
+    // A wait behind another turn ends at `stop()` and never lets the task start afterwards: the handler throws `Stopped`.
+    const untilStop = async <T>(wait: Promise<T>): Promise<T> => {
+      const cut = stopped.promise.then(() => {
+        throw new Stopped();
+      });
+      const result = await Promise.race([wait, cut]);
+      if (isStopping()) throw new Stopped();
+      return result;
+    };
     const whileWaiting = async <T>(wait: Promise<T>): Promise<T> => {
       const held = [...(slotsOf.get(memo.id) ?? [])].filter((slot) => slot.held);
-      if (held.length === 0) return wait;
+      if (held.length === 0) return untilStop(wait);
       for (const slot of held) {
         slot.held = false;
         giveSlot();
       }
       try {
-        return await wait;
+        return await untilStop(wait);
       } finally {
         for (const slot of held) {
           await takeSlot();
@@ -168,6 +185,7 @@ export function createRunner(deps: {
           handler({ memo, whileWaiting }),
         );
       } catch (err) {
+        if (err instanceof Stopped) return null;
         const delayMs = RETRY_DELAYS_MS[tries - 1];
         if (delayMs === undefined || !retryable(step, transientKind(err))) throw err;
         if (stopping) return null;
@@ -182,6 +200,14 @@ export function createRunner(deps: {
         if (isStopping()) return null;
       }
     }
+  }
+
+  function failStep(memo: Memo, step: HandlerStep, error: string) {
+    if (!store.markStepFailed({ id: memo.id, step, from: memo.state, error })) {
+      log("runner.lost_fail", { memo_id: memo.id, step, from: memo.state, error });
+      return;
+    }
+    publish(memo.id, step);
   }
 
   /**
@@ -206,8 +232,7 @@ export function createRunner(deps: {
         publish(memo.id, step);
         return true;
       }
-      store.markStepFailed({ id: memo.id, step, error });
-      publish(memo.id, step);
+      failStep(memo, step, error);
       return false;
     }
     if (result === null) return false;
@@ -216,8 +241,7 @@ export function createRunner(deps: {
       to = advance({ state: memo.state, step, mode: memo.mode });
     } catch (err) {
       // A handler that asks for something its step cannot do is a real failure, optional step or not.
-      store.markStepFailed({ id: memo.id, step, error: errorMessage(err) });
-      publish(memo.id, step);
+      failStep(memo, step, errorMessage(err));
       return false;
     }
     let completed: boolean;

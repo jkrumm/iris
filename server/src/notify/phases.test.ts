@@ -2,7 +2,14 @@ import { describe, expect, it } from "bun:test";
 import { createSqliteDeviceStore } from "../adapters/sqlite-devices.js";
 import { createMemoEvents, memoEvent } from "../memo/events.js";
 import type { Memo, Step } from "../memo/memo.js";
-import { captureLogs, deferred, seedMemo, testStore } from "../memo/test-support.js";
+import {
+  captureLogs,
+  deferred,
+  markFailed,
+  seedMemo,
+  testStore,
+  transition,
+} from "../memo/test-support.js";
 import { fakeNotifier } from "../ports/fakes.js";
 import { bindPhaseUpdates } from "./phases.js";
 
@@ -16,7 +23,7 @@ function setup(options: { withToken?: boolean } = {}) {
   const binding = bindPhaseUpdates({ events, store, devices, notifier });
   const emit = (to: Memo["state"], step: Step | null = null) => {
     const current = store.getMemo(memo.id) as Memo;
-    store.transition({ id: memo.id, from: current.state, to });
+    transition(store, { id: memo.id, from: current.state, to });
     events.publish(memoEvent({ memo: store.getMemo(memo.id) as Memo, step, clock }));
   };
   return { store, devices, events, notifier, memo, binding, emit };
@@ -69,10 +76,10 @@ describe("bindPhaseUpdates", () => {
     const { notifier, store, events, memo, binding, emit } = setup();
     const clock = { now: () => new Date() };
     emit("transcribed");
-    store.transition({ id: memo.id, from: "transcribed", to: "needs_route" });
+    transition(store, { id: memo.id, from: "transcribed", to: "needs_route" });
     events.publish(memoEvent({ memo: store.getMemo(memo.id) as Memo, step: "act", clock }));
     await binding.idle();
-    store.markStepFailed({ id: memo.id, step: "act", error: "nope" });
+    markFailed(store, { id: memo.id, step: "act", error: "nope" });
     events.publish(memoEvent({ memo: store.getMemo(memo.id) as Memo, step: "act", clock }));
     await binding.idle();
     expect(notifier.phaseCalls.map((c) => c.memo.state)).toEqual([

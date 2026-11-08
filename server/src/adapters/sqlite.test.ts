@@ -2,8 +2,16 @@ import { Database } from "bun:sqlite";
 import { describe, expect, it } from "bun:test";
 import { MemoError } from "../memo/errors.js";
 import type { MemoPatch, MemoState, ReplyAsset, Step } from "../memo/memo.js";
-import { captureLogs, legacyParkedMemo, seedMemo, testStore } from "../memo/test-support.js";
-import { createSqliteMemoStore, migrate } from "./sqlite.js";
+import {
+  captureLogs,
+  legacyParkedMemo,
+  markFailed,
+  seedMemo,
+  sqliteTestStore,
+  testStore,
+  transition,
+} from "../memo/test-support.js";
+import { migrate } from "./sqlite.js";
 import { MIGRATIONS } from "./sqlite-migrations.js";
 
 const input = (id: string) => ({
@@ -192,7 +200,7 @@ describe("listMemos search and filters", () => {
        VALUES (?, 'auto', 'iphone', 't', 'notified', 'Der Kalender spinnt', ?, 't', 't')`,
     ).run("old", JSON.stringify({ headline: "Äpfel kaufen", detail: "d", spoken: "s" }));
 
-    const store = createSqliteMemoStore({ db, clock: testStore().clock });
+    const store = sqliteTestStore({ db, clock: testStore().clock });
     expect(ids(store.listMemos({ limit: 5, q: "kalend" }))).toHaveLength(1);
     expect(ids(store.listMemos({ limit: 5, q: "apfel" }))).toHaveLength(1);
     const check = db.query("INSERT INTO memo_fts (memo_fts) VALUES ('integrity-check')");
@@ -210,8 +218,6 @@ describe("segments", () => {
     expect(store.getSegment({ id, index: 2 })).toEqual({ bytes: 10, sha256: "aa" });
     expect(store.getSegment({ id, index: 5 })).toBeNull();
     expect(store.listSegmentIndices(id)).toEqual([0, 2]);
-    store.deleteSegments(id);
-    expect(store.listSegmentIndices(id)).toEqual([]);
   });
 });
 
@@ -227,9 +233,9 @@ describe("state changes", () => {
   it("transition is a compare-and-set", () => {
     const { store } = testStore();
     const { id } = seedMemo(store, "received");
-    expect(store.transition({ id, from: "transcribed", to: "acted" })).toBe(false);
-    expect(store.transition({ id, from: "received", to: "transcribed" })).toBe(true);
-    expect(store.transition({ id, from: "received", to: "transcribed" })).toBe(false);
+    expect(transition(store, { id, from: "transcribed", to: "acted" })).toBe(false);
+    expect(transition(store, { id, from: "received", to: "transcribed" })).toBe(true);
+    expect(transition(store, { id, from: "received", to: "transcribed" })).toBe(false);
     expect(store.getMemo(id)?.state).toBe("transcribed");
   });
 
@@ -239,7 +245,7 @@ describe("state changes", () => {
     seedMemo(store, "notified");
     const failed = seedMemo(store, "transcribed");
     store.markStepStarted({ id: failed.id, step: "act" });
-    store.markStepFailed({ id: failed.id, step: "act", error: "x" });
+    markFailed(store, { id: failed.id, step: "act", error: "x" });
     legacyParkedMemo(store);
     const mid = seedMemo(store, "acted");
     const fresh = seedMemo(store, "received");
@@ -259,7 +265,14 @@ describe("step records", () => {
     store.markStepStarted({ id, step: "transcribe" });
     expect(store.listStepRecords(id)[0]).toMatchObject({ status: "running", finishedAt: null });
     clock.advance(2000);
-    store.markStepDone({ id, step: "transcribe", usage: { tokens: 5 }, costUsd: 0.01 });
+    store.completeStep({
+      id,
+      step: "transcribe",
+      from: "received",
+      to: "received",
+      usage: { tokens: 5 },
+      costUsd: 0.01,
+    });
     expect(store.listStepRecords(id)).toEqual([
       {
         step: "transcribe",
@@ -285,7 +298,7 @@ describe("step records", () => {
       attempts: 3,
       error: "502",
     });
-    store.markStepDone({ id, step: "transcribe" });
+    store.completeStep({ id, step: "transcribe", from: "received", to: "received" });
     expect(store.listStepRecords(id)[0]).toMatchObject({ attempts: 3, error: null });
     expect(store.markStepRetrying({ id, step: "transcribe", error: "late" })).toBeNull();
     store.markStepStarted({ id, step: "transcribe" });
@@ -297,7 +310,7 @@ describe("step records", () => {
     const { id } = seedMemo(store, "received");
     store.markStepStarted({ id, step: "act" });
     store.markStepStarted({ id, step: "transcribe" });
-    store.markStepFailed({ id, step: "transcribe", error: "first" });
+    markFailed(store, { id, step: "transcribe", error: "first" });
     clock.advance(1000);
     store.markStepStarted({ id, step: "transcribe" });
     const records = store.listStepRecords(id);
@@ -309,11 +322,20 @@ describe("step records", () => {
     });
   });
 
+  it("markStepFailed loses its compare-and-set when the memo left the state", () => {
+    const { store } = testStore();
+    const { id } = seedMemo(store, "transcribed");
+    store.markStepStarted({ id, step: "act" });
+    expect(store.markStepFailed({ id, step: "act", from: "received", error: "late" })).toBe(false);
+    expect(store.getMemo(id)?.state).toBe("transcribed");
+    expect(store.listStepRecords(id)[0]).toMatchObject({ status: "running", error: null });
+  });
+
   it("markStepFailed fails the memo and records where and why", () => {
     const { store } = testStore();
     const { id } = seedMemo(store, "transcribed");
     store.markStepStarted({ id, step: "act" });
-    store.markStepFailed({ id, step: "act", error: "hermes down" });
+    markFailed(store, { id, step: "act", error: "hermes down" });
     expect(store.getMemo(id)).toMatchObject({
       state: "failed",
       failedStep: "act",
@@ -326,10 +348,10 @@ describe("step records", () => {
     const { store } = testStore();
     const { id } = seedMemo(store, "received");
     store.markStepStarted({ id, step: "transcribe" });
-    store.markStepDone({ id, step: "transcribe" });
-    store.transition({ id, from: "received", to: "transcribed" });
+    store.completeStep({ id, step: "transcribe", from: "received", to: "received" });
+    transition(store, { id, from: "received", to: "transcribed" });
     store.markStepStarted({ id, step: "act" });
-    store.markStepFailed({ id, step: "act", error: "x" });
+    markFailed(store, { id, step: "act", error: "x" });
 
     expect(store.resetForRetry({ id, from: "act" })).toBe(true);
     expect(store.getMemo(id)).toMatchObject({
@@ -522,7 +544,7 @@ describe("completeStep", () => {
     });
     complete("summarize", "acted", "summarized", { summary });
     store.markStepStarted({ id, step: "notify" });
-    store.markStepFailed({ id, step: "notify", error: "boom" });
+    markFailed(store, { id, step: "notify", error: "boom" });
 
     // A retry from notify keeps everything act and summarize produced.
     store.resetForRetry({ id, from: "notify" });
@@ -535,7 +557,7 @@ describe("completeStep", () => {
       replyText: "x",
     });
 
-    store.markStepFailed({ id, step: "act", error: "boom" });
+    markFailed(store, { id, step: "act", error: "boom" });
     store.resetForRetry({ id, from: "act" });
     expect(store.getMemo(id)).toMatchObject({
       state: "transcribed",
@@ -590,7 +612,7 @@ describe("completeStep", () => {
     const failedWithRoute = (from: "transcribe" | "act" | "notify") => {
       const { id } = seedMemo(store, "acted");
       db.query("UPDATE memos SET route = 'journal' WHERE id = ?").run(id);
-      store.markStepFailed({ id, step: from, error: "boom" });
+      markFailed(store, { id, step: from, error: "boom" });
       store.resetForRetry({ id, from });
       return store.getMemo(id)?.route;
     };
@@ -668,20 +690,20 @@ describe("threads", () => {
     expect(store.getMemo(id)?.threadId).toBeNull();
   });
 
-  it("resetForRetry from act unlinks the memo from its own session but keeps the thread", () => {
+  it("resetForRetry from act unlinks the memo from its own session and drops the thread it alone opened", () => {
     const { store, db } = testStore();
     const { id } = seedMemo(store, "transcribed");
     act(store, id, { thread: thread(id) });
     store.markStepStarted({ id, step: "notify" });
-    store.markStepFailed({ id, step: "notify", error: "boom" });
+    markFailed(store, { id, step: "notify", error: "boom" });
 
     store.resetForRetry({ id, from: "notify" });
     expect(store.getMemo(id)?.threadId).toBe(id);
 
-    store.markStepFailed({ id, step: "act", error: "boom" });
+    markFailed(store, { id, step: "act", error: "boom" });
     store.resetForRetry({ id, from: "act" });
     expect(store.getMemo(id)?.threadId).toBeNull();
-    expect(db.query("SELECT id FROM threads").all()).toEqual([{ id }]);
+    expect(db.query("SELECT id FROM threads").all()).toEqual([]);
   });
 
   it("resetForRetry keeps the thread of a memo created to continue it", () => {
@@ -698,7 +720,7 @@ describe("threads", () => {
     expect(continued.threadId).toBe(memo.id);
 
     act(store, continued.id, { thread: thread(memo.id) });
-    store.markStepFailed({ id: continued.id, step: "act", error: "boom" });
+    markFailed(store, { id: continued.id, step: "act", error: "boom" });
     store.resetForRetry({ id: continued.id, from: "act" });
     expect(store.getMemo(continued.id)?.threadId).toBe(memo.id);
   });
@@ -724,7 +746,7 @@ describe("threads", () => {
     insert.run("j1", "journal", "notified", "dear diary", "journal", "note.md", "c3", "u3");
     insert.run("h3", "hermes", "transcribed", "not acted yet", "hermes", null, "c4", "u4");
 
-    const store = createSqliteMemoStore({ db, clock: testStore().clock });
+    const store = sqliteTestStore({ db, clock: testStore().clock });
     expect(db.query("SELECT * FROM threads ORDER BY id").all()).toEqual([
       {
         id: "h1",
@@ -786,14 +808,14 @@ describe("migrations", () => {
   it("are idempotent on an existing database and keep its data", () => {
     const db = new Database(":memory:");
     const clock = testStore().clock;
-    const first = createSqliteMemoStore({ db, clock });
+    const first = sqliteTestStore({ db, clock });
     const { id } = first.createMemo(input(crypto.randomUUID())).memo;
     expect(db.query<{ user_version: number }, []>("PRAGMA user_version").get()?.user_version).toBe(
       MIGRATIONS.length,
     );
 
     migrate(db);
-    const second = createSqliteMemoStore({ db, clock });
+    const second = sqliteTestStore({ db, clock });
     expect(second.getMemo(id)?.id).toBe(id);
     expect(db.query<{ user_version: number }, []>("PRAGMA user_version").get()?.user_version).toBe(
       MIGRATIONS.length,
@@ -809,7 +831,7 @@ describe("migrations", () => {
     ).run(id);
     db.query("INSERT INTO segments (memo_id, idx, bytes) VALUES (?, 0, 5)").run(id);
 
-    const store = createSqliteMemoStore({ db, clock: testStore().clock });
+    const store = sqliteTestStore({ db, clock: testStore().clock });
     expect(store.getSegment({ id, index: 0 })).toEqual({ bytes: 5, sha256: "" });
     expect(store.recordSegment({ id, index: 1, bytes: 5, sha256: "ab" })).toBe(true);
     expect(store.listSegmentIndices(id)).toEqual([0, 1]);
@@ -823,14 +845,14 @@ describe("migrations", () => {
       "INSERT INTO memos (id, mode, device, started_at, state, created_at, updated_at) VALUES (?, 'auto', 'iphone', 't', 'transcribed', 't', 't')",
     ).run(id);
 
-    const store = createSqliteMemoStore({ db, clock: testStore().clock });
+    const store = sqliteTestStore({ db, clock: testStore().clock });
     expect(db.query("SELECT * FROM route_decisions WHERE memo_id = ?").all(id)).toEqual([]);
     expect(store.getMemo(id)?.state).toBe("transcribed");
   });
 
   it("indexes the columns the stats reads filter on", () => {
     const db = new Database(":memory:");
-    createSqliteMemoStore({ db, clock: testStore().clock });
+    sqliteTestStore({ db, clock: testStore().clock });
     const plan = (sql: string) =>
       db
         .query<{ detail: string }, []>(`EXPLAIN QUERY PLAN ${sql}`)
@@ -953,7 +975,7 @@ describe("migrations", () => {
 
     it("lets the migrated memo retry from act like any failed memo, then drive on", () => {
       const db = version13();
-      const store = createSqliteMemoStore({ db, clock: testStore().clock });
+      const store = sqliteTestStore({ db, clock: testStore().clock });
       expect(userVersion(db)).toBe(MIGRATIONS.length);
       expect(store.getMemo("open")).toMatchObject({
         state: "failed",
@@ -987,7 +1009,7 @@ describe("migrations", () => {
 
     it("indexes memos.kind", () => {
       const db = new Database(":memory:");
-      createSqliteMemoStore({ db, clock: testStore().clock });
+      sqliteTestStore({ db, clock: testStore().clock });
       expect(
         db
           .query<{ detail: string }, []>(
@@ -1138,7 +1160,7 @@ describe("reply assets", () => {
     const { id } = seedMemo(store, "transcribed");
     store.markStepStarted({ id, step: "act" });
     commitReply({ store, id, replyText: "r1", assets: files(0, "old") });
-    store.transition({ id, from: "acted", to: "transcribed" });
+    transition(store, { id, from: "acted", to: "transcribed" });
     commitReply({
       store,
       id,
@@ -1148,7 +1170,7 @@ describe("reply assets", () => {
     expect(store.getReplyAsset(id, "old-svg-light")).toBeNull();
     expect(store.getMemo(id)?.replyBlocks.map((b) => b.index)).toEqual([0]);
 
-    store.transition({ id, from: "acted", to: "transcribed" });
+    transition(store, { id, from: "acted", to: "transcribed" });
     commitReply({ store, id, replyText: "r3" });
     expect(store.getMemo(id)?.replyBlocks).toEqual([]);
   });
@@ -1228,7 +1250,7 @@ describe("reply assets", () => {
     expect(settled).toEqual(["r1:discarded"]);
 
     // A commit of a reply nothing was staged for leaves the staging of the newer one alone.
-    store.transition({ id, from: "transcribed", to: "needs_route" });
+    transition(store, { id, from: "transcribed", to: "needs_route" });
     expect(
       store.completeStep({
         id,
@@ -1240,7 +1262,7 @@ describe("reply assets", () => {
     ).toBe(false);
     expect(settled).toEqual(["r1:discarded"]);
 
-    store.transition({ id, from: "needs_route", to: "transcribed" });
+    transition(store, { id, from: "needs_route", to: "transcribed" });
     store.completeStep({
       id,
       step: "act",
@@ -1265,18 +1287,18 @@ describe("reply assets", () => {
     });
 
     store.markStepStarted({ id, step: "notify" });
-    store.markStepFailed({ id, step: "notify", error: "boom" });
+    markFailed(store, { id, step: "notify", error: "boom" });
     store.resetForRetry({ id, from: "notify" });
     expect(store.getMemo(id)?.replyBlocks).toHaveLength(1);
     expect(settled).toEqual(["x:committed"]);
 
-    store.markStepFailed({ id, step: "act", error: "boom" });
+    markFailed(store, { id, step: "act", error: "boom" });
     store.resetForRetry({ id, from: "act" });
     expect(settled).toEqual(["x:committed", "y:discarded"]);
     expect(store.getMemo(id)?.replyBlocks).toEqual([]);
 
     // Nothing is left to settle: a stale commit of the old reply discards nothing a second time.
-    store.transition({ id, from: "transcribed", to: "needs_route" });
+    transition(store, { id, from: "transcribed", to: "needs_route" });
     expect(
       store.completeStep({
         id,
@@ -1289,7 +1311,22 @@ describe("reply assets", () => {
     expect(settled).toEqual(["x:committed", "y:discarded"]);
   });
 
-  it("purge removes the rows with the memo and forgets a staging", () => {
+  it("purge settles a staging as discarded", () => {
+    const { store, clock } = testStore();
+    const { id } = seedMemo(store, "transcribed");
+    const settled: string[] = [];
+    store.stageReplyAssets(id, {
+      replyText: "y",
+      assets: files(0, "c"),
+      failed: false,
+      onSettled: (outcome) => void settled.push(outcome),
+    });
+    store.markDeleted({ id, at: clock.now().toISOString() });
+    store.purge(id);
+    expect(settled).toEqual(["discarded"]);
+  });
+
+  it("purge removes the rows with the memo and settles a staging as discarded", () => {
     const { store, clock } = testStore();
     const { id } = seedMemo(store, "transcribed");
     const settled: string[] = [];
@@ -1303,7 +1340,7 @@ describe("reply assets", () => {
     store.markDeleted({ id, at: clock.now().toISOString() });
     expect(store.purge(id)).toBe(true);
     expect(store.getReplyAsset(id, "b-svg-light")).toBeNull();
-    expect(settled).toEqual(["x:committed"]);
+    expect(settled).toEqual(["x:committed", "y:discarded"]);
   });
 
   describe("failed marker", () => {
@@ -1315,7 +1352,7 @@ describe("reply assets", () => {
       commitReply({ store, id, replyText: mermaid, failed: true });
       expect(candidates(store)).toEqual([]);
 
-      store.transition({ id, from: "acted", to: "transcribed" });
+      transition(store, { id, from: "acted", to: "transcribed" });
       commitReply({ store, id, replyText: `${mermaid} changed` });
       expect(candidates(store)).toEqual([id]);
     });
@@ -1337,7 +1374,7 @@ describe("reply assets", () => {
       const { store, db } = testStore();
       const { id } = seedMemo(store, "transcribed");
       commitReply({ store, id, replyText: mermaid, failed: true });
-      store.markStepFailed({ id, step: "act", error: "boom" });
+      markFailed(store, { id, step: "act", error: "boom" });
       store.resetForRetry({ id, from: "act" });
       expect(
         db.query("SELECT reply_assets_failed AS failed FROM memos WHERE id = ?").get(id),

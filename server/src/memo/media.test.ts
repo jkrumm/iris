@@ -64,6 +64,24 @@ describe("recording", () => {
     expect(error).toMatchObject({ code: "bad_state" });
     expect(combiner.calls).toEqual([]);
   });
+
+  it("combines only the segments below the memo's segment count", async () => {
+    const { store } = testStore();
+    const combiner = fakeCombiner();
+    const media = createMemoMedia({
+      store,
+      audio: fakeAudio(),
+      combiner,
+      speechCache: fakeSpeechCache(),
+      assets: fakeAssetStore(),
+    });
+    const { id } = seedMemo(store);
+    for (const index of [0, 1, 4])
+      store.recordSegment({ id, index, bytes: 1, sha256: `s${index}` });
+    store.markReceived({ id, segmentCount: 2 });
+    await media.recording(id);
+    expect(combiner.calls).toEqual([[`/fake/${id}/0.m4a`, `/fake/${id}/1.m4a`]]);
+  });
 });
 
 describe("speech", () => {

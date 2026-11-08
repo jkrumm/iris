@@ -346,6 +346,15 @@ describe("complete", () => {
     expect(service.get(memo.id).segmentCount).toBe(2);
   });
 
+  it("rejects a stray segment past the count with a conflict and stays receiving", async () => {
+    const { service } = setup();
+    const { memo } = service.createMemo(input());
+    await service.putSegment({ id: memo.id, index: 0, bytes: bytes() });
+    await service.putSegment({ id: memo.id, index: 3, bytes: bytes() });
+    expect(await codeOf(() => service.complete({ id: memo.id, segmentCount: 1 }))).toBe("conflict");
+    expect(service.get(memo.id).memo.state).toBe("receiving");
+  });
+
   it("validates the count and the memo", async () => {
     const { service } = setup();
     const { memo } = service.createMemo(input());

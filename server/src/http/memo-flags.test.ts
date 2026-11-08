@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import { PURGE_AFTER_MS } from "../memo/memo.js";
 import { createPurger } from "../memo/purge.js";
-import { legacyParkedMemo, seedMemo } from "../memo/test-support.js";
+import { legacyParkedMemo, markFailed, seedMemo, transition } from "../memo/test-support.js";
 import { fakeSpeechCache } from "../ports/fakes.js";
 import { call, fakeHandlers, MAC, testApp } from "./test-support.js";
 
@@ -131,7 +131,7 @@ describe("DELETE /v1/memos/:id", () => {
   it("deletes a failed and a needs_route memo, refuses the rest with 409, and repeats", async () => {
     const { app, store, clock } = testApp();
     const failed = seedMemo(store, "transcribed").id;
-    store.markStepFailed({ id: failed, step: "route", error: "boom" });
+    markFailed(store, { id: failed, step: "route", error: "boom" });
     const parked = legacyParkedMemo(store);
     for (const id of [failed, parked]) expect((await del(app, id)).status).toBe(200);
 
@@ -350,7 +350,7 @@ describe("threads and flags", () => {
         to: "acted",
         patch: { thread: { id: "session", kind: "hermes", title: "t" } },
       });
-      store.transition({ id, from: "acted", to: "notified" });
+      transition(store, { id, from: "acted", to: "notified" });
     }
     await del(app, second);
     const detail = (await (await call(app, { path: "/v1/threads/session" })).json()) as {

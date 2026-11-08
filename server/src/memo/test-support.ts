@@ -1,8 +1,8 @@
 import { Database } from "bun:sqlite";
 import { createSqliteMemoStore } from "../adapters/sqlite.js";
 import { bytesRecording, type AudioStore } from "../ports/audio.js";
-import { manualClock } from "../ports/clock.js";
-import type { Memo, MemoState } from "./memo.js";
+import { manualClock, type Clock } from "../ports/clock.js";
+import type { Memo, MemoState, Step } from "./memo.js";
 import type { MemoStore } from "./store.js";
 
 export interface FakeAudio extends AudioStore {
@@ -39,10 +39,39 @@ export function fakeAudio(): FakeAudio {
   };
 }
 
+const backing = new WeakMap<MemoStore, { db: Database; clock: Clock }>();
+
+/** A sqlite store over `db` that `transition` and `markFailed` can reach; production code has no raw state writes. */
+export function sqliteTestStore(params: { db: Database; clock: Clock }): MemoStore {
+  const store = createSqliteMemoStore(params);
+  backing.set(store, params);
+  return store;
+}
+
 export function testStore() {
   const clock = manualClock();
   const db = new Database(":memory:");
-  return { db, clock, store: createSqliteMemoStore({ db, clock }) };
+  return { db, clock, store: sqliteTestStore({ db, clock }) };
+}
+
+/** Compare-and-set on state, written straight to the database: false when the memo is not in `from`. */
+export function transition(
+  store: MemoStore,
+  { id, from, to }: { id: string; from: MemoState; to: MemoState },
+): boolean {
+  const owner = backing.get(store);
+  if (!owner) throw new Error("transition needs a store from sqliteTestStore");
+  const result = owner.db
+    .query("UPDATE memos SET state = ?, updated_at = ? WHERE id = ? AND state = ?")
+    .run(to, owner.clock.now().toISOString(), id, from);
+  return result.changes === 1;
+}
+
+/** Fails a step from the memo's current state. */
+export function markFailed(store: MemoStore, params: { id: string; step: Step; error: string }) {
+  const memo = store.getMemo(params.id);
+  if (!memo) throw new Error(`memo ${params.id} not found`);
+  return store.markStepFailed({ ...params, from: memo.state });
 }
 
 const PATH: MemoState[] = ["received", "transcribed", "acted", "summarized", "notified"];
@@ -59,7 +88,7 @@ export function seedMemo(store: MemoStore, state: MemoState = "receiving", devic
   const target = PATH.indexOf(state);
   if (target >= 0) store.markReceived({ id, segmentCount: 1 });
   for (let i = 1; i <= target; i++) {
-    store.transition({ id, from: PATH[i - 1] as MemoState, to: PATH[i] as MemoState });
+    transition(store, { id, from: PATH[i - 1] as MemoState, to: PATH[i] as MemoState });
   }
   return store.getMemo(memo.id) as Memo;
 }
@@ -77,7 +106,7 @@ export function legacyParkedMemo(store: MemoStore, transcript = "kauf bitte Milc
     to: "transcribed",
     patch: { transcript },
   });
-  store.transition({ id: memo.id, from: "transcribed", to: "needs_route" });
+  transition(store, { id: memo.id, from: "transcribed", to: "needs_route" });
   return memo.id;
 }
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { seedMemo } from "../memo/test-support.js";
+import { markFailed, seedMemo } from "../memo/test-support.js";
 import { call, fakeHandlers, testApp } from "./test-support.js";
 
 /** Reads decoded chunks from an SSE body until `done` says enough, or the deadline passes. */
@@ -109,7 +109,7 @@ describe("GET /v1/events", () => {
   it("streams memo.updated for each step of a retried legacy failed(route) memo, then memo.done at notified", async () => {
     const { app, store, runner } = testApp({ sseKeepaliveMs: 1000, handlers: fakeHandlers });
     const id = seedMemo(store, "transcribed").id;
-    store.markStepFailed({ id, step: "route", error: "decide refused" });
+    markFailed(store, { id, step: "route", error: "decide refused" });
     const res = await call(app, { path: "/v1/events" });
     const reader = (res.body as ReadableStream<Uint8Array>).getReader();
 

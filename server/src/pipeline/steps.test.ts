@@ -1,8 +1,8 @@
 import { describe, expect, it } from "bun:test";
 import { createMemoEvents } from "../memo/events.js";
-import { MEMO_MODES } from "../memo/memo.js";
+import { MEMO_MODES, type Memo } from "../memo/memo.js";
 import { createRunner } from "../memo/runner.js";
-import { fakeAudio, seedMemo, testStore } from "../memo/test-support.js";
+import { fakeAudio, seedMemo, testStore, transition } from "../memo/test-support.js";
 import {
   FAKE_META,
   fakeAssetStore,
@@ -76,12 +76,17 @@ function metalessDestination(): FakeDestination {
   };
 }
 
-function seedWithSegments(store: ReturnType<typeof testStore>["store"], indices: number[]) {
-  const memo = seedMemo(store, "received");
+function seedWithSegments(
+  store: ReturnType<typeof testStore>["store"],
+  indices: number[],
+  segmentCount = indices.length,
+) {
+  const memo = seedMemo(store);
   for (const index of indices) {
     store.recordSegment({ id: memo.id, index, bytes: 1, sha256: `sha-${index}` });
   }
-  return memo;
+  store.markReceived({ id: memo.id, segmentCount });
+  return store.getMemo(memo.id) as Memo;
 }
 
 describe("createStepHandlers", () => {
@@ -119,6 +124,15 @@ describe("transcribe", () => {
       usage: { audioSeconds: 12.5 },
       costUsd: 0.02,
     });
+  });
+
+  it("ignores a stray segment past the memo's segment count", async () => {
+    const { store, handlers, transcriber } = setup();
+    const memo = seedWithSegments(store, [0, 1, 5], 2);
+    await handlers.transcribe?.({ memo });
+    expect(transcriber.calls[0]?.segmentPaths).toEqual(
+      [0, 1].map((n) => `/fake/${memo.id}/${n}.m4a`),
+    );
   });
 
   it("omits the cost when the port reports none", async () => {
@@ -207,7 +221,7 @@ describe("act", () => {
       destination: metalessDestination(),
       notifier: fakeNotifier(),
     });
-    store.transition({ id: memo.id, from: "acted", to: "transcribed" });
+    transition(store, { id: memo.id, from: "acted", to: "transcribed" });
     const second = await rerun.act?.({ memo: { ...memo, state: "transcribed" } });
     store.completeStep({
       id: memo.id,
@@ -697,6 +711,35 @@ describe("a memo that continues a thread", () => {
       await tick();
       gates[1]?.();
       await second;
+    });
+
+    it("queues the memo that opened a session behind a continuation delivering into it", async () => {
+      const hermes = gatedHermes();
+      const ctx = setup({ destination: hermes.destination });
+      const opener = seedMemo(ctx.store, "transcribed");
+      const openerMemo = { ...opener, transcript: "first", threadId: null };
+      ctx.db
+        .query(
+          "INSERT INTO threads (id, kind, title, created_at, updated_at) VALUES (?, 'hermes', 'earlier', 'c', 'u')",
+        )
+        .run(opener.id);
+      const { memo: continued } = ctx.store.createTextMemo({
+        id: crypto.randomUUID(),
+        mode: "auto",
+        device: "iphone",
+        startedAt: "2026-01-01T00:00:00.000Z",
+        text: "next",
+        threadId: opener.id,
+      });
+      const running = [continued, openerMemo].map((memo) => ctx.handlers.act?.({ memo }));
+      await tick();
+      expect(hermes.state.started).toEqual([continued.id]);
+      hermes.gates[0]?.();
+      await tick();
+      expect(hermes.state.started).toEqual([continued.id, opener.id]);
+      hermes.gates[1]?.();
+      await Promise.all(running);
+      expect(hermes.state.peak).toBe(1);
     });
 
     it("does not make different threads wait for each other", async () => {

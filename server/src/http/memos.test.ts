@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { legacyParkedMemo, seedMemo } from "../memo/test-support.js";
+import { legacyParkedMemo, markFailed, seedMemo, transition } from "../memo/test-support.js";
 import { call, fakeHandlers, MAC, PHONE, testApp } from "./test-support.js";
 
 const bytes = (n = 4) => new Uint8Array(n).fill(7);
@@ -392,7 +392,7 @@ describe("POST /v1/memos/:id/retry", () => {
   it("400s a step outside the memo's pipeline, including the retired route", async () => {
     const { app, store } = testApp();
     const { id } = seedMemo(store, "transcribed");
-    store.markStepFailed({ id, step: "act", error: "boom" });
+    markFailed(store, { id, step: "act", error: "boom" });
     for (const from of ["route", "ingest"]) {
       const res = await call(app, {
         method: "POST",
@@ -429,7 +429,7 @@ describe("POST /v1/memos/:id/retry", () => {
       },
     });
     const { id } = seedMemo(store, "transcribed");
-    store.markStepFailed({ id, step: "route", error: "old failure" });
+    markFailed(store, { id, step: "route", error: "old failure" });
     expect(store.getMemo(id)).toMatchObject({ state: "failed", failedStep: "route" });
 
     // failed at route: notify comes after the failure, so it cannot be retried from
@@ -564,7 +564,7 @@ describe("GET /v1/memos/:id/result", () => {
       ["received", "transcribed"],
       ["transcribed", "needs_route"],
     ] as const) {
-      store.transition({ id, from, to });
+      transition(store, { id, from, to });
     }
     const parked = await call(app, { path: `/v1/memos/${id}/result` });
     expect(parked.status).toBe(200);
@@ -592,7 +592,7 @@ describe("GET /v1/memos/:id/result", () => {
         actions: ["web_search", "terminal"],
       },
     });
-    store.transition({ id, from: "transcribed", to: "needs_route" });
+    transition(store, { id, from: "transcribed", to: "needs_route" });
     const res = await call(app, { path: `/v1/memos/${id}/result` });
     expect(await res.json()).toMatchObject({
       transcript: "hello",

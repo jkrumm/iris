@@ -248,15 +248,21 @@ export function createSqliteMemoStore(params: { db: Database; clock: Clock }): M
   const memoById = (id: string) =>
     db.query<MemoRow, [string]>(`SELECT ${MEMO_SELECT} FROM memos WHERE id = ?`).get(id);
 
-  const markStepFailed = db.transaction((id: string, step: Step, error: string) => {
-    const at = stamp();
-    db.query(
-      "UPDATE memo_steps SET status = 'failed', finished_at = ?, error = ? WHERE memo_id = ? AND step = ?",
-    ).run(at, error, id, step);
-    db.query(
-      "UPDATE memos SET state = 'failed', failed_step = ?, error = ?, updated_at = ? WHERE id = ?",
-    ).run(step, error, at, id);
-  });
+  const markStepFailed = db.transaction(
+    (id: string, step: Step, from: MemoState, error: string): boolean => {
+      const at = stamp();
+      const moved = db
+        .query(
+          "UPDATE memos SET state = 'failed', failed_step = ?, error = ?, updated_at = ? WHERE id = ? AND state = ?",
+        )
+        .run(step, error, at, id, from);
+      if (moved.changes === 0) return false;
+      db.query(
+        "UPDATE memo_steps SET status = 'failed', finished_at = ?, error = ? WHERE memo_id = ? AND step = ?",
+      ).run(at, error, id, step);
+      return true;
+    },
+  );
 
   const skipStep = db.transaction((id: string, step: Step, from: MemoState, error: string) => {
     if (!isOptionalStep(step)) throw new Error(`step ${step} is not optional`);
@@ -298,7 +304,15 @@ export function createSqliteMemoStore(params: { db: Database; clock: Clock }): M
     }
     // `act` set the memo's own session; a memo created to continue a thread keeps its thread (its `thread_id` is never its id).
     if (cleared.includes("act")) {
-      db.query("UPDATE memos SET thread_id = NULL WHERE id = ? AND thread_id = id").run(id);
+      const ownThread = db
+        .query("UPDATE memos SET thread_id = NULL WHERE id = ? AND thread_id = id")
+        .run(id);
+      // The session `act` opened is gone with it: no thread row may list an empty conversation.
+      if (ownThread.changes > 0) {
+        db.query(
+          "DELETE FROM threads WHERE id = ? AND NOT EXISTS (SELECT 1 FROM memos m WHERE m.thread_id = threads.id)",
+        ).run(id);
+      }
       // The reply they were rendered from is gone; their files go with the next render or the purge.
       db.query("DELETE FROM reply_assets WHERE memo_id = ?").run(id);
       db.query("UPDATE memos SET reply_assets_failed = 0 WHERE id = ?").run(id);
@@ -515,23 +529,12 @@ export function createSqliteMemoStore(params: { db: Database; clock: Clock }): M
         .map((row) => row.idx);
     },
 
-    deleteSegments(id) {
-      db.query("DELETE FROM segments WHERE memo_id = ?").run(id);
-    },
-
     markReceived({ id, segmentCount }) {
       const result = db
         .query(
           "UPDATE memos SET state = 'received', segment_count = ?, updated_at = ? WHERE id = ? AND state = 'receiving' AND deleted_at IS NULL",
         )
         .run(segmentCount, stamp(), id);
-      return result.changes === 1;
-    },
-
-    transition({ id, from, to }) {
-      const result = db
-        .query("UPDATE memos SET state = ?, updated_at = ? WHERE id = ? AND state = ?")
-        .run(to, stamp(), id, from);
       return result.changes === 1;
     },
 
@@ -558,13 +561,6 @@ export function createSqliteMemoStore(params: { db: Database; clock: Clock }): M
       );
     },
 
-    markStepDone({ id, step, usage, costUsd }) {
-      db.query(
-        `UPDATE memo_steps SET status = 'done', finished_at = ?, error = NULL, usage_json = ?, cost_usd = ?
-         WHERE memo_id = ? AND step = ?`,
-      ).run(stamp(), usage === undefined ? null : JSON.stringify(usage), costUsd ?? null, id, step);
-    },
-
     completeStep(input) {
       const text = input.patch?.replyText;
       const staged = stagedAssets.get(input.id);
@@ -587,8 +583,8 @@ export function createSqliteMemoStore(params: { db: Database; clock: Clock }): M
       return won;
     },
 
-    markStepFailed({ id, step, error }) {
-      markStepFailed(id, step, error);
+    markStepFailed({ id, step, from, error }) {
+      return markStepFailed(id, step, from, error);
     },
 
     skipStep({ id, step, from, error }) {
@@ -669,7 +665,11 @@ export function createSqliteMemoStore(params: { db: Database; clock: Clock }): M
 
     purge(id) {
       const purged = purge(id);
-      if (purged) stagedAssets.delete(id);
+      const staged = stagedAssets.get(id);
+      if (purged && staged) {
+        stagedAssets.delete(id);
+        staged.onSettled("discarded");
+      }
       return purged;
     },
 

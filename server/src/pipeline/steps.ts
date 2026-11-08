@@ -54,7 +54,7 @@ export function createStepHandlers(deps: {
 }): Partial<Record<HandlerStep, StepHandler>> {
   const { store, audio, transcriber, destination, summarizer, replyAssets, notifier } = deps;
 
-  // Turns into one Hermes session run one at a time: a second memo for the same thread waits for the first's reply, up
+  // Turns into one Hermes session run one at a time (a session's key is its thread id, else the opening memo's id): a second memo for the same thread waits for the first's reply, up
   // to `THREAD_WAIT_MS`; past that it fails and names the turn ahead (`POST /retry` re-queues it). The wait gives up the
   // runner's `driveAll` slot (`whileWaiting`), so a parked waiter never keeps an unrelated memo from starting.
   const inThread = createKeyedQueue({ maxWaitMs: THREAD_WAIT_MS });
@@ -64,6 +64,7 @@ export function createStepHandlers(deps: {
     handlers.transcribe = async ({ memo }) => {
       const segmentPaths = store
         .listSegmentIndices(memo.id)
+        .filter((index) => memo.segmentCount === null || index < memo.segmentCount)
         .toSorted((a, b) => a - b)
         .map((index) => audio.path({ id: memo.id, index }));
       const result = await transcriber.transcribe({ memoId: memo.id, segmentPaths });
@@ -94,9 +95,12 @@ export function createStepHandlers(deps: {
           mode: memo.mode,
           ...(threadId && { threadId }),
         });
-      const delivery = await (threadId
-        ? inThread(threadId, deliver, { label: `memo ${memo.id}`, whileWaiting })
-        : deliver());
+      // A memo that opens its session queues under its own id, the id its session is named after: a retry of it from `act`
+      // must not run beside a continuation delivering into that session.
+      const delivery = await inThread(threadId ?? memo.id, deliver, {
+        label: `memo ${memo.id}`,
+        whileWaiting,
+      });
       getActiveSpan().setAttributes({
         reply_chars: delivery.replyText.length,
         kind: delivery.meta?.kind ?? "",
