@@ -201,6 +201,7 @@ main() {
       log "ERROR: bun install failed — resetting to ${prev_head[1,12]} so a restart never runs new code on old node_modules"
       git -C "$APP_DIR" reset --hard "$prev_head" >/dev/null
       (cd "$APP_DIR/server" && bun install --frozen-lockfile --production) || log "ERROR: bun install of the previous lockfile failed too"
+      print -r -- "$origin_head" > "$FAILED_SHA_FILE"  # the same sha is not retried every tick
       return 1
     fi
   fi
