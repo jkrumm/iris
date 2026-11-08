@@ -498,52 +498,6 @@
     },
     {
       "method": "GET",
-      "path": "/v1/factory",
-      "auth": "bearer",
-      "responses": {
-        "200": {
-          "mediaType": "application/json",
-          "schema": "factory.response"
-        },
-        "503": {
-          "mediaType": "application/json",
-          "schema": "error"
-        }
-      }
-    },
-    {
-      "method": "POST",
-      "path": "/v1/factory/answer",
-      "auth": "bearer",
-      "request": {
-        "mediaType": "application/json",
-        "schema": "factory.answer.request"
-      },
-      "responses": {
-        "200": {
-          "mediaType": "application/json",
-          "schema": "factory.answer.response"
-        },
-        "400": {
-          "mediaType": "application/json",
-          "schema": "error"
-        },
-        "404": {
-          "mediaType": "application/json",
-          "schema": "error"
-        },
-        "409": {
-          "mediaType": "application/json",
-          "schema": "error"
-        },
-        "503": {
-          "mediaType": "application/json",
-          "schema": "error"
-        }
-      }
-    },
-    {
-      "method": "GET",
       "path": "/v1/events",
       "auth": "bearer",
       "responses": {
@@ -578,11 +532,6 @@
       "name": "push.alert",
       "schema": "push.alert",
       "notes": "The whole alert body. The custom memo key is the memo id the app opens on tap. category is MEMO_DONE; the title is the memo's kind (omitted kind: \"Iris\"), the body its headline, never transcript or reply text. The alert's collapse id is the memo id, so a re-send replaces the banner."
-    },
-    {
-      "name": "push.factory-alert",
-      "schema": "push.factory-alert",
-      "notes": "One alert per new decision ask of the software factory (never the human queue, never a stale ask). Title and body are the ask's short and summary as the factory wrote them (free text, not localized); thread-id is factory. The custom factory key is the ask id and its Issue: the app opens that card on tap. The collapse id is a hash of the ask id."
     }
   ]
 }

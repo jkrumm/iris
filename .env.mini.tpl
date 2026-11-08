@@ -18,8 +18,3 @@ APNS_KEY_P8=op://mini/apple-developer/apns-key-p8
 APNS_KEY_ID=op://mini/apple-developer/apns-key-id
 APNS_TEAM_ID=op://mini/apple-developer/team-id
 APNS_TOPIC=com.jkrumm.iris
-
-# The software factory's token API on this machine: the asks and health line for the app, answers forwarded, one push per new
-# decision ask. The ref is the one the dotfiles headless refs already carry.
-FACTORY_URL=http://127.0.0.1:7793
-FACTORY_TOKEN=op://mini/software-factory/FACTORY_TOKEN

@@ -8,7 +8,6 @@ import { createAgwSummarizer } from "./adapters/agw.js";
 import { createAudioDoorClient } from "./adapters/audio-door-client.js";
 import { createAudioDoorSpeaker } from "./adapters/audio-door-speaker.js";
 import { createAudioDoorTranscriber, ffmpegCombiner } from "./adapters/audio-door.js";
-import { createFactoryHttp } from "./adapters/factory-http.js";
 import { createHermesDestination } from "./adapters/hermes.js";
 import { createSqliteStatsStore } from "./adapters/sqlite-stats.js";
 import type { env as parsedEnv } from "./env.js";
@@ -22,15 +21,12 @@ import {
   fakeAssetStore,
   fakeDiagramRenderer,
   fakeDestination,
-  fakeFactoryAlerter,
-  fakeFactoryReader,
   fakeNotifier,
   fakeSpeaker,
   fakeSpeechCache,
   fakeSummarizer,
   fakeTranscriber,
 } from "./ports/fakes.js";
-import type { FactoryAlerter, FactoryReader } from "./ports/factory.js";
 import type { Notifier } from "./ports/notifier.js";
 import type { Speaker } from "./ports/speaker.js";
 import type { Summarizer } from "./ports/summarizer.js";
@@ -51,8 +47,6 @@ export type ComposeEnv = Partial<
     | "AUDIO_DOOR_TOKEN"
     | "AGW_URL"
     | "AGW_API_SECRET"
-    | "FACTORY_URL"
-    | "FACTORY_TOKEN"
     | "HERMES_URL"
     | "HERMES_TOKEN"
     | "APNS_KEY_P8"
@@ -73,8 +67,6 @@ const fakePorts = () => ({
   destination: fakeDestination({ sessionPerMemo: true }),
   summarizer: fakeSummarizer(),
   notifier: fakeNotifier(),
-  factory: fakeFactoryReader(),
-  factoryAlerter: fakeFactoryAlerter(),
   speaker: fakeSpeaker({ result: { bytes: MP3_FRAME } }),
   speechCache: fakeSpeechCache(),
   assets: fakeAssetStore(),
@@ -156,21 +148,13 @@ export function compose(deps: {
     diagrams: fakes?.diagrams ?? createPeleRenderer(),
   };
 
-  // The factory's read API needs its URL and its bearer together.
-  const factory = choose<FactoryReader>("factory", fakes?.factory, () =>
-    env.FACTORY_URL && env.FACTORY_TOKEN
-      ? createFactoryHttp({ baseUrl: env.FACTORY_URL, token: env.FACTORY_TOKEN })
-      : undefined,
-  );
-
   // APNs when all four APNS_* are set, else the log stand-in (a dev setup, so not `degraded`).
   const selected: {
     notifier: Notifier;
     kind: string;
-    factoryAlerter: FactoryAlerter;
     close?: (() => Promise<void>) | undefined;
   } = fakes
-    ? { notifier: fakes.notifier, kind: "fakes", factoryAlerter: fakes.factoryAlerter }
+    ? { notifier: fakes.notifier, kind: "fakes" }
     : selectNotifier({ apns: env, devices, clock });
   log("notifier.selected", { kind: selected.kind });
 
@@ -184,8 +168,6 @@ export function compose(deps: {
     degraded,
     deviceTokens,
     notifier: selected.notifier,
-    factory,
-    factoryAlerter: selected.factoryAlerter,
     notifierKind: selected.kind,
     closeTransport: selected.close,
   };

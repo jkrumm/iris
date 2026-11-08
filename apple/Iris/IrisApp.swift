@@ -17,11 +17,9 @@ struct IrisApp: App {
     WindowGroup {
       RootView(
         history: root.history, isConfigured: root.isConfigured, take: root.take, stats: root.stats,
-        decisions: root.decisions,
         settings: root.settings,
         diagnostics: root.diagnostics, micRules: root.micRules, spokenReplies: root.spokenReplies,
         connectionForm: root.connectionForm, startsOnSettings: root.opensOnSettings,
-        startsOnDecisions: root.opensOnDecisions,
         makeDetail: root.detailModel(for:), makeComposer: root.composerModel(for:),
         makeThread: root.threadModel(for:)
       )

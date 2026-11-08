@@ -6,9 +6,6 @@ import {
   CreateTextMemoBody,
   Device,
   ErrorBody,
-  FactoryAnswerBody,
-  FactoryAnswerResponse,
-  FactoryResponse,
   FlagsBody,
   HealthResponse,
   ListQuery,
@@ -30,7 +27,7 @@ import {
   TooLargeError,
   WhoamiResponse,
 } from "../http/schemas.js";
-import { AlertPayload, ContentState, FactoryAlertPayload } from "../notify/payloads.js";
+import { AlertPayload, ContentState } from "../notify/payloads.js";
 
 /**
  * Every JSON contract, by name (`<resource>.<operation>.<request|response|query>`). The name is the
@@ -65,9 +62,6 @@ export const CONTRACT_SCHEMAS: Record<string, TSchema> = {
   "telemetry.response": TelemetryResponse,
   "stats.query": StatsQuery,
   "stats.response": StatsResponse,
-  "factory.response": FactoryResponse,
-  "factory.answer.request": FactoryAnswerBody,
-  "factory.answer.response": FactoryAnswerResponse,
   "health.response": HealthResponse,
   "whoami.response": WhoamiResponse,
   error: ErrorBody,
@@ -80,5 +74,4 @@ export const CONTRACT_SCHEMAS: Record<string, TSchema> = {
   // Push payloads the server sends to APNs and the apps decode.
   "liveactivity.content-state": ContentState,
   "push.alert": AlertPayload,
-  "push.factory-alert": FactoryAlertPayload,
 };

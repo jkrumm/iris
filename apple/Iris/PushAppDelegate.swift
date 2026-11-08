@@ -1,6 +1,5 @@
 import IrisCapture
 import IrisCore
-import Observation
 import UIKit
 import UserNotifications
 
@@ -53,47 +52,9 @@ extension PushRegistrar {
     })
 }
 
-/// The ask a tapped factory notification is about, handed from the notification delegate to `RootView`. A tap that launches the
-/// app lands here before any view exists, so it waits until the root consumes it.
-@MainActor
-@Observable
-final class FactoryTapRouter {
-  static let shared = FactoryTapRouter()
-
-  private(set) var pendingAskID: String?
-
-  func tapped(askID: String) { pendingAskID = askID }
-
-  func consume() { pendingAskID = nil }
-}
-
-/// Forwards the APNs callbacks, which only an app delegate receives, to ``PushRegistrar/shared``. It is also the notification
-/// center's delegate: a factory alert shows as a banner in the foreground and opens Decisions on tap; any other notification
-/// keeps the system default (not shown while the app is open, nothing on tap).
-final class PushAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
-  func application(
-    _ application: UIApplication,
-    didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
-  ) -> Bool {
-    UNUserNotificationCenter.current().delegate = self
-    return true
-  }
-
-  @MainActor
-  func userNotificationCenter(
-    _ center: UNUserNotificationCenter, willPresent notification: UNNotification
-  ) async -> UNNotificationPresentationOptions {
-    FactoryPush.askID(userInfo: notification.request.content.userInfo) == nil ? [] : [.banner, .sound]
-  }
-
-  @MainActor
-  func userNotificationCenter(
-    _ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse
-  ) async {
-    guard let askID = FactoryPush.askID(userInfo: response.notification.request.content.userInfo) else { return }
-    FactoryTapRouter.shared.tapped(askID: askID)
-  }
-
+/// Forwards the APNs callbacks, which only an app delegate receives, to ``PushRegistrar/shared``. It sets no notification
+/// center delegate: every notification keeps the system default (not shown while the app is open, nothing on tap).
+final class PushAppDelegate: NSObject, UIApplicationDelegate {
   func application(
     _ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data
   ) {

@@ -420,13 +420,14 @@ The research gateway was down for this item (503), so the facts above come from 
 | `AUDIO_DOOR_URL`, `AUDIO_DOOR_TOKEN` | The audio door base (with `/v1`) and the `iris` caller token. Both register `transcribe` and `speech`. The URL is a plain value in `.env.local.tpl`; `launch.sh` reads the token from the local `door-tokens` file (no 1Password ref) |
 | `AGW_URL`, `AGW_API_SECRET` | The agent-workflows host (`http://127.0.0.1:7791`) and its bearer (`op://mini/agent-workflows/API_SECRET`). Both register `summarize` (agw `triage`); unset, the step is skipped and `summarize` is `degraded` |
 | `HERMES_URL`, `HERMES_TOKEN` | Hermes endpoint and bearer. Both register `act`, the one destination; unset leaves every memo waiting at `transcribed` and `act` in `/health` `degraded` |
-| `FACTORY_URL`, `FACTORY_TOKEN` | The software-factory read API (loopback `http://127.0.0.1:<port>`) and its bearer (`op://mini/software-factory/FACTORY_TOKEN`). Both register the `factory` reader, the `/v1/factory` routes and the decision-ask watcher; unset, `factory` is in `/health` `degraded` |
 | `APNS_KEY_P8`, `APNS_KEY_ID`, `APNS_TEAM_ID`, `APNS_TOPIC` | APNs credentials |
 | `IRIS_FAKES` | Boots every downstream port from in-memory fakes (`make e2e`); `degraded` then lists `fakes`. Never set in production (`launch.sh` refuses) |
 | `OTEL_*` | Telemetry export |
 
 `env.ts` parses only these. `HERDR_SOCKET`, `HC_BIN`, `HC_SOCKET` and `BRAIN_DIR` were removed with the routing (Wave 21 S1). `/health` `degraded` lists
-only `otel` (no OTLP endpoint), `fakes`, `device-tokens` (empty map), `transcribe`, `act`, `summarize`, `speech` and `factory` (a missing port; `factory` = the software-factory read API, AGENTS.md "Software factory"); APNs falls back to the log notifier without being listed.
+only `otel` (no OTLP endpoint), `fakes`, `device-tokens` (empty map), `transcribe`, `act`, `summarize` and `speech` (a missing port); APNs falls back to the log notifier without being listed.
+
+**Iris is a Hermes client only (Issue 403).** It makes no call to the software factory and sends no factory push; a voice request reaches the factory through Hermes, and the factory's own surfaces (asks, answers, health) live in the Console. The earlier `/v1/factory` routes, the decision-ask watcher, the Decisions tab and `FACTORY_URL` / `FACTORY_TOKEN` are removed; migration 16 drops `factory_ask_pushes`.
 
 New refs go into `dotfiles-private/headless.refs`.
 

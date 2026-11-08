@@ -371,42 +371,12 @@
         }
       }
     },
-    "All clear" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Alles in Ordnung"
-          }
-        }
-      }
-    },
-    "Already answered" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Bereits beantwortet"
-          }
-        }
-      }
-    },
     "Another reply is still loading. Try again in a moment." : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Eine andere Antwort lädt noch. In einem Moment erneut versuchen."
-          }
-        }
-      }
-    },
-    "Answer" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Antwort"
           }
         }
       }
@@ -2490,66 +2460,6 @@
         }
       }
     },
-    "Could not load decisions" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Entscheidungen konnten nicht geladen werden"
-          }
-        }
-      }
-    },
-    "Could not reach the factory. Send again." : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Die Factory ist nicht erreichbar. Sende die Antwort erneut."
-          }
-        }
-      }
-    },
-    "Decisions" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Entscheidungen"
-          }
-        }
-      }
-    },
-    "Decisions load as soon as it answers." : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Die Entscheidungen laden, sobald sie wieder antwortet."
-          }
-        }
-      }
-    },
-    "Dismiss" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Schließen"
-          }
-        }
-      }
-    },
-    "Factory unreachable" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Factory nicht erreichbar"
-          }
-        }
-      }
-    },
     "refused by the server" : {
       "localizations" : {
         "de" : {
@@ -2640,16 +2550,6 @@
         }
       }
     },
-    "Needs a look (%lld)" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Braucht einen Blick (%lld)"
-          }
-        }
-      }
-    },
     "Stacked by kind, per day. Today is partial." : {
       "localizations" : {
         "de" : {
@@ -2686,86 +2586,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Nicht zugestellt"
-          }
-        }
-      }
-    },
-    "Nothing waits for you" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Nichts wartet auf dich"
-          }
-        }
-      }
-    },
-    "Open questions from the factory show up here." : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Offene Fragen aus der Factory erscheinen hier."
-          }
-        }
-      }
-    },
-    "Send" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Senden"
-          }
-        }
-      }
-    },
-    "Send “%@”?" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "„%@“ senden?"
-          }
-        }
-      }
-    },
-    "Sending…" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Wird gesendet …"
-          }
-        }
-      }
-    },
-    "Stale" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Veraltet"
-          }
-        }
-      }
-    },
-    "The answer was not sent. Send again." : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Die Antwort wurde nicht gesendet. Sende sie erneut."
-          }
-        }
-      }
-    },
-    "This question is no longer open." : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Diese Frage ist nicht mehr offen."
           }
         }
       }

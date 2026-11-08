@@ -2,13 +2,10 @@ import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { createFsAudioStore } from "./adapters/audio-fs.js";
 import { createSqliteMemoStore, openDatabase } from "./adapters/sqlite.js";
-import { createSqliteFactoryPushStore } from "./adapters/sqlite-factory-pushes.js";
 import { createSqliteDeviceStore } from "./adapters/sqlite-devices.js";
 import { createApp } from "./app.js";
 import { compose } from "./compose.js";
 import { env } from "./env.js";
-import { createFactoryService } from "./factory/service.js";
-import { createFactoryWatcher } from "./factory/watcher.js";
 import { createMemoEvents } from "./memo/events.js";
 import { createMemoMedia } from "./memo/media.js";
 import { createPurger } from "./memo/purge.js";
@@ -32,17 +29,7 @@ const events = createMemoEvents();
 const audio = createFsAudioStore(join(env.IRIS_DATA, "audio"));
 
 // A missing downstream leaves its step without a handler: memos park there and /health says so.
-const {
-  ports,
-  stats,
-  degraded,
-  deviceTokens,
-  notifier,
-  closeTransport,
-  telemetry,
-  factory,
-  factoryAlerter,
-} = compose({
+const { ports, stats, degraded, deviceTokens, notifier, closeTransport, telemetry } = compose({
   env,
   db,
   devices,
@@ -98,22 +85,11 @@ const media = createMemoMedia({
   assets: ports.assets,
 });
 
-const factoryService = factory && createFactoryService({ reader: factory });
-// Follows the factory's change stream and pushes once per new decision ask; absent without FACTORY_URL/FACTORY_TOKEN.
-const factoryWatcher =
-  factory &&
-  createFactoryWatcher({
-    reader: factory,
-    alerter: factoryAlerter,
-    pushes: createSqliteFactoryPushStore({ db, clock }),
-  });
-
 const app = createApp({
   deviceTokens,
   degraded,
   memos,
   stats,
-  factory: factoryService,
   devices,
   media,
   telemetry,
@@ -124,9 +100,6 @@ const app = createApp({
 });
 
 log("server.start", { port: env.PORT, host: env.HOST, degraded });
-
-// The factory watcher never blocks listen or a memo: a failure is logged and retried.
-factoryWatcher?.start();
 
 // Soft-deleted memos past their undo window: on boot, then every minute.
 purger.start();
@@ -160,18 +133,13 @@ async function shutdown(code: number): Promise<void> {
     await app.stop(true);
     runner.stop();
     purger.stop();
-    factoryWatcher?.stop();
     // Before the drain: a 50-memo sweep must end after its current memo, not hold the deadline.
     replyAssets.stop();
     notifyLifecycle.stop();
     const drained = await Promise.race([
-      Promise.all([
-        runner.idle(),
-        notifyLifecycle.idle(),
-        purger.idle(),
-        replyAssets.idle(),
-        factoryWatcher?.idle(),
-      ]).then(() => "drained"),
+      Promise.all([runner.idle(), notifyLifecycle.idle(), purger.idle(), replyAssets.idle()]).then(
+        () => "drained",
+      ),
       after(DRAIN_DEADLINE_MS),
     ]);
     if (drained === "timeout") {

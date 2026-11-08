@@ -4,15 +4,10 @@ import { join } from "node:path";
 import { call, MAC, PHONE, testApp } from "../http/test-support.js";
 import type { StepHandler } from "../memo/runner.js";
 import type { HandlerStep } from "../memo/memo.js";
-import {
-  buildAlert,
-  buildFactoryAlert,
-  buildLiveActivityEnd,
-  buildLiveActivityUpdate,
-} from "../notify/payloads.js";
+import { buildAlert, buildLiveActivityEnd, buildLiveActivityUpdate } from "../notify/payloads.js";
 import { legacyParkedMemo, seedMemo } from "../memo/test-support.js";
 import { createReplyAssets } from "../memo/reply-assets.js";
-import { fakeAssetStore, fakeDiagramRenderer, fakeFactoryReader } from "../ports/fakes.js";
+import { fakeAssetStore, fakeDiagramRenderer } from "../ports/fakes.js";
 import { loadContracts, MANIFEST_FILE, violations } from "./check.js";
 import { keyDifferences, sseFrames } from "./conformance-support.js";
 import { Manifest, routeKey } from "./manifest.js";
@@ -749,77 +744,6 @@ describe("push payloads", () => {
       schema: "push.alert",
       value: buildAlert({ topic: "t", memo: memo({ kind: null }) as never, summary }).payload,
       fixtures: ["push.alert.no-route"],
-    });
-  });
-});
-
-describe("factory", () => {
-  const served = fixture("factory.response").value as {
-    asks: (Record<string, unknown> & { options: string[] })[];
-    health: unknown[];
-  };
-  const reader = () =>
-    fakeFactoryReader({
-      asks: served.asks.map(({ answerable: _a, options: _o, ...ask }) => ask) as never,
-      health: served.health as never,
-      options: { 113: served.asks[0]?.options ?? [] },
-    });
-
-  it("serves the asks and health line of the fixture, and answers with its request fixture", async () => {
-    const factory = reader();
-    const { app } = testApp({ factory });
-    const res = await call(app, { path: "/v1/factory" });
-    expect(res.status).toBe(200);
-    await conformingBody({ route: "GET /v1/factory", res, fixtures: ["factory.response"] });
-
-    const { askId, text, callId } = fixture("factory.answer.request").value as Record<
-      string,
-      string
-    >;
-    const send = () =>
-      call(app, { method: "POST", path: "/v1/factory/answer", json: { askId, text, callId } });
-    await conformingBody({
-      route: "POST /v1/factory/answer",
-      res: await send(),
-      fixtures: ["factory.answer.response"],
-    });
-    await conformingBody({
-      route: "POST /v1/factory/answer",
-      res: await send(),
-      fixtures: ["factory.answer.response.duplicate"],
-    });
-  });
-
-  it("an empty factory conforms, and the error shapes match the manifest", async () => {
-    const { app } = testApp({ factory: fakeFactoryReader() });
-    await conformingBody({
-      route: "GET /v1/factory",
-      res: await call(app, { path: "/v1/factory" }),
-      fixtures: ["factory.response.empty"],
-    });
-    const gone = await call(app, {
-      method: "POST",
-      path: "/v1/factory/answer",
-      json: { askId: "decision:1:1:ask:none", text: "yes", callId: "c1" },
-    });
-    expect(gone.status).toBe(404);
-    await conformingBody({ route: "POST /v1/factory/answer", res: gone });
-    const bare = await call(testApp().app, { path: "/v1/factory" });
-    expect(bare.status).toBe(503);
-    await conformingBody({ route: "GET /v1/factory", res: bare });
-  });
-
-  it("builds the alert of the push fixture", () => {
-    const first = served.asks[0] as never as {
-      id: string;
-      issue: number;
-      short: string;
-      summary: string;
-    };
-    conforms({
-      schema: "push.factory-alert",
-      value: buildFactoryAlert({ topic: "t", ask: first }).payload,
-      fixtures: ["push.factory-alert"],
     });
   });
 });

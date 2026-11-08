@@ -1,10 +1,8 @@
 import { createNodeApnsTransport } from "../adapters/apns-node.js";
 import { createLogNotifier } from "../adapters/notifier-log.js";
-import { createApnsFactoryAlerter, createLogFactoryAlerter } from "../adapters/factory-alerter.js";
 import { createApnsNotifier } from "../adapters/notifier-apns.js";
 import type { Clock } from "../ports/clock.js";
 import type { DeviceStore } from "../ports/devices.js";
-import type { FactoryAlerter } from "../ports/factory.js";
 import type { Notifier } from "../ports/notifier.js";
 
 export interface ApnsConfig {
@@ -38,18 +36,12 @@ export function normalizePem(value: string): string {
 export function selectNotifier(deps: { apns: ApnsConfig; devices: DeviceStore; clock: Clock }): {
   notifier: Notifier;
   kind: "apns" | "log";
-  /** New-ask alerts of the software factory: APNs when the notifier is, else a log line. */
-  factoryAlerter: FactoryAlerter;
   /** Closes the APNs connections; absent for the log notifier. */
   close?: () => Promise<void>;
 } {
   const { APNS_KEY_P8, APNS_KEY_ID, APNS_TEAM_ID, APNS_TOPIC } = deps.apns;
   if (!APNS_KEY_P8 || !APNS_KEY_ID || !APNS_TEAM_ID || !APNS_TOPIC) {
-    return {
-      notifier: createLogNotifier(),
-      kind: "log",
-      factoryAlerter: createLogFactoryAlerter(),
-    };
+    return { notifier: createLogNotifier(), kind: "log" };
   }
   const transport = createNodeApnsTransport({
     keyP8: normalizePem(APNS_KEY_P8),
@@ -64,11 +56,6 @@ export function selectNotifier(deps: { apns: ApnsConfig; devices: DeviceStore; c
       clock: deps.clock,
     }),
     kind: "apns",
-    factoryAlerter: createApnsFactoryAlerter({
-      transport,
-      devices: deps.devices,
-      topic: APNS_TOPIC,
-    }),
     close: () => transport.close(),
   };
 }

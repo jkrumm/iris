@@ -4,14 +4,6 @@ import type { AssetStore } from "./assets.js";
 import type { AudioCombiner } from "./audio.js";
 import type { DiagramRenderer, RenderedDiagram } from "./diagram.js";
 import type { Delivery, DeliveryMeta, Destination } from "./destination.js";
-import type {
-  FactoryAlerter,
-  FactoryAlertOutcome,
-  FactoryAsk,
-  FactoryChange,
-  FactoryHealth,
-  FactoryReader,
-} from "./factory.js";
 import type { Notifier } from "./notifier.js";
 import type { Speaker, Speech, SpeechCache } from "./speaker.js";
 import type { Summarization, Summarizer } from "./summarizer.js";
@@ -238,100 +230,6 @@ export function fakeAssetStore(): AssetStore & { files: Map<string, Uint8Array> 
     async removeAll(memoId) {
       for (const key of files.keys()) if (key.startsWith(`${memoId}/`)) files.delete(key);
       changed.delete(memoId);
-    },
-  };
-}
-
-/** The factory's read API in memory: set `state` between calls, `emit` change hints, `end` the stream. */
-export function fakeFactoryReader(
-  init: { asks?: FactoryAsk[]; health?: FactoryHealth[]; options?: Record<number, string[]> } = {},
-) {
-  const state = {
-    asks: init.asks ?? [],
-    health: init.health ?? [],
-    options: init.options ?? ({} as Record<number, string[]>),
-    builtAt: "2026-11-06T10:00:00.000Z",
-    /** Makes every read and the answer throw it. */
-    failWith: undefined as Error | undefined,
-    /** Makes `issueQuestion` throw it. */
-    optionsFailWith: undefined as Error | undefined,
-    /** Makes `answer` throw it. */
-    answerFailWith: undefined as Error | undefined,
-  };
-  const answers: { issue: number; callId: string; text: string }[] = [];
-  const follows: (string | undefined)[] = [];
-  const seenCalls = new Set<string>();
-  const queue: Array<FactoryChange | Error> = [];
-  let wake: (() => void) | undefined;
-  const push = (item: FactoryChange | Error) => {
-    queue.push(item);
-    wake?.();
-  };
-  const guard = () => {
-    if (state.failWith) throw state.failWith;
-  };
-  const reader: FactoryReader = {
-    async overview() {
-      guard();
-      return { asks: state.asks, health: state.health, builtAt: state.builtAt };
-    },
-    async asks() {
-      guard();
-      return state.asks;
-    },
-    async issueQuestion(issue) {
-      guard();
-      if (state.optionsFailWith) throw state.optionsFailWith;
-      return state.options[issue] ?? [];
-    },
-    async answer(params) {
-      guard();
-      if (state.answerFailWith) throw state.answerFailWith;
-      answers.push(params);
-      const duplicate = seenCalls.has(params.callId);
-      seenCalls.add(params.callId);
-      return { issue: params.issue, state: "working", duplicate };
-    },
-    async *follow(since, signal) {
-      follows.push(since);
-      guard();
-      for (;;) {
-        const next = queue.shift();
-        if (next instanceof Error) throw next;
-        if (next) {
-          yield next;
-          continue;
-        }
-        if (signal.aborted) return;
-        await new Promise<void>((resolve) => {
-          wake = resolve;
-          signal.addEventListener("abort", () => resolve(), { once: true });
-        });
-      }
-    },
-  };
-  return {
-    ...reader,
-    state,
-    answers,
-    follows,
-    emit: (change: FactoryChange) => push(change),
-    /** The stream drops with this error (a lost connection, or `cursor_gone`). */
-    drop: (err: Error) => push(err),
-  };
-}
-
-/** Records every alert; `outcomes` are consumed in order, then alerts succeed. */
-export function fakeFactoryAlerter(
-  options: { outcomes?: FactoryAlertOutcome[] } = {},
-): FactoryAlerter & Calls<Parameters<FactoryAlerter["alert"]>[0]> {
-  const calls: Parameters<FactoryAlerter["alert"]>[0][] = [];
-  const outcomes = [...(options.outcomes ?? [])];
-  return {
-    calls,
-    async alert(ask) {
-      calls.push(ask);
-      return outcomes.shift() ?? "sent";
     },
   };
 }

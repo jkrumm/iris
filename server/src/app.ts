@@ -1,11 +1,9 @@
 import { Elysia } from "elysia";
-import type { FactoryService } from "./factory/service.js";
 import type { MemoMedia } from "./memo/media.js";
 import type { MemoService } from "./memo/service.js";
 import { deviceAuth } from "./http/auth.js";
 import { deviceRoutes } from "./http/devices.js";
 import { httpErrors } from "./http/errors.js";
-import { factoryRoutes } from "./http/factory.js";
 import { eventRoutes } from "./http/events.js";
 import { mediaRoutes } from "./http/media.js";
 import { memoRoutes } from "./http/memos.js";
@@ -25,7 +23,6 @@ export interface AppDeps {
   media?: MemoMedia | undefined;
   telemetry?: TelemetryRelay | undefined;
   stats?: StatsStore | undefined;
-  factory?: FactoryService | undefined;
   /** Names of optional subsystems that are not configured; surfaced on /health. */
   degraded?: string[];
   /** Memos with a step running right now; surfaced on /health so the deploy poller can wait for idle. */
@@ -38,7 +35,7 @@ export interface AppDeps {
 export function createApp(deps: AppDeps) {
   const degraded = deps.degraded ?? [];
   const auth = deviceAuth(deps.deviceTokens);
-  const { memos, stats, devices, media, telemetry, factory } = deps;
+  const { memos, stats, devices, media, telemetry } = deps;
   return new Elysia()
     .use(httpErrors)
     .get(
@@ -62,7 +59,6 @@ export function createApp(deps: AppDeps) {
         .use(telemetryRoutes({ telemetry, auth }))
         .use(mediaRoutes({ media, auth }))
         .use(statsRoutes({ stats, auth }))
-        .use(factoryRoutes({ factory, auth }))
         .use(eventRoutes({ memos, auth, keepaliveMs: deps.sseKeepaliveMs })),
     );
 }

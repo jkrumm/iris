@@ -343,4 +343,4 @@ has no `capture.session.error`, and **no** record carries any transcript text (`
 
 | Row | Step | Evidence | Status |
 |-|-|-|-|
-| 211-1 | Build with the fix (TestFlight or `make device`). Send a typed memo with the app in the foreground, then in the background; answer a Decisions card; tap a factory push banner from the lock screen and from the foreground. | App stays up, no new `Iris-*.ips`, no MetricKit crash record (`run.id`, `signal 6`) | not run (needs the owner's hands) |
+| 211-1 | Build with the fix (TestFlight or `make device`). Send a typed memo with the app in the foreground, then in the background (the Decisions tab and factory pushes are gone since Issue 403, so the two crash paths no longer exist). | App stays up, no new `Iris-*.ips`, no MetricKit crash record (`run.id`, `signal 6`) | not run (needs the owner's hands) |

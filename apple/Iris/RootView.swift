@@ -2,14 +2,13 @@ import IrisCore
 import IrisUI
 import SwiftUI
 
-/// History · Stats · Decisions · Settings. Threads are not a tab: a conversation is a History row (round 2).
+/// History · Stats · Settings. Threads are not a tab: a conversation is a History row (round 2).
 struct RootView: View {
   let history: HistoryModel
   /// A server URL and token are saved; without them History shows a prompt that opens Settings → Connection.
   let isConfigured: Bool
   @Bindable var take: TakeModel
   let stats: StatsModel
-  let decisions: DecisionsModel
   let settings: SettingsModel
   let diagnostics: DiagnosticsModel
   let micRules: MicRulesModel
@@ -21,7 +20,7 @@ struct RootView: View {
 
   /// The tab shown first and the one the app jumps to when the connection is missing.
   enum Section: Hashable {
-    case history, stats, decisions, settings
+    case history, stats, settings
   }
 
   @State private var selection: Section
@@ -29,13 +28,12 @@ struct RootView: View {
   @State private var accessoryPresence = RecordAccessoryPresence()
   /// The composer the record row's Text button opens.
   @State private var composer: ComposerRequest?
-  private let tapRouter = FactoryTapRouter.shared
 
   init(
-    history: HistoryModel, isConfigured: Bool = true, take: TakeModel, stats: StatsModel, decisions: DecisionsModel,
+    history: HistoryModel, isConfigured: Bool = true, take: TakeModel, stats: StatsModel,
     settings: SettingsModel,
     diagnostics: DiagnosticsModel, micRules: MicRulesModel, spokenReplies: SpokenReplies,
-    connectionForm: ConnectionModel? = nil, startsOnSettings: Bool = false, startsOnDecisions: Bool = false,
+    connectionForm: ConnectionModel? = nil, startsOnSettings: Bool = false,
     makeDetail: @escaping (Memo) -> MemoDetailModel, makeComposer: @escaping (ComposerRequest) -> ComposerModel,
     makeThread: @escaping (ThreadRoute) -> ThreadModel
   ) {
@@ -43,7 +41,6 @@ struct RootView: View {
     self.isConfigured = isConfigured
     self.take = take
     self.stats = stats
-    self.decisions = decisions
     self.settings = settings
     self.diagnostics = diagnostics
     self.micRules = micRules
@@ -52,8 +49,7 @@ struct RootView: View {
     self.makeDetail = makeDetail
     self.makeComposer = makeComposer
     self.makeThread = makeThread
-    _selection = State(
-      initialValue: startsOnSettings ? .settings : startsOnDecisions ? .decisions : .history)
+    _selection = State(initialValue: startsOnSettings ? .settings : .history)
   }
 
   var body: some View {
@@ -66,12 +62,6 @@ struct RootView: View {
       Tab(String(localized: "Stats", comment: "Tab title"), systemImage: "chart.bar", value: Section.stats) {
         StatsView(model: stats)
       }
-      Tab(
-        String(localized: "Decisions", comment: "Tab title"), systemImage: "checkmark.bubble", value: Section.decisions
-      ) {
-        DecisionsView(model: decisions)
-      }
-      .badge(decisions.openCount)
       Tab(String(localized: "Settings", comment: "Tab title"), systemImage: "gearshape", value: Section.settings) {
         SettingsView(
           model: settings, history: history, diagnostics: diagnostics, micRules: micRules,
@@ -105,13 +95,6 @@ struct RootView: View {
       Text(verbatim: take.failure ?? "")
     }
     .task { await take.run() }
-    // A tapped factory alert (also the one that launched the app): open Decisions on that card, after a fresh load.
-    .onChange(of: tapRouter.pendingAskID, initial: true) { _, askID in
-      guard let askID else { return }
-      tapRouter.consume()
-      selection = .decisions
-      Task { await decisions.focus(askID: askID) }
-    }
     .onChange(of: visibleScreen, initial: true) { previous, screen in
       if previous != screen {
         DeviceLog.shared.event("ui.screen", ["screen": .string(previous), "shown": false])
@@ -126,7 +109,6 @@ struct RootView: View {
     return switch selection {
     case .history: "history"
     case .stats: "stats"
-    case .decisions: "decisions"
     case .settings: "settings"
     }
   }

@@ -44,9 +44,6 @@ final class CompositionRoot: CaptureIntentHandler, PlaybackIntentHandler {
   let fakeCapture: FakeCapture?
   let history: HistoryModel
   let stats: StatsModel
-  let decisions: DecisionsModel
-  /// `-IrisFakeFactory`: the app opens on the Decisions tab.
-  let opensOnDecisions: Bool
   let settings: SettingsModel
   let diagnostics: DiagnosticsModel
   /// The microphone rule of the active audio route (Settings).
@@ -131,8 +128,6 @@ final class CompositionRoot: CaptureIntentHandler, PlaybackIntentHandler {
         isConfigured: { true }, requestPermission: { true }, speech: speech, preview: .fake(tap: capture.recorder))
       history = HistoryModel(client: fake, evictMedia: { MediaDownloader.shared.evict(memoID: $0) })
       stats = StatsModel(client: fake)
-      decisions = DecisionsModel(client: fake)
-      opensOnDecisions = arguments.contains(SampleData.fakeFactoryArgument)
       settings = SettingsModel(client: fake, queue: service)
       replyImages = ReplyImageStore(
         loader: MediaAssetLoader(source: { FakeMediaSource() }, downloader: .shared))
@@ -172,8 +167,6 @@ final class CompositionRoot: CaptureIntentHandler, PlaybackIntentHandler {
         client: client, hiddenStore: UserDefaultsHiddenMemoStore(),
         evictMedia: { MediaDownloader.shared.evict(memoID: $0) })
       stats = StatsModel(client: client)
-      decisions = DecisionsModel(client: client)
-      opensOnDecisions = false
       settings = SettingsModel(client: client, queue: service, credentials: credentials)
       fakeCapture = nil
       voiceReply = OutboxVoiceReplyCapture(
@@ -278,7 +271,6 @@ final class CompositionRoot: CaptureIntentHandler, PlaybackIntentHandler {
     }
     if let fakeAPI {
       await SampleData.seed(fakeAPI, now: sampleNow)
-      if opensOnDecisions { await fakeAPI.setFactoryBoard(SampleData.factoryBoard(now: sampleNow)) }
     }
     // Cached media that outlived its memo (deleted elsewhere, or while the app was gone) does not pile up.
     MediaDownloader.shared.sweepStale()
@@ -303,9 +295,6 @@ final class CompositionRoot: CaptureIntentHandler, PlaybackIntentHandler {
       await settings.load()
       await stats.load()
     }
-    // Off to the side: the badge fills in when the factory answers, History never waits for it.
-    let board = Task { await decisions.load() }
-    defer { board.cancel() }
     await history.load()
     await history.observeEvents()
   }
@@ -445,8 +434,6 @@ final class CompositionRoot: CaptureIntentHandler, PlaybackIntentHandler {
   func foregrounded() async {
     liveActivity.snapshot(reason: "foreground")
     guard mode == .production, isConfigured else { return }
-    // The badge follows the factory without the tab being open.
-    Task { await decisions.load() }
     await outbox.resume()
     await reportOutboxRecovery()
     // A follower does not poll while the app is suspended: look at the handed-over activities again.

@@ -44,10 +44,6 @@ nonisolated struct StreamTappingClient: APIClient {
     try await base.setActivityToken(memoID: memoID, request: request)
   }
   func stats(_ query: StatsQuery) async throws -> Stats { try await base.stats(query) }
-  func factory() async throws -> FactoryBoard { try await base.factory() }
-  func answerFactoryAsk(_ request: FactoryAnswerRequest) async throws -> FactoryAnswerResponse {
-    try await base.answerFactoryAsk(request)
-  }
 
   func events() -> AsyncThrowingStream<ServerEvent, any Error> {
     let upstream = base.events()

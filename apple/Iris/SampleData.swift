@@ -273,34 +273,6 @@ enum SampleData {
     await client.setStats(stats(now: now))
   }
 
-  /// The launch argument that fills the Decisions tab with the sample board (`-IrisFakeFactory`, beside `-IrisFakeCapture`) and opens on it.
-  static let fakeFactoryArgument = "-IrisFakeFactory"
-
-  /// The sample factory board: two open questions (one with options), a stale one that takes no answer, and one health line.
-  static func factoryBoard(now: Date = Date()) -> FactoryBoard {
-    let asks = [
-      FactoryAsk(
-        id: "sample:cache", issue: 113, short: "Which cache layer?",
-        summary: "The lead needs a call: keep Redis or move to the in-process cache.", kind: "question",
-        at: now.addingTimeInterval(-25 * 60), options: ["Keep Redis", "Move in-process"]),
-      FactoryAsk(
-        id: "sample:release", issue: 118, short: "Ship the release notes as written?",
-        summary: "The notes name two fixes the owner has not seen. Say what to change, or approve.", kind: "human",
-        at: now.addingTimeInterval(-3 * 3600)),
-      FactoryAsk(
-        id: "sample:review", short: "Waiting on a review",
-        summary: "A lead has waited for a go-ahead since yesterday.", source: "hc", kind: "blocker",
-        at: now.addingTimeInterval(-26 * 3600), stale: true, answerable: false),
-    ]
-    let health = [
-      FactoryHealthItem(
-        id: "park:114", kind: "park", short: "One Issue is parked",
-        summary: "Issue 114 stopped after three failed attempts and waits for you.",
-        since: now.addingTimeInterval(-2 * 3600))
-    ]
-    return FactoryBoard(asks: asks, health: health, builtAt: now)
-  }
-
   /// The launch argument that pins the sample clock (`-IrisSampleNow 2027-01-15T12:00:00Z`), so UI tests see the same
   /// History whatever time of day they run: the sample memos are relative to it, and a memo from 90 minutes ago is
   /// on another day for the first hour and a half after midnight.

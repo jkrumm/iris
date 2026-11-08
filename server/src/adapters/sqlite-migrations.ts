@@ -214,4 +214,8 @@ export const MIGRATIONS: readonly string[] = [
     pushed_at TEXT
   );
   `,
+  // Iris is a Hermes client only (Issue 403): the factory push ledger of entry 15 is gone with the feature.
+  `
+  DROP TABLE IF EXISTS factory_ask_pushes;
+  `,
 ];
