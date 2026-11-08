@@ -178,6 +178,23 @@ wire("node-apn transport against a local HTTP/2 server", () => {
     expect(timeline.slice(0, 2)).toEqual(["start", "end"]);
   });
 
+  it("keeps probing one stream at a time while the connection has not proven the token", async () => {
+    reset();
+    delayMs = 20;
+    respondWith = () => ({ status: 403, body: { reason: "InvalidProviderToken" } });
+    const t = transport();
+    const results = await Promise.all(
+      Array.from({ length: 5 }, () =>
+        t.send({ ...message, environment: "sandbox", deviceToken: TOKEN }),
+      ),
+    );
+    await t.close();
+
+    expect(results.every((r) => !r.ok && r.status === 403)).toBe(true);
+    expect(seen).toHaveLength(5);
+    expect(maxActive).toBe(1);
+  });
+
   it("maps APNs rejections to status and reason", async () => {
     reset();
     const t = transport();

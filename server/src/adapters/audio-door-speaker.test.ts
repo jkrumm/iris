@@ -58,6 +58,16 @@ describe("audio door speaker", () => {
     expect(error).toMatchObject({ code: "unavailable", message: "speech synthesis failed: 502" });
   });
 
+  it("logs the length of an error body, never its text", async () => {
+    const { speaker } = setup(() => new Response("echoed reply text", { status: 502 }));
+    const { lines } = await captureLogs(() =>
+      speaker.speak({ memoId: MEMO_ID, text: "x" }).catch((e: unknown) => e),
+    );
+    const line = lines.find((l) => l["event"] === "audio_door.speak_failed");
+    expect(line).toMatchObject({ status: 502, body_chars: 17 });
+    expect(JSON.stringify(lines)).not.toContain("echoed reply");
+  });
+
   it("fails as unavailable, not transient, on a 401 and logs the run id", async () => {
     const { speaker } = setup(() =>
       Response.json(

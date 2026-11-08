@@ -51,7 +51,7 @@ export function createAudioDoorSpeaker(opts: AudioDoorSpeakerOptions): Speaker {
               memo_id: memoId,
               status: res.status,
               [RUN_ID_ATTR]: runId,
-              body,
+              body_chars: body.length,
             });
             throw new MemoError("unavailable", `speech synthesis failed: ${res.status}`);
           }

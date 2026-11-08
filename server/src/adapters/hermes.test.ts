@@ -215,6 +215,20 @@ describe("hermes destination", () => {
     expect((error as Error).message).toBe(`hermes chat failed: 502 ${"x".repeat(300)}`);
   });
 
+  it("settles a non-200 whose error body never ends, as a transient failure", async () => {
+    const { destination } = fakeHermes({
+      idleMs: 30,
+      chat: () => new Response(new ReadableStream<Uint8Array>({ start() {} }), { status: 500 }),
+    });
+    const error = await Promise.race([
+      deliver(destination).catch((e: unknown) => e),
+      new Promise((resolve) => setTimeout(() => resolve("hung"), 1000)),
+    ]);
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toBe("hermes chat failed: 500 ");
+    expect(transientKind(error)).toBe("after_send");
+  });
+
   it("throws the message of an error event", async () => {
     const { destination } = fakeHermes({
       chat: () => sseResponse([frame("error", { message: "model overloaded" }), done]),

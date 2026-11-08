@@ -140,8 +140,13 @@ export interface HermesDestinationOptions {
 }
 
 /** Hermes names a pre-stream failure in an OpenAI error envelope; anything else is truncated. */
-async function failureMessage(res: Response): Promise<string> {
-  const text = await res.text().catch(() => "");
+async function failureMessage(res: Response, signal: AbortSignal): Promise<string> {
+  // Bounded by `signal`: a body that stalls after its headers must not hang the turn. A cut-off body is no message.
+  const aborted = new Promise<string>((resolve) => {
+    if (signal.aborted) resolve("");
+    signal.addEventListener("abort", () => resolve(""), { once: true });
+  });
+  const text = await Promise.race([res.text().catch(() => ""), aborted]);
   try {
     const parsed = ErrorEnvelope.safeParse(JSON.parse(text));
     if (parsed.success) return parsed.data.error.message;
@@ -182,11 +187,12 @@ export function createHermesDestination(opts: HermesDestinationOptions): Destina
 
       if (threadId === undefined) {
         await withSpan("hermes.create_session", attrs, async (span) => {
+          const timeout = AbortSignal.timeout(SESSION_TIMEOUT_MS);
           const res = await doFetch(new URL("/api/sessions", opts.baseUrl).toString(), {
             method: "POST",
             headers,
             body: JSON.stringify({ id: sessionId, source: SOURCE }),
-            signal: AbortSignal.timeout(SESSION_TIMEOUT_MS),
+            signal: timeout,
           }).catch((err: unknown) => {
             throw fetchFailure(err);
           });
@@ -194,7 +200,7 @@ export function createHermesDestination(opts: HermesDestinationOptions): Destina
           // 409 session_exists is fine: a retried memo reuses its session.
           if (res.status === 201 || res.status === 409) return;
           throw httpFailure(
-            `hermes session create failed: ${res.status} ${await failureMessage(res)}`,
+            `hermes session create failed: ${res.status} ${await failureMessage(res, timeout)}`,
             res.status,
           );
         });
@@ -214,21 +220,22 @@ export function createHermesDestination(opts: HermesDestinationOptions): Destina
           headers,
           body: JSON.stringify({ message: transcript, system_message: systemMessage(mode) }),
           signal: controller.signal,
-        })
-          .catch((err: unknown) => {
-            if (controller.signal.aborted) {
-              throw hangGuardFailure(`hermes did not respond within ${idleMs} ms`);
-            }
-            throw fetchFailure(err);
-          })
-          .finally(() => clearTimeout(timer));
+        }).catch((err: unknown) => {
+          clearTimeout(timer);
+          if (controller.signal.aborted) {
+            throw hangGuardFailure(`hermes did not respond within ${idleMs} ms`);
+          }
+          throw fetchFailure(err);
+        });
         span.setAttributes({ status: res.status });
         if (res.status !== 200 || !res.body) {
-          throw httpFailure(
-            `hermes chat failed: ${res.status} ${await failureMessage(res)}`,
-            res.status,
+          // The abort guard stays armed through the error-body read, so a stalled body cannot hang the turn.
+          const message = await failureMessage(res, controller.signal).finally(() =>
+            clearTimeout(timer),
           );
+          throw httpFailure(`hermes chat failed: ${res.status} ${message}`, res.status);
         }
+        clearTimeout(timer);
 
         let reply: { content: string; interrupted: boolean } | null = null;
         let usage: { inputTokens: number; outputTokens: number; totalTokens: number } | undefined;

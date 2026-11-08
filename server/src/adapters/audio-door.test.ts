@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { captureLogs } from "../memo/test-support.js";
@@ -89,16 +89,36 @@ describe("audio door transcriber", () => {
     );
     const error = await transcriber.transcribe(params).catch((e: unknown) => e);
     expect((error as Error).message).toContain(`failed: 401 (run ${RUN_ID})`);
-    expect((error as Error).message).toContain("unauthorized");
+    expect((error as Error).message).not.toContain("unauthorized");
     expect(transientKind(error)).toBeNull();
   });
 
-  it("throws with the status and a truncated body on a non-2xx", async () => {
-    const { transcriber } = setup(() => new Response("y".repeat(1000), { status: 502 }));
-    const error = await transcriber.transcribe(params).catch((e: Error) => e);
-    expect((error as Error).message).toBe(
-      `audio door transcription failed: 502 ${"y".repeat(300)}`,
+  it("keeps the body out of the error and the logs on a non-2xx, logging only its length", async () => {
+    const { transcriber } = setup(
+      () => new Response("secret reply text".repeat(50), { status: 502 }),
     );
+    const { result: error, lines } = await captureLogs(() =>
+      transcriber.transcribe(params).catch((e: unknown) => e),
+    );
+    expect((error as Error).message).toBe("audio door transcription failed: 502");
+    expect(JSON.stringify(lines)).not.toContain("secret reply");
+    expect(lines.find((l) => l["event"] === "audio_door.error_body")).toMatchObject({
+      status: 502,
+      body_chars: 300,
+    });
+  });
+
+  it("fails after one window, not transient, when a 5xx body stalls past the timeout", async () => {
+    const timedOut = new DOMException("The operation timed out.", "TimeoutError");
+    const stalled = new ReadableStream({
+      start(controller) {
+        controller.error(timedOut);
+      },
+    });
+    const { transcriber } = setup(() => new Response(stalled, { status: 502 }));
+    const error = await transcriber.transcribe(params).catch((e: unknown) => e);
+    expect((error as Error).message).toBe("audio door transcription timed out after 1800000 ms");
+    expect(transientKind(error)).toBeNull();
   });
 
   it("marks a 5xx and a lost connection transient, a 4xx final", async () => {
@@ -251,6 +271,25 @@ describe.skipIf(!Bun.which("ffmpeg") || !Bun.which("ffprobe"))("ffmpegConcat (re
     expect(text.indexOf("moov")).toBeGreaterThan(0);
     expect(text.indexOf("moov")).toBeLessThan(text.indexOf("mdat"));
     expect(await concatDirs()).toEqual(before);
+  });
+
+  it("kills a wedged ffmpeg and rejects after the timeout", async () => {
+    const segment = join(dir, "0.m4a");
+    await writeFile(segment, "x");
+    const bin = join(dir, "bin");
+    await mkdir(bin);
+    await writeFile(join(bin, "ffmpeg"), "#!/bin/sh\nexec /bin/sleep 30\n", { mode: 0o755 });
+    const path = process.env["PATH"];
+    process.env["PATH"] = `${bin}:${path}`;
+    try {
+      const started = Date.now();
+      await expect(ffmpegConcat([segment], { timeoutMs: 100 })).rejects.toThrow(
+        "ffmpeg timed out after 100 ms",
+      );
+      expect(Date.now() - started).toBeLessThan(5000);
+    } finally {
+      process.env["PATH"] = path;
+    }
   });
 
   it("names a missing segment", async () => {

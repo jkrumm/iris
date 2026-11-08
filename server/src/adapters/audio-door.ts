@@ -14,8 +14,18 @@ const MODEL = "voxtral-mini-transcribe-3-0";
 const TIMEOUT_MS = 1_800_000;
 const BODY_MAX = 300;
 const STDERR_TAIL = 500;
+// A hang guard per ffmpeg/ffprobe process: a combine of a long memo takes seconds, a wedged one never ends.
+const PROCESS_TIMEOUT_MS = 120_000;
 
-export type ConcatFn = (paths: string[]) => Promise<{ bytes: Uint8Array; seconds: number }>;
+export interface ConcatOptions {
+  /** Kills ffmpeg or ffprobe when it runs longer than this; tests shorten it. */
+  timeoutMs?: number;
+}
+
+export type ConcatFn = (
+  paths: string[],
+  opts?: ConcatOptions,
+) => Promise<{ bytes: Uint8Array; seconds: number }>;
 
 export interface AudioDoorTranscriberOptions {
   client: AudioDoorClient;
@@ -26,14 +36,27 @@ export interface AudioDoorTranscriberOptions {
 
 const TranscriptionResponse = z.object({ text: z.string() });
 
-async function run(cmd: string[]): Promise<{ code: number; stdout: string; stderr: string }> {
-  const proc = Bun.spawn(cmd, { stdout: "pipe", stderr: "pipe" });
-  const [stdout, stderr, code] = await Promise.all([
-    new Response(proc.stdout).text(),
-    new Response(proc.stderr).text(),
-    proc.exited,
-  ]);
-  return { code, stdout, stderr };
+async function run(
+  cmd: string[],
+  timeoutMs: number,
+): Promise<{ code: number; stdout: string; stderr: string }> {
+  const proc = Bun.spawn(cmd, { stdout: "pipe", stderr: "pipe", env: process.env });
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    proc.kill("SIGKILL");
+  }, timeoutMs);
+  try {
+    const [stdout, stderr, code] = await Promise.all([
+      new Response(proc.stdout).text(),
+      new Response(proc.stderr).text(),
+      proc.exited,
+    ]);
+    if (timedOut) throw new Error(`${cmd[0]} timed out after ${timeoutMs} ms`);
+    return { code, stdout, stderr };
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 function failure(tool: string, stderr: string, code: number): Error {
@@ -47,7 +70,8 @@ const concatLine = (path: string) => `file '${path.replaceAll("'", "'\\''")}'`;
  * Joins the segments with ffmpeg's concat demuxer and re-encodes them as mono 16 kHz AAC in
  * m4a, the shape the transcription model wants. Works in a fresh temp dir that is always removed.
  */
-export const ffmpegConcat: ConcatFn = async (paths) => {
+export const ffmpegConcat: ConcatFn = async (paths, opts) => {
+  const timeoutMs = opts?.timeoutMs ?? PROCESS_TIMEOUT_MS;
   if (paths.length === 0) throw new Error("concat: no segments given");
   for (const path of paths) {
     if (!(await Bun.file(path).exists())) throw new Error(`concat: segment file missing: ${path}`);
@@ -59,43 +83,40 @@ export const ffmpegConcat: ConcatFn = async (paths) => {
     const out = join(dir, "memo.m4a");
     await writeFile(list, `${paths.map(concatLine).join("\n")}\n`);
 
-    const ffmpeg = await run([
-      "ffmpeg",
-      "-hide_banner",
-      "-loglevel",
-      "error",
-      "-y",
-      "-f",
-      "concat",
-      "-safe",
-      "0",
-      "-i",
-      list,
-      "-vn",
-      "-ac",
-      "1",
-      "-ar",
-      "16000",
-      "-c:a",
-      "aac",
-      "-b:a",
-      "32k",
-      "-movflags",
-      "+faststart",
-      out,
-    ]);
+    const ffmpeg = await run(
+      [
+        "ffmpeg",
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-y",
+        "-f",
+        "concat",
+        "-safe",
+        "0",
+        "-i",
+        list,
+        "-vn",
+        "-ac",
+        "1",
+        "-ar",
+        "16000",
+        "-c:a",
+        "aac",
+        "-b:a",
+        "32k",
+        "-movflags",
+        "+faststart",
+        out,
+      ],
+      timeoutMs,
+    );
     if (ffmpeg.code !== 0) throw failure("ffmpeg", ffmpeg.stderr, ffmpeg.code);
 
-    const probe = await run([
-      "ffprobe",
-      "-v",
-      "error",
-      "-show_entries",
-      "format=duration",
-      "-of",
-      "csv=p=0",
-      out,
-    ]);
+    const probe = await run(
+      ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", out],
+      timeoutMs,
+    );
     if (probe.code !== 0) throw failure("ffprobe", probe.stderr, probe.code);
     const seconds = Number.parseFloat(probe.stdout.trim());
     if (!Number.isFinite(seconds)) {
@@ -161,10 +182,25 @@ export function createAudioDoorTranscriber(opts: AudioDoorTranscriberOptions): T
             });
           span.setAttributes({ status: res.status, [RUN_ID_ATTR]: runId });
           if (!res.ok) {
-            const body = (await res.text().catch(() => "")).slice(0, BODY_MAX);
+            // The guard also covers this read: a 5xx whose body stalls is the same hang, not a transient failure.
+            const body = (
+              await res.text().catch((err: unknown) => {
+                if (err instanceof Error && err.name === "TimeoutError") {
+                  throw hungOr(err, (e) => e);
+                }
+                return "";
+              })
+            ).slice(0, BODY_MAX);
+            // The step error is stored and served, and the body may echo the audio's text: the log gets its length only.
+            log("audio_door.error_body", {
+              memo_id: memoId,
+              [RUN_ID_ATTR]: runId,
+              status: res.status,
+              body_chars: body.length,
+            });
             const kind = res.status === 413 ? " (413 is terminal: the audio is too large)" : "";
             throw httpFailure(
-              `audio door transcription failed: ${res.status}${kind}${runId ? ` (run ${runId})` : ""} ${body}`,
+              `audio door transcription failed: ${res.status}${kind}${runId ? ` (run ${runId})` : ""}`,
               res.status,
             );
           }
