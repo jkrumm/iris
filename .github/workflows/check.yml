@@ -40,15 +40,11 @@ jobs:
           tar -xJf "$ARCHIVE" --strip-components=2 --wildcards '*/bin/ffmpeg' '*/bin/ffprobe'
           sudo install -m 0755 ffmpeg ffprobe /usr/local/bin/
           ffmpeg -version | head -n 1
-      # web/ e2e needs a Chromium (version pinned by web/bun.lock); the bare runner's fonts differ from the baselines, so
-      # the screenshot comparison runs in the `web` job below (WEB_VISUAL=0 here).
-      - name: Install Playwright Chromium
-        run: |
-          cd web && bun install --frozen-lockfile
-          cd web && bunx playwright install --with-deps chromium
+      # web/ lint, types, unit tests and the bundle drift check run here; its Playwright e2e (and the screenshot comparison, whose
+      # baselines depend on the runner's fonts) runs in the `web` job below, so no browser install (apt) is needed here.
       - run: make check
         env:
-          WEB_VISUAL: "0"
+          WEB_E2E: "0"
       - run: make e2e
   # The Playwright image is the render environment of the committed screenshot baselines (make web-snapshots). Its tag equals the
   # pinned @playwright/test version (PLAYWRIGHT_VERSION in the Makefile).

@@ -37,6 +37,8 @@ check-server: ## oxlint, oxfmt --check, tsc --noEmit, bun test (server and scrip
 # --- Web renderer (web/, the page the WebView island loads; AGENTS.md "Web renderer") ---
 # Screenshot baselines are Linux renders: WEB_VISUAL=1 compares them (default on Linux), 0 runs only the non-visual e2e (network, CSP, height).
 WEB_VISUAL ?= $(if $(filter Linux,$(shell uname -s)),1,0)
+# WEB_E2E=0 skips Playwright inside check-web (CI's bare `check` job: the `web` job runs the e2e in the Playwright image). check-web installs Chromium itself (no apt).
+WEB_E2E ?= 1
 # The Playwright image tag must equal the @playwright/test version pinned in web/package.json.
 PLAYWRIGHT_VERSION := 1.65.0
 PLAYWRIGHT_IMAGE   := mcr.microsoft.com/playwright:v$(PLAYWRIGHT_VERSION)-noble
@@ -56,8 +58,10 @@ check-web: ## web/: oxlint, oxfmt --check, tsc, unit tests, bundle drift + size 
 	cd web && bun run typecheck
 	cd web && bun run test
 	cd web && bun run build:check
-	@if [ "$(WEB_VISUAL)" = "0" ]; then echo "  web visual snapshots skipped (WEB_VISUAL=0: baselines are Linux renders; make web-check-linux compares them)"; fi
-	cd web && WEB_VISUAL=$(WEB_VISUAL) bun run test:e2e
+	@if [ "$(WEB_E2E)" = "0" ]; then echo "  web e2e skipped (WEB_E2E=0: the CI web job runs it in the Playwright image)"; else \
+	  if [ "$(WEB_VISUAL)" = "0" ]; then echo "  web visual snapshots skipped (WEB_VISUAL=0: baselines are Linux renders; make web-check-linux compares them)"; fi; \
+	  cd web && bunx playwright install chromium && WEB_VISUAL=$(WEB_VISUAL) bun run test:e2e; \
+	fi
 
 .PHONY: web-snapshots
 web-snapshots: ## Re-record the Linux screenshot baselines (web/tests/__screenshots__) in the pinned Playwright image
