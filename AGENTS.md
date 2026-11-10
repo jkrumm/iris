@@ -49,13 +49,13 @@ Never start dev servers for a human to look at; simulators are fine, shut them d
 
 ## Server (`server/`)
 
-- `server/src/app.ts` — `createApp({deviceTokens, memos, stats?, degraded?, sseKeepaliveMs?})`: mounts routes, no env/fs.
+- `server/src/app.ts` — `createApp({deviceTokens, memos, stats?, degraded?, progress?, sseKeepaliveMs?})`: mounts routes, no env/fs.
 - `server/src/index.ts` — entry point: SQLite, audio-fs, runner, service, then `compose()` for the downstream ports,
   listen, background `driveAll`, signals, DB close, OTel flush.
 - `server/src/memo/` — domain: `memo.ts` (states, steps, transitions, `runsAct`: every mode but `transcribe` hands the memo to Hermes; `normalizeKind` / `normalizeActions`, `OPTIONAL_STEPS`), `store.ts` (port), `runner.ts`
   (idempotent step runner, concurrency-bounded `driveAll`, `idle()`), `service.ts` (`MemoService`, what HTTP calls), `media.ts`
   (`MemoMedia`: the combined recording and the spoken result, both disk-cached and single-flight), `speech-text.ts` (`speechVariant`: the markdown-free, length-capped text `/speech` synthesizes, TDD §3), `keyed-queue.ts` (one Hermes thread's turns run one at a time), `events.ts` (in-process
-  pub/sub), `purge.ts` (the purger: removes soft-deleted memos' files and rows after the 10-minute undo window), `errors.ts` (`MemoError` codes, `configured()` for optional subsystems), `test-support.ts` (fake audio, seeded and parked memos).
+  pub/sub), `progress.ts` (in-process bus for `memo.delta` / `memo.activity` while act runs, and the in-memory `partialReply`), `purge.ts` (the purger: removes soft-deleted memos' files and rows after the 10-minute undo window), `errors.ts` (`MemoError` codes, `configured()` for optional subsystems), `test-support.ts` (fake audio, seeded and parked memos).
 - `server/src/pipeline/steps.ts` — `createStepHandlers`: the four step handlers (`transcribe`, `act`, `summarize`, `notify`), each a pure function
   of (memo, ports); a handler is registered only when its port is provided (`act` needs the Hermes destination); `summarize` is always registered (no summarizer = the step fails and is skipped).
 - `server/src/adapters/` — `sqlite.ts` (+ `sqlite-migrations.ts`, `PRAGMA user_version`; migration 7 adds the `memo_fts` FTS5 index behind history search, 14 the Hermes-decides columns), `sqlite-devices.ts`
@@ -64,7 +64,7 @@ Never start dev servers for a human to look at; simulators are fine, shut them d
   and `apns-node.ts` (the transport on `@parse/node-apn`; `apns-test-support.ts` generates test keys and certs).
 - `server/src/ports/` — `audio.ts` (`AudioStore`, `AudioCombiner`, `Recording`), `clock.ts` (system, fixed and manual clocks),
   `transcriber.ts`, `speaker.ts` (+ `SpeechCache`), `devices.ts` (`DeviceStore`: devices, APNs tokens, Live Activity tokens), `diagram.ts` (`DiagramRenderer`), `assets.ts` (`AssetStore`),
-  `stats.ts` (`StatsStore`), `summarizer.ts` (`Summarizer`), `destination.ts` (`Destination`: the Hermes port, `Delivery` + `DeliveryMeta`), `notifier.ts` (`notify` + best-effort `phase`),
+  `stats.ts` (`StatsStore`), `summarizer.ts` (`Summarizer`), `destination.ts` (`Destination`: the Hermes port, `Delivery` + `DeliveryMeta` + `DeliveryProgress` / `onProgress`), `notifier.ts` (`notify` + best-effort `phase`),
   `apns.ts` (`ApnsTransport`), `fakes.ts` (in-memory fakes of the ports, incl. `fakeApnsTransport`).
 - `server/src/notify/` — `payloads.ts` (pure alert / Live Activity builders), `phases.ts` (`bindPhaseUpdates`: memo events →
   `notifier.phase`), `select.ts` (`selectNotifier`: APNs or log, plus the transport's `close`), `apns-result.ts` (`isTransient` / `isDeadToken` / `isEnvironmentMismatch`, shared by the memo notifier),

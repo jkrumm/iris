@@ -471,7 +471,7 @@ memo of the thread bumps History's revision of it, the screen reloads, and the p
 animation (none under Reduce Motion). **Streaming** (the owner reversed the 2026-10-28 "no token stream" on 2026-11-10): while `act` runs, the server relays Hermes's `assistant.delta` text and
 `tool.started` names on a separate in-process bus (`memo/progress.ts`, never `MemoEvents`, which would push a Live Activity update per delta) as SSE `memo.delta`
 (`{id, attempt, seq, text}`, coalesced to at most one per 150 ms, the ```iris fence and a trailing fence fragment held back) and `memo.activity` (`{id, attempt, tool}`, immediate).
-A client resets its buffer when `attempt` changes (`act` is at-least-once). `GET /memos/:id` carries `partialReply {attempt, seq, text}` while `act` runs and has streamed
+A client resets its streamed buffer when `attempt` changes (`act` is at-least-once) AND whenever its `/v1/events` stream reconnects, then refetches the detail's `partialReply` (`attempt` is an in-memory per-memo counter that restarts at 1 after a server restart). `GET /memos/:id` carries `partialReply {attempt, seq, text}` while `act` runs and has streamed
 visible text, for a client that connects mid-turn (drop deltas of that attempt with `seq` <= it). The final `replyText` stored at `acted` stays the truth and replaces the stream. With today's provider
 the text arrives in one burst after the last tool call (docs/research/2026-11-hermes-frames.md), so the tool activity is the live part, not typing.
 There is no fake typing effect. A memo sent from the screen (`didSend`) shows at once, then the fetch replaces it with the server's version.

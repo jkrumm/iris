@@ -240,7 +240,7 @@ export const MemoEventPayload = t.Object({
   at: t.String(),
 });
 
-/** `memo.delta` on `GET /events`: the next piece of the reply while `act` runs. A new `attempt` means act restarted: reset the buffer. `seq` starts at 1 per attempt. */
+/** `memo.delta` on `GET /events`: the next piece of the reply while `act` runs. A new `attempt` means act restarted: reset the buffer. `seq` starts at 1 per attempt. A client resets its streamed buffer when `attempt` changes AND whenever its `/v1/events` stream reconnects (then it refetches the detail's `partialReply`): `attempt` is an in-memory per-memo counter that restarts at 1 after a server restart. */
 export const MemoDeltaPayload = t.Object({
   id: t.String(),
   attempt: Int,

@@ -56,7 +56,20 @@ export function testApp(
       };
     },
   };
-  const progress = options.progress ?? createReplyProgress();
+  const baseProgress = options.progress ?? createReplyProgress();
+  let progressListeners = 0;
+  const progress: ReplyProgress = {
+    partial: (id) => baseProgress.partial(id),
+    begin: (id) => baseProgress.begin(id),
+    subscribe(listener) {
+      progressListeners++;
+      const off = baseProgress.subscribe(listener);
+      return () => {
+        progressListeners--;
+        off();
+      };
+    },
+  };
   const audio = fakeAudio();
   const handlers =
     typeof options.handlers === "function" ? options.handlers(store) : (options.handlers ?? {});
@@ -116,6 +129,7 @@ export function testApp(
     telemetry,
     relayLog,
     listenerCount: () => listeners,
+    progressListenerCount: () => progressListeners,
   };
 }
 

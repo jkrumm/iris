@@ -139,9 +139,12 @@ describe("GET /v1/events", () => {
   });
 
   it("streams memo.delta and memo.activity from the progress bus and releases both subscriptions", async () => {
-    const { app, progress, listenerCount } = testApp({ sseKeepaliveMs: 1000 });
+    const { app, progress, listenerCount, progressListenerCount } = testApp({
+      sseKeepaliveMs: 1000,
+    });
     const res = await call(app, { path: "/v1/events" });
     const reader = (res.body as ReadableStream<Uint8Array>).getReader();
+    expect(progressListenerCount()).toBe(1);
     const turn = progress.begin("memo-1");
     turn.onProgress({ type: "tool", tool: "terminal" });
     turn.onProgress({ type: "text", delta: "\n\nHello" });
@@ -156,6 +159,7 @@ describe("GET /v1/events", () => {
 
     await reader.cancel();
     expect(listenerCount()).toBe(0);
+    expect(progressListenerCount()).toBe(0);
     // Published after the cancel: the unsubscribed stream must not be written to.
     turn.onProgress({ type: "tool", tool: "late" });
     turn.end();

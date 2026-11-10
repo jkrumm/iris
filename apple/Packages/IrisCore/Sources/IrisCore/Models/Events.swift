@@ -46,8 +46,9 @@ public struct ReadyEvent: Codable, Hashable, Sendable {
   public init() {}
 }
 
-/// Payload of `memo.delta`: the next piece of the reply while `act` runs. A client resets its buffer when `attempt` changes and
-/// drops deltas of the same attempt with `seq` at or below a ``PartialReply``'s.
+/// Payload of `memo.delta`: the next piece of the reply while `act` runs. A client resets its streamed buffer when `attempt` changes AND whenever its `/v1/events` stream
+/// reconnects (then it refetches the detail's `partialReply`; `attempt` is an in-memory per-memo counter that restarts at 1 after a
+/// server restart), and drops deltas of the same attempt with `seq` at or below a ``PartialReply``'s.
 public struct MemoDelta: Codable, Hashable, Sendable {
   public var id: String
   public var attempt: Int

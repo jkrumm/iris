@@ -61,7 +61,11 @@ interface TurnState {
   end(): void;
 }
 
-/** In-process pub/sub. A throwing listener is logged and never reaches the publisher or its peers. */
+/**
+ * In-process pub/sub. A throwing listener is logged and never reaches the publisher or its peers.
+ * `attempt` is an in-memory per-memo counter that restarts at 1 after a server restart: a client resets its streamed buffer
+ * when `attempt` changes AND whenever its `/v1/events` stream reconnects (then it refetches the detail's `partialReply`).
+ */
 export function createReplyProgress(opts: { intervalMs?: number } = {}): ReplyProgress {
   const intervalMs = opts.intervalMs ?? DEFAULT_INTERVAL_MS;
   const listeners = new Set<(e: ProgressEvent) => void>();
