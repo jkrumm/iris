@@ -311,3 +311,50 @@ describe("flushOtel", () => {
     );
   });
 });
+
+describe("export gate", () => {
+  // A child process, because `otel.ts` reads its endpoint once at import. The environment carries
+  // an endpoint on purpose: a test process must still not export (the iris-server errors alert
+  // fired on 417 fixture spans a `make check` shipped to the production collector).
+  async function postsFromChild(nodeEnv: string): Promise<number> {
+    let posts = 0;
+    const collector = Bun.serve({
+      port: 0,
+      fetch() {
+        posts += 1;
+        return new Response("{}");
+      },
+    });
+    try {
+      const script = `
+        const { withRootSpan, emitOtelLog, flushOtel } = await import(${JSON.stringify(`${import.meta.dir}/otel.ts`)});
+        await withRootSpan({ traceId: "0".repeat(32), name: "gate" }, async (span) => {
+          span.setStatus("error", "fixture");
+        });
+        emitOtelLog("gate.fixture", {});
+        await flushOtel();
+      `;
+      const child = Bun.spawn([process.execPath, "-e", script], {
+        env: {
+          ...process.env,
+          NODE_ENV: nodeEnv,
+          OTEL_EXPORTER_OTLP_ENDPOINT: `http://127.0.0.1:${collector.port}`,
+        },
+        stdout: "ignore",
+        stderr: "ignore",
+      });
+      await child.exited;
+      return posts;
+    } finally {
+      await collector.stop(true);
+    }
+  }
+
+  it("never exports under NODE_ENV=test, even with an endpoint in the environment", async () => {
+    expect(await postsFromChild("test")).toBe(0);
+  });
+
+  it("still exports outside tests (control)", async () => {
+    expect(await postsFromChild("production")).toBeGreaterThan(0);
+  });
+});

@@ -38,7 +38,10 @@ import {
 // (10m x 3, container-local) had already rotated the rest away — a deep job runs ~28min, so
 // even one job's logs don't reliably survive a redeploy.
 
-const ENDPOINT = env.OTEL_EXPORTER_OTLP_ENDPOINT;
+// A test process never exports, whatever its environment holds: `bun test` sets NODE_ENV=test, and
+// a shell that carried the production OTLP endpoint (a lead's `make check` under a wrapper) once
+// shipped 400+ fixture error spans to the prod collector and fired the iris-server errors alert.
+const ENDPOINT = env.NODE_ENV === "test" ? undefined : env.OTEL_EXPORTER_OTLP_ENDPOINT;
 const ENABLED = Boolean(ENDPOINT);
 
 // ── Attribute values ─────────────────────────────────────────────────────────
