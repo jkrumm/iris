@@ -9,7 +9,7 @@ deploy:
   migrations: [] # SQLite migrations are code (server/src/adapters/sqlite-migrations.ts), applied at boot
 ship:
   - { paths: ["**"], via: push }
-leads: 1
+leads: 2 # server and web rows run beside one Apple row; Apple builds still serialise on scripts/apple-slot
 signals:
   github:
     author: jkrumm # the owner's new issues come in

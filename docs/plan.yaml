@@ -1,0 +1,380 @@
+# The conversation, streaming and artifacts plan (owner sign-off 2026-11-10). Format: software-factory docs/plan.md.
+# Decision A: prose stays native SwiftUI; a bundled web renderer in sandboxed WebView islands is for artifacts only.
+# No React Native. Server and web rows never touch Xcode; Apple rows take at most one targeted local Apple run each.
+version: 1
+rows:
+  - key: ci-apple-split
+    kind: chore
+    title: Split apple.yml into parallel cached jobs and run only the affected UI tests per push
+    facts:
+      why: >-
+        apple.yml is one serial, uncached job: median 42 min, 10 of the last 30 runs failed, the full UI suite is 62-65 %
+        of it and most failures surface 25-33 min in. A wave of UI work is about to land, each change needing this
+        signal.
+      what: >-
+        .github/workflows/apple.yml, the Makefile's Apple targets (XCB, snapshots, uitest), scripts/ if a path-to-test
+        selector is needed, AGENTS.md "Validate". No Swift source changes.
+      change: >-
+        (1) Three jobs that start in parallel: check-apple, snapshots, uitest. (2) actions/cache for SPM checkouts and
+        DerivedData keyed on Package.resolved files and apple/project.yml. (3) On a push or PR the uitest job runs
+        IrisTests plus only the XCUITest classes whose screens changed (a tracked path-to-class map, default = a small
+        smoke class when nothing maps); the full suite runs on a nightly schedule and on workflow_dispatch. (4) The
+        snapshot build reuses the same derived-data directory as the app build where that avoids compiling Textual
+        twice. (5) Port the load caps of scripts/apple-proof.sh (nice -n 10,
+        IDEBuildOperationMaxNumberOfConcurrentCompileTasks=2) to the Makefile's XCB for non-CI runs. The repo is
+        public: hosted macOS runners, parallel jobs cost nothing.
+      acceptance: >-
+        A push touching one Swift file under apple/Iris shows three parallel jobs, check-apple reports within 12 min,
+        the uitest job ran a subset and names it in its log; a second run shows cache hits; the nightly schedule exists
+        and runs the full suite; make check passes; AGENTS.md describes the new shape.
+      limits: Do not run the full UI suite or check-apple locally to measure; read CI timings.
+
+  - key: mac-release-hook-path
+    kind: bug
+    title: Mac release hook dies at spctl and the poller logs "starting detached" with no job
+    facts:
+      why: >-
+        No Mac release since build 729. On 2026-11-08 the mac hook archived, signed and notarized build 737, then failed
+        at scripts/mac-release.sh:188 "spctl: command not found" (make Error 127): scripts/release-hooks.sh:41 sets a
+        PATH without /usr/sbin. Since then ~/Library/Logs/iris-deploy.log has ~1800 lines "starting detached" (one per
+        tick) while ~/Library/Logs/iris-release-mac.log has not changed, so the detached job never starts.
+      what: scripts/release-hooks.sh, scripts/mac-release.sh, scripts/release-hooks.test.ts, AGENTS.md "Release hooks".
+      change: >-
+        Put /usr/sbin and /usr/bin on the hook's PATH (or call /usr/sbin/spctl by absolute path). Find why a hook that
+        logs "starting detached" starts no jobrun (the ~/.iris/mac-failed hold-off, the jobrun lock, or the detach
+        itself) and make the tick either start the job or log the real reason. Remove the AGENTS.md caveat that tells
+        the reader to run the script by hand once it no longer applies.
+      acceptance: >-
+        A test in scripts/release-hooks.test.ts fails on the old PATH and passes now; a tick with a due hook either
+        starts a job whose log line appears in iris-release-mac.log or logs why not, never "starting detached" with
+        nothing behind it; after the deploy a published mac-v release newer than 729 exists (gh release list) or the
+        gate's stated reason for waiting is in the log; make check passes.
+
+  - key: hermes-frames
+    kind: chore
+    title: Record what a Hermes turn really sends so streaming and artifacts are built on facts
+    facts:
+      why: >-
+        Streaming and artifacts depend on frames server/src/adapters/hermes.ts drops today. assistant.delta
+        {message_id, delta} is known only from the fixture in hermes.test.ts:88-89; whether tool results
+        (tool.completed), attachments or extra keys on assistant.completed exist is unknown.
+      what: >-
+        server/src/adapters/hermes.ts and its test, docs/research/ (a new dated note). Read-only look at
+        ~/SourceRoot/hermes-agent (gateway/platforms/api_server.py and skills/iris) is allowed; no change there.
+      change: >-
+        Add a debug log line per turn, hermes.frames, with the event names seen, their count and the key names of each
+        event type (never values, never text). Run one real typed memo through production after the deploy
+        (scripts/send-memo.ts has no typed mode: POST /v1/memos/text with the smoke token) that makes Hermes use a tool
+        and answer with a table. Write docs/research/2026-11-hermes-frames.md: every event type, its keys, whether
+        deltas arrive and at what cadence, whether a partial assistant.completed precedes the final one, whether tool
+        results or file references are present, and what the iris skill tells Hermes about reply format.
+      acceptance: >-
+        The research note exists with the frame table taken from a real turn (run id named), states yes or no for text
+        deltas, tool results and attachments, and make check passes. The log line carries no reply text (test).
+
+  - key: prose-renderer
+    title: A streaming-capable prose renderer in IrisUI with math, code copy and wide tables
+    facts:
+      why: >-
+        Replies render through Textual 0.5.0 (IrisUI MessageContentView), which is reported to re-parse the whole
+        string on every update (Textual issue 47), so it will not survive token streaming unbuffered. Math is off (no
+        syntaxExtensions), code blocks have no copy button, wide tables never scroll sideways and column alignment is
+        ignored.
+      what: >-
+        apple/Packages/IrisUI only (Components/Thread/MessageContentView.swift, MessageBlock.swift,
+        MarkdownTableView.swift, StructuredText+Iris.swift, Package.swift, tests, snapshots), docs/TDD.md §4 "Reply
+        layout and code themes".
+      change: >-
+        (1) Benchmark as a host `swift test` (no simulator): Textual 0.5.0 behind an 80 ms / newline buffer, Microsoft
+        SwiftStreamingMarkdown 0.7.x and Lakr233 MarkdownView 4.1.x, fed a 4 000-token fixture reply (headings, nested
+        lists, a table, code, LaTeX) in 20-character snapshots; record parse+layout time per update and whether text
+        selection, the Iris theme (Theme fonts, CodeColors) and macOS work. Verify each library's current version and
+        API from its repository first, not from memory. (2) Adopt the winner behind MessageContentView with one API that
+        accepts a growing string (isStreaming flag: half-written emphasis, links and fences must not flash). Staying on
+        Textual with a buffer is a valid outcome if it holds 60 fps-class updates. (3) Enable inline and block LaTeX.
+        (4) A copy button on every code block. (5) A table too wide for the card layout scrolls sideways and honours
+        column alignment. Mermaid stays the server PNG. Record the numbers and the choice in docs/research/.
+      acceptance: >-
+        The benchmark test runs with `swift test` in apple/Packages/IrisUI and its numbers are in the research note; a
+        unit test feeds a reply in 200 growing snapshots and the block structure of the last equals a one-shot render;
+        snapshots (re-recorded once on the pinned simulator) show math, the code copy button and a scrolling wide
+        table in light and dark; iOS and Mac both build (CI apple.yml green).
+      limits: One targeted local Apple run (make snapshots RECORD=1 for the touched files); CI proves the rest.
+
+  - key: webview-island-spike
+    title: "Spike: one sandboxed WebView island in IrisUI that sizes itself, themes and loads offline"
+    facts:
+      why: >-
+        Artifacts (charts, stat tiles, generated HTML documents) will render in a bundled web renderer, one WebView per
+        artifact, on iOS and Mac. Unverified: whether the iOS 26 SwiftUI WebView/WebPage API reports content height for
+        an inline island, whether it has a script-message bridge or WKWebView is needed, and how it behaves in a
+        scrolling conversation and in an occluded Mac window.
+      what: >-
+        apple/Packages/IrisUI (a new Components/Artifact/ directory with ArtifactWebView and a tiny bundled HTML
+        resource), a fake-data entry so the simulator and `-IrisMacSnapshot` show it, docs/research/ note.
+      change: >-
+        Build ArtifactWebView(html or bundle entry, payload JSON, theme tokens): loads a bundled page through a custom
+        URL scheme (no network, no localhost server), CSP default-src 'none' plus the scheme, passes Theme colours and
+        fonts as CSS variables and follows light/dark, receives its payload through one typed call, reports its content
+        height to SwiftUI (ResizeObserver bridge or scroll geometry, whichever works) so the island has no inner
+        scroll, opens external links in the system browser, and can go fullscreen. Use the SwiftUI WebView/WebPage API
+        if it can do all of that, else WKWebView behind the same view; say which and why. Measure memory of 1, 5 and 10
+        islands in one scroll view.
+      acceptance: >-
+        One iOS screenshot and one Mac snapshot PNG show the island inline between two chat bubbles at its content
+        height in light and dark; a test proves a navigation to an http(s) URL is refused inside the island; the
+        research note states the API choice, the height mechanism, memory per island and every limit found; CI
+        apple.yml green.
+      limits: One make proof-apple run. No React, no build step yet; the test page is hand-written HTML.
+
+  - key: stream-events
+    after: [hermes-frames]
+    title: "Server: stream reply text and tool activity of a running Hermes turn to clients"
+    facts:
+      why: >-
+        Between send and done a client sees only step dashes, often for a minute. Hermes streams the turn; the adapter
+        (server/src/adapters/hermes.ts:246-271) keeps only the final assistant.completed. The owner reversed TDD §3 "No
+        token stream" on 2026-11-10.
+      what: >-
+        server/src/ports/destination.ts, adapters/hermes.ts, pipeline/steps.ts (act), a new in-process bus next to
+        memo/events.ts, http/events.ts, http/schemas.ts, contracts/ (registry, schema, fixtures, manifest), ports/fakes.ts
+        and compose() fakes, scripts/e2e.ts, docs/TDD.md §3, AGENTS.md. Swift side: only the IrisCore ServerEvent cases
+        and fixture decode tests (apple/Packages/IrisCore), no UI.
+      change: >-
+        Read docs/research/2026-11-hermes-frames.md first and build on the frames it proved. deliver() takes an optional
+        onProgress callback. act publishes on a separate bus (never MemoEvents: notify/phases.ts would push a Live
+        Activity update per delta). GET /v1/events gains two events: memo.delta {id, attempt, seq, text} with the text
+        appended since the last one, coalesced to at most one per 150 ms, and memo.activity {id, attempt, tool} per
+        tool start (same naming rule as actions). Hold back a trailing fragment that could open the ```iris fence so it
+        never reaches a client. `attempt` changes when act replays (at-least-once): a client resets its buffer. A
+        client that connects mid-turn gets the text so far: GET /v1/memos/:id carries `partialReply` (omitted when
+        none) while act runs; it is in memory only and cleared when act ends. The final reply_text at `acted` is the
+        truth and replaces the stream. The fake Hermes streams its reply in deltas so e2e covers it.
+      acceptance: >-
+        A test with a fake destination shows ordered memo.delta events whose concatenation equals reply_text, no event
+        containing "```iris", a new attempt number after a replay, and no notifier.phase call caused by a delta;
+        make e2e asserts at least two deltas before memo.done; make check and make check-contracts pass; the Swift
+        fixtures decode in IrisCore's tests (CI); TDD §3 no longer says there is no token stream.
+
+  - key: artifacts-server
+    after: [hermes-frames]
+    title: "Server: typed reply artifacts beside Mermaid (show specs and documents)"
+    facts:
+      why: >-
+        A reply can only carry markdown and server-rendered Mermaid. The owner wants richer results (tables that sort,
+        charts, stat tiles, callouts, generated documents). Reply assets are Mermaid-specific end to end: the
+        extractor (memo/reply-assets.ts:18), ReplyBlock's kind literal (http/schemas.ts:50-57) and the four-files-per-
+        block prune (reply-assets.ts:166-170); AssetStore and the stage/commit/prune lifecycle are reusable.
+      what: >-
+        server/src/memo/reply-assets.ts, a new memo/reply-artifacts.ts, ports/assets.ts, adapters/assets-fs.ts,
+        adapters/sqlite.ts + sqlite-migrations.ts (a new append-only migration), http/schemas.ts, http/serialize.ts,
+        http/media.ts, contracts/, memo/speech-text.ts, docs/TDD.md §3 "Reply assets", AGENTS.md.
+      change: >-
+        Two artifact kinds arrive as top-level fences in the reply. ```iris-show holds one JSON spec, a zod
+        discriminated union `type`: table {columns, rows}, chart {kind: bar|line|area|pie, series, x}, stat {items},
+        list, callout {tone, title, body}; bounded sizes; an invalid spec stays a code block and logs
+        reply.artifact_invalid with the reason, never the content. ```iris-doc with an info string `title="…"
+        format=markdown|html` is a standalone document (cap 200 KiB). The memo wire gains replyArtifacts (omitted when
+        empty): {index, kind: show|doc, title?, format?, assetId, bytes}; the validated spec or the document is stored
+        through AssetStore and served by GET /v1/memos/:id/assets/:assetId with its stored content type
+        (application/json, text/markdown, or text/html with CSP `sandbox; default-src 'none'; style-src
+        'unsafe-inline'; img-src data:`). The fence stays in reply_text as the anchor, like Mermaid (index counts the
+        fences of that kind). The show spec's JSON Schema is exported to contracts/schema (the web renderer and Swift
+        read it). Same lifecycle as reply assets: staged, committed by completeStep, pruned on a changed reply, removed
+        by the purge, swept at boot. /speech skips artifact fences and says the title. replyBlocks stays as it is.
+      acceptance: >-
+        Tests: a reply with one valid show fence, one invalid and one doc yields two replyArtifacts and one logged
+        refusal; the asset route answers each with its content type and the HTML one with the sandbox CSP; a retry
+        from act prunes the old files; the purge removes them; make check, make check-contracts and make e2e pass with
+        fixtures for every spec type; TDD and AGENTS.md describe the kinds.
+
+  - key: web-renderer
+    after: [artifacts-server]
+    title: The bundled artifact renderer (web/), developed and tested in a browser
+    facts:
+      why: >-
+        Artifacts render in a WebView island on iOS and Mac (owner decision A, 2026-11-10: web for artifacts only,
+        prose stays native). Building that UI as a web bundle keeps all of its iteration and tests off Xcode: Vite in a
+        browser, Playwright on Linux CI.
+      what: >-
+        A new top-level web/ (Vite + React + TypeScript, bun), its tests, .github/workflows/check.yml, the Makefile
+        (check-web, web-build), the built bundle committed under apple/Packages/IrisUI/Sources/IrisUI/Resources/artifact/
+        (IrisUI must never need Node), make guard, AGENTS.md. No Swift code.
+      change: >-
+        One page that receives {artifact, theme} through a single window function and renders: every show spec type of
+        contracts/schema (validated again in the page with the same schema; a bad spec shows "could not be displayed"),
+        a markdown document (streamdown or react-markdown with GFM, code highlighting, KaTeX; pick by bundle size and
+        verify versions with /research), and an HTML document inside an iframe with sandbox="" and srcdoc. Charts with
+        one small library. Styling from basalt-ui tokens delivered as CSS variables by the host, light and dark, no
+        network request of any kind (fonts, scripts and styles are in the bundle; CSP meta default-src 'none'). The
+        page reports its height with a ResizeObserver through the bridge name chosen in the webview-island-spike note
+        (docs/research/), and has no inner scrolling. A dev harness page shows every fixture of contracts/fixtures.
+        `make web-build` writes the bundle; check-web fails when the committed bundle differs from a fresh build.
+      acceptance: >-
+        Playwright screenshots of every show type and both document formats in light and dark are committed and
+        compared in CI on Linux; a test asserts the page makes zero network requests; the built bundle is under
+        1.5 MB gzipped (or the note says why not); check-web is part of make check and check.yml; nothing under apple/
+        changed except the resource bundle.
+
+  - key: conversation-unify
+    after: [ci-apple-split, prose-renderer]
+    title: "One conversation: every Hermes memo is a chat, shared by iOS and Mac from IrisUI"
+    facts:
+      why: >-
+        The owner cannot simply keep talking or typing in a chat on the phone. The first Hermes memo of a session opens
+        the plain MemoDetailView (reply = a text-only sheet behind an icon in DetailActionBar; voice is three taps
+        away), later turns open ThreadView with ThreadReplyBar: two UIs for one conversation, decided by
+        Memo.opensThread (apple/Iris/Memo+Thread.swift:10-13). The Mac already treats every memo with a threadId as a
+        chat (Memo.showsChat). The PRD non-goal "No full chat client" (docs/PRD.md:168) is reversed by the owner
+        (2026-11-10).
+      what: >-
+        apple/Iris (HistoryView, MemoDetailView, MemoDetailModel, ThreadView, ThreadModel, ThreadTurn, ComposerView,
+        Memo+Thread), apple/Packages/IrisUI (Components/Thread, DetailActionBar, ThreadReplyBar), apple/IrisMac only
+        where a moved type changes an import, UI tests and snapshots of the touched screens, String catalogs,
+        docs/PRD.md, docs/TDD.md §4 "Thread view", AGENTS.md.
+      change: >-
+        (1) One rule on both platforms: a Hermes memo is a conversation as soon as it exists (the Mac's showsChat
+        rule); a History row of any Hermes memo pushes the conversation screen. Transcribe-mode memos keep the document
+        detail. (2) The conversation screen always ends in the one reply bar: text field and hold-to-talk / locked
+        recording, working from the first turn (a memo still before `act` queues the reply behind it, as
+        continuations already do server-side). (3) What the plain detail had moves to a per-turn Details sheet: steps
+        waterfall, cost, ids, Retry, kind chip, actions line, player for the recording and the spoken reply. (4) After
+        a send the new turn appears in place (ThreadModel.didSend), never only as a new History row. (5) Move
+        ThreadTurn, the turn list and the reply-bar model into IrisUI/IrisCore so iOS and Mac render the same
+        conversation component; ComposerView stays for a new memo only. (6) Delete what this makes dead (the reply
+        sheet path, opensThread branches, ReplyMarkdown.swift if unused). Amend the PRD non-goal and TDD §4.
+      acceptance: >-
+        A UI test opens a single Hermes memo from History, types a reply in the bar and sees the pending turn in the
+        same screen; another holds to talk on a first-turn conversation (fake capture); the Details sheet shows steps
+        and Retry on a failed memo; package tests cover the moved turn logic with `swift test`; make check-strings
+        passes; CI apple.yml green; PRD and TDD say what is built.
+      limits: >-
+        One targeted local run: make uitest ONLY=<the class touched> or make snapshots for the touched views. The Mac
+        UI is not redesigned here (row mac-conversation).
+
+  - key: ios-streaming
+    after: [stream-events, conversation-unify]
+    title: "iOS: the reply streams into the conversation with a live tool line"
+    facts:
+      why: >-
+        The server now sends memo.delta and memo.activity (row stream-events); the phone still shows step dashes until
+        the turn is over.
+      what: >-
+        apple/Packages/IrisCore (SSE consumption), the shared conversation component in IrisUI, apple/Iris
+        (HistoryModel event fan-out, the conversation model), the fake API (streams its sample replies), tests, String
+        catalogs, TDD §4.
+      change: >-
+        The pending turn becomes a streaming turn: text from memo.delta rendered by the streaming prose renderer
+        (isStreaming), a quiet activity line under it from memo.activity ("Using terminal"), the buffer reset on a new
+        `attempt`, the base text from the memo's partialReply when the screen opens mid-turn, and the final memo
+        (reply_text, artifacts, kind chip) replacing the stream at `acted` without a jump. The list sticks to the
+        bottom while streaming unless the user scrolled up. Never fake typing: no stream = today's pending turn.
+        Deltas are display only: never logged, stored or put into telemetry. Reduce Motion: no per-chunk animation.
+      acceptance: >-
+        Package tests drive the conversation model with a scripted event sequence (deltas, a replayed attempt, a
+        mid-turn open, the final memo) and assert the shown text at each point; a UI test with the fake API sees
+        partial text before the final reply; CI apple.yml green.
+      limits: One targeted local run (make uitest ONLY=<class>).
+
+  - key: ios-continue-anywhere
+    after: [conversation-unify]
+    title: "iOS: continue a conversation from the notification, the Live Activity and the record row"
+    facts:
+      why: >-
+        Outside the conversation screen nothing continues a thread: a notification tap only launches the app (no
+        UNUserNotificationCenter delegate, MEMO_DONE has actions: [] in apple/Iris/PushAppDelegate.swift:33), the Live
+        Activity done card has only Play and no widgetURL, and the record row always starts a new memo. PRD R-RES-2
+        and TDD list [Play] [Reply by voice] [Open] as planned.
+      what: >-
+        apple/Iris (PushAppDelegate, RootView, CompositionRoot, Intents/, TakeController/TakeModel start path),
+        apple/IrisWidgets/MemoLiveActivity.swift, apple/IrisNotifications, String catalogs, tests, TDD §4, the
+        `apple-capture-notes` skill for the intent rules.
+      change: >-
+        (1) A deep link iris://memo/<id> (onOpenURL) that opens the memo's conversation; the notification tap and the
+        Live Activity (widgetURL) use it; the alert payload's top-level `memo` id is the source. (2) MEMO_DONE gets the
+        actions Reply (opens the conversation with the keyboard up), Reply by voice (foreground, starts a take bound
+        to the memo's threadId) and Play (PlayReplyIntent). (3) The done Live Activity gains a Reply button next to
+        Play. (4) While a conversation screen is on top, a take started by the Lock Screen control, Siri or the
+        Action button within the app continues that conversation; anywhere else it starts a new memo as today.
+        Banners for the conversation currently on screen are not shown.
+      acceptance: >-
+        Unit tests cover the URL routing and the action-to-route mapping; a UI test launches the app with the deep
+        link and lands in the conversation; the hardware-only rows (notification actions on the Lock Screen, Live
+        Activity Reply) are added to docs/spikes/device-checklist.md as unverified; CI apple.yml green.
+      limits: One targeted local run. Device behaviour stays marked unverified until the owner's check.
+
+  - key: mac-conversation
+    after: [ios-streaming]
+    title: "Mac: quick-ask in the popover, streaming, voice reply and a keyboard-first conversation"
+    facts:
+      why: >-
+        The owner believes he cannot type on the Mac: typing exists only in the main window (MacComposerBar), the
+        menu-bar popover (MacHomePage) has no text field, and the window is suppressed at launch. Threads have no
+        voice reply on the Mac (the mic shows only when threadId is nil, MacComposerBar.swift:18), Shift-Return
+        appends the newline at the end instead of at the caret (MacComposerBar.swift:55-62), nothing focuses the
+        composer in a thread, and there is no streaming.
+      what: >-
+        apple/IrisMac (MacHomePage, MacMenuPanel, MacComposerBar, MacConversationView, MacMemoDetailPane,
+        MacMemoDetailModel, MacCompositionRoot, MacMainWindow), the shared conversation component, String catalogs,
+        the `-IrisMacSnapshot` set, IrisMacTests, TDD §5, AGENTS.md.
+      change: >-
+        (1) The popover opens with a focused text field: Return sends to Hermes and shows the streaming answer in the
+        popover itself, with "Open in window" to continue. (2) MacConversationView uses the shared conversation
+        component incl. streaming and the activity line. (3) The composer in a thread has the microphone (a take bound
+        to the thread through the existing TakeEngine) and the global hotkey continues the conversation that is
+        frontmost in the main window. (4) Shift-Return inserts at the caret; Command-L focuses the composer; Escape
+        leaves it; opening a conversation focuses it; Command-N stays New memo. (5) The main window opens at launch
+        when the app was started by the user (not at login). Add `menu-ask` and `window-streaming` to the snapshot set.
+      acceptance: >-
+        IrisMacTests cover: a popover send creates a memo and shows streamed text (fake data), a thread voice reply
+        carries the threadId, Shift-Return inserts at the caret; the new snapshot PNGs exist in English and German
+        from make proof-apple; CI apple.yml green.
+      limits: One make proof-apple run.
+
+  - key: artifact-islands
+    after: [webview-island-spike, web-renderer, conversation-unify]
+    title: "iOS and Mac: artifacts inline in the conversation and in a fullscreen viewer"
+    facts:
+      why: >-
+        The server carries replyArtifacts (row artifacts-server) and the renderer bundle is in IrisUI's resources (row
+        web-renderer); no client shows them, so an artifact fence still reads as a code block.
+      what: >-
+        apple/Packages/IrisCore (models, fixture decode tests, asset download through the authenticated media
+        source), apple/Packages/IrisUI (MessageBlock.split, MessageContentView, Components/Artifact), apple/Iris and
+        apple/IrisMac only for wiring and the viewer scene, sample data, snapshots, String catalogs, TDD §4/§5.
+      change: >-
+        MessageBlock.split yields an artifact block for every iris-show / iris-doc fence, numbered like the server's
+        index. Inline it is a card: a show spec renders in one ArtifactWebView island at its content height; a document
+        is a titled card (title, format, size) that opens the viewer. The viewer is fullscreen on iOS and a window on
+        the Mac: the same island, plus Share (the raw spec or document file) and Copy. At most three islands are live
+        in a conversation at once: those off screen are replaced by a cached snapshot image and revived on scroll. An
+        artifact the bundle refuses or an asset that fails to load shows the fence as code with a retry. HTML documents
+        never get network access or a bridge beyond height and theme. Assets load through MediaDownloader with the
+        bearer header, never by the WebView.
+      acceptance: >-
+        Fixture decode tests for every artifact variant; a package test for MessageBlock.split with mixed fences;
+        snapshots or proof PNGs show a chart card, a table card and the document viewer on iOS and Mac, light and
+        dark; a test proves the island of an HTML document refuses a network request; CI apple.yml green.
+      limits: One make proof-apple run.
+
+  - key: hermes-artifact-skill
+    repo: hermes-agent
+    after: [artifacts-server]
+    title: The iris skill teaches Hermes when and how to answer with an artifact
+    facts:
+      why: >-
+        Iris now turns ```iris-show (a JSON spec: table, chart, stat, list, callout) and ```iris-doc (a standalone
+        markdown or HTML document) fences of a reply into rich artifacts on the phone and the Mac. Hermes does not know
+        they exist.
+      what: skills/iris in this repo only.
+      change: >-
+        Read the spec's JSON Schema in ~/SourceRoot/iris/contracts/schema and the "Reply assets" section of
+        ~/SourceRoot/iris/docs/TDD.md, then extend the iris skill: the exact fence syntax with one short example per
+        spec type, when an artifact beats prose (comparisons with numbers → table or chart, a status → stat tiles, a
+        long result the owner will keep → a document) and when not (a spoken-first answer of a few sentences; the reply
+        is also read aloud, so the prose must stand without the artifact), the size limits, at most three artifacts
+        per reply, and that the closing ```iris block still comes last.
+      acceptance: >-
+        The skill names both fences with valid examples (each example validates against the schema: a test or a
+        one-off script whose output is quoted in the ship note); one real memo asking for "a comparison of three
+        options as a table" comes back with a replyArtifacts entry (memo id named).
