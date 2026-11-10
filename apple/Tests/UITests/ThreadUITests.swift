@@ -11,11 +11,12 @@ final class ThreadUITests: IrisUITestCase {
     return app
   }
 
-  /// Scrolls `list` until `row` can be tapped; bounded, so a missing row fails instead of hanging.
+  /// Scrolls `container` until `element` can be tapped and starts below `top` (the floating bars cover the first 156 pt of
+  /// the thread, and `isHittable` does not know about them); bounded, so a missing element fails instead of hanging.
   @MainActor
-  private func reveal(_ element: XCUIElement, in container: XCUIElement, up: Bool = true) {
+  private func reveal(_ element: XCUIElement, in container: XCUIElement, up: Bool = true, below top: CGFloat = 0) {
     var attempts = 0
-    while !element.isHittable, attempts < 8 {
+    while !element.isHittable || (top > 0 && element.frame.minY < top), attempts < 8 {
       if up { container.swipeUp() } else { container.swipeDown() }
       attempts += 1
     }
@@ -32,7 +33,7 @@ final class ThreadUITests: IrisUITestCase {
     // Both answers are there: the follow-up's text is the last turn, and the first answer holds the rendered diagram.
     XCTAssertTrue(waitForPresence(app.staticTexts["And a hang guard, is that retried too?"], timeout: 10))
     let diagram = app.descendants(matching: .any)["thread.diagram"]
-    reveal(diagram, in: thread, up: false)
+    reveal(diagram, in: thread, up: false, below: 160)
     XCTAssertTrue(waitForPresence(diagram, timeout: 10))
 
     // The diagram opens full screen and closes again.
