@@ -43,7 +43,9 @@ enum StreamingTail {
     guard !lines[last].hasPrefix("    "), !lines[last].hasPrefix("\t"), hasPipeOutsideCode(line) else { return nil }
     let above = last > 0 ? lines[last - 1].trimmingCharacters(in: .whitespaces) : ""
     if isDelimiterShaped(line) { return hasPipeOutsideCode(above) ? last - 1 : last }
-    return isDelimiterShaped(above) && hasPipeOutsideCode(above) ? nil : last
+    if isDelimiterShaped(above) && hasPipeOutsideCode(above) { return nil }
+    // A line that does not start with a pipe and has no pipe line above it is prose that happens to hold a "|".
+    return line.hasPrefix("|") || hasPipeOutsideCode(above) ? last : nil
   }
 
   private static func hasPipeOutsideCode(_ line: String) -> Bool {

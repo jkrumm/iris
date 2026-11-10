@@ -50,7 +50,8 @@ struct StreamingTailTests {
     ("Intro\n\n| a | b |\n", "Intro\n"),
     ("| a | b |\n|--", ""),
     ("| a | b |\n|:-", ""),
-    ("one | two", ""),
+    ("one | two", "one | two"),
+    ("Intro\n\na | b", "Intro\n\na | b"),
     // A trailing partial HTML tag.
     ("a <di", "a "),
     ("a </", "a "),
