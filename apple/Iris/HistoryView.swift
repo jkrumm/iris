@@ -4,6 +4,8 @@ import SwiftUI
 
 struct HistoryView: View {
   @Bindable var model: HistoryModel
+  /// The pushed screens; the root sets it when a link, a notification or the Live Activity opens a conversation.
+  @Binding var path: [Memo]
   /// A server URL and token are saved. Without them there is nothing to load, and the list says how to connect.
   let isConfigured: Bool
   /// Opens Settings → Connection (the prompt's button).
@@ -24,7 +26,7 @@ struct HistoryView: View {
   @State private var composer: ComposerRequest?
 
   var body: some View {
-    NavigationStack {
+    NavigationStack(path: $path) {
       List {
         // There is no title and no filter row: the tab bar says where you are, the bottom bar holds the filters.
         ForEach(model.sections) { section in

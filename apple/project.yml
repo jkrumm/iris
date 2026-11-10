@@ -62,6 +62,10 @@ targets:
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         UIBackgroundModes: [audio]
         NSSupportsLiveActivities: true
+        # `iris://memo/<id>[?focus=keyboard|voice]` (ConversationLink): notification actions, the Live Activity's buttons.
+        CFBundleURLTypes:
+          - CFBundleURLName: com.jkrumm.iris
+            CFBundleURLSchemes: [iris]
         # The git sha of the build, the `service.version` of every device record; the device build passes IRIS_BUILD_SHA.
         IrisBuildSHA: $(IRIS_BUILD_SHA)
         NSMicrophoneUsageDescription: Iris records your voice memos.

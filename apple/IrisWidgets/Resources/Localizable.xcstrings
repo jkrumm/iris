@@ -281,6 +281,16 @@
         }
       }
     },
+    "Reply" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Antworten"
+          }
+        }
+      }
+    },
     "Resume" : {
       "localizations" : {
         "de" : {

@@ -629,8 +629,7 @@ Iris no longer routes (§3 "Hermes decides"); the app has two modes and shows wh
 - **Play.** `SpeechPlayer` is the app's one spoken-reply player (one `MemoPlayer`, remembering whose reply it holds): the detail's Play, `PlayReplyIntent` and spoken replies go through it,
   so replies never overlap; the recording of a detail and the speech pause each other (`MemoPlayback`; `SpeechPlayer.pauseRecording` covers a reply the user starts elsewhere, `PlayReplyIntent`, and a pause cancels a reply still downloading). It plays `GET /v1/memos/:id/speech` (the server's speech variant) downloaded with the
   device token by `MediaDownloader`. `PlayReplyIntent` is an `AudioPlaybackIntent` (runs in the app process; `PlaybackIntents.handler` is the composition root, which fetches the memo and plays);
-  it is compiled into the widget too. The done Live Activity card and the expanded island have a Play button (`LiveActivityPanel`'s `doneAction` slot, `Button(intent:)`). Notifications have no action slot
-  in the code yet (no category is registered; `MEMO_DONE` actions stay as designed above), so none was added. Compile-checked only: whether a suspended app may start playback from the Live Activity is spike S3, fallback is opening the app.
+  it is compiled into the widget too. The done Live Activity card and the expanded island have a Play button (`LiveActivityPanel`'s `doneAction` slot, `Button(intent:)`). The card also has a Reply `Link` (`iris://memo/<id>?focus=keyboard`) and a `widgetURL` (the conversation); the `MEMO_DONE` notification has Reply, Reply by voice and Play actions (see Notifications). Compile-checked only: whether a suspended app may start playback from the Live Activity is spike S3, fallback is opening the app.
 - **Spoken replies.** Settings → Playback toggle, persisted in `UserDefaults` (`SpokenRepliesStore`, off by default). When on and the scene is active, `memo.done` (`HistoryModel.onMemoDone`) makes
   `SpokenReplies` fetch the memo and speak it if it is `notified`, has a reply, is not deleted or archived, and **this device created it** (`CreatedMemoLog`): the Mac's memos do not talk on the phone.
   Once per memo per launch. A reply that finishes in the background is a notification; Play speaks it on demand.
@@ -1034,7 +1033,7 @@ run shows nothing and never blocks or fails a take.
 ### Notifications
 
 - **Registration** (`PushRegistrar`, `PushAppDelegate`; built Wave 21 P1): once a connection is saved (never on a first launch before it) the app
-  registers the `MEMO_DONE` category (no actions yet; the content extension declares it), asks for alert, sound and badge once, and calls
+  registers the `MEMO_DONE` category (Reply, Reply by voice, Play; the content extension declares it), asks for alert, sound and badge once, and calls
   `registerForRemoteNotifications()` on every launch. The hex token goes through `devices/register` with `apnsEnv`: `sandbox` on a Debug build
   (`#if DEBUG`; Xcode development builds talk to the sandbox host), `production` on Release (TestFlight, Wave 22). It is sent again only when
   the token, the environment or the server changes, and a failed send is retried on the next foreground. The simulator has no APNs: the failure is
@@ -1044,9 +1043,15 @@ run shows nothing and never blocks or fails a take.
   from `op://mini/apple-developer`, written to a 0600 temp file for the build only), so `aps-environment` and the App Group are in the build.
   `DEVICE_SIGNING=personal` stays as the free-team fallback without both entitlements (AGENTS.md "Device").
 - **Categories:**
-  - `MEMO_DONE`: [Play] [Reply by voice] [Open];
-  - [Reply by voice] opens the app in recording mode bound to `threadId`
-    (foreground required for capture).
+  - `MEMO_DONE`: [Reply] [Reply by voice] [Play], all `.foreground` (a notification action cannot run an `AppIntent` itself); the tap on the alert is the open.
+  - `NotificationRoute.route(actionIdentifier:userInfo:)` (pure) maps the action and the payload's top-level `memo` id: tap → open the conversation, Reply → open with the keyboard up, Reply by voice → open with `focus=voice`
+    (the take that records the reply is the voice-reply work, Issue 712 part B; until then it opens like a tap), Play → `PlaybackIntents`' `playReply`, falling back to opening the conversation when the reply cannot be played.
+    `PushAppDelegate` is the notification center's delegate (set in `didFinishLaunching`, both methods on the main actor: Issue 211).
+  - Foreground: `willPresent` shows banner and sound unless the notification belongs to the conversation on screen (`ConversationPresence`, set by `ThreadView`; matched by the memos of the open conversation, since the payload's `thread-id` is the constant `memo`).
+- **Deep link** `iris://memo/<id>[?focus=keyboard|voice]` (`ConversationLink` in `IrisCore`, scheme `iris` in the app's `CFBundleURLTypes`): the notification actions, the Live Activity (`Link` and `widgetURL`) and `onOpenURL` all end in `ConversationRouter`,
+  which holds one pending request until `RootView` resolves it (History's list, else `GET /v1/memos/:id`), then closes the composer sheet, selects History and pushes the memo on its `NavigationStack` (a running take is left alone;
+  a memo that is not a conversation opens its detail; an unresolvable or deleted memo is dropped and logged as `ui.route` `opened=false`). Unit-tested; UI-tested with `-IrisOpenURL` on fakes.
+  Device-unverified: the Lock Screen actions, Play from a suspended app, the Live Activity `Link` (and in the expanded island), the suppression of the foreground banner (device checklist N-1 to N-6).
 - **Content extension:** headline, kind chip, the condensed answer (Textual
   markdown), and an inline [Play] using the shared player.
 

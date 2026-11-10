@@ -1464,6 +1464,16 @@
         }
       }
     },
+    "Play" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Abspielen"
+          }
+        }
+      }
+    },
     "Play reply" : {
       "localizations" : {
         "de" : {
@@ -1580,6 +1590,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Antwort"
+          }
+        }
+      }
+    },
+    "Reply by voice" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Per Sprache antworten"
           }
         }
       }

@@ -28,9 +28,26 @@ final class UIKitPushSystem: PushSystem {
   }
 
   /// `MEMO_DONE` is what the notification content extension (`IrisNotifications`) declares; the server sends it with the result alert.
+  /// Its actions all start the app (a notification action cannot run an `AppIntent` on its own): Reply and Reply by voice open the
+  /// conversation, Play speaks the reply (``NotificationRoute``).
   func registerCategories() {
+    let actions = [
+      UNNotificationAction(
+        identifier: NotificationRoute.replyAction,
+        title: String(localized: "Reply", comment: "Notification action: reply to the memo by typing"),
+        options: [.foreground]),
+      UNNotificationAction(
+        identifier: NotificationRoute.replyByVoiceAction,
+        title: String(localized: "Reply by voice", comment: "Notification action: reply to the memo by voice"),
+        options: [.foreground]),
+      UNNotificationAction(
+        identifier: NotificationRoute.playAction,
+        title: String(localized: "Play", comment: "Notification action: speak the memo's reply"),
+        options: [.foreground]),
+    ]
     center.setNotificationCategories([
-      UNNotificationCategory(identifier: "MEMO_DONE", actions: [], intentIdentifiers: [], options: [])
+      UNNotificationCategory(
+        identifier: NotificationRoute.category, actions: actions, intentIdentifiers: [], options: [])
     ])
   }
 
@@ -52,9 +69,36 @@ extension PushRegistrar {
     })
 }
 
-/// Forwards the APNs callbacks, which only an app delegate receives, to ``PushRegistrar/shared``. It sets no notification
-/// center delegate: every notification keeps the system default (not shown while the app is open, nothing on tap).
-final class PushAppDelegate: NSObject, UIApplicationDelegate {
+/// Forwards the APNs callbacks, which only an app delegate receives, to ``PushRegistrar/shared``, and is the notification
+/// center's delegate: a tap or an action of a `MEMO_DONE` notification becomes a ``NotificationRoute``, and a notification
+/// that arrives in the foreground is shown unless it belongs to the conversation on screen. The delegate is set before the
+/// launch finishes, so a tap that cold-launches the app is delivered; the routes wait here until the root attaches.
+final class PushAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
+  private var router: ConversationRouter?
+  private var presence: ConversationPresence?
+  private var play: ((String) async throws -> Void)?
+  private var waiting: [NotificationRoute] = []
+
+  func application(
+    _ application: UIApplication,
+    didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
+  ) -> Bool {
+    UNUserNotificationCenter.current().delegate = self
+    return true
+  }
+
+  /// The composition root is up: routes that arrived before it are handled now. `play` speaks the reply of a memo.
+  func attach(
+    router: ConversationRouter, presence: ConversationPresence, play: @escaping (String) async throws -> Void
+  ) {
+    self.router = router
+    self.presence = presence
+    self.play = play
+    let early = waiting
+    waiting = []
+    early.forEach(handle)
+  }
+
   func application(
     _ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data
   ) {
@@ -63,5 +107,48 @@ final class PushAppDelegate: NSObject, UIApplicationDelegate {
 
   func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: any Error) {
     PushRegistrar.shared.didFail(error)
+  }
+
+  // MARK: UNUserNotificationCenterDelegate
+
+  // Main actor on purpose: a nonisolated async delegate method ran the system's completion handler on a cooperative-pool
+  // thread, which UIKit aborts on (Issue 211, the 17:32 crash in the device checklist).
+  @MainActor
+  func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse) async {
+    let route = NotificationRoute.route(
+      actionIdentifier: response.actionIdentifier, userInfo: response.notification.request.content.userInfo)
+    guard let route else { return }
+    handle(route)
+  }
+
+  @MainActor
+  func userNotificationCenter(
+    _ center: UNUserNotificationCenter, willPresent notification: UNNotification
+  ) async -> UNNotificationPresentationOptions {
+    let onScreen = presence?.current
+    return NotificationRoute.presentationOptions(
+      for: notification.request.content.userInfo, onScreenThreadID: onScreen?.threadID,
+      onScreenMemoIDs: onScreen?.memoIDs ?? [])
+  }
+
+  private func handle(_ route: NotificationRoute) {
+    guard let router, let play else {
+      waiting.append(route)
+      return
+    }
+    switch route {
+    case .open(let link):
+      router.open(link)
+    case .play(let memoID):
+      Task {
+        do {
+          try await play(memoID)
+        } catch {
+          // Nothing to speak (or the player is busy): the conversation is the useful place to land.
+          DeviceLog.shared.event("ui.route", ["memo": .string(memoID), "action": "play", "fallback": "open"])
+          router.open(ConversationLink(memoID: memoID))
+        }
+      }
+    }
   }
 }
