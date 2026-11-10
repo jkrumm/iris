@@ -1,0 +1,16 @@
+html, body { margin: 0; padding: 0; height: auto; overflow: hidden; background: transparent; }
+body { font: var(--iris-text-sm) / 1.4 var(--iris-font-body); color: var(--iris-ink); }
+#root { padding: var(--iris-space-md); }
+h1 { margin: 0 0 var(--iris-space-sm); font-size: var(--iris-text-md); font-weight: 600; }
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(90px, 1fr)); gap: var(--iris-space-sm); }
+.tile { background: var(--iris-panel); border: 0.5px solid var(--iris-border); border-radius: var(--iris-radius-ctrl); padding: var(--iris-space-sm); }
+.tile .name { color: var(--iris-muted); font-size: var(--iris-text-xs); }
+.tile .value { font-size: var(--iris-text-kpi); font-weight: 600; }
+.tile .delta { font: var(--iris-text-xs) var(--iris-font-mono); color: var(--iris-status-neutral); }
+.tile .delta.good { color: var(--iris-status-good); }
+.tile .delta.bad { color: var(--iris-status-bad); }
+svg { display: block; width: 100%; height: 80px; margin-top: var(--iris-space-md); }
+svg rect { fill: var(--iris-accent); }
+p { margin: var(--iris-space-sm) 0 0; color: var(--iris-muted); font-size: var(--iris-text-xs); }
+a { color: var(--iris-accent); }
+button { font: inherit; color: var(--iris-ink); background: var(--iris-subtle); border: 0.5px solid var(--iris-border); border-radius: var(--iris-radius-ctrl); padding: var(--iris-space-xs) var(--iris-space-sm); }

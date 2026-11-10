@@ -732,6 +732,23 @@
         }
       }
     },
+    "Show full screen" : {
+      "comment" : "Button on an inline artifact: opens it full screen",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vollbild anzeigen"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Show full screen"
+          }
+        }
+      }
+    },
     "Shows or hides the steps" : {
       "comment" : "VoiceOver hint of the step summary line",
       "localizations" : {

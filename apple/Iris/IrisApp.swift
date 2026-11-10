@@ -1,4 +1,5 @@
 import IrisCapture
+import IrisUI
 import SwiftUI
 
 @main
@@ -15,26 +16,38 @@ struct IrisApp: App {
 
   var body: some Scene {
     WindowGroup {
-      RootView(
-        history: root.history, isConfigured: root.isConfigured, take: root.take, stats: root.stats,
-        settings: root.settings,
-        diagnostics: root.diagnostics, micRules: root.micRules, spokenReplies: root.spokenReplies,
-        connectionForm: root.connectionForm, startsOnSettings: root.opensOnSettings,
-        makeDetail: root.detailModel(for:), makeComposer: root.composerModel(for:),
-        makeThread: root.threadModel(for:)
-      )
-      .environment(\.replyImageStore, root.replyImages)
-      .task { DeviceLog.shared.sceneChanged(to: scenePhase.telemetryName) }
-      .task(id: root.connectionRevision) { await root.start() }
-      .task(id: root.connectionRevision) { await PushRegistrar.shared.connectionChanged() }
-      .onChange(of: scenePhase) { _, phase in
-        DeviceLog.shared.sceneChanged(to: phase.telemetryName)
-        root.spokenReplies.isForeground = phase == .active
-        if phase == .background { Task { await root.backgrounded() } }
-        guard phase == .active else { return }
-        Task { await root.foregrounded() }
-        Task { await PushRegistrar.shared.foregrounded() }
-      }
+      #if DEBUG
+        if let islands = ArtifactSpike.islands() {
+          ArtifactIslandDemo(islands: islands)
+        } else {
+          rootView
+        }
+      #else
+        rootView
+      #endif
+    }
+  }
+
+  private var rootView: some View {
+    RootView(
+      history: root.history, isConfigured: root.isConfigured, take: root.take, stats: root.stats,
+      settings: root.settings,
+      diagnostics: root.diagnostics, micRules: root.micRules, spokenReplies: root.spokenReplies,
+      connectionForm: root.connectionForm, startsOnSettings: root.opensOnSettings,
+      makeDetail: root.detailModel(for:), makeComposer: root.composerModel(for:),
+      makeThread: root.threadModel(for:)
+    )
+    .environment(\.replyImageStore, root.replyImages)
+    .task { DeviceLog.shared.sceneChanged(to: scenePhase.telemetryName) }
+    .task(id: root.connectionRevision) { await root.start() }
+    .task(id: root.connectionRevision) { await PushRegistrar.shared.connectionChanged() }
+    .onChange(of: scenePhase) { _, phase in
+      DeviceLog.shared.sceneChanged(to: phase.telemetryName)
+      root.spokenReplies.isForeground = phase == .active
+      if phase == .background { Task { await root.backgrounded() } }
+      guard phase == .active else { return }
+      Task { await root.foregrounded() }
+      Task { await PushRegistrar.shared.foregrounded() }
     }
   }
 }
