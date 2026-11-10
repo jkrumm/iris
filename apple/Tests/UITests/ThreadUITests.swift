@@ -92,6 +92,33 @@ final class ThreadUITests: IrisUITestCase {
     XCTAssertTrue(waitForAbsence(element(app, "memo.detail"), timeout: 1))
   }
 
+  /// While the fake `act` runs (3 s), each tool shows as a row of the working list as it starts, before the answer; the answer
+  /// then replaces the list.
+  @MainActor
+  func testTheRunningTurnShowsEachToolAsItStartsBeforeTheAnswer() {
+    let app = launch()
+    revealRow(containing: "Wochenplan abgestimmt", in: app).tap()
+    XCTAssertTrue(waitForPresence(element(app, "thread.view"), timeout: 10))
+
+    typeReply("And the Friday standup?", in: app)
+    let activity = element(app, "thread.turn.activity")
+    XCTAssertTrue(waitForPresence(activity, timeout: 10))
+
+    let rows = app.descendants(matching: .any).matching(identifier: "thread.turn.activity.row")
+    let deadline = Date().addingTimeInterval(10)
+    var count = 0
+    while count < 2, Date() < deadline {
+      count = rows.count
+      if count < 2 { RunLoop.current.run(until: Date().addingTimeInterval(0.25)) }
+    }
+    XCTAssertGreaterThanOrEqual(count, 2, "the second tool adds a row")
+
+    let answer = app.descendants(matching: .any)
+      .matching(NSPredicate(format: "label CONTAINS %@", "fake answer to your message")).firstMatch
+    XCTAssertTrue(waitForPresence(answer, timeout: 20))
+    XCTAssertTrue(waitForAbsence(activity, timeout: 10))
+  }
+
   /// The hold-to-talk control works on the first turn of a conversation too: the take becomes a turn in the same screen.
   @MainActor
   func testAVoiceReplyOnTheFirstTurnJoinsTheSameScreen() {

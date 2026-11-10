@@ -14,6 +14,7 @@ struct ThreadView: View {
   private let refreshToken: (_ threadID: String?, _ memoIDs: [String]) -> Int
   private let makeDetail: (Memo) -> MemoDetailModel
   private let memoRevision: (String) -> Int
+  private let liveEvents: () -> AsyncStream<ServerEvent>
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   @Environment(\.scenePhase) private var scenePhase
 
@@ -31,17 +32,20 @@ struct ThreadView: View {
   ///   - refreshToken: Folds what History knows of this conversation (its memos' revisions, its memo count) into one number the screen reloads on.
   ///   - makeDetail: Builds the model of a memo's Details sheet.
   ///   - memoRevision: History's revision of one memo, which the Details sheet reloads on.
+  ///   - liveEvents: A stream of the live events (`ready`, `memo.delta`, `memo.activity`) while the screen is up; the default ends at once.
   ///   - onSent: Told of every memo this screen creates (History lists it at once).
   init(
     model: ThreadModel, refreshToken: @escaping (_ threadID: String?, _ memoIDs: [String]) -> Int = { _, _ in 0 },
     makeDetail: @escaping (Memo) -> MemoDetailModel, memoRevision: @escaping (String) -> Int = { _ in 0 },
-    onSent: @escaping (Memo) -> Void = { _ in }
+    onSent: @escaping (Memo) -> Void = { _ in },
+    liveEvents: @escaping () -> AsyncStream<ServerEvent> = { AsyncStream { $0.finish() } }
   ) {
     model.onSent = onSent
     _model = State(initialValue: model)
     self.refreshToken = refreshToken
     self.makeDetail = makeDetail
     self.memoRevision = memoRevision
+    self.liveEvents = liveEvents
   }
 
   var body: some View {
@@ -60,10 +64,13 @@ struct ThreadView: View {
         .padding(.horizontal, Theme.Spacing.screenMargin)
         .padding(.top, Theme.Spacing.inset)
         .padding(.bottom, Theme.Spacing.lg)
-        .animation(reduceMotion ? nil : .smooth(duration: 0.4), value: model.turns)
+        .animation(reduceMotion ? nil : .smooth(duration: 0.4), value: model.turns.map(\.id))
       }
       .defaultScrollAnchor(.bottom, for: .initialOffset)
-      .onChange(of: model.turns.last?.id) {
+      // Sticks to the bottom while the content grows, unless the user scrolled up.
+      .defaultScrollAnchor(.bottom, for: .sizeChanges)
+      // The memo, not the turn: pending, streaming and the reply of one memo never pull a user who scrolled up.
+      .onChange(of: model.turns.last?.memoID ?? model.turns.last?.id) {
         withAnimation(reduceMotion ? nil : .smooth) { proxy.scrollTo(Self.bottom, anchor: .bottom) }
       }
     }
@@ -86,6 +93,9 @@ struct ThreadView: View {
     .navigationBarTitleDisplayMode(.inline)
     .toolbarVisibility(.hidden, for: .tabBar)
     .task(id: refreshToken(model.threadID, model.memoIDs)) { await model.load() }
+    .task {
+      for await event in liveEvents() { await model.apply(event) }
+    }
     .onAppear { model.reclaimHeld() }
     .onDisappear {
       cancelVoice()

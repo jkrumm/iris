@@ -154,6 +154,132 @@ struct ThreadModelTests {
     #expect(thread.turns.last?.content == .assistant("x", mermaid: [1: expected]))
   }
 
+  // MARK: Live
+
+  private func delta(_ seq: Int, _ text: String, attempt: Int = 1, id: String = "a") -> ServerEvent {
+    .memoDelta(MemoDelta(id: id, attempt: attempt, seq: seq, text: text))
+  }
+
+  private func activity(_ tool: String, attempt: Int = 1, id: String = "a") -> ServerEvent {
+    .memoActivity(MemoActivity(id: id, attempt: attempt, tool: tool))
+  }
+
+  private func working(_ thread: ThreadModel) -> [String]? {
+    guard case .working(let lines)? = thread.turns.last?.content else { return nil }
+    return lines.map(\.label)
+  }
+
+  @Test("the tools and the streamed reply of a running memo show live, and the final reply replaces them in place")
+  func liveTurn() async {
+    let running = memo("a", age: 10, state: .transcribed)
+    let thread = await openedOn([running])
+    await client.seed(MemoDetail(memo: running, steps: []))
+    await thread.load()
+    guard case .pending = thread.turns.last?.content else {
+      Issue.record("expected the dashes")
+      return
+    }
+
+    await thread.apply(activity("terminal"))
+    #expect(working(thread) == [ToolActivityText.label(for: "terminal")])
+    #expect(thread.turns.last?.id == "a.pending")
+    await thread.apply(activity("web"))
+    #expect(working(thread)?.count == 2)
+
+    await thread.apply(delta(1, "Hello"))
+    #expect(thread.turns.last?.id == "a.reply")
+    #expect(
+      thread.turns.last?.content == .streaming(markdown: "Hello", activity: ToolActivityText.label(for: "web")))
+    await thread.apply(delta(2, " world"))
+    #expect(
+      thread.turns.last?.content == .streaming(markdown: "Hello world", activity: ToolActivityText.label(for: "web")))
+    await thread.apply(delta(2, " world"))
+    guard case .streaming(let text, _)? = thread.turns.last?.content else {
+      Issue.record("expected a streaming turn")
+      return
+    }
+    #expect(text == "Hello world")
+
+    // A new attempt starts over: the tool list again.
+    await thread.apply(activity("terminal", attempt: 2))
+    #expect(working(thread) == [ToolActivityText.label(for: "terminal")])
+
+    // The reply lands: the same id, now the answer.
+    await thread.apply(delta(1, "Hello", attempt: 2))
+    let done = memo("a", age: 10, state: .acted, reply: "Hello world")
+    await client.seed(detail([done]))
+    await client.seed(MemoDetail(memo: done, steps: []))
+    await thread.load()
+    #expect(thread.turns.map(\.id) == ["a.user", "a.reply"])
+    #expect(thread.turns.last?.content == .assistant("Hello world", mermaid: [:]))
+  }
+
+  @Test("events of a memo outside the conversation are ignored")
+  func foreignEvents() async {
+    let running = memo("a", age: 10, state: .transcribed)
+    let thread = await openedOn([running])
+    await thread.load()
+    await thread.apply(activity("terminal", id: "other"))
+    await thread.apply(delta(1, "x", id: "other"))
+    guard case .pending = thread.turns.last?.content else {
+      Issue.record("expected the dashes")
+      return
+    }
+  }
+
+  @Test("a screen that opens mid-turn shows the memo's partial reply, and the deltas that follow append")
+  func openedMidTurn() async {
+    let running = memo("a", age: 10, state: .transcribed)
+    let thread = await openedOn([running])
+    await client.seed(
+      MemoDetail(memo: running, steps: [], partialReply: PartialReply(attempt: 3, seq: 4, text: "So far")))
+    await thread.load()
+    #expect(thread.turns.last?.content == .streaming(markdown: "So far", activity: nil))
+
+    await thread.apply(delta(4, "old", attempt: 3))
+    await thread.apply(delta(5, " more", attempt: 3))
+    #expect(thread.turns.last?.content == .streaming(markdown: "So far more", activity: nil))
+  }
+
+  @Test("a delta that skips ahead stays hidden until the partial reply is fetched again")
+  func gapHidesUntilSeeded() async {
+    let running = memo("a", age: 10, state: .transcribed)
+    let thread = await openedOn([running])
+    await client.seed(MemoDetail(memo: running, steps: []))
+    await thread.load()
+    await thread.apply(delta(5, "tail"))
+    guard case .pending = thread.turns.last?.content else {
+      Issue.record("a gap must not show text")
+      return
+    }
+    await client.seed(
+      MemoDetail(memo: running, steps: [], partialReply: PartialReply(attempt: 1, seq: 6, text: "whole base")))
+    await thread.apply(.ready)
+    #expect(thread.turns.last?.content == .streaming(markdown: "whole base", activity: nil))
+  }
+
+  @Test("ready forgets the live turns and fetches the partial reply again")
+  func readyResets() async {
+    let running = memo("a", age: 10, state: .transcribed)
+    let thread = await openedOn([running])
+    await client.seed(MemoDetail(memo: running, steps: []))
+    await thread.load()
+    await thread.apply(activity("terminal"))
+    #expect(working(thread) != nil)
+
+    await thread.apply(.ready)
+    guard case .pending = thread.turns.last?.content else {
+      Issue.record("expected the dashes after a reconnect")
+      return
+    }
+    await client.seed(
+      MemoDetail(memo: running, steps: [], partialReply: PartialReply(attempt: 1, seq: 2, text: "Again")))
+    await thread.apply(.ready)
+    #expect(thread.turns.last?.content == .streaming(markdown: "Again", activity: nil))
+    let fetches = await client.calls.count { $0 == .memo(id: "a") }
+    #expect(fetches >= 3)
+  }
+
   // MARK: Loading
 
   @Test("a failed thread load keeps the anchor's turns; only an empty screen is flagged")

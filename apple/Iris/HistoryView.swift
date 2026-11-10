@@ -132,7 +132,8 @@ struct HistoryView: View {
           let inThread = threadID.map { id in model.memos.count { $0.threadId == id } } ?? 0
           return ids.reduce(inThread) { $0 &+ model.revision(of: $1) }
         },
-        makeDetail: makeDetail, memoRevision: { model.revision(of: $0) }, onSent: { model.insert($0) })
+        makeDetail: makeDetail, memoRevision: { model.revision(of: $0) }, onSent: { model.insert($0) },
+        liveEvents: model.liveEvents)
     }
     .id(memo.id)
   }

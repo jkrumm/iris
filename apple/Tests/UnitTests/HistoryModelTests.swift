@@ -24,6 +24,36 @@ struct HistoryModelTests {
     try await client.memo(id: id).memo
   }
 
+  // MARK: Live events
+
+  @Test("liveEvents multicasts ready, delta and activity, and nothing else; a finished stream is forgotten")
+  func liveEvents() async {
+    var first: AsyncStream<ServerEvent>? = model.liveEvents()
+    var second: AsyncStream<ServerEvent>? = model.liveEvents()
+    #expect(model.liveStreamCount == 2)
+    let delta = ServerEvent.memoDelta(MemoDelta(id: "m", attempt: 1, seq: 1, text: "Hi"))
+    let activity = ServerEvent.memoActivity(MemoActivity(id: "m", attempt: 1, tool: "web"))
+
+    await model.handle(.ready)
+    await model.handle(activity)
+    await model.handle(delta)
+    await model.handle(.memoDone(MemoEvent(id: "m", state: .notified, at: MemoFactory.now)))
+
+    var iterators = [first!.makeAsyncIterator(), second!.makeAsyncIterator()]
+    for index in iterators.indices {
+      var received: [ServerEvent] = []
+      for _ in 0..<3 { if let event = await iterators[index].next() { received.append(event) } }
+      #expect(received == [.ready, activity, delta])
+    }
+
+    // A stream the consumer let go of is removed.
+    iterators = []
+    first = nil
+    second = nil
+    for _ in 0..<100 where model.liveStreamCount > 0 { await Task.yield() }
+    #expect(model.liveStreamCount == 0)
+  }
+
   // MARK: Loading
 
   @Test("paging appends the next page without repeating a memo")

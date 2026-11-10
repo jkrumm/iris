@@ -46,6 +46,8 @@ final class ThreadModel {
   private var sentMemos: [Memo] = []
   /// A typed reply waiting for the first memo's thread.
   private var held: String?
+  /// The tools and reply text of the memos still in `act`. Display only: never logged or stored.
+  @ObservationIgnored private var live = LiveTurns()
 
   private let client: any APIClient
   private let sendText: (_ text: String, _ threadID: String) async -> TypedReplyResult
@@ -118,7 +120,8 @@ final class ThreadModel {
       } else {
         ([anchor] + sentMemos).flatMap { ConversationTimeline.entries(of: $0) }
       }
-    var next = entries.map { ConversationTurn($0) }
+    dropFinishedLiveTurns(entries)
+    var next = entries.map { liveTurn(for: $0) ?? ConversationTurn($0) }
     turnCount = next.count { if case .user = $0.content { true } else { false } }
     if let held {
       next.append(ConversationTurn(id: "held.user", memoID: nil, date: nil, content: .user(held)))
@@ -130,6 +133,29 @@ final class ThreadModel {
             caption: String(localized: "Sends after the first answer", comment: "Pending turn of a held reply"))))
     }
     if next != turns { turns = next }
+  }
+
+  /// A memo that ended (result-ready or failed) no longer has a live turn.
+  private func dropFinishedLiveTurns(_ entries: [ConversationEntry]) {
+    for entry in entries where entry.memo.state.isResultReady || entry.memo.state == .failed {
+      live.drop(memoID: entry.memo.id)
+    }
+  }
+
+  /// The pending entry of a memo with live events: the streaming reply once there is a complete base, else the tool list. The
+  /// streaming turn takes the id of the final reply, so the finished answer replaces it in place.
+  private func liveTurn(for entry: ConversationEntry) -> ConversationTurn? {
+    guard case .pending = entry.kind, let turn = live.turn(for: entry.memo.id) else { return nil }
+    if !turn.shownText.isEmpty {
+      return ConversationTurn(
+        id: "\(entry.memo.id).reply", memoID: entry.memo.id, date: nil,
+        content: .streaming(markdown: turn.shownText, activity: turn.currentTool.map(ToolActivityText.label(for:))))
+    }
+    guard !turn.tools.isEmpty else { return nil }
+    let lines = turn.tools.enumerated().map {
+      ActivityLine(id: $0.offset, label: ToolActivityText.label(for: $0.element))
+    }
+    return ConversationTurn(id: entry.id, memoID: entry.memo.id, date: nil, content: .working(lines))
   }
 
   /// The memo for a turn's Details sheet: the loaded thread's version, or the anchor.
@@ -154,6 +180,7 @@ final class ThreadModel {
           dropHeldIfAnchorEnded()
           rebuild()
           loadFailed = false
+          await seedLive()
           return
         }
       }
@@ -164,6 +191,7 @@ final class ThreadModel {
       sentMemos = []
       loadFailed = false
       rebuild()
+      await seedLive()
     } catch is CancellationError {
       return
     } catch {
@@ -174,6 +202,54 @@ final class ThreadModel {
     }
     await sendHeld()
   }
+
+  // MARK: Live
+
+  /// A live event: `ready` (every connect) forgets what was streamed, since `attempt` restarts after a server restart, and
+  /// fetches the partial reply again; a delta or tool of a memo of this conversation updates its live turn.
+  func apply(_ event: ServerEvent) async {
+    switch event {
+    case .ready:
+      live.reset()
+      rebuild()
+      await seedLive()
+    case .memoDelta(let delta):
+      guard belongs(delta.id) else { return }
+      live.apply(event)
+      rebuild()
+    case .memoActivity(let activity):
+      guard belongs(activity.id) else { return }
+      live.apply(event)
+      rebuild()
+    case .memoUpdated, .memoDone:
+      return
+    }
+  }
+
+  private func belongs(_ memoID: String) -> Bool {
+    memoIDs.contains(memoID) || sentMemos.contains { $0.id == memoID }
+  }
+
+  /// Seeds the live turn of every running memo from its detail's `partialReply`, so a screen that opens mid-turn (or after a
+  /// reconnect) has a complete base for the deltas that follow.
+  private func seedLive() async {
+    let mine = generation
+    let running = currentMemos.filter { !$0.state.isResultReady && $0.state != .failed }.map(\.id)
+    for id in running {
+      do {
+        let partial = try await client.memo(id: id).partialReply
+        guard !Task.isCancelled, mine == generation else { return }
+        live.seed(memoID: id, partial: partial)
+      } catch is CancellationError {
+        return
+      } catch {
+        logger.error("partial reply fetch failed: \(String(describing: error), privacy: .public)")
+      }
+    }
+    rebuild()
+  }
+
+  private var currentMemos: [Memo] { detail?.memos ?? ([anchor] + sentMemos) }
 
   /// The first memo ended without a thread (it failed, or it finished with none): a held reply has nowhere to go.
   private func dropHeldIfAnchorEnded() {

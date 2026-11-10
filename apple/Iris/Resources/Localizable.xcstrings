@@ -1714,6 +1714,16 @@
         }
       }
     },
+    "Searching the web" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Durchsucht das Web"
+          }
+        }
+      }
+    },
     "Send to Hermes" : {
       "localizations" : {
         "de" : {
@@ -2396,6 +2406,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Eine https-Adresse verwenden. Einfaches http ist nur für localhost erlaubt."
+          }
+        }
+      }
+    },
+    "Using %@" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ wird verwendet"
+          }
+        }
+      }
+    },
+    "Using terminal" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Terminal wird verwendet"
           }
         }
       }

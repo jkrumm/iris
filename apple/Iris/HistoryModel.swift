@@ -48,6 +48,9 @@ final class HistoryModel {
   /// The server the rows and `nextCursor` came from.
   private var loadedServer: String?
   private let logger = Logger(subsystem: "com.jkrumm.iris", category: "history")
+  @ObservationIgnored private var liveContinuations: [UUID: AsyncStream<ServerEvent>.Continuation] = [:]
+  /// How many live streams are open.
+  var liveStreamCount: Int { liveContinuations.count }
   private var nextCursor: String?
   private var isLoadingMore = false
   /// The filters the rows and `nextCursor` belong to. A cursor is only ever sent with the filters that issued it.
@@ -206,9 +209,26 @@ final class HistoryModel {
     revisions[id, default: 0]
   }
 
+  /// The events a conversation screen follows live (`ready`, `memo.delta`, `memo.activity`), multicast to every open stream. The
+  /// text of a delta is display only: it is yielded and never kept or logged here.
+  func liveEvents() -> AsyncStream<ServerEvent> {
+    let (stream, continuation) = AsyncStream.makeStream(of: ServerEvent.self, bufferingPolicy: .unbounded)
+    let key = UUID()
+    liveContinuations[key] = continuation
+    continuation.onTermination = { [weak self] _ in
+      Task { @MainActor in self?.liveContinuations[key] = nil }
+    }
+    return stream
+  }
+
+  private func publish(_ event: ServerEvent) {
+    for continuation in liveContinuations.values { continuation.yield(event) }
+  }
+
   func handle(_ event: ServerEvent) async {
     switch event {
     case .ready:
+      publish(event)
       await load()
     case .memoUpdated(let update):
       onMemoUpdated?(update.id)
@@ -218,8 +238,8 @@ final class HistoryModel {
       // Always follows a `memo.updated` for the same state, which has already refreshed the list.
       onMemoDone?(done.id)
     case .memoDelta, .memoActivity:
-      // Live reply text and tool activity: no list row shows it, the final `memo.updated` carries the result.
-      break
+      // Live reply text and tool activity: no list row shows it (an open conversation does), the final `memo.updated` carries the result.
+      publish(event)
     }
   }
 

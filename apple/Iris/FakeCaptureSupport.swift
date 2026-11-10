@@ -50,21 +50,62 @@ actor FakePipeline {
     guard tasks[memoID] == nil else { return }
     // Owned by `tasks`; cancelled with the pipeline.
     tasks[memoID] = Task { [client, step] in
+      // The server stores the reply at `acted`; `act` is the step that runs while the memo sits in `transcribed`.
+      let answer = typed ? "This is the fake answer to your message." : "This is the fake answer to your voice memo."
       let voice: [(MemoState, String?, String?)] = [
         (.transcribed, "This is the fake transcript of your voice memo.", nil),
-        (.acted, nil, nil),
-        (.notified, nil, "This is the fake answer to your voice memo."),
+        (.acted, nil, answer),
+        (.notified, nil, nil),
       ]
       let text: [(MemoState, String?, String?)] = [
-        (.acted, nil, nil),
-        (.notified, nil, "This is the fake answer to your message."),
+        (.acted, nil, answer),
+        (.notified, nil, nil),
       ]
       for (state, transcript, reply) in typed ? text : voice {
-        try? await Task.sleep(for: step)
+        // The step before `acted` is `act` running: tools start and the reply streams in a burst just before it ends.
+        if state == .acted {
+          await Self.streamAct(memoID, answer: answer, step: step, client: client)
+        } else {
+          try? await Task.sleep(for: step)
+        }
         guard !Task.isCancelled else { return }
         try? await client.advance(memoID, to: state, transcript: transcript, replyText: reply)
       }
     }
+  }
+
+  /// What a running `act` emits: three tool starts at about 15 %, 40 % and 65 % of the step, then (about 85 %) the answer in
+  /// three deltas; it sleeps for the whole step, then the caller advances to `acted`.
+  private static func streamAct(_ memoID: String, answer: String, step: Duration, client: FakeAPIClient) async {
+    let tools = ["terminal", "web", "terminal"]
+    let marks = [0.15, 0.40, 0.65, 0.85]
+    var elapsed = 0.0
+    for (index, mark) in marks.enumerated() {
+      try? await Task.sleep(for: step * (mark - elapsed))
+      guard !Task.isCancelled else { return }
+      elapsed = mark
+      if index < tools.count {
+        client.emit(.memoActivity(MemoActivity(id: memoID, attempt: 1, tool: tools[index])))
+        continue
+      }
+      for (offset, piece) in pieces(of: answer, count: 3).enumerated() {
+        client.emit(.memoDelta(MemoDelta(id: memoID, attempt: 1, seq: offset + 1, text: piece)))
+      }
+    }
+    try? await Task.sleep(for: step * (1 - elapsed))
+  }
+
+  /// `text` cut into `count` consecutive parts (the last takes the remainder), so they concatenate to `text`.
+  private static func pieces(of text: String, count: Int) -> [String] {
+    let size = max(1, text.count / count)
+    var parts: [String] = []
+    var rest = Substring(text)
+    while parts.count < count - 1, !rest.isEmpty {
+      parts.append(String(rest.prefix(size)))
+      rest = rest.dropFirst(size)
+    }
+    parts.append(String(rest))
+    return parts
   }
 
   func cancelAll() {

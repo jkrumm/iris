@@ -13,15 +13,20 @@ public struct AssistantTurnView<Footer: View>: View {
   private let onOpenImage: (CGImage) -> Void
   private let onCopy: (() -> Void)?
   private let hasFooter: Bool
+  private let isStreaming: Bool
+  private let activity: String?
   private let footer: Footer
 
   /// - Parameters:
   ///   - textRole: The body size of the reply (`MessageContentView`): the iPhone's 16 pt `.callout`, the Mac passes `.footnote`.
+  ///   - isStreaming: The markdown grows; the content view buffers and stabilizes it.
+  ///   - activity: The current tool's line, a quiet footnote under the text inside the bubble.
   ///   - hasFooter: `false` when the footer builds nothing (an `if` that did not hold): no hairline, no empty row.
   public init(
     markdown: String, time: String, mermaid: [Int: MermaidAsset] = [:], identifier: String = "thread.turn.assistant",
     textRole: Theme.TextRole = .callout, onOpenImage: @escaping (CGImage) -> Void = { _ in },
-    onCopy: (() -> Void)? = nil, hasFooter: Bool = true, @ViewBuilder footer: () -> Footer
+    onCopy: (() -> Void)? = nil, isStreaming: Bool = false, activity: String? = nil, hasFooter: Bool = true,
+    @ViewBuilder footer: () -> Footer
   ) {
     self.markdown = markdown
     self.time = time
@@ -30,13 +35,19 @@ public struct AssistantTurnView<Footer: View>: View {
     self.textRole = textRole
     self.onOpenImage = onOpenImage
     self.onCopy = onCopy
+    self.isStreaming = isStreaming
+    self.activity = activity
     self.hasFooter = hasFooter
     self.footer = footer()
   }
 
   public var body: some View {
     ChatBubble(side: .assistant, time: time, onCopy: onCopy, hasFooter: hasFooter) {
-      MessageContentView(markdown: markdown, mermaid: mermaid, textRole: textRole, onOpenImage: onOpenImage)
+      VStack(alignment: .leading, spacing: Theme.Spacing.cozy) {
+        MessageContentView(
+          markdown: markdown, isStreaming: isStreaming, mermaid: mermaid, textRole: textRole, onOpenImage: onOpenImage)
+        if let activity { ActivityFootnote(label: activity) }
+      }
     } footer: {
       footer
     }
@@ -50,10 +61,11 @@ extension AssistantTurnView where Footer == EmptyView {
   public init(
     markdown: String, time: String, mermaid: [Int: MermaidAsset] = [:], identifier: String = "thread.turn.assistant",
     textRole: Theme.TextRole = .callout, onOpenImage: @escaping (CGImage) -> Void = { _ in },
-    onCopy: (() -> Void)? = nil
+    onCopy: (() -> Void)? = nil, isStreaming: Bool = false, activity: String? = nil
   ) {
     self.init(
       markdown: markdown, time: time, mermaid: mermaid, identifier: identifier, textRole: textRole,
-      onOpenImage: onOpenImage, onCopy: onCopy, hasFooter: false, footer: { EmptyView() })
+      onOpenImage: onOpenImage, onCopy: onCopy, isStreaming: isStreaming, activity: activity, hasFooter: false,
+      footer: { EmptyView() })
   }
 }
