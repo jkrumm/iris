@@ -86,7 +86,10 @@ struct ThreadView: View {
     .navigationBarTitleDisplayMode(.inline)
     .toolbarVisibility(.hidden, for: .tabBar)
     .task(id: refreshToken(model.threadID, model.memoIDs)) { await model.load() }
-    .onDisappear { cancelVoice() }
+    .onDisappear {
+      cancelVoice()
+      model.handOver()
+    }
     .onChange(of: scenePhase) {
       // `.inactive` too (Control Center, a call, a system alert): the finger is gone either way.
       if scenePhase != .active { cancelVoice() }

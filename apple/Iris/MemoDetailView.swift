@@ -26,7 +26,7 @@ struct MemoDetailView: View {
       VStack(alignment: .leading, spacing: Theme.Spacing.sectionTop) {
         header
         conversation
-        MemoDetailsSection(model: model, onRetry: retry)
+        MemoDetailsSection(model: model, onRetry: model.retry(stepID:))
       }
       .padding(.horizontal, Theme.Spacing.screenMargin)
       .padding(.top, Theme.Spacing.sm)
@@ -38,8 +38,8 @@ struct MemoDetailView: View {
     .scrollEdgeEffectStyle(.soft, for: .bottom)
     .safeAreaInset(edge: .bottom, spacing: 0) {
       VStack(spacing: Theme.Spacing.sm) {
-        failureToast
-        actions
+        MemoDetailFailureToast(model: model)
+        MemoDetailActions(model: model)
       }
       .floatingBarBackdrop(edge: .bottom)
     }
@@ -101,38 +101,6 @@ struct MemoDetailView: View {
   }
 
   private var player: some View {
-    let audio = playback.recording
-    return MemoPlayerBar(
-      position: audio.position, duration: audio.duration, isPlaying: audio.isPlaying, isEnabled: audio.isLoaded,
-      isExpanded: $isRecordingExpanded,
-      onToggle: playback.toggleRecording,
-      onSeek: { audio.seek(to: $0) },
-      onSkipBack: { audio.skipBack() })
-  }
-
-  // MARK: Actions
-
-  private var actions: some View {
-    DetailActionBar(
-      retryOptions: model.retrySteps.map { DetailRetryOption(id: $0.rawValue, title: $0.title) },
-      primaryRetryID: model.primaryRetryStep?.rawValue,
-      onRetry: retry
-    )
-    .frame(maxWidth: .infinity)
-    .padding(.vertical, Theme.Spacing.sm)
-  }
-
-  private func retry(_ stepID: String) {
-    guard let step = MemoStep(rawValue: stepID) else { return }
-    Task { await model.retry(from: step) }
-  }
-
-  @ViewBuilder private var failureToast: some View {
-    if let failure = model.failure {
-      ToastBanner(message: failure.message)
-        .padding(.horizontal, Theme.Spacing.screenMargin)
-        .transition(.move(edge: .bottom).combined(with: .opacity))
-        .accessibilityIdentifier("detail.toast")
-    }
+    MemoRecordingPlayer(playback: playback, isExpanded: $isRecordingExpanded)
   }
 }

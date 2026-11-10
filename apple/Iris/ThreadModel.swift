@@ -50,6 +50,7 @@ final class ThreadModel {
   private let client: any APIClient
   private let sendText: (_ text: String, _ threadID: String) async -> TypedReplyResult
   private let toastDuration: Duration
+  private let heldReplies: HeldReplyQueue
   private let logger = Logger(subsystem: "com.jkrumm.iris", category: "thread")
   /// Bumped by every fetch and every local change; a fetch that is no longer the latest drops its answer.
   private var generation = 0
@@ -60,16 +61,38 @@ final class ThreadModel {
     memo: Memo, client: any APIClient, voice: any VoiceReplyCapture,
     sendText: @escaping (_ text: String, _ threadID: String) async -> TypedReplyResult,
     now: @escaping () -> Date = { Date() }, toastDuration: Duration = .seconds(4),
-    sleep: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
+    sleep: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) },
+    heldReplies: HeldReplyQueue? = nil
   ) {
     anchor = memo
     self.client = client
     self.sendText = sendText
     self.toastDuration = toastDuration
+    self.heldReplies = heldReplies ?? HeldReplyQueue(client: client, sendText: sendText, sleep: sleep)
     toastTimer = ExpiryTimer(sleep: sleep)
     replyBar = ReplyBarModel(voice: voice, now: now)
     replyBar.onNotice = { [weak self] notice in self?.show(notice) }
+    switch self.heldReplies.reclaim(anchorID: memo.id) {
+    case .held(let text):
+      held = text
+    case .draft(let text):
+      replyBar.restoreDraft(text)
+      showFailure(
+        String(
+          localized: "A reply you wrote earlier could not be sent. It is back in the field.",
+          comment: "Toast when a reply handed over by a closed screen found no conversation to go to"))
+    case nil:
+      break
+    }
     rebuild()
+  }
+
+  /// The screen goes away: a reply still held for the first memo's thread outlives it in the queue.
+  func handOver() {
+    guard let text = held else { return }
+    held = nil
+    rebuild()
+    heldReplies.hand(text, anchor: anchor)
   }
 
   var title: String { detail?.thread.title ?? anchor.rowHeadline }

@@ -2,9 +2,9 @@ import IrisCore
 import IrisUI
 import SwiftUI
 
-/// The main window's detail column. A memo in a Hermes session is a chat: the headline and one quiet metadata line, the
-/// conversation as bubbles, Details (steps, ids) in a disclosure group, and the composer pinned at the foot to reply. A memo
-/// without one (a transcript, one that failed before `act`) keeps the document layout: reply, summary and transcript as plain sections
+/// The main window's detail column. A Hermes memo is a chat (`Memo.isConversation`): the headline and one quiet metadata line, the
+/// conversation as bubbles, Details (steps, ids) in a disclosure group, and the composer pinned at the foot to reply. A
+/// transcribe-mode memo keeps the document layout: reply, summary and transcript as plain sections
 /// with small uppercase labels, and no composer. Actions sit in the window toolbar. It reloads when `refreshToken` changes (the
 /// window's list bumps a memo's revision on its `memo.updated` event, for any memo of the open conversation), so a running turn
 /// becomes its answer in place.

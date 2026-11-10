@@ -60,6 +60,8 @@ final class CompositionRoot: CaptureIntentHandler, PlaybackIntentHandler {
   let fakeLiveActivity: RecordingLiveActivity?
   /// The decoded images of every reply on screen (Mermaid diagrams), shared by all thread screens.
   let replyImages: ReplyImageStore
+  /// Typed replies held for a first memo's thread, kept past the life of their screen.
+  let heldReplies: HeldReplyQueue
   /// The editable connection; nil when running on fakes.
   private(set) var connectionForm: ConnectionModel?
   /// Bumped when the saved connection changes; `IrisApp` restarts ``start()`` on it.
@@ -180,6 +182,8 @@ final class CompositionRoot: CaptureIntentHandler, PlaybackIntentHandler {
       take = TakeModel(controller: takeController)
     }
     let outbox = outbox
+    let queue = HeldReplyQueue(client: api, sendText: Self.typedReplySender(outbox: outbox))
+    heldReplies = queue
     let fake = mode == .fake
     let saved = self.credentials
     // Every playback start reads the take controller's capture flag at the moment it starts. Weak: the controller owns the
@@ -204,6 +208,7 @@ final class CompositionRoot: CaptureIntentHandler, PlaybackIntentHandler {
       connectionForm = ConnectionModel(store: store) { [unowned self] in connectionChanged() }
     }
     let history = history
+    queue.onSent = { history.insert($0) }
     // Hide and unhide of one memo must reach History in the order they happened (a discard, then its delete settling): one
     // stream, one consumer, instead of a task per call.
     let (hiddenChanges, hiddenChanged) = AsyncStream.makeStream(of: HiddenChange.self)
@@ -259,18 +264,24 @@ final class CompositionRoot: CaptureIntentHandler, PlaybackIntentHandler {
   /// The model behind one open conversation, anchored at the memo History opened. A typed reply goes through the composer's
   /// path (the outbox), so there is no second way to create a memo.
   func threadModel(for memo: Memo) -> ThreadModel {
-    let outbox = outbox
-    return ThreadModel(
-      memo: memo, client: api, voice: voiceReply,
-      sendText: { text, threadID in
-        let composer = ComposerModel(request: .reply(toThread: threadID), outbox: outbox)
-        composer.text = text
-        switch await composer.send() {
-        case .sent(let memo): return .sent(memo)
-        case .queued: return .queued
-        case .refused, .stalled, nil: return .failed
-        }
-      })
+    ThreadModel(
+      memo: memo, client: api, voice: voiceReply, sendText: Self.typedReplySender(outbox: outbox),
+      heldReplies: heldReplies)
+  }
+
+  /// The typed path of a reply into a thread: the composer's, so the outbox stays the one way to create a memo.
+  private static func typedReplySender(
+    outbox: OutboxService
+  ) -> (_ text: String, _ threadID: String) async -> TypedReplyResult {
+    { text, threadID in
+      let composer = ComposerModel(request: .reply(toThread: threadID), outbox: outbox)
+      composer.text = text
+      switch await composer.send() {
+      case .sent(let memo): return .sent(memo)
+      case .queued: return .queued
+      case .refused, .stalled, nil: return .failed
+      }
+    }
   }
 
   /// Fakes: seeds the sample memos. Then, when there is a connection: loads the list and follows the server's events

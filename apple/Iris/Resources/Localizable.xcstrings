@@ -321,6 +321,16 @@
         }
       }
     },
+    "A reply you wrote earlier could not be sent. It is back in the field." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Eine Antwort von vorhin ließ sich nicht senden. Sie steht wieder im Feld."
+          }
+        }
+      }
+    },
     "A reset renamed the unreadable outbox file instead of deleting it. Share it to have the queue looked at." : {
       "localizations" : {
         "de" : {

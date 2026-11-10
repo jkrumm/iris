@@ -103,10 +103,13 @@ extension FakeCapture {
 /// The sleeps of the toast timers, each released by the test; a cancelled sleep throws, as `Task.sleep` does.
 final class ToastTimers {
   private var gates: [AsyncStream<Void>.Continuation] = []
+  /// How long each sleep asked for, in the order they started.
+  private(set) var durations: [Duration] = []
 
   func sleep(_ duration: Duration) async throws {
     let (stream, gate) = AsyncStream<Void>.makeStream()
     gates.append(gate)
+    durations.append(duration)
     for await _ in stream { return }
     try Task.checkCancellation()
   }
