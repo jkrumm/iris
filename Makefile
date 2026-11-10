@@ -52,6 +52,10 @@ contracts: ## Regenerate contracts/schema from the TypeBox schemas
 format: ## Apply oxfmt
 	cd server && bun run format
 
+.PHONY: merge-guard
+merge-guard: ## Before merging a PR: rebased on origin/master, master's last check.yml run green (MERGE_GUARD_ARGS=--allow-red only to fix a red master)
+	@bun scripts/merge-guard.ts $(MERGE_GUARD_ARGS)
+
 .PHONY: guard
 guard: ## Public-repo guard: no IPs, tailnet/real hostnames or token shapes in tracked files
 	bun scripts/public-guard.ts

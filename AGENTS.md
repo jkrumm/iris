@@ -182,6 +182,7 @@ the phone (`devicectl list devices`, the connected physical iOS device) resolves
 | `make testflight [UPLOAD=0\|1]` | `scripts/testflight.sh`: archive `Iris` Release, export a signed `.ipa` into `.artifacts/testflight/export` (`UPLOAD=0`, default) or export-and-upload (`UPLOAD=1`, needs the App Store Connect app record); `CFBundleVersion` = `<git rev-list --count HEAD>.<UTC epoch hours>` (strictly increasing, so a same-sha weekly rebuild uploads) | mini, under the Apple lock; the poller's release hook runs it |
 | `make check-strings` | the String catalogs: `de` on every key, no stale key, no hard-coded user-facing literal (bun only, runs on Linux CI too) | mini, CI, `check`/`check-apple` |
 | `make mac-release IDENTITY=development\|developer-id [PUBLISH=draft\|release]` | sign, zip, appcast and GitHub release of `IrisMac` (see Mac releases); under the Apple lock | mini |
+| `make merge-guard` | run right before merging a PR: the branch contains `origin/master` and master's last `check.yml` run is green (`apple.yml` is not part of it); `MERGE_GUARD_ARGS=--allow-red` only for the change that fixes a red master, `--no-fetch` skips the fetch | mini, the factory lead |
 | `make guard` | public-repo scan (IPs, tailnet/real hostnames, token shapes) | mini, CI, lefthook pre-commit |
 | `make verify` / `make smoke` | production health / a real recording through production | mini only, after deploy |
 
