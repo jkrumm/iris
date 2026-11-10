@@ -63,6 +63,7 @@ iOS (simulator): the WebContent processes are host processes and `footprint` rea
 - **Not exercised:** full screen, a tap on the Docs link in a running app (a test clicks it programmatically: a synthetic `click()` counts as a link activation), a recycled island in a `LazyVStack` (the demo uses a plain `VStack` so all islands are alive; the height cache exists for the lazy case but is untested), Dynamic Type, VoiceOver inside the page.
 - **One WebContent process per island.** Ten islands are ten processes; plan the artifact count per conversation (or recycle off-screen islands) before rendering a long chat's worth.
 - **First paint is late.** A placeholder or cached height holds the layout; the first measure arrives after the page's first load (a cold simulator took seconds under load; not measured on a phone). A page taller than the cache grows the row when it lands.
+- **A `WebPage` needs a hosting view to load on iOS.** Unhosted in a test process it never gets ready; in the app, attached to a `WebView`, it does (screenshots).
 - `WebPage` has no `takeSnapshot`, no new-window (`target=_blank`) hook (the navigation decider sees it with no target frame and treats it as a main-frame link, so it opens externally; not exercised on a device) and no SwiftUI-native message API: the bridge is `WKUserContentController`.
 - The default external opener is SwiftUI's `openURL` environment, not `UIApplication.shared.open`.
 - A page still has no way to ask Swift for anything but `height` / `ready`; the tap-through of a link is the only outbound action.
@@ -71,7 +72,7 @@ iOS (simulator): the WebContent processes are host processes and `footprint` rea
 
 `ArtifactNavigationPolicyTests` (the decision matrix, including http(s) never loading inside the island), `ArtifactThemeTests`, and `ArtifactIslandTests` (a real `WebPage`: render, height up and down, `network: blocked`,
 a script navigation to https leaves the page on the island scheme and opens nothing, a programmatic link click opens exactly once, an inline document loads and its `<script>` does not run, the dark scheme changes `--iris-bg`).
-They run on the macOS host (`swift test`) and on the simulator (`snapshots` job).
+The `WebPage` tests run on the macOS host (`swift test`) only: in the iOS simulator's test process, with no view or window hosting the page, the WebContent process never became ready (every one of them timed out in the hosted `snapshots` job, 180 s each). The policy matrix, the theme, the scheme handler and the height cache run on both. On iOS the island is proven by the `proof-apple` screenshots, which host it in the real app, not by a test.
 
 ## Evidence
 
