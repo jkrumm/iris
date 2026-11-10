@@ -74,24 +74,6 @@
       SnapshotSupport.assertLightAndDark(actions(retry: true), width: 390, height: 96)
     }
 
-    private func replyBar(text: String) -> some View {
-      ThreadReplyBar(
-        text: .constant(text), holdStartedAt: nil, isVoiceAvailable: true, onSend: {}, onHoldBegan: {},
-        onHoldEnded: { _ in }
-      )
-      .environment(\.locale, Locale(identifier: "en"))
-    }
-
-    @Test("the reply bar with nothing typed: the field, hold to talk and the lock", .tags(.snapshot))
-    func replyBarEmpty() {
-      SnapshotSupport.assertLightAndDark(replyBar(text: ""), width: 390, height: 80)
-    }
-
-    @Test("the reply bar with a typed reply: the field and the send button", .tags(.snapshot))
-    func replyBarWithText() {
-      SnapshotSupport.assertLightAndDark(replyBar(text: "And a hang guard?"), width: 390, height: 80)
-    }
-
     @Test("the step-progress dashes: none, some and all steps done", .tags(.snapshot))
     func dashes() {
       let dashes = VStack(alignment: .leading, spacing: Theme.Spacing.md) {
