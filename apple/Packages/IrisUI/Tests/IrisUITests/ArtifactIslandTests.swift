@@ -14,7 +14,9 @@ struct ArtifactIslandTests {
     var urls: [URL] = []
   }
 
-  private static let ceiling: Duration = .seconds(20)
+  /// The whole package's tests share one process: the Prose benchmarks hold the main actor for about 90 s, and a page's first load
+  /// (a cold WebContent process) waits behind them. A broken island fails the test long before this.
+  private static let ceiling: Duration = .seconds(180)
 
   private func makeIsland(
     _ entry: ArtifactEntry = .bundled("island.html"), payload: any Encodable = IslandSamplePayload.sample,
