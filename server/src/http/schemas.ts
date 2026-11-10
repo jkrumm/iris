@@ -110,11 +110,15 @@ export const StepRecord = t.Object({
   attempts: t.Number({ multipleOf: 1, minimum: 1 }),
 });
 
-/** The memo plus its step timeline; `segmentCount` is never null here. */
+/** The reply text streamed so far while `act` runs; a client drops `memo.delta` events of the same `attempt` with `seq` <= this one. */
+const PartialReply = t.Object({ attempt: Int, seq: Int, text: t.String() });
+
+/** The memo plus its step timeline; `segmentCount` is never null here. `partialReply` is present only while `act` has streamed visible text. */
 export const MemoDetail = t.Object({
   ...memoFields,
   segmentCount: Int,
   steps: t.Array(StepRecord),
+  partialReply: t.Optional(PartialReply),
 });
 
 // ── Threads ──────────────────────────────────────────────────────────────────
@@ -234,6 +238,21 @@ export const MemoEventPayload = t.Object({
   failedStep: Nullable(Step),
   error: Nullable(t.String()),
   at: t.String(),
+});
+
+/** `memo.delta` on `GET /events`: the next piece of the reply while `act` runs. A new `attempt` means act restarted: reset the buffer. `seq` starts at 1 per attempt. */
+export const MemoDeltaPayload = t.Object({
+  id: t.String(),
+  attempt: Int,
+  seq: Int,
+  text: t.String(),
+});
+
+/** `memo.activity` on `GET /events`: a tool Hermes started (the action name, as in `actions`). */
+export const MemoActivityPayload = t.Object({
+  id: t.String(),
+  attempt: Int,
+  tool: t.String(),
 });
 
 // ── Devices ──────────────────────────────────────────────────────────────────

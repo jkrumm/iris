@@ -11,6 +11,8 @@ import {
   ListQuery,
   Memo,
   MemoDetail,
+  MemoActivityPayload,
+  MemoDeltaPayload,
   MemoEventPayload,
   MemoList,
   MissingSegmentsError,
@@ -71,6 +73,8 @@ export const CONTRACT_SCHEMAS: Record<string, TSchema> = {
   "events.ready": t.Object({}, { maxProperties: 0 }),
   "events.memo-updated": MemoEventPayload,
   "events.memo-done": MemoEventPayload,
+  "events.memo-delta": MemoDeltaPayload,
+  "events.memo-activity": MemoActivityPayload,
   // Push payloads the server sends to APNs and the apps decode.
   "liveactivity.content-state": ContentState,
   "push.alert": AlertPayload,

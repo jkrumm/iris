@@ -10,6 +10,9 @@ export interface DeliveryMeta {
   actions: string[];
 }
 
+/** Live progress of a running turn: the destination's text as it sent it (fence and all), or the name of a tool it started (same rule as `DeliveryMeta.actions`). */
+export type DeliveryProgress = { type: "text"; delta: string } | { type: "tool"; tool: string };
+
 export interface Delivery {
   /** Where the message landed: the Hermes session id. */
   ref: string;
@@ -27,12 +30,13 @@ export interface Destination {
   /**
    * Hands the transcript to the destination and waits for its reply. `mode` is the owner's pick as the app sent it (the
    * destination turns `chat`, `journal` and `tab` into one hint line). `threadId` delivers into that existing session
-   * instead of creating one.
+   * instead of creating one. `onProgress` is told about the turn while it runs; a throwing callback never breaks the delivery.
    */
   deliver(params: {
     memoId: string;
     transcript: string;
     mode: MemoMode;
     threadId?: string;
+    onProgress?: (progress: DeliveryProgress) => void;
   }): Promise<Delivery>;
 }

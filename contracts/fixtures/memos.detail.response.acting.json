@@ -1,0 +1,50 @@
+{
+  "id": "0b6d1f4e-3a52-4c1d-9f0e-7a2c5d8e1b34",
+  "mode": "hermes",
+  "device": "iphone",
+  "startedAt": "2026-03-14T09:20:41.000Z",
+  "state": "transcribed",
+  "failedStep": null,
+  "error": null,
+  "segmentCount": 4,
+  "audioSeconds": 38.4,
+  "transcript": "Erinnere mich bitte daran, am Montag die offenen Pull Requests durchzugehen und am Donnerstag das Release zu bauen.",
+  "route": null,
+  "destinationRef": null,
+  "replyText": null,
+  "summary": null,
+  "done": false,
+  "favorite": false,
+  "archived": false,
+  "createdAt": "2026-03-14T09:20:41.512Z",
+  "updatedAt": "2026-03-14T09:21:00.640Z",
+  "steps": [
+    {
+      "step": "transcribe",
+      "status": "done",
+      "startedAt": "2026-03-14T09:20:52.100Z",
+      "finishedAt": "2026-03-14T09:21:00.640Z",
+      "error": null,
+      "usage": {
+        "audioSeconds": 38.4
+      },
+      "costUsd": 0.0038,
+      "attempts": 1
+    },
+    {
+      "step": "act",
+      "status": "running",
+      "startedAt": "2026-03-14T09:21:00.780Z",
+      "finishedAt": null,
+      "error": null,
+      "usage": null,
+      "costUsd": null,
+      "attempts": 1
+    }
+  ],
+  "partialReply": {
+    "attempt": 1,
+    "seq": 2,
+    "text": "Alles notiert. Montag: Pull Requests prüfen."
+  }
+}

@@ -5,6 +5,7 @@ import { createMemoEvents, type MemoEvents } from "../memo/events.js";
 import type { HandlerStep } from "../memo/memo.js";
 import { createRunner, type StepHandler } from "../memo/runner.js";
 import { createMemoMedia } from "../memo/media.js";
+import { createReplyProgress, type ReplyProgress } from "../memo/progress.js";
 import { createMemoService } from "../memo/service.js";
 import type { MemoStore } from "../memo/store.js";
 import { fakeAudio, testStore } from "../memo/test-support.js";
@@ -26,6 +27,8 @@ export function testApp(
       | ((store: MemoStore) => Partial<Record<HandlerStep, StepHandler>>);
     maxSegmentBytes?: number;
     sseKeepaliveMs?: number;
+    /** The progress bus; pass the one the handlers' `createStepHandlers` publishes to. Default a fresh one. */
+    progress?: ReplyProgress;
     /** `false` leaves speech unconfigured (503). */
     speaker?: ReturnType<typeof fakeSpeaker> | false;
     combiner?: ReturnType<typeof fakeCombiner>;
@@ -53,6 +56,7 @@ export function testApp(
       };
     },
   };
+  const progress = options.progress ?? createReplyProgress();
   const audio = fakeAudio();
   const handlers =
     typeof options.handlers === "function" ? options.handlers(store) : (options.handlers ?? {});
@@ -91,6 +95,7 @@ export function testApp(
     devices,
     media,
     telemetry: options.telemetry === false ? undefined : telemetry,
+    progress,
     sseKeepaliveMs: options.sseKeepaliveMs,
   });
   return {
@@ -99,6 +104,7 @@ export function testApp(
     store,
     clock,
     events,
+    progress,
     audio,
     assets,
     runner,

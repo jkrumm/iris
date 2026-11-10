@@ -13,6 +13,9 @@ const ROOT = dirname(import.meta.dir);
 const HEALTH_DEADLINE_MS = 20_000;
 const TAIL_LINES = 60;
 
+// What the fake Hermes (compose.ts fakePorts) streams and then delivers.
+const FAKE_REPLY = "Noted. Two things are done.";
+
 const TOKEN = `e2e-${crypto.randomUUID()}`;
 const output: string[] = [];
 let server: Bun.Subprocess | undefined;
@@ -50,6 +53,75 @@ async function waitHealthy(base: string) {
     await Bun.sleep(200);
   }
   throw new Error(`server not healthy within ${HEALTH_DEADLINE_MS / 1000}s`);
+}
+
+interface SseEvent {
+  event: string;
+  data: { id?: string; text?: string; tool?: string; attempt?: number; seq?: number };
+}
+
+/** Opens `GET /v1/events` and records every event until `stop()`; resolves once the server sent `ready`. */
+async function watchEvents(base: string) {
+  const controller = new AbortController();
+  const events: SseEvent[] = [];
+  const res = await fetch(`${base}/v1/events`, {
+    headers: { authorization: `Bearer ${TOKEN}` },
+    signal: controller.signal,
+  });
+  assert(res.status === 200 && res.body, `GET /events 200 (got ${res.status})`);
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  const pump = (async () => {
+    let buffer = "";
+    try {
+      for (;;) {
+        const part = await reader.read();
+        if (part.done) return;
+        buffer += decoder.decode(part.value, { stream: true });
+        let end = buffer.indexOf("\n\n");
+        while (end >= 0) {
+          const block = buffer.slice(0, end);
+          buffer = buffer.slice(end + 2);
+          const event = /^event: (.+)$/m.exec(block)?.[1];
+          const data = /^data: (.+)$/m.exec(block)?.[1];
+          if (event && data) events.push({ event, data: JSON.parse(data) as SseEvent["data"] });
+          end = buffer.indexOf("\n\n");
+        }
+      }
+    } catch {
+      // aborted by stop()
+    }
+  })();
+  const deadline = Date.now() + 5_000;
+  while (!events.some((e) => e.event === "ready")) {
+    assert(Date.now() < deadline, "GET /events sent ready");
+    await Bun.sleep(20);
+  }
+  return {
+    events,
+    stop: async () => {
+      controller.abort();
+      await pump;
+    },
+  };
+}
+
+/** The reply streams: at least two `memo.delta` events for the memo arrive before its `memo.done`, and they add up to the reply. */
+function assertStreamed(events: SseEvent[], id: string) {
+  const doneAt = events.findIndex((e) => e.event === "memo.done" && e.data.id === id);
+  assert(doneAt >= 0, `memo.done arrived for memo ${id}`);
+  const deltas = events
+    .slice(0, doneAt)
+    .filter((e) => e.event === "memo.delta" && e.data.id === id);
+  assert(
+    deltas.length >= 2,
+    `at least two memo.delta events before memo.done (got ${deltas.length})`,
+  );
+  const text = deltas.map((e) => e.data.text).join("");
+  assert(text === FAKE_REPLY, `the deltas add up to the reply (got ${JSON.stringify(text)})`);
+  const tools = events.filter((e) => e.event === "memo.activity" && e.data.id === id);
+  assert(tools.length >= 1, "a memo.activity event arrived");
+  out(`e2e: streamed ${deltas.length} deltas for memo ${id}`);
 }
 
 async function probe(base: string) {
@@ -333,7 +405,7 @@ async function probeThreads(base: string, threadId: string) {
     detail.messages[2]?.content === "Und wann nehme ich welchen?",
     "the reply is the third message",
   );
-  assert(detail.messages[3]?.content === "done", "the reply carries the assistant's answer");
+  assert(detail.messages[3]?.content === FAKE_REPLY, "the reply carries the assistant's answer");
   assert(
     detail.messages.map((m) => m.memoId).join() ===
       [threadId, threadId, continued.id, continued.id].join(),
@@ -372,11 +444,20 @@ async function main() {
   void capture(server.stderr as ReadableStream<Uint8Array>);
 
   await waitHealthy(base);
+  const watcher = await watchEvents(base);
   const send = Bun.spawn(
     ["bun", "scripts/send-memo.ts", "fixtures/audio/de-90s.m4a", "--url", base, "--token", TOKEN],
     { cwd: ROOT, stdout: "inherit", stderr: "inherit" },
   );
   assert((await send.exited) === 0, "send-memo reached notified (exit 0)");
+  await Bun.sleep(100);
+  await watcher.stop();
+  const first = (await (
+    await fetch(`${base}/v1/memos?limit=1`, { headers: { authorization: `Bearer ${TOKEN}` } })
+  ).json()) as { items: { id: string }[] };
+  const firstId = first.items[0]?.id;
+  assert(firstId, "GET /memos?limit=1 returns the first memo");
+  assertStreamed(watcher.events, firstId);
   await probe(base);
   await probeTyped(base);
   await probeHermesThread(base);

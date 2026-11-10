@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "attempt": {
+      "type": "integer"
+    },
+    "id": {
+      "type": "string"
+    },
+    "tool": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "attempt",
+    "tool"
+  ],
+  "title": "events.memo-activity",
+  "type": "object"
+}

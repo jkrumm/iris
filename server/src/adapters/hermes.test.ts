@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import { captureLogs } from "../memo/test-support.js";
 import type { MemoMode } from "../memo/memo.js";
+import type { DeliveryProgress } from "../ports/destination.js";
 import { transientKind } from "../ports/transient.js";
 import {
   createHermesDestination,
@@ -652,5 +653,68 @@ describe("hermes destination, the iris block and tools", () => {
     expect((line["events"] as Record<string, number>)["mystery"]).toBe(2);
     expect((line["events"] as Record<string, number>)["constructor"]).toBe(1);
     expect(line["keys"]).not.toHaveProperty("mystery");
+  });
+});
+
+describe("hermes destination, progress", () => {
+  const delta = (text: unknown) => frame("assistant.delta", { message_id: "m1", delta: text });
+  const run = async (chunks: string[], onProgress: (p: DeliveryProgress) => void) => {
+    const { destination } = fakeHermes({ chat: () => sseResponse(chunks) });
+    return destination.deliver({
+      memoId: MEMO_ID,
+      transcript: "buy milk",
+      mode: "auto",
+      onProgress,
+    });
+  };
+
+  it("forwards deltas in order, raw, and ignores a malformed one", async () => {
+    const seen: DeliveryProgress[] = [];
+    await run(
+      [
+        delta("\n\nDo"),
+        delta(7),
+        frame("assistant.delta", {}),
+        delta("ne"),
+        completed("Done"),
+        done,
+      ],
+      (p) => seen.push(p),
+    );
+    expect(seen).toEqual([
+      { type: "text", delta: "\n\nDo" },
+      { type: "text", delta: "ne" },
+    ]);
+  });
+
+  it("reports a tool by its action name; the iris skill yields no progress", async () => {
+    const seen: DeliveryProgress[] = [];
+    await run(
+      [
+        toolStarted({ tool_name: "skill_view", args: { name: "iris" } }),
+        toolStarted({ tool_name: "skill_view", args: { name: "plugin:capture" } }),
+        toolStarted({ tool_name: "terminal" }),
+        completed("ok"),
+        done,
+      ],
+      (p) => seen.push(p),
+    );
+    expect(seen).toEqual([
+      { type: "tool", tool: "capture" },
+      { type: "tool", tool: "terminal" },
+    ]);
+  });
+
+  it("a throwing onProgress does not fail the delivery and is logged once", async () => {
+    const { result, lines } = await captureLogs(() =>
+      run(
+        [delta("a"), delta("b"), toolStarted({ tool_name: "terminal" }), completed("ab"), done],
+        () => {
+          throw new Error("boom");
+        },
+      ),
+    );
+    expect(result.replyText).toBe("ab");
+    expect(lines.filter((l) => l["event"] === "hermes.progress_error")).toHaveLength(1);
   });
 });

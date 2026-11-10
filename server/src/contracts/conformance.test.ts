@@ -36,6 +36,7 @@ const OPTIONAL_KEYS = [
   "deletedAt",
   "purgeAt",
   "replyBlocks",
+  "partialReply",
 ];
 
 /** Validates `value` against `schema` and compares its keys with each fixture (default: all of them). */
@@ -636,11 +637,15 @@ describe("flows: every error shape conforms", () => {
 
 describe("GET /v1/events", () => {
   it("streams frames whose data satisfies the manifest's event schemas", async () => {
-    const { app } = testApp({ handlers: handlers(), sseKeepaliveMs: 20 });
+    const { app, progress } = testApp({ handlers: handlers(), sseKeepaliveMs: 20 });
     const stream = await call(app, { path: "/v1/events" });
     expect(stream.headers.get("content-type")).toContain("text/event-stream");
     const reader = (stream.body as ReadableStream<Uint8Array>).getReader();
 
+    const turn = progress.begin(crypto.randomUUID());
+    turn.onProgress({ type: "tool", tool: "terminal" });
+    turn.onProgress({ type: "text", delta: "\n\nOn it" });
+    turn.end();
     await record(app);
 
     const decoder = new TextDecoder();

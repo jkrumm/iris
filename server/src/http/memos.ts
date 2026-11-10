@@ -1,5 +1,6 @@
 import { Elysia } from "elysia";
 import { MemoError } from "../memo/errors.js";
+import type { ReplyProgress } from "../memo/progress.js";
 import type { MemoService } from "../memo/service.js";
 import type { deviceAuth } from "./auth.js";
 import {
@@ -82,8 +83,12 @@ const strictJson =
   };
 
 /** `/memos/*`. Takes the guard instance so handlers see the derived `device`. */
-export function memoRoutes(deps: { memos: MemoService; auth: ReturnType<typeof deviceAuth> }) {
-  const { memos, auth } = deps;
+export function memoRoutes(deps: {
+  memos: MemoService;
+  auth: ReturnType<typeof deviceAuth>;
+  progress?: ReplyProgress | undefined;
+}) {
+  const { memos, auth, progress } = deps;
 
   return new Elysia({ prefix: "/memos" })
     .use(auth)
@@ -191,7 +196,7 @@ export function memoRoutes(deps: { memos: MemoService; auth: ReturnType<typeof d
       },
       { query: ListQuery, response: { 200: MemoList, 400: ErrorBody } },
     )
-    .get("/:id", ({ params }) => detailJson(memos.get(params.id)), {
+    .get("/:id", ({ params }) => detailJson(memos.get(params.id), progress?.partial(params.id)), {
       params: MemoIdParams,
       response: { 200: MemoDetail, 404: ErrorBody },
     })

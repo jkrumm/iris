@@ -7,6 +7,7 @@ import {
   type Thread,
   type ThreadMessage,
 } from "../memo/memo.js";
+import type { PartialReply, ProgressEvent } from "../memo/progress.js";
 import type { MemoDetail, ThreadDetail } from "../memo/service.js";
 import type { Device } from "../ports/devices.js";
 
@@ -52,10 +53,15 @@ const stepJson = (record: StepRecord) => ({
   attempts: record.attempts,
 });
 
-export const detailJson = ({ memo, steps, segmentCount }: MemoDetail) => ({
+/** `partialReply` only while `act` is streaming text; omitted, not null, otherwise. */
+export const detailJson = (
+  { memo, steps, segmentCount }: MemoDetail,
+  partialReply: PartialReply | null = null,
+) => ({
   ...memoJson(memo),
   segmentCount,
   steps: steps.map(stepJson),
+  ...(partialReply && { partialReply }),
 });
 
 export const threadJson = (thread: Thread) => ({
@@ -87,6 +93,19 @@ export const eventJson = (event: MemoEvent) => ({
   failedStep: event.failedStep,
   error: event.error,
   at: event.at,
+});
+
+export const deltaJson = (event: Extract<ProgressEvent, { type: "delta" }>) => ({
+  id: event.id,
+  attempt: event.attempt,
+  seq: event.seq,
+  text: event.text,
+});
+
+export const activityJson = (event: Extract<ProgressEvent, { type: "activity" }>) => ({
+  id: event.id,
+  attempt: event.attempt,
+  tool: event.tool,
 });
 
 /** Token presence, never the tokens: a registration response is not a place to echo credentials. */

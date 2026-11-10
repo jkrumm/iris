@@ -1,5 +1,6 @@
 import { Elysia } from "elysia";
 import type { MemoMedia } from "./memo/media.js";
+import type { ReplyProgress } from "./memo/progress.js";
 import type { MemoService } from "./memo/service.js";
 import { deviceAuth } from "./http/auth.js";
 import { deviceRoutes } from "./http/devices.js";
@@ -27,6 +28,8 @@ export interface AppDeps {
   degraded?: string[];
   /** Memos with a step running right now; surfaced on /health so the deploy poller can wait for idle. */
   inflight?: () => number;
+  /** Text and tool progress of a running `act`: `memo.delta` / `memo.activity` events and `partialReply` on the detail. */
+  progress?: ReplyProgress | undefined;
   /** SSE keepalive comment interval; tests shrink it. */
   sseKeepaliveMs?: number | undefined;
 }
@@ -53,12 +56,14 @@ export function createApp(deps: AppDeps) {
         .get("/whoami", ({ device }) => ({ device: device as string }), {
           response: WhoamiResponse,
         })
-        .use(memoRoutes({ memos, auth }))
+        .use(memoRoutes({ memos, auth, progress: deps.progress }))
         .use(threadRoutes({ memos, auth }))
         .use(deviceRoutes({ devices, memos, auth }))
         .use(telemetryRoutes({ telemetry, auth }))
         .use(mediaRoutes({ media, auth }))
         .use(statsRoutes({ stats, auth }))
-        .use(eventRoutes({ memos, auth, keepaliveMs: deps.sseKeepaliveMs })),
+        .use(
+          eventRoutes({ memos, auth, progress: deps.progress, keepaliveMs: deps.sseKeepaliveMs }),
+        ),
     );
 }

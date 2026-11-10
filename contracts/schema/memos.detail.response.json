@@ -90,6 +90,25 @@
       ],
       "type": "string"
     },
+    "partialReply": {
+      "properties": {
+        "attempt": {
+          "type": "integer"
+        },
+        "seq": {
+          "type": "integer"
+        },
+        "text": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "attempt",
+        "seq",
+        "text"
+      ],
+      "type": "object"
+    },
     "purgeAt": {
       "type": "string"
     },

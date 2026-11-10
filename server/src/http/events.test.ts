@@ -137,4 +137,27 @@ describe("GET /v1/events", () => {
     expect(frames.map(([, state]) => state)).not.toContain("routed");
     await reader.cancel();
   });
+
+  it("streams memo.delta and memo.activity from the progress bus and releases both subscriptions", async () => {
+    const { app, progress, listenerCount } = testApp({ sseKeepaliveMs: 1000 });
+    const res = await call(app, { path: "/v1/events" });
+    const reader = (res.body as ReadableStream<Uint8Array>).getReader();
+    const turn = progress.begin("memo-1");
+    turn.onProgress({ type: "tool", tool: "terminal" });
+    turn.onProgress({ type: "text", delta: "\n\nHello" });
+
+    const text = await readUntil(reader, (t) => t.includes("memo.delta"));
+    expect(text).toContain(
+      'event: memo.activity\ndata: {"id":"memo-1","attempt":1,"tool":"terminal"}\n\n',
+    );
+    expect(text).toContain(
+      'event: memo.delta\ndata: {"id":"memo-1","attempt":1,"seq":1,"text":"Hello"}\n\n',
+    );
+
+    await reader.cancel();
+    expect(listenerCount()).toBe(0);
+    // Published after the cancel: the unsubscribed stream must not be written to.
+    turn.onProgress({ type: "tool", tool: "late" });
+    turn.end();
+  });
 });

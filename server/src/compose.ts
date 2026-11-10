@@ -64,7 +64,11 @@ MP3_FRAME.set([0xff, 0xfb, 0x90, 0x00]);
 const fakePorts = () => ({
   transcriber: fakeTranscriber(),
   // Like Hermes: a session per memo, and (as the `iris` skill would) a kind, a headline and two tool names.
-  destination: fakeDestination({ sessionPerMemo: true }),
+  destination: fakeDestination({
+    sessionPerMemo: true,
+    // Spaced wider than the 150 ms delta coalescing, so `make e2e` sees separate `memo.delta` events.
+    stream: { chunks: ["Noted. ", "Two things ", "are done."], gapMs: 200 },
+  }),
   summarizer: fakeSummarizer(),
   notifier: fakeNotifier(),
   speaker: fakeSpeaker({ result: { bytes: MP3_FRAME } }),

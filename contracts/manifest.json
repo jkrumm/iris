@@ -518,6 +518,14 @@
         {
           "name": "memo.done",
           "schema": "events.memo-done"
+        },
+        {
+          "name": "memo.delta",
+          "schema": "events.memo-delta"
+        },
+        {
+          "name": "memo.activity",
+          "schema": "events.memo-activity"
         }
       ]
     }

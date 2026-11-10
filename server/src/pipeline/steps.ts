@@ -8,10 +8,11 @@ import {
   type Memo,
   type Summary,
 } from "../memo/memo.js";
+import type { ReplyProgress } from "../memo/progress.js";
 import type { StepHandler } from "../memo/runner.js";
 import type { ReplyAssets } from "../memo/reply-assets.js";
 import type { AudioStore } from "../ports/audio.js";
-import type { Destination } from "../ports/destination.js";
+import type { DeliveryProgress, Destination } from "../ports/destination.js";
 import type { Notifier } from "../ports/notifier.js";
 import type { Summarizer } from "../ports/summarizer.js";
 import type { Transcriber } from "../ports/transcriber.js";
@@ -51,8 +52,11 @@ export function createStepHandlers(deps: {
   /** Renders the reply's Mermaid blocks once it is delivered; absent, a reply stays plain markdown. */
   replyAssets?: ReplyAssets | undefined;
   notifier: Notifier;
+  /** Relays Hermes's text and tool starts to clients while `act` runs; absent, a turn shows no progress. */
+  progress?: ReplyProgress | undefined;
 }): Partial<Record<HandlerStep, StepHandler>> {
-  const { store, audio, transcriber, destination, summarizer, replyAssets, notifier } = deps;
+  const { store, audio, transcriber, destination, summarizer, replyAssets, notifier, progress } =
+    deps;
 
   // Turns into one Hermes session run one at a time (a session's key is its thread id, else the opening memo's id): a second memo for the same thread waits for the first's reply, up
   // to `THREAD_WAIT_MS`; past that it fails and names the turn ahead (`POST /retry` re-queues it). The wait gives up the
@@ -88,39 +92,52 @@ export function createStepHandlers(deps: {
       const transcript = required(memo.transcript, "transcript", "act");
       // A reply into a thread goes to the Hermes session that holds it.
       const threadId = continuedThread(memo);
-      const deliver = () =>
-        destination.deliver({
+      // The turn starts when delivery does (not while queued behind the thread) and ends with the handler, so a client
+      // connecting during asset rendering still sees the partial.
+      let turn: ReturnType<ReplyProgress["begin"]> | undefined;
+      const deliver = async () => {
+        const current = progress?.begin(memo.id);
+        turn = current;
+        const delivered = await destination.deliver({
           memoId: memo.id,
           transcript,
           mode: memo.mode,
           ...(threadId && { threadId }),
+          ...(current && { onProgress: (p: DeliveryProgress) => current.onProgress(p) }),
         });
-      // A memo that opens its session queues under its own id, the id its session is named after: a retry of it from `act`
-      // must not run beside a continuation delivering into that session.
-      const delivery = await inThread(threadId ?? memo.id, deliver, {
-        label: `memo ${memo.id}`,
-        whileWaiting,
-      });
-      getActiveSpan().setAttributes({
-        reply_chars: delivery.replyText.length,
-        kind: delivery.meta?.kind ?? "",
-        actions: delivery.meta?.actions.length ?? 0,
-        cost_usd: delivery.costUsd,
-      });
-      await replyAssets?.sync({ memoId: memo.id, replyText: delivery.replyText });
-      return {
-        patch: {
-          destinationRef: delivery.ref,
-          replyText: delivery.replyText,
-          ...(delivery.thread && { thread: delivery.thread }),
-          // Always written, so a re-run of `act` replaces what the first run left.
-          kind: delivery.meta?.kind ?? null,
-          hermesHeadline: delivery.meta?.headline ?? null,
-          actions: delivery.meta?.actions ?? [],
-        },
-        usage: delivery.usage,
-        ...(delivery.costUsd !== undefined && { costUsd: delivery.costUsd }),
+        current?.finish(delivered.replyText);
+        return delivered;
       };
+      try {
+        // A memo that opens its session queues under its own id, the id its session is named after: a retry of it from `act`
+        // must not run beside a continuation delivering into that session.
+        const delivery = await inThread(threadId ?? memo.id, deliver, {
+          label: `memo ${memo.id}`,
+          whileWaiting,
+        });
+        getActiveSpan().setAttributes({
+          reply_chars: delivery.replyText.length,
+          kind: delivery.meta?.kind ?? "",
+          actions: delivery.meta?.actions.length ?? 0,
+          cost_usd: delivery.costUsd,
+        });
+        await replyAssets?.sync({ memoId: memo.id, replyText: delivery.replyText });
+        return {
+          patch: {
+            destinationRef: delivery.ref,
+            replyText: delivery.replyText,
+            ...(delivery.thread && { thread: delivery.thread }),
+            // Always written, so a re-run of `act` replaces what the first run left.
+            kind: delivery.meta?.kind ?? null,
+            hermesHeadline: delivery.meta?.headline ?? null,
+            actions: delivery.meta?.actions ?? [],
+          },
+          usage: delivery.usage,
+          ...(delivery.costUsd !== undefined && { costUsd: delivery.costUsd }),
+        };
+      } finally {
+        turn?.end();
+      }
     };
   }
 

@@ -7,7 +7,12 @@ import {
   threadTitle,
   type MemoMode,
 } from "../memo/memo.js";
-import type { Delivery, DeliveryMeta, Destination } from "../ports/destination.js";
+import type {
+  Delivery,
+  DeliveryMeta,
+  DeliveryProgress,
+  Destination,
+} from "../ports/destination.js";
 import { fetchFailure, hangGuardFailure, httpFailure } from "../ports/transient.js";
 import { log } from "../telemetry/log.js";
 import { withSpan } from "../telemetry/otel.js";
@@ -108,6 +113,7 @@ const RunCompleted = z.object({
 });
 // `tool.started` frames carry the tool's name and its arguments at the top level (hermes-agent `gateway/platforms/api_server.py`,
 // `_tool_progress`). The arguments are read for one tool only: `skill_view`, whose `name` is the skill Hermes loaded.
+const AssistantDelta = z.object({ delta: z.string() });
 const ToolStarted = z.object({ tool_name: z.string(), args: z.unknown().optional() });
 
 /** The skill whose load every Iris turn starts with: not something Hermes did for the memo. */
@@ -216,7 +222,7 @@ export function createHermesDestination(opts: HermesDestinationOptions): Destina
   };
 
   return {
-    async deliver({ memoId, transcript, mode, threadId }): Promise<Delivery> {
+    async deliver({ memoId, transcript, mode, threadId, onProgress }): Promise<Delivery> {
       // A continuation talks into its thread's session, which already exists; a fresh memo gets a session named after it.
       const sessionId = threadId ?? memoId;
       const attrs = { memo_id: memoId, downstream: "hermes" };
@@ -278,6 +284,18 @@ export function createHermesDestination(opts: HermesDestinationOptions): Destina
         let sawDone = false;
         const toolNames: string[] = [];
         const shape = frameShape();
+        // A throwing callback must never break the delivery: logged once per turn.
+        let progressFailed = false;
+        const progress = (p: DeliveryProgress) => {
+          if (!onProgress) return;
+          try {
+            onProgress(p);
+          } catch (err) {
+            if (progressFailed) return;
+            progressFailed = true;
+            log("hermes.progress_error", { memo_id: memoId, error: String(err) });
+          }
+        };
 
         try {
           for await (const frame of readSseFrames(res.body, { idleMs })) {
@@ -285,6 +303,9 @@ export function createHermesDestination(opts: HermesDestinationOptions): Destina
             if (frame.event === "assistant.completed") {
               const completed = AssistantCompleted.safeParse(parseData(frame));
               if (completed.success && !completed.data.partial) reply = completed.data;
+            } else if (frame.event === "assistant.delta") {
+              const delta = AssistantDelta.safeParse(parseData(frame));
+              if (delta.success) progress({ type: "text", delta: delta.data.delta });
             } else if (frame.event === "run.completed") {
               const completed = RunCompleted.safeParse(parseData(frame));
               const u = completed.success ? completed.data.usage : null;
@@ -298,7 +319,10 @@ export function createHermesDestination(opts: HermesDestinationOptions): Destina
             } else if (frame.event === "tool.started") {
               const started = ToolStarted.safeParse(parseData(frame));
               const action = started.success ? actionOf(started.data) : null;
-              if (action !== null) toolNames.push(action);
+              if (action !== null) {
+                toolNames.push(action);
+                progress({ type: "tool", tool: action });
+              }
             } else if (frame.event === "error") {
               const failed = ErrorEvent.safeParse(parseData(frame));
               throw new Error(`hermes error: ${failed.success ? failed.data.message : frame.data}`);

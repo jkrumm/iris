@@ -7,6 +7,7 @@ import { createApp } from "./app.js";
 import { compose } from "./compose.js";
 import { env } from "./env.js";
 import { createMemoEvents } from "./memo/events.js";
+import { createReplyProgress } from "./memo/progress.js";
 import { createMemoMedia } from "./memo/media.js";
 import { createPurger } from "./memo/purge.js";
 import { createRunner } from "./memo/runner.js";
@@ -26,6 +27,7 @@ const clock = systemClock;
 const store = createSqliteMemoStore({ db, clock });
 const devices = createSqliteDeviceStore({ db, clock });
 const events = createMemoEvents();
+const progress = createReplyProgress();
 const audio = createFsAudioStore(join(env.IRIS_DATA, "audio"));
 
 // A missing downstream leaves its step without a handler: memos park there and /health says so.
@@ -51,6 +53,7 @@ const handlers = createStepHandlers({
   destination: ports.destination,
   summarizer: ports.summarizer,
   notifier,
+  progress,
 });
 log("runner.handlers_registered", { steps: Object.keys(handlers) });
 const runner = createRunner({ store, handlers, events, clock });
@@ -93,6 +96,7 @@ const app = createApp({
   devices,
   media,
   telemetry,
+  progress,
   inflight: () => runner.inflightIds().length,
 }).listen({
   port: env.PORT,

@@ -792,3 +792,29 @@ describe("GET /v1/memos filters", () => {
     expect(body.items.map((m) => m.id)).toEqual([id]);
   });
 });
+
+describe("GET /v1/memos/:id partialReply", () => {
+  it("is present only while the act turn has streamed visible text", async () => {
+    const { app, store, progress } = testApp();
+    const { id } = seedMemo(store, "transcribed");
+    const detail = async () =>
+      (await (await call(app, { path: `/v1/memos/${id}` })).json()) as Record<string, unknown>;
+
+    expect(await detail()).not.toHaveProperty("partialReply");
+
+    const turn = progress.begin(id);
+    turn.onProgress({ type: "tool", tool: "terminal" });
+    expect(await detail()).not.toHaveProperty("partialReply");
+
+    turn.onProgress({ type: "text", delta: "\n\nOn it" });
+    expect((await detail())["partialReply"]).toEqual({ attempt: 1, seq: 1, text: "On it" });
+
+    const list = (await (await call(app, { path: "/v1/memos" })).json()) as {
+      items: Record<string, unknown>[];
+    };
+    expect(list.items[0]).not.toHaveProperty("partialReply");
+
+    turn.end();
+    expect(await detail()).not.toHaveProperty("partialReply");
+  });
+});

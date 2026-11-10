@@ -37,10 +37,15 @@ export const FAKE_META: DeliveryMeta = {
 
 /**
  * Stands for Hermes: every delivery names its thread (the ref, kind `hermes`) and carries `FAKE_META`. `sessionPerMemo` names the
- * session after the memo like Hermes does; otherwise every memo shares one session (`session-1`).
+ * session after the memo like Hermes does; otherwise every memo shares one session (`session-1`). `stream` makes a delivery
+ * with an `onProgress` report one tool and then the chunks (the first led by "\n\n" like Hermes's deltas), `gapMs` apart; when
+ * `result.replyText` is not set, the reply is the chunks joined.
  */
 export function fakeDestination(
-  options: Options<Delivery> & { sessionPerMemo?: boolean } = {},
+  options: Options<Delivery> & {
+    sessionPerMemo?: boolean;
+    stream?: { chunks: string[]; gapMs: number; tool?: string };
+  } = {},
 ): Destination & Calls<Parameters<Destination["deliver"]>[0]> {
   const calls: Parameters<Destination["deliver"]>[0][] = [];
   return {
@@ -50,7 +55,20 @@ export function fakeDestination(
       if (options.failWith) throw options.failWith;
       // A continuation lands in its thread's session; otherwise one shared session, or (`sessionPerMemo`) one per memo like Hermes.
       const ref = params.threadId ?? (options.sessionPerMemo ? params.memoId : "session-1");
-      const delivery: Delivery = { ref, replyText: "done", meta: FAKE_META, ...options.result };
+      const { stream } = options;
+      const delivery: Delivery = {
+        ref,
+        replyText: stream ? stream.chunks.join("") : "done",
+        meta: FAKE_META,
+        ...options.result,
+      };
+      if (stream && params.onProgress) {
+        params.onProgress({ type: "tool", tool: stream.tool ?? "fake_search" });
+        for (const [i, chunk] of stream.chunks.entries()) {
+          if (i > 0) await new Promise((resolve) => setTimeout(resolve, stream.gapMs));
+          params.onProgress({ type: "text", delta: i === 0 ? `\n\n${chunk}` : chunk });
+        }
+      }
       if (!delivery.thread) {
         delivery.thread = {
           id: delivery.ref,
