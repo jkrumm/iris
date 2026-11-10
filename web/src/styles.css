@@ -1,0 +1,516 @@
+/* Tokens only: the host sets the --iris-* variables on <html>; fallbacks are the light values. */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: auto;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  background: transparent;
+  color: var(--iris-ink, #262629);
+  font-family: var(--iris-font-body, -apple-system, system-ui, sans-serif);
+  font-size: var(--iris-text-md, 15px);
+  line-height: 1.4;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+#root {
+  display: flow-root;
+  width: 100%;
+}
+
+/* Cards */
+
+.card {
+  display: flow-root;
+  padding: var(--iris-space-md, 12px);
+  background: var(--iris-panel, #fafafd);
+  border: 1px solid var(--iris-border, #e2e2e5);
+  border-radius: var(--iris-radius-card, 10px);
+}
+
+.card-title {
+  margin: 0 0 var(--iris-space-sm, 8px);
+  font-size: var(--iris-text-md, 15px);
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--iris-ink, #262629);
+  overflow-wrap: anywhere;
+}
+
+.notice {
+  margin: 0;
+  padding: var(--iris-space-md, 12px);
+  background: var(--iris-subtle, #f4f4f8);
+  border: 1px solid var(--iris-border, #e2e2e5);
+  border-radius: var(--iris-radius-card, 10px);
+  color: var(--iris-muted, #525255);
+  font-size: var(--iris-text-sm, 13px);
+}
+
+/* Table */
+
+.table {
+  width: 100%;
+  table-layout: auto;
+  border-collapse: collapse;
+  font-size: var(--iris-text-sm, 13px);
+  overflow-wrap: anywhere;
+}
+
+.table th,
+.table td {
+  padding: var(--iris-space-sm, 8px) var(--iris-space-sm, 8px);
+  text-align: left;
+  vertical-align: top;
+  border-bottom: 1px solid var(--iris-hairline, #eaeaee);
+}
+
+.table th:first-child,
+.table td:first-child {
+  padding-left: 0;
+}
+
+.table th:last-child,
+.table td:last-child {
+  padding-right: 0;
+}
+
+.table tbody tr:last-child td {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+
+.table th {
+  overflow-wrap: break-word;
+  padding-top: 0;
+  color: var(--iris-muted, #525255);
+  font-size: var(--iris-text-xs, 12px);
+  font-weight: 600;
+  border-bottom-color: var(--iris-border, #e2e2e5);
+}
+
+.table .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.table td.empty {
+  color: var(--iris-faint, #696969);
+}
+
+/* Chart */
+
+.chart {
+  position: relative;
+  width: 100%;
+  height: 220px;
+}
+
+/* Stat */
+
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: var(--iris-space-sm, 8px);
+}
+
+.stat-tile {
+  min-width: 0;
+  padding: var(--iris-space-md, 12px);
+  background: var(--iris-subtle, #f4f4f8);
+  border: 1px solid var(--iris-hairline, #eaeaee);
+  border-radius: var(--iris-radius-ctrl, 6px);
+  overflow-wrap: anywhere;
+}
+
+.stat-label {
+  color: var(--iris-muted, #525255);
+  font-size: var(--iris-text-xs, 12px);
+}
+
+.stat-value {
+  margin-top: var(--iris-space-xs, 4px);
+  font-size: var(--iris-text-kpi, 22px);
+  font-weight: 600;
+  line-height: 1.15;
+  font-variant-numeric: tabular-nums;
+}
+
+.stat-unit {
+  color: var(--iris-muted, #525255);
+  font-size: var(--iris-text-sm, 13px);
+  font-weight: 500;
+}
+
+.stat-delta {
+  margin-top: var(--iris-space-xs, 4px);
+  font-size: var(--iris-text-xs, 12px);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.stat-delta.good {
+  color: var(--iris-status-good, #2f774b);
+}
+
+.stat-delta.bad {
+  color: var(--iris-status-bad, #b5403d);
+}
+
+.stat-delta.flat {
+  color: var(--iris-status-neutral, #71717a);
+}
+
+.stat-hint {
+  margin-top: var(--iris-space-xs, 4px);
+  color: var(--iris-faint, #696969);
+  font-size: var(--iris-text-micro, 11px);
+}
+
+/* List */
+
+.list {
+  margin: 0;
+  padding-left: var(--iris-space-xl, 24px);
+  font-size: var(--iris-text-md, 15px);
+}
+
+.list li {
+  padding: 2px 0 2px var(--iris-space-xs, 4px);
+  overflow-wrap: anywhere;
+}
+
+.list li::marker {
+  color: var(--iris-muted, #525255);
+}
+
+.list-detail {
+  margin-top: 2px;
+  color: var(--iris-muted, #525255);
+  font-size: var(--iris-text-sm, 13px);
+}
+
+/* Callout */
+
+.show-callout {
+  --tone: var(--iris-accent, #4574a6);
+  position: relative;
+  padding-left: calc(var(--iris-space-md, 12px) + 3px);
+  overflow: hidden;
+  background: color-mix(in srgb, var(--tone) 10%, var(--iris-panel, #fafafd));
+  border-color: color-mix(in srgb, var(--tone) 28%, var(--iris-border, #e2e2e5));
+}
+
+.show-callout::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 4px;
+  background: var(--tone);
+}
+
+.callout {
+  display: block;
+}
+
+.callout.info {
+  --tone: var(--iris-accent, #4574a6);
+}
+
+.callout-tone {
+  color: var(--tone);
+  font-size: var(--iris-text-xs, 12px);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.callout-body {
+  margin-top: var(--iris-space-xs, 4px);
+  font-size: var(--iris-text-md, 15px);
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+/* The tone lives on the card (which paints bar and tint) and on the inner block. */
+.show-callout:has(.callout.success) {
+  --tone: var(--iris-status-good, #2f774b);
+}
+
+.show-callout:has(.callout.warning) {
+  --tone: var(--iris-status-warn, #93600a);
+}
+
+.show-callout:has(.callout.danger) {
+  --tone: var(--iris-status-bad, #b5403d);
+}
+
+.callout.success {
+  --tone: var(--iris-status-good, #2f774b);
+}
+
+.callout.warning {
+  --tone: var(--iris-status-warn, #93600a);
+}
+
+.callout.danger {
+  --tone: var(--iris-status-bad, #b5403d);
+}
+
+/* Documents */
+
+.doc {
+  display: flow-root;
+}
+
+.doc-title {
+  margin: 0 0 var(--iris-space-sm, 8px);
+  color: var(--iris-muted, #525255);
+  font-size: var(--iris-text-xs, 12px);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  overflow-wrap: anywhere;
+}
+
+.html-doc {
+  display: block;
+  width: 100%;
+  border: 0;
+  background: Canvas;
+  /* The frame is a separate light page: its canvas stays white, whatever the scheme. */
+  color-scheme: light;
+}
+
+.markdown {
+  font-size: var(--iris-text-md, 15px);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.markdown > :first-child {
+  margin-top: 0;
+}
+
+.markdown > :last-child {
+  margin-bottom: 0;
+}
+
+.markdown h1,
+.markdown h2,
+.markdown h3,
+.markdown h4,
+.markdown h5,
+.markdown h6 {
+  margin: var(--iris-space-lg, 16px) 0 var(--iris-space-sm, 8px);
+  line-height: 1.25;
+  font-weight: 600;
+}
+
+.markdown h1 {
+  font-size: var(--iris-text-h1, 26px);
+}
+
+.markdown h2 {
+  font-size: var(--iris-text-h2, 21px);
+}
+
+.markdown h3 {
+  font-size: var(--iris-text-xl, 18px);
+}
+
+.markdown h4,
+.markdown h5,
+.markdown h6 {
+  font-size: var(--iris-text-md, 15px);
+}
+
+.markdown p,
+.markdown ul,
+.markdown ol,
+.markdown blockquote,
+.markdown pre,
+.markdown table {
+  margin: 0 0 var(--iris-space-md, 12px);
+}
+
+.markdown ul,
+.markdown ol {
+  padding-left: var(--iris-space-xl, 24px);
+}
+
+.markdown li > ul,
+.markdown li > ol,
+.markdown li > p {
+  margin-bottom: var(--iris-space-xs, 4px);
+}
+
+.markdown ul.contains-task-list {
+  padding-left: var(--iris-space-md, 12px);
+  list-style: none;
+}
+
+.markdown .task-list-item input {
+  margin: 0 var(--iris-space-sm, 8px) 0 0;
+  accent-color: var(--iris-accent-fill, #4574a6);
+}
+
+.markdown a {
+  color: var(--iris-accent, #4574a6);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.markdown blockquote {
+  padding: 2px 0 2px var(--iris-space-md, 12px);
+  border-left: 3px solid var(--iris-border, #e2e2e5);
+  color: var(--iris-muted, #525255);
+}
+
+.markdown hr {
+  margin: var(--iris-space-lg, 16px) 0;
+  border: 0;
+  border-top: 1px solid var(--iris-hairline, #eaeaee);
+}
+
+.markdown img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  border-radius: var(--iris-radius-ctrl, 6px);
+}
+
+.markdown .img-alt {
+  color: var(--iris-muted, #525255);
+  font-style: italic;
+}
+
+.markdown code {
+  padding: 1px 5px;
+  background: var(--iris-subtle, #f4f4f8);
+  border-radius: var(--iris-radius-fine, 4px);
+  font-family: var(--iris-font-mono, ui-monospace, Menlo, monospace);
+  font-size: 0.88em;
+}
+
+.markdown pre {
+  padding: var(--iris-space-md, 12px);
+  background: var(--iris-subtle, #f4f4f8);
+  border: 1px solid var(--iris-hairline, #eaeaee);
+  border-radius: var(--iris-radius-ctrl, 6px);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.markdown pre code {
+  padding: 0;
+  background: none;
+  font-size: var(--iris-text-xs, 12px);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.markdown table {
+  width: 100%;
+  table-layout: auto;
+  border-collapse: collapse;
+  font-size: var(--iris-text-sm, 13px);
+}
+
+.markdown th,
+.markdown td {
+  overflow-wrap: anywhere;
+  padding: var(--iris-space-xs, 4px) var(--iris-space-sm, 8px);
+  border: 1px solid var(--iris-hairline, #eaeaee);
+  text-align: left;
+  vertical-align: top;
+}
+
+.markdown th {
+  overflow-wrap: break-word;
+  background: var(--iris-subtle, #f4f4f8);
+  font-weight: 600;
+}
+
+.markdown .katex-display {
+  margin: var(--iris-space-md, 12px) 0;
+  overflow: visible;
+}
+
+.markdown .katex-display > .katex {
+  white-space: normal;
+}
+
+.markdown .katex {
+  font-size: 1.05em;
+  overflow-wrap: normal;
+}
+
+/* Code highlighting: hljs token classes on tokens */
+
+.hljs-comment,
+.hljs-quote {
+  color: var(--iris-faint, #696969);
+  font-style: italic;
+}
+
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-doctag,
+.hljs-name {
+  color: var(--iris-accent, #4574a6);
+}
+
+.hljs-string,
+.hljs-regexp,
+.hljs-addition,
+.hljs-template-variable {
+  color: var(--iris-status-good, #2f774b);
+}
+
+.hljs-number,
+.hljs-literal,
+.hljs-symbol,
+.hljs-bullet,
+.hljs-built_in,
+.hljs-type {
+  color: var(--iris-status-warn, #93600a);
+}
+
+.hljs-title,
+.hljs-section,
+.hljs-attr,
+.hljs-attribute,
+.hljs-variable,
+.hljs-property,
+.hljs-selector-class,
+.hljs-selector-id {
+  color: var(--iris-ink-2, #404043);
+  font-weight: 600;
+}
+
+.hljs-deletion {
+  color: var(--iris-status-bad, #b5403d);
+}
+
+.hljs-meta,
+.hljs-link {
+  color: var(--iris-muted, #525255);
+}
+
+.hljs-emphasis {
+  font-style: italic;
+}
+
+.hljs-strong {
+  font-weight: 700;
+}

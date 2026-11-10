@@ -1,0 +1,44 @@
+{
+  "name": "iris-web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "build:harness": "vite build --mode harness",
+    "sync": "bun scripts/sync.ts",
+    "build:check": "bun scripts/build-check.ts",
+    "lint": "cd .. && oxlint -c web/.oxlintrc.json web/src web/scripts web/tests web/vite.config.ts web/playwright.config.ts",
+    "format": "cd .. && oxfmt -c web/.oxfmtrc.json web/src web/scripts web/tests web/fixtures web/vite.config.ts web/playwright.config.ts --write",
+    "format:check": "cd .. && oxfmt -c web/.oxfmtrc.json web/src web/scripts web/tests web/fixtures web/vite.config.ts web/playwright.config.ts --check",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test src scripts",
+    "test:e2e": "bun run build && bun run build:harness && playwright test",
+    "test:e2e:update": "bun run build && bun run build:harness && playwright test --update-snapshots"
+  },
+  "dependencies": {
+    "@cfworker/json-schema": "4.1.6",
+    "chart.js": "4.6.1",
+    "highlight.js": "11.12.0",
+    "katex": "0.19.1",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "react-markdown": "10.1.0",
+    "rehype-highlight": "7.0.2",
+    "rehype-katex": "7.0.1",
+    "remark-gfm": "4.0.1",
+    "remark-math": "6.0.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.65.0",
+    "@types/bun": "1.4.4",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@vitejs/plugin-react": "6.2.1",
+    "oxfmt": "0.75.0",
+    "oxlint": "1.90.0",
+    "typescript": "5.9.3",
+    "vite": "8.3.6"
+  }
+}

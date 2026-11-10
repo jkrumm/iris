@@ -1,0 +1,6 @@
+{
+  "type": "table",
+  "title": "Broken table",
+  "columns": ["Task", "Owner"],
+  "rows": [["Write the spec", "Ada", "extra cell"]]
+}

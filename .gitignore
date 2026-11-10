@@ -23,3 +23,10 @@ apple/Packages/*/Package.resolved
 # Design mockups: PNG renders and presigned links stay local (the repo is public)
 docs/design/renders/
 docs/design/links.local.*
+
+# web/ renderer
+web/node_modules
+web/dist
+web/dist-harness
+web/test-results
+web/playwright-report

@@ -1,0 +1,15 @@
+html {
+  background: var(--iris-bg, #f2f2f5);
+}
+
+#chrome {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 12px;
+  font-size: 13px;
+}
+
+#frame {
+  margin: 0 auto;
+}

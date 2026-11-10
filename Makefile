@@ -23,7 +23,7 @@ help: ## List targets
 CHECK_APPLE := $(if $(shell command -v xcodebuild 2>/dev/null),check-apple)
 
 .PHONY: check
-check: check-server check-contracts check-strings guard $(CHECK_APPLE) ## Everything CI runs except e2e (check-apple joins where Xcode exists)
+check: check-server check-contracts check-strings check-web guard $(CHECK_APPLE) ## Everything CI runs except e2e (check-apple joins where Xcode exists)
 
 .PHONY: check-server
 check-server: ## oxlint, oxfmt --check, tsc --noEmit, bun test (server and scripts)
@@ -33,6 +33,39 @@ check-server: ## oxlint, oxfmt --check, tsc --noEmit, bun test (server and scrip
 	cd server && bun run typecheck
 	cd server && bun run test
 	bun test scripts
+
+# --- Web renderer (web/, the page the WebView island loads; AGENTS.md "Web renderer") ---
+# Screenshot baselines are Linux renders: WEB_VISUAL=1 compares them (default on Linux), 0 runs only the non-visual e2e (network, CSP, height).
+WEB_VISUAL ?= $(if $(filter Linux,$(shell uname -s)),1,0)
+# The Playwright image tag must equal the @playwright/test version pinned in web/package.json.
+PLAYWRIGHT_VERSION := 1.65.0
+PLAYWRIGHT_IMAGE   := mcr.microsoft.com/playwright:v$(PLAYWRIGHT_VERSION)-noble
+# Runs in the image on a copy-free mount: node_modules and the build dirs are masked with anonymous volumes so the host's (macOS) ones stay untouched.
+WEB_DOCKER := docker run --rm --ipc=host -v "$(CURDIR)":/work -v /work/web/node_modules -v /work/web/dist -v /work/web/dist-harness -w /work $(PLAYWRIGHT_IMAGE) \
+	sh -c 'npm install -g bun@1.4.2 >/dev/null 2>&1 && cd web && bun install --frozen-lockfile &&
+
+.PHONY: web-build
+web-build: ## Build web/ and sync it into apple/Packages/IrisUI/.../Resources/Artifact (island.* stay); commit the result
+	cd web && bun install --frozen-lockfile && bun run sync
+
+.PHONY: check-web
+check-web: ## web/: oxlint, oxfmt --check, tsc, unit tests, bundle drift + size budget, Playwright e2e (screenshots only with WEB_VISUAL=1)
+	cd web && bun install --frozen-lockfile
+	cd web && bun run lint
+	cd web && bun run format:check
+	cd web && bun run typecheck
+	cd web && bun run test
+	cd web && bun run build:check
+	@if [ "$(WEB_VISUAL)" = "0" ]; then echo "  web visual snapshots skipped (WEB_VISUAL=0: baselines are Linux renders; make web-check-linux compares them)"; fi
+	cd web && WEB_VISUAL=$(WEB_VISUAL) bun run test:e2e
+
+.PHONY: web-snapshots
+web-snapshots: ## Re-record the Linux screenshot baselines (web/tests/__screenshots__) in the pinned Playwright image
+	$(WEB_DOCKER) WEB_VISUAL=1 bun run test:e2e:update'
+
+.PHONY: web-check-linux
+web-check-linux: ## The Linux build must equal the committed bundle, then the e2e with screenshot comparison, in the pinned Playwright image
+	$(WEB_DOCKER) bun run build:check && WEB_VISUAL=1 bun run test:e2e'
 
 .PHONY: check-strings
 check-strings: ## String catalogs: every key translated to de, none stale, no hard-coded user-facing literal (needs only bun)

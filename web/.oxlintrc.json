@@ -1,0 +1,34 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": ["typescript", "unicorn", "promise", "import", "react"],
+  "env": {
+    "node": true,
+    "browser": true
+  },
+  "categories": {
+    "correctness": "error",
+    "suspicious": "warn"
+  },
+  "rules": {
+    "typescript/no-explicit-any": "error",
+    "typescript/no-non-null-assertion": "warn",
+    "eslint/no-console": "warn",
+    "eslint/no-underscore-dangle": "off",
+    "eslint/no-unused-vars": "error",
+    "eslint/max-depth": ["warn", { "max": 5 }],
+    "eslint/no-throw-literal": "error",
+    "eslint/no-useless-catch": "error",
+    "eslint/no-eval": "error",
+    "eslint/no-new-func": "error",
+    "import/no-unassigned-import": "off",
+    "import/no-named-as-default": "off",
+    "react/react-in-jsx-scope": "off"
+  },
+  "ignorePatterns": ["node_modules/**", "dist/**", "dist-harness/**", "test-results/**", "playwright-report/**"],
+  "overrides": [
+    {
+      "files": ["scripts/**", "tests/server.ts"],
+      "rules": { "eslint/no-console": "off" }
+    }
+  ]
+}
