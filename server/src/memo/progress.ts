@@ -33,6 +33,7 @@ export interface ReplyTurn {
 
 const DEFAULT_INTERVAL_MS = 150;
 const FENCE = "```iris";
+const FENCE_TAG = /```iris(?=[\s{])/;
 
 /**
  * The part of the raw delta text a client may show: leading whitespace dropped, cut at the ```iris fence (never shown),
@@ -41,9 +42,10 @@ const FENCE = "```iris";
  */
 export function visiblePrefix(raw: string): string {
   let text = raw.trimStart();
-  const fence = text.indexOf(FENCE);
+  // The tag stands alone (the same rule as `parseIrisBlock`): ```iris-show and ```iris-doc are artifacts, shown.
+  const fence = text.search(FENCE_TAG);
   if (fence >= 0) return text.slice(0, fence).trimEnd();
-  for (let k = Math.min(text.length, FENCE.length - 1); k >= 1; k--) {
+  for (let k = Math.min(text.length, FENCE.length); k >= 1; k--) {
     if (text.endsWith(FENCE.slice(0, k))) {
       text = text.slice(0, -k);
       break;

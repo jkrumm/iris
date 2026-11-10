@@ -12,6 +12,7 @@ import {
   type MemoColumnPatch,
   type MemoMode,
   type MemoState,
+  type ReplyArtifact,
   type ReplyAsset,
   type Step,
   type StepRecord,
@@ -76,7 +77,27 @@ interface MemoRow {
   updated_at: string;
   /** The memo's `reply_assets` rows as a JSON array (`REPLY_ASSETS_JSON`), `[]` when it has none. */
   reply_assets_json: string;
+  /** The memo's `reply_artifacts` rows as a JSON array (`REPLY_ARTIFACTS_JSON`), `[]` when it has none. */
+  reply_artifacts_json: string;
 }
+
+interface ReplyArtifactRow {
+  id: string;
+  kind: string;
+  artifact_index: number;
+  title: string | null;
+  format: string | null;
+  bytes: number;
+}
+
+const toReplyArtifact = (row: ReplyArtifactRow): ReplyArtifact => ({
+  id: row.id,
+  index: row.artifact_index,
+  kind: row.kind as ReplyArtifact["kind"],
+  title: row.title,
+  format: row.format as ReplyArtifact["format"],
+  bytes: row.bytes,
+});
 
 interface ReplyAssetRow {
   id: string;
@@ -160,6 +181,33 @@ function parseReplyBlocks(row: MemoRow) {
   return [];
 }
 
+const ReplyArtifactsSchema = z.array(
+  z.object({
+    id: z.string(),
+    kind: z.enum(["show", "doc"]),
+    artifact_index: z.number(),
+    title: z.string().nullable(),
+    format: z.enum(["markdown", "html"]).nullable(),
+    bytes: z.number(),
+  }),
+);
+
+/** Like the blocks: rows that no longer parse drop the artifacts (their fences stay code blocks) with a warning. */
+function parseReplyArtifacts(row: MemoRow): ReplyArtifact[] {
+  try {
+    const parsed = ReplyArtifactsSchema.safeParse(JSON.parse(row.reply_artifacts_json));
+    if (parsed.success) {
+      return parsed.data
+        .map(toReplyArtifact)
+        .toSorted((a, b) => (a.kind === b.kind ? a.index - b.index : a.kind === "show" ? -1 : 1));
+    }
+    log("memo.reply_artifacts_invalid", { memo_id: row.id, error: parsed.error.message });
+  } catch (err) {
+    log("memo.reply_artifacts_invalid", { memo_id: row.id, error: String(err) });
+  }
+  return [];
+}
+
 const toMemo = (row: MemoRow): Memo => ({
   id: row.id,
   mode: row.mode,
@@ -175,6 +223,7 @@ const toMemo = (row: MemoRow): Memo => ({
   destinationRef: row.destination_ref,
   replyText: row.reply_text,
   replyBlocks: parseReplyBlocks(row),
+  replyArtifacts: parseReplyArtifacts(row),
   summary: parseSummary(row),
   threadId: row.thread_id,
   kind: row.kind,
@@ -192,8 +241,12 @@ const REPLY_ASSETS_JSON = `(SELECT json_group_array(json_object(
     'id', a.id, 'block_index', a.block_index, 'format', a.format, 'scheme', a.scheme, 'width', a.width, 'height', a.height))
   FROM reply_assets a WHERE a.memo_id = memos.id)`;
 
-/** `SELECT` list for a memo row: the columns and the reply's rendered blocks. */
-const MEMO_SELECT = `memos.*, ${REPLY_ASSETS_JSON} AS reply_assets_json`;
+const REPLY_ARTIFACTS_JSON = `(SELECT json_group_array(json_object(
+    'id', r.id, 'kind', r.kind, 'artifact_index', r.artifact_index, 'title', r.title, 'format', r.format, 'bytes', r.bytes))
+  FROM reply_artifacts r WHERE r.memo_id = memos.id)`;
+
+/** `SELECT` list for a memo row: the columns, the reply's rendered blocks and its artifacts. */
+const MEMO_SELECT = `memos.*, ${REPLY_ASSETS_JSON} AS reply_assets_json, ${REPLY_ARTIFACTS_JSON} AS reply_artifacts_json`;
 
 /**
  * The FTS5 MATCH expression for a user's search text: every term quoted (embedded quotes doubled, so input
@@ -315,6 +368,7 @@ export function createSqliteMemoStore(params: { db: Database; clock: Clock }): M
       }
       // The reply they were rendered from is gone; their files go with the next render or the purge.
       db.query("DELETE FROM reply_assets WHERE memo_id = ?").run(id);
+      db.query("DELETE FROM reply_artifacts WHERE memo_id = ?").run(id);
       db.query("UPDATE memos SET reply_assets_failed = 0 WHERE id = ?").run(id);
     }
     db.query(
@@ -340,6 +394,14 @@ export function createSqliteMemoStore(params: { db: Database; clock: Clock }): M
     for (const a of assets) insert.run(id, a.id, a.block, a.format, a.scheme, a.width, a.height);
   };
 
+  const insertReplyArtifacts = (id: string, artifacts: readonly ReplyArtifact[]) => {
+    const insert = db.query(
+      `INSERT INTO reply_artifacts (memo_id, id, kind, artifact_index, title, format, bytes)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    );
+    for (const a of artifacts) insert.run(id, a.id, a.kind, a.index, a.title, a.format, a.bytes);
+  };
+
   /** Reply assets awaiting their reply's commit, by memo (`MemoStore.stageReplyAssets`). */
   const stagedAssets = new Map<string, StagedReplyAssets>();
 
@@ -359,6 +421,8 @@ export function createSqliteMemoStore(params: { db: Database; clock: Clock }): M
         const own = staged?.replyText === replyText ? staged : undefined;
         db.query("DELETE FROM reply_assets WHERE memo_id = ?").run(id);
         insertReplyAssets(id, own?.assets ?? []);
+        db.query("DELETE FROM reply_artifacts WHERE memo_id = ?").run(id);
+        insertReplyArtifacts(id, own?.artifacts ?? []);
         db.query("UPDATE memos SET reply_assets_failed = ? WHERE id = ?").run(
           own?.failed ? 1 : 0,
           id,
@@ -713,6 +777,15 @@ export function createSqliteMemoStore(params: { db: Database; clock: Clock }): M
         )
         .get(id, assetId);
       return row ? toReplyAsset(row) : null;
+    },
+
+    getReplyArtifact(id, assetId) {
+      const row = db
+        .query<ReplyArtifactRow, [string, string]>(
+          "SELECT id, kind, artifact_index, title, format, bytes FROM reply_artifacts WHERE memo_id = ? AND id = ?",
+        )
+        .get(id, assetId);
+      return row ? toReplyArtifact(row) : null;
     },
 
     listNonTerminal() {

@@ -28,6 +28,30 @@ export function fakeTranscriber(
   };
 }
 
+const fakeFence = (info: string, body: string) => `\`\`\`${info}\n${body}\n\`\`\``;
+const fakeShow = (spec: object) => fakeFence("iris-show", JSON.stringify(spec));
+
+/**
+ * The tail of the fake Hermes's reply (`make e2e`): an `iris-show` fence of every spec type (the chart in all four kinds) and an
+ * `iris-doc` in markdown and in html, so the artifacts ride the whole pipeline. Eight show specs, two documents, none invalid.
+ */
+export const FAKE_ARTIFACTS = [
+  fakeShow({ type: "table", title: "Tasks", columns: ["Task", "Done"], rows: [["Ship", true]] }),
+  ...(["bar", "line", "area", "pie"] as const).map((kind) =>
+    fakeShow({
+      type: "chart",
+      kind,
+      x: ["a", "b"],
+      series: [{ name: "s", values: [1, 2] }],
+    }),
+  ),
+  fakeShow({ type: "stat", items: [{ label: "Memos", value: 3, delta: 1 }] }),
+  fakeShow({ type: "list", items: [{ text: "One" }] }),
+  fakeShow({ type: "callout", tone: "success", body: "All good." }),
+  fakeFence('iris-doc title="Notes" format=markdown', "# Notes"),
+  fakeFence("iris-doc format=html", "<h1>Notes</h1>"),
+].join("\n\n");
+
 /** What the fake Hermes reports for every turn: a kind, a headline and two tool names, as the `iris` skill's block would. */
 export const FAKE_META: DeliveryMeta = {
   kind: "note",

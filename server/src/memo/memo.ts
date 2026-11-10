@@ -89,6 +89,20 @@ export function groupReplyBlocks(assets: readonly ReplyAsset[]): ReplyBlock[] {
   return blocks;
 }
 
+/** A typed artifact of the reply: an `iris-show` spec or an `iris-doc` document, stored as one file (`GET /memos/:id/assets/:assetId`). */
+export interface ReplyArtifact {
+  /** The asset id of the file. */
+  id: string;
+  /** Zero-based position among the reply's fences of the same kind, in document order, counting invalid ones. */
+  index: number;
+  kind: "show" | "doc";
+  title: string | null;
+  /** Documents only; null for a show spec. */
+  format: "markdown" | "html" | null;
+  /** Size of the stored file. */
+  bytes: number;
+}
+
 export interface Memo {
   id: string;
   mode: MemoMode;
@@ -107,6 +121,8 @@ export interface Memo {
   replyText: string | null;
   /** The reply's Mermaid blocks that rendered, by block index; blocks that did not render stay code blocks and are absent. */
   replyBlocks: ReplyBlock[];
+  /** The reply's valid artifacts, kind then index (`show` before `doc`); invalid fences stay code blocks and are absent. */
+  replyArtifacts: ReplyArtifact[];
   summary: Summary | null;
   /**
    * The Hermes session the memo ran in: set by `act` (a fresh memo's own session, so equal to its id), or at creation for a

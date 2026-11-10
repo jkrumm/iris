@@ -112,6 +112,46 @@
     "purgeAt": {
       "type": "string"
     },
+    "replyArtifacts": {
+      "items": {
+        "properties": {
+          "assetId": {
+            "type": "string"
+          },
+          "bytes": {
+            "type": "integer"
+          },
+          "format": {
+            "enum": [
+              "markdown",
+              "html"
+            ],
+            "type": "string"
+          },
+          "index": {
+            "type": "integer"
+          },
+          "kind": {
+            "enum": [
+              "show",
+              "doc"
+            ],
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "index",
+          "kind",
+          "assetId",
+          "bytes"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
     "replyBlocks": {
       "items": {
         "properties": {

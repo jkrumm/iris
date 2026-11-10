@@ -56,6 +56,21 @@ export const ReplyBlock = t.Object({
   png: AssetIds,
 });
 
+/**
+ * A typed artifact of the reply: an `iris-show` spec (JSON) or an `iris-doc` document (markdown or html), fetched from
+ * `GET /memos/:id/assets/:assetId`. `index` counts the reply's fences of the same kind from zero in document order, so an
+ * invalid fence leaves a gap and stays a code block. `bytes` is the size of the file; `title` and `format` are omitted when unknown
+ * (`format` is only set on a document).
+ */
+export const ReplyArtifact = t.Object({
+  index: Int,
+  kind: t.UnionEnum(["show", "doc"]),
+  title: t.Optional(t.String()),
+  format: t.Optional(t.UnionEnum(["markdown", "html"])),
+  assetId: t.String(),
+  bytes: Int,
+});
+
 export const Summary = t.Object({ headline: t.String(), detail: t.String(), spoken: t.String() });
 
 const memoFields = {
@@ -75,6 +90,8 @@ const memoFields = {
   replyText: Nullable(t.String()),
   // Present only when the reply has Mermaid blocks that rendered; omitted, never empty or null, otherwise.
   replyBlocks: t.Optional(t.Array(ReplyBlock)),
+  // Present only when the reply has valid `iris-show` / `iris-doc` fences; omitted, never empty or null, otherwise.
+  replyArtifacts: t.Optional(t.Array(ReplyArtifact)),
   summary: Nullable(Summary),
   // Present once the memo belongs to a Hermes session (chat or not): set when `act` ran in it, or at creation for a memo that
   // continues a thread; omitted, never null, otherwise.

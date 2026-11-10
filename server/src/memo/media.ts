@@ -10,6 +10,7 @@ import type { Speaker, SpeechCache } from "../ports/speaker.js";
 import { log } from "../telemetry/log.js";
 import { MemoError } from "./errors.js";
 import { isTyped } from "./memo.js";
+import { artifactContentType } from "./reply-artifacts.js";
 import { speechVariant } from "./speech-text.js";
 import type { MemoStore } from "./store.js";
 
@@ -102,9 +103,11 @@ export function createMemoMedia(deps: {
     async asset(id, assetId) {
       mustGet(id);
       const meta = store.getReplyAsset(id, assetId);
-      const bytes = meta && (await assets.read({ memoId: id, assetId }));
-      if (!meta || !bytes) throw new MemoError("not_found", `memo ${id} has no asset ${assetId}`);
-      return { bytes, type: ASSET_TYPES[meta.format] };
+      const artifact = meta ? null : store.getReplyArtifact(id, assetId);
+      const type = meta ? ASSET_TYPES[meta.format] : artifact && artifactContentType(artifact);
+      const bytes = type ? await assets.read({ memoId: id, assetId }) : null;
+      if (!type || !bytes) throw new MemoError("not_found", `memo ${id} has no asset ${assetId}`);
+      return { bytes, type };
     },
   };
 }

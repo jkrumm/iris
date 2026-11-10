@@ -8,13 +8,14 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { FAKE_ARTIFACTS } from "../server/src/ports/fakes.js";
 
 const ROOT = dirname(import.meta.dir);
 const HEALTH_DEADLINE_MS = 20_000;
 const TAIL_LINES = 60;
 
 // What the fake Hermes (compose.ts fakePorts) streams and then delivers.
-const FAKE_REPLY = "Noted. Two things are done.";
+const FAKE_REPLY = `Noted. Two things are done.\n\n${FAKE_ARTIFACTS}`;
 
 const TOKEN = `e2e-${crypto.randomUUID()}`;
 const output: string[] = [];
@@ -104,6 +105,60 @@ async function watchEvents(base: string) {
       await pump;
     },
   };
+}
+
+interface ArtifactWire {
+  index: number;
+  kind: string;
+  title?: string;
+  format?: string;
+  assetId: string;
+  bytes: number;
+}
+
+/** The fake reply carries eight iris-show specs (every type, the chart in four kinds) and two iris-doc fences: all are listed and served with their content type. */
+async function probeArtifacts(base: string, id: string) {
+  const call = (path: string) =>
+    fetch(`${base}/v1${path}`, { headers: { authorization: `Bearer ${TOKEN}` } });
+  const detail = (await (await call(`/memos/${id}`)).json()) as { replyArtifacts?: ArtifactWire[] };
+  const artifacts = detail.replyArtifacts ?? [];
+  const shows = artifacts.filter((a) => a.kind === "show");
+  const docs = artifacts.filter((a) => a.kind === "doc");
+  assert(shows.length === 8, `eight show artifacts (got ${shows.length})`);
+  assert(docs.length === 2, `two doc artifacts (got ${docs.length})`);
+  assert(
+    shows.every((a, i) => a.index === i && a.format === undefined),
+    "show artifacts are indexed in order and carry no format",
+  );
+
+  const expected = [
+    ...shows.map((a) => [a, "application/json"] as const),
+    [docs[0], "text/markdown; charset=utf-8"] as const,
+    [docs[1], "text/html; charset=utf-8"] as const,
+  ];
+  for (const [artifact, type] of expected) {
+    assert(artifact, "artifact present");
+    const res = await call(`/memos/${id}/assets/${artifact.assetId}`);
+    assert(res.status === 200, `artifact asset is 200 (got ${res.status})`);
+    const got = res.headers.get("content-type");
+    assert(got === type, `artifact content type is ${type} (got ${got})`);
+    const bytes = new Uint8Array(await res.arrayBuffer()).byteLength;
+    assert(
+      bytes === artifact.bytes,
+      `artifact bytes match the wire (${bytes} vs ${artifact.bytes})`,
+    );
+    const csp = res.headers.get("content-security-policy");
+    assert(
+      type.startsWith("text/html") ? csp?.startsWith("sandbox;") === true : csp === null,
+      `the sandbox CSP is on html only (got ${csp})`,
+    );
+  }
+  const first = await (await call(`/memos/${id}/assets/${shows[0]?.assetId}`)).json();
+  assert(
+    (first as { type?: string }).type === "table",
+    "the first show artifact is the table spec",
+  );
+  out(`e2e: ${artifacts.length} reply artifacts ok`);
 }
 
 /** The reply streams: at least two `memo.delta` events for the memo arrive before its `memo.done`, and they add up to the reply. */
@@ -458,6 +513,7 @@ async function main() {
   const firstId = first.items[0]?.id;
   assert(firstId, "GET /memos?limit=1 returns the first memo");
   assertStreamed(watcher.events, firstId);
+  await probeArtifacts(base, firstId);
   await probe(base);
   await probeTyped(base);
   await probeHermesThread(base);

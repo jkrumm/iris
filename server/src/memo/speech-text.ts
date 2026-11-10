@@ -3,6 +3,7 @@
  * reply synthesize instead of the stored markdown. Pure and derived on demand, never stored: the speech
  * cache is keyed on the variant text, so a changed reply re-synthesizes and an unchanged one hits.
  */
+import { type ArtifactKind, readArtifact } from "./reply-artifacts.js";
 
 /** Cleaned replies up to this many characters (about 40 s aloud) are spoken whole; longer ones fall back to the summary. */
 export const SPEECH_MAX_CHARS = 600;
@@ -12,6 +13,9 @@ type Language = "de" | "en";
 interface Phrases {
   code: string;
   diagram: string;
+  /** An `iris-show` / `iris-doc` artifact: its title is spoken, a generic phrase without one. */
+  show: (title: string | null) => string;
+  doc: (title: string | null) => string;
   table: (rows: number) => string;
   details: string;
 }
@@ -20,19 +24,30 @@ const PHRASES: Record<Language, Phrases> = {
   de: {
     code: "ein Codeblock",
     diagram: "ein Diagramm",
+    show: (title) => (title ? `eine Darstellung: ${title}` : "eine Darstellung"),
+    doc: (title) => (title ? `ein Dokument: ${title}` : "ein Dokument"),
     table: (rows: number) => `eine Tabelle mit ${rows} ${rows === 1 ? "Zeile" : "Zeilen"}`,
     details: "Details auf dem Bildschirm.",
   },
   en: {
     code: "a code block",
     diagram: "a diagram",
+    show: (title) => (title ? `a visual: ${title}` : "a visual"),
+    doc: (title) => (title ? `a document: ${title}` : "a document"),
     table: (rows: number) => `a table with ${rows} ${rows === 1 ? "row" : "rows"}`,
     details: "Details on screen.",
   },
 };
 
 /** Blocks replaced by nothing: language detection reads the prose only. */
-const NO_PHRASES: Phrases = { code: "", diagram: "", table: () => "", details: "" };
+const NO_PHRASES: Phrases = {
+  code: "",
+  diagram: "",
+  show: () => "",
+  doc: () => "",
+  table: () => "",
+  details: "",
+};
 
 // Frequent function words that separate the two languages; code and URLs are stripped before counting.
 const GERMAN_WORDS = new Set([
@@ -135,13 +150,28 @@ const TABLE_SEPARATOR = /^(?=.*\|)\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$/;
 const SENTENCE_END = /[.!?:;…]["')\]]?$/;
 
 /** The opening fence of a block: CommonMark forbids a backtick in a backtick fence's info string (` ```foo``` ` is inline code). */
-function openingFence(line: string): { marker: string; lang: string } | null {
+function openingFence(line: string): { marker: string; lang: string; info: string } | null {
   const match = FENCE_OPEN.exec(line);
   if (!match) return null;
   const marker = match[1] ?? "";
   const info = (match[2] ?? "").trim();
   if (marker.startsWith("`") && info.includes("`")) return null;
-  return { marker, lang: info.split(/\s+/)[0]?.toLowerCase() ?? "" };
+  const lang = info.split(/\s+/)[0] ?? "";
+  return { marker, lang: lang.toLowerCase(), info: info.slice(lang.length).trim() };
+}
+
+/**
+ * An artifact fence as the reply shows it: undefined when it is invalid (it stays a code block, so speech says one),
+ * else its title (null without one), with the same validation the asset pass applies.
+ */
+function artifactTitle(params: {
+  kind: ArtifactKind;
+  info: string;
+  body: string;
+}): string | null | undefined {
+  const artifact = readArtifact({ kind: params.kind, info: params.info, source: params.body });
+  if (!artifact) return undefined;
+  return artifact.title?.replace(/\s+/g, " ").trim() || null;
 }
 
 /** Fences and tables become one-line summaries; everything else passes through for the inline pass. */
@@ -156,7 +186,15 @@ function summarizeBlocks(lines: string[], phrases: Phrases): string[] {
       const closing = new RegExp(`^\\s*${marker[0]}{${marker.length},}\\s*$`);
       let end = i + 1;
       while (end < lines.length && !closing.test(lines[end] ?? "")) end++;
-      out.push("", DIAGRAM_LANGS.has(fence.lang) ? phrases.diagram : phrases.code, "");
+      let phrase = DIAGRAM_LANGS.has(fence.lang) ? phrases.diagram : phrases.code;
+      if (fence.lang === "iris-show" || fence.lang === "iris-doc") {
+        const body = lines.slice(i + 1, end).join("\n");
+        const kind = fence.lang === "iris-show" ? "show" : "doc";
+        const title = artifactTitle({ kind, info: fence.info, body });
+        if (title !== undefined)
+          phrase = kind === "show" ? phrases.show(title) : phrases.doc(title);
+      }
+      out.push("", phrase, "");
       i = end; // an unclosed fence runs to the end of the reply
       continue;
     }

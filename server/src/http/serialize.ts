@@ -29,6 +29,16 @@ export const memoJson = (memo: Memo) => ({
   destinationRef: memo.destinationRef,
   replyText: memo.replyText,
   ...(memo.replyBlocks.length > 0 && { replyBlocks: memo.replyBlocks }),
+  ...(memo.replyArtifacts.length > 0 && {
+    replyArtifacts: memo.replyArtifacts.map((a) => ({
+      index: a.index,
+      kind: a.kind,
+      ...(a.title !== null && { title: a.title }),
+      ...(a.format !== null && { format: a.format }),
+      assetId: a.id,
+      bytes: a.bytes,
+    })),
+  }),
   summary: memo.summary,
   ...(memo.threadId !== null && { threadId: memo.threadId }),
   ...(isTyped(memo) && { typed: true as const }),

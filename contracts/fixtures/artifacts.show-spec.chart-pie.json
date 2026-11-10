@@ -1,0 +1,7 @@
+{
+  "type": "chart",
+  "title": "Share by kind",
+  "kind": "pie",
+  "x": ["task", "note", "question"],
+  "series": [{ "name": "Memos", "values": [12, 30, 8] }]
+}

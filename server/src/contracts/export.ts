@@ -1,5 +1,5 @@
 import type { TSchema } from "elysia";
-import { CONTRACT_SCHEMAS } from "./registry.js";
+import { CONTRACT_SCHEMAS, JSON_SCHEMA_CONTRACTS } from "./registry.js";
 
 const DRAFT_2020_12 = "https://json-schema.org/draft/2020-12/schema";
 
@@ -60,12 +60,34 @@ export function exportSchema(params: { name: string; schema: TSchema }): string 
   return `${JSON.stringify(sortKeys(document), null, 2)}\n`;
 }
 
+/** `type: [a, b]` as `anyOf` of single types: the strict Ajv the contract check compiles with rejects the type-array form. */
+function expandTypeUnions(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(expandTypeUnions);
+  if (!isNode(value)) return value;
+  const out: Node = {};
+  for (const [key, child] of Object.entries(value)) {
+    if (key === "type" && Array.isArray(child)) {
+      out["anyOf"] = child.map((type) => ({ type }));
+    } else out[key] = expandTypeUnions(child);
+  }
+  return out;
+}
+
+/** The same file shape for a schema that is plain JSON Schema already: `$schema` and `title` set, keys sorted. */
+export function exportJsonSchema(params: { name: string; schema: object }): string {
+  const { $schema: _ignored, title: _title, ...rest } = expandTypeUnions(params.schema) as Node;
+  const document = { $schema: DRAFT_2020_12, title: params.name, ...rest };
+  return `${JSON.stringify(sortKeys(document), null, 2)}\n`;
+}
+
 /** Schema file name → exact file content, for every registered contract. */
 export function exportAll(): Map<string, string> {
-  return new Map(
-    Object.entries(CONTRACT_SCHEMAS).map(([name, schema]) => [
-      `${name}.json`,
-      exportSchema({ name, schema }),
-    ]),
-  );
+  return new Map([
+    ...Object.entries(CONTRACT_SCHEMAS).map(
+      ([name, schema]) => [`${name}.json`, exportSchema({ name, schema })] as const,
+    ),
+    ...Object.entries(JSON_SCHEMA_CONTRACTS).map(
+      ([name, schema]) => [`${name}.json`, exportJsonSchema({ name, schema })] as const,
+    ),
+  ]);
 }

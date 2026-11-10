@@ -1,0 +1,9 @@
+{
+  "type": "list",
+  "title": "Next steps",
+  "ordered": true,
+  "items": [
+    { "text": "Record the memo" },
+    { "text": "Read the reply", "detail": "Artifacts render below the text." }
+  ]
+}

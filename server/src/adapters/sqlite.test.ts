@@ -1068,6 +1068,7 @@ function commitReply(params: {
   store.stageReplyAssets(id, {
     replyText,
     assets,
+    artifacts: [],
     failed,
     onSettled: (outcome) => void settled?.push(`${replyText}:${outcome}`),
   });
@@ -1127,6 +1128,7 @@ describe("reply assets", () => {
       store.stageReplyAssets(id, {
         replyText: "r",
         assets: files(0, "a"),
+        artifacts: [],
         failed: false,
         onSettled: (outcome) => void settled.push(outcome),
       }),
@@ -1149,6 +1151,7 @@ describe("reply assets", () => {
       store.stageReplyAssets("unknown", {
         replyText: "r",
         assets: [],
+        artifacts: [],
         failed: false,
         onSettled() {},
       }),
@@ -1206,6 +1209,7 @@ describe("reply assets", () => {
       replyText: "r",
       // An asset the table refuses makes the commit's transaction throw.
       assets: [{ ...(files(0, "a")[0] as ReplyAsset), format: "gif" as never }],
+      artifacts: [],
       failed: false,
       onSettled: (outcome) => void settled.push(outcome),
     });
@@ -1243,6 +1247,7 @@ describe("reply assets", () => {
       store.stageReplyAssets(id, {
         replyText,
         assets: files(0, replyText),
+        artifacts: [],
         failed: false,
         onSettled: (outcome) => void settled.push(`${replyText}:${outcome}`),
       });
@@ -1282,6 +1287,7 @@ describe("reply assets", () => {
     store.stageReplyAssets(id, {
       replyText: "y",
       assets: files(0, "b"),
+      artifacts: [],
       failed: false,
       onSettled: (outcome) => void settled.push(`y:${outcome}`),
     });
@@ -1318,6 +1324,7 @@ describe("reply assets", () => {
     store.stageReplyAssets(id, {
       replyText: "y",
       assets: files(0, "c"),
+      artifacts: [],
       failed: false,
       onSettled: (outcome) => void settled.push(outcome),
     });
@@ -1334,6 +1341,7 @@ describe("reply assets", () => {
     store.stageReplyAssets(id, {
       replyText: "y",
       assets: files(0, "c"),
+      artifacts: [],
       failed: false,
       onSettled: (outcome) => void settled.push(`y:${outcome}`),
     });

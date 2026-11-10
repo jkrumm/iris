@@ -13,8 +13,16 @@ describe("visiblePrefix", () => {
     expect(visiblePrefix('Done.\n\n```iris\n{"kind":"note"}\n```')).toBe("Done.");
   });
 
+  it("shows an iris-show or iris-doc artifact fence and still cuts at the iris block after it", () => {
+    const show = '```iris-show\n{"type":"callout","tone":"info","body":"x"}\n```';
+    expect(visiblePrefix(`Look:\n\n${show}\n\nDone.`)).toBe(`Look:\n\n${show}\n\nDone.`);
+    expect(visiblePrefix(`Look:\n\n\`\`\`iris-doc\n# d\n\`\`\`\n\n\`\`\`iris\n{}\n\`\`\``)).toBe(
+      "Look:\n\n```iris-doc\n# d\n```",
+    );
+  });
+
   it("holds back a trailing fragment of the fence", () => {
-    for (const tail of ["`", "``", "```", "```i", "```ir", "```iri"]) {
+    for (const tail of ["`", "``", "```", "```i", "```ir", "```iri", "```iris"]) {
       expect(visiblePrefix(`Done.${tail}`)).toBe("Done.");
     }
     expect(visiblePrefix("Use `code` now")).toBe("Use `code` now");

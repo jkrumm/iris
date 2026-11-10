@@ -1,4 +1,6 @@
 import { t, type TSchema } from "elysia";
+import { z } from "zod";
+import { ShowSpec } from "../memo/reply-artifacts.js";
 import {
   ActivityTokenBody,
   CompleteBody,
@@ -78,4 +80,12 @@ export const CONTRACT_SCHEMAS: Record<string, TSchema> = {
   // Push payloads the server sends to APNs and the apps decode.
   "liveactivity.content-state": ContentState,
   "push.alert": AlertPayload,
+};
+
+/**
+ * Contracts that are not a route's TypeBox body, already plain JSON Schema (zod 4's `z.toJSONSchema`), by the same kind of
+ * name. Unknown keys stay rejected (`additionalProperties: false`): a spec is a contract the clients render, not a body they skip.
+ */
+export const JSON_SCHEMA_CONTRACTS: Record<string, object> = {
+  "artifacts.show-spec": z.toJSONSchema(ShowSpec, { target: "draft-2020-12", io: "input" }),
 };

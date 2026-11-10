@@ -1,0 +1,7 @@
+{
+  "type": "chart",
+  "title": "Cost",
+  "kind": "area",
+  "x": ["Jan", "Feb"],
+  "series": [{ "name": "USD", "values": [0.42, 0.57] }]
+}

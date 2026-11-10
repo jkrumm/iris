@@ -26,6 +26,36 @@ describe("markdownToSpeech", () => {
     );
   });
 
+  it("says the title of an iris-show or iris-doc artifact instead of reading it, a generic phrase without one", () => {
+    const spec =
+      '```iris-show\n{"type":"table","title":"Open tasks","columns":["a"],"rows":[]}\n```';
+    const doc = '```iris-doc title="Q3 plan" format=html\n<p>secret body</p>\n```';
+    expect(markdownToSpeech(`This is the data and the plan:\n${spec}\n${doc}`)).toBe(
+      "This is the data and the plan:\n\na visual: Open tasks\n\na document: Q3 plan",
+    );
+    expect(markdownToSpeech(`Das ist der Stand:\n${spec}\n\n${doc}\n\nFertig und gut.`)).toContain(
+      "eine Darstellung: Open tasks\n\nein Dokument: Q3 plan",
+    );
+
+    const bare = '```iris-show\n{"type":"list","items":[{"text":"x"}]}\n```\n```iris-doc\n# d\n```';
+    expect(markdownToSpeech(`This is the data and the plan:\n${bare}`)).toBe(
+      "This is the data and the plan:\n\na visual\n\na document",
+    );
+  });
+
+  it("says a code block for an invalid artifact fence, as the screen shows one", () => {
+    expect(markdownToSpeech(`Das ist es:\n\`\`\`iris-show\nnot json\n\`\`\``)).toContain(
+      "ein Codeblock",
+    );
+    const badSpec = '```iris-show\n{"type":"table","title":"Week","columns":[],"rows":[]}\n```';
+    const spoken = markdownToSpeech(`This is the data and the plan:\n${badSpec}`);
+    expect(spoken).toContain("a code block");
+    expect(spoken).not.toContain("Week");
+    expect(markdownToSpeech("Das ist es:\n```iris-doc color=red\nbody\n```")).toContain(
+      "ein Codeblock",
+    );
+  });
+
   it("summarizes mermaid and other diagram fences as a diagram", () => {
     expect(
       markdownToSpeech("Here it is and the flow:\n```mermaid\ngraph TD; A-->B\n```"),

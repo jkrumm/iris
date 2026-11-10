@@ -36,6 +36,7 @@ const OPTIONAL_KEYS = [
   "deletedAt",
   "purgeAt",
   "replyBlocks",
+  "replyArtifacts",
   "partialReply",
 ];
 

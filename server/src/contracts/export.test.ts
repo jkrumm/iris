@@ -3,7 +3,7 @@ import { t } from "elysia";
 import { testApp } from "../http/test-support.js";
 import { ListQuery } from "../http/schemas.js";
 import { exportAll, exportSchema } from "./export.js";
-import { CONTRACT_SCHEMAS } from "./registry.js";
+import { CONTRACT_SCHEMAS, JSON_SCHEMA_CONTRACTS } from "./registry.js";
 
 const KEYWORDS_NEVER_EXPORTED = [
   "default",
@@ -76,11 +76,13 @@ describe("exportAll", () => {
   it("emits one file per registered contract and no TypeBox-only keywords", () => {
     const all = exportAll();
     expect(Array.from(all.keys()).toSorted()).toEqual(
-      Object.keys(CONTRACT_SCHEMAS)
+      [...Object.keys(CONTRACT_SCHEMAS), ...Object.keys(JSON_SCHEMA_CONTRACTS)]
         .map((name) => `${name}.json`)
         .toSorted(),
     );
     for (const [file, text] of all) {
+      // The plain JSON Schema contracts keep `additionalProperties: false`: it is their point.
+      if (Object.keys(JSON_SCHEMA_CONTRACTS).some((name) => file === `${name}.json`)) continue;
       const found = keywordsIn(JSON.parse(text));
       for (const keyword of KEYWORDS_NEVER_EXPORTED) {
         expect([file, found.has(keyword)]).toEqual([file, false]);

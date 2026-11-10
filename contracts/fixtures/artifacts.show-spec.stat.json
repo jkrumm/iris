@@ -1,0 +1,9 @@
+{
+  "type": "stat",
+  "title": "This week",
+  "items": [
+    { "label": "Memos", "value": 42, "delta": 6 },
+    { "label": "Median latency", "value": 11.2, "unit": "s", "delta": -1.4, "hint": "From the last 30 memos" },
+    { "label": "Status", "value": "healthy" }
+  ]
+}

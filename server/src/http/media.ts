@@ -108,6 +108,11 @@ export function mediaRoutes(deps: {
             ...(type === "image/svg+xml" && {
               "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'",
             }),
+            // An HTML document opened on its own runs in a sandbox: no script, no network, no navigation, inline styles and data: images only.
+            ...(type.startsWith("text/html") && {
+              "content-security-policy":
+                "sandbox; default-src 'none'; style-src 'unsafe-inline'; img-src data:",
+            }),
           },
         });
       },

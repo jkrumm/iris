@@ -1,0 +1,102 @@
+{
+  "id": "6d0b9f52-1a7e-4c38-b4d6-2e8f31a05c97",
+  "mode": "hermes",
+  "device": "iphone",
+  "startedAt": "2026-03-14T10:02:11.000Z",
+  "state": "notified",
+  "failedStep": null,
+  "error": null,
+  "segmentCount": 3,
+  "audioSeconds": 24.1,
+  "transcript": "Fass mir die Woche als Tabelle zusammen und schreib ein kurzes Dokument dazu.",
+  "route": "hermes",
+  "destinationRef": "6d0b9f52-1a7e-4c38-b4d6-2e8f31a05c97",
+  "replyText": "Hier ist die Woche:\n\n```iris-show\n{\"type\":\"table\",\"title\":\"Woche\",\"columns\":[\"Tag\",\"Memos\"],\"rows\":[[\"Mo\",4],[\"Di\",7]]}\n```\n\nUnd das Dokument:\n\n```iris-doc title=\"Wochenbericht\" format=markdown\n# Wochenbericht\n\nEine ruhige Woche.\n```",
+  "replyArtifacts": [
+    {
+      "index": 0,
+      "kind": "show",
+      "title": "Woche",
+      "assetId": "b81c4e07-5d29-4a63-9f1e-0c7a3d6e2b48",
+      "bytes": 83
+    },
+    {
+      "index": 0,
+      "kind": "doc",
+      "title": "Wochenbericht",
+      "format": "markdown",
+      "assetId": "f20a96d3-7c15-48be-a0d9-4e1b8c3f5a72",
+      "bytes": 40
+    },
+    {
+      "index": 1,
+      "kind": "doc",
+      "format": "html",
+      "assetId": "3e9d5a18-b4f0-4c27-8d61-a7c2e90b1f56",
+      "bytes": 64
+    }
+  ],
+  "summary": {
+    "headline": "Wochenübersicht",
+    "detail": "Die Woche als Tabelle und als kurzes Dokument.",
+    "spoken": "Ich habe die Woche als Tabelle und Dokument zusammengefasst."
+  },
+  "threadId": "6d0b9f52-1a7e-4c38-b4d6-2e8f31a05c97",
+  "done": false,
+  "favorite": false,
+  "archived": false,
+  "createdAt": "2026-03-14T10:02:11.512Z",
+  "updatedAt": "2026-03-14T10:02:49.870Z",
+  "steps": [
+    {
+      "step": "transcribe",
+      "status": "done",
+      "startedAt": "2026-03-14T10:02:20.100Z",
+      "finishedAt": "2026-03-14T10:02:26.640Z",
+      "error": null,
+      "usage": {
+        "audioSeconds": 24.1
+      },
+      "costUsd": 0.0024,
+      "attempts": 1
+    },
+    {
+      "step": "act",
+      "status": "done",
+      "startedAt": "2026-03-14T10:02:26.780Z",
+      "finishedAt": "2026-03-14T10:02:42.190Z",
+      "error": null,
+      "usage": {
+        "inputTokens": 1620,
+        "outputTokens": 340,
+        "totalTokens": 1960
+      },
+      "costUsd": 0.0388,
+      "attempts": 1
+    },
+    {
+      "step": "summarize",
+      "status": "done",
+      "startedAt": "2026-03-14T10:02:42.260Z",
+      "finishedAt": "2026-03-14T10:02:47.930Z",
+      "error": null,
+      "usage": {
+        "inputTokens": 880,
+        "outputTokens": 120,
+        "totalTokens": 1000
+      },
+      "costUsd": 0.0019,
+      "attempts": 1
+    },
+    {
+      "step": "notify",
+      "status": "done",
+      "startedAt": "2026-03-14T10:02:48.010Z",
+      "finishedAt": "2026-03-14T10:02:49.860Z",
+      "error": null,
+      "usage": null,
+      "costUsd": null,
+      "attempts": 1
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "type": "chart",
+  "title": "Memos per weekday",
+  "kind": "bar",
+  "x": ["Mon", "Tue", "Wed"],
+  "series": [
+    { "name": "Spoken", "values": [4, 7, 5] },
+    { "name": "Typed", "values": [2, null, 3] }
+  ],
+  "unit": "memos"
+}

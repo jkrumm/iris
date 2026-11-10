@@ -1,52 +1,22 @@
 import type { AssetStore } from "../ports/assets.js";
 import type { DiagramRenderer } from "../ports/diagram.js";
 import { log } from "../telemetry/log.js";
+import { extractFences } from "./fences.js";
 import { createKeyedQueue } from "./keyed-queue.js";
-import type { ReplyAsset } from "./memo.js";
+import type { ReplyArtifact, ReplyAsset } from "./memo.js";
+import { extractReplyArtifacts } from "./reply-artifacts.js";
 import type { MemoStore } from "./store.js";
+
+export { extractFences, type Fence } from "./fences.js";
 
 /** More Mermaid fences than this in one reply: the rest stay code blocks (a bound on the work one reply can cause). */
 export const MAX_BLOCKS = 12;
 
-const FENCE = /^ {0,3}(`{3,}|~{3,})\s*(.*)$/;
-
-/**
- * The source of every top-level ```mermaid fence of a markdown reply, in document order (CommonMark: a fence closes on
- * the same character, at least as long, with nothing after it; an unclosed one runs to the end). A mermaid fence inside
- * another fenced block is that block's text, not a diagram.
- */
+/** The source of every top-level ```mermaid fence, in document order. */
 export function extractMermaidBlocks(markdown: string): string[] {
-  const blocks: string[] = [];
-  let open: { marker: string; mermaid: boolean; lines: string[] } | null = null;
-  for (const line of markdown.split(/\r?\n/)) {
-    if (open) {
-      const closing = FENCE.exec(line);
-      const isClose =
-        closing?.[1] !== undefined &&
-        closing[1].startsWith(open.marker[0] as string) &&
-        closing[1].length >= open.marker.length &&
-        closing[2] === "";
-      if (!isClose) {
-        open.lines.push(line);
-        continue;
-      }
-      if (open.mermaid) blocks.push(open.lines.join("\n"));
-      open = null;
-      continue;
-    }
-    const opening = FENCE.exec(line);
-    if (!opening?.[1]) continue;
-    const info = opening[2] ?? "";
-    // A backtick fence's info string cannot contain a backtick.
-    if (opening[1].startsWith("`") && info.includes("`")) continue;
-    open = {
-      marker: opening[1],
-      mermaid: info.split(/\s+/)[0]?.toLowerCase() === "mermaid",
-      lines: [],
-    };
-  }
-  if (open?.mermaid) blocks.push(open.lines.join("\n"));
-  return blocks;
+  return extractFences(markdown)
+    .filter((fence) => fence.lang === "mermaid")
+    .map((fence) => fence.source);
 }
 
 /** Rows examined per boot sweep: a bound on the render work one start-up can cause. */
@@ -57,23 +27,25 @@ export const SWEEP_LIMIT = 200;
 
 export interface ReplyAssets {
   /**
-   * Renders every Mermaid block of `replyText` and stores the files, then stages them with the store: no row, so nothing on
-   * the wire, until `MemoStore.completeStep` commits this reply. A commit that wins replaces the rows of the earlier reply
-   * and prunes its files; one that loses its compare-and-set leaves the earlier reply's rows and files alone and removes
-   * only these new files (`reply.assets_discarded`). Never throws: a block that cannot be rendered (`reply.render_failed`)
-   * or stored (`reply.store_failed`) stays a code block, a reply whose blocks all fail commits with the failed marker (the
-   * backfill skips it), and a failure of the whole pass (`reply.assets_failed`, its new files removed) leaves the reply as
-   * plain markdown.
+   * Renders every Mermaid block of `replyText` and stores the valid `iris-show` / `iris-doc` artifacts (as files under
+   * fresh ids), then stages them all with the store: no row, so nothing on the wire, until `MemoStore.completeStep` commits
+   * this reply. A commit that wins replaces the rows of the earlier reply and prunes its files; one that loses its
+   * compare-and-set leaves the earlier reply's rows and files alone and removes only these new files
+   * (`reply.assets_discarded`). Never throws: a block that cannot be rendered (`reply.render_failed`) or stored, or an
+   * artifact that cannot be stored (`reply.store_failed`), stays a code block, a reply whose Mermaid blocks all fail
+   * commits with the failed marker (the backfill skips it; artifacts never set it), and a failure of the whole pass
+   * (`reply.assets_failed`, its new files removed) leaves the reply as plain markdown.
    */
   sync(params: { memoId: string; replyText: string }): Promise<void>;
   /**
-   * Renders the assets of older, committed replies that contain a Mermaid fence and have none: at most `limit` memos,
+   * Renders the assets of older, committed replies that contain a Mermaid fence and have none: Mermaid only, artifacts
+   * are never backfilled (a reply from before them keeps its fences as code blocks). At most `limit` memos,
    * newest first, each serialized with the memo's other passes. Idempotent: a memo that has assets, or whose blocks all
    * failed to render (marked until its reply changes), is not a candidate. Never throws. Resolves with how many memos got assets.
    */
   backfill(params?: { limit?: number }): Promise<number>;
   /**
-   * Removes the files under the asset directory that no `reply_assets` row names and no in-flight attempt has staged: what a
+   * Removes the files under the asset directory that no `reply_assets` or `reply_artifacts` row names and no in-flight attempt has staged: what a
    * crash between a commit and its prune left behind, and files of a memo that no longer exists. At most `limit` memo
    * directories, most recently changed first, each inside the memo's queue (never between a render's write and its staging).
    * A file a row references is never touched. Logs what it removed (`reply.orphans_removed`). Never throws. Resolves with the
@@ -162,11 +134,52 @@ export function createReplyAssets(deps: {
     return { stored, blocks: Math.min(sources.length, MAX_BLOCKS), rejected };
   }
 
+  /** Stores the reply's valid artifacts under fresh ids; one that cannot be stored (`reply.store_failed`) is dropped alone. */
+  async function storeArtifacts(memoId: string, replyText: string) {
+    const stored: ReplyArtifact[] = [];
+    for (const artifact of extractReplyArtifacts({ memoId, replyText })) {
+      const id = crypto.randomUUID();
+      try {
+        await assets.put({ memoId, assetId: id, bytes: artifact.bytes });
+      } catch (err) {
+        log("reply.store_failed", {
+          memo_id: memoId,
+          kind: artifact.kind,
+          index: artifact.index,
+          error: String(err),
+        });
+        await assets.remove({ memoId, assetIds: [id] }).catch(() => undefined);
+        continue;
+      }
+      stored.push({
+        id,
+        index: artifact.index,
+        kind: artifact.kind,
+        title: artifact.title,
+        format: artifact.format,
+        bytes: artifact.bytes.byteLength,
+      });
+    }
+    return stored;
+  }
+
+  /** The files a memo's rows name: Mermaid renderings and artifacts. */
+  function rowFiles(memoId: string): string[] {
+    const memo = store.getMemo(memoId);
+    return [
+      ...(memo?.replyBlocks ?? []).flatMap((b) => [
+        b.svg.light,
+        b.svg.dark,
+        b.png.light,
+        b.png.dark,
+      ]),
+      ...(memo?.replyArtifacts ?? []).map((a) => a.id),
+    ];
+  }
+
   /** Deletes every file of the memo that no row names. */
   async function pruneToRows(memoId: string) {
-    const blocks = store.getMemo(memoId)?.replyBlocks ?? [];
-    const keep = new Set(blocks.flatMap((b) => [b.svg.light, b.svg.dark, b.png.light, b.png.dark]));
-    await assets.prune({ memoId, keep });
+    await assets.prune({ memoId, keep: new Set(rowFiles(memoId)) });
   }
 
   /** Drops a hold, unless a newer staging of the memo has replaced it already. */
@@ -177,7 +190,7 @@ export function createReplyAssets(deps: {
   /** What follows the store settling a staged reply, inside the memo's queue. */
   function settled(params: {
     memoId: string;
-    stored: readonly ReplyAsset[];
+    stored: readonly string[];
     failed: boolean;
     held: ReadonlySet<string>;
   }) {
@@ -190,7 +203,7 @@ export function createReplyAssets(deps: {
       const cleanup =
         outcome === "committed"
           ? () => pruneToRows(memoId)
-          : () => assets.remove({ memoId, assetIds: stored.map((a) => a.id) });
+          : () => assets.remove({ memoId, assetIds: [...stored] });
       void track(perMemo(memoId, cleanup)).catch((err: unknown) =>
         log("reply.assets_failed", { memo_id: memoId, error: String(err) }),
       );
@@ -199,31 +212,36 @@ export function createReplyAssets(deps: {
 
   async function run(memoId: string, replyText: string) {
     let stored: ReplyAsset[] = [];
+    let artifacts: ReplyArtifact[] = [];
     // Once the store holds them it settles them (committed or discarded): from then on they are not ours to delete.
     let staged = false;
     let held: ReadonlySet<string> | undefined;
     try {
       const rendered = await renderReply(memoId, replyText);
       stored = rendered.stored;
+      artifacts = await storeArtifacts(memoId, replyText);
       // Marked only when the renderer refused every block: a failed store (a full disk) is worth another try at boot.
       const failed = rendered.blocks > 0 && rendered.rejected === rendered.blocks;
       // Held for as long as the store tracks the files: the boot sweep must not take them for orphans.
-      const own = new Set(stored.map((a) => a.id));
+      const files = [...stored.map((a) => a.id), ...artifacts.map((a) => a.id)];
+      const own = new Set(files);
       held = own;
       holds.set(memoId, own);
       // False for a memo purged while it rendered: no row is left to own the files.
       staged = store.stageReplyAssets(memoId, {
         replyText,
         assets: stored,
+        artifacts,
         failed,
-        onSettled: settled({ memoId, stored, failed, held: own }),
+        onSettled: settled({ memoId, stored: files, failed, held: own }),
       });
     } catch (err) {
       log("reply.assets_failed", { memo_id: memoId, error: String(err) });
     }
     if (!staged) {
       if (held) release(memoId, held);
-      await assets.remove({ memoId, assetIds: stored.map((a) => a.id) }).catch(() => undefined);
+      const files = [...stored.map((a) => a.id), ...artifacts.map((a) => a.id)];
+      await assets.remove({ memoId, assetIds: files }).catch(() => undefined);
     }
   }
 
@@ -261,11 +279,7 @@ export function createReplyAssets(deps: {
 
   /** One memo directory of the sweep, inside its queue: rows and holds are read after the queue reached it. */
   async function sweepOne(memoId: string) {
-    const rows = store.getMemo(memoId)?.replyBlocks ?? [];
-    const keep = new Set([
-      ...rows.flatMap((b) => [b.svg.light, b.svg.dark, b.png.light, b.png.dark]),
-      ...(holds.get(memoId) ?? []),
-    ]);
+    const keep = new Set([...rowFiles(memoId), ...(holds.get(memoId) ?? [])]);
     const orphans = (await assets.list(memoId)).filter((name) => !keep.has(name));
     if (orphans.length === 0) return 0;
     await assets.prune({ memoId, keep });

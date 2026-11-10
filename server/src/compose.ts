@@ -18,6 +18,7 @@ import type { Clock } from "./ports/clock.js";
 import type { DeviceStore } from "./ports/devices.js";
 import type { Destination } from "./ports/destination.js";
 import {
+  FAKE_ARTIFACTS,
   fakeAssetStore,
   fakeDiagramRenderer,
   fakeDestination,
@@ -67,7 +68,10 @@ const fakePorts = () => ({
   destination: fakeDestination({
     sessionPerMemo: true,
     // Spaced wider than the 150 ms delta coalescing, so `make e2e` sees separate `memo.delta` events.
-    stream: { chunks: ["Noted. ", "Two things ", "are done."], gapMs: 200 },
+    stream: {
+      chunks: ["Noted. ", "Two things ", "are done.", `\n\n${FAKE_ARTIFACTS}`],
+      gapMs: 200,
+    },
   }),
   summarizer: fakeSummarizer(),
   notifier: fakeNotifier(),

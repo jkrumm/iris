@@ -1,0 +1,10 @@
+{
+  "type": "table",
+  "title": "Open tasks",
+  "columns": ["Task", "Owner", "Done", "Hours"],
+  "rows": [
+    ["Write the spec", "Ada", true, 3.5],
+    ["Review the draft", "Grace", false, null],
+    ["Ship it", "Ada", false, 1]
+  ]
+}

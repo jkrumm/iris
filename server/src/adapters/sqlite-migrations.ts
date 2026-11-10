@@ -218,4 +218,17 @@ export const MIGRATIONS: readonly string[] = [
   `
   DROP TABLE IF EXISTS factory_ask_pushes;
   `,
+  // Typed artifacts of a reply (docs/TDD.md §3): one row per `iris-show` spec or `iris-doc` document, the bytes live under <data>/assets/<memo_id>/<id>.
+  `
+  CREATE TABLE reply_artifacts (
+    memo_id TEXT NOT NULL REFERENCES memos (id) ON DELETE CASCADE,
+    id TEXT NOT NULL,
+    kind TEXT NOT NULL CHECK (kind IN ('show', 'doc')),
+    artifact_index INTEGER NOT NULL,
+    title TEXT,
+    format TEXT CHECK (format IN ('markdown', 'html')),
+    bytes INTEGER NOT NULL,
+    PRIMARY KEY (memo_id, id)
+  );
+  `,
 ];

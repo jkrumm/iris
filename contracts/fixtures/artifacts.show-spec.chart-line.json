@@ -1,0 +1,7 @@
+{
+  "type": "chart",
+  "kind": "line",
+  "x": [1, 2, 3, 4],
+  "series": [{ "name": "Median seconds", "values": [12.5, 11.8, null, 9.4] }],
+  "unit": "s"
+}

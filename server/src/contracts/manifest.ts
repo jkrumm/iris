@@ -41,6 +41,8 @@ export const Manifest = z.strictObject({
   routes: z.array(Route),
   /** Payloads the server sends through APNs; the apps decode them. */
   push: z.array(z.strictObject({ name: z.string(), schema: z.string(), notes: z.string() })),
+  /** Documents the server accepts inside a reply (fence bodies), not carried by a route. */
+  artifacts: z.array(z.strictObject({ name: z.string(), schema: z.string(), notes: z.string() })),
 });
 export type Manifest = z.infer<typeof Manifest>;
 
@@ -60,5 +62,6 @@ export function referencedSchemas(manifest: Manifest): Set<string> {
     for (const event of route.events ?? []) names.add(event.schema);
   }
   for (const entry of manifest.push) names.add(entry.schema);
+  for (const entry of manifest.artifacts) names.add(entry.schema);
   return names;
 }

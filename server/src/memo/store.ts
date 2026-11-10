@@ -4,6 +4,7 @@ import type {
   MemoMode,
   MemoPatch,
   MemoState,
+  ReplyArtifact,
   ReplyAsset,
   Step,
   StepRecord,
@@ -172,6 +173,8 @@ export interface MemoStore extends ThreadStore {
   markReplyAssetsFailed(params: { id: string; replyText: string }): boolean;
   /** One asset of the memo, whatever its state (the media route checks deletion itself); null when unknown. */
   getReplyAsset(id: string, assetId: string): ReplyAsset | null;
+  /** One artifact of the memo, whatever its state; null when unknown. */
+  getReplyArtifact(id: string, assetId: string): ReplyArtifact | null;
 
   /** Memos the runner must resume after a restart: not receiving, notified, failed or (an old row) needs_route. */
   listNonTerminal(): Memo[];
@@ -181,6 +184,8 @@ export interface MemoStore extends ThreadStore {
 export interface StagedReplyAssets {
   replyText: string;
   assets: readonly ReplyAsset[];
+  /** The reply's artifacts, committed and replaced exactly like `assets`. */
+  artifacts: readonly ReplyArtifact[];
   /** The reply has Mermaid fences and not one rendered: stored as the failed marker with the commit. */
   failed: boolean;
   /** Called once, after the transaction, when the reply is settled. Must not throw. */

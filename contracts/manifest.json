@@ -541,5 +541,12 @@
       "schema": "push.alert",
       "notes": "The whole alert body. The custom memo key is the memo id the app opens on tap. category is MEMO_DONE; the title is the memo's kind (omitted kind: \"Iris\"), the body its headline, never transcript or reply text. The alert's collapse id is the memo id, so a re-send replaces the banner."
     }
+  ],
+  "artifacts": [
+    {
+      "name": "artifacts.show-spec",
+      "schema": "artifacts.show-spec",
+      "notes": "The body of an iris-show fence in a reply: one spec, discriminated by type (table, chart, stat, list, callout), unknown keys rejected. A valid fence is stored as JSON and listed in the memo's replyArtifacts (kind show); the asset route serves it as application/json. Limits the schema cannot state: a table row has as many cells as columns, a chart series as many values as x, a pie chart exactly one series; the fence body is at most 64 KiB."
+    }
   ]
 }
