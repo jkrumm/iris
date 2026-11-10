@@ -62,7 +62,7 @@ function git(args: string[]): string | null {
 export function changedFiles(base: string): string[] | null {
   const attempts = /^0+$/.test(base) || base === "" ? [] : [[`${base}...HEAD`], [base, "HEAD"]];
   for (const range of [...attempts, ["HEAD~1", "HEAD"]]) {
-    const out = git(["diff", "--name-only", ...range]);
+    const out = git(["diff", "--name-only", "--no-renames", ...range]);
     if (out !== null) return out.split("\n").filter(Boolean);
   }
   return null;

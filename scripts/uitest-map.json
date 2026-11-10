@@ -6,6 +6,7 @@
     "apple/Tests/UITests/SampleClock.swift",
     "apple/Tests/UITests/Scrolling.swift",
     "apple/Tests/UITests/Info.plist",
+    "apple/Iris/Sample*.swift",
     "scripts/uitest-select.ts",
     "scripts/uitest-map.json",
     ".github/workflows/apple.yml",
@@ -17,6 +18,7 @@
       "name": "history list, swipes, filters",
       "paths": [
         "apple/Iris/History*.swift",
+        "apple/Iris/HiddenMemoStore.swift",
         "apple/Iris/MemoSwipeActions.swift",
         "apple/Iris/RecordRow.swift"
       ],
