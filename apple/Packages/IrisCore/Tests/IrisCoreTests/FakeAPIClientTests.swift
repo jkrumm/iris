@@ -419,7 +419,7 @@ struct FakeAPIClientPipelineTests {
       case .memoUpdated(let update): names.append("updated:\(update.state.rawValue)")
       case .memoDone(let update):
         names.append("done:\(update.state.rawValue)")
-      case .ready: continue
+      case .ready, .memoDelta, .memoActivity: continue
       }
       if names.last == "done:notified" { break }
     }

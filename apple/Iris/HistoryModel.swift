@@ -217,6 +217,9 @@ final class HistoryModel {
     case .memoDone(let done):
       // Always follows a `memo.updated` for the same state, which has already refreshed the list.
       onMemoDone?(done.id)
+    case .memoDelta, .memoActivity:
+      // Live reply text and tool activity: no list row shows it, the final `memo.updated` carries the result.
+      break
     }
   }
 

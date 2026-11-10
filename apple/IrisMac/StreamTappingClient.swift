@@ -57,6 +57,7 @@ nonisolated struct StreamTappingClient: APIClient {
             switch event {
             case .ready: ready.yield()
             case .memoUpdated(let update), .memoDone(let update): states?.yield(update)
+            case .memoDelta, .memoActivity: break
             }
             mirror?.yield(event)
             continuation.yield(event)

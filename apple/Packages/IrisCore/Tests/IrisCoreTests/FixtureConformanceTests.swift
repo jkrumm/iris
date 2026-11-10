@@ -25,6 +25,8 @@ let fixtureTypes: [String: RoundTrip] = [
   "error": roundTrip(ErrorBody.self),
   "error.missing-segments": roundTrip(MissingSegmentsBody.self),
   "error.too-large": roundTrip(TooLargeBody.self),
+  "events.memo-activity": roundTrip(MemoActivity.self),
+  "events.memo-delta": roundTrip(MemoDelta.self),
   "events.memo-done": roundTrip(MemoEvent.self),
   "events.memo-updated": roundTrip(MemoEvent.self),
   "events.ready": roundTrip(ReadyEvent.self),

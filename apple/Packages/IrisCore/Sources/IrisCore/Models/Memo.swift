@@ -288,27 +288,33 @@ public struct StepEntry: Codable, Hashable, Sendable {
 public struct MemoDetail: Codable, Hashable, Sendable, Identifiable {
   public var memo: Memo
   public var steps: [StepEntry]
+  /// The reply text streamed so far; present only while `act` has streamed visible text.
+  public var partialReply: PartialReply?
 
   public var id: String { memo.id }
 
-  public init(memo: Memo, steps: [StepEntry]) {
+  public init(memo: Memo, steps: [StepEntry], partialReply: PartialReply? = nil) {
     self.memo = memo
     self.steps = steps
+    self.partialReply = partialReply
   }
 
   private enum CodingKeys: String, CodingKey {
-    case steps
+    case steps, partialReply
   }
 
   public init(from decoder: any Decoder) throws {
     memo = try Memo(from: decoder)
-    steps = try decoder.container(keyedBy: CodingKeys.self).decode([StepEntry].self, forKey: .steps)
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    steps = try container.decode([StepEntry].self, forKey: .steps)
+    partialReply = try container.decodeIfPresent(PartialReply.self, forKey: .partialReply)
   }
 
   public func encode(to encoder: any Encoder) throws {
     try memo.encode(to: encoder)
     var container = encoder.container(keyedBy: CodingKeys.self)
     try container.encode(steps, forKey: .steps)
+    try container.encodeIfPresent(partialReply, forKey: .partialReply)
   }
 }
 

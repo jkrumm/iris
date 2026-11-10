@@ -45,3 +45,45 @@ public struct MemoEvent: Codable, Hashable, Sendable {
 public struct ReadyEvent: Codable, Hashable, Sendable {
   public init() {}
 }
+
+/// Payload of `memo.delta`: the next piece of the reply while `act` runs. A client resets its buffer when `attempt` changes and
+/// drops deltas of the same attempt with `seq` at or below a ``PartialReply``'s.
+public struct MemoDelta: Codable, Hashable, Sendable {
+  public var id: String
+  public var attempt: Int
+  public var seq: Int
+  public var text: String
+
+  public init(id: String, attempt: Int, seq: Int, text: String) {
+    self.id = id
+    self.attempt = attempt
+    self.seq = seq
+    self.text = text
+  }
+}
+
+/// Payload of `memo.activity`: the name of a tool Hermes started (the same names as a memo's `actions`).
+public struct MemoActivity: Codable, Hashable, Sendable {
+  public var id: String
+  public var attempt: Int
+  public var tool: String
+
+  public init(id: String, attempt: Int, tool: String) {
+    self.id = id
+    self.attempt = attempt
+    self.tool = tool
+  }
+}
+
+/// The reply text streamed so far, on a memo's detail while `act` runs (absent otherwise).
+public struct PartialReply: Codable, Hashable, Sendable {
+  public var attempt: Int
+  public var seq: Int
+  public var text: String
+
+  public init(attempt: Int, seq: Int, text: String) {
+    self.attempt = attempt
+    self.seq = seq
+    self.text = text
+  }
+}

@@ -86,6 +86,29 @@ struct SSEParserTests {
     #expect((ready, updated, done) == (1, 3, 1))
   }
 
+  @Test("memo.delta and memo.activity decode into typed ServerEvents")
+  func progressEventsDecode() throws {
+    let delta = try ServerEvent.decode(
+      SSEEvent(event: "memo.delta", data: #"{"id":"m1","attempt":2,"seq":3,"text":"Hi"}"#))
+    #expect(delta == .memoDelta(MemoDelta(id: "m1", attempt: 2, seq: 3, text: "Hi")))
+    let activity = try ServerEvent.decode(
+      SSEEvent(event: "memo.activity", data: #"{"id":"m1","attempt":2,"tool":"terminal"}"#))
+    #expect(activity == .memoActivity(MemoActivity(id: "m1", attempt: 2, tool: "terminal")))
+    #expect(throws: APIError.self) {
+      try ServerEvent.decode(SSEEvent(event: "memo.delta", data: #"{"id":"m1"}"#))
+    }
+  }
+
+  @Test("A detail fixture with a partial reply decodes it, one without has none")
+  func partialReplyDecodes() throws {
+    let decoder = IrisJSON.makeDecoder()
+    let acting = try decoder.decode(
+      MemoDetail.self, from: Contracts.fixtureData("memos.detail.response.acting"))
+    #expect(acting.partialReply?.seq == 2)
+    let done = try decoder.decode(MemoDetail.self, from: Contracts.fixtureData("memos.detail.response"))
+    #expect(done.partialReply == nil)
+  }
+
   @Test("Comments and keepalives yield nothing")
   func comments() {
     #expect(parse(": keepalive\n\n: another\n: and more\n\n").isEmpty)

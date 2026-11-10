@@ -6,6 +6,10 @@ public enum ServerEvent: Hashable, Sendable {
   case ready
   case memoUpdated(MemoEvent)
   case memoDone(MemoEvent)
+  /// The next piece of the reply while `act` runs; a new `attempt` means `act` restarted.
+  case memoDelta(MemoDelta)
+  /// A tool Hermes started while `act` runs.
+  case memoActivity(MemoActivity)
 
   /// Decodes a dispatched SSE event. Returns `nil` for event names this client does not know, so a newer
   /// server can add events without breaking the stream. Throws `APIError.decoding` for a malformed payload.
@@ -17,6 +21,10 @@ public enum ServerEvent: Hashable, Sendable {
       return .memoUpdated(try decodePayload(event))
     case "memo.done":
       return .memoDone(try decodePayload(event))
+    case "memo.delta":
+      return .memoDelta(try decodePayload(event))
+    case "memo.activity":
+      return .memoActivity(try decodePayload(event))
     default:
       return nil
     }
@@ -36,9 +44,9 @@ public enum ServerEvent: Hashable, Sendable {
     }
   }
 
-  private static func decodePayload(_ event: SSEEvent) throws -> MemoEvent {
+  private static func decodePayload<Payload: Decodable>(_ event: SSEEvent) throws -> Payload {
     do {
-      return try IrisJSON.makeDecoder().decode(MemoEvent.self, from: Data(event.data.utf8))
+      return try IrisJSON.makeDecoder().decode(Payload.self, from: Data(event.data.utf8))
     } catch {
       throw APIError.decoding("\(event.event): \(error.localizedDescription)")
     }
