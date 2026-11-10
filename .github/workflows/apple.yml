@@ -2,49 +2,118 @@ name: apple
 on:
   push:
     branches: [master]
-    paths: ["apple/**", "contracts/**", ".swift-format", "Makefile", ".github/workflows/apple.yml"]
+    paths: ["apple/**", "contracts/**", ".swift-format", "Makefile", ".github/workflows/apple.yml", ".github/actions/apple/**", "scripts/uitest-*"]
   pull_request:
     branches: [master]
-    paths: ["apple/**", "contracts/**", ".swift-format", "Makefile", ".github/workflows/apple.yml"]
+    paths: ["apple/**", "contracts/**", ".swift-format", "Makefile", ".github/workflows/apple.yml", ".github/actions/apple/**", "scripts/uitest-*"]
+  # Nightly: the full UI suite, which a push or PR runs only in part (uitest job).
+  schedule:
+    - cron: "17 2 * * *"
   workflow_dispatch:
 
 permissions:
   contents: read
 
-# A new push to a PR cancels its stale run. Other events get a group per commit, so master runs and dispatches never cancel or displace each other.
+# A new push to a PR cancels its stale run. Other events get a group per commit, so master runs, dispatches and the nightly never cancel or displace each other.
 concurrency:
   group: apple-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+# Three jobs start together, each on its own hosted runner (public repo: parallel jobs cost nothing). Each restores its SPM/DerivedData cache
+# (a PR also reads master's); runs that are not a PR save one, so the first run on a new manifest is cold and the next is warm.
 jobs:
-  apple:
+  check-apple:
     # Public repo: the hosted Xcode 27 image (TDD D14), same Xcode major as the mini.
     # Fall back to `macos-26` (Xcode 26.6, no iOS 27-only APIs) only if this label queues for more than 30 min.
     runs-on: xcode-27
-    timeout-minutes: 75
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: 1.4.2
-      - name: Toolchain
-        run: |
-          xcodebuild -version
-          swift --version
-          xcrun simctl list devices available
-          command -v xcodegen >/dev/null || brew install xcodegen
-      - name: Check (theme drift, lint, swift test, build all schemes)
+      - uses: ./.github/actions/apple
+        with: { step: setup, name: check-apple }
+      - name: Check (theme drift, lint, swift test, build all schemes, IrisMacTests)
         run: make check-apple
-      - name: Snapshots
-        run: make snapshots
-      - name: UI smoke
-        run: make uitest
+      - uses: ./.github/actions/apple
+        if: github.event_name != 'pull_request'
+        with: { step: save, name: check-apple }
       - name: Upload results on failure
         if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
-          name: apple-diagnostics
+          name: check-apple-diagnostics
           path: |
             apple/.dd.noindex/Logs/Test
-            apple/Packages/IrisUI/.dd.noindex/Logs/Test
+            apple/Packages/*/.build/*/Logs
+          if-no-files-found: warn
+
+  snapshots:
+    runs-on: xcode-27
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: ./.github/actions/apple
+        with: { step: setup, name: snapshots }
+      - name: Snapshots
+        run: make snapshots
+      - uses: ./.github/actions/apple
+        if: github.event_name != 'pull_request'
+        with: { step: save, name: snapshots }
+      - name: Upload results on failure
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: snapshots-diagnostics
+          path: apple/.dd.noindex/Logs/Test
+          if-no-files-found: warn
+
+  uitest:
+    runs-on: xcode-27
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          # The subset is the diff against the base, so the history must be there.
+          fetch-depth: 0
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.4.2
+      - uses: ./.github/actions/apple
+        with: { step: setup, name: uitest }
+      # A push or PR runs IrisTests plus the XCUITest classes whose screens changed (scripts/uitest-map.json; the smoke class when nothing
+      # maps, everything when a shared file changed). The nightly and workflow_dispatch run the full suite.
+      - name: Select UI tests
+        id: select
+        env:
+          BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          if [ "${{ github.event_name }}" = push ] || [ "${{ github.event_name }}" = pull_request ]; then
+            only=$(bun scripts/uitest-select.ts --base "$BASE")
+          else
+            echo "uitest subset: ${{ github.event_name }} runs the full suite" >&2
+            only=ALL
+          fi
+          echo "only=$only" >> "$GITHUB_OUTPUT"
+          echo "UI tests: ${only/ALL/the full suite}" >> "$GITHUB_STEP_SUMMARY"
+      - name: UI tests
+        env:
+          ONLY: ${{ steps.select.outputs.only }}
+        run: |
+          if [ "$ONLY" = ALL ]; then
+            make uitest
+          else
+            echo "UI tests: IrisTests + $ONLY"
+            make uitest ONLY="$ONLY" UNIT=1
+          fi
+      - uses: ./.github/actions/apple
+        if: github.event_name != 'pull_request'
+        with: { step: save, name: uitest }
+      - name: Upload results on failure
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: uitest-diagnostics
+          path: apple/.dd.noindex/Logs/Test
           if-no-files-found: warn

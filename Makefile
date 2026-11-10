@@ -182,7 +182,11 @@ SWIFT_DIRS := $(APPLE_DIR)/Iris $(APPLE_DIR)/IrisWidgets $(APPLE_DIR)/IrisNotifi
 # Build jobs cap: one number for every xcodebuild and swift run here, the release scripts (testflight.sh, mac-release.sh read SWIFT_JOBS, default 2) and apple-proof.
 SWIFT_JOBS ?= 2
 export SWIFT_JOBS
-XCB        := xcodebuild -project $(APPLE_DIR)/Iris.xcodeproj -derivedDataPath $(APPLE_DIR)/.dd.noindex CODE_SIGNING_ALLOWED=NO -jobs $(SWIFT_JOBS)
+# Load caps for runs on a shared machine (the mini), the same as scripts/apple-proof.sh: low priority and 2 concurrent compile tasks. CI (CI set) has a runner of its own.
+XCB_NICE   := $(if $(CI),,nice -n 10)
+XCB_CAP    := $(if $(CI),,IDEBuildOperationMaxNumberOfConcurrentCompileTasks=$(SWIFT_JOBS))
+DD         := $(CURDIR)/$(APPLE_DIR)/.dd.noindex
+XCB        := $(XCB_NICE) xcodebuild -project $(APPLE_DIR)/Iris.xcodeproj -derivedDataPath $(DD) CODE_SIGNING_ALLOWED=NO -jobs $(SWIFT_JOBS) $(XCB_CAP)
 # Machine budget (reset row 7b): every heavy Apple job runs through scripts/apple-slot (the Apple lock + the factory test slot on the mini,
 # bare in CI); `APPLE_SIM` also shuts every simulator down when the job ends. Test runners are capped: one worker, one destination, 2 build jobs.
 APPLE      := scripts/apple-slot
@@ -232,15 +236,15 @@ _check-apple:
 	$(XCB) -scheme IrisMac -destination 'platform=macOS' $(XCB_TEST) test
 
 .PHONY: snapshots
-snapshots: ## IrisUI snapshot tests on the pinned simulator (RECORD=1 make snapshots re-records the references)
-	@$(APPLE_SIM) sh -c 'cd $(APPLE_DIR)/Packages/IrisUI && TEST_RUNNER_RECORD=$(RECORD) xcodebuild test -scheme IrisUI -destination "$(SIM_DEST)" -derivedDataPath .dd.noindex $(XCB_TEST)'
+snapshots: ## IrisUI snapshot tests on the pinned simulator, in the app build's derived data so Textual compiles once (RECORD=1 re-records the references)
+	@$(APPLE_SIM) sh -c 'cd $(APPLE_DIR)/Packages/IrisUI && TEST_RUNNER_RECORD=$(RECORD) $(XCB_NICE) xcodebuild test -scheme IrisUI -destination "$(SIM_DEST)" -derivedDataPath $(DD) $(XCB_CAP) $(XCB_TEST)'
 
 .PHONY: uitest
-uitest: generate ## XCUITest flows on the pinned simulator (-IrisFakeCapture); ONLY=<Class>[/<test>] runs one (the full suite is CI's: refused locally)
+uitest: generate ## XCUITest flows on the pinned simulator (-IrisFakeCapture); ONLY="<Class>[/<test>] ..." runs those (UNIT=1 adds IrisTests); the full suite is CI's: refused locally
 	@if [ -z "$(ONLY)" ] && [ -z "$$CI" ] && [ -z "$$IRIS_FULL_UITEST" ]; then \
 		echo "  make uitest without ONLY=<Class>[/<test>] is CI's job (.github/workflows/apple.yml runs the full suite); locally run one class."; \
 		echo "  Explicit owner request only: IRIS_FULL_UITEST=1 make uitest"; exit 1; fi
-	@$(APPLE_SIM) $(XCB) -scheme Iris -destination '$(SIM_DEST)' $(XCB_TEST) $(if $(ONLY),-only-testing:IrisUITests/$(ONLY)) test
+	@$(APPLE_SIM) $(XCB) -scheme Iris -destination '$(SIM_DEST)' $(XCB_TEST) $(foreach c,$(ONLY),-only-testing:IrisUITests/$(c)) $(if $(and $(ONLY),$(UNIT)),-only-testing:IrisTests) test
 
 # --- Agent verification (TDD §9/§10, D17): boot the pinned simulator, run the app, look at it. Output lands in .artifacts/ (gitignored). ---
 # The pinned device's UDID, resolved lazily from SIM_NAME/SIM_OS; empty when that device does not exist.

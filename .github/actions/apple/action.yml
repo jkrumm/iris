@@ -1,0 +1,55 @@
+name: apple
+description: The hosted Apple runner's shared steps. `setup` prints the toolchain, installs xcodegen and restores the SPM/DerivedData cache; `save` stores it again (after a successful non-PR run).
+
+inputs:
+  step:
+    description: setup | save
+    required: true
+  name:
+    description: Cache name, one per job (the jobs build different things, so they must not share an entry)
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Toolchain
+      if: inputs.step == 'setup'
+      shell: bash
+      run: |
+        xcodebuild -version
+        swift --version
+        xcrun simctl list devices available
+        command -v xcodegen >/dev/null || brew install xcodegen
+    # SPM checkouts and DerivedData are keyed on what decides them: the Xcode build, project.yml and the package manifests (the Package.resolved
+    # files are untracked, so hashFiles skips them; the manifests pin every dependency exactly, or by range for Sparkle). A new commit restores
+    # the newest entry of the same name and saves its own, so project sources recompile incrementally and Textual, Sparkle and the rest do not.
+    - name: Cache key
+      if: inputs.step == 'setup'
+      shell: bash
+      run: |
+        xcode=$(xcodebuild -version | tr -s ' \n' '--' | sed 's/-$//')
+        echo "APPLE_CACHE_XCODE=apple-${{ inputs.name }}-${xcode}" >> "$GITHUB_ENV"
+        echo "APPLE_CACHE_PREFIX=apple-${{ inputs.name }}-${xcode}-${{ hashFiles('apple/project.yml', 'apple/Packages/*/Package.swift', 'apple/Packages/*/Package.resolved') }}" >> "$GITHUB_ENV"
+    - name: Restore cache
+      if: inputs.step == 'setup'
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: |
+          apple/.dd.noindex/SourcePackages
+          apple/.dd.noindex/Build
+          apple/.dd.noindex/ModuleCache.noindex
+          apple/Packages/*/.build
+        key: ${{ env.APPLE_CACHE_PREFIX }}-${{ github.sha }}
+        restore-keys: |
+          ${{ env.APPLE_CACHE_PREFIX }}-
+          ${{ env.APPLE_CACHE_XCODE }}-
+    - name: Save cache
+      if: inputs.step == 'save'
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: |
+          apple/.dd.noindex/SourcePackages
+          apple/.dd.noindex/Build
+          apple/.dd.noindex/ModuleCache.noindex
+          apple/Packages/*/.build
+        key: ${{ env.APPLE_CACHE_PREFIX }}-${{ github.sha }}
