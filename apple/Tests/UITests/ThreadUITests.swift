@@ -27,6 +27,14 @@ final class ThreadUITests: IrisUITestCase {
     }
   }
 
+  /// The answer that has not arrived: the pipeline's dashes, or the tool list once the first tool started (the fake starts one
+  /// 15 % into its step, which a slow runner can reach before the first query).
+  @MainActor
+  private func runningTurn(_ app: XCUIApplication) -> XCUIElement {
+    app.descendants(matching: .any)
+      .matching(NSPredicate(format: "identifier IN %@", ["thread.turn.pending", "thread.turn.activity"])).firstMatch
+  }
+
   /// Types `text` into the reply field of the conversation and sends it.
   @MainActor
   private func typeReply(_ text: String, in app: XCUIApplication) {
@@ -62,7 +70,7 @@ final class ThreadUITests: IrisUITestCase {
     // Reply by text from the bar: the sent text joins the thread with a pending answer, then the answer.
     typeReply("What about the narrow table?", in: app)
     XCTAssertTrue(waitForPresence(app.staticTexts["What about the narrow table?"], timeout: 10))
-    let pending = element(app, "thread.turn.pending")
+    let pending = runningTurn(app)
     XCTAssertTrue(waitForPresence(pending, timeout: 10))
 
     // The fake server answers the typed memo, and the answer replaces the pending turn.
@@ -87,7 +95,7 @@ final class ThreadUITests: IrisUITestCase {
 
     typeReply("And the Friday standup?", in: app)
     XCTAssertTrue(waitForPresence(thread.staticTexts["And the Friday standup?"], timeout: 10))
-    XCTAssertTrue(waitForPresence(element(app, "thread.turn.pending"), timeout: 10))
+    XCTAssertTrue(waitForPresence(runningTurn(app), timeout: 10))
     XCTAssertTrue(waitForPresence(thread, timeout: 2), "still the same screen")
     XCTAssertTrue(waitForAbsence(element(app, "memo.detail"), timeout: 1))
   }
