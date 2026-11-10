@@ -1,14 +1,17 @@
 import SwiftUI
 
-/// The bottom bar of a thread, one row of icons: a keyboard (reply by text), hold to talk (reply by voice), and a locked
-/// recording (mic with a lock) that keeps recording without a finger on the screen. Holding past the first touch starts a
-/// take; releasing sends it, sliding up before releasing cancels it. The locked recording starts with a tap and ends with
-/// the send button, or the cross to discard it. Both voice takes go through the same `onHoldBegan` / `onHoldEnded`.
-/// VoiceOver gets a plain toggle instead of a hold (the hint says so).
+/// The bottom bar of a conversation, one row. Idle: a text field for a typed reply, then hold to talk (reply by voice) and a
+/// locked recording (mic with a lock) that keeps recording without a finger on the screen; once the field holds text, a send
+/// button takes the place of both. Holding past the first touch starts a take, and the hold control grows to the full width
+/// (the field and the lock leave); releasing sends it, sliding up before releasing cancels it. The locked recording starts with
+/// a tap and ends with the send button, or the cross to discard it. Both voice takes go through the same `onHoldBegan` /
+/// `onHoldEnded`. VoiceOver gets a plain toggle instead of a hold (the hint says so).
 public struct ThreadReplyBar: View {
+  @Binding private var text: String
   private let holdStartedAt: Date?
   private let isVoiceAvailable: Bool
-  private let onType: () -> Void
+  private let isTextEnabled: Bool
+  private let onSend: () -> Void
   private let onHoldBegan: () -> Void
   private let onHoldEnded: (_ cancelled: Bool) -> Void
 
@@ -20,21 +23,30 @@ public struct ThreadReplyBar: View {
   private static let buttonSize: CGFloat = 56
 
   /// - Parameters:
+  ///   - text: The draft of a typed reply. The app owns it, the bar edits it.
   ///   - holdStartedAt: When the take in progress began; `nil` when idle. The app owns it, the bar only shows it.
   ///   - isVoiceAvailable: `false` while the app has no capture to talk to; the voice buttons are then disabled.
+  ///   - isTextEnabled: `false` while a typed reply cannot go out (the thread has not loaded); the field and send are disabled.
+  ///   - onSend: The send button, or return in the field. The app takes the draft from its model.
   public init(
-    holdStartedAt: Date?, isVoiceAvailable: Bool, onType: @escaping () -> Void, onHoldBegan: @escaping () -> Void,
+    text: Binding<String>, holdStartedAt: Date?, isVoiceAvailable: Bool, isTextEnabled: Bool = true,
+    onSend: @escaping () -> Void, onHoldBegan: @escaping () -> Void,
     onHoldEnded: @escaping (_ cancelled: Bool) -> Void
   ) {
+    _text = text
     self.holdStartedAt = holdStartedAt
     self.isVoiceAvailable = isVoiceAvailable
-    self.onType = onType
+    self.isTextEnabled = isTextEnabled
+    self.onSend = onSend
     self.onHoldBegan = onHoldBegan
     self.onHoldEnded = onHoldEnded
   }
 
   private var isRecording: Bool { holdStartedAt != nil }
   private var isLockedRecording: Bool { isRecording && lock.isLocked }
+  private var hasText: Bool { !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+  /// Text takes the mic and the lock's place; a take in progress wins, so the hold control never changes its place mid-gesture.
+  private var showsSend: Bool { hasText && !isRecording }
 
   public var body: some View {
     GlassEffectContainer(spacing: Theme.Spacing.barGap) {
@@ -42,9 +54,14 @@ public struct ThreadReplyBar: View {
         if isLockedRecording {
           lockedBar
         } else {
-          if !isRecording { keyboardButton }
-          holdPill
-          if !isRecording { lockButton }
+          if !isRecording { field }
+          if showsSend {
+            sendButton
+          } else {
+            // One view in idle and while recording (only its width changes), so the running DragGesture is never torn down.
+            holdPill
+            if !isRecording { lockButton }
+          }
         }
       }
     }
@@ -52,6 +69,7 @@ public struct ThreadReplyBar: View {
     .padding(.vertical, Theme.Spacing.sm)
     .hidesRecordAccessory()
     .animation(.snappy, value: isRecording)
+    .animation(.snappy, value: showsSend)
     // A take the app ended on its own (a cancel on disappear) never reaches the gesture's `onEnded`.
     .onChange(of: holdStartedAt) {
       lock.takeChanged(isRecording: holdStartedAt != nil)
@@ -63,17 +81,38 @@ public struct ThreadReplyBar: View {
 
   // MARK: Idle
 
-  private var keyboardButton: some View {
-    Button(action: onType) {
-      Image(systemName: "keyboard")
-        .font(.system(size: 20))
+  /// The typed reply: a glass capsule that grows to a rounded box with its lines.
+  private var field: some View {
+    TextField(text: $text, axis: .vertical) {
+      Text("Reply", bundle: #bundle, comment: "Placeholder of the reply field in a conversation")
+    }
+    .lineLimit(1...5)
+    .submitLabel(.send)
+    .onSubmit { if hasText { onSend() } }
+    .disabled(!isTextEnabled)
+    .themeFont(.callout)
+    .foregroundStyle(Theme.Ink.primary)
+    .padding(.horizontal, Theme.Spacing.inset)
+    .padding(.vertical, Theme.Spacing.snug)
+    .frame(maxWidth: .infinity, minHeight: Self.buttonSize, alignment: .leading)
+    .glassEffect(.regular, in: .rect(cornerRadius: Self.buttonSize / 2))
+    .accessibilityIdentifier("thread.reply.field")
+  }
+
+  private var sendButton: some View {
+    Button(action: onSend) {
+      Image(systemName: "arrow.up")
+        .font(.system(size: 20, weight: .bold))
         .frame(width: Self.buttonSize, height: Self.buttonSize)
     }
     .buttonStyle(.plain)
-    .glassEffect(.regular.interactive(), in: .circle)
-    .foregroundStyle(Theme.Ink.primary)
-    .accessibilityLabel(Text("Reply by text", bundle: #bundle, comment: "VoiceOver label of the keyboard button"))
-    .accessibilityIdentifier("thread.reply.text")
+    .glassEffect(.regular.tint(Theme.Accent.fill).interactive(), in: .circle)
+    .foregroundStyle(Theme.Accent.onFill)
+    .disabled(!isTextEnabled)
+    .accessibilityLabel(
+      Text("Send", bundle: #bundle, comment: "VoiceOver label of the button that sends a typed reply")
+    )
+    .accessibilityIdentifier("thread.reply.send")
   }
 
   private var lockButton: some View {
@@ -99,7 +138,8 @@ public struct ThreadReplyBar: View {
     .accessibilityIdentifier("thread.reply.lock")
   }
 
-  /// Hold to talk: the mic as an icon while idle; the timer and the release hint while the finger is down.
+  /// Hold to talk: the mic as an icon on a circle-sized capsule while idle; the full width with the timer and the release hint
+  /// while the finger is down.
   private var holdPill: some View {
     HStack(spacing: Theme.Spacing.cozy) {
       Image(systemName: isCancelling ? "xmark" : "mic.fill")
@@ -118,7 +158,7 @@ public struct ThreadReplyBar: View {
     }
     .themeFont(.callout, weight: .semibold)
     .foregroundStyle(isRecording ? Theme.Status.bad : Theme.Accent.tint)
-    .frame(maxWidth: .infinity, minHeight: Self.buttonSize)
+    .frame(maxWidth: isRecording ? .infinity : Self.buttonSize, minHeight: Self.buttonSize)
     .glassEffect(
       .regular.tint(isRecording ? Theme.Status.bad.opacity(0.2) : Theme.Accent.tint.opacity(0.18)).interactive(),
       in: .capsule

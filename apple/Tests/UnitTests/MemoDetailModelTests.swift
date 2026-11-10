@@ -117,19 +117,15 @@ struct MemoDetailModelTests {
     #expect(detail.failure == nil)
   }
 
-  @Test("play and reply need a finished memo with something to say")
+  @Test("play needs a finished memo with something to say")
   func replyActions() async {
     let spoken = MemoSummary(headline: "h", detail: "d", spoken: "s")
     let ready = await model(MemoFactory.memo("a", state: .notified, summary: spoken, replyText: "Alles notiert."))
     #expect(ready.canPlayReply)
-    #expect(ready.canReply)
     let running = await model(MemoFactory.memo("b", state: .acted, replyText: "x"))
     #expect(!running.canPlayReply)
     let silent = await model(MemoFactory.memo("c", state: .notified))
     #expect(!silent.canPlayReply)
-    #expect(silent.canReply)
-    let transcribed = await model(MemoFactory.memo("d", state: .notified, mode: .transcribe))
-    #expect(!transcribed.canReply)
   }
 
   // MARK: Optional summarize

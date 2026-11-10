@@ -408,9 +408,32 @@ public actor FakeAPIClient: APIClient {
   public func thread(id: String) async throws -> ThreadDetail {
     calls.append(.thread(id: id))
     return try await respond(.thread) {
-      guard let detail = threads[id] else { throw notFound("thread not found") }
+      guard let detail = threads[id] ?? storedThread(id: id) else { throw notFound("thread not found") }
       return detail
     }
+  }
+
+  /// A thread nobody seeded but stored memos name as theirs (every Hermes memo has its own session after `act`): built from
+  /// those memos, oldest first, the user message from the transcript and the assistant message from the reply. It is derived
+  /// on every read, so a continuation created through the fake is in it at once.
+  private func storedThread(id: String) -> ThreadDetail? {
+    let members = memos.values.map(\.memo)
+      .filter { $0.threadId == id && !$0.isDeleted }
+      .sorted { ($0.createdAt, $0.id) < ($1.createdAt, $1.id) }
+    guard let first = members.first, let last = members.last else { return nil }
+    var messages: [ThreadMessage] = []
+    for memo in members {
+      if let transcript = memo.transcript {
+        messages.append(ThreadMessage(memoId: memo.id, role: .user, content: transcript, createdAt: memo.createdAt))
+      }
+      if let replyText = memo.replyText {
+        messages.append(ThreadMessage(memoId: memo.id, role: .assistant, content: replyText, createdAt: memo.updatedAt))
+      }
+    }
+    let thread = MemoThread(
+      id: id, kind: "hermes", title: first.summary?.headline ?? first.transcript ?? "", createdAt: first.createdAt,
+      updatedAt: last.updatedAt, lastMemoId: last.id)
+    return ThreadDetail(thread: thread, memos: members, messages: messages)
   }
 
   public func result(id: String, query: MemoResultQuery) async throws -> MemoResult {
@@ -478,7 +501,7 @@ public actor FakeAPIClient: APIClient {
 
   /// A memo that names a thread must find it, as on the server.
   private func requireThread(_ threadId: String?) throws {
-    guard let threadId, threads[threadId] == nil else { return }
+    guard let threadId, threads[threadId] == nil, storedThread(id: threadId) == nil else { return }
     throw notFound("thread \(threadId) not found")
   }
 

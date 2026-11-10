@@ -256,9 +256,21 @@ final class CompositionRoot: CaptureIntentHandler, PlaybackIntentHandler {
     ComposerModel(request: request, outbox: outbox)
   }
 
-  /// The model behind one open conversation.
-  func threadModel(for route: ThreadRoute) -> ThreadModel {
-    ThreadModel(route: route, client: api, voice: voiceReply)
+  /// The model behind one open conversation, anchored at the memo History opened. A typed reply goes through the composer's
+  /// path (the outbox), so there is no second way to create a memo.
+  func threadModel(for memo: Memo) -> ThreadModel {
+    let outbox = outbox
+    return ThreadModel(
+      memo: memo, client: api, voice: voiceReply,
+      sendText: { text, threadID in
+        let composer = ComposerModel(request: .reply(toThread: threadID), outbox: outbox)
+        composer.text = text
+        switch await composer.send() {
+        case .sent(let memo): return .sent(memo)
+        case .queued: return .queued
+        case .refused, .stalled, nil: return .failed
+        }
+      })
   }
 
   /// Fakes: seeds the sample memos. Then, when there is a connection: loads the list and follows the server's events

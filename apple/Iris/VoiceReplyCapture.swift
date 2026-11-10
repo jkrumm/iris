@@ -3,42 +3,6 @@ import IrisCapture
 import IrisCore
 import os
 
-/// A voice reply being started: it continues `threadId`, and the memo is created in `mode`.
-struct VoiceReplyRequest: Equatable, Sendable {
-  let threadId: String
-  let mode: MemoMode
-}
-
-/// How a voice take ended.
-enum VoiceReplyOutcome: Equatable {
-  /// Cancelled, or nothing was said: nothing is sent.
-  case discarded
-  /// The server has the memo (the recording is still on its way up).
-  case sent(Memo)
-  /// Recorded and kept in the outbox; it goes out by itself.
-  case queued
-  /// The recorder failed before anything was kept: the take is lost, and the user is told so.
-  case recordingFailed
-}
-
-/// The capture port of the thread screen: one take bound to a thread. Production is ``OutboxVoiceReplyCapture`` (the real
-/// recorder through the outbox); `-IrisFakeCapture` runs the same stack on fake audio, and an unconfigured build has
-/// ``UnavailableVoiceReplyCapture``.
-protocol VoiceReplyCapture {
-  /// `false` while nothing can record; the hold-to-talk control is then disabled.
-  var isAvailable: Bool { get }
-  /// Starts a take for the request.
-  func begin(_ request: VoiceReplyRequest) async throws
-  /// Ends the take. Cancelled: nothing is sent and the outcome is `.discarded`.
-  func end(cancelled: Bool) async throws -> VoiceReplyOutcome
-}
-
-struct UnavailableVoiceReplyCapture: VoiceReplyCapture {
-  var isAvailable: Bool { false }
-  func begin(_ request: VoiceReplyRequest) async throws {}
-  func end(cancelled: Bool) async throws -> VoiceReplyOutcome { .discarded }
-}
-
 /// A take recorded through the capture session and handed to the outbox: the memo is created when the take starts, the
 /// segments go up while it runs, `complete` follows the stop. Under `-IrisFakeCapture` the same code runs on fake audio;
 /// `claim` runs first thing in `begin`, before any `await` (the app sets its capture flag and pauses playback there: the

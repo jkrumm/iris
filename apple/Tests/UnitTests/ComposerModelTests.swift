@@ -97,10 +97,9 @@ struct ComposerModelTests {
     #expect(await client.memos[firstID]?.memo.transcript == "Router bestellen")
   }
 
-  @Test("a reply continues the thread of the memo it answers")
+  @Test("a reply into a thread continues that thread")
   func replyContinuesTheThread() async throws {
-    let spoken = MemoFactory.memo("m", threadId: "thread-1")
-    let request = ComposerRequest.reply(to: spoken)
+    let request = ComposerRequest.reply(toThread: "thread-1")
     #expect(request.threadId == "thread-1")
 
     let thread = MemoThread(
@@ -113,12 +112,6 @@ struct ComposerModelTests {
       return
     }
     #expect(memo.threadId == "thread-1")
-  }
-
-  @Test("a memo outside a thread is answered with a fresh Hermes memo")
-  func replyWithoutAThread() {
-    let request = ComposerRequest.reply(to: MemoFactory.memo("m", mode: .hermes))
-    #expect(request.threadId == nil)
   }
 
   @Test("each send button sends its own mode; Hermes is the default")

@@ -107,10 +107,11 @@ struct MacMemoDetailModelTests {
     let chat = MacMemoDetailModel(
       memoID: SampleData.chatFollowUpID, client: api, pasteboard: RecordingPasteboard())
     await chat.load()
-    #expect(chat.memo?.opensThread == true)
+    #expect(chat.memo?.continuesThread == true)
     let thread = try #require(chat.thread)
     #expect(thread.messages.contains { $0.role == .user } && thread.messages.contains { $0.role == .assistant })
-    let plain = await model()
+    let plain = MacMemoDetailModel(
+      memoID: "e8b3d2f0-4a17-4c59-8d60-1b7f3a9e5c24", client: api, pasteboard: RecordingPasteboard())
     await plain.load()
     #expect(plain.thread == nil)
   }
@@ -123,7 +124,7 @@ struct MacMemoDetailModelTests {
     let chat = MacMemoDetailModel(
       memoID: SampleData.chatFollowUpID, client: api, pasteboard: RecordingPasteboard())
     await chat.load()
-    #expect(chat.memo?.opensThread == true && chat.thread == nil && chat.threadFailed)
+    #expect(chat.memo?.continuesThread == true && chat.thread == nil && chat.threadFailed)
     await chat.load()
     #expect(chat.thread != nil && !chat.threadFailed)
   }
@@ -143,22 +144,30 @@ struct MacMemoDetailModelTests {
 
   @Test("a memo alone in its session whose thread cannot be read still shows its own turns")
   func ownSessionWithoutThread() async {
-    let model = await model()
+    let api = FakeAPIClient()
+    await SampleData.seed(api)
+    await api.enqueueFailure(.transport(.notConnectedToInternet), for: .thread)
+    let memo = try? await api.memo(id: Self.finished).memo
+    let model = MacMemoDetailModel(
+      memoID: Self.finished, memo: memo, client: api, pasteboard: RecordingPasteboard())
     #expect(model.memo?.threadId == Self.finished && model.isChat)
     await model.load()
-    #expect(model.thread == nil && model.threadFailed && !model.isConversation)
+    #expect(model.thread == nil && model.threadFailed && !model.continuesThread)
     #expect(model.turns.map(\.id) == ["\(Self.finished).user", "\(Self.finished).reply"])
   }
 
-  @Test("a memo that failed before act and a transcript stay documents")
-  func documents() async {
+  @Test("every Hermes memo is a chat, also one that failed before act; a transcript stays a document")
+  func chatsAndDocuments() async {
     let api = FakeAPIClient()
     await SampleData.seed(api)
-    for id in ["9e2c4b70-1a58-4d36-8f07-5b3a6d1c8e24", "e8b3d2f0-4a17-4c59-8d60-1b7f3a9e5c24"] {
-      let model = MacMemoDetailModel(memoID: id, client: api, pasteboard: RecordingPasteboard())
-      await model.load()
-      #expect(model.memo != nil && !model.isChat, "\(id) is a document")
-    }
+    let failedAtAct = MacMemoDetailModel(
+      memoID: "9e2c4b70-1a58-4d36-8f07-5b3a6d1c8e24", client: api, pasteboard: RecordingPasteboard())
+    await failedAtAct.load()
+    #expect(failedAtAct.memo != nil && failedAtAct.isChat)
+    let transcript = MacMemoDetailModel(
+      memoID: "e8b3d2f0-4a17-4c59-8d60-1b7f3a9e5c24", client: api, pasteboard: RecordingPasteboard())
+    await transcript.load()
+    #expect(transcript.memo != nil && !transcript.isChat)
   }
 
   @Test("a running turn is a pending bubble; a reply sent from this Mac shows at once and keeps the chat")

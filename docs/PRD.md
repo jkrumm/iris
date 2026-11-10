@@ -165,7 +165,11 @@ the action was.
 ## Non-goals
 
 - No App Store release, no other users, no accounts.
-- No full chat client: Argo's Hermes chat stays the rich web surface.
+- ~~No full chat client~~ (reversed by the owner 2026-11-10): every Hermes memo
+  is a conversation on the phone and the Mac, with an inline reply bar (type,
+  hold to talk, locked recording) from the first turn. Argo's Hermes chat stays
+  the rich web surface for everything beyond a conversation with Iris (session
+  management, tools, settings).
 - No replacement for Collie: Iris sends into a tab but does not drive one.
 - No on-device-only transcription as the source of truth (live preview only,
   later).

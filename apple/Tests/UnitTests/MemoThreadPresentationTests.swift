@@ -1,5 +1,6 @@
 import Foundation
 import IrisCore
+import IrisUI
 import Testing
 
 @testable import Iris
@@ -14,33 +15,46 @@ struct MemoThreadPresentationTests {
   }
 
   @Test(
-    "a turn into another memo's session opens the thread; a memo in its own session, a transcript or a deleted one keeps the detail"
+    "a turn into another memo's session carries the thread marker; a memo in its own session, a transcript or a deleted one does not"
   )
-  func opensThread() {
-    #expect(memo("b", mode: .hermes, threadId: "a").opensThread)
-    #expect(!memo("a", mode: .hermes, threadId: "a").opensThread, "act gives every Hermes memo its own session id")
-    #expect(!memo("d", mode: .transcribe, threadId: nil).opensThread)
-    #expect(!memo("e", mode: .hermes, threadId: "e", deleted: true).opensThread)
-    #expect(!memo("f", mode: .hermes, threadId: "z", deleted: true).opensThread)
+  func continuesThread() {
+    #expect(memo("b", mode: .hermes, threadId: "a").continuesThread)
+    #expect(!memo("a", mode: .hermes, threadId: "a").continuesThread, "act gives every Hermes memo its own session id")
+    #expect(!memo("d", mode: .transcribe, threadId: nil).continuesThread)
+    #expect(!memo("e", mode: .hermes, threadId: "e", deleted: true).continuesThread)
+    #expect(!memo("f", mode: .hermes, threadId: "z", deleted: true).continuesThread)
   }
 
   @Test(
-    "the sample data is shaped like the server's: own-session memos carry their id, only the follow-ups open a thread")
+    "the sample data is shaped like the server's: own-session memos carry their id, only the follow-ups carry the thread marker"
+  )
   func sampleThreadIDs() {
     let details = SampleData.details(now: MemoFactory.now)
-    let opening = details.map(\.memo).filter(\.opensThread).map(\.id).sorted()
+    let opening = details.map(\.memo).filter(\.continuesThread).map(\.id).sorted()
     #expect(opening == [SampleData.chatFollowUpID, SampleData.hermesFollowUpID].sorted())
     let own = details.map(\.memo).filter { $0.threadId == $0.id }
     #expect(own.count >= 4, "acted Hermes memos are in their own session")
-    #expect(own.allSatisfy { !$0.opensThread && $0.destinationRef != nil })
+    #expect(own.allSatisfy { !$0.continuesThread && $0.destinationRef != nil })
   }
 
-  @Test("the route carries the thread id and the memo's headline as the title until the thread loads")
-  func route() {
-    var thread = memo("b", mode: .hermes, threadId: "a")
-    thread.summary = MemoSummary(headline: "Headline", detail: "d", spoken: "s")
-    #expect(thread.threadRoute == ThreadRoute(id: "a", title: "Headline"))
-    #expect(memo("x", mode: .hermes, threadId: nil).threadRoute == nil)
+  @Test("a conversation entry becomes the turn the screens draw, with the memo's progress, caption and error")
+  func turnMapping() {
+    var failed = memo("f", mode: .hermes, threadId: nil)
+    failed.state = .failed
+    failed.error = nil
+    let entry = ConversationEntry(id: "f.failed", memo: failed, date: nil, kind: .failed(nil))
+    #expect(ConversationTurn(entry).content == .failed(String(localized: "This turn failed.")))
+    #expect(ConversationTurn(entry).memoID == "f")
+
+    var running = memo("r", mode: .hermes, threadId: nil)
+    running.state = .routed
+    let pending = ConversationTurn(ConversationEntry(id: "r.pending", memo: running, date: nil, kind: .pending))
+    #expect(pending.content == .pending(running.stepProgress, caption: running.pendingCaption))
+    #expect(pending.id == "r.pending")
+
+    let answer = ConversationTurn(
+      ConversationEntry(id: "r.reply", memo: running, date: MemoFactory.now, kind: .reply("**Hi**")))
+    #expect(answer.content == .assistant("**Hi**", mermaid: [:]) && answer.date == MemoFactory.now)
   }
 
   @Test("the media source names a reply's image under the memo, authenticated and kept for good")

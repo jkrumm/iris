@@ -3,18 +3,11 @@ import IrisCore
 import IrisUI
 
 extension Memo {
-  /// A memo that continues a conversation opens it. `act` gives every Hermes memo its own session id as `threadId`, so a memo
-  /// in its own session (`threadId == id`: one answer, Retry, waterfall, kind chip and actions line) and one without a thread
-  /// (a transcript, one that failed before `act`) keep the plain detail; only a turn into another memo's session
-  /// (`threadId != id`) pushes the thread view, which is the server's `thread=true` (a conversation, two or more memos).
-  nonisolated var opensThread: Bool {
+  /// A memo that continues another memo's session (`threadId != id`): the History row's thread marker. `act` gives every Hermes
+  /// memo its own session id as `threadId`, so a memo in its own session, or without a thread, is not marked.
+  nonisolated var continuesThread: Bool {
     guard let threadId, !isDeleted else { return false }
     return threadId != id
-  }
-
-  /// The route History pushes for this memo, when it opens a thread.
-  var threadRoute: ThreadRoute? {
-    threadId.map { ThreadRoute(id: $0, title: summary?.headline ?? transcript) }
   }
 
   /// The memo's rendered Mermaid blocks keyed by fence index, as the PNGs of both appearances.
@@ -36,5 +29,20 @@ extension Memo {
     case .transcribed, .routed: String(localized: "Asking Hermes…", comment: "Pending answer in a thread")
     default: String(localized: "Working…", comment: "Pending answer in a thread")
     }
+  }
+}
+
+extension ConversationTurn {
+  /// The turn of a conversation entry: the answer carries its memo's Mermaid renders, a pending one the pipeline's progress.
+  init(_ entry: ConversationEntry) {
+    let content: Content =
+      switch entry.kind {
+      case .user(let text): .user(text)
+      case .reply(let markdown): .assistant(markdown, mermaid: entry.memo.mermaidAssets)
+      case .pending: .pending(entry.memo.stepProgress, caption: entry.memo.pendingCaption)
+      case .failed(let error):
+        .failed(error ?? String(localized: "This turn failed.", comment: "Failed turn in a thread"))
+      }
+    self.init(id: entry.id, memoID: entry.memo.id, date: entry.date, content: content)
   }
 }

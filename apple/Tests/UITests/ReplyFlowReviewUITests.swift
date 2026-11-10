@@ -67,16 +67,17 @@ final class ReplyFlowReviewUITests: IrisUITestCase {
   private func textReply(appearance: XCUIDevice.Appearance, name: String) {
     let app = openThread(appearance: appearance, name: name)
 
-    // The composer is bound to the thread (no mode chips).
-    app.buttons["thread.reply.text"].tap()
-    let field = app.textViews["composer.field"]
+    // The reply bar's field is bound to the thread.
+    let field = app.descendants(matching: .any)["thread.reply.field"]
     XCTAssertTrue(waitForPresence(field, timeout: 5))
     field.tap()
     field.typeText("What about the narrow table?")
+    let send = app.buttons["thread.reply.send"]
+    XCTAssertTrue(waitForPresence(send, timeout: 5))
     shot(name, "2-text-composer")
 
     // Sent: the typed turn joins the thread with a pending answer, then the answer replaces it.
-    app.buttons["composer.send"].tap()
+    send.tap()
     XCTAssertTrue(waitForPresence(app.staticTexts["What about the narrow table?"], timeout: 10))
     let pending = app.descendants(matching: .any)["thread.turn.pending"]
     let answer = app.descendants(matching: .any)

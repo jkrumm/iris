@@ -13,11 +13,6 @@ struct ComposerRequest: Identifiable, Equatable {
     ComposerRequest(threadId: id)
   }
 
-  /// A reply to `memo`: its thread when it has one, else a fresh Hermes memo (a memo outside a thread has nothing to
-  /// continue).
-  static func reply(to memo: Memo) -> ComposerRequest {
-    ComposerRequest(threadId: memo.threadId)
-  }
 }
 
 /// The typed-memo composer: text and two send targets (Hermes, Transcribe). The send hands the text to the outbox, which creates the memo by id

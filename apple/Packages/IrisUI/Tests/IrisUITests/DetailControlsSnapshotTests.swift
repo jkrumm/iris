@@ -55,24 +55,41 @@
       SnapshotSupport.assertLightAndDark(view, width: 390, height: 130)
     }
 
-    private func actions(canReply: Bool, retry: Bool) -> some View {
+    private func actions(retry: Bool) -> some View {
       DetailActionBar(
-        canReply: canReply,
         retryOptions: retry
           ? [DetailRetryOption(id: "act", title: "Act"), DetailRetryOption(id: "summarize", title: "Summarize")] : [],
-        primaryRetryID: retry ? "summarize" : nil, onReply: {}, onRetry: { _ in }
+        primaryRetryID: retry ? "summarize" : nil, onRetry: { _ in }
       )
       .padding(Theme.Spacing.lg)
     }
 
-    @Test("the bottom actions on a finished memo: no retry button, reply only", .tags(.snapshot))
+    @Test("the bottom actions on a finished memo: no retry button", .tags(.snapshot))
     func actionsDone() {
-      SnapshotSupport.assertLightAndDark(actions(canReply: true, retry: false), width: 390, height: 96)
+      SnapshotSupport.assertLightAndDark(actions(retry: false), width: 390, height: 96)
     }
 
     @Test("the bottom actions on a failed memo: retry is live", .tags(.snapshot))
     func actionsFailed() {
-      SnapshotSupport.assertLightAndDark(actions(canReply: false, retry: true), width: 390, height: 96)
+      SnapshotSupport.assertLightAndDark(actions(retry: true), width: 390, height: 96)
+    }
+
+    private func replyBar(text: String) -> some View {
+      ThreadReplyBar(
+        text: .constant(text), holdStartedAt: nil, isVoiceAvailable: true, onSend: {}, onHoldBegan: {},
+        onHoldEnded: { _ in }
+      )
+      .environment(\.locale, Locale(identifier: "en"))
+    }
+
+    @Test("the reply bar with nothing typed: the field, hold to talk and the lock", .tags(.snapshot))
+    func replyBarEmpty() {
+      SnapshotSupport.assertLightAndDark(replyBar(text: ""), width: 390, height: 80)
+    }
+
+    @Test("the reply bar with a typed reply: the field and the send button", .tags(.snapshot))
+    func replyBarWithText() {
+      SnapshotSupport.assertLightAndDark(replyBar(text: "And a hang guard?"), width: 390, height: 80)
     }
 
     @Test("the step-progress dashes: none, some and all steps done", .tags(.snapshot))

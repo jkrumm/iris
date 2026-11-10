@@ -217,6 +217,23 @@
         }
       }
     },
+    "Details" : {
+      "comment" : "Button under a conversation's memo that opens its details",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Details"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Details"
+          }
+        }
+      }
+    },
     "Diagram" : {
       "comment" : "VoiceOver label of a rendered Mermaid diagram",
       "localizations" : {
@@ -648,7 +665,7 @@
       }
     },
     "Reply" : {
-      "comment" : "VoiceOver label of the button that answers the memo",
+      "comment" : "Placeholder of the reply field in a conversation",
       "localizations" : {
         "de" : {
           "stringUnit" : {
@@ -660,23 +677,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Reply"
-          }
-        }
-      }
-    },
-    "Reply by text" : {
-      "comment" : "VoiceOver label of the keyboard button",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Per Text antworten"
-          }
-        },
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Reply by text"
           }
         }
       }
@@ -728,6 +728,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Running"
+          }
+        }
+      }
+    },
+    "Send" : {
+      "comment" : "VoiceOver label of the button that sends a typed reply",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Senden"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Send"
           }
         }
       }

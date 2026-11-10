@@ -12,18 +12,19 @@ struct ThreadModelTests {
   let client = FakeAPIClient(now: { MemoFactory.now })
   let threadID = "t"
 
+  /// A memo of the thread `t`, or (`inThread: false`) one before `act`, which has no thread id yet.
   private func memo(
-    _ id: String, age: TimeInterval, state: MemoState = .notified, mode: MemoMode = .hermes, reply: String? = nil,
-    blocks: [ReplyBlock] = [], error: String? = nil
+    _ id: String, age: TimeInterval, state: MemoState = .notified, reply: String? = nil, blocks: [ReplyBlock] = [],
+    error: String? = nil, inThread: Bool = true
   ) -> Memo {
     let created = MemoFactory.now.addingTimeInterval(-age)
     return Memo(
-      id: id, mode: mode, device: "iphone", startedAt: created, state: state, error: error,
-      transcript: "question \(id)", replyText: reply, replyBlocks: blocks, threadId: threadID,
+      id: id, mode: .hermes, device: "iphone", startedAt: created, state: state, error: error,
+      transcript: "question \(id)", replyText: reply, replyBlocks: blocks, threadId: inThread ? threadID : nil,
       isTyped: true, createdAt: created, updatedAt: created.addingTimeInterval(5))
   }
 
-  private func detail(_ memos: [Memo], kind: String = "hermes") -> ThreadDetail {
+  private func detail(_ memos: [Memo]) -> ThreadDetail {
     var messages: [ThreadMessage] = []
     for memo in memos {
       messages.append(
@@ -34,38 +35,81 @@ struct ThreadModelTests {
     }
     return ThreadDetail(
       thread: MemoThread(
-        id: threadID, kind: kind, title: "Title", createdAt: memos[0].createdAt, updatedAt: memos.last!.updatedAt,
+        id: threadID, kind: "hermes", title: "Title", createdAt: memos[0].createdAt, updatedAt: memos.last!.updatedAt,
         lastMemoId: memos.last?.id),
       memos: memos, messages: messages)
   }
 
+  /// What the typed path was asked to send, and how it answers.
+  final class Sends {
+    var sent: [String] = []
+    var result: TypedReplyResult = .queued
+
+    func send(_ text: String, _ threadID: String) async -> TypedReplyResult {
+      sent.append("\(threadID):\(text)")
+      return result
+    }
+  }
+
   private func model(
-    voice: any VoiceReplyCapture = UnavailableVoiceReplyCapture(), now: @escaping () -> Date = { MemoFactory.now },
+    anchor: Memo, sends: Sends = Sends(), voice: any VoiceReplyCapture = UnavailableVoiceReplyCapture(),
+    now: @escaping () -> Date = { MemoFactory.now },
     sleep: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
   ) -> ThreadModel {
     ThreadModel(
-      route: ThreadRoute(id: threadID, title: "Row title"), client: client, voice: voice, now: now, sleep: sleep)
+      memo: anchor, client: client, voice: voice, sendText: { await sends.send($0, $1) }, now: now, sleep: sleep)
+  }
+
+  /// A thread whose first memo `a` the screen is opened on.
+  private func openedOn(_ memos: [Memo], sends: Sends = Sends()) async -> ThreadModel {
+    await client.seed(detail(memos))
+    return model(anchor: memos[0], sends: sends)
   }
 
   // MARK: Turns
 
-  @Test("an answered memo is a question and an answer; the title falls back to the row's until the thread loads")
+  @Test("the anchor's own turns are on screen before the thread loads, and the loaded thread takes over in place")
   func answeredTurns() async {
-    await client.seed(detail([memo("a", age: 100, reply: "**Hi**")]))
-    let thread = model()
-    #expect(thread.title == "Row title" && thread.turns.isEmpty)
+    let first = memo("a", age: 100, reply: "**Hi**")
+    let thread = await openedOn([first])
+    #expect(thread.title == first.rowHeadline)
+    #expect(thread.turns.map(\.id) == ["a.user", "a.reply"])
+    #expect(thread.turns[1].content == .assistant("**Hi**", mermaid: [:]))
 
     await thread.load()
     #expect(thread.title == "Title")
     #expect(thread.turns.map(\.id) == ["a.user", "a.reply"])
-    #expect(thread.turns[0].content == .user("question a"))
-    #expect(thread.turns[1].content == .assistant("**Hi**", mermaid: [:]))
+    #expect(thread.turns.allSatisfy { $0.memoID == "a" })
+  }
+
+  @Test(
+    "a memo with a thread id loads its thread; one without refreshes the memo first and loads the thread once it has one"
+  )
+  func loadsTheThread() async {
+    let first = memo("a", age: 100, reply: "x")
+    let thread = await openedOn([first])
+    await thread.load()
+    #expect(await client.calls.contains(.thread(id: threadID)))
+    #expect(await !client.calls.contains(.memo(id: "a")))
+
+    let preAct = memo("p", age: 10, state: .transcribed, inThread: false)
+    await client.seed(MemoDetail(memo: preAct, steps: []))
+    let waiting = model(anchor: preAct)
+    await waiting.load()
+    #expect(await client.calls.contains(.memo(id: "p")))
+    #expect(waiting.threadID == nil && waiting.detail == nil)
+    #expect(waiting.turns.map(\.id) == ["p.user", "p.pending"])
+
+    await client.seed(MemoDetail(memo: memo("p", age: 10, state: .notified, reply: "done"), steps: []))
+    await client.seed(detail([memo("p", age: 10, state: .notified, reply: "done")]))
+    await waiting.load()
+    #expect(waiting.threadID == threadID && waiting.detail != nil)
+    #expect(waiting.turns.map(\.id) == ["p.user", "p.reply"])
   }
 
   @Test("a memo still in the pipeline is a question with a pending answer that carries its progress")
   func pendingTurn() async {
-    await client.seed(detail([memo("a", age: 100, reply: "done"), memo("b", age: 10, state: .routed, mode: .hermes)]))
-    let thread = model()
+    let thread = await openedOn([memo("a", age: 100, reply: "done"), memo("b", age: 10, state: .routed)])
     await thread.load()
 
     #expect(thread.turns.map(\.id) == ["a.user", "a.reply", "b.user", "b.pending"])
@@ -77,10 +121,9 @@ struct ThreadModelTests {
     #expect(!caption.isEmpty)
   }
 
-  @Test("when the reply lands the pending turn becomes the answer, and the thread's last turn stays the same memo")
+  @Test("when the reply lands the pending turn becomes the answer")
   func reveal() async {
-    await client.seed(detail([memo("a", age: 10, state: .routed)]))
-    let thread = model()
+    let thread = await openedOn([memo("a", age: 10, state: .routed)])
     await thread.load()
     #expect(thread.turns.map(\.id) == ["a.user", "a.pending"])
 
@@ -92,8 +135,7 @@ struct ThreadModelTests {
 
   @Test("a failed memo is a failed turn with the server's words")
   func failedTurn() async {
-    await client.seed(detail([memo("a", age: 10, state: .failed, error: "act failed: 503")]))
-    let thread = model()
+    let thread = await openedOn([memo("a", age: 10, state: .failed, error: "act failed: 503")])
     await thread.load()
     #expect(thread.turns.last?.content == .failed("act failed: 503"))
   }
@@ -103,8 +145,7 @@ struct ThreadModelTests {
     let block = ReplyBlock(
       index: 1, width: 320, height: 140, svg: SchemeAssets(light: "s-l", dark: "s-d"),
       png: SchemeAssets(light: "p-l", dark: "p-d"))
-    await client.seed(detail([memo("a", age: 10, reply: "x", blocks: [block])]))
-    let thread = model()
+    let thread = await openedOn([memo("a", age: 10, reply: "x", blocks: [block])])
     await thread.load()
 
     let expected = MermaidAsset(
@@ -115,34 +156,28 @@ struct ThreadModelTests {
 
   // MARK: Loading
 
-  @Test("replies wait for the first load")
-  func canReply() async {
-    await client.seed(detail([memo("a", age: 1)]))
-    let thread = model()
-    #expect(!thread.canReply)
-    await thread.load()
-    #expect(thread.canReply)
-  }
-
-  @Test("a failed load keeps the thread on screen and only flags an empty screen")
+  @Test("a failed thread load keeps the anchor's turns; only an empty screen is flagged")
   func failedLoad() async {
-    await client.seed(detail([memo("a", age: 10, reply: "x")]))
-    let thread = model()
+    let first = memo("a", age: 10, reply: "x")
+    let thread = await openedOn([first])
     await client.enqueueFailure(.unexpectedStatus(500), for: .thread)
     await thread.load()
-    #expect(thread.loadFailed && thread.detail == nil)
+    #expect(!thread.loadFailed && thread.detail == nil && thread.turns.count == 2)
 
-    await thread.load()
-    #expect(!thread.loadFailed && thread.detail != nil)
+    var silent = memo("s", age: 10, state: .notified)
+    silent.transcript = nil
+    let empty = model(anchor: silent)
     await client.enqueueFailure(.unexpectedStatus(500), for: .thread)
-    await thread.load()
-    #expect(!thread.loadFailed && thread.turns.count == 2)
+    await empty.load()
+    #expect(empty.loadFailed && empty.turns.isEmpty)
+    await client.seed(detail([silent]))
+    await empty.load()
+    #expect(!empty.loadFailed && empty.detail != nil)
   }
 
   @Test("a memo sent from this screen shows at once as a question with its pending answer, once")
   func didSend() async {
-    await client.seed(detail([memo("a", age: 100, reply: "x")]))
-    let thread = model()
+    let thread = await openedOn([memo("a", age: 100, reply: "x")])
     await thread.load()
     let sent = memo("b", age: 1, state: .transcribed)
     thread.didSend(sent)
@@ -151,16 +186,9 @@ struct ThreadModelTests {
     #expect(thread.memoIDs == ["a", "b"])
   }
 
-  @Test("a reply into a thread carries the thread id")
-  func replyContinuesTheThread() {
-    let reply = ComposerRequest.reply(toThread: "t")
-    #expect(reply.threadId == "t")
-  }
-
   @Test("a fetch that was in flight when a memo was sent does not drop that memo when it lands")
   func staleLoad() async {
-    await client.seed(detail([memo("a", age: 100, reply: "x")]))
-    let thread = model()
+    let thread = await openedOn([memo("a", age: 100, reply: "x")])
     await thread.load()
 
     let gate = await client.hold(.thread)
@@ -173,6 +201,123 @@ struct ThreadModelTests {
     #expect(thread.memoIDs == ["a", "b"])
   }
 
+  // MARK: Typed reply
+
+  @Test(
+    "who can type: a conversation with a thread, or a first memo still on its way; not a deleted or an ended one without a thread"
+  )
+  func canType() {
+    #expect(model(anchor: memo("a", age: 10)).canType)
+    #expect(model(anchor: memo("b", age: 10, state: .received, inThread: false)).canType)
+    #expect(!model(anchor: memo("c", age: 10, state: .failed, error: "x", inThread: false)).canType)
+    var gone = memo("d", age: 10)
+    gone.deletedAt = MemoFactory.now
+    #expect(!model(anchor: gone).canType)
+  }
+
+  @Test("a typed reply goes into the thread and appears in place with its pending answer; History is told")
+  func typedSendInPlace() async {
+    let sends = Sends()
+    let thread = await openedOn([memo("a", age: 100, reply: "x")], sends: sends)
+    await thread.load()
+    var told: [String] = []
+    thread.onSent = { told.append($0.id) }
+    sends.result = .sent(memo("b", age: 1, state: .transcribed))
+
+    thread.replyBar.draft = "  and then?  "
+    await thread.sendDraft()
+
+    #expect(sends.sent == ["t:and then?"])
+    #expect(thread.replyBar.draft.isEmpty)
+    #expect(thread.turns.map(\.id) == ["a.user", "a.reply", "b.user", "b.pending"])
+    #expect(told == ["b"])
+  }
+
+  @Test("a queued reply says so; a reply that could not go out comes back into the field with a toast")
+  func queuedAndFailed() async {
+    let sends = Sends()
+    let thread = await openedOn([memo("a", age: 100, reply: "x")], sends: sends)
+    await thread.load()
+
+    sends.result = .queued
+    thread.replyBar.draft = "one"
+    await thread.sendDraft()
+    #expect(thread.failure != nil && thread.replyBar.draft.isEmpty)
+    thread.dismissFailure()
+
+    sends.result = .failed
+    thread.replyBar.draft = "two"
+    await thread.sendDraft()
+    #expect(thread.replyBar.draft == "two" && thread.failure != nil)
+  }
+
+  @Test("a blank draft sends nothing")
+  func blankDraft() async {
+    let sends = Sends()
+    let thread = await openedOn([memo("a", age: 100, reply: "x")], sends: sends)
+    thread.replyBar.draft = "   "
+    await thread.sendDraft()
+    #expect(sends.sent.isEmpty)
+  }
+
+  // MARK: Held reply
+
+  private func preAct(_ state: MemoState = .transcribed, error: String? = nil) async -> Memo {
+    let anchor = memo("p", age: 10, state: state, error: error, inThread: false)
+    await client.seed(MemoDetail(memo: anchor, steps: []))
+    return anchor
+  }
+
+  @Test("before act a reply is held on the device, shown as a turn that waits, and sent once the memo has a thread")
+  func heldThenSent() async {
+    let sends = Sends()
+    let anchor = await preAct()
+    let thread = model(anchor: anchor, sends: sends)
+    await thread.load()
+
+    thread.replyBar.draft = "hello"
+    await thread.sendDraft()
+    #expect(sends.sent.isEmpty && thread.replyBar.draft.isEmpty)
+    #expect(thread.turns.suffix(2).map(\.id) == ["held.user", "held.pending"])
+    #expect(thread.turns.suffix(2).allSatisfy { $0.memoID == nil })
+    #expect(thread.turns.suffix(2).first?.content == .user("hello"))
+
+    // A second reply while one is held joins it.
+    thread.replyBar.draft = "again"
+    await thread.sendDraft()
+    #expect(thread.turns.filter { $0.id == "held.user" }.map(\.content) == [.user("hello\nagain")])
+
+    let acted = memo("p", age: 10, state: .notified, reply: "done")
+    await client.seed(MemoDetail(memo: acted, steps: []))
+    await client.seed(detail([acted]))
+    sends.result = .sent(memo("q", age: 1, state: .transcribed))
+    await thread.load()
+
+    #expect(sends.sent == ["t:hello\nagain"])
+    #expect(thread.turns.map(\.id) == ["p.user", "p.reply", "q.user", "q.pending"])
+    #expect(thread.failure == nil)
+  }
+
+  @Test("a first memo that ends without a thread gives the held reply back with a toast")
+  func heldRestored() async {
+    let sends = Sends()
+    let anchor = await preAct()
+    let thread = model(anchor: anchor, sends: sends)
+    thread.replyBar.draft = "hello"
+    await thread.sendDraft()
+    #expect(thread.turns.contains { $0.id == "held.user" })
+
+    await client.seed(
+      MemoDetail(memo: memo("p", age: 10, state: .failed, error: "act failed", inThread: false), steps: []))
+    await thread.load()
+
+    #expect(sends.sent.isEmpty)
+    #expect(thread.replyBar.draft == "hello")
+    #expect(!thread.turns.contains { $0.id.hasPrefix("held.") })
+    #expect(thread.failure != nil)
+    #expect(!thread.canType)
+  }
+
   // MARK: Voice
 
   /// The real voice capture over the fake stack: a take is a fake recorder, the outbox and the fake API.
@@ -180,99 +325,71 @@ struct ThreadModelTests {
     OutboxRig(client: client).voice(seconds: seconds)
   }
 
-  @Test("a voice reply is a capture request bound to the thread, and the take becomes a memo that continues it")
-  func voiceReply() async throws {
-    await client.seed(detail([memo("a", age: 100, reply: "x")]))
-    let voice = fakeVoice()
-    let clock = Clock(MemoFactory.now)
-    let thread = model(voice: voice, now: { clock.now })
-    await thread.load()
-
-    thread.beginVoice()
-    #expect(thread.voiceStartedAt == MemoFactory.now)
-    clock.now = MemoFactory.now.addingTimeInterval(3)
-    let sent = try #require(await thread.endVoice(cancelled: false))
-
-    #expect(voice.requests == [VoiceReplyRequest(threadId: threadID, mode: .hermes)])
-    #expect(sent.state == .receiving, "the memo is created; its recording is on the way up")
-    #expect(sent.threadId == threadID && sent.mode == .hermes)
-    #expect(thread.voiceStartedAt == nil)
-    #expect(thread.memoIDs.last == sent.id)
-  }
-
-  @Test("a new hold waits while the last take is still being stopped and sent")
-  func holdDuringSend() async {
-    await client.seed(detail([memo("a", age: 100, reply: "x")]))
-    let voice = GatedVoice()
-    let clock = Clock(MemoFactory.now)
-    let thread = model(voice: voice, now: { clock.now })
-    await thread.load()
-
-    thread.beginVoice()
-    clock.now = MemoFactory.now.addingTimeInterval(3)
-    let ending = Task { await thread.endVoice(cancelled: false) }
-    await voice.waitUntilEnding()
+  @Test("voice waits for a thread id: the control is off and a hold does nothing before act")
+  func voiceNeedsAThread() async {
+    let anchor = await preAct()
+    let thread = model(anchor: anchor, voice: fakeVoice())
     #expect(!thread.canRecordVoice)
     thread.beginVoice()
-    #expect(thread.voiceStartedAt == nil)
-    #expect(voice.begins == 1)
+    #expect(thread.replyBar.voiceStartedAt == nil)
 
-    voice.finish()
-    _ = await ending.value
-    #expect(thread.canRecordVoice)
-    thread.beginVoice()
-    #expect(thread.voiceStartedAt != nil)
+    let withThread = model(anchor: memo("a", age: 10, reply: "x"), voice: fakeVoice())
+    #expect(withThread.canRecordVoice)
   }
 
-  @Test("a release and a cancel arriving together end the take once")
-  func endTwice() async {
-    await client.seed(detail([memo("a", age: 100, reply: "x")]))
-    let voice = GatedVoice()
+  @Test("without capture the control is unavailable")
+  func voiceUnavailable() {
+    let thread = model(anchor: memo("a", age: 10, reply: "x"))
+    #expect(!thread.canRecordVoice)
+  }
+
+  @Test("a voice reply from the first turn is bound to the thread; the take becomes a memo that joins it and History")
+  func voiceReply() async throws {
+    let first = memo("a", age: 100, reply: "x")
+    await client.seed(detail([first]))
+    let voice = fakeVoice()
     let clock = Clock(MemoFactory.now)
-    let thread = model(voice: voice, now: { clock.now })
+    let thread = model(anchor: first, voice: voice, now: { clock.now })
+    var told: [String] = []
+    thread.onSent = { told.append($0.id) }
     await thread.load()
 
     thread.beginVoice()
+    #expect(thread.replyBar.voiceStartedAt == MemoFactory.now)
     clock.now = MemoFactory.now.addingTimeInterval(3)
-    let release = Task { await thread.endVoice(cancelled: false) }
-    await voice.waitUntilEnding()
-    #expect(await thread.endVoice(cancelled: true) == nil)
-    voice.finish()
-    _ = await release.value
-    #expect(voice.ends == 1)
-  }
+    await thread.endVoice(cancelled: false)
 
-  @Test("a take the recorder lost is told to the user, not dropped quietly")
-  func lostRecordingShowsAToast() async {
-    await client.seed(detail([memo("a", age: 100, reply: "x")]))
-    let clock = Clock(MemoFactory.now)
-    let thread = model(voice: LostVoice(), now: { clock.now })
-    await thread.load()
-
-    thread.beginVoice()
-    clock.now = MemoFactory.now.addingTimeInterval(3)
-    #expect(await thread.endVoice(cancelled: false) == nil)
-    #expect(thread.failure != nil)
+    #expect(voice.requests == [VoiceReplyRequest(threadId: threadID, mode: .hermes)])
+    let sent = try #require(thread.detail?.memos.last)
+    #expect(sent.id != "a" && sent.threadId == threadID && sent.mode == .hermes)
+    #expect(told == [sent.id])
+    #expect(thread.replyBar.voiceStartedAt == nil)
+    #expect(thread.turns.last?.memoID == sent.id)
   }
 
   // MARK: Toast
 
-  /// Makes a failure toast with the same words every time: a touch shorter than the minimum take.
-  private func tooShortTake(_ thread: ThreadModel) async {
-    thread.beginVoice()
-    _ = await thread.endVoice(cancelled: false)
+  @Test("every notice of the reply bar becomes a toast in its own words")
+  func noticesBecomeToasts() {
+    let thread = model(anchor: memo("a", age: 10, reply: "x"))
+    let notices: [ReplyBarModel.Notice] = [.couldNotStartRecording, .tooShort, .recordingFailed, .voiceFailed, .queued]
+    var messages: [String] = []
+    for notice in notices {
+      thread.replyBar.onNotice(notice)
+      messages.append(thread.failure?.message ?? "")
+    }
+    #expect(messages.allSatisfy { !$0.isEmpty })
+    #expect(Set(messages).count == notices.count)
   }
 
   @Test("a newer toast is not hidden by the timer of the toast it replaced, even with the same words")
   func newerToastKeepsItsOwnTimer() async {
-    await client.seed(detail([memo("a", age: 100, reply: "x")]))
     let timers = ToastTimers()
-    let thread = model(voice: fakeVoice(), sleep: { try await timers.sleep($0) })
-    await thread.load()
+    let thread = model(anchor: memo("a", age: 10, reply: "x"), sleep: { try await timers.sleep($0) })
 
-    await tooShortTake(thread)
+    thread.replyBar.onNotice(.tooShort)
     let first = thread.failure
-    await tooShortTake(thread)
+    thread.replyBar.onNotice(.tooShort)
     let second = thread.failure
     #expect(first != nil && second != nil && first?.message == second?.message && first?.id != second?.id)
     await timers.waitForSleeps(2)
@@ -287,17 +404,15 @@ struct ThreadModelTests {
 
   @Test("dismissing a toast cancels its timer, so it cannot hide the next one")
   func dismissCancelsTheTimer() async {
-    await client.seed(detail([memo("a", age: 100, reply: "x")]))
     let timers = ToastTimers()
-    let thread = model(voice: fakeVoice(), sleep: { try await timers.sleep($0) })
-    await thread.load()
+    let thread = model(anchor: memo("a", age: 10, reply: "x"), sleep: { try await timers.sleep($0) })
 
-    await tooShortTake(thread)
+    thread.replyBar.onNotice(.tooShort)
     await timers.waitForSleeps(1)
     thread.dismissFailure()
     #expect(thread.failure == nil)
 
-    await tooShortTake(thread)
+    thread.replyBar.onNotice(.tooShort)
     let next = thread.failure
     await timers.waitForSleeps(2)
     timers.fire(0)
@@ -307,95 +422,6 @@ struct ThreadModelTests {
     timers.fire(1)
     #expect(await timers.until { thread.failure == nil })
   }
-
-  @Test("a cancelled take sends nothing")
-  func cancelledVoice() async {
-    await client.seed(detail([memo("a", age: 100, reply: "x")]))
-    let voice = fakeVoice()
-    let clock = Clock(MemoFactory.now)
-    let thread = model(voice: voice, now: { clock.now })
-    await thread.load()
-
-    thread.beginVoice()
-    clock.now = MemoFactory.now.addingTimeInterval(3)
-    #expect(await thread.endVoice(cancelled: true) == nil)
-    let created = await client.calls.contains { if case .createMemo = $0 { true } else { false } }
-    #expect(!created)
-    #expect(thread.voiceStartedAt == nil && thread.failure == nil)
-  }
-
-  @Test("a touch shorter than the minimum take is a cancel with a hint")
-  func tooShortVoice() async {
-    await client.seed(detail([memo("a", age: 100, reply: "x")]))
-    let thread = model(voice: fakeVoice())
-    await thread.load()
-
-    thread.beginVoice()
-    #expect(await thread.endVoice(cancelled: false) == nil)
-    #expect(thread.failure != nil)
-  }
-
-  @Test("without capture the control is unavailable and a hold does nothing")
-  func voiceUnavailable() async {
-    let thread = model()
-    #expect(!thread.canRecordVoice)
-    thread.beginVoice()
-    #expect(thread.voiceStartedAt == nil)
-    #expect(await thread.endVoice(cancelled: false) == nil)
-  }
-}
-
-/// A capture whose recorder failed before it kept anything.
-private struct LostVoice: VoiceReplyCapture {
-  var isAvailable: Bool { true }
-  func begin(_ request: VoiceReplyRequest) async throws {}
-  func end(cancelled: Bool) async throws -> VoiceReplyOutcome { .recordingFailed }
-}
-
-/// A capture whose `end` waits for the test, to hold a take in the middle of being sent.
-private final class GatedVoice: VoiceReplyCapture {
-  private(set) var begins = 0
-  private(set) var ends = 0
-  private let ending: AsyncStream<Void>
-  private let endingSignal: AsyncStream<Void>.Continuation
-  private let release: AsyncStream<Void>
-  private let releaseSignal: AsyncStream<Void>.Continuation
-
-  init() {
-    (ending, endingSignal) = AsyncStream.makeStream()
-    (release, releaseSignal) = AsyncStream.makeStream()
-  }
-
-  var isAvailable: Bool { true }
-
-  func begin(_ request: VoiceReplyRequest) async throws { begins += 1 }
-
-  func end(cancelled: Bool) async throws -> VoiceReplyOutcome {
-    ends += 1
-    endingSignal.yield()
-    for await _ in release { break }
-    return .discarded
-  }
-
-  /// Waits for `end` to be called, but never forever: past `seconds` the test fails instead of hanging.
-  func waitUntilEnding(seconds: Double = 10, sourceLocation: SourceLocation = #_sourceLocation) async {
-    let arrived = await withTaskGroup(of: Bool.self) { group in
-      group.addTask {
-        for await _ in self.ending { return true }
-        return false
-      }
-      group.addTask {
-        try? await Task.sleep(for: .seconds(seconds))
-        return false
-      }
-      let first = await group.next() ?? false
-      group.cancelAll()
-      return first
-    }
-    if !arrived { Issue.record("end was not called within \(seconds) s", sourceLocation: sourceLocation) }
-  }
-
-  func finish() { releaseSignal.yield() }
 }
 
 /// A clock the test moves by hand.

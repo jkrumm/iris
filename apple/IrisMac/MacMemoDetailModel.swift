@@ -13,16 +13,6 @@ struct MacPasteboard: Pasteboard {
   }
 }
 
-extension Memo {
-  /// The detail lays the memo out as a chat: it has a Hermes session (`threadId`; `act` gives every Hermes memo one), or it is a
-  /// Hermes memo still on its way to `act`, which has none yet. A transcript-only memo and one that failed before `act` stay documents.
-  var showsChat: Bool {
-    guard !isDeleted else { return false }
-    if threadId != nil { return true }
-    return mode != .transcribe && state != .failed && !state.isResultReady
-  }
-}
-
 /// One memo open in the main window's detail pane: its steps, the stats baselines the step durations are judged against, the
 /// conversation of a thread memo, Copy and retry. The iOS `MemoDetailModel` also owns the recording and spoken-reply players,
 /// which configure an `AVAudioSession`; on the Mac the window owns one ``MacAudioPlayer`` and the pane drives it.
@@ -41,9 +31,9 @@ final class MacMemoDetailModel {
   private(set) var threadFailed = false
   /// What the conversation shows, oldest first: the loaded thread's turns, else the open memo's own (the list's copy shows at once,
   /// and a thread that cannot be read still shows the memo's turn).
-  private(set) var turns: [ThreadTurn] = []
-  /// The pane lays the memo out as a chat. Once a memo has shown as one it stays one: a Hermes memo has no `threadId` until `act`
-  /// has run, and the chat must not turn into a document when it does not (or does) get one.
+  private(set) var turns: [ConversationTurn] = []
+  /// The pane lays the memo out as a chat: ``Memo/isConversation``. Once a memo has shown as one it stays one, so the chat does not
+  /// turn into a document when the memo is deleted meanwhile.
   private(set) var isChat = false
   private(set) var baselines = StepBaselines()
   private(set) var isRetrying = false
@@ -81,7 +71,7 @@ final class MacMemoDetailModel {
   var memo: Memo? { detail?.memo }
 
   /// The open memo continues a conversation another memo started (a reply, not a first question).
-  var isConversation: Bool { memo?.opensThread ?? false }
+  var continuesThread: Bool { memo?.continuesThread ?? false }
 
   /// The composer's thread: only a memo that has a Hermes session can be replied to.
   var replyThreadID: String? {
@@ -94,21 +84,17 @@ final class MacMemoDetailModel {
       turns = []
       return
     }
-    if memo.showsChat { isChat = true }
-    turns = thread == nil ? ThreadTurn.make(memo: memo) : ThreadTurn.make(from: thread)
+    if memo.isConversation { isChat = true }
+    let entries = thread.map { ConversationTimeline.entries(of: $0) } ?? ConversationTimeline.entries(of: memo)
+    turns = entries.map { ConversationTurn($0) }
   }
 
   /// A memo this Mac just created in the open conversation shows at once, as a user turn with its pending answer, before the next
   /// load brings the server's version.
   func didSend(_ memo: Memo) {
-    guard var current = thread, !current.memos.contains(where: { $0.id == memo.id }) else { return }
-    current.memos.append(memo)
-    if let transcript = memo.transcript {
-      current.messages.append(
-        ThreadMessage(memoId: memo.id, role: .user, content: transcript, createdAt: memo.createdAt))
-    }
+    guard let current = thread, let next = current.appending(sent: memo) else { return }
     generation += 1
-    thread = current
+    thread = next
     refreshConversation()
   }
 

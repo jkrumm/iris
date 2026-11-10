@@ -13,7 +13,7 @@ struct HistoryView: View {
   /// Builds the model of the composer sheet (the composition root owns the client).
   let makeComposer: (ComposerRequest) -> ComposerModel
   /// Builds the model of a conversation screen.
-  let makeThread: (ThreadRoute) -> ThreadModel
+  let makeThread: (Memo) -> ThreadModel
   /// The mockup's row: 12 pt above and below, 20 pt screen margin on both sides (`history.html` `.row`).
   private static let rowInsets = EdgeInsets(
     top: Theme.Spacing.rowVertical, leading: Theme.Spacing.screenMargin, bottom: Theme.Spacing.rowVertical,
@@ -34,7 +34,7 @@ struct HistoryView: View {
                 HistoryRow(
                   status: memo.rowStatus, headline: memo.rowHeadline, secondary: memo.rowSecondary,
                   timeText: memo.timeText, isDone: memo.done, isFavorite: memo.favorite,
-                  isThread: memo.opensThread)
+                  isThread: memo.continuesThread)
               }
               .accessibilityIdentifier("history.row")
               .listRowInsets(Self.rowInsets)
@@ -71,20 +71,15 @@ struct HistoryView: View {
       .navigationTitle(String(localized: "History", comment: "Navigation title of the memo list"))
       .toolbar(.hidden, for: .navigationBar)
       .navigationDestination(for: Memo.self) { memo in
-        // A memo in a thread opens as a conversation; the rest is a single memo.
-        if memo.opensThread, let route = memo.threadRoute {
-          threadView(route)
+        // A Hermes memo is a conversation; a transcript (or a deleted memo) is a document.
+        if memo.isConversation {
+          threadView(memo)
         } else {
           BuiltOnce(make: { makeDetail(memo) }) { detail in
-            MemoDetailView(
-              model: detail, refreshToken: { model.revision(of: memo.id) },
-              onReply: { composer = .reply(to: $0) })
+            MemoDetailView(model: detail, refreshToken: { model.revision(of: memo.id) })
           }
           .id(memo.id)
         }
-      }
-      .navigationDestination(for: ThreadRoute.self) { route in
-        threadView(route)
       }
       .safeAreaInset(edge: .bottom, spacing: 0) {
         HistorySearchBar(
@@ -127,18 +122,19 @@ struct HistoryView: View {
     }
   }
 
-  private func threadView(_ route: ThreadRoute) -> some View {
-    BuiltOnce(make: { makeThread(route) }) { thread in
+  private func threadView(_ memo: Memo) -> some View {
+    BuiltOnce(make: { makeThread(memo) }) { thread in
       ThreadView(
         model: thread,
-        refreshToken: { threadId, ids in
-          // Any event for a memo of the thread, or a new memo of it showing up in the list (another device's turn).
-          let inThread = model.memos.count { $0.threadId == threadId }
+        refreshToken: { threadID, ids in
+          // Any event for a memo of the conversation (the anchor's too: before `act` it has no thread yet), or a new memo of
+          // it showing up in the list (another device's turn).
+          let inThread = threadID.map { id in model.memos.count { $0.threadId == id } } ?? 0
           return ids.reduce(inThread) { $0 &+ model.revision(of: $1) }
         },
-        makeComposer: makeComposer, onSent: { model.insert($0) })
+        makeDetail: makeDetail, memoRevision: { model.revision(of: $0) }, onSent: { model.insert($0) })
     }
-    .id(route.id)
+    .id(memo.id)
   }
 
   /// How long the undo toast stays; UI tests stretch it (`-IrisUndoSeconds 60`) so a slow runner can still tap Undo.

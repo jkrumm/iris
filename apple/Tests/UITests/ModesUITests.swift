@@ -41,11 +41,21 @@ final class ModesUITests: IrisUITestCase {
       waitForPresence(result, timeout: 10), "tapping \(target.identifier) did not open \(result.identifier)")
   }
 
-  /// Opens the History row whose label contains `text` (the list is lazy: scrolled to until the row is in the tree).
+  /// Opens the History row of a transcript memo, which keeps the document detail (the list is lazy: scrolled to until the row is
+  /// in the tree).
   @MainActor
   private func openRow(containing text: String, in app: XCUIApplication) {
     let row = revealRow(containing: text, in: app)
     tap(row, until: element(app, "memo.detail"))
+  }
+
+  /// Opens the History row of a Hermes memo, which is a conversation, and from it the memo's Details sheet.
+  @MainActor
+  private func openDetails(containing text: String, in app: XCUIApplication) {
+    let row = revealRow(containing: text, in: app)
+    tap(row, until: element(app, "thread.view"))
+    let details = app.buttons["thread.turn.details"].firstMatch
+    tap(details, until: element(app, "memo.details"))
   }
 
   /// Settings is a lazy list: swipes up until `target` is on screen.
@@ -73,9 +83,9 @@ final class ModesUITests: IrisUITestCase {
   // MARK: Play and the record row
 
   @MainActor
-  func testPlayTheReplyFromTheReplyBubble() {
+  func testPlayTheReplyFromTheDetailsSheet() {
     let app = launch()
-    openRow(containing: "Wochenplan abgestimmt", in: app)
+    openDetails(containing: "Wochenplan abgestimmt", in: app)
 
     let play = app.buttons["detail.action.play"]
     XCTAssertTrue(waitForPresence(play, timeout: 10))
@@ -141,7 +151,7 @@ final class ModesUITests: IrisUITestCase {
   @MainActor
   func testTheDetailShowsTheKindChipAndWhatHermesUsed() {
     let app = launch()
-    openRow(containing: "Mach ein GitHub-Issue", in: app)
+    openDetails(containing: "Mach ein GitHub-Issue", in: app)
 
     let chip = app.descendants(matching: .any)
       .matching(NSPredicate(format: "label == %@", "Kind: GitHub issue")).firstMatch
@@ -155,7 +165,7 @@ final class ModesUITests: IrisUITestCase {
   @MainActor
   func testAnswerWithoutToolsHasNoActionsLine() {
     let app = launch()
-    openRow(containing: "Wie viele Segmente", in: app)
+    openDetails(containing: "Wie viele Segmente", in: app)
     XCTAssertTrue(
       waitForPresence(
         app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Kind: Answer")).firstMatch,

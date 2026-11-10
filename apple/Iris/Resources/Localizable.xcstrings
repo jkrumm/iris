@@ -714,6 +714,16 @@
         }
       }
     },
+    "Could not send the reply. Your text is back in the field." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Die Antwort ließ sich nicht senden. Dein Text steht wieder im Feld."
+          }
+        }
+      }
+    },
     "Could not send the voice reply" : {
       "localizations" : {
         "de" : {
@@ -1714,6 +1724,16 @@
         }
       }
     },
+    "Sends after the first answer" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wird nach der ersten Antwort gesendet"
+          }
+        }
+      }
+    },
     "Sends the text as a memo that is only transcribed." : {
       "localizations" : {
         "de" : {
@@ -2016,6 +2036,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "That was too short to send"
+          }
+        }
+      }
+    },
+    "The first memo has no conversation yet, so the reply was not sent" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Das erste Memo hat noch keine Unterhaltung, deshalb wurde die Antwort nicht gesendet"
           }
         }
       }

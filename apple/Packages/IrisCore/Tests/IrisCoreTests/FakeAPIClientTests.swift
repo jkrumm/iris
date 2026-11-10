@@ -431,4 +431,27 @@ struct FakeAPIClientPipelineTests {
     let fake = FakeAPIClient()
     await #expect(throws: APIError.self) { try await fake.advance("nope", to: .notified) }
   }
+
+  @Test("A thread nobody seeded is built from the stored memos that name it, and a continuation lands in it")
+  func storedThread() async throws {
+    let fake = FakeAPIClient(now: { ConversationFixtures.now })
+    await #expect(throws: APIError.self) { try await fake.thread(id: "m1") }
+
+    let first = ConversationFixtures.memo("m1", transcript: "first question", reply: "first answer", threadId: "m1")
+    await fake.seed(MemoDetail(memo: first, steps: []))
+    let detail = try await fake.thread(id: "m1")
+    #expect(detail.thread.id == "m1")
+    #expect(detail.thread.title == "first question")
+    #expect(detail.memos.map(\.id) == ["m1"])
+    #expect(detail.messages.map(\.role) == [.user, .assistant])
+    #expect(detail.messages.map(\.content) == ["first question", "first answer"])
+
+    let reply = try await fake.createTextMemo(
+      CreateTextMemoRequest(id: "m2", mode: .hermes, startedAt: started, text: "and then?", threadId: "m1"))
+    #expect(reply.threadId == "m1")
+    let continued = try await fake.thread(id: "m1")
+    #expect(continued.memos.map(\.id) == ["m1", "m2"])
+    #expect(continued.messages.last?.content == "and then?")
+    #expect(continued.thread.lastMemoId == "m2")
+  }
 }

@@ -103,7 +103,7 @@ struct MacMemoDetailPane: View {
     )
     .animation(reduceMotion ? nil : .smooth(duration: 0.4), value: model.turns)
     // Only a conversation of several memos is worth a warning; a memo alone in its session has its own turns to show.
-    if model.threadFailed && model.isConversation {
+    if model.threadFailed && model.continuesThread {
       Label(
         String(localized: "Could not load the conversation", comment: "Detail: a thread could not be read"),
         systemImage: "exclamationmark.triangle"

@@ -11,40 +11,28 @@ public struct DetailRetryOption: Identifiable, Equatable, Sendable {
   }
 }
 
-/// The detail screen's bottom actions: icon-only reply and retry (the reply's speech plays from its bubble, ``ReplyPlayButton``) on one glass group. Retry is
+/// The detail screen's bottom actions: an icon-only retry (the reply's speech plays from its bubble, ``ReplyPlayButton``; a reply
+/// is typed or spoken in the conversation's reply bar) on a glass group. Retry is
 /// a menu of steps whose plain tap restarts from `primaryRetryID`; it is absent while `retryOptions` is empty. The symbols are
 /// all outline glyphs at one weight; each glass circle sits on a solid disc so nothing reads through it.
 public struct DetailActionBar: View {
-  private let canReply: Bool
   private let retryOptions: [DetailRetryOption]
   private let primaryRetryID: String?
-  private let onReply: () -> Void
   private let onRetry: (String) -> Void
 
   public init(
-    canReply: Bool,
     retryOptions: [DetailRetryOption],
     primaryRetryID: String?,
-    onReply: @escaping () -> Void,
     onRetry: @escaping (String) -> Void
   ) {
-    self.canReply = canReply
     self.retryOptions = retryOptions
     self.primaryRetryID = primaryRetryID
-    self.onReply = onReply
     self.onRetry = onRetry
   }
 
   public var body: some View {
     GlassEffectContainer(spacing: Theme.Spacing.barGap) {
       HStack(spacing: Theme.Spacing.barGap) {
-        Button(action: onReply) { icon("arrowshape.turn.up.left", isEnabled: canReply) }
-          .disabled(!canReply)
-          .accessibilityLabel(
-            Text("Reply", bundle: #bundle, comment: "VoiceOver label of the button that answers the memo")
-          )
-          .accessibilityIdentifier("detail.action.reply")
-
         // A memo with nothing to restart (a done one) has no retry button at all: a ghost circle reads as broken.
         if !retryOptions.isEmpty {
           Menu {

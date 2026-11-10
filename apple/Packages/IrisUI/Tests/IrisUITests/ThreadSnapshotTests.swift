@@ -194,6 +194,27 @@
       Self.assert(view, width: 390, height: 520)
     }
 
+    @Test("the turn list with a Details button after the last turn of each memo", .tags(.snapshot))
+    func turnListDetails() {
+      let turns = [
+        ConversationTurn(
+          id: "a.user", memoID: "a", date: nil, content: .user("Explain how the step runner retries a failed step.")),
+        ConversationTurn(
+          id: "a.reply", memoID: "a", date: nil,
+          content: .assistant("It retries a **transient** failure twice, then fails the step.", mermaid: [:])),
+        ConversationTurn(id: "b.user", memoID: "b", date: nil, content: .user("And a hang guard?")),
+        ConversationTurn(
+          id: "b.pending", memoID: "b", date: nil,
+          content: .pending(StepProgress(completed: 2, total: 5), caption: "Asking Hermes…")),
+        ConversationTurn(id: "local.user", memoID: nil, date: nil, content: .user("Held on this device.")),
+      ]
+      let view = VStack(alignment: .leading, spacing: ConversationTurnList.Style.phone.rowSpacing) {
+        ConversationTurnList(turns: turns, style: .phone, dayTitle: { _ in "Today" }, onDetails: { _ in })
+      }
+      .padding(Theme.Spacing.lg)
+      Self.assert(view, width: 390, height: 640)
+    }
+
     @Test("an answer that has not arrived shows the step dashes", .tags(.snapshot))
     func pending() {
       let view = VStack(alignment: .leading, spacing: Theme.Spacing.xl) {

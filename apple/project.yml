@@ -165,17 +165,14 @@ targets:
       - Iris/StepBaselines.swift
       - Iris/StepText.swift
       - Iris/WaterfallBuilder.swift
-      - Iris/ReplyMarkdown.swift
       - Iris/Pasteboard.swift
       # The desktop app: the media download behind Play, the thread read.
       - Iris/MediaDownloader.swift
       - Iris/MemoMediaSource.swift
       - Iris/FakeDiagramImage.swift
       - Iris/Memo+Thread.swift
-      - Iris/ThreadRoute.swift
       # The chat (owner feedback on the Mac app): the conversation's turns, the typed-memo composer model, the fake pipeline a
       # typed memo walks under `-IrisFakeData`, and the reply images' loader are the iPhone's, compiled in as they are.
-      - Iris/ThreadTurn.swift
       - Iris/ComposerModel.swift
       - Iris/FakeCaptureSupport.swift
       - Iris/ReplyAssetLoading.swift

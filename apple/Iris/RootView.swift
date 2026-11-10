@@ -16,7 +16,7 @@ struct RootView: View {
   var connectionForm: ConnectionModel?
   let makeDetail: (Memo) -> MemoDetailModel
   let makeComposer: (ComposerRequest) -> ComposerModel
-  let makeThread: (ThreadRoute) -> ThreadModel
+  let makeThread: (Memo) -> ThreadModel
 
   /// The tab shown first and the one the app jumps to when the connection is missing.
   enum Section: Hashable {
@@ -35,7 +35,7 @@ struct RootView: View {
     diagnostics: DiagnosticsModel, micRules: MicRulesModel, spokenReplies: SpokenReplies,
     connectionForm: ConnectionModel? = nil, startsOnSettings: Bool = false,
     makeDetail: @escaping (Memo) -> MemoDetailModel, makeComposer: @escaping (ComposerRequest) -> ComposerModel,
-    makeThread: @escaping (ThreadRoute) -> ThreadModel
+    makeThread: @escaping (Memo) -> ThreadModel
   ) {
     self.history = history
     self.isConfigured = isConfigured

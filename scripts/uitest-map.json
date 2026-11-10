@@ -22,7 +22,7 @@
         "apple/Iris/MemoSwipeActions.swift",
         "apple/Iris/RecordRow.swift"
       ],
-      "classes": ["HistorySwipeUITests", "SmokeUITests"]
+      "classes": ["HistorySwipeUITests", "SmokeUITests", "ThreadUITests"]
     },
     {
       "name": "memo detail, waterfall, playback",
@@ -35,7 +35,7 @@
         "apple/Iris/Step*.swift",
         "apple/Iris/WaterfallBuilder.swift"
       ],
-      "classes": ["MemoDetailUITests", "ModesUITests"]
+      "classes": ["MemoDetailUITests", "ModesUITests", "ThreadUITests"]
     },
     {
       "name": "threads, replies, diagrams",

@@ -12,12 +12,17 @@ final class MemoDetailUITests: IrisUITestCase {
     return app
   }
 
-  /// Opens the History row whose label contains `text`; the list is scrolled until the row is on screen.
+  /// Opens the History row whose label contains `text` (the list is scrolled until the row is on screen): a Hermes memo is a
+  /// conversation, and its Details button opens the sheet this suite is about.
   @MainActor
   private func openRow(containing text: String, in app: XCUIApplication) {
     let row = revealRow(containing: text, in: app)
     row.tap()
-    XCTAssertTrue(waitForPresence(app.descendants(matching: .any)["memo.detail"], timeout: 10))
+    XCTAssertTrue(waitForPresence(app.descendants(matching: .any)["thread.view"], timeout: 10))
+    let details = app.buttons["thread.turn.details"].firstMatch
+    XCTAssertTrue(waitForPresence(details, timeout: 10))
+    details.tap()
+    XCTAssertTrue(waitForPresence(app.descendants(matching: .any)["memo.details"], timeout: 10))
   }
 
   /// Details start collapsed to their line; a tap on it opens the steps and the ids.
@@ -63,7 +68,7 @@ final class MemoDetailUITests: IrisUITestCase {
   }
 
   @MainActor
-  func testDetailShowsTheStepWaterfallTranscriptBubbleAndPlayer() {
+  func testTheDetailsSheetShowsTheStepWaterfallAndThePlayer() {
     let app = launch()
     openRow(containing: "Wochenplan abgestimmt", in: app)
 
@@ -71,8 +76,6 @@ final class MemoDetailUITests: IrisUITestCase {
     XCTAssertTrue(waitForPresence(app.staticTexts["Act · Hermes"], timeout: 10))
     XCTAssertTrue(waitForPresence(app.staticTexts["Transcribe"], timeout: 2))
     XCTAssertTrue(waitForPresence(app.staticTexts["Notify"], timeout: 2))
-    XCTAssertTrue(waitForPresence(app.descendants(matching: .any)["detail.transcript"], timeout: 2))
-    XCTAssertTrue(waitForPresence(app.descendants(matching: .any)["detail.reply"], timeout: 2))
 
     // The recording is a collapsed line in the user's bubble: no timeline until the chevron opens it.
     let toggle = app.buttons["detail.player.toggle"]

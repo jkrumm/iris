@@ -4,16 +4,16 @@ import IrisUI
 import SwiftUI
 
 /// One conversation as a rendered document: a turn per question and answer, an answer still on its way as a pending
-/// turn with the pipeline's dashes, and a bar at the bottom to reply by text or hold to talk. It reloads when
-/// `refreshToken` changes (History bumps a memo's revision on its `memo.updated` event), and the reply replaces the
-/// pending turn with a short fade.
+/// turn with the pipeline's dashes, and a bar at the bottom to reply by text or hold to talk. A Details button after each
+/// memo opens that memo's details sheet. It reloads when `refreshToken` changes (History bumps a memo's revision on its
+/// `memo.updated` event), and the reply replaces the pending turn with a short fade.
 struct ThreadView: View {
   @State private var model: ThreadModel
-  @State private var composer: ComposerRequest?
   @State private var zoomed: ZoomedImage?
-  private let refreshToken: (_ threadId: String, _ memoIDs: [String]) -> Int
-  private let makeComposer: (ComposerRequest) -> ComposerModel
-  private let onSent: (Memo) -> Void
+  @State private var details: DetailsTarget?
+  private let refreshToken: (_ threadID: String?, _ memoIDs: [String]) -> Int
+  private let makeDetail: (Memo) -> MemoDetailModel
+  private let memoRevision: (String) -> Int
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   @Environment(\.scenePhase) private var scenePhase
 
@@ -22,18 +22,26 @@ struct ThreadView: View {
     let image: CGImage
   }
 
+  private struct DetailsTarget: Identifiable {
+    let memo: Memo
+    var id: String { memo.id }
+  }
+
   /// - Parameters:
-  ///   - refreshToken: Folds what History knows of this thread (its memos' revisions, its memo count) into one number the screen reloads on.
-  ///   - makeComposer: Builds the sheet model of a typed reply.
+  ///   - refreshToken: Folds what History knows of this conversation (its memos' revisions, its memo count) into one number the screen reloads on.
+  ///   - makeDetail: Builds the model of a memo's Details sheet.
+  ///   - memoRevision: History's revision of one memo, which the Details sheet reloads on.
   ///   - onSent: Told of every memo this screen creates (History lists it at once).
   init(
-    model: ThreadModel, refreshToken: @escaping (_ threadId: String, _ memoIDs: [String]) -> Int = { _, _ in 0 },
-    makeComposer: @escaping (ComposerRequest) -> ComposerModel, onSent: @escaping (Memo) -> Void = { _ in }
+    model: ThreadModel, refreshToken: @escaping (_ threadID: String?, _ memoIDs: [String]) -> Int = { _, _ in 0 },
+    makeDetail: @escaping (Memo) -> MemoDetailModel, memoRevision: @escaping (String) -> Int = { _ in 0 },
+    onSent: @escaping (Memo) -> Void = { _ in }
   ) {
+    model.onSent = onSent
     _model = State(initialValue: model)
     self.refreshToken = refreshToken
-    self.makeComposer = makeComposer
-    self.onSent = onSent
+    self.makeDetail = makeDetail
+    self.memoRevision = memoRevision
   }
 
   var body: some View {
@@ -41,15 +49,12 @@ struct ThreadView: View {
       ScrollView {
         LazyVStack(alignment: .leading, spacing: Theme.Spacing.inset) {
           header
-          ForEach(Array(model.turns.enumerated()), id: \.element.id) { index, turn in
-            VStack(alignment: .leading, spacing: Theme.Spacing.inset) {
-              // A question after an answer opens a new exchange.
-              if index > 0, case .user = turn.content { ExchangeDivider(title: day(turn.date)) }
-              view(for: turn)
-            }
-            .id(turn.id)
-            .transition(.opacity)
-          }
+          ConversationTurnList(
+            turns: model.turns, style: .phone, dayTitle: { HistoryDaySection.title(of: $0) },
+            onOpenImage: { zoomed = ZoomedImage(image: $0) },
+            onDetails: { id in
+              if let memo = model.memo(id: id) { details = DetailsTarget(memo: memo) }
+            })
           Color.clear.frame(height: 1).id(Self.bottom)
         }
         .padding(.horizontal, Theme.Spacing.screenMargin)
@@ -70,7 +75,7 @@ struct ThreadView: View {
     .safeAreaInset(edge: .bottom, spacing: 0) {
       VStack(spacing: Theme.Spacing.barGap) {
         failureToast
-        replyBar.disabled(!model.canReply)
+        replyBar
       }
       .floatingBarBackdrop(edge: .bottom)
     }
@@ -80,23 +85,17 @@ struct ThreadView: View {
     .reportsScreen("thread")
     .navigationBarTitleDisplayMode(.inline)
     .toolbarVisibility(.hidden, for: .tabBar)
-    .task(id: refreshToken(model.route.id, model.memoIDs)) { await model.load() }
+    .task(id: refreshToken(model.threadID, model.memoIDs)) { await model.load() }
     .onDisappear { cancelVoice() }
     .onChange(of: scenePhase) {
       // `.inactive` too (Control Center, a call, a system alert): the finger is gone either way.
       if scenePhase != .active { cancelVoice() }
     }
-    .sheet(item: $composer) { request in
-      BuiltOnce(make: { makeComposer(request) }) { composer in
-        ComposerView(
-          model: composer,
-          onSent: { memo in
-            model.didSend(memo)
-            onSent(memo)
-          },
-          onQueued: { model.didQueue() })
+    .sheet(item: $details) { target in
+      BuiltOnce(make: { makeDetail(target.memo) }) { detail in
+        MemoDetailsSheet(model: detail, refreshToken: { memoRevision(target.id) })
       }
-      .id(request.id)
+      .id(target.id)
     }
     .fullScreenCover(item: $zoomed) { item in
       ZoomableImageView(
@@ -120,7 +119,7 @@ struct ThreadView: View {
         KindChip(
           label: String(localized: "Thread", comment: "Kind chip of a conversation screen"),
           systemImage: "bubble.left.and.bubble.right")
-        if model.detail != nil {
+        if model.turnCount > 0 {
           Text(verbatim: ThreadCopy.turnCount(model.turnCount))
             .themeFont(.footnote)
             .foregroundStyle(Theme.Ink.muted)
@@ -134,26 +133,9 @@ struct ThreadView: View {
     }
   }
 
-  @ViewBuilder private func view(for turn: ThreadModel.Turn) -> some View {
-    switch turn.content {
-    case .user(let text):
-      UserTurnView(text: text, time: time(turn.date))
-    case .assistant(let markdown, let mermaid):
-      AssistantTurnView(
-        markdown: markdown, time: time(turn.date), mermaid: mermaid,
-        onOpenImage: { zoomed = ZoomedImage(image: $0) })
-    case .pending(let progress, let caption):
-      PendingTurnView(progress: progress, caption: caption)
-    case .failed(let message):
-      Text(verbatim: message)
-        .themeFont(.callout)
-        .foregroundStyle(Theme.Status.bad)
-        .accessibilityIdentifier("thread.turn.failed")
-    }
-  }
-
+  /// Only when there is nothing to show: the anchor's own turns stand in for a thread that has not loaded.
   @ViewBuilder private var placeholder: some View {
-    if model.detail == nil {
+    if model.detail == nil && model.turns.isEmpty {
       if model.loadFailed {
         ContentUnavailableView {
           Label(
@@ -171,15 +153,13 @@ struct ThreadView: View {
   }
 
   private var replyBar: some View {
-    ThreadReplyBar(
-      holdStartedAt: model.voiceStartedAt, isVoiceAvailable: model.canRecordVoice,
-      onType: { composer = .reply(toThread: model.route.id) },
+    @Bindable var bar = model.replyBar
+    return ThreadReplyBar(
+      text: $bar.draft, holdStartedAt: bar.voiceStartedAt,
+      isVoiceAvailable: model.canRecordVoice, isTextEnabled: model.canType,
+      onSend: { Task { await model.sendDraft() } },
       onHoldBegan: { model.beginVoice() },
-      onHoldEnded: { cancelled in
-        Task {
-          if let memo = await model.endVoice(cancelled: cancelled) { onSent(memo) }
-        }
-      })
+      onHoldEnded: { cancelled in Task { await model.endVoice(cancelled: cancelled) } })
   }
 
   @ViewBuilder private var failureToast: some View {
@@ -193,16 +173,7 @@ struct ThreadView: View {
 
   /// A hold that loses its finger (the screen goes away, the app backgrounds) never gets an `onEnded`: stop it here.
   private func cancelVoice() {
-    guard model.voiceStartedAt != nil else { return }
+    guard model.replyBar.voiceStartedAt != nil else { return }
     Task { await model.endVoice(cancelled: true) }
-  }
-
-  /// The clock time only ("5:28 AM"): the day sits in the header and the exchange dividers.
-  private func time(_ date: Date?) -> String {
-    date?.formatted(date: .omitted, time: .shortened) ?? ""
-  }
-
-  private func day(_ date: Date?) -> String? {
-    date.map { HistoryDaySection.title(of: $0) }
   }
 }
