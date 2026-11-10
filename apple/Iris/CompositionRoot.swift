@@ -56,6 +56,10 @@ final class CompositionRoot: CaptureIntentHandler, PlaybackIntentHandler {
   let outbox: OutboxService
   /// The take in progress, for the take screen, the banner and the record control.
   let take: TakeModel
+  /// Deep links, notification taps and Live Activity buttons that open a conversation.
+  let router = ConversationRouter()
+  /// The conversation on screen, for the foreground notification decision.
+  let presence = ConversationPresence()
   /// The Live Activity requests of takes the app starts on its own; the tests read the fake's record.
   let fakeLiveActivity: RecordingLiveActivity?
   /// The decoded images of every reply on screen (Mermaid diagrams), shared by all thread screens.
@@ -75,6 +79,8 @@ final class CompositionRoot: CaptureIntentHandler, PlaybackIntentHandler {
   private let liveActivity: TakeLiveActivityCoordinator
   private let takeController: TakeController
   private let simulatesOffline: Bool
+  /// `-IrisOpenURL iris://memo/<id>` (fakes only, UI tests): opened once the sample memos are seeded, as a link would be.
+  private var launchLink: ConversationLink?
   /// Whether the app is in the foreground and running; the tests set it.
   @ObservationIgnored var isAppActive: @MainActor () -> Bool = { UIApplication.shared.applicationState == .active }
 
@@ -95,6 +101,9 @@ final class CompositionRoot: CaptureIntentHandler, PlaybackIntentHandler {
       let fake = FakeAPIClient(now: { pinnedNow.addingTimeInterval(Date().timeIntervalSince(launched)) })
       mode = .fake
       opensOnSettings = false
+      launchLink = arguments.firstIndex(of: "-IrisOpenURL")
+        .flatMap { arguments.indices.contains($0 + 1) ? URL(string: arguments[$0 + 1]) : nil }
+        .flatMap { ConversationLink(url: $0) }
       api = fake
       fakeAPI = fake
       self.credentials = nil
@@ -294,6 +303,10 @@ final class CompositionRoot: CaptureIntentHandler, PlaybackIntentHandler {
     }
     if let fakeAPI {
       await SampleData.seed(fakeAPI, now: sampleNow)
+      if let link = launchLink {
+        launchLink = nil
+        router.open(link)
+      }
     }
     // Cached media that outlived its memo (deleted elsewhere, or while the app was gone) does not pile up.
     MediaDownloader.shared.sweepStale()
@@ -438,6 +451,11 @@ final class CompositionRoot: CaptureIntentHandler, PlaybackIntentHandler {
     let source = mediaSource()
     guard memo.hasReply, !memo.isDeleted, source.speech(for: memo) != nil else { throw PlayReplyError.noReply }
     guard await speech.play(memo, source: source) else { throw PlayReplyError.busy }
+  }
+
+  /// The memo of a deep link that History's list does not hold (a cold launch, an old memo).
+  func fetchMemo(id: String) async throws -> Memo {
+    try await api.memo(id: id).memo
   }
 
   /// The media routes for the connection saved right now, so a detail opened after a change uses the new token.

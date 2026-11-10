@@ -17,10 +17,19 @@ struct ThreadView: View {
   private let liveEvents: () -> AsyncStream<ServerEvent>
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   @Environment(\.scenePhase) private var scenePhase
+  @Environment(ConversationRouter.self) private var router: ConversationRouter?
+  @Environment(ConversationPresence.self) private var presence: ConversationPresence?
+  /// Counts the keyboard requests of a link or notification (the reply bar focuses its field on each).
+  @State private var keyboardRequest = 0
 
   private struct ZoomedImage: Identifiable {
     let id = UUID()
     let image: CGImage
+  }
+
+  private struct PresenceKey: Equatable {
+    let threadID: String?
+    let memoIDs: [String]
   }
 
   private struct DetailsTarget: Identifiable {
@@ -97,7 +106,17 @@ struct ThreadView: View {
       for await event in liveEvents() { await model.apply(event) }
     }
     .onAppear { model.reclaimHeld() }
+    // A link or notification opened this conversation with an input forward. `.voice` is Part B's: the router's pending request
+    // carries it and the take starts there; here it opens like `.none`.
+    .onChange(of: router?.focusRevision, initial: true) {
+      guard router?.takeFocus(forAnyOf: Set(model.memoIDs)) == .keyboard else { return }
+      keyboardRequest += 1
+    }
+    .onChange(of: PresenceKey(threadID: model.threadID, memoIDs: model.memoIDs), initial: true) {
+      presence?.show(anchorID: model.anchor.id, threadID: model.threadID, memoIDs: model.memoIDs)
+    }
     .onDisappear {
+      presence?.hide(anchorID: model.anchor.id)
       cancelVoice()
       model.handOver()
     }
@@ -173,7 +192,8 @@ struct ThreadView: View {
       isVoiceAvailable: model.canRecordVoice, isTextEnabled: model.canType,
       onSend: { Task { await model.sendDraft() } },
       onHoldBegan: { model.beginVoice() },
-      onHoldEnded: { cancelled in Task { await model.endVoice(cancelled: cancelled) } })
+      onHoldEnded: { cancelled in Task { await model.endVoice(cancelled: cancelled) } },
+      focusRequest: keyboardRequest)
   }
 
   @ViewBuilder private var failureToast: some View {

@@ -14,10 +14,14 @@ public struct ThreadReplyBar: View {
   private let onSend: () -> Void
   private let onHoldBegan: () -> Void
   private let onHoldEnded: (_ cancelled: Bool) -> Void
+  private let focusRequest: Int
 
   @State private var began = false
   @State private var isCancelling = false
   @State private var lock = VoiceTakeLock()
+  @FocusState private var fieldFocused: Bool
+  /// A focus request the field could not take yet (the thread has not loaded, so the field is disabled).
+  @State private var wantsFocus = false
 
   private static let cancelDistance: CGFloat = 70
   private static let buttonSize: CGFloat = 56
@@ -27,11 +31,12 @@ public struct ThreadReplyBar: View {
   ///   - holdStartedAt: When the take in progress began; `nil` when idle. The app owns it, the bar only shows it.
   ///   - isVoiceAvailable: `false` while the app has no capture to talk to; the voice buttons are then disabled.
   ///   - isTextEnabled: `false` while a typed reply cannot go out (the thread has not loaded); the field and send are disabled.
+  ///   - focusRequest: Counts requests to focus the reply field (keyboard up); the bar focuses it as soon as it is enabled. 0 asks for nothing.
   ///   - onSend: The send button, or return in the field. The app takes the draft from its model.
   public init(
     text: Binding<String>, holdStartedAt: Date?, isVoiceAvailable: Bool, isTextEnabled: Bool = true,
     onSend: @escaping () -> Void, onHoldBegan: @escaping () -> Void,
-    onHoldEnded: @escaping (_ cancelled: Bool) -> Void
+    onHoldEnded: @escaping (_ cancelled: Bool) -> Void, focusRequest: Int = 0
   ) {
     _text = text
     self.holdStartedAt = holdStartedAt
@@ -40,6 +45,7 @@ public struct ThreadReplyBar: View {
     self.onSend = onSend
     self.onHoldBegan = onHoldBegan
     self.onHoldEnded = onHoldEnded
+    self.focusRequest = focusRequest
   }
 
   private var isRecording: Bool { holdStartedAt != nil }
@@ -71,6 +77,14 @@ public struct ThreadReplyBar: View {
     .animation(.snappy, value: isRecording)
     .animation(.snappy, value: showsSend)
     // A take the app ended on its own (a cancel on disappear) never reaches the gesture's `onEnded`.
+    .onChange(of: focusRequest, initial: true) { if focusRequest > 0 { wantsFocus = true } }
+    .task(id: wantsFocus && isTextEnabled) {
+      guard wantsFocus, isTextEnabled else { return }
+      // The screen is still being pushed: focus asked for during the transition is dropped by UIKit.
+      try? await Task.sleep(for: .milliseconds(400))
+      fieldFocused = true
+      wantsFocus = false
+    }
     .onChange(of: holdStartedAt) {
       lock.takeChanged(isRecording: holdStartedAt != nil)
       guard holdStartedAt == nil else { return }
@@ -89,6 +103,7 @@ public struct ThreadReplyBar: View {
     .lineLimit(1...5)
     .submitLabel(.send)
     .onSubmit { if hasText { onSend() } }
+    .focused($fieldFocused)
     .disabled(!isTextEnabled)
     .themeFont(.callout)
     .foregroundStyle(Theme.Ink.primary)

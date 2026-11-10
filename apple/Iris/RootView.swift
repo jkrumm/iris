@@ -17,6 +17,10 @@ struct RootView: View {
   let makeDetail: (Memo) -> MemoDetailModel
   let makeComposer: (ComposerRequest) -> ComposerModel
   let makeThread: (Memo) -> ThreadModel
+  let router: ConversationRouter
+  let presence: ConversationPresence
+  /// Reads a memo History's list does not hold (a link on a cold launch).
+  let fetchMemo: (String) async throws -> Memo
 
   /// The tab shown first and the one the app jumps to when the connection is missing.
   enum Section: Hashable {
@@ -28,6 +32,8 @@ struct RootView: View {
   @State private var accessoryPresence = RecordAccessoryPresence()
   /// The composer the record row's Text button opens.
   @State private var composer: ComposerRequest?
+  /// The screens pushed on History's stack.
+  @State private var historyPath: [Memo] = []
 
   init(
     history: HistoryModel, isConfigured: Bool = true, take: TakeModel, stats: StatsModel,
@@ -35,7 +41,8 @@ struct RootView: View {
     diagnostics: DiagnosticsModel, micRules: MicRulesModel, spokenReplies: SpokenReplies,
     connectionForm: ConnectionModel? = nil, startsOnSettings: Bool = false,
     makeDetail: @escaping (Memo) -> MemoDetailModel, makeComposer: @escaping (ComposerRequest) -> ComposerModel,
-    makeThread: @escaping (Memo) -> ThreadModel
+    makeThread: @escaping (Memo) -> ThreadModel, router: ConversationRouter, presence: ConversationPresence,
+    fetchMemo: @escaping (String) async throws -> Memo
   ) {
     self.history = history
     self.isConfigured = isConfigured
@@ -49,6 +56,9 @@ struct RootView: View {
     self.makeDetail = makeDetail
     self.makeComposer = makeComposer
     self.makeThread = makeThread
+    self.router = router
+    self.presence = presence
+    self.fetchMemo = fetchMemo
     _selection = State(initialValue: startsOnSettings ? .settings : .history)
   }
 
@@ -56,7 +66,8 @@ struct RootView: View {
     TabView(selection: $selection) {
       Tab(String(localized: "History", comment: "Tab title"), systemImage: "clock", value: Section.history) {
         HistoryView(
-          model: history, isConfigured: isConfigured, onConnect: { selection = .settings }, makeDetail: makeDetail,
+          model: history, path: $historyPath, isConfigured: isConfigured, onConnect: { selection = .settings },
+          makeDetail: makeDetail,
           makeComposer: makeComposer, makeThread: makeThread)
       }
       Tab(String(localized: "Stats", comment: "Tab title"), systemImage: "chart.bar", value: Section.stats) {
@@ -80,6 +91,8 @@ struct RootView: View {
       .id(request.id)
     }
     .environment(accessoryPresence)
+    .environment(router)
+    .environment(presence)
     // A take continues as a compact banner under each screen's navigation bar (`takeBanner()`); tapping it brings the
     // take screen back.
     .environment(take)
@@ -95,12 +108,25 @@ struct RootView: View {
       Text(verbatim: take.failure ?? "")
     }
     .task { await take.run() }
+    // A link, a notification or the Live Activity wants a conversation. A running take is left alone; the composer sheet goes.
+    .task(id: router.pending?.id) { await openPendingConversation() }
     .onChange(of: visibleScreen, initial: true) { previous, screen in
       if previous != screen {
         DeviceLog.shared.event("ui.screen", ["screen": .string(previous), "shown": false])
       }
       DeviceLog.shared.event("ui.screen", ["screen": .string(screen), "shown": true])
     }
+  }
+
+  /// Resolves the router's pending request and pushes the conversation (or the detail of a memo that is not one) on History.
+  private func openPendingConversation() async {
+    guard let request = router.pending else { return }
+    let opened = await router.resolve(
+      request, isConfigured: isConfigured, local: { id in history.memos.first { $0.id == id } }, fetch: fetchMemo)
+    guard let opened else { return }
+    composer = nil
+    selection = .history
+    historyPath = [opened.memo]
   }
 
   /// What the owner is looking at, for `ui.screen`: the take screen over the selected tab.

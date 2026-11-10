@@ -14,12 +14,13 @@ struct MemoLiveActivity: Widget {
       LiveActivityPanel(context.presentation) {
         RecordingControls(memoID: context.attributes.memoId, paused: context.state.phase == .paused, onDark: false)
       } doneAction: {
-        PlayReplyControl(memoID: context.attributes.memoId, onDark: false)
+        DoneActions(memoID: context.attributes.memoId, onDark: false)
       }
       .padding(.horizontal, Theme.Spacing.lg)
       .padding(.top, Theme.Spacing.inset)
       .padding(.bottom, Theme.Spacing.lg)
       .activityBackgroundTint(Theme.Surface.panel)
+      .widgetURL(ConversationLink(memoID: context.attributes.memoId).url)
     } dynamicIsland: { context in
       let presentation = context.presentation
       return DynamicIsland {
@@ -33,7 +34,7 @@ struct MemoLiveActivity: Widget {
           LiveActivityPanel(presentation, style: .island) {
             RecordingControls(memoID: context.attributes.memoId, paused: context.state.phase == .paused, onDark: true)
           } doneAction: {
-            PlayReplyControl(memoID: context.attributes.memoId, onDark: true)
+            DoneActions(memoID: context.attributes.memoId, onDark: true)
           }
         }
       } compactLeading: {
@@ -43,6 +44,7 @@ struct MemoLiveActivity: Widget {
       } minimal: {
         IslandGlyph(phase: presentation.phase)
       }
+      .widgetURL(ConversationLink(memoID: context.attributes.memoId).url)
     }
   }
 }
@@ -75,6 +77,23 @@ private struct RecordingControls: View {
       }
     }
     .buttonStyle(.plain)
+  }
+}
+
+/// The done card's actions: Play (an intent that runs in the app) and Reply (a link that opens the conversation with the
+/// keyboard up). Compile-checked only; both on a device are on the device checklist.
+private struct DoneActions: View {
+  let memoID: String
+  let onDark: Bool
+
+  var body: some View {
+    HStack(spacing: Theme.Spacing.sm) {
+      PlayReplyControl(memoID: memoID, onDark: onDark)
+      Link(destination: ConversationLink(memoID: memoID, focus: .keyboard).url) {
+        ActivityControlLabel(
+          .reply, title: String(localized: "Reply", comment: "Live Activity control"), onDark: onDark)
+      }
+    }
   }
 }
 

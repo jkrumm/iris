@@ -7,6 +7,8 @@ public struct ActivityControlLabel: View {
     case stop, switchInput, pause, resume
     /// Speaks the finished memo's reply (the done card's action).
     case play
+    /// Opens the finished memo's conversation with the keyboard up (the done card's second action).
+    case reply
   }
 
   /// The height of a control in the row (`la.css` `.btns .btn`).
@@ -54,6 +56,13 @@ public struct ActivityControlLabel: View {
       icon("play.fill")
     case .play:
       Label(title, systemImage: "speaker.wave.2.fill")
+        .labelStyle(.titleAndIcon)
+        .font(.system(size: 15, weight: .semibold))
+        .foregroundStyle(iconInk)
+        .frame(maxWidth: .infinity, minHeight: Self.height)
+        .background(iconFill, in: .capsule)
+    case .reply:
+      Label(title, systemImage: "arrowshape.turn.up.left.fill")
         .labelStyle(.titleAndIcon)
         .font(.system(size: 15, weight: .semibold))
         .foregroundStyle(iconInk)

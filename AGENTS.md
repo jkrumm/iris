@@ -167,7 +167,7 @@ the phone (`devicectl list devices`, the connected physical iOS device) resolves
   `.notifications` are three; never rename them), 3 devices, no APNs token and no remote Live Activity.
 - **APNs on the phone:** `PushRegistrar` (apple/Iris, `PushAppDelegate` forwards the callbacks) registers once a connection is saved and sends the hex token
   with `apnsEnv` through `devices/register`: `sandbox` on a Debug build (`#if DEBUG`, what `make device` installs), `production` on Release (TestFlight).
-  Details: TDD §4 Notifications. Only the Iris iOS targets are built by `make device`; `IrisMac` and the test bundles are not.
+  `MEMO_DONE` carries Reply, Reply by voice and Play; taps, actions and the Live Activity's Reply/card open `iris://memo/<id>` (`ConversationLink`, `ConversationRouter`). Details: TDD §4 Notifications. Only the Iris iOS targets are built by `make device`; `IrisMac` and the test bundles are not.
 - **First install:** the first `-allowProvisioningUpdates` build registers the device; the owner must trust the developer once on the phone (Settings >
   General > VPN & Device Management) or `launch` fails with "invalid code signature ... profile has not been explicitly trusted".
   A codesign keychain prompt on the mini's screen needs "Always Allow" (not seen so far: the build signed headless).
