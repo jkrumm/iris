@@ -2,7 +2,7 @@ import CoreGraphics
 import SwiftUI
 import Textual
 
-/// An assistant reply laid out block by block: Textual for text, lists, links, code and quotes, the grid-or-cards table,
+/// An assistant reply laid out block by block: Textual for text, lists, links, code and quotes, the sideways-scrolling table,
 /// and the server's Mermaid images. A Mermaid fence the server did not render (no entry in `mermaid`) shows as code.
 public struct MessageContentView: View {
   private let blocks: [MessageBlock]
@@ -47,7 +47,8 @@ public struct MessageContentView: View {
   }
 
   private func markdown(_ text: String) -> some View {
-    StructuredText(markdown: text)
+    let math = MathSpans.prepare(text)
+    return StructuredText(markdown: math ?? text, syntaxExtensions: math == nil ? [] : [.math])
       .textual.inlineStyle(.iris)
       .irisMarkdown()
       .textual.textSelection(.enabled)

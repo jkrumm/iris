@@ -120,19 +120,24 @@ struct IrisBlockQuoteStyle: StructuredText.BlockQuoteStyle {
   }
 }
 
-/// A fenced block: the language on a header line, then the code on the JetBrains editor surface, scrolling sideways
-/// instead of wrapping. A fade on the trailing edge says there is more to scroll to.
+/// A fenced block: a header line with the language on the leading side and a copy button on the trailing one, then the code on
+/// the JetBrains editor surface, scrolling sideways instead of wrapping. A fade on the trailing edge says there is more to
+/// scroll to.
 struct IrisCodeBlockStyle: StructuredText.CodeBlockStyle {
   func makeBody(configuration: Configuration) -> some View {
     VStack(alignment: .leading, spacing: 0) {
-      if let language = configuration.languageHint, !language.isEmpty {
-        Text(verbatim: language)
-          .font(.system(size: 11, weight: .semibold, design: .monospaced))
-          .textCase(.uppercase)
-          .foregroundStyle(CodeColors.label)
-          .padding(.horizontal, Theme.Spacing.md)
-          .padding(.top, Theme.Spacing.sm)
+      HStack(spacing: 0) {
+        if let language = configuration.languageHint, !language.isEmpty {
+          Text(verbatim: language)
+            .font(.system(size: 11, weight: .semibold, design: .monospaced))
+            .textCase(.uppercase)
+            .foregroundStyle(CodeColors.label)
+        }
+        Spacer(minLength: 0)
+        CopyCodeButton(copy: configuration.codeBlock.copyToPasteboard)
       }
+      .padding(.horizontal, Theme.Spacing.md)
+      .padding(.top, Theme.Spacing.sm)
       OverflowingCode(label: configuration.label)
     }
     .frame(maxWidth: .infinity, alignment: .leading)
@@ -142,6 +147,44 @@ struct IrisCodeBlockStyle: StructuredText.CodeBlockStyle {
       RoundedRectangle(cornerRadius: Theme.Radius.control).strokeBorder(Theme.Surface.border, lineWidth: 0.5)
     }
     .textual.blockSpacing(.fontScaled(top: 0.8, bottom: 0))
+  }
+}
+
+/// The copy icon of a code block's header: it turns into a checkmark for a moment after a tap. The icon is the header's height;
+/// the hit area reaches out to a ``Theme/Spacing/tapTarget`` square around it without making the header taller.
+private struct CopyCodeButton: View {
+  let copy: () -> Void
+  @State private var copied = false
+  private static let iconSize: CGFloat = 16
+  private static let confirmation = Duration.milliseconds(1500)
+
+  var body: some View {
+    Button {
+      copy()
+      copied = true
+    } label: {
+      Image(systemName: copied ? "checkmark" : "doc.on.doc")
+        .font(.system(size: 12, weight: .semibold))
+        .foregroundStyle(CodeColors.label)
+        .contentTransition(.symbolEffect(.replace))
+        .frame(width: Self.iconSize, height: Self.iconSize)
+        .contentShape(Rectangle().inset(by: -(Theme.Spacing.tapTarget - Self.iconSize) / 2))
+    }
+    .buttonStyle(.plain)
+    .accessibilityLabel(
+      copied
+        ? String(
+          localized: "Copied", bundle: #bundle,
+          comment: "VoiceOver label of a code block's copy button right after it copied")
+        : String(localized: "Copy code", bundle: #bundle, comment: "VoiceOver label of the copy button on a code block")
+    )
+    .accessibilityIdentifier("thread.codeCopy")
+    .task(id: copied) {
+      guard copied else { return }
+      do { try await Task.sleep(for: Self.confirmation) } catch { return }
+      copied = false
+    }
+    .animation(.default, value: copied)
   }
 }
 

@@ -95,7 +95,9 @@ struct MessageBlockTests {
     #expect(
       MessageBlock.split(reply) == [
         .markdown("Before\n"),
-        .table(MarkdownTable(headers: ["Name", "Note"], rows: [["a", "x | y"], ["b", ""]])),
+        .table(
+          MarkdownTable(
+            headers: ["Name", "Note"], rows: [["a", "x | y"], ["b", ""]], alignments: [.leading, .trailing])),
         .markdown("\nAfter"),
       ])
   }
@@ -108,6 +110,24 @@ struct MessageBlockTests {
     #expect(MessageBlock.split("a | b\nplain line") == [.markdown("a | b\nplain line")])
     let fenced = "```\n| A | B |\n|-|-|\n| 1 | 2 |\n```"
     #expect(MessageBlock.split(fenced) == [.markdown(fenced)])
+  }
+
+  @Test("the delimiter row's colons set each column's alignment; none means leading")
+  func tableAlignments() {
+    let reply = "| A | B | C | D |\n|:--|:-:|--:|---|\n| 1 | 2 | 3 | 4 |"
+    #expect(
+      MessageBlock.split(reply)
+        == [
+          .table(
+            MarkdownTable(
+              headers: ["A", "B", "C", "D"], rows: [["1", "2", "3", "4"]],
+              alignments: [.leading, .center, .trailing, .leading]))
+        ])
+  }
+
+  @Test("a table built without alignments is all leading")
+  func defaultAlignments() {
+    #expect(MarkdownTable(headers: ["A", "B"], rows: []).alignments == [.leading, .leading])
   }
 
   @Test("a delimiter row of another width is no table")

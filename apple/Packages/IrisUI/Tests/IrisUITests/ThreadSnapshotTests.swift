@@ -217,6 +217,51 @@
       Self.assert(view, width: 390, height: 520)
     }
 
+    @Test(
+      "a table wider than the screen scrolls sideways: a long cell wraps, columns follow their alignment",
+      .tags(.snapshot))
+    func tablesScroll() {
+      let table = MarkdownTable(
+        headers: ["Step", "What it does", "Attempts", "Median", "p95"],
+        rows: [
+          [
+            "transcribe", "Turns the segments into text and keeps the words the speaker stressed for the next step",
+            "2",
+            "1.8 s", "6.2 s",
+          ],
+          ["act", "Types the transcript again", "1", "0.4 s", "1.1 s"],
+        ],
+        alignments: [.leading, .leading, .center, .trailing, .trailing])
+      let view = MarkdownTableView(table: table).padding(Theme.Spacing.lg)
+      Self.assert(view, width: 390, height: 260)
+    }
+
+    @Test("inline and block LaTeX render as formulas, a price next to them stays text", .tags(.snapshot))
+    func math() {
+      let markdown = """
+        The energy is $E = mc^2$ and a coffee costs $5 or $6.
+
+        $$\\int_0^1 x^2\\,dx = \\frac{1}{3}$$
+        """
+      let view = MessageContentView(markdown: markdown).padding(Theme.Spacing.lg)
+      Self.assert(view, width: 390, height: 200)
+    }
+
+    @Test("every code block has a copy button, with or without a language", .tags(.snapshot))
+    func codeCopy() {
+      let markdown = """
+        ```swift
+        let delay = backoff(attempt)
+        ```
+
+        ```
+        plain text, no language
+        ```
+        """
+      let view = MessageContentView(markdown: markdown).padding(Theme.Spacing.lg)
+      Self.assert(view, width: 390, height: 220)
+    }
+
     @Test("a diagram that failed to load can be retried", .tags(.snapshot))
     func diagramFailed() {
       let view = MermaidImageView(asset: Self.asset, onOpen: { _ in }).padding(Theme.Spacing.lg)

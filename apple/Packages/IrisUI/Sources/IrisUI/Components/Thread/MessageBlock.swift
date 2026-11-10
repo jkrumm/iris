@@ -1,7 +1,7 @@
 import Foundation
 
 /// One piece of an assistant reply as the thread view lays it out. Textual renders `markdown`; the other two are
-/// what it cannot give a narrow phone: a table that turns into cards, and a Mermaid diagram the server rendered.
+/// what it cannot give a narrow phone: a table that scrolls sideways, and a Mermaid diagram the server rendered.
 public enum MessageBlock: Equatable, Sendable {
   case markdown(String)
   case table(MarkdownTable)
@@ -10,14 +10,22 @@ public enum MessageBlock: Equatable, Sendable {
   case mermaid(index: Int, source: String)
 }
 
-/// A GitHub-flavoured pipe table: a header row and the body rows, each padded or cut to the header's width.
+/// A GitHub-flavoured pipe table: a header row and the body rows, each padded or cut to the header's width, and how each
+/// column is aligned (the delimiter row's colons).
 public struct MarkdownTable: Equatable, Sendable {
+  public enum Alignment: Equatable, Sendable {
+    case leading, center, trailing
+  }
+
   public var headers: [String]
   public var rows: [[String]]
+  /// One per header; a column with no colon in its delimiter cell is `.leading`.
+  public var alignments: [Alignment]
 
-  public init(headers: [String], rows: [[String]]) {
+  public init(headers: [String], rows: [[String]], alignments: [Alignment] = []) {
     self.headers = headers
     self.rows = rows
+    self.alignments = headers.indices.map { alignments.indices.contains($0) ? alignments[$0] : .leading }
   }
 }
 
@@ -30,7 +38,7 @@ extension MessageBlock {
     return splitter.run(markdown)
   }
 
-  private struct Fence {
+  struct Fence {
     var marker: Character
     var length: Int
     var isMermaid: Bool
@@ -168,7 +176,7 @@ extension MessageBlock {
     return result
   }
 
-  private static func backtickRun(in characters: [Character], at start: Int) -> Int {
+  static func backtickRun(in characters: [Character], at start: Int) -> Int {
     var end = start
     while end < characters.count, characters[end] == "`" { end += 1 }
     return end - start
@@ -177,14 +185,14 @@ extension MessageBlock {
   // MARK: Fences
 
   /// ```` ``` ```` or `~~~` up to three spaces in, then an info string (which cannot hold a backtick after a backtick fence).
-  private static func opening(_ line: String) -> Fence? {
+  static func opening(_ line: String) -> Fence? {
     guard let (marker, length, info) = fenceParts(line) else { return nil }
     if marker == "`", info.contains("`") { return nil }
     let language = info.split(whereSeparator: \.isWhitespace).first.map { $0.lowercased() }
     return Fence(marker: marker, length: length, isMermaid: language == "mermaid", lines: [])
   }
 
-  private static func closes(_ line: String, fence: Fence) -> Bool {
+  static func closes(_ line: String, fence: Fence) -> Bool {
     guard let (marker, length, info) = fenceParts(line) else { return false }
     return marker == fence.marker && length >= fence.length && info.isEmpty
   }
@@ -222,7 +230,15 @@ extension MessageBlock {
       rows.append(Array(row.prefix(headers.count)))
       index += 1
     }
-    return (MarkdownTable(headers: headers, rows: rows), index)
+    return (MarkdownTable(headers: headers, rows: rows, alignments: delimiter.map(alignment(ofDelimiterCell:))), index)
+  }
+
+  private static func alignment(ofDelimiterCell cell: String) -> MarkdownTable.Alignment {
+    switch (cell.hasPrefix(":"), cell.hasSuffix(":")) {
+    case (true, true): .center
+    case (false, true): .trailing
+    default: .leading
+    }
   }
 
   private static func isDelimiterCell(_ cell: String) -> Bool {
