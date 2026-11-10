@@ -60,6 +60,39 @@ enum MathSpans {
     return tokens
   }
 
+  /// Where a `$$` or `$` span that is still being typed starts: an opening delimiter the reply has not closed yet. A single
+  /// dollar counts only on the last line (it cannot span lines) and not when it reads as a price ("$12.50").
+  static func unclosedSpanStart(in markdown: String) -> String.Index? {
+    guard markdown.contains("$"), case .text(let tail)? = tokens(in: markdown).last else { return nil }
+    let c = Array(tail)
+    let base = markdown.index(markdown.endIndex, offsetBy: -c.count)
+    func position(_ offset: Int) -> String.Index { markdown.index(base, offsetBy: offset) }
+    var index = 0
+    while index < c.count {
+      if c[index] == "\\" {
+        index += 2
+      } else if c[index] == "$", index + 1 < c.count, c[index + 1] == "$" {
+        return position(index)
+      } else {
+        index += 1
+      }
+    }
+    var last: Int?
+    var scan = c.lastIndex(of: "\n").map { $0 + 1 } ?? 0
+    while scan < c.count {
+      if c[scan] == "\\" {
+        scan += 2
+        continue
+      }
+      if c[scan] == "$" { last = scan }
+      scan += 1
+    }
+    guard let last, last + 1 < c.count, !c[last + 1].isWhitespace else { return nil }
+    let word = c[(last + 1)...].prefix { !$0.isWhitespace }
+    if word.first?.isWholeNumber == true, word.allSatisfy({ $0.isWholeNumber || $0 == "." || $0 == "," }) { return nil }
+    return position(last)
+  }
+
   // MARK: Scanning
 
   private static func scan(_ prose: String) -> [Token] {
@@ -103,7 +136,7 @@ enum MathSpans {
   }
 
   /// The start of the run of the same length that closes the code span opened at `opening`.
-  private static func codeSpanClose(in characters: [Character], opening: Int, length: Int) -> Int? {
+  static func codeSpanClose(in characters: [Character], opening: Int, length: Int) -> Int? {
     var search = opening + length
     while search < characters.count {
       guard characters[search] == "`" else {

@@ -38,7 +38,7 @@ extension StructuredText.HighlighterTheme {
 struct IrisParagraphStyle: StructuredText.ParagraphStyle {
   private static let lineSpacing: CGFloat = 0.31
   /// 10 pt at the 16 pt body.
-  private static let spaceAbove: CGFloat = 0.625
+  static let spaceAbove: CGFloat = 0.625
 
   /// 6 pt at the 16 pt body.
   static let listItemSpacing = FontScaled<StructuredText.BlockSpacing>.fontScaled(top: 0.375)
@@ -80,9 +80,14 @@ struct IrisHeadingStyle: StructuredText.HeadingStyle {
   private static let lastPrimaryLevel = 3
   private static let lineSpacing: CGFloat = 0.15
   private static let spaceAboveRuled: CGFloat = 1.4
-  private static let spaceAbove: CGFloat = 1.0
+  private static let spaceAboveUnruled: CGFloat = 1.0
   private static let spaceBelow: CGFloat = 0.5
   private static let hairline: CGFloat = 1
+
+  /// The gap above a heading of `level`, in body-font ems.
+  static func spaceAbove(level: Int) -> CGFloat {
+    level <= lastRuledLevel ? spaceAboveRuled : spaceAboveUnruled
+  }
 
   func makeBody(configuration: Configuration) -> some View {
     let level = min(max(configuration.headingLevel, 1), Self.scales.count)
@@ -91,7 +96,7 @@ struct IrisHeadingStyle: StructuredText.HeadingStyle {
       .textual.fontScale(Self.scales[level - 1])
       .textual.lineSpacing(.fontScaled(Self.lineSpacing))
       .textual.blockSpacing(
-        .fontScaled(top: isRuled ? Self.spaceAboveRuled : Self.spaceAbove, bottom: Self.spaceBelow)
+        .fontScaled(top: Self.spaceAbove(level: level), bottom: Self.spaceBelow)
       )
       .fontWeight(.semibold)
       .foregroundStyle(level <= Self.lastPrimaryLevel ? Theme.Ink.primary : Theme.Ink.secondary)
