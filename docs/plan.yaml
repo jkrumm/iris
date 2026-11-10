@@ -127,7 +127,8 @@ rows:
         apple.yml green.
       limits: One make proof-apple run. No React, no build step yet; the test page is hand-written HTML.
 
-  - key: stream-events
+  - key: stream-events-opus
+    seat: {tier: opus, effort: high}
     after: [hermes-frames]
     title: "Server: stream reply text and tool activity of a running Hermes turn to clients"
     facts:
@@ -156,7 +157,8 @@ rows:
         make e2e asserts at least two deltas before memo.done; make check and make check-contracts pass; the Swift
         fixtures decode in IrisCore's tests (CI); TDD §3 no longer says there is no token stream.
 
-  - key: artifacts-server
+  - key: artifacts-server-opus
+    seat: {tier: opus, effort: high}
     after: [hermes-frames]
     title: "Server: typed reply artifacts beside Mermaid (show specs and documents)"
     facts:
@@ -189,7 +191,8 @@ rows:
         fixtures for every spec type; TDD and AGENTS.md describe the kinds.
 
   - key: web-renderer
-    after: [artifacts-server]
+    seat: {tier: sonnet, effort: high}
+    after: [artifacts-server-opus]
     title: The bundled artifact renderer (web/), developed and tested in a browser
     facts:
       why: >-
@@ -217,6 +220,7 @@ rows:
         changed except the resource bundle.
 
   - key: conversation-unify
+    seat: {tier: opus, effort: high}
     after: [ci-apple-split, prose-renderer]
     title: "One conversation: every Hermes memo is a chat, shared by iOS and Mac from IrisUI"
     facts:
@@ -253,7 +257,8 @@ rows:
         UI is not redesigned here (row mac-conversation).
 
   - key: ios-streaming
-    after: [stream-events, conversation-unify]
+    seat: {tier: sonnet, effort: high}
+    after: [stream-events-opus, conversation-unify]
     title: "iOS: the reply streams into the conversation with a live tool line"
     facts:
       why: >-
@@ -277,6 +282,7 @@ rows:
       limits: One targeted local run (make uitest ONLY=<class>).
 
   - key: ios-continue-anywhere
+    seat: {tier: sonnet, effort: high}
     after: [conversation-unify]
     title: "iOS: continue a conversation from the notification, the Live Activity and the record row"
     facts:
@@ -304,6 +310,7 @@ rows:
       limits: One targeted local run. Device behaviour stays marked unverified until the owner's check.
 
   - key: mac-conversation
+    seat: {tier: sonnet, effort: high}
     after: [ios-streaming]
     title: "Mac: quick-ask in the popover, streaming, voice reply and a keyboard-first conversation"
     facts:
@@ -332,6 +339,7 @@ rows:
       limits: One make proof-apple run.
 
   - key: artifact-islands
+    seat: {tier: opus, effort: high}
     after: [webview-island-spike, web-renderer, conversation-unify]
     title: "iOS and Mac: artifacts inline in the conversation and in a fullscreen viewer"
     facts:
@@ -358,8 +366,9 @@ rows:
       limits: One make proof-apple run.
 
   - key: hermes-artifact-skill
+    seat: {tier: sonnet, effort: medium}
     repo: hermes-agent
-    after: [artifacts-server]
+    after: [artifacts-server-opus]
     title: The iris skill teaches Hermes when and how to answer with an artifact
     facts:
       why: >-
