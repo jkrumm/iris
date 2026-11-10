@@ -275,7 +275,7 @@ sim-slim: ## (Re)apply scripts/sim-slim to the pinned simulator (disables poster
 
 .PHONY: _sim
 _sim:
-	@$(if $(CI),,scripts/sim-slim)
+	@$(if $(CI),,scripts/sim-slim || echo "  sim-slim failed, the simulator boots stock")
 	@u="$(SIM_UDID)"; [ -n "$$u" ] || { echo "  no simulator '$(SIM_NAME)' on iOS $(SIM_OS) (xcrun simctl list devices available)"; exit 1; }; \
 	xcrun simctl boot "$$u" 2>/dev/null || true; \
 	xcrun simctl bootstatus "$$u" -b >/dev/null; \

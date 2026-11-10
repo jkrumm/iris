@@ -91,7 +91,15 @@ fi
 echo "  sim-slim: disabling ${#labels[@]} services on $name iOS $os ($udid)"
 xcrun simctl shutdown all >/dev/null 2>&1
 xcrun simctl boot "$udid" || exit 1
-until xcrun simctl spawn "$udid" launchctl print-disabled system >/dev/null 2>&1; do sleep 1; done
+for _ in $(seq 1 120); do
+  xcrun simctl spawn "$udid" launchctl print-disabled system >/dev/null 2>&1 && break
+  sleep 1
+done
+if ! xcrun simctl spawn "$udid" launchctl print-disabled system >/dev/null 2>&1; then
+  echo "sim-slim: the device never answered launchctl; boots stock" >&2
+  xcrun simctl shutdown all >/dev/null 2>&1
+  exit 1
+fi
 printf '%s\n' "${labels[@]}" | xargs -P 8 -I{} xcrun simctl spawn "$udid" launchctl disable "system/{}" >/dev/null 2>&1
 xcrun simctl shutdown "$udid"
 mkdir -p "$(dirname "$marker")" && echo "$stamp" >"$marker"
