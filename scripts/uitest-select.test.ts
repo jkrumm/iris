@@ -29,7 +29,7 @@ declaredClasses.delete("IrisUITestCase");
 describe("select", () => {
   it("maps a screen's file to that screen's classes", () => {
     const { classes } = select(["apple/Iris/HistoryView.swift"], uiTestMap);
-    expect(classes).toEqual(["HistorySwipeUITests", "SmokeUITests"]);
+    expect(classes).toEqual(["HistorySwipeUITests", "SmokeUITests", "ThreadUITests"]);
   });
 
   it("unions the classes of several files", () => {
