@@ -1,0 +1,4 @@
+baseline webcontent_processes=0 webcontent_footprint_mb=0.0 webcontent_source=rss app_footprint_mb=85.3
+islands=1 webcontent_processes=1 webcontent_footprint_mb=13.0 webcontent_source=footprint app_footprint_mb=85.3
+islands=5 webcontent_processes=5 webcontent_footprint_mb=66.0 webcontent_source=footprint app_footprint_mb=87.2
+islands=10 webcontent_processes=10 webcontent_footprint_mb=139.0 webcontent_source=footprint app_footprint_mb=89.0

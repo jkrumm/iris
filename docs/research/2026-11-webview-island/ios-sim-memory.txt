@@ -1,0 +1,4 @@
+baseline webcontent_pids=0
+islands=1 webcontent_processes=1 webcontent_footprint_mb=256.1 webcontent_source=rss app_footprint_mb=333.0
+islands=5 webcontent_processes=5 webcontent_footprint_mb=1158.5 webcontent_source=rss app_footprint_mb=328.8
+islands=10 webcontent_processes=10 webcontent_footprint_mb=2214.9 webcontent_source=rss app_footprint_mb=332.7
