@@ -164,6 +164,42 @@ function parseData(frame: SseFrame): unknown {
   }
 }
 
+const SHAPE_EVENT_MAX_CHARS = 40;
+const SHAPE_EVENT_MAX_NAMES = 30;
+
+/**
+ * Collects what the stream looked like, never what it said: per event name the frame count and the union of the top-level
+ * key names of its JSON-object data. Event names come from the wire, so they are clipped and capped.
+ */
+function frameShape() {
+  // Maps, not objects: event names come from the wire (`constructor`, `__proto__`).
+  const counts = new Map<string, number>();
+  const keySets = new Map<string, Set<string>>();
+  return {
+    add(frame: SseFrame): void {
+      const name = frame.event.slice(0, SHAPE_EVENT_MAX_CHARS);
+      if (!counts.has(name) && counts.size >= SHAPE_EVENT_MAX_NAMES) return;
+      counts.set(name, (counts.get(name) ?? 0) + 1);
+      let data: unknown;
+      try {
+        data = JSON.parse(frame.data);
+      } catch {
+        return;
+      }
+      if (typeof data !== "object" || data === null || Array.isArray(data)) return;
+      const set = keySets.get(name) ?? new Set<string>();
+      for (const key of Object.keys(data)) set.add(key.slice(0, SHAPE_EVENT_MAX_CHARS));
+      keySets.set(name, set);
+    },
+    fields() {
+      return {
+        events: Object.fromEntries(counts),
+        keys: Object.fromEntries([...keySets].map(([name, set]) => [name, [...set].toSorted()])),
+      };
+    },
+  };
+}
+
 /**
  * Delivers a transcript to Hermes: a fresh session named after the memo (or, with a `threadId`, a turn into that existing
  * session), one chat turn over the named-event SSE stream with `systemMessage(mode)` as the turn's system prompt, and the final
@@ -241,9 +277,11 @@ export function createHermesDestination(opts: HermesDestinationOptions): Destina
         let usage: { inputTokens: number; outputTokens: number; totalTokens: number } | undefined;
         let sawDone = false;
         const toolNames: string[] = [];
+        const shape = frameShape();
 
         try {
           for await (const frame of readSseFrames(res.body, { idleMs })) {
+            shape.add(frame);
             if (frame.event === "assistant.completed") {
               const completed = AssistantCompleted.safeParse(parseData(frame));
               if (completed.success && !completed.data.partial) reply = completed.data;
@@ -289,6 +327,7 @@ export function createHermesDestination(opts: HermesDestinationOptions): Destina
           headline: parsed.meta?.headline ?? null,
           actions,
         };
+        log("hermes.frames", { memo_id: memoId, ...shape.fields() });
         log("hermes.delivered", {
           memo_id: memoId,
           reply_chars: parsed.reply.length,

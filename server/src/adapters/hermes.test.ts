@@ -591,4 +591,66 @@ describe("hermes destination, the iris block and tools", () => {
     const { lines } = await captureLogs(() => run([completed(`ok${irisBlock(valid)}`), done]));
     expect(lines.some((l) => l["event"] === "hermes.meta_invalid")).toBe(false);
   });
+
+  it("logs hermes.frames with event counts and key names, never values", async () => {
+    const secrets = ["secret-delta", "secret-args", "secret-reply"];
+    const { lines } = await captureLogs(() =>
+      run([
+        frame("assistant.delta", { delta: secrets[0] }),
+        frame("assistant.delta", { delta: secrets[0], extra: 1 }),
+        toolStarted({ tool_name: "t1", args: { q: secrets[1] } }),
+        frame("tool.completed", { tool_name: "t1" }),
+        completed(secrets[2] ?? ""),
+        runCompleted,
+        done,
+      ]),
+    );
+    const logged = lines.filter((l) => l["event"] === "hermes.frames");
+    expect(logged).toHaveLength(1);
+    const line = logged[0] ?? {};
+    expect(line["memo_id"]).toBe(MEMO_ID);
+    expect(line["events"]).toEqual({
+      "assistant.delta": 2,
+      "tool.started": 1,
+      "tool.completed": 1,
+      "assistant.completed": 1,
+      "run.completed": 1,
+      done: 1,
+    });
+    const keys = line["keys"] as Record<string, string[]>;
+    expect(keys["assistant.delta"]).toEqual([
+      "delta",
+      "extra",
+      "run_id",
+      "seq",
+      "session_id",
+      "ts",
+    ]);
+    expect(keys["tool.started"]).toEqual([
+      "args",
+      "run_id",
+      "seq",
+      "session_id",
+      "tool_name",
+      "ts",
+    ]);
+    for (const secret of secrets) expect(JSON.stringify(line)).not.toContain(secret);
+  });
+
+  it("records no keys for a non-object frame and does not throw", async () => {
+    const { result, lines } = await captureLogs(() =>
+      run([
+        "event: mystery\ndata: [1,2]\n\n",
+        "event: mystery\ndata: not json\n\n",
+        "event: constructor\ndata: {}\n\n",
+        completed("ok"),
+        done,
+      ]),
+    );
+    expect(result.replyText).toBe("ok");
+    const line = lines.find((l) => l["event"] === "hermes.frames") ?? {};
+    expect((line["events"] as Record<string, number>)["mystery"]).toBe(2);
+    expect((line["events"] as Record<string, number>)["constructor"]).toBe(1);
+    expect(line["keys"]).not.toHaveProperty("mystery");
+  });
 });
