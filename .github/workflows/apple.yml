@@ -99,13 +99,14 @@ jobs:
           echo "UI tests: ${only/ALL/the full suite}" >> "$GITHUB_STEP_SUMMARY"
       - name: UI tests
         env:
-          ONLY: ${{ steps.select.outputs.only }}
+          # Not ONLY: make reads that name from the environment as its own filter.
+          SELECTED: ${{ steps.select.outputs.only }}
         run: |
-          if [ "$ONLY" = ALL ]; then
+          if [ "$SELECTED" = ALL ]; then
             make uitest
           else
-            echo "UI tests: IrisTests + $ONLY"
-            make uitest ONLY="$ONLY" UNIT=1
+            echo "UI tests: IrisTests + $SELECTED"
+            make uitest ONLY="$SELECTED" UNIT=1
           fi
       - uses: ./.github/actions/apple
         if: github.event_name != 'pull_request'
