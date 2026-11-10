@@ -259,17 +259,22 @@ rows:
   - key: ios-streaming
     seat: {tier: sonnet, effort: high}
     after: [stream-events-opus, conversation-unify]
-    title: "iOS: the reply streams into the conversation with a live tool line"
+    title: "iOS: live tool progress in the running turn, and the reply streams in when Hermes streams"
     facts:
       why: >-
         The server now sends memo.delta and memo.activity (row stream-events); the phone still shows step dashes until
-        the turn is over.
+        the turn is over. docs/research/2026-11-hermes-frames.md proved that Hermes's text deltas are NOT live with the
+        current provider: all of them arrive in one burst after the last model call, while tool.started /
+        tool.completed arrive live, 2 to 4 s apart. The live signal today is tool progress, not text.
       what: >-
         apple/Packages/IrisCore (SSE consumption), the shared conversation component in IrisUI, apple/Iris
         (HistoryModel event fan-out, the conversation model), the fake API (streams its sample replies), tests, String
         catalogs, TDD §4.
       change: >-
-        The pending turn becomes a streaming turn: text from memo.delta rendered by the streaming prose renderer
+        Lead with tool progress: the pending turn shows a live activity list from memo.activity (each tool as it
+        starts, the current one animated, "Using terminal", "Reading skill: brain"), replacing the generic step dashes
+        while act runs. Text: build the delta path below so it lights up as soon as Hermes streams live, but do not
+        design the screen around it. The pending turn becomes a streaming turn: text from memo.delta rendered by the streaming prose renderer
         (isStreaming), a quiet activity line under it from memo.activity ("Using terminal"), the buffer reset on a new
         `attempt`, the base text from the memo's partialReply when the screen opens mid-turn, and the final memo
         (reply_text, artifacts, kind chip) replacing the stream at `acted` without a jump. The list sticks to the
@@ -277,9 +282,33 @@ rows:
         Deltas are display only: never logged, stored or put into telemetry. Reduce Motion: no per-chunk animation.
       acceptance: >-
         Package tests drive the conversation model with a scripted event sequence (deltas, a replayed attempt, a
-        mid-turn open, the final memo) and assert the shown text at each point; a UI test with the fake API sees
-        partial text before the final reply; CI apple.yml green.
+        mid-turn open, the final memo) and assert the shown text at each point; a UI test with the fake API sees the
+        activity list grow tool by tool before the final reply; CI apple.yml green.
       limits: One targeted local run (make uitest ONLY=<class>).
+
+  - key: hermes-live-deltas
+    repo: hermes-agent
+    seat: {tier: sonnet, effort: high}
+    title: Find why assistant.delta frames arrive in one burst after the last model call, and make them live if cheap
+    facts:
+      why: >-
+        Iris now forwards Hermes's text deltas to the phone and the Mac, but a recorded turn
+        (~/SourceRoot/iris/docs/research/2026-11-hermes-frames.md) shows all 28 assistant.delta frames enqueued within
+        one millisecond after the last tool finished, 0.07 s before assistant.completed. So the user sees no text until
+        the turn is over, only tool progress.
+      what: >-
+        gateway/platforms/api_server.py (the chat/stream SSE route) and the agent loop's model call path; the model
+        provider client configuration. No change to the frame names or keys Iris parses.
+      change: >-
+        Find where the burst comes from: a non-streaming model call whose result is re-chunked, a provider or gateway
+        that buffers, or a queue that is flushed at the end. Write the finding in docs/research/. If the fix is a
+        configuration or a contained code change (streaming the final model call and emitting assistant.delta as
+        tokens arrive), make it; if it needs a provider change or a large refactor, stop at the note and say what it
+        would take.
+      acceptance: >-
+        The note names the cause with file and line. Either a recorded turn shows assistant.delta frames spread over
+        the final model call (timestamps quoted) and the existing api_server tests pass, or the note states why it is
+        not cheap and what it would cost.
 
   - key: ios-continue-anywhere
     seat: {tier: sonnet, effort: high}
