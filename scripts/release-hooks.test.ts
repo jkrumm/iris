@@ -210,3 +210,91 @@ describe.skipIf(!ready)("release-hooks --record-peak", () => {
     expect(await Bun.file(join(home, "peak-mac.kb")).exists()).toBe(true);
   });
 });
+
+describe.skipIf(!ready || !Bun.which("perl"))("release-hooks start", () => {
+  const LAUNCHD_PATH = "/usr/bin:/bin"; // the poller's LaunchAgent PATH, less the user dirs
+
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), "release-hooks-start-"));
+    home = join(dir, "home");
+    app = join(dir, "app");
+    await mkdir(home, { recursive: true });
+    await mkdir(join(dir, "Library", "Logs"), { recursive: true });
+    await mkdir(app, { recursive: true });
+    await writeFile(join(home, "release.env"), "MAC_RELEASE=1\n");
+    git("init", "-q");
+    await writeFile(join(app, "Makefile"), "mac-release:\n\t@true\n");
+    await writeFile(join(dir, "factory-stub"), "#!/bin/sh\nexit 0\n");
+    await chmod(join(dir, "factory-stub"), 0o755);
+    // A stand-in for jobrun: records the PATH the job runs with.
+    await writeFile(
+      join(dir, "jobrun-stub"),
+      `#!/bin/sh\nprintf '%s' "$PATH" > "${dir}/jobrun-path"\n`,
+    );
+    await chmod(join(dir, "jobrun-stub"), 0o755);
+  });
+  afterEach(() => rm(dir, { recursive: true, force: true }));
+
+  const logFile = () => join(dir, "Library", "Logs", "iris-release-mac.log");
+
+  async function waitFor(file: string) {
+    for (let i = 0; i < 100; i++) {
+      if (await Bun.file(file).exists()) return;
+      await Bun.sleep(100);
+    }
+    throw new Error(`${file} never appeared`);
+  }
+
+  // Runs the tick the way the poller's jobrun does: in a process group of its own that is SIGKILLed the moment the script exits.
+  function tickThenKillGroup(sha: string) {
+    return Bun.spawnSync(
+      [
+        "perl",
+        "-MPOSIX",
+        "-e",
+        "POSIX::setsid(); system(@ARGV); kill 9, -$$",
+        "--",
+        "zsh",
+        SCRIPT,
+        sha,
+      ],
+      {
+        env: {
+          PATH: LAUNCHD_PATH,
+          HOME: dir,
+          RELEASE_HOME: home,
+          APP_DIR: app,
+          APPLE_LOCK: join(dir, "apple.lock"),
+          FACTORY_BIN: join(dir, "factory-stub"),
+          JOBRUN_BIN: join(dir, "jobrun-stub"),
+        },
+      },
+    );
+  }
+
+  it("gives the job /usr/sbin (spctl) when the poller's PATH has none", async () => {
+    const head = await commit("apple/a.swift", "1");
+    tickThenKillGroup(head);
+    await waitFor(join(dir, "jobrun-path"));
+    expect((await readFile(join(dir, "jobrun-path"), "utf8")).split(":")).toContain("/usr/sbin");
+  });
+
+  it("the detached job survives the poller killing the script's process group", async () => {
+    const head = await commit("apple/a.swift", "1");
+    const r = tickThenKillGroup(head);
+    await waitFor(join(dir, "jobrun-path"));
+    const log = await readFile(logFile(), "utf8");
+    expect(log).toContain("release: mac: detached job started");
+    expect(r.stdout.toString()).toContain("mac detached job started (confirmed in its log)");
+    expect(r.stdout.toString()).not.toContain("NOT");
+  });
+
+  it("says so when the detached job cannot be set up", async () => {
+    const head = await commit("apple/a.swift", "1");
+    await rm(join(dir, "Library"), { recursive: true });
+    await writeFile(join(dir, "Library"), "not a directory"); // the log cannot be opened
+    const r = tickThenKillGroup(head);
+    expect(r.stdout.toString()).toContain("mac NOT started");
+    expect(r.stdout.toString()).not.toContain("confirmed");
+  });
+});

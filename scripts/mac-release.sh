@@ -185,7 +185,7 @@ if [ "$IDENTITY" = "developer-id" ]; then
   fi
   xcrun stapler staple "$APP"
   xcrun stapler validate "$APP"
-  spctl --assess --type execute --verbose=2 "$APP"
+  /usr/sbin/spctl --assess --type execute --verbose=2 "$APP"
 fi
 
 # --- archive, appcast ----------------------------------------------------------------------------------------------------

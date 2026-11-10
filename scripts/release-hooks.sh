@@ -38,7 +38,10 @@ LOCK_WAIT_SECS=1800
 BUILD_SECS=2400
 JOB_DEADLINE_SECS=4800
 
-export PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"
+# The poller's LaunchAgent has PATH=~/.local/bin:/opt/homebrew/bin:/usr/bin:/bin: no /usr/sbin (`spctl` in mac-release.sh) and no /sbin.
+export PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/sbin:/sbin:/usr/bin:/bin:$PATH"
+JOBRUN_BIN="${JOBRUN_BIN:-jobrun}"
+START_CONFIRM_SECS="${START_CONFIRM_SECS:-10}"
 
 log() {
   print "[$(date '+%Y-%m-%dT%H:%M:%S%z')] release: $*"
@@ -112,22 +115,45 @@ test_slot_busy() {
   (( $? == 75 ))
 }
 
-start_detached() { # <hook> <sha>
-  local hook="$1" sha="$2" logfile="$HOME/Library/Logs/iris-release-$1.log"
-  # A real session of its own (perl's setsid): the poller's jobrun kills its process group on a deadline. Output goes to the log file so
-  # the poller's pipes close at once.
-  perl -MPOSIX -e 'POSIX::setsid(); exec @ARGV or die "exec: $!"' -- \
+# Starts the job in a session of its own and returns only once it is in that session. The poller's jobrun SIGKILLs the process group of the
+# script it ran as soon as the script exits; a child that had not yet called setsid (a bare `perl ... &` and an immediate exit loses that
+# race every time) died with it, which is why a due hook logged "starting detached" and nothing ever ran. Here perl forks, the child
+# setsid()s and signals over a pipe, the foreground parent waits for that byte: no code path leaves the child in the script's group.
+# Output goes to the log file so the poller's pipes close at once. <token> is echoed by the job into the log as its first line.
+start_detached() { # <hook> <sha> <token>
+  local hook="$1" sha="$2" token="$3" logfile="$HOME/Library/Logs/iris-release-$1.log"
+  mkdir -p "${logfile:h}"
+  perl -MPOSIX -e '
+    pipe(R, W) or die "pipe: $!";
+    defined(my $pid = fork) or die "fork: $!";
+    if ($pid) { close W; my $ok = ""; read(R, $ok, 1); exit($ok eq "1" ? 0 : 1) }
+    close R;
+    unless (defined POSIX::setsid()) { syswrite(W, "0"); die "setsid: $!" }
+    syswrite(W, "1"); close W;
+    exec @ARGV or die "exec: $!";
+  ' -- \
     zsh -c '
+      print "[$(date "+%Y-%m-%dT%H:%M:%S%z")] release: $1: detached job started (pid $$, token $5)"
       began=$(date +%s)
-      jobrun "com.jkrumm.iris-release-$1" --owner iris --timeout "$2" --lock "iris-release-$1" -- "$3/scripts/release-hooks.sh" --run "$1" "$4"
+      "$6" "com.jkrumm.iris-release-$1" --owner iris --timeout "$2" --lock "iris-release-$1" -- "$3/scripts/release-hooks.sh" --run "$1" "$4"
       rc=$?
       "$3/scripts/release-hooks.sh" --record-peak "$1" "$began"
       exit $rc
-    ' release-hooks "$hook" "$JOB_DEADLINE_SECS" "$APP_DIR" "$sha" </dev/null >>"$logfile" 2>&1 &
+    ' release-hooks "$hook" "$JOB_DEADLINE_SECS" "$APP_DIR" "$sha" "$token" "$JOBRUN_BIN" </dev/null >>"$logfile" 2>&1
+}
+
+# True once the detached job has written its first line (<token>) into the hook's log, within START_CONFIRM_SECS.
+job_confirmed() { # <hook> <token>
+  local logfile="$HOME/Library/Logs/iris-release-$1.log" i
+  for (( i = 0; i < START_CONFIRM_SECS * 5; i++ )); do
+    grep -qF "token $2)" "$logfile" 2>/dev/null && return 0
+    sleep 0.2
+  done
+  return 1
 }
 
 decide() { # <sha>
-  local sha="$1" hook sw reason failed_age target gated
+  local sha="$1" hook sw reason failed_age target gated token
   for hook in testflight mac; do
     sw=$(hook_field "$hook" switch)
     if ! switch_on "$sw"; then
@@ -153,8 +179,15 @@ decide() { # <sha>
       log "$hook DRY_RUN would start: make $target at ${sha[1,12]} ($reason); scripts/apple-slot, nice -n 10, detached jobrun com.jkrumm.iris-release-$hook"
       continue
     fi
-    log "$hook starting detached: make $target at ${sha[1,12]} ($reason); output in ~/Library/Logs/iris-release-$hook.log"
-    start_detached "$hook" "$sha"
+    token="$(date +%s)-$$-$hook"
+    log "$hook starting: make $target at ${sha[1,12]} ($reason); output in ~/Library/Logs/iris-release-$hook.log"
+    if ! start_detached "$hook" "$sha" "$token"; then
+      log "$hook NOT started: the detached session could not be set up (see ~/Library/Logs/iris-release-$hook.log)"
+    elif job_confirmed "$hook" "$token"; then
+      log "$hook detached job started (confirmed in its log)"
+    else
+      log "$hook NOT confirmed: no line from the detached job in ~/Library/Logs/iris-release-$hook.log within ${START_CONFIRM_SECS} s"
+    fi
   done
 }
 
