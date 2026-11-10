@@ -86,6 +86,7 @@ struct ThreadView: View {
     .navigationBarTitleDisplayMode(.inline)
     .toolbarVisibility(.hidden, for: .tabBar)
     .task(id: refreshToken(model.threadID, model.memoIDs)) { await model.load() }
+    .onAppear { model.reclaimHeld() }
     .onDisappear {
       cancelVoice()
       model.handOver()

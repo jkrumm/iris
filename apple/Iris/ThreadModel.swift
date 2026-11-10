@@ -72,9 +72,16 @@ final class ThreadModel {
     toastTimer = ExpiryTimer(sleep: sleep)
     replyBar = ReplyBarModel(voice: voice, now: now)
     replyBar.onNotice = { [weak self] notice in self?.show(notice) }
-    switch self.heldReplies.reclaim(anchorID: memo.id) {
+    reclaimHeld()
+    rebuild()
+  }
+
+  /// The screen (re)appears: what the queue still holds for the anchor comes back here. Also on a reappear of a screen whose
+  /// model lives on (a full-screen cover such as the diagram zoom ends the presenter's appearance and hands the reply over).
+  func reclaimHeld() {
+    switch heldReplies.reclaim(anchorID: anchor.id) {
     case .held(let text):
-      held = text
+      held = held.map { $0 + "\n" + text } ?? text
     case .draft(let text):
       replyBar.restoreDraft(text)
       showFailure(
@@ -82,7 +89,7 @@ final class ThreadModel {
           localized: "A reply you wrote earlier could not be sent. It is back in the field.",
           comment: "Toast when a reply handed over by a closed screen found no conversation to go to"))
     case nil:
-      break
+      return
     }
     rebuild()
   }
