@@ -64,7 +64,8 @@ let fixtureTypes: [String: RoundTrip] = [
 /// `everySchemaIsMapped` does not ask for a type, but still requires the schema file to exist.
 ///
 /// - `telemetry.*` (`POST /v1/telemetry`): `IrisTelemetry`, its `FixtureConformanceTests`.
-let decodedElsewhere: Set<String> = ["telemetry.request", "telemetry.response"]
+/// - `artifacts.show-spec`: the body of an `iris-show` fence, served as JSON by the asset route; no Swift type yet (a client renderer follows).
+let decodedElsewhere: Set<String> = ["telemetry.request", "telemetry.response", "artifacts.show-spec"]
 
 @Suite("Contract fixtures")
 struct FixtureConformanceTests {

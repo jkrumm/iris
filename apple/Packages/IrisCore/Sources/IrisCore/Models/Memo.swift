@@ -49,8 +49,39 @@ public struct ReplyBlock: Codable, Hashable, Sendable {
   }
 }
 
+/// A typed artifact of a reply: an `iris-show` spec (JSON) or an `iris-doc` document, fetched from
+/// `GET /v1/memos/:id/assets/:assetId`. `index` counts the reply's fences of the same kind from zero; `title` and
+/// `format` are omitted on the wire when unknown (`format` is only set on a document).
+public struct ReplyArtifact: Codable, Hashable, Sendable {
+  public enum Kind: String, Codable, Hashable, Sendable {
+    case show
+    case doc
+  }
+
+  public enum Format: String, Codable, Hashable, Sendable {
+    case markdown
+    case html
+  }
+
+  public var index: Int
+  public var kind: Kind
+  public var title: String?
+  public var format: Format?
+  public var assetId: String
+  public var bytes: Int
+
+  public init(index: Int, kind: Kind, title: String? = nil, format: Format? = nil, assetId: String, bytes: Int) {
+    self.index = index
+    self.kind = kind
+    self.title = title
+    self.format = format
+    self.assetId = assetId
+    self.bytes = bytes
+  }
+}
+
 /// A memo as returned by create, complete, retry, result and list. Every key is always present on the
-/// wire, unset ones as explicit `null`, which `encode(to:)` reproduces; the exceptions are `threadId`, `typed`, `replyBlocks`, `deletedAt` and `purgeAt`, which are omitted when `nil` / `false` / empty.
+/// wire, unset ones as explicit `null`, which `encode(to:)` reproduces; the exceptions are `threadId`, `typed`, `replyBlocks`, `replyArtifacts`, `deletedAt` and `purgeAt`, which are omitted when `nil` / `false` / empty.
 public struct Memo: Codable, Hashable, Sendable, Identifiable {
   public var id: String
   public var mode: MemoMode
@@ -68,6 +99,8 @@ public struct Memo: Codable, Hashable, Sendable, Identifiable {
   /// The reply's Mermaid blocks that the server rendered (SVG and PNG, light and dark); empty when there are none, never
   /// `null` on the wire, omitted then. A block that failed to render is absent and stays a code block in `replyText`.
   public var replyBlocks: [ReplyBlock]
+  /// The reply's valid `iris-show` / `iris-doc` fences; empty when there are none, omitted then. An invalid fence is absent and stays a code block.
+  public var replyArtifacts: [ReplyArtifact]
   public var summary: MemoSummary?
   /// The Hermes session (chat or not) the memo belongs to: set when `act` ran in it, or at creation for a memo that continues
   /// a thread (`CreateMemoRequest.threadId`); omitted (never `null`) otherwise.
@@ -109,6 +142,7 @@ public struct Memo: Codable, Hashable, Sendable, Identifiable {
     destinationRef: String? = nil,
     replyText: String? = nil,
     replyBlocks: [ReplyBlock] = [],
+    replyArtifacts: [ReplyArtifact] = [],
     summary: MemoSummary? = nil,
     threadId: String? = nil,
     kind: String? = nil,
@@ -136,6 +170,7 @@ public struct Memo: Codable, Hashable, Sendable, Identifiable {
     self.destinationRef = destinationRef
     self.replyText = replyText
     self.replyBlocks = replyBlocks
+    self.replyArtifacts = replyArtifacts
     self.summary = summary
     self.threadId = threadId
     self.kind = kind
@@ -152,7 +187,7 @@ public struct Memo: Codable, Hashable, Sendable, Identifiable {
 
   private enum CodingKeys: String, CodingKey {
     case id, mode, device, startedAt, state, failedStep, error, segmentCount, audioSeconds, transcript, route
-    case destinationRef, replyText, replyBlocks, summary, threadId, createdAt, updatedAt
+    case destinationRef, replyText, replyBlocks, replyArtifacts, summary, threadId, createdAt, updatedAt
     case done, favorite, archived, deletedAt, purgeAt, kind, actions
     case isTyped = "typed"
   }
@@ -173,6 +208,7 @@ public struct Memo: Codable, Hashable, Sendable, Identifiable {
     destinationRef = try container.decode(String?.self, forKey: .destinationRef)
     replyText = try container.decode(String?.self, forKey: .replyText)
     replyBlocks = try container.decodeIfPresent([ReplyBlock].self, forKey: .replyBlocks) ?? []
+    replyArtifacts = try container.decodeIfPresent([ReplyArtifact].self, forKey: .replyArtifacts) ?? []
     summary = try container.decode(MemoSummary?.self, forKey: .summary)
     threadId = try container.decodeIfPresent(String.self, forKey: .threadId)
     kind = try container.decodeIfPresent(String.self, forKey: .kind)
@@ -204,6 +240,7 @@ public struct Memo: Codable, Hashable, Sendable, Identifiable {
     try container.encode(destinationRef, forKey: .destinationRef)
     try container.encode(replyText, forKey: .replyText)
     if !replyBlocks.isEmpty { try container.encode(replyBlocks, forKey: .replyBlocks) }
+    if !replyArtifacts.isEmpty { try container.encode(replyArtifacts, forKey: .replyArtifacts) }
     try container.encode(summary, forKey: .summary)
     try container.encodeIfPresent(threadId, forKey: .threadId)
     if isTyped { try container.encode(true, forKey: .isTyped) }
