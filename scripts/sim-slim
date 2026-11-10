@@ -1,0 +1,97 @@
+#!/usr/bin/env bash
+# sim-slim — cut the pinned simulator's idle memory: disable the iOS services no Iris test touches (wallpaper posters, News,
+# Spotlight indexing, widgets, Siri/intelligence, Health, Maps, Mail, Photos, Screen Time, ...) so a cold boot stays small.
+# On a stock iOS 27.0 iPhone 17 a boot is ~200 processes / ~11 GiB RSS (the posters alone ~4 GiB); slimmed it is a fraction.
+#
+# `launchctl disable` inside the device persists across boots, so the prep boots the device once, disables, and shuts it down.
+# Idempotent; a marker in the device's data dir (wiped by `simctl erase`) plus the host boot time skips it on later runs.
+# Run by scripts/apple-slot --sim before the job; `make sim-slim` forces it (FORCE=1). Measure: `scripts/sim-slim --measure`.
+#
+#   sim-slim [--measure]   SIM_NAME (default "iPhone 17") and SIM_OS (default 27.0) pick the device, as in the Makefile.
+set -u
+
+# It shuts every simulator down: only ever inside the Apple slot, where no other job has one booted.
+if [[ -z "${IRIS_APPLE_SLOT:-}" && -z "${CI:-}" && -z "${SIM_SLIM_WRAPPED:-}" ]]; then
+  SIM_SLIM_WRAPPED=1 exec "$(dirname "$0")/apple-slot" "$0" "$@"
+fi
+
+name="${SIM_NAME:-iPhone 17}"
+os="${SIM_OS:-27.0}"
+version=1
+
+# Launchd labels (system domain) that no Iris unit, snapshot or UI test needs. Accessibility, notifications, location, pasteboard,
+# LaunchServices, media, keychain and the app extension stack stay: XCUITest and the app depend on them. com.apple.nanoregistryd
+# (and its nano* siblings) also stays: with it disabled the boot never completes (`bootstatus -b` hangs, so does xcodebuild); so does
+# the store stack (itunesstored, appstored, itunescloudd, ams*): with itunesstored disabled the boot does not finish either (bisected).
+labels=(
+  # wallpaper posters, widgets, Spotlight, News
+  com.apple.PosterBoard com.apple.contacts.postersyncd com.apple.chronod com.apple.corespotlightservice
+  com.apple.spotlightknowledged com.apple.spotlightknowledged.updater com.apple.newsd com.apple.nanonewscd
+  # Siri, intelligence, speech, language models
+  com.apple.siriactionsd com.apple.siriinferenced com.apple.siriknowledged com.apple.sirittsd com.apple.siri.acousticsignature
+  com.apple.siri.context.service com.apple.assistantd com.apple.assistant_cdmd com.apple.assistant_service com.apple.corespeechd
+  com.apple.speechmaintenanced com.apple.generativeexperiencesd com.apple.GenerativeFunctions.agentstored
+  com.apple.intelligencecontextd com.apple.intelligenceflowd com.apple.intelligenceplatformd com.apple.intelligencetasksd
+  com.apple.textunderstandingd com.apple.modelcatalogd com.apple.knowledgeconstructiond com.apple.suggestd
+  com.apple.callintelligenced com.apple.fitnessintelligenced
+  # Health, Fitness, Maps, Weather, Home, Wallet, Mail, Photos, Games, Screen Time, Safari sync
+  com.apple.healthd com.apple.healthappd com.apple.healthcontentd com.apple.healtheventsd com.apple.healthrecordsd
+  com.apple.finhealthd com.apple.fitnesscoachingd com.apple.financed com.apple.routined
+  com.apple.geod com.apple.GeoServices.MapsOfflineServices com.apple.maps.destinationd com.apple.Maps.geocorrectiond
+  com.apple.Maps.mapspushd com.apple.Maps.mapssyncd com.apple.weatherd com.apple.homed com.apple.passd
+  com.apple.email.maild com.apple.icloudmailagent com.apple.photos.ImageConversionService com.apple.photos.VideoConversionService
+  com.apple.photosface com.apple.gamed com.apple.ScreenTimeAgent com.apple.ScreenTimeSettingsAgent com.apple.ManagedSettingsAgent
+  com.apple.UsageTrackingAgent com.apple.SafariBookmarksSyncAgent com.apple.WebBookmarks.webbookmarksd
+  com.apple.ap.adprivacyd com.apple.avatarsd com.apple.sociallayerd com.apple.sharingd
+  com.apple.devicesharingd com.apple.activitysharingd com.apple.findmy.findmylocated
+  com.apple.telephonyutilities.callservicesd
+  # contacts/calendar/reminders sync, cloud, analysis, indexing, companion (Watch), family, trial and other background daemons
+  com.apple.calaccessd com.apple.donotdisturbd com.apple.navd com.apple.dataaccess.dataaccessd com.apple.cloudd com.apple.peopled
+  com.apple.ap.promotedcontentd com.apple.biomed com.apple.biomesyncd com.apple.linkd com.apple.photoanalysisd
+  com.apple.mediaanalysisd com.apple.assetsd com.apple.searchd com.apple.fileindexerd com.apple.voicebankingd
+  com.apple.FileProvider com.apple.triald com.apple.remindd com.apple.managedassetsd com.apple.jetpackassetd
+  com.apple.homeeventsd com.apple.Safari.passwordbreachd com.apple.diagnosticextensionsd com.apple.addressbooksyncd
+  com.apple.familycircled com.apple.eventkitsyncd com.apple.dmd com.apple.carkitd com.apple.NPKCompanionAgent com.apple.ind
+  com.apple.replicatord
+  com.apple.appconduitd com.apple.revisiond com.apple.countryd com.apple.AssetCacheLocatorService com.apple.followupd
+  com.apple.companionappd com.apple.brook.brookcompaniond com.apple.wcd com.apple.bulletindistributord com.apple.mobiletimerd
+  com.apple.sleepd com.apple.communicationtrustd com.apple.featureaccessd com.apple.localizationswitcherd
+  com.apple.GameController.gamecontrollerd com.apple.AuthenticationServicesCore.AuthenticationServicesAgent
+)
+
+udid=$(xcrun simctl list devices available -j | jq -r --arg rt "com.apple.CoreSimulator.SimRuntime.iOS-${os//./-}" --arg n "$name" \
+  '.devices[$rt] // [] | map(select(.name == $n)) | first | .udid // empty')
+[[ -n "$udid" ]] || { echo "sim-slim: no simulator '$name' on iOS $os" >&2; exit 1; }
+
+# RSS of every process living in a simulator runtime or device, in GiB and count (the figure the budget is stated in).
+rss() { ps -axo rss=,command= | awk '/RuntimeRoot|CoreSimulator\/Devices/ && !/awk/ {n++; s+=$1} END {printf "%d processes, %.2f GiB\n", n, s/1048576}'; }
+
+if [[ "${1:-}" == "--measure" ]]; then
+  # Boot the (already slimmed) device cold, sample the peak RSS until it is idle, shut it down.
+  xcrun simctl shutdown all >/dev/null 2>&1
+  xcrun simctl boot "$udid" || exit 1
+  peak=0
+  for _ in $(seq 1 18); do
+    sleep 5
+    gib=$(rss | awk '{print $3}')
+    peak=$(awk -v a="$gib" -v b="$peak" 'BEGIN {print (a > b) ? a : b}')
+  done
+  xcrun simctl bootstatus "$udid" >/dev/null 2>&1
+  echo "idle after boot: $(rss); peak ${peak} GiB"
+  xcrun simctl shutdown all >/dev/null 2>&1
+  exit 0
+fi
+
+marker="$HOME/Library/Developer/CoreSimulator/Devices/$udid/data/.iris-sim-slim"
+stamp="v$version $(sysctl -n kern.boottime | sed -n 's/.*sec = \([0-9]*\).*/\1/p')"
+if [[ "${FORCE:-}" != 1 && "$(cat "$marker" 2>/dev/null)" == "$stamp" ]]; then
+  exit 0
+fi
+
+echo "  sim-slim: disabling ${#labels[@]} services on $name iOS $os ($udid)"
+xcrun simctl shutdown all >/dev/null 2>&1
+xcrun simctl boot "$udid" || exit 1
+until xcrun simctl spawn "$udid" launchctl print-disabled system >/dev/null 2>&1; do sleep 1; done
+printf '%s\n' "${labels[@]}" | xargs -P 8 -I{} xcrun simctl spawn "$udid" launchctl disable "system/{}" >/dev/null 2>&1
+xcrun simctl shutdown "$udid"
+mkdir -p "$(dirname "$marker")" && echo "$stamp" >"$marker"

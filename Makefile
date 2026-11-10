@@ -179,6 +179,7 @@ e2e: ## Pipeline end to end against a fake-booted server
 SIM_NAME   ?= iPhone 17
 SIM_OS     ?= 27.0
 SIM_DEST   := platform=iOS Simulator,name=$(SIM_NAME),OS=$(SIM_OS)
+export SIM_NAME SIM_OS
 APPLE_DIR  := apple
 PACKAGES   := IrisCore IrisCapture IrisUI IrisTelemetry
 SWIFT_DIRS := $(APPLE_DIR)/Iris $(APPLE_DIR)/IrisWidgets $(APPLE_DIR)/IrisNotifications $(APPLE_DIR)/IrisMac $(APPLE_DIR)/Tests \
@@ -267,8 +268,14 @@ sim: ## Boot the pinned simulator and block until it is ready (bootstatus -b); i
 sim-down: ## Shut every simulator down
 	@xcrun simctl shutdown all
 
+.PHONY: sim-slim
+sim-slim: ## (Re)apply scripts/sim-slim to the pinned simulator (disables posters, News, Spotlight, widgets, Siri ... : ~11 GiB -> a fraction); SIM_MEASURE=1 also cold-boots it and prints the RSS
+	@FORCE=1 $(APPLE) scripts/sim-slim
+	@$(if $(SIM_MEASURE),$(APPLE_SIM) scripts/sim-slim --measure)
+
 .PHONY: _sim
 _sim:
+	@$(if $(CI),,scripts/sim-slim)
 	@u="$(SIM_UDID)"; [ -n "$$u" ] || { echo "  no simulator '$(SIM_NAME)' on iOS $(SIM_OS) (xcrun simctl list devices available)"; exit 1; }; \
 	xcrun simctl boot "$$u" 2>/dev/null || true; \
 	xcrun simctl bootstatus "$$u" -b >/dev/null; \

@@ -6,7 +6,8 @@
 #                anyway only when the factory server is down)
 #   elsewhere    (hosted CI, no `factory`): the bare command
 #
-# --sim   the command may boot a simulator: shut every one down when it ends, success or failure, inside the slot
+# --sim   the command may boot a simulator: slim the pinned device first (scripts/sim-slim, once per device and host boot), and shut
+#         every simulator down when it ends, success or failure, inside the slot
 #         (KEEP_SIM=1 keeps it for the next step of a hands-on session; `make sim-down` ends it).
 # Re-entrant: IRIS_APPLE_SLOT marks a running wrapper, so a make target called by another one (or by the release hook) runs bare.
 # Exit 75 = no slot or lock within the wait (APPLE_LOCK_WAIT seconds, default 1800 for the lock; FACTORY_SLOT_WAIT_MS for the slot).
@@ -23,6 +24,10 @@ run() {
   if (( sim )) && [[ "${KEEP_SIM:-}" != 1 ]]; then
     trap 'xcrun simctl shutdown all >/dev/null 2>&1 || true' EXIT
     trap 'exit 143' TERM HUP INT
+  fi
+  # The pinned simulator runs slimmed (posters, News, Spotlight, widgets, Siri ... disabled): ~11 GiB RSS stock, see scripts/sim-slim.
+  if (( sim )) && [[ -z "${CI:-}" ]]; then
+    "$(dirname "$0")/sim-slim" || echo "apple-slot: sim-slim failed, the simulator boots stock" >&2
   fi
   "$@"
 }
