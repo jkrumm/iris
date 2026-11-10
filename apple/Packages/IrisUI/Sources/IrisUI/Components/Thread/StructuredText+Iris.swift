@@ -38,7 +38,7 @@ extension StructuredText.HighlighterTheme {
 struct IrisParagraphStyle: StructuredText.ParagraphStyle {
   private static let lineSpacing: CGFloat = 0.31
   /// 10 pt at the 16 pt body.
-  private static let spaceAbove: CGFloat = 0.625
+  static let spaceAbove: CGFloat = 0.625
 
   /// 6 pt at the 16 pt body.
   static let listItemSpacing = FontScaled<StructuredText.BlockSpacing>.fontScaled(top: 0.375)
@@ -80,9 +80,14 @@ struct IrisHeadingStyle: StructuredText.HeadingStyle {
   private static let lastPrimaryLevel = 3
   private static let lineSpacing: CGFloat = 0.15
   private static let spaceAboveRuled: CGFloat = 1.4
-  private static let spaceAbove: CGFloat = 1.0
+  private static let spaceAboveUnruled: CGFloat = 1.0
   private static let spaceBelow: CGFloat = 0.5
   private static let hairline: CGFloat = 1
+
+  /// The gap above a heading of `level`, in body-font ems.
+  static func spaceAbove(level: Int) -> CGFloat {
+    level <= lastRuledLevel ? spaceAboveRuled : spaceAboveUnruled
+  }
 
   func makeBody(configuration: Configuration) -> some View {
     let level = min(max(configuration.headingLevel, 1), Self.scales.count)
@@ -91,7 +96,7 @@ struct IrisHeadingStyle: StructuredText.HeadingStyle {
       .textual.fontScale(Self.scales[level - 1])
       .textual.lineSpacing(.fontScaled(Self.lineSpacing))
       .textual.blockSpacing(
-        .fontScaled(top: isRuled ? Self.spaceAboveRuled : Self.spaceAbove, bottom: Self.spaceBelow)
+        .fontScaled(top: Self.spaceAbove(level: level), bottom: Self.spaceBelow)
       )
       .fontWeight(.semibold)
       .foregroundStyle(level <= Self.lastPrimaryLevel ? Theme.Ink.primary : Theme.Ink.secondary)
@@ -120,19 +125,24 @@ struct IrisBlockQuoteStyle: StructuredText.BlockQuoteStyle {
   }
 }
 
-/// A fenced block: the language on a header line, then the code on the JetBrains editor surface, scrolling sideways
-/// instead of wrapping. A fade on the trailing edge says there is more to scroll to.
+/// A fenced block: a header line with the language on the leading side and a copy button on the trailing one, then the code on
+/// the JetBrains editor surface, scrolling sideways instead of wrapping. A fade on the trailing edge says there is more to
+/// scroll to.
 struct IrisCodeBlockStyle: StructuredText.CodeBlockStyle {
   func makeBody(configuration: Configuration) -> some View {
     VStack(alignment: .leading, spacing: 0) {
-      if let language = configuration.languageHint, !language.isEmpty {
-        Text(verbatim: language)
-          .font(.system(size: 11, weight: .semibold, design: .monospaced))
-          .textCase(.uppercase)
-          .foregroundStyle(CodeColors.label)
-          .padding(.horizontal, Theme.Spacing.md)
-          .padding(.top, Theme.Spacing.sm)
+      HStack(spacing: 0) {
+        if let language = configuration.languageHint, !language.isEmpty {
+          Text(verbatim: language)
+            .font(.system(size: 11, weight: .semibold, design: .monospaced))
+            .textCase(.uppercase)
+            .foregroundStyle(CodeColors.label)
+        }
+        Spacer(minLength: 0)
+        CopyCodeButton(copy: configuration.codeBlock.copyToPasteboard)
       }
+      .padding(.horizontal, Theme.Spacing.md)
+      .padding(.top, Theme.Spacing.sm)
       OverflowingCode(label: configuration.label)
     }
     .frame(maxWidth: .infinity, alignment: .leading)
@@ -142,6 +152,44 @@ struct IrisCodeBlockStyle: StructuredText.CodeBlockStyle {
       RoundedRectangle(cornerRadius: Theme.Radius.control).strokeBorder(Theme.Surface.border, lineWidth: 0.5)
     }
     .textual.blockSpacing(.fontScaled(top: 0.8, bottom: 0))
+  }
+}
+
+/// The copy icon of a code block's header: it turns into a checkmark for a moment after a tap. The icon is the header's height;
+/// the hit area reaches out to a ``Theme/Spacing/tapTarget`` square around it without making the header taller.
+private struct CopyCodeButton: View {
+  let copy: () -> Void
+  @State private var copied = false
+  private static let iconSize: CGFloat = 16
+  private static let confirmation = Duration.milliseconds(1500)
+
+  var body: some View {
+    Button {
+      copy()
+      copied = true
+    } label: {
+      Image(systemName: copied ? "checkmark" : "doc.on.doc")
+        .font(.system(size: 12, weight: .semibold))
+        .foregroundStyle(CodeColors.label)
+        .contentTransition(.symbolEffect(.replace))
+        .frame(width: Self.iconSize, height: Self.iconSize)
+        .contentShape(Rectangle().inset(by: -(Theme.Spacing.tapTarget - Self.iconSize) / 2))
+    }
+    .buttonStyle(.plain)
+    .accessibilityLabel(
+      copied
+        ? String(
+          localized: "Copied", bundle: #bundle,
+          comment: "VoiceOver label of a code block's copy button right after it copied")
+        : String(localized: "Copy code", bundle: #bundle, comment: "VoiceOver label of the copy button on a code block")
+    )
+    .accessibilityIdentifier("thread.codeCopy")
+    .task(id: copied) {
+      guard copied else { return }
+      do { try await Task.sleep(for: Self.confirmation) } catch { return }
+      copied = false
+    }
+    .animation(.default, value: copied)
   }
 }
 

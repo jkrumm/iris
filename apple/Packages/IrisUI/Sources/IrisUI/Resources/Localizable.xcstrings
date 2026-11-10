@@ -172,6 +172,23 @@
         }
       }
     },
+    "Copied" : {
+      "comment" : "VoiceOver label of a code block's copy button right after it copied",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kopiert"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Copied"
+          }
+        }
+      }
+    },
     "Copy" : {
       "comment" : "Context menu of a chat bubble: copies its text",
       "localizations" : {
@@ -179,6 +196,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Kopieren"
+          }
+        }
+      }
+    },
+    "Copy code" : {
+      "comment" : "VoiceOver label of the copy button on a code block",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Code kopieren"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Copy code"
           }
         }
       }
