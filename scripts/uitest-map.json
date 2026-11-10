@@ -1,0 +1,165 @@
+{
+  "default": ["SmokeUITests"],
+  "all": [
+    "apple/project.yml",
+    "apple/Tests/UITests/IrisUITestCase.swift",
+    "apple/Tests/UITests/SampleClock.swift",
+    "apple/Tests/UITests/Scrolling.swift",
+    "apple/Tests/UITests/Info.plist",
+    "scripts/uitest-select.ts",
+    "scripts/uitest-map.json",
+    ".github/workflows/apple.yml",
+    ".github/actions/apple/action.yml",
+    "Makefile"
+  ],
+  "rules": [
+    {
+      "name": "history list, swipes, filters",
+      "paths": [
+        "apple/Iris/History*.swift",
+        "apple/Iris/MemoSwipeActions.swift",
+        "apple/Iris/RecordRow.swift"
+      ],
+      "classes": ["HistorySwipeUITests", "SmokeUITests"]
+    },
+    {
+      "name": "memo detail, waterfall, playback",
+      "paths": [
+        "apple/Iris/MemoDetail*.swift",
+        "apple/Iris/MemoPresentation.swift",
+        "apple/Iris/MemoPlay*.swift",
+        "apple/Iris/MemoMediaSource.swift",
+        "apple/Iris/MediaDownloader.swift",
+        "apple/Iris/Step*.swift",
+        "apple/Iris/WaterfallBuilder.swift"
+      ],
+      "classes": ["MemoDetailUITests", "ModesUITests"]
+    },
+    {
+      "name": "threads, replies, diagrams",
+      "paths": [
+        "apple/Iris/Thread*.swift",
+        "apple/Iris/Memo+Thread.swift",
+        "apple/Iris/Spoken*.swift",
+        "apple/Iris/SpeechPlayer.swift",
+        "apple/Iris/VoiceReplyCapture.swift",
+        "apple/Iris/Reply*.swift",
+        "apple/Iris/FakeDiagramImage.swift"
+      ],
+      "classes": ["ThreadUITests", "ReplyFlowReviewUITests", "CaptureUITests"]
+    },
+    {
+      "name": "takes and capture",
+      "paths": [
+        "apple/Iris/Take*.swift",
+        "apple/Iris/Live*.swift",
+        "apple/Iris/CaptureStack.swift",
+        "apple/Iris/Fake*Capture*.swift",
+        "apple/Iris/FakeLivePreviewEngine.swift",
+        "apple/Iris/Intents/**",
+        "apple/Packages/IrisCapture/Sources/**"
+      ],
+      "classes": ["TakeUITests", "CaptureUITests", "ModesUITests"]
+    },
+    {
+      "name": "composer and typed memos",
+      "paths": ["apple/Iris/Composer*.swift"],
+      "classes": ["TypedMemoUITests", "CaptureUITests"]
+    },
+    {
+      "name": "outbox and uploads",
+      "paths": [
+        "apple/Iris/Outbox*.swift",
+        "apple/Iris/QueuedItem.swift",
+        "apple/Iris/ObservedSegmentUploader.swift",
+        "apple/Iris/APIOutboxUploader.swift"
+      ],
+      "classes": ["CaptureUITests", "StatsSettingsUITests"]
+    },
+    {
+      "name": "stats, settings, connection, diagnostics",
+      "paths": [
+        "apple/Iris/Stats*.swift",
+        "apple/Iris/Settings*.swift",
+        "apple/Iris/Connection*.swift",
+        "apple/Iris/Diagnostics*.swift",
+        "apple/Iris/MicRulesModel.swift",
+        "apple/Iris/DeviceLog*.swift",
+        "apple/Iris/TelemetryBootstrap.swift",
+        "apple/Iris/MetricKitRelay.swift",
+        "apple/Packages/IrisTelemetry/Sources/**"
+      ],
+      "classes": ["StatsSettingsUITests"]
+    },
+    {
+      "name": "app shell and shared UI: every screen sits on it",
+      "paths": [
+        "apple/Iris/RootView.swift",
+        "apple/Iris/IrisApp.swift",
+        "apple/Iris/CompositionRoot.swift",
+        "apple/Iris/Info.plist",
+        "apple/Iris/Assets.xcassets/**",
+        "apple/Iris/Resources/**",
+        "apple/Packages/IrisUI/Sources/**",
+        "apple/Packages/IrisCore/Sources/**"
+      ],
+      "classes": [
+        "SmokeUITests",
+        "HistorySwipeUITests",
+        "MemoDetailUITests",
+        "TakeUITests",
+        "ThreadUITests"
+      ]
+    },
+    {
+      "name": "a UI test file runs its own classes",
+      "paths": ["apple/Tests/UITests/CaptureUITests.swift"],
+      "classes": ["CaptureUITests"]
+    },
+    {
+      "name": "a UI test file runs its own classes",
+      "paths": ["apple/Tests/UITests/HistorySwipeUITests.swift"],
+      "classes": ["HistorySwipeUITests"]
+    },
+    {
+      "name": "a UI test file runs its own classes",
+      "paths": ["apple/Tests/UITests/MemoDetailUITests.swift"],
+      "classes": ["MemoDetailUITests"]
+    },
+    {
+      "name": "a UI test file runs its own classes",
+      "paths": ["apple/Tests/UITests/ModesUITests.swift"],
+      "classes": ["ModesUITests"]
+    },
+    {
+      "name": "a UI test file runs its own classes",
+      "paths": ["apple/Tests/UITests/ReplyFlowReviewUITests.swift"],
+      "classes": ["ReplyFlowReviewUITests"]
+    },
+    {
+      "name": "a UI test file runs its own classes",
+      "paths": ["apple/Tests/UITests/SmokeUITests.swift"],
+      "classes": ["SmokeUITests"]
+    },
+    {
+      "name": "a UI test file runs its own classes",
+      "paths": ["apple/Tests/UITests/StatsSettingsUITests.swift"],
+      "classes": ["StatsSettingsUITests", "OutboxResetUITests", "ProductionLaunchUITests"]
+    },
+    {
+      "name": "a UI test file runs its own classes",
+      "paths": ["apple/Tests/UITests/TakeUITests.swift"],
+      "classes": ["TakeUITests"]
+    },
+    {
+      "name": "a UI test file runs its own classes",
+      "paths": ["apple/Tests/UITests/ThreadUITests.swift"],
+      "classes": ["ThreadUITests"]
+    },
+    {
+      "name": "a UI test file runs its own classes",
+      "paths": ["apple/Tests/UITests/TypedMemoUITests.swift"],
+      "classes": ["TypedMemoUITests"]
+    }
+  ]
+}
