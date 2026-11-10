@@ -5,7 +5,7 @@
 # shut down when it ends). Starting from a clean state, it:
 #   1. shuts every simulator down, erases the pinned one (refuses to start while an IrisMac is already running)
 #   2. iOS: builds Iris, installs, launches with -IrisFakeCapture, writes the screenshot and the UI element tree
-#   3. Mac: builds IrisMac, launches it with -IrisFakeData -IrisMacPanelWindow -IrisMacSnapshot (the app renders its own windows
+#   3. Mac: builds IrisMac, launches it with -IrisFakeData -IrisMacPanelWindow -IrisMacSnapshot <dir> (the app renders its own windows
 #      to PNG and quits; the mini has no Screen Recording grant, so screencapture cannot see it)
 #   4. shuts every simulator down and prints the artifacts, the simulator state and the load (start, peak, end)
 #
@@ -26,7 +26,7 @@ DD=apple/.dd.noindex
 XCB=(nice -n 10 xcodebuild -project apple/Iris.xcodeproj -derivedDataPath "$DD" CODE_SIGNING_ALLOWED=NO -jobs "${SWIFT_JOBS:-2}"
   IDEBuildOperationMaxNumberOfConcurrentCompileTasks="${SWIFT_JOBS:-2}" SWIFT_COMPILATION_MODE=incremental)
 MAC_EXPECTED=(menu window-all window-thread window-chat-mermaid window-running window-filtered window-new window-composer window-sent
-  window-answered settings-connection settings-recording settings-general onboarding recording recording-refused)
+  window-answered settings-connection settings-recording settings-general onboarding recording recording-refused artifact-island artifact-island-dark)
 
 out=.artifacts/proof/$(date +%Y%m%d-%H%M%S)
 mkdir -p "$out/ios" "$out/mac" "$out/mac-de"
@@ -64,6 +64,65 @@ fi
 udid=$(xcrun simctl list devices available -j | jq -r --arg rt "com.apple.CoreSimulator.SimRuntime.iOS-${SIM_OS//./-}" --arg n "$SIM_NAME" \
   '.devices[$rt] // [] | map(select(.name == $n)) | first | .udid // empty')
 
+# The artifact island spike (WebView islands in the demo screen): light and dark screenshots, then the WebKit memory for 1, 5 and
+# 10 islands. The screenshots count; the memory file is fail-soft (it says why when it could not measure).
+mb_of() { # <pid>: "<MB> footprint|rss" (footprint where the system lets us read it, else resident size)
+  local value
+  value=$(footprint -p "$1" 2>/dev/null | awk '/Footprint:/ { v = $2; if ($3 == "KB") v /= 1024; else if ($3 == "GB") v *= 1024; printf "%.1f", v; exit }')
+  # A simulator process reads 0 (no dirty-page accounting for it): that is not a measurement, fall back to the resident size.
+  [[ -n "$value" && "$value" != "0.0" ]] && { echo "$value footprint"; return; }
+  ps -o rss= -p "$1" 2>/dev/null | awk '{ printf "%.1f rss\n", $1 / 1024 }'
+}
+# The simulator's WebContent processes are host processes (the simulator runtime's WebKit): the ones that appear after the app
+# launches, since the baseline, are the app's. No IrisMac runs here (checked above), other apps' WebContent stays in the baseline.
+sim_webcontent_pids() { pgrep -f 'com.apple.WebKit.WebContent' | sort -u; }
+artifact_spike() {
+  local spike=(-IrisArtifactSpike -IrisFakeCapture -AppleLanguages "(en)" -AppleLocale en_US)
+  xcrun simctl terminate "$udid" "$APP_BUNDLE" >/dev/null 2>&1 || true
+  xcrun simctl ui "$udid" appearance light >/dev/null 2>&1 || true
+  xcrun simctl launch "$udid" "$APP_BUNDLE" "${spike[@]}" >"$out/ios/artifact-launch.txt" 2>&1 || true
+  sleep 16
+  xcrun simctl io "$udid" screenshot "$out/ios/artifact-light.png" >/dev/null 2>&1
+  xcrun simctl ui "$udid" appearance dark >/dev/null 2>&1 || true
+  xcrun simctl terminate "$udid" "$APP_BUNDLE" >/dev/null 2>&1 || true
+  xcrun simctl launch "$udid" "$APP_BUNDLE" "${spike[@]}" >>"$out/ios/artifact-launch.txt" 2>&1 || true
+  sleep 16
+  xcrun simctl io "$udid" screenshot "$out/ios/artifact-dark.png" >/dev/null 2>&1
+  xcrun simctl ui "$udid" appearance light >/dev/null 2>&1 || true
+  xcrun simctl terminate "$udid" "$APP_BUNDLE" >/dev/null 2>&1 || true
+
+  local memory="$out/ios/artifact-memory.txt"
+  if ! command -v footprint >/dev/null 2>&1 && ! command -v ps >/dev/null 2>&1; then
+    echo "not measured: neither footprint nor ps found" >"$memory"
+    return
+  fi
+  local baseline n pid app_pid line pids count total app unit
+  baseline=$(sim_webcontent_pids)
+  echo "baseline webcontent_pids=$(echo "$baseline" | grep -c .)" >"$memory"
+  for n in 1 5 10; do
+    xcrun simctl terminate "$udid" "$APP_BUNDLE" >/dev/null 2>&1 || true
+    sleep 1
+    app_pid=$(xcrun simctl launch "$udid" "$APP_BUNDLE" -IrisArtifactSpike -IrisArtifactIslands "$n" -IrisFakeCapture -AppleLanguages "(en)" -AppleLocale en_US 2>&1 | awk -F': ' '/:/ { print $NF; exit }')
+    sleep 16
+    pids=$(comm -13 <(echo "$baseline") <(sim_webcontent_pids))
+    count=0 total=0
+    for pid in $pids; do
+      line=$(mb_of "$pid")
+      [[ -n "$line" ]] || continue
+      count=$((count + 1))
+      total=$(awk -v a="$total" -v b="${line%% *}" 'BEGIN { printf "%.1f", a + b }')
+      unit=${line##* }
+    done
+    app=$(mb_of "${app_pid:-0}")
+    if ((count == 0)); then
+      echo "islands=$n not measured: no new WebContent process appeared on the host (pgrep -f com.apple.WebKit.WebContent)" >>"$memory"
+    else
+      echo "islands=$n webcontent_processes=$count webcontent_footprint_mb=$total webcontent_source=$unit app_footprint_mb=${app%% *}" >>"$memory"
+    fi
+  done
+  xcrun simctl terminate "$udid" "$APP_BUNDLE" >/dev/null 2>&1 || true
+}
+
 # --- 2. iOS
 if [[ "${PROOF_IOS:-1}" != 0 ]]; then
   if [[ -z "$udid" ]]; then
@@ -86,6 +145,11 @@ if [[ "${PROOF_IOS:-1}" != 0 ]]; then
         { sleep 20; scripts/mbm ui-automation snapshot-ui --simulator-id "$udid" >"$out/ios/ui-snapshot.txt" 2>&1; } ||
         say "ios: ui tree not read (see ios/ui-snapshot.txt), screenshot still counts"
       [[ -s "$out/ios/launch.png" ]] || fail "ios: no screenshot"
+      phase ios-artifact
+      artifact_spike || say "ios: artifact spike measurement failed (see ios/artifact-memory.txt)"
+      for name in artifact-light artifact-dark; do
+        [[ -s "$out/ios/$name.png" ]] || fail "ios: $name.png missing"
+      done
     else
       fail "ios: build failed, tail of $out/ios/build.log:"
       tail -n 15 "$out/ios/build.log" | tee -a "$report"

@@ -54,6 +54,7 @@
       root.fakeTake?.setMicrophones(Microphones(inputs: [FakeAudioDeviceDirectory.builtIn, long], current: long))
       await writeRecordingPanel(as: "recording-longmic")
       await writeRefusedPanel()
+      await writeArtifactIslands()
       NSApp.terminate(nil)
     }
 
@@ -204,7 +205,7 @@
     }
 
     /// `chrome`: the whole window as the window server draws it (title bar, toolbar, materials), else the content view alone.
-    private func write(_ window: NSWindow, as name: String, chrome: Bool = true) {
+    func write(_ window: NSWindow, as name: String, chrome: Bool = true) {
       window.displayIfNeeded()
       let rep: NSBitmapImageRep?
       if chrome, let image = Self.windowImage(window) {
