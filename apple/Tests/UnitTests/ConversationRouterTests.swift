@@ -140,7 +140,8 @@ struct ConversationRouterVoiceTests {
     let stale = MemoFactory.memo("m1")
     router.open(ConversationLink(memoID: "m1", focus: .voice))
     let pending = try #require(router.pending)
-    let result = await router.resolve(pending, isConfigured: true, local: { _ in stale }, fetch: { _ in throw Missing() })
+    let result = await router.resolve(
+      pending, isConfigured: true, local: { _ in stale }, fetch: { _ in throw Missing() })
     #expect(result?.memo == stale)
   }
 
