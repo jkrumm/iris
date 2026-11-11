@@ -79,7 +79,8 @@ nonisolated struct FakeMediaSource: MemoMediaSource {
     if !FileManager.default.fileExists(atPath: url.path) {
       do {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let file = SampleData.artifactFile(assetID: assetID) ?? FakeDiagramImage.png(dark: assetID.hasSuffix("dark"))
+        let file =
+          try SampleData.artifactFile(assetID: assetID) ?? FakeDiagramImage.png(dark: assetID.hasSuffix("dark"))
         try file.write(to: url)
       } catch {
         return nil
