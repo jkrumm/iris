@@ -57,13 +57,46 @@ struct MemoThreadPresentationTests {
     #expect(answer.content == .assistant("**Hi**", mermaid: [:]) && answer.date == MemoFactory.now)
   }
 
+  @Test("a memo's reply artifacts are keyed by kind and per-kind index, as assets of the memo")
+  func artifactMapping() {
+    var withArtifacts = memo("m", mode: .hermes, threadId: "m")
+    withArtifacts.replyArtifacts = [
+      ReplyArtifact(index: 0, kind: .show, title: "Chart", assetId: "s0", bytes: 10),
+      ReplyArtifact(index: 1, kind: .show, assetId: "s1", bytes: 20),
+      ReplyArtifact(index: 0, kind: .doc, title: "Report", format: .html, assetId: "d0", bytes: 30),
+    ]
+    let assets = withArtifacts.artifactAssets
+    #expect(assets.count == 3)
+    let chart = ArtifactAsset(
+      ref: ReplyAssetRef(memoID: "m", assetID: "s0"), kind: .show, index: 0, title: "Chart", format: nil, bytes: 10)
+    #expect(assets[chart.key] == chart)
+    #expect(assets[.init(kind: .show, index: 1)]?.ref == ReplyAssetRef(memoID: "m", assetID: "s1"))
+    #expect(assets[.init(kind: .doc, index: 0)]?.format == .html && assets[.init(kind: .doc, index: 0)]?.bytes == 30)
+    #expect(memo("n", mode: .hermes, threadId: "n").artifactAssets.isEmpty)
+
+    let answer = ConversationTurn(ConversationEntry(id: "m.reply", memo: withArtifacts, date: nil, kind: .reply("x")))
+    #expect(answer.content == .assistant("x", mermaid: [:], artifacts: assets))
+  }
+
+  @Test("the sample artifact thread lists a chart, a table and a document, each the size of the file the fake source serves")
+  func sampleArtifacts() throws {
+    let all = SampleData.details(now: MemoFactory.now).map(\.memo)
+    let memo = try #require(all.first { $0.id == SampleData.artifactThreadID })
+    #expect(memo.replyArtifacts.map(\.kind) == [.show, .show, .doc])
+    for artifact in memo.replyArtifacts {
+      #expect(SampleData.artifactFile(assetID: artifact.assetId)?.count == artifact.bytes)
+    }
+    let blocks = MessageBlock.split(try #require(memo.replyText))
+    #expect(blocks.filter { if case .artifact = $0 { true } else { false } }.count == 3)
+  }
+
   @Test("the media source names a reply's image under the memo, authenticated and kept for good")
   func assetRequest() throws {
     let source = AuthenticatedMediaSource(baseURL: URL(string: "https://iris.example.com")!, bearerToken: "tok")
     let request = try #require(source.asset(memoID: "m", assetID: "a"))
     #expect(request.url.absoluteString == "https://iris.example.com/v1/memos/m/assets/a")
     #expect(request.headers == ["Authorization": "Bearer tok"])
-    #expect(request.isReusable && request.cacheName == "m.a.png")
+    #expect(request.isReusable && request.cacheName == "m.a.asset")
     #expect(UnavailableMediaSource().asset(memoID: "m", assetID: "a") == nil)
   }
 }

@@ -25,7 +25,7 @@ struct MacMemoSections: View {
   @ViewBuilder private func reply(_ memo: Memo) -> some View {
     if let text = memo.replyText, !text.isEmpty {
       MacSection(String(localized: "Reply", comment: "Section label of the reply")) {
-        MessageContentView(markdown: text, textRole: .footnote)
+        MessageContentView(markdown: text, artifacts: memo.artifactAssets, textRole: .footnote)
           .accessibilityIdentifier("mac.detail.reply")
       }
     }

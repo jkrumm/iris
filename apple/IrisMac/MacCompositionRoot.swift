@@ -112,6 +112,7 @@ final class MacCompositionRoot {
   private let createdLog: CreatedMemoLog
   /// The decoded Mermaid images of every reply on screen, shared by the conversation views.
   let replyImages: ReplyImageStore
+  let artifacts: ArtifactStore
   /// One composer per conversation (nil key: the New memo page), so a draft survives switching memos.
   @ObservationIgnored private var composers: [String: ComposerModel] = [:]
   /// The composer whose memo went to the outbox instead of the server: its bar says so for a few seconds.
@@ -181,6 +182,8 @@ final class MacCompositionRoot {
         client: fake, created: fakeCreated, log: log, step: Self.fakePipelineStep(arguments))
       replyImages = ReplyImageStore(
         loader: MediaAssetLoader(source: { FakeMediaSource() }, downloader: .shared))
+      artifacts = ArtifactStore(
+        loader: MediaAssetLoader(source: { FakeMediaSource() }, downloader: .shared))
     } else {
       let saved = store.load()
       let reconfigurable = ReconfigurableAPIClient(credentials: saved)
@@ -193,6 +196,12 @@ final class MacCompositionRoot {
       createdLog = stack.created
       textOutbox = stack.service
       replyImages = ReplyImageStore(
+        loader: MediaAssetLoader(
+          source: {
+            guard let saved = store.load() else { return UnavailableMediaSource() }
+            return AuthenticatedMediaSource(baseURL: saved.serverURL, bearerToken: saved.token)
+          }, downloader: .shared))
+      artifacts = ArtifactStore(
         loader: MediaAssetLoader(
           source: {
             guard let saved = store.load() else { return UnavailableMediaSource() }

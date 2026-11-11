@@ -59,22 +59,46 @@
       }
     }
 
+    /// The sample reply's cards and the viewer on the sample document, light and dark: the main window's content is swapped like
+    /// for the island, and the web content gets time to render.
+    func writeArtifactScreens() async {
+      let mainTitle = String(localized: "Iris", comment: "Main window title")
+      guard let window = NSApp.windows.first(where: { $0.title == mainTitle && $0.isVisible }),
+        let original = window.contentView
+      else {
+        Self.artifactLogger.error("no visible main window for the artifact screens")
+        return
+      }
+      window.setContentSize(NSSize(width: 480, height: 640))
+      for (sample, name) in [(ArtifactSample.cards, "artifact-cards"), (.viewer, "artifact-viewer")] {
+        window.contentView = NSHostingView(rootView: ArtifactSampleScreen(sample: sample))
+        for (appearance, suffix) in [(NSAppearance.Name.aqua, ""), (.darkAqua, "-dark")] {
+          window.appearance = NSAppearance(named: appearance)
+          try? await Task.sleep(for: Self.islandSettle)
+          await writeWithWebContent(window, as: name + suffix)
+        }
+      }
+      window.contentView = original
+      window.appearance = nil
+      try? await Task.sleep(for: .seconds(2))
+    }
+
     /// WebKit does not paint into a window it considers occluded (the mini's headless display), so the window server's picture of
     /// the island is empty. The web view's own `takeSnapshot` renders on demand; it is laid over the web view for the capture.
     private func writeWithWebContent(_ window: NSWindow, as name: String) async {
-      guard let content = window.contentView, let web = Self.webViews(in: content).first,
-        let image = try? await web.takeSnapshot(configuration: WKSnapshotConfiguration())
-      else {
-        write(window, as: name, chrome: true)
-        return
+      guard let content = window.contentView else { return }
+      var overlays: [NSImageView] = []
+      for web in Self.webViews(in: content) {
+        guard let image = try? await web.takeSnapshot(configuration: WKSnapshotConfiguration()) else { continue }
+        let overlay = NSImageView(frame: content.convert(web.bounds, from: web))
+        overlay.image = image
+        overlay.imageScaling = .scaleAxesIndependently
+        content.addSubview(overlay)
+        overlays.append(overlay)
       }
-      let overlay = NSImageView(frame: content.convert(web.bounds, from: web))
-      overlay.image = image
-      overlay.imageScaling = .scaleAxesIndependently
-      content.addSubview(overlay)
       try? await Task.sleep(for: .milliseconds(300))
       write(window, as: name, chrome: true)
-      overlay.removeFromSuperview()
+      for overlay in overlays { overlay.removeFromSuperview() }
     }
 
     private static func webViews(in view: NSView) -> [WKWebView] {

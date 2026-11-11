@@ -20,6 +20,8 @@ struct IrisApp: App {
       #if DEBUG
         if let islands = ArtifactSpike.islands() {
           ArtifactIslandDemo(islands: islands)
+        } else if let sample = ArtifactSample.requested() {
+          ArtifactSampleScreen(sample: sample)
         } else {
           rootView
         }
@@ -51,6 +53,7 @@ struct IrisApp: App {
       pushDelegate.attach(router: root.router, presence: root.presence, play: { try await root.playReply(memoID: $0) })
     }
     .environment(\.replyImageStore, root.replyImages)
+    .environment(\.artifactStore, root.artifacts)
     .task { DeviceLog.shared.sceneChanged(to: scenePhase.telemetryName) }
     .task(id: root.connectionRevision) { await root.start() }
     .task(id: root.connectionRevision) { await PushRegistrar.shared.connectionChanged() }

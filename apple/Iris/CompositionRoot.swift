@@ -64,6 +64,7 @@ final class CompositionRoot: CaptureIntentHandler, PlaybackIntentHandler {
   let fakeLiveActivity: RecordingLiveActivity?
   /// The decoded images of every reply on screen (Mermaid diagrams), shared by all thread screens.
   let replyImages: ReplyImageStore
+  let artifacts: ArtifactStore
   /// Typed replies held for a first memo's thread, kept past the life of their screen.
   let heldReplies: HeldReplyQueue
   /// The editable connection; nil when running on fakes.
@@ -142,6 +143,8 @@ final class CompositionRoot: CaptureIntentHandler, PlaybackIntentHandler {
       settings = SettingsModel(client: fake, queue: service)
       replyImages = ReplyImageStore(
         loader: MediaAssetLoader(source: { FakeMediaSource() }, downloader: .shared))
+      artifacts = ArtifactStore(
+        loader: MediaAssetLoader(source: { FakeMediaSource() }, downloader: .shared))
       voiceReply = OutboxVoiceReplyCapture(
         stack: stack, service: service, claim: { [takeController] in takeController.claimCapture() },
         release: { [takeController] in await takeController.releaseCapture($0) }, onBegan: { mic.start() },
@@ -186,6 +189,9 @@ final class CompositionRoot: CaptureIntentHandler, PlaybackIntentHandler {
         claim: { [takeController] in takeController.claimCapture() },
         release: { [takeController] in await takeController.releaseCapture($0) })
       replyImages = ReplyImageStore(
+        loader: MediaAssetLoader(
+          source: { Self.mediaSource(for: credentials.load()) }, downloader: .shared))
+      artifacts = ArtifactStore(
         loader: MediaAssetLoader(
           source: { Self.mediaSource(for: credentials.load()) }, downloader: .shared))
       take = TakeModel(controller: takeController)

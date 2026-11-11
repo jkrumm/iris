@@ -57,7 +57,7 @@ extension SampleData {
     "No. A hang guard is a **plain error**: one window, then `POST /retry` starts it again."
 
   static func threadDetails(now: Date = Date()) -> [ThreadDetail] {
-    [chatThread(now: now), hermesThread(now: now)]
+    [chatThread(now: now), hermesThread(now: now), artifactThread(now: now)]
   }
 
   private static func chatThread(now: Date) -> ThreadDetail {
@@ -119,6 +119,92 @@ extension SampleData {
         ThreadMessage(memoId: first.id, role: .user, content: first.transcript ?? "", createdAt: first.createdAt),
         ThreadMessage(memoId: first.id, role: .assistant, content: first.replyText ?? "", createdAt: first.updatedAt),
         ThreadMessage(memoId: second.id, role: .user, content: second.transcript ?? "", createdAt: second.createdAt),
+      ])
+  }
+
+  // MARK: Artifacts
+
+  nonisolated static let artifactThreadID = "e3c2d9f4-6a83-4b5a-9c37-5fa08d4b9e62"
+  static let artifactQuestion = "Show me my memo habits as a chart and a table, and write the weekly report."
+
+  nonisolated static let artifactChartSpec =
+    #"{"type":"chart","title":"Memos per weekday","kind":"bar","x":["Mon","Tue","Wed","Thu","Fri"],"series":[{"name":"Spoken","values":[4,7,5,6,3]},{"name":"Typed","values":[2,1,3,2,4]}],"unit":"memos"}"#
+  nonisolated static let artifactTableSpec =
+    #"{"type":"table","title":"Open tasks","columns":["Task","Owner","Done"],"rows":[["Write the spec","Ada",true],["Review the draft","Grace",false]]}"#
+  nonisolated static let artifactDocument = """
+    # Weekly report
+
+    The week was **calm**: two reviews shipped and the spec is in place.
+
+    - Spoken memos peaked on Tuesday
+    - Typed memos peaked on Friday
+
+    ```sh
+    make check
+    ```
+    """
+
+  /// The reply of the artifact thread: a sentence, a chart, a table and a document, in this order.
+  static let artifactReply = """
+    Here is what the week looked like.
+
+    ```iris-show
+    \(artifactChartSpec)
+    ```
+
+    ```iris-show
+    \(artifactTableSpec)
+    ```
+
+    ```iris-doc title="Weekly report" format=markdown
+    \(artifactDocument)
+    ```
+    """
+
+  nonisolated static let artifactChartAssetID = "\(artifactThreadID)-artifact-show-0"
+  nonisolated static let artifactTableAssetID = "\(artifactThreadID)-artifact-show-1"
+  nonisolated static let artifactDocumentAssetID = "\(artifactThreadID)-artifact-doc-0"
+
+  /// The stored file behind a sample artifact's asset id (what `GET /v1/memos/:id/assets/:assetId` would answer).
+  nonisolated static func artifactFile(assetID: String) -> Data? {
+    switch assetID {
+    case artifactChartAssetID: Data(artifactChartSpec.utf8)
+    case artifactTableAssetID: Data(artifactTableSpec.utf8)
+    case artifactDocumentAssetID: Data(artifactDocument.utf8)
+    default: nil
+    }
+  }
+
+  static let artifactAssets: [ReplyArtifact] = [
+    ReplyArtifact(
+      index: 0, kind: .show, title: "Memos per weekday", assetId: artifactChartAssetID,
+      bytes: artifactChartSpec.utf8.count),
+    ReplyArtifact(
+      index: 1, kind: .show, title: "Open tasks", assetId: artifactTableAssetID, bytes: artifactTableSpec.utf8.count),
+    ReplyArtifact(
+      index: 0, kind: .doc, title: "Weekly report", format: .markdown, assetId: artifactDocumentAssetID,
+      bytes: artifactDocument.utf8.count),
+  ]
+
+  /// The oldest sample conversation, so History lists it last: one memo whose reply holds a chart, a table and a document.
+  private static func artifactThread(now: Date) -> ThreadDetail {
+    let start = now.addingTimeInterval(-210_000)
+    let memo = Memo(
+      id: artifactThreadID, mode: .hermes, device: "iphone", startedAt: start, state: .notified, segmentCount: 1,
+      audioSeconds: 6.4, transcript: artifactQuestion, destinationRef: artifactThreadID, replyText: artifactReply,
+      replyArtifacts: artifactAssets,
+      summary: MemoSummary(
+        headline: "A chart, a table and the weekly report", detail: "The week in memos.", spoken: "Here is the week."),
+      threadId: artifactThreadID, kind: "chat", actions: ["web"], createdAt: start,
+      updatedAt: start.addingTimeInterval(16))
+    return ThreadDetail(
+      thread: MemoThread(
+        id: artifactThreadID, kind: "hermes", title: artifactQuestion, createdAt: memo.createdAt,
+        updatedAt: memo.updatedAt, lastMemoId: memo.id),
+      memos: [memo],
+      messages: [
+        ThreadMessage(memoId: memo.id, role: .user, content: artifactQuestion, createdAt: memo.createdAt),
+        ThreadMessage(memoId: memo.id, role: .assistant, content: artifactReply, createdAt: memo.updatedAt),
       ])
   }
 }

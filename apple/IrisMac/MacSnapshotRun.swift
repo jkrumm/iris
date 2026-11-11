@@ -55,6 +55,7 @@
       await writeRecordingPanel(as: "recording-longmic")
       await writeRefusedPanel()
       await writeArtifactIslands()
+      await writeArtifactScreens()
       NSApp.terminate(nil)
     }
 

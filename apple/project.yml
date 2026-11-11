@@ -175,6 +175,7 @@ targets:
       - Iris/MemoMediaSource.swift
       - Iris/FakeDiagramImage.swift
       - Iris/Memo+Thread.swift
+      - Iris/ArtifactSample.swift
       # The chat (owner feedback on the Mac app): the conversation's turns, the typed-memo composer model, the fake pipeline a
       # typed memo walks under `-IrisFakeData`, and the reply images' loader are the iPhone's, compiled in as they are.
       - Iris/ComposerModel.swift

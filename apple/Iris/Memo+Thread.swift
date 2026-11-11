@@ -21,6 +21,25 @@ extension Memo {
     return assets
   }
 
+  /// The memo's reply artifacts (charts, tables, documents) keyed by kind and per-kind fence index.
+  nonisolated var artifactAssets: [ArtifactAsset.Key: ArtifactAsset] {
+    var assets: [ArtifactAsset.Key: ArtifactAsset] = [:]
+    for artifact in replyArtifacts {
+      let kind: ArtifactBlock.Kind = artifact.kind == .show ? .show : .doc
+      let format: ArtifactAsset.Format? =
+        switch artifact.format {
+        case .markdown: .markdown
+        case .html: .html
+        case nil: nil
+        }
+      let asset = ArtifactAsset(
+        ref: ReplyAssetRef(memoID: id, assetID: artifact.assetId), kind: kind, index: artifact.index,
+        title: artifact.title, format: format, bytes: artifact.bytes)
+      assets[asset.key] = asset
+    }
+    return assets
+  }
+
   /// What the pending answer says while the pipeline is before `act`.
   var pendingCaption: String {
     switch state {
@@ -33,12 +52,12 @@ extension Memo {
 }
 
 extension ConversationTurn {
-  /// The turn of a conversation entry: the answer carries its memo's Mermaid renders, a pending one the pipeline's progress.
+  /// The turn of a conversation entry: the answer carries its memo's Mermaid renders and artifacts, a pending one the pipeline's progress.
   init(_ entry: ConversationEntry) {
     let content: Content =
       switch entry.kind {
       case .user(let text): .user(text)
-      case .reply(let markdown): .assistant(markdown, mermaid: entry.memo.mermaidAssets)
+      case .reply(let markdown): .assistant(markdown, mermaid: entry.memo.mermaidAssets, artifacts: entry.memo.artifactAssets)
       case .pending: .pending(entry.memo.stepProgress, caption: entry.memo.pendingCaption)
       case .failed(let error):
         .failed(error ?? String(localized: "This turn failed.", comment: "Failed turn in a thread"))

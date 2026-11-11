@@ -17,7 +17,7 @@ nonisolated struct MediaRequest: Equatable, Sendable {
 nonisolated protocol MemoMediaSource: Sendable {
   func audio(for memo: Memo) -> MediaRequest?
   func speech(for memo: Memo) -> MediaRequest?
-  /// A rendered file of a reply (`GET /v1/memos/:id/assets/:assetId`): the PNG of a Mermaid diagram.
+  /// A file of a reply (`GET /v1/memos/:id/assets/:assetId`): the PNG of a Mermaid diagram or an artifact's file.
   func asset(memoID: String, assetID: String) -> MediaRequest?
 }
 
@@ -42,7 +42,7 @@ nonisolated struct AuthenticatedMediaSource: MemoMediaSource {
     MediaRequest(
       url: baseURL.appending(path: "v1/memos/\(memoID)/assets/\(assetID)"),
       headers: ["Authorization": "Bearer \(bearerToken)"],
-      cacheName: "\(memoID).\(assetID).png", isReusable: true)
+      cacheName: "\(memoID).\(assetID).asset", isReusable: true)
   }
 
   private func request(_ memo: Memo, _ route: String, fileExtension: String, isReusable: Bool) -> MediaRequest {
@@ -72,13 +72,14 @@ nonisolated struct FakeMediaSource: MemoMediaSource {
     return clip(named: "\(memo.id).speech", seconds: 4)
   }
 
-  /// A small diagram-like PNG (boxes and arrows) in the ink of the appearance the asset id names, drawn once per id.
+  /// The sample artifact's file for its asset id, else a small diagram-like PNG (boxes and arrows) in the ink of the appearance
+  /// the asset id names; written once per id.
   func asset(memoID: String, assetID: String) -> MediaRequest? {
-    let url = directory.appending(path: "\(memoID).\(assetID).png")
+    let url = directory.appending(path: "\(memoID).\(assetID).asset")
     if !FileManager.default.fileExists(atPath: url.path) {
       do {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        try FakeDiagramImage.png(dark: assetID.hasSuffix("dark")).write(to: url)
+        try (SampleData.artifactFile(assetID: assetID) ?? FakeDiagramImage.png(dark: assetID.hasSuffix("dark"))).write(to: url)
       } catch {
         return nil
       }

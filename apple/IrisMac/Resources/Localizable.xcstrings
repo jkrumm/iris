@@ -516,6 +516,16 @@
         }
       }
     },
+    "Document" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dokument"
+          }
+        }
+      }
+    },
     "Done" : {
       "localizations" : {
         "de" : {
