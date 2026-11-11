@@ -78,7 +78,7 @@ struct MemoThreadPresentationTests {
     #expect(answer.content == .assistant("x", mermaid: [:], artifacts: assets))
   }
 
-  @Test("the sample artifact thread lists a chart, a table and a document, each the size of the file the fake source serves")
+  @Test("the sample artifact thread lists a chart, a table and a document, each the size of its fake file")
   func sampleArtifacts() throws {
     let all = SampleData.details(now: MemoFactory.now).map(\.memo)
     let memo = try #require(all.first { $0.id == SampleData.artifactThreadID })

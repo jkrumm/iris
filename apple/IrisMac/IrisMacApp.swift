@@ -57,7 +57,10 @@ struct IrisMacApp: App {
     ) { $request in
       if let request {
         ArtifactViewer(request: request)
-          .navigationTitle(request.asset.title ?? String(localized: "Document", comment: "Window title of an opened reply artifact"))
+          .navigationTitle(
+            request.asset.title
+              ?? String(localized: "Document", comment: "Window title of an opened reply artifact")
+          )
           .environment(\.artifactStore, root.artifacts)
       }
     }
