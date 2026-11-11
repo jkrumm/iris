@@ -5,7 +5,7 @@ import SwiftUI
 
 /// The files of a conversation's artifacts (a show spec's JSON, a document): each one fetched once through the app's
 /// ``ReplyAssetLoader`` (the authenticated, disk-cached media path; the web view never loads anything itself), in flight at most
-/// once, and kept for the life of the store. A failure is remembered until ``retry(_:)`` or ``load(_:)`` asks again.
+/// once, and kept for the life of the store. A failure is remembered: ``load(_:)`` leaves it, only ``retry(_:)`` fetches again.
 @MainActor
 @Observable
 public final class ArtifactStore {
