@@ -4,8 +4,10 @@ final class ThreadUITests: IrisUITestCase {
   @MainActor
   private func launch() -> XCUIApplication {
     let app = XCUIApplication()
-    // A slower fake server, so the pending turn can be seen before the answer replaces it.
-    app.launchArguments = SampleClock.arguments + ["-IrisFakeStepMs", "3000"]
+    // A slower fake server, so the pending turn can be seen before the answer replaces it: the running turn lasts 85 % of a
+    // step (the answer streams in then). At 3 s it was gone 2.55 s after Send, before a test that first finds the sent text
+    // (about 2.7 s on the mini) looked for it.
+    app.launchArguments = SampleClock.arguments + ["-IrisFakeStepMs", "6000"]
     start(app)
     XCTAssertTrue(waitForPresence(app.descendants(matching: .any)["history.list"], timeout: 10))
     return app

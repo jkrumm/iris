@@ -217,6 +217,23 @@
         }
       }
     },
+    "Could not show this. Tap to retry." : {
+      "comment" : "Under an artifact shown as code",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Konnte nicht angezeigt werden. Zum Wiederholen tippen."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Could not show this. Tap to retry."
+          }
+        }
+      }
+    },
     "Details" : {
       "comment" : "Button under a conversation's memo that opens its details",
       "localizations" : {
@@ -281,6 +298,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Discard recording"
+          }
+        }
+      }
+    },
+    "Document" : {
+      "comment" : "Title of an untitled document artifact in a reply",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dokument"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Document"
           }
         }
       }
@@ -502,6 +536,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Opens the diagram full screen"
+          }
+        }
+      }
+    },
+    "Opens the document" : {
+      "comment" : "VoiceOver hint of a document card",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Öffnet das Dokument"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Opens the document"
           }
         }
       }
@@ -745,6 +796,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Send"
+          }
+        }
+      }
+    },
+    "Share" : {
+      "comment" : "Shares an artifact's file from the artifact viewer",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Teilen"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Share"
           }
         }
       }

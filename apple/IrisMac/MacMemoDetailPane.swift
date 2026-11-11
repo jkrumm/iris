@@ -13,6 +13,8 @@ struct MacMemoDetailPane: View {
   let player: MacAudioPlayer
   @State private var model: MacMemoDetailModel
   @State private var zoomed: MacZoomedDiagram?
+  @State private var artifactBudget = ArtifactIslandBudget()
+  @Environment(\.openWindow) private var openWindow
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
   private static let bottom = "mac.detail.bottom"
@@ -27,6 +29,8 @@ struct MacMemoDetailPane: View {
     ScrollViewReader { proxy in
       ScrollView {
         content
+          .environment(\.artifactIslandBudget, artifactBudget)
+          .environment(\.openArtifact, OpenArtifactAction { openWindow(id: MacWindowID.artifact, value: $0) })
           .frame(maxWidth: Theme.Spacing.macReadableWidth, alignment: .leading)
           .padding(Theme.Spacing.macDetailMargin)
           .frame(maxWidth: .infinity)

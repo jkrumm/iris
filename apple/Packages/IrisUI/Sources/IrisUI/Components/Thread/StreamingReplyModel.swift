@@ -8,7 +8,7 @@ import Foundation
 struct StreamingReplyModel {
   private var committed: [MessageBlock] = []
   private var committedPrefix = ""
-  private var committedMermaids = 0
+  private var committedFences = MessageBlock.FenceCounts()
   private var hasReference = false
   private var lastInput: (markdown: String, isStreaming: Bool)?
   private(set) var blocks: [IdentifiedBlock] = []
@@ -37,7 +37,7 @@ struct StreamingReplyModel {
   private mutating func reset() {
     committed = []
     committedPrefix = ""
-    committedMermaids = 0
+    committedFences = MessageBlock.FenceCounts()
     hasReference = false
   }
 
@@ -64,7 +64,7 @@ struct StreamingReplyModel {
     }
     let lines = source.split(separator: "\n", omittingEmptySubsequences: false)
     let split = MessageBlock.tracked(
-      source, startingMermaidIndex: committedMermaids, chunked: true, partialTail: true)
+      source, starting: committedFences, chunked: true, partialTail: true)
     let lastLine = lines.count - 1
     let keep = (1..<max(split.blocks.count, 1)).last { index in
       guard split.startLines[index] < lastLine else { return false }
@@ -76,7 +76,7 @@ struct StreamingReplyModel {
     let end = source.utf8.index(source.utf8.startIndex, offsetBy: offset)
     committedPrefix += source[..<end]
     committed += split.blocks[..<keep]
-    committedMermaids += split.blocks[..<keep].filter { if case .mermaid = $0 { true } else { false } }.count
+    committedFences.add(split.blocks[..<keep])
     return Array(split.blocks[keep...])
   }
 }

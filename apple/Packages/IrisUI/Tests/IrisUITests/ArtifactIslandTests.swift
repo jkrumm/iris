@@ -191,6 +191,63 @@ struct ArtifactIslandTests {
       #expect(island.page.url?.absoluteString == "iris-artifact://doc/page")
     }
 
+    @Test("The island of an HTML document refuses a network request: the document CSP blocks fetch and remote images")
+    func htmlDocumentNetworkRefused() async throws {
+      let asset = ArtifactAsset(
+        ref: ReplyAssetRef(memoID: "m", assetID: "a"), kind: .doc, index: 0, format: .html, bytes: 0)
+      let html = """
+        <!doctype html><html><body><h1 id="t">Report</h1>\
+        <img id="remote" src="https://example.com/pixel.png" alt=""></body></html>
+        """
+      let content = try #require(ArtifactContent(asset: asset, data: Data(html.utf8), scheme: .light))
+      #expect(content.entry == .html(html))
+      #expect(content.payloadJSON == nil)
+      let island = ArtifactIsland(
+        entry: content.entry, payloadJSON: "null", colorScheme: .light, openExternal: { _ in })
+      defer { island.teardown() }
+      await wait("the document") { await text(island, "#t") == "Report" }
+      // The host's own script (not subject to the page CSP) asks the document's context to reach the network and records the
+      // policy violations that context reports.
+      let verdict =
+        await script(
+          island,
+          """
+          const violations = [];
+          document.addEventListener('securitypolicyviolation', (event) => violations.push(event.effectiveDirective));
+          let fetched;
+          try { await fetch('https://example.com/data.json'); fetched = 'loaded'; } catch (error) { fetched = 'refused'; }
+          await new Promise((resolve) => setTimeout(resolve, 300));
+          return fetched + ' ' + violations.join(',');
+          """) as? String
+      #expect(verdict?.hasPrefix("refused ") == true, "verdict: \(verdict ?? "nil")")
+      #expect(
+        verdict?.contains("connect-src") == true || verdict?.contains("default-src") == true,
+        "no CSP violation reported: \(verdict ?? "nil")")
+      #expect(await script(island, "return document.getElementById('remote').naturalWidth") as? Int == 0)
+    }
+
+    @Test("The bundled renderer draws a show spec, and a spec it refuses is reported as refused")
+    func rendererRefusal() async throws {
+      let asset = ArtifactAsset(ref: ReplyAssetRef(memoID: "m", assetID: "s"), kind: .show, index: 0, bytes: 0)
+      func island(_ spec: String) throws -> ArtifactIsland {
+        let content = try #require(ArtifactContent(asset: asset, data: Data(spec.utf8), scheme: .light))
+        return ArtifactIsland(
+          entry: content.entry, payloadJSON: try #require(content.payloadJSON), colorScheme: .light,
+          openExternal: { _ in })
+      }
+      let table = try island(#"{"type":"table","title":"Tasks","columns":["Task","Done"],"rows":[["Ship",true]]}"#)
+      defer { table.teardown() }
+      await wait("the table to render") { table.renderCount > 0 }
+      #expect(!table.isRefused)
+      #expect(await script(table, "return document.querySelectorAll('table').length") as? Int == 1)
+
+      // Rows longer than the columns: valid JSON, a spec the renderer's validation refuses.
+      let bad = try island(#"{"type":"table","columns":["A"],"rows":[["x","y"]]}"#)
+      defer { bad.teardown() }
+      await wait("the refusal") { bad.renderCount > 0 }
+      #expect(bad.isRefused)
+    }
+
     @Test("Switching to dark changes the theme variables")
     func schemeSwitch() async throws {
       let island = try makeIsland(scheme: .light)

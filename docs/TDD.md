@@ -578,6 +578,33 @@ waiting does not cancel the others'), and a failure is not remembered. The sessi
 follows the memos: `evict(memoID:)` removes `<memo>.*` (recording, speech, diagrams) when History deletes a memo, hides a discarded one, or sees one deleted on another device
 (`memo.isDeleted` on the refresh, or a 404). Nothing else prunes `Caches`: a memo purged while the app was closed keeps its files until the OS reclaims them.
 
+### Artifacts in the conversation (Issue 728)
+
+A reply's `iris-show` and `iris-doc` fences (server: "Reply artifacts") are shown, not printed, on the iPhone and the Mac.
+
+- **Blocks.** `MessageBlock.split` yields `.artifact(kind, index:, source:)` for every top-level `iris-show` / `iris-doc` fence (the server's `extractFences` reading: CommonMark
+  fences, `lang` = first word of the info string lower-cased), numbered among the fences **of its kind** like `ReplyArtifact.index` (invalid ones counted, the same counter as the
+  server's). The stream counts the committed blocks (`MessageBlock.FenceCounts`), so an index never shifts while a reply grows. The app maps `Memo.replyArtifacts` to IrisUI's
+  `ArtifactAsset` keyed by (kind, index); a fence with no entry (invalid, capped, a reply from before artifacts, a stream that is not stored yet) stays code.
+- **Files.** `ArtifactStore` (IrisUI, one per app, `\.artifactStore`) fetches an artifact's file once through the `ReplyAssetLoader` port, which in the app is the authenticated
+  `MediaDownloader` path of the Mermaid images (`GET /v1/memos/:id/assets/:assetId`, bearer header, disk cache). The web view never loads anything over the network: the file's
+  bytes reach the page only as the `window.iris.render` payload (`ArtifactContent`: `{artifact: {kind: "show", spec} | {kind: "doc", format: "markdown", title?, content}, theme: {scheme}}`).
+  IrisCore decodes the spec contract as `ShowSpec` (every `artifacts.show-spec` fixture round-trips); the client renders from the JSON the page validates itself.
+- **Inline.** A show spec is one `ArtifactWebView` island (`index.html` of the bundle) at its content height with a corner button that opens the viewer. A document is a titled
+  card (title or "Document", format, size); a tap opens the viewer, no island inline.
+- **At most three live islands per conversation** (`ArtifactIslandBudget`, `\.artifactIslandBudget`, owned by the conversation screen). An island counts while it is on screen
+  (`onScrollVisibilityChange`); the three most recently shown are live, any other one is the snapshot it took after its last render (`WebPage.exported(as: .image)`, per
+  color scheme) at its last height, and comes back live when it scrolls in again. Before a first snapshot it is an empty frame of its cached height.
+- **Failure.** A file that fails to load, a file that is not what its kind says (not a JSON object, not UTF-8), a page that fails to load, and a spec the renderer refuses (it
+  answers with its one notice, `p.notice[role=status]`, checked by the host after each render) show the fence as code with "Could not show this. Tap to retry." (`ArtifactStore.retry`).
+- **HTML documents** never reach the bundled renderer: the island serves the document itself as its inline page (`ArtifactEntry.html`, `iris-artifact://doc/page`) under the
+  document CSP (`default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:`): no script, no request leaves (`ArtifactIslandTests.htmlDocumentNetworkRefused`:
+  `fetch` is refused with a `connect-src` violation, a remote `<img>` stays empty). The only bridge is the island's own isolated world (height, theme variables). This also
+  settles the web renderer's open CSP question: the page's `srcdoc` frame path is not used by the host.
+- **Viewer** (`ArtifactViewer`, `ArtifactViewerRequest`): full screen on the iPhone (`fullScreenCover`), a window on the Mac (`openArtifact` → `openWindow`). The same island,
+  scrollable, with Copy (the file's text to the pasteboard, "Copied" for 2 s), Share (`ShareLink` of the raw file in the temporary directory, named after the title:
+  `.json`, `.md`, `.html`) and, on the iPhone, Close.
+
 ### Optional summarize, money, offline History (Wave 16 I2)
 
 The optional `summarize` step stays (Wave 21 S1b, owner 2026-11-04): the paragraph below is current, except that a memo without a summary falls back to Hermes's headline before the transcript on alerts.
@@ -1193,6 +1220,8 @@ run shows nothing and never blocks or fails a take.
     colours, route dots and wording stay Iris's. `MacActivationPolicy` shows the app in the Dock and ⌘Tab while such a window is open.
     Playback uses a bare `AVPlayer` (`MacAudioPlayer`; macOS has no `AVAudioSession`). Not on the Mac: Mermaid images (shown as code),
     replying inside a thread. The window's list takes the popover's one event stream by mirror (`StreamTappingClient.mirror`), not a second connection.
+    Reply artifacts render inline as on the iPhone (§4 "Artifacts in the conversation"); the viewer is a window of its own (a `WindowGroup` over
+    `ArtifactViewerRequest`, opened through `\.openArtifact`), one per artifact.
   - *Live updates:* the list and `HistoryModel.observeEvents()` start at launch, independently of each other (a hung first list
     request does not hold the stream back; its `ready` event reloads the list), whether or not the popover was ever opened, and
     restart on a connection change. The list reloads on every stream reconnect.

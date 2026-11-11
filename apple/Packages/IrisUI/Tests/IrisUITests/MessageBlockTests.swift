@@ -267,4 +267,49 @@ struct MessageBlockTests {
     let diagram = "```mermaid\nA-->B\n```"
     #expect(MessageBlock.split(diagram, startingMermaidIndex: 3) == [.mermaid(index: 3, source: diagram)])
   }
+
+  @Test("artifact fences become blocks numbered per kind like the server's index, between Mermaid and code fences")
+  func mixedFences() {
+    let chart = "```iris-show\n{\"type\":\"chart\"}\n```"
+    let diagram = "```mermaid\nA-->B\n```"
+    let doc = "```iris-doc title=\"Weekly report\" format=markdown\n# Week\n```"
+    let table = "~~~IRIS-SHOW\n{\"type\":\"table\"}\n~~~"
+    let code = "```json\n{\"type\":\"stat\"}\n```"
+    let html = "````iris-doc format=html\n<p>Hi</p>\n```\n````"
+    let reply = [
+      "Intro", chart, diagram, "Then", doc, table, code, html, "````md\n```iris-show\n{}\n```\n````",
+    ].joined(separator: "\n")
+    #expect(
+      MessageBlock.split(reply) == [
+        .markdown("Intro"),
+        .artifact(.show, index: 0, source: chart),
+        .mermaid(index: 0, source: diagram),
+        .markdown("Then"),
+        .artifact(.doc, index: 0, source: doc),
+        .artifact(.show, index: 1, source: table),
+        .markdown(code),
+        .artifact(.doc, index: 1, source: html),
+        // A fence inside another fence is that fence's text and takes no index.
+        .markdown("````md\n```iris-show\n{}\n```\n````"),
+      ])
+  }
+
+  @Test("an artifact fence keeps its index when the stream commits the blocks above it")
+  func artifactIndexAcrossCommits() {
+    let reply = "```iris-show\n{}\n```\n\nText.\n\n```iris-show\n{}\n```\n\nMore."
+    var model = StreamingReplyModel()
+    var streamed: [IdentifiedBlock] = []
+    for end in reply.indices.dropFirst() {
+      streamed = model.update(markdown: String(reply[..<end]), isStreaming: true)
+    }
+    streamed = model.update(markdown: reply, isStreaming: true)
+    let ids = streamed.map(\.id).filter { $0.hasPrefix("artifact") }
+    #expect(ids == ["artifact-show-0", "artifact-show-1"])
+    #expect(model.update(markdown: reply, isStreaming: false) == MessageBlock.split(reply).identified)
+  }
+
+  @Test("an unclosed artifact fence runs to the end, like the server's reading")
+  func unclosedArtifact() {
+    #expect(MessageBlock.split("```iris-doc\n# Draft") == [.artifact(.doc, index: 0, source: "```iris-doc\n# Draft")])
+  }
 }

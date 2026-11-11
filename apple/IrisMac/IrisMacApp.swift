@@ -50,6 +50,23 @@ struct IrisMacApp: App {
     .windowResizability(.contentSize)
     .defaultLaunchBehavior(.suppressed)
 
+    // A reply's chart, table or document at reading size: one window per artifact, opened by a card's Open.
+    WindowGroup(
+      String(localized: "Document", comment: "Window title of an opened reply artifact"), id: MacWindowID.artifact,
+      for: ArtifactViewerRequest.self
+    ) { $request in
+      if let request {
+        ArtifactViewer(request: request)
+          .navigationTitle(
+            request.asset.title
+              ?? String(localized: "Document", comment: "Window title of an opened reply artifact")
+          )
+          .environment(\.artifactStore, root.artifacts)
+      }
+    }
+    .defaultSize(width: 640, height: 520)
+    .defaultLaunchBehavior(.suppressed)
+
     // ⌘, : the native tabbed Settings window.
     Settings {
       MacSettingsView(root: root)

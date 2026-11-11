@@ -16,7 +16,8 @@ public struct ActivityLine: Equatable, Sendable, Identifiable {
 public struct ConversationTurn: Identifiable, Equatable, Sendable {
   public enum Content: Equatable, Sendable {
     case user(String)
-    case assistant(String, mermaid: [Int: MermaidAsset])
+    /// The finished answer with its memo's Mermaid renders (by fence index) and artifacts (by kind and index).
+    case assistant(String, mermaid: [Int: MermaidAsset], artifacts: [ArtifactAsset.Key: ArtifactAsset] = [:])
     case pending(StepProgress, caption: String)
     case failed(String)
     /// The answer is being worked on: one line per tool started, the last one is current.

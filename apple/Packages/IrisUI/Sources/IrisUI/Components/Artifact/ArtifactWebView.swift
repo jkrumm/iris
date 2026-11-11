@@ -15,6 +15,8 @@ public struct ArtifactWebView: View {
   private let allowsFullscreen: Bool
   private let openExternal: ((URL) -> Void)?
   private let onHeight: ((CGFloat) -> Void)?
+  private let onRefused: (() -> Void)?
+  private let onSnapshot: ((CGImage) -> Void)?
 
   /// Created on first appearance, not in `init`: SwiftUI builds a view value on every parent update and a web page is not cheap.
   @State private var island: ArtifactIsland?
@@ -25,9 +27,12 @@ public struct ArtifactWebView: View {
   ///   - id: Keys the height cache, so a lazy stack that recycles the view does not make it jump.
   ///   - openExternal: Where a tapped link goes; the system opens it when `nil`.
   ///   - onHeight: Called with the measured height whenever it changes.
+  ///   - onRefused: Called when the page could not load or its renderer refused the payload (it shows its notice).
+  ///   - onSnapshot: Called with an image of the content once a payload has rendered, for a stand-in when the view is gone.
   public init(
     entry: ArtifactEntry, payloadJSON: String = "null", id: String? = nil, allowsFullscreen: Bool = true,
-    openExternal: ((URL) -> Void)? = nil, onHeight: ((CGFloat) -> Void)? = nil
+    openExternal: ((URL) -> Void)? = nil, onHeight: ((CGFloat) -> Void)? = nil, onRefused: (() -> Void)? = nil,
+    onSnapshot: ((CGImage) -> Void)? = nil
   ) {
     self.entry = entry
     self.payloadJSON = payloadJSON
@@ -35,6 +40,8 @@ public struct ArtifactWebView: View {
     self.allowsFullscreen = allowsFullscreen
     self.openExternal = openExternal
     self.onHeight = onHeight
+    self.onRefused = onRefused
+    self.onSnapshot = onSnapshot
   }
 
   public init(
@@ -61,6 +68,8 @@ public struct ArtifactWebView: View {
             Task { await island.refreshHeight() }
           }
           .onChange(of: payloadJSON) { _, json in island.render(payloadJSON: json) }
+          .onChange(of: island.failure) { _, failure in if failure != nil { onRefused?() } }
+          .onChange(of: island.renderCount) { rendered(island) }
           .modifier(
             ArtifactFullscreenPresentation(isPresented: $isFullscreen) {
               ArtifactFullscreenView(
@@ -73,6 +82,19 @@ public struct ArtifactWebView: View {
       }
     }
     .onAppear { createIslandIfNeeded() }
+  }
+
+  /// A payload has rendered: report a refusal, or take the snapshot once the canvas has painted (a chart draws on the next frame).
+  private func rendered(_ island: ArtifactIsland) {
+    if island.isRefused {
+      onRefused?()
+      return
+    }
+    guard let onSnapshot else { return }
+    Task {
+      try? await Task.sleep(for: .milliseconds(300))
+      if let image = await island.snapshot() { onSnapshot(image) }
+    }
   }
 
   private var fullscreenButton: some View {

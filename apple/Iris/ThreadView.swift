@@ -11,6 +11,7 @@ struct ThreadView: View {
   @State private var model: ThreadModel
   @State private var zoomed: ZoomedImage?
   @State private var details: DetailsTarget?
+  @State private var artifactBudget = ArtifactIslandBudget()
   private let refreshToken: (_ threadID: String?, _ memoIDs: [String]) -> Int
   private let makeDetail: (Memo) -> MemoDetailModel
   private let memoRevision: (String) -> Int
@@ -70,6 +71,7 @@ struct ThreadView: View {
             })
           Color.clear.frame(height: 1).id(Self.bottom)
         }
+        .environment(\.artifactIslandBudget, artifactBudget)
         .padding(.horizontal, Theme.Spacing.screenMargin)
         .padding(.top, Theme.Spacing.inset)
         .padding(.bottom, Theme.Spacing.lg)

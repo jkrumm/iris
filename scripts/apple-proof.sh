@@ -12,21 +12,22 @@
 # Output: .artifacts/proof/<time>/{ios/,mac/,mac-de/,proof.txt} (mac/ English, mac-de/ German). Exit 0 only when the iOS screenshot and every expected Mac PNG exist
 # and no simulator is left booted. This proves "it builds, launches and looks right"; the test suites stay CI's.
 # Env: SIM_NAME / SIM_OS (the Makefile's pinned simulator), IOS_ARGS (extra launch arguments for Iris), PROOF_MAC=0 / PROOF_IOS=0
-# (skip a half), UI_SETTLE (seconds before the UI tree, default 8), MAC_TIMEOUT (seconds for the Mac snapshot run, default 180).
+# (skip a half), UI_SETTLE (seconds before the UI tree, default 8), MAC_TIMEOUT (seconds for the Mac snapshot run, default 240).
 set -uo pipefail
 cd "$(dirname "$0")/.."
 
 SIM_NAME=${SIM_NAME:-iPhone 17}
 SIM_OS=${SIM_OS:-27.0}
 UI_SETTLE=${UI_SETTLE:-8}
-MAC_TIMEOUT=${MAC_TIMEOUT:-180}
+MAC_TIMEOUT=${MAC_TIMEOUT:-240}
 APP_BUNDLE=com.jkrumm.iris
 DD=apple/.dd.noindex
 # Capped like the Makefile's test runners: 2 build jobs (an uncapped cold build of both schemes peaked at a 1-minute load of 408 on 12 cores), low priority.
 XCB=(nice -n 10 xcodebuild -project apple/Iris.xcodeproj -derivedDataPath "$DD" CODE_SIGNING_ALLOWED=NO -jobs "${SWIFT_JOBS:-2}"
   IDEBuildOperationMaxNumberOfConcurrentCompileTasks="${SWIFT_JOBS:-2}" SWIFT_COMPILATION_MODE=incremental)
 MAC_EXPECTED=(menu window-all window-thread window-chat-mermaid window-running window-filtered window-new window-composer window-sent
-  window-answered settings-connection settings-recording settings-general onboarding recording recording-refused artifact-island artifact-island-dark)
+  window-answered settings-connection settings-recording settings-general onboarding recording recording-refused artifact-island artifact-island-dark
+  artifact-cards artifact-cards-dark artifact-viewer artifact-viewer-dark)
 
 out=.artifacts/proof/$(date +%Y%m%d-%H%M%S)
 mkdir -p "$out/ios" "$out/mac" "$out/mac-de"
@@ -76,6 +77,21 @@ mb_of() { # <pid>: "<MB> footprint|rss" (footprint where the system lets us read
 # The simulator's WebContent processes are host processes (the simulator runtime's WebKit): the ones that appear after the app
 # launches, since the baseline, are the app's. No IrisMac runs here (checked above), other apps' WebContent stays in the baseline.
 sim_webcontent_pids() { pgrep -f 'com.apple.WebKit.WebContent' | sort -u; }
+# The sample reply's artifact cards and the viewer on the sample document (`-IrisArtifactSample cards|viewer`), light and dark.
+artifact_screens() {
+  local screen appearance
+  for screen in cards viewer; do
+    for appearance in light dark; do
+      xcrun simctl terminate "$udid" "$APP_BUNDLE" >/dev/null 2>&1 || true
+      xcrun simctl ui "$udid" appearance "$appearance" >/dev/null 2>&1 || true
+      xcrun simctl launch "$udid" "$APP_BUNDLE" -IrisArtifactSample "$screen" -IrisFakeCapture -AppleLanguages "(en)" -AppleLocale en_US >>"$out/ios/artifact-launch.txt" 2>&1 || true
+      sleep 16
+      xcrun simctl io "$udid" screenshot "$out/ios/artifact-$screen-$appearance.png" >/dev/null 2>&1
+    done
+  done
+  xcrun simctl ui "$udid" appearance light >/dev/null 2>&1 || true
+  xcrun simctl terminate "$udid" "$APP_BUNDLE" >/dev/null 2>&1 || true
+}
 artifact_spike() {
   local spike=(-IrisArtifactSpike -IrisFakeCapture -AppleLanguages "(en)" -AppleLocale en_US)
   xcrun simctl terminate "$udid" "$APP_BUNDLE" >/dev/null 2>&1 || true
@@ -147,7 +163,8 @@ if [[ "${PROOF_IOS:-1}" != 0 ]]; then
       [[ -s "$out/ios/launch.png" ]] || fail "ios: no screenshot"
       phase ios-artifact
       artifact_spike || say "ios: artifact spike measurement failed (see ios/artifact-memory.txt)"
-      for name in artifact-light artifact-dark; do
+      artifact_screens
+      for name in artifact-light artifact-dark artifact-cards-light artifact-cards-dark artifact-viewer-light artifact-viewer-dark; do
         [[ -s "$out/ios/$name.png" ]] || fail "ios: $name.png missing"
       done
     else

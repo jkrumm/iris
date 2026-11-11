@@ -43,6 +43,7 @@ struct MacMainWindow: View {
       }
     }
     .environment(\.replyImageStore, root.replyImages)
+    .environment(\.artifactStore, root.artifacts)
     .macToast(root: root, model: root.windowHistory)
     .onAppear {
       root.windowDidAppear()

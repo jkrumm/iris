@@ -2,4 +2,5 @@
 enum MacWindowID {
   static let main = "main"
   static let onboarding = "onboarding"
+  static let artifact = "artifact"
 }

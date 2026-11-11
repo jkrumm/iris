@@ -49,7 +49,7 @@ struct MacComposerTests {
         await model.load()
         return model.turns.last?.id == "\(id).reply"
       })
-    if case .assistant(let text, _) = model.turns.last?.content {
+    if case .assistant(let text, _, _) = model.turns.last?.content {
       #expect(text == "This is the fake answer to your message.")
     } else {
       Issue.record("the pending turn did not become the answer")
