@@ -21,6 +21,8 @@
 
   struct ArtifactSampleScreen: View {
     let sample: ArtifactSample
+    /// `false` lays the cards out without a scroll view: the Mac capture draws the view itself, which skips a scroll view's content.
+    var scrolls = true
     @State private var store = ArtifactStore(
       loader: MediaAssetLoader(source: { FakeMediaSource() }, downloader: .shared))
     @State private var budget = ArtifactIslandBudget()
@@ -41,12 +43,16 @@
       .background(Theme.Surface.background)
     }
 
-    private var cards: some View {
-      ScrollView {
-        AssistantTurnView(
-          markdown: SampleData.artifactReply, time: "09:42", artifacts: memo?.artifactAssets ?? [:])
-          .padding(.horizontal, Theme.Spacing.screenMargin)
-          .padding(.vertical, Theme.Spacing.lg)
+    @ViewBuilder private var cards: some View {
+      let turn = AssistantTurnView(
+        markdown: SampleData.artifactReply, time: "09:42", artifacts: memo?.artifactAssets ?? [:]
+      )
+      .padding(.horizontal, Theme.Spacing.screenMargin)
+      .padding(.vertical, Theme.Spacing.lg)
+      if scrolls {
+        ScrollView { turn }
+      } else {
+        turn.frame(maxHeight: .infinity, alignment: .top)
       }
     }
 

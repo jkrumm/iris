@@ -69,13 +69,22 @@
         Self.artifactLogger.error("no visible main window for the artifact screens")
         return
       }
-      window.setContentSize(NSSize(width: 480, height: 640))
-      for (sample, name) in [(ArtifactSample.cards, "artifact-cards"), (.viewer, "artifact-viewer")] {
-        window.contentView = NSHostingView(rootView: ArtifactSampleScreen(sample: sample))
+      // A fixed size per screen: a scroll view has no ideal width (the window shrank to 278 pt), and the viewer's minimum is 640.
+      let screens: [(ArtifactSample, String, NSSize)] = [
+        (.cards, "artifact-cards", NSSize(width: 480, height: 640)),
+        (.viewer, "artifact-viewer", NSSize(width: 640, height: 560)),
+      ]
+      for (sample, name, size) in screens {
+        let host = NSHostingView(
+          rootView: ArtifactSampleScreen(sample: sample, scrolls: false).frame(width: size.width, height: size.height))
+        host.sizingOptions = []
+        window.contentView = host
+        window.setContentSize(size)
         for (appearance, suffix) in [(NSAppearance.Name.aqua, ""), (.darkAqua, "-dark")] {
           window.appearance = NSAppearance(named: appearance)
           try? await Task.sleep(for: Self.islandSettle)
-          await writeWithWebContent(window, as: name + suffix)
+          // The content view itself, not the window server's picture: the latter came out blank for the viewer.
+          await writeWithWebContent(window, as: name + suffix, chrome: false)
         }
       }
       window.contentView = original
@@ -85,7 +94,7 @@
 
     /// WebKit does not paint into a window it considers occluded (the mini's headless display), so the window server's picture of
     /// the island is empty. The web view's own `takeSnapshot` renders on demand; it is laid over the web view for the capture.
-    private func writeWithWebContent(_ window: NSWindow, as name: String) async {
+    private func writeWithWebContent(_ window: NSWindow, as name: String, chrome: Bool = true) async {
       guard let content = window.contentView else { return }
       var overlays: [NSImageView] = []
       for web in Self.webViews(in: content) {
@@ -97,7 +106,7 @@
         overlays.append(overlay)
       }
       try? await Task.sleep(for: .milliseconds(300))
-      write(window, as: name, chrome: true)
+      write(window, as: name, chrome: chrome)
       for overlay in overlays { overlay.removeFromSuperview() }
     }
 
