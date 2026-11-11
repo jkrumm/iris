@@ -20,6 +20,7 @@ private func roundTrip<Wire: Codable & Sendable>(_ type: Wire.Type) -> RoundTrip
 /// an optional `inputName` the server never sends. It is omitted when `nil`, so every fixture still
 /// round-trips exactly. No other type drops or adds a field.
 let fixtureTypes: [String: RoundTrip] = [
+  "artifacts.show-spec": roundTrip(ShowSpec.self),
   "devices.register.request": roundTrip(RegisterDeviceRequest.self),
   "devices.register.response": roundTrip(RegisterDeviceResponse.self),
   "error": roundTrip(ErrorBody.self),
@@ -64,8 +65,7 @@ let fixtureTypes: [String: RoundTrip] = [
 /// `everySchemaIsMapped` does not ask for a type, but still requires the schema file to exist.
 ///
 /// - `telemetry.*` (`POST /v1/telemetry`): `IrisTelemetry`, its `FixtureConformanceTests`.
-/// - `artifacts.show-spec`: the body of an `iris-show` fence, served as JSON by the asset route; no Swift type yet (a client renderer follows).
-let decodedElsewhere: Set<String> = ["telemetry.request", "telemetry.response", "artifacts.show-spec"]
+let decodedElsewhere: Set<String> = ["telemetry.request", "telemetry.response"]
 
 @Suite("Contract fixtures")
 struct FixtureConformanceTests {
