@@ -85,3 +85,47 @@ struct ConversationRouterTests {
     #expect(router.pending?.link == ConversationLink(memoID: "m4", focus: .voice))
   }
 }
+
+@MainActor
+@Suite("ConversationRouter voice reply")
+struct ConversationRouterVoiceTests {
+  private func opened(_ router: ConversationRouter, threadID: String?, focus: ComposerFocus) async throws
+    -> ConversationRouter.Opened
+  {
+    var memo = MemoFactory.memo("m1")
+    memo.threadId = threadID
+    router.open(ConversationLink(memoID: "m1", focus: focus))
+    let pending = try #require(router.pending)
+    let result = await router.resolve(pending, isConfigured: true, local: { _ in memo }, fetch: { _ in memo })
+    return try #require(result)
+  }
+
+  @Test("the voice focus starts a take bound to the memo's thread, once per request")
+  func startsOnce() async throws {
+    let router = ConversationRouter(log: { _, _ in })
+    let opened = try await opened(router, threadID: "t1", focus: .voice)
+    var started: [String] = []
+    router.startVoiceReply(opened) { started.append($0) }
+    #expect(started == ["t1"])
+    #expect(router.pending == nil, "an observed-again request resolves to nothing, so no second start")
+  }
+
+  @Test("other focuses start nothing")
+  func otherFocus() async throws {
+    let router = ConversationRouter(log: { _, _ in })
+    let opened = try await opened(router, threadID: "t1", focus: .keyboard)
+    var started: [String] = []
+    router.startVoiceReply(opened) { started.append($0) }
+    #expect(started.isEmpty)
+  }
+
+  @Test("a memo without a thread falls back to the keyboard focus")
+  func noThread() async throws {
+    let router = ConversationRouter(log: { _, _ in })
+    let opened = try await opened(router, threadID: nil, focus: .voice)
+    var started: [String] = []
+    router.startVoiceReply(opened) { started.append($0) }
+    #expect(started.isEmpty)
+    #expect(router.takeFocus(forAnyOf: ["m1"]) == .keyboard)
+  }
+}

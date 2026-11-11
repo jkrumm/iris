@@ -49,7 +49,7 @@ final class OutboxVoiceReplyCapture: VoiceReplyCapture {
       let session = try await stack.session()
       try await session.start(
         TakeRequest(
-          mode: request.mode.rawValue, threadID: request.threadId,
+          mode: request.mode.rawValue, threadID: request.threadId, holdToTalk: true,
           title: String(localized: "Voice reply", comment: "Outbox row of a recorded reply")))
     } catch {
       await release(mine)

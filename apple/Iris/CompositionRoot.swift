@@ -77,7 +77,7 @@ final class CompositionRoot: CaptureIntentHandler, PlaybackIntentHandler {
   private let reconfigurable: ReconfigurableAPIClient?
   private let voiceReply: any VoiceReplyCapture
   private let liveActivity: TakeLiveActivityCoordinator
-  private let takeController: TakeController
+  let takeController: TakeController
   private let simulatesOffline: Bool
   /// `-IrisOpenURL iris://memo/<id>` (fakes only, UI tests): opened once the sample memos are seeded, as a link would be.
   private var launchLink: ConversationLink?
@@ -390,7 +390,7 @@ final class CompositionRoot: CaptureIntentHandler, PlaybackIntentHandler {
   }
 
   /// The Shortcuts / Siri start (`StartMemoIntent`): with the app not active the Live Activity is requested before the audio
-  /// session (``TakeController/start(mode:source:activityFirst:)``). The Control's `OpenRecorderIntent` and an app in the
+  /// session (``TakeController/start(mode:threadID:source:activityFirst:)``). The Control's `OpenRecorderIntent` and an app in the
   /// foreground start in today's order.
   func startMemoFromShortcut() async throws {
     try await startTake(mode: .hermes, fromShortcut: true)
@@ -405,7 +405,9 @@ final class CompositionRoot: CaptureIntentHandler, PlaybackIntentHandler {
   private func startTake(mode: MemoMode, fromShortcut: Bool = false, activityFirst: Bool? = nil) async throws {
     let activityFirst = activityFirst ?? (fromShortcut && !isAppActive())
     do {
-      try await takeController.start(mode: mode, source: "intent", activityFirst: activityFirst)
+      // A conversation on top continues that thread; anywhere else this is a new memo.
+      let threadID = TakeThreadBinding.threadID(for: mode, presence: presence.current)
+      try await takeController.start(mode: mode, threadID: threadID, source: "intent", activityFirst: activityFirst)
     } catch StartMemoError.backgroundStartRefused {
       // The intent continues in the foreground, or shows this: the take screen has nothing to say yet.
       throw StartMemoError.backgroundStartRefused
@@ -420,6 +422,16 @@ final class CompositionRoot: CaptureIntentHandler, PlaybackIntentHandler {
     switch error as? CaptureError {
     case .sessionFailure, .sessionRefused, .engineFailure, .recordingFailed: StartMemoError.recordingFailed
     default: error
+    }
+  }
+
+  /// Reply by voice (the notification action, a `focus=voice` link): a foreground Hermes take that continues `threadID`.
+  /// A failure is shown on the take model, like ``startTake(mode:fromShortcut:activityFirst:)``.
+  func startReplyByVoice(threadID: String) async {
+    do {
+      try await takeController.start(mode: .hermes, threadID: threadID, source: "notification", activityFirst: false)
+    } catch {
+      take.reportStartFailure(error)
     }
   }
 

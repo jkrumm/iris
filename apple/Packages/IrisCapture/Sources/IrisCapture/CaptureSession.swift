@@ -6,12 +6,16 @@ public struct TakeRequest: Sendable, Equatable {
   public var mode: String
   /// Continues this thread; `nil` for a new memo.
   public var threadID: String?
+  /// A thread's hold-to-talk: it has no take screen, banner or preview. `false` with a `threadID` is a full take that
+  /// happens to continue that thread.
+  public var holdToTalk: Bool
   /// The queue row while the take is waiting to be sent.
   public var title: String
 
-  public init(mode: String, threadID: String? = nil, title: String) {
+  public init(mode: String, threadID: String? = nil, holdToTalk: Bool = false, title: String) {
     self.mode = mode
     self.threadID = threadID
+    self.holdToTalk = holdToTalk
     self.title = title
   }
 }
