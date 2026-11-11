@@ -34,7 +34,12 @@ final class ThreadUITests: IrisUITestCase {
   @MainActor
   private func runningTurn(_ app: XCUIApplication) -> XCUIElement {
     app.descendants(matching: .any)
-      .matching(NSPredicate(format: "identifier IN %@", ["thread.turn.pending", "thread.turn.activity"])).firstMatch
+      .matching(
+        NSCompoundPredicate(
+          orPredicateWithSubpredicates: ["thread.turn.pending", "thread.turn.activity"].map {
+            NSPredicate(format: "identifier == %@", $0)
+          })
+      ).firstMatch
   }
 
   /// Types `text` into the reply field of the conversation and sends it.
@@ -71,9 +76,10 @@ final class ThreadUITests: IrisUITestCase {
 
     // Reply by text from the bar: the sent text joins the thread with a pending answer, then the answer.
     typeReply("What about the narrow table?", in: app)
-    XCTAssertTrue(waitForPresence(app.staticTexts["What about the narrow table?"], timeout: 10))
+    // The running turn first: it is the short-lived element (the sent text stays).
     let pending = runningTurn(app)
     XCTAssertTrue(waitForPresence(pending, timeout: 10))
+    XCTAssertTrue(waitForPresence(app.staticTexts["What about the narrow table?"], timeout: 10))
 
     // The fake server answers the typed memo, and the answer replaces the pending turn.
     let answer = app.descendants(matching: .any)
@@ -96,8 +102,8 @@ final class ThreadUITests: IrisUITestCase {
       waitForPresence(element(app, "thread.reply.field"), timeout: 10), "the reply bar is there from the first turn")
 
     typeReply("And the Friday standup?", in: app)
-    XCTAssertTrue(waitForPresence(thread.staticTexts["And the Friday standup?"], timeout: 10))
     XCTAssertTrue(waitForPresence(runningTurn(app), timeout: 10))
+    XCTAssertTrue(waitForPresence(thread.staticTexts["And the Friday standup?"], timeout: 10))
     XCTAssertTrue(waitForPresence(thread, timeout: 2), "still the same screen")
     XCTAssertTrue(waitForAbsence(element(app, "memo.detail"), timeout: 1))
   }
