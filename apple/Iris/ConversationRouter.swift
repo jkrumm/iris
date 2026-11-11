@@ -46,17 +46,28 @@ final class ConversationRouter {
     guard isConfigured else { return drop(request, reason: "not_configured") }
     let memoID = request.link.memoID
     let memo: Memo
-    if let known = local(memoID) {
+    let known = local(memoID)
+    // A voice reply needs the memo's thread, which the server sets at `act`: History's copy of a memo that finished while the
+    // app was away may predate it, so that copy is read again from the server.
+    if let known, request.link.focus != .voice || known.threadId != nil {
       memo = known
     } else {
-      do { memo = try await fetch(memoID) } catch { return drop(request, reason: "not_found") }
+      do {
+        memo = try await fetch(memoID)
+      } catch {
+        guard let known else { return drop(request, reason: "not_found") }
+        memo = known
+      }
     }
     // A newer link arrived while the fetch ran: it wins.
     guard pending == request else { return nil }
     guard !memo.isDeleted else { return drop(request, reason: "deleted") }
     pending = nil
-    routedFocus = (memo.id, request.link.focus)
-    focusRevision += 1
+    // Only a conversation screen takes the focus; a document (the detail) never shows a reply bar.
+    if memo.isConversation {
+      routedFocus = (memo.id, request.link.focus)
+      focusRevision += 1
+    }
     log("ui.route", ["memo": .string(memo.id), "focus": .string(request.link.focus.rawValue), "opened": true])
     return Opened(memo: memo, focus: request.link.focus)
   }
