@@ -162,6 +162,18 @@
       "name": "a UI test file runs its own classes",
       "paths": ["apple/Tests/UITests/TypedMemoUITests.swift"],
       "classes": ["TypedMemoUITests"]
+    },
+    {
+      "name": "deep links, notification routes, the router",
+      "paths": [
+        "apple/Tests/UITests/DeepLinkUITests.swift",
+        "apple/Iris/Conversation*.swift",
+        "apple/Iris/NotificationRoute.swift",
+        "apple/Iris/PushAppDelegate.swift",
+        "apple/Iris/IrisApp.swift",
+        "apple/Iris/RootView.swift"
+      ],
+      "classes": ["DeepLinkUITests"]
     }
   ]
 }
