@@ -3,7 +3,8 @@ import SwiftUI
 import Textual
 
 /// An assistant reply laid out block by block: Textual for text, lists, links, code and quotes, the sideways-scrolling table,
-/// and the server's Mermaid images. A Mermaid fence the server did not render (no entry in `mermaid`) shows as code.
+/// the server's Mermaid images and the reply's artifacts (``ArtifactBlockView``). A Mermaid or artifact fence the server stored
+/// nothing for (no entry in `mermaid` / `artifacts`) shows as code.
 ///
 /// `markdown` may grow (`isStreaming`): the text is published through a ``StreamBuffer`` (80 ms, or a new line after 16 ms),
 /// only the last chunk is parsed again and its unfinished markup is stabilized. When `isStreaming` is false the view shows
@@ -14,6 +15,7 @@ public struct MessageContentView: View {
   private let isBuffered: Bool
   private let prepared: [IdentifiedBlock]?
   private let mermaid: [Int: MermaidAsset]
+  private let artifacts: [ArtifactAsset.Key: ArtifactAsset]
   private let onOpenImage: (CGImage) -> Void
   private let textRole: Theme.TextRole
   @State private var session = StreamSession()
@@ -22,26 +24,27 @@ public struct MessageContentView: View {
   /// Mac passes `.footnote` (13 pt).
   public init(
     markdown: String, isStreaming: Bool = false, mermaid: [Int: MermaidAsset] = [:],
-    textRole: Theme.TextRole = .callout, onOpenImage: @escaping (CGImage) -> Void = { _ in }
+    artifacts: [ArtifactAsset.Key: ArtifactAsset] = [:], textRole: Theme.TextRole = .callout,
+    onOpenImage: @escaping (CGImage) -> Void = { _ in }
   ) {
     self.init(
       markdown: markdown, isStreaming: isStreaming, isBuffered: true, prepared: nil, mermaid: mermaid,
-      textRole: textRole,
-      onOpenImage: onOpenImage)
+      artifacts: artifacts, textRole: textRole, onOpenImage: onOpenImage)
   }
 
   /// `isBuffered: false` renders every update at once (the caller paces them); `prepared` renders the given blocks as they
   /// are, bypassing the split (the layout of a reply before chunking, for comparison).
   init(
     markdown: String, isStreaming: Bool, isBuffered: Bool, prepared: [IdentifiedBlock]?,
-    mermaid: [Int: MermaidAsset] = [:], textRole: Theme.TextRole = .callout,
-    onOpenImage: @escaping (CGImage) -> Void = { _ in }
+    mermaid: [Int: MermaidAsset] = [:], artifacts: [ArtifactAsset.Key: ArtifactAsset] = [:],
+    textRole: Theme.TextRole = .callout, onOpenImage: @escaping (CGImage) -> Void = { _ in }
   ) {
     self.markdown = markdown
     self.isStreaming = isStreaming
     self.isBuffered = isBuffered
     self.prepared = prepared
     self.mermaid = mermaid
+    self.artifacts = artifacts
     self.textRole = textRole
     self.onOpenImage = onOpenImage
   }
@@ -101,6 +104,9 @@ public struct MessageContentView: View {
       } else {
         MarkdownBlockView(text: source, textRole: textRole)
       }
+    case .artifact(let kind, let index, let source):
+      ArtifactBlockView(
+        kind: kind, source: source, asset: artifacts[ArtifactAsset.Key(kind: kind, index: index)], textRole: textRole)
     }
   }
 }
@@ -206,8 +212,8 @@ private final class StreamSession {
 }
 
 /// A block with an identity that survives the reply changing around it, so a loaded diagram is not handed to another block when
-/// one is inserted above it: a Mermaid block is its fence index (the server's `ReplyBlock.index`), text and tables are numbered
-/// among their own kind.
+/// one is inserted above it: a Mermaid or artifact block is its fence index (the server's `ReplyBlock.index` /
+/// `ReplyArtifact.index`), text and tables are numbered among their own kind.
 struct IdentifiedBlock: Identifiable, Equatable {
   let id: String
   let block: MessageBlock
@@ -227,6 +233,8 @@ extension [MessageBlock] {
         return IdentifiedBlock(id: "table-\(tables)", block: block)
       case .mermaid(let index, _):
         return IdentifiedBlock(id: "mermaid-\(index)", block: block)
+      case .artifact(let kind, let index, _):
+        return IdentifiedBlock(id: "artifact-\(kind.rawValue)-\(index)", block: block)
       }
     }
   }

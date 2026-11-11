@@ -5,7 +5,7 @@ import Observation
 import SwiftUI
 
 /// One server-rendered file of a reply: `GET /v1/memos/:memoID/assets/:assetID`.
-public struct ReplyAssetRef: Hashable, Sendable {
+public struct ReplyAssetRef: Hashable, Sendable, Codable {
   public var memoID: String
   public var assetID: String
 

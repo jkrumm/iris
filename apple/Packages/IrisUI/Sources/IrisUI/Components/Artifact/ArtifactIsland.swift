@@ -1,4 +1,5 @@
 import Foundation
+import ImageIO
 import Observation
 import SwiftUI
 import WebKit
@@ -79,6 +80,10 @@ final class ArtifactIsland {
   /// The bridge has measured the document once: the page is up and `render` has been called.
   private(set) var isReady = false
   private(set) var failure: String?
+  /// The renderer answered the last payload with its notice ("This content could not be displayed."): a spec it refuses.
+  private(set) var isRefused = false
+  /// Counts the payloads the page has rendered (and been measured after); a view waits on it to check `isRefused` or snapshot.
+  private(set) var renderCount = 0
   /// The height SwiftUI's scroll geometry reports for the web view's content. Diagnostic only.
   var scrollContentHeight: CGFloat = 0
   private(set) var payloadJSON: String
@@ -240,7 +245,23 @@ final class ArtifactIsland {
         contentWorld: .page)
       // The page changed under the observers: measure it now, in case no rendering update comes to tell them.
       await self.refreshHeight()
+      // The renderer's one notice (`web/src/App.tsx` `Notice`) stands for a payload or spec it refused.
+      let refused = try? await page.callJavaScript(
+        "return document.querySelector('p.notice[role=\"status\"]') !== null", contentWorld: .page)
+      guard !self.isTornDown else { return }
+      self.isRefused = (refused as? Bool) == true
+      self.renderCount += 1
     }
+  }
+
+  /// The island's content as an image, for the snapshot that stands in for it once its web view is gone; `nil` when the page
+  /// cannot be captured.
+  func snapshot() async -> CGImage? {
+    guard !isTornDown,
+      let data = try? await page.exported(as: .image(region: .contents, allowTransparentBackground: true)),
+      let source = CGImageSourceCreateWithData(data as CFData, nil)
+    else { return nil }
+    return CGImageSourceCreateImageAtIndex(source, 0, nil)
   }
 
   /// Runs in the isolated `iris-bridge` world at document start. `window.__irisApply` and `window.__irisMeasure` live in that world

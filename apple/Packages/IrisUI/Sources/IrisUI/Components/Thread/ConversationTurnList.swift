@@ -100,10 +100,10 @@ public struct ConversationTurnList: View {
       UserTurnView(
         text: text, time: time(turn.date), identifier: style.userIdentifier ?? "thread.turn.user",
         textRole: style.textRole ?? .subheadline, onCopy: copy(text))
-    case .assistant(let markdown, let mermaid):
-      assistant(turn, markdown: markdown, mermaid: mermaid, isStreaming: false, activity: nil)
+    case .assistant(let markdown, let mermaid, let artifacts):
+      assistant(turn, markdown: markdown, mermaid: mermaid, artifacts: artifacts, isStreaming: false, activity: nil)
     case .streaming(let markdown, let activity):
-      assistant(turn, markdown: markdown, mermaid: [:], isStreaming: true, activity: activity)
+      assistant(turn, markdown: markdown, mermaid: [:], artifacts: [:], isStreaming: true, activity: activity)
     case .working(let lines):
       ActivityTurnView(lines: lines)
     case .pending(let progress, let caption):
@@ -116,10 +116,11 @@ public struct ConversationTurnList: View {
   /// The one call site of the answer bubble: a streaming turn and the finished reply share it, so SwiftUI keeps the view
   /// (and its state) when `.streaming` becomes `.assistant`.
   private func assistant(
-    _ turn: ConversationTurn, markdown: String, mermaid: [Int: MermaidAsset], isStreaming: Bool, activity: String?
+    _ turn: ConversationTurn, markdown: String, mermaid: [Int: MermaidAsset],
+    artifacts: [ArtifactAsset.Key: ArtifactAsset], isStreaming: Bool, activity: String?
   ) -> some View {
     AssistantTurnView(
-      markdown: markdown, time: time(turn.date), mermaid: mermaid,
+      markdown: markdown, time: time(turn.date), mermaid: mermaid, artifacts: artifacts,
       identifier: style.assistantIdentifier ?? "thread.turn.assistant", textRole: style.textRole ?? .callout,
       onOpenImage: onOpenImage, onCopy: copy(plainText(markdown)), isStreaming: isStreaming, activity: activity)
   }

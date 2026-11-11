@@ -1,13 +1,38 @@
 import Foundation
 
-/// One piece of an assistant reply as the thread view lays it out. Textual renders `markdown`; the other two are
-/// what it cannot give a narrow phone: a table that scrolls sideways, and a Mermaid diagram the server rendered.
+/// One piece of an assistant reply as the thread view lays it out. Textual renders `markdown`; the others are what it
+/// cannot give a narrow phone: a table that scrolls sideways, a Mermaid diagram the server rendered, and an artifact.
 public enum MessageBlock: Equatable, Sendable {
   case markdown(String)
   case table(MarkdownTable)
   /// The `index`th top-level ```mermaid fence of the reply, counted like the server's `ReplyBlock.index`. `source` is
   /// the fence as written, shown as code when the server rendered no image for it.
   case mermaid(index: Int, source: String)
+  /// A top-level ```iris-show or ```iris-doc fence, numbered among the fences of its kind like the server's
+  /// `ReplyArtifact.index` (invalid ones count too). `source` is the fence as written, shown as code when the server stored
+  /// no artifact for it or it cannot be shown.
+  case artifact(ArtifactBlock.Kind, index: Int, source: String)
+}
+
+/// The kinds of artifact fence a reply can carry.
+public enum ArtifactBlock {
+  public enum Kind: String, Hashable, Sendable, Codable {
+    /// ```iris-show: one JSON spec (table, chart, stat, list, callout).
+    case show
+    /// ```iris-doc: a markdown or HTML document.
+    case doc
+
+    /// The fence language that opens this kind.
+    var language: String { self == .show ? "iris-show" : "iris-doc" }
+
+    init?(language: String?) {
+      switch language {
+      case "iris-show": self = .show
+      case "iris-doc": self = .doc
+      default: return nil
+      }
+    }
+  }
 }
 
 /// A GitHub-flavoured pipe table: a header row and the body rows, each padded or cut to the header's width, and how each
@@ -41,7 +66,26 @@ extension MessageBlock {
 
   /// `split` for the rest of a reply whose first `startingMermaidIndex` diagrams are already behind it.
   static func split(_ markdown: String, startingMermaidIndex: Int) -> [MessageBlock] {
-    tracked(markdown, startingMermaidIndex: startingMermaidIndex).blocks
+    tracked(markdown, starting: FenceCounts(mermaid: startingMermaidIndex)).blocks
+  }
+
+  /// How many numbered fences of each kind lie before a point of a reply: where the numbering of the rest starts.
+  struct FenceCounts: Equatable {
+    var mermaid = 0
+    var show = 0
+    var doc = 0
+
+    /// Counts the numbered blocks of `blocks` on top.
+    mutating func add(_ blocks: some Sequence<MessageBlock>) {
+      for block in blocks {
+        switch block {
+        case .mermaid: mermaid += 1
+        case .artifact(.show, _, _): show += 1
+        case .artifact(.doc, _, _): doc += 1
+        case .markdown, .table: break
+        }
+      }
+    }
   }
 
   /// The blocks and the line each one starts on. `chunked: false` keeps a text run as one block (the layout of a reply before
@@ -51,10 +95,10 @@ extension MessageBlock {
   /// `partialTail` says the last line may still be growing (a stream): it never starts a chunk, since a few more characters can
   /// turn a paragraph into a list item.
   static func tracked(
-    _ markdown: String, startingMermaidIndex: Int = 0, chunked: Bool = false, partialTail: Bool = false
+    _ markdown: String, starting counts: FenceCounts = FenceCounts(), chunked: Bool = false, partialTail: Bool = false
   ) -> Split {
     var splitter = Splitter()
-    splitter.mermaidCount = startingMermaidIndex
+    splitter.counts = counts
     splitter.partialTail = partialTail
     return splitter.run(markdown, chunked: chunked)
   }
@@ -68,7 +112,8 @@ extension MessageBlock {
   struct Fence {
     var marker: Character
     var length: Int
-    var isMermaid: Bool
+    /// The first word of the info string, lower-cased (the server's `Fence.lang`).
+    var language: String?
     var lines: [String]
   }
 
@@ -78,7 +123,7 @@ extension MessageBlock {
     var textStart = 0
     var open: Fence?
     var openStart = 0
-    var mermaidCount = 0
+    var counts = FenceCounts()
     var chunked = true
     var partialTail = false
     var lineCount = 0
@@ -123,15 +168,20 @@ extension MessageBlock {
     private mutating func finish(_ fence: Fence, closing: String?) {
       open = nil
       let source = (fence.lines + [closing].compactMap { $0 }).joined(separator: "\n")
-      guard fence.isMermaid else {
+      let block: MessageBlock
+      if fence.language == "mermaid" {
+        block = .mermaid(index: counts.mermaid, source: source)
+      } else if let kind = ArtifactBlock.Kind(language: fence.language) {
+        block = .artifact(kind, index: kind == .show ? counts.show : counts.doc, source: source)
+      } else {
         if text.isEmpty { textStart = openStart }
         text.append(source)
         return
       }
       flushText()
-      result.blocks.append(.mermaid(index: mermaidCount, source: source))
+      result.blocks.append(block)
       result.startLines.append(openStart)
-      mermaidCount += 1
+      counts.add([block])
     }
 
     private mutating func flushText() {
@@ -319,7 +369,7 @@ extension MessageBlock {
     guard let (marker, length, info) = fenceParts(line) else { return nil }
     if marker == "`", info.contains("`") { return nil }
     let language = info.split(whereSeparator: \.isWhitespace).first.map { $0.lowercased() }
-    return Fence(marker: marker, length: length, isMermaid: language == "mermaid", lines: [])
+    return Fence(marker: marker, length: length, language: language, lines: [])
   }
 
   static func closes(_ line: String, fence: Fence) -> Bool {
