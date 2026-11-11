@@ -36,7 +36,9 @@ struct IrisApp: App {
       diagnostics: root.diagnostics, micRules: root.micRules, spokenReplies: root.spokenReplies,
       connectionForm: root.connectionForm, startsOnSettings: root.opensOnSettings,
       makeDetail: root.detailModel(for:), makeComposer: root.composerModel(for:),
-      makeThread: root.threadModel(for:), router: root.router, presence: root.presence, fetchMemo: root.fetchMemo(id:)
+      makeThread: root.threadModel(for:), router: root.router, presence: root.presence,
+      startReplyByVoice: { threadID in Task { await root.startReplyByVoice(threadID: threadID) } },
+      fetchMemo: root.fetchMemo(id:)
     )
     .onOpenURL { url in
       guard let link = ConversationLink(url: url) else {

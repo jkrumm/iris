@@ -19,6 +19,8 @@ struct RootView: View {
   let makeThread: (Memo) -> ThreadModel
   let router: ConversationRouter
   let presence: ConversationPresence
+  /// Starts a Hermes take that continues the thread (Reply by voice).
+  let startReplyByVoice: (String) -> Void
   /// Reads a memo History's list does not hold (a link on a cold launch).
   let fetchMemo: (String) async throws -> Memo
 
@@ -42,7 +44,7 @@ struct RootView: View {
     connectionForm: ConnectionModel? = nil, startsOnSettings: Bool = false,
     makeDetail: @escaping (Memo) -> MemoDetailModel, makeComposer: @escaping (ComposerRequest) -> ComposerModel,
     makeThread: @escaping (Memo) -> ThreadModel, router: ConversationRouter, presence: ConversationPresence,
-    fetchMemo: @escaping (String) async throws -> Memo
+    startReplyByVoice: @escaping (String) -> Void = { _ in }, fetchMemo: @escaping (String) async throws -> Memo
   ) {
     self.history = history
     self.isConfigured = isConfigured
@@ -58,6 +60,7 @@ struct RootView: View {
     self.makeThread = makeThread
     self.router = router
     self.presence = presence
+    self.startReplyByVoice = startReplyByVoice
     self.fetchMemo = fetchMemo
     _selection = State(initialValue: startsOnSettings ? .settings : .history)
   }
@@ -127,6 +130,7 @@ struct RootView: View {
     composer = nil
     selection = .history
     historyPath = [opened.memo]
+    router.startVoiceReply(opened, start: startReplyByVoice)
   }
 
   /// What the owner is looking at, for `ui.screen`: the take screen over the selected tab.

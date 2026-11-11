@@ -51,14 +51,17 @@ final class TakeController {
   /// Whether a take can be started right now (a server is saved and a recorder exists).
   var canStart: Bool { canRecord && isConfigured() }
 
-  /// Starts a take in `mode` with its Live Activity. Starts that overlap are one take: the later call returns the memo the
+  /// Starts a take in `mode` with its Live Activity; with `threadID` the memo continues that thread (a full take all the
+  /// same, unlike a thread's hold-to-talk). Starts that overlap are one take: the later call returns the memo the
   /// first one started, and so does a start that finds a take already running.
   @discardableResult
-  func start(mode: MemoMode, source: String = "app", activityFirst: Bool = false) async throws -> MemoID {
+  func start(
+    mode: MemoMode, threadID: String? = nil, source: String = "app", activityFirst: Bool = false
+  ) async throws -> MemoID {
     DeviceLog.shared.commandSource = source
     if let starting { return try await starting.value }
     let claim = claimCapture()
-    let task = Task { try await beginOrJoinRunning(mode: mode, activityFirst: activityFirst) }
+    let task = Task { try await beginOrJoinRunning(mode: mode, threadID: threadID, activityFirst: activityFirst) }
     starting = task
     defer { starting = nil }
     do {
@@ -106,9 +109,9 @@ final class TakeController {
   }
 
   /// The shared start: callers that joined it get the same answer, the recovery included.
-  private func beginOrJoinRunning(mode: MemoMode, activityFirst: Bool) async throws -> MemoID {
+  private func beginOrJoinRunning(mode: MemoMode, threadID: String?, activityFirst: Bool) async throws -> MemoID {
     do {
-      return try await begin(mode: mode, activityFirst: activityFirst)
+      return try await begin(mode: mode, threadID: threadID, activityFirst: activityFirst)
     } catch CaptureError.alreadyRecording {
       // A take that was already running (started by something that is not in flight any more): that is the take.
       guard let session = try? await stack.session(), let running = await runningMemoID(of: session) else {
@@ -120,21 +123,24 @@ final class TakeController {
 
   private func runningMemoID(of session: CaptureSession) async -> MemoID? {
     let state = await session.current
-    // A reply bound to a thread (its own hold-to-talk) is not the take a start was asking for.
-    guard state.request?.threadID == nil else { return nil }
+    // A thread's hold-to-talk is not the take a start was asking for.
+    guard state.request?.holdToTalk != true else { return nil }
     switch state.phase {
     case .starting, .recording, .paused: return state.memoID
     case .idle, .stopping, .failed: return nil
     }
   }
 
-  private func begin(mode: MemoMode, activityFirst: Bool) async throws -> MemoID {
+  private func begin(mode: MemoMode, threadID: String?, activityFirst: Bool) async throws -> MemoID {
     guard isConfigured() else { throw StartMemoError.notConfigured }
     guard canRecord else { throw StartMemoError.queueUnavailable }
     guard await requestPermission() else { throw StartMemoError.microphoneDenied }
     guard let session = try? await stack.session() else { throw StartMemoError.queueUnavailable }
     let request = TakeRequest(
-      mode: mode.rawValue, title: String(localized: "Voice memo", comment: "Outbox row of a recorded memo"))
+      mode: mode.rawValue, threadID: threadID,
+      title: threadID == nil
+        ? String(localized: "Voice memo", comment: "Outbox row of a recorded memo")
+        : String(localized: "Voice reply", comment: "Outbox row of a recorded reply"))
     if activityFirst { return try await beginActivityFirst(request, mode: mode, session: session) }
     let id = try await session.start(request)
     microphone?.start()

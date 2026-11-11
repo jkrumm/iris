@@ -49,7 +49,7 @@ final class TakeModel {
   // MARK: What the views read
 
   /// A take of this screen is in progress (anything between the start and the end, a failed recorder included).
-  var isActive: Bool { state.phase != .idle && state.request?.threadID == nil }
+  var isActive: Bool { state.phase != .idle && state.request?.holdToTalk != true }
 
   var isPaused: Bool { state.phase == .paused }
 
@@ -152,7 +152,7 @@ final class TakeModel {
       pausedTotal = 0
       levels = [Float](repeating: 0.08, count: Self.levelBars)
       // A take opens on the full screen; the banner is what it becomes when the user browses on.
-      if take.phase != .idle, take.request?.threadID == nil { showsFull = true }
+      if take.phase != .idle, take.request?.holdToTalk != true { showsFull = true }
     }
     // The recorder is not running while paused or failed: the timer stands still from the first such snapshot.
     let stopped = take.phase == .paused || take.phase == .failed
@@ -175,7 +175,7 @@ final class TakeModel {
   private func followPreview(of take: TakeState) {
     switch take.phase {
     case .starting, .recording, .paused:
-      if take.request?.threadID == nil, let memoID = take.memoID { preview.begin(memo: memoID) }
+      if take.request?.holdToTalk != true, let memoID = take.memoID { preview.begin(memo: memoID) }
     case .stopping, .idle, .failed:
       preview.end()
     }

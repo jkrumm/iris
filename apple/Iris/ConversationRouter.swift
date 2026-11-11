@@ -19,7 +19,7 @@ final class ConversationRouter {
     let focus: ComposerFocus
   }
 
-  /// The request waiting to be resolved. Part B (voice reply) reads `pending?.link.focus == .voice` here and starts the take.
+  /// The request waiting to be resolved.
   private(set) var pending: Request?
   /// The focus the screen of `memoID` still has to apply.
   private var routedFocus: (memoID: String, focus: ComposerFocus)?
@@ -59,6 +59,21 @@ final class ConversationRouter {
     focusRevision += 1
     log("ui.route", ["memo": .string(memo.id), "focus": .string(request.link.focus.rawValue), "opened": true])
     return Opened(memo: memo, focus: request.link.focus)
+  }
+
+  /// Reply by voice: for a conversation opened with `.voice` focus, hands its thread to `start` (a take bound to it). A memo
+  /// without a thread yet has nothing to bind to, so the conversation takes the keyboard focus instead. `resolve` returns
+  /// each request once, so this runs once per request.
+  func startVoiceReply(_ opened: Opened, start: (String) -> Void) {
+    guard opened.focus == .voice else { return }
+    guard let threadID = opened.memo.threadId else {
+      routedFocus = (opened.memo.id, .keyboard)
+      focusRevision += 1
+      log("ui.route", ["memo": .string(opened.memo.id), "voice": false, "reason": "no_thread"])
+      return
+    }
+    log("ui.route", ["memo": .string(opened.memo.id), "voice": true])
+    start(threadID)
   }
 
   /// The focus for the screen showing any of `memoIDs`, once: a later visit to the same conversation starts without it.
