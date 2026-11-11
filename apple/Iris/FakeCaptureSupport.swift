@@ -50,16 +50,17 @@ actor FakePipeline {
     guard tasks[memoID] == nil else { return }
     // Owned by `tasks`; cancelled with the pipeline.
     tasks[memoID] = Task { [client, step] in
-      // The server stores the reply at `acted`; `act` is the step that runs while the memo sits in `transcribed`.
+      // The reply is stored at `notified`, so the running turn stays on screen for two steps (UI tests on a slow runner
+      // still catch it); the streamed text is the same words.
       let answer = typed ? "This is the fake answer to your message." : "This is the fake answer to your voice memo."
       let voice: [(MemoState, String?, String?)] = [
         (.transcribed, "This is the fake transcript of your voice memo.", nil),
-        (.acted, nil, answer),
-        (.notified, nil, nil),
+        (.acted, nil, nil),
+        (.notified, nil, answer),
       ]
       let text: [(MemoState, String?, String?)] = [
-        (.acted, nil, answer),
-        (.notified, nil, nil),
+        (.acted, nil, nil),
+        (.notified, nil, answer),
       ]
       for (state, transcript, reply) in typed ? text : voice {
         // The step before `acted` is `act` running: tools start and the reply streams in a burst just before it ends.
