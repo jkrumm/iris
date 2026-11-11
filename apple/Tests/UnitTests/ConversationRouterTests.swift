@@ -4,11 +4,11 @@ import Testing
 
 @testable import Iris
 
+private struct Missing: Error {}
+
 @MainActor
 @Suite("ConversationRouter")
 struct ConversationRouterTests {
-  private struct Missing: Error {}
-
   private final class Logged {
     var events: [(String, [String: AttributeValue])] = []
   }
@@ -117,6 +117,41 @@ struct ConversationRouterVoiceTests {
     var started: [String] = []
     router.startVoiceReply(opened) { started.append($0) }
     #expect(started.isEmpty)
+  }
+
+  @Test("a voice reply re-reads a memo History holds without its thread yet")
+  func staleLocalCopy() async throws {
+    let router = ConversationRouter(log: { _, _ in })
+    let stale = MemoFactory.memo("m1")
+    var fresh = stale
+    fresh.threadId = "t1"
+    router.open(ConversationLink(memoID: "m1", focus: .voice))
+    let pending = try #require(router.pending)
+    let result = await router.resolve(pending, isConfigured: true, local: { _ in stale }, fetch: { _ in fresh })
+    let opened = try #require(result)
+    var started: [String] = []
+    router.startVoiceReply(opened) { started.append($0) }
+    #expect(started == ["t1"])
+  }
+
+  @Test("a voice reply keeps History's copy when the fetch fails")
+  func staleLocalCopyFetchFails() async throws {
+    let router = ConversationRouter(log: { _, _ in })
+    let stale = MemoFactory.memo("m1")
+    router.open(ConversationLink(memoID: "m1", focus: .voice))
+    let pending = try #require(router.pending)
+    let result = await router.resolve(pending, isConfigured: true, local: { _ in stale }, fetch: { _ in throw Missing() })
+    #expect(result?.memo == stale)
+  }
+
+  @Test("a memo that opens as a document leaves no focus behind")
+  func documentTakesNoFocus() async throws {
+    let router = ConversationRouter(log: { _, _ in })
+    let transcript = MemoFactory.memo("m1", mode: .transcribe)
+    router.open(ConversationLink(memoID: "m1", focus: .keyboard))
+    let pending = try #require(router.pending)
+    _ = await router.resolve(pending, isConfigured: true, local: { _ in transcript }, fetch: { _ in transcript })
+    #expect(router.takeFocus(forAnyOf: ["m1"]) == .none)
   }
 
   @Test("a memo without a thread falls back to the keyboard focus")
