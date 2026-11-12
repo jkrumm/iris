@@ -115,10 +115,12 @@ describe("headState", () => {
     expect(headState("check.yml", null).kind).toBe("pending");
   });
 
-  it("treats an unreadable master list as pending, not final", () => {
-    const verdict = evaluate(ports({ runs: null }));
-    expect(verdict.refusals).toEqual([]);
-    expect(verdict.pending).toHaveLength(1);
+  it("treats an unreadable master list or a master run still going as pending, not final", () => {
+    for (const runs of [null, [run("in_progress", "")]]) {
+      const verdict = evaluate(ports({ runs }));
+      expect(verdict.refusals).toEqual([]);
+      expect(verdict.pending).toHaveLength(1);
+    }
   });
 
   it("skips a cancelled newer run", () => {

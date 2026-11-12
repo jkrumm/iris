@@ -93,8 +93,10 @@ export function evaluate(ports: GuardPorts, options: { allowRed?: boolean } = {}
   if (!options.allowRed) {
     const runs = ports.ciRuns();
     const red = masterRed(runs);
-    // An unreadable list (a gh hiccup) is retried by --wait, like a run that is still going.
-    if (red) (runs === null ? pending : refusals).push(red);
+    // An unreadable list (a gh hiccup) and a master run still going are retried by --wait.
+    const last = runs?.find((r) => r.conclusion !== "cancelled");
+    const waiting = runs === null || (last !== undefined && last.status !== "completed");
+    if (red) (waiting ? pending : refusals).push(red);
   }
 
   // The full gate is CI's (project.yaml `checks.ci`): the exact head needs its own finished green run, apple.yml too when its filter matches.
