@@ -133,28 +133,18 @@ function realPorts(): GuardPorts {
       return out.status === 0 ? out.stdout.trim() : null;
     },
     ciRuns() {
-      const out = spawnSync(
-        "gh",
-        [
-          "run",
-          "list",
-          "--branch",
-          "master",
-          "--workflow",
-          "check.yml",
-          "--limit",
-          "10",
-          "--json",
-          "status,conclusion,url",
-        ],
-        { encoding: "utf8" },
-      );
-      if (out.status !== 0) return null;
-      try {
-        return JSON.parse(out.stdout) as CiRun[];
-      } catch {
-        return null;
-      }
+      return gh([
+        "run",
+        "list",
+        "--branch",
+        "master",
+        "--workflow",
+        "check.yml",
+        "--limit",
+        "10",
+        "--json",
+        "status,conclusion,url",
+      ]);
     },
     headRuns(workflow) {
       const sha = spawnSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).stdout.trim();
