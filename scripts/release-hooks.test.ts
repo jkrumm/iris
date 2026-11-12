@@ -298,3 +298,33 @@ describe.skipIf(!ready || !Bun.which("perl"))("release-hooks start", () => {
     expect(r.stdout.toString()).not.toContain("confirmed");
   });
 });
+
+describe.skipIf(!ready)("release-hooks --run", () => {
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), "release-hooks-run-"));
+    home = join(dir, "home");
+    app = join(dir, "app");
+    await mkdir(home, { recursive: true });
+    await mkdir(app, { recursive: true });
+    git("init", "-q");
+    // A stand-in for apple-slot: records the slot run limit the build gets.
+    await mkdir(join(app, "scripts"), { recursive: true });
+    await writeFile(
+      join(app, "scripts", "apple-slot"),
+      `#!/bin/sh\nprintf '%s' "$FACTORY_SLOT_RUN_MS" > "${dir}/slot-run-ms"\n`,
+    );
+    await chmod(join(app, "scripts", "apple-slot"), 0o755);
+  });
+  afterEach(() => rm(dir, { recursive: true, force: true }));
+
+  it("lifts factory's 30 min slot run limit above the build's own timeout (rc 124 at 33 min)", async () => {
+    const head = await commit("apple/a.swift", "1");
+    const r = Bun.spawnSync(["zsh", SCRIPT, "--run", "mac", head], {
+      env: { ...process.env, RELEASE_HOME: home, APP_DIR: app },
+      stdout: "ignore", // the killed sampler leaves a `sleep` holding a pipe open
+      stderr: "ignore",
+    });
+    expect(r.exitCode).toBe(0);
+    expect(Number(await readFile(join(dir, "slot-run-ms"), "utf8"))).toBeGreaterThan(2400 * 1000);
+  });
+});
