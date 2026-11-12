@@ -31,12 +31,18 @@ protocol TakeEngine: Sendable {
   func microphones() async -> Microphones
   /// The microphone list when a device appears or goes, or the default changes. Every call is its own subscription.
   func microphoneChanges() -> AsyncStream<Microphones>
-  /// Starts a take in `mode` (Hermes or Transcribe); returns the instant it started.
-  func start(mode: MemoMode) async throws -> Date
+  /// Starts a take in `mode` (Hermes or Transcribe); returns the instant it started. A `threadID` binds the take to that
+  /// conversation, so its memo continues it (a voice reply).
+  func start(mode: MemoMode, threadID: String?) async throws -> Date
   func stop() async throws -> TakeEnd
   /// Drops the take: nothing is sent, its memo is deleted when the server already has it.
   func cancel() async
   func select(microphone uid: String) async throws
+}
+
+extension TakeEngine {
+  /// A take that starts a conversation of its own.
+  func start(mode: MemoMode) async throws -> Date { try await start(mode: mode, threadID: nil) }
 }
 
 /// The production engine: one take through `IrisCapture`'s session and the persistent outbox (the same stack as the iPhone's,
@@ -112,10 +118,10 @@ final class CaptureTakeEngine: TakeEngine {
     }
   }
 
-  func start(mode: MemoMode) async throws -> Date {
+  func start(mode: MemoMode, threadID: String?) async throws -> Date {
     do {
       let session = try await stack.session()
-      try await session.start(TakeRequest(mode: mode.rawValue, title: title))
+      try await session.start(TakeRequest(mode: mode.rawValue, threadID: threadID, title: title))
       return await session.current.startedAt ?? Date()
     } catch {
       // The session may have applied a microphone rule (the default input changed) before the recorder refused.
@@ -181,6 +187,7 @@ final class FakeTakeEngine: TakeEngine, @unchecked Sendable {
     var end = TakeEnd.queued
     var calls: [String] = []
     var startedModes: [MemoMode] = []
+    var startedThreadIDs: [String?] = []
   }
 
   init() {}
@@ -190,6 +197,9 @@ final class FakeTakeEngine: TakeEngine, @unchecked Sendable {
 
   /// The mode of each `start`, in order.
   var startedModes: [MemoMode] { lock.withLock { state.startedModes } }
+
+  /// The thread each `start` was bound to, in order (nil: a take of its own).
+  var startedThreadIDs: [String?] { lock.withLock { state.startedThreadIDs } }
 
   /// Script hooks.
   func failStart(with error: (any Error)?) { lock.withLock { state.startError = error } }
@@ -220,10 +230,11 @@ final class FakeTakeEngine: TakeEngine, @unchecked Sendable {
   }
   func microphoneChanges() -> AsyncStream<Microphones> { changeFeed.subscribe() }
 
-  func start(mode: MemoMode) async throws -> Date {
+  func start(mode: MemoMode, threadID: String?) async throws -> Date {
     let (hangs, gate) = lock.withLock {
       state.calls.append("start")
       state.startedModes.append(mode)
+      state.startedThreadIDs.append(threadID)
       return (state.startHangs, state.startGate)
     }
     await gate?.wait()

@@ -58,6 +58,19 @@ struct CaptureTakeEngineTests {
     #expect(memo.mode == .hermes)
   }
 
+  @Test("a take bound to a thread creates its memo in that thread")
+  func takeContinuesThread() async throws {
+    let rig = rig()
+    defer { try? FileManager.default.removeItem(at: rig.directory) }
+    await SampleData.seed(rig.api)
+    _ = try await rig.engine.start(mode: .hermes, threadID: SampleData.hermesThreadID)
+    await rig.recorder.feed(frames: seconds(3))
+    #expect(try await rig.engine.stop() == .queued)
+    #expect(await eventually { await rig.api.segments.keys.first != nil })
+    let id = try #require(await rig.api.segments.keys.first)
+    #expect(try await rig.api.memo(id: id).memo.threadId == SampleData.hermesThreadID)
+  }
+
   @Test("a Transcribe take reaches the server in mode transcribe")
   func transcribeTake() async throws {
     let rig = rig()

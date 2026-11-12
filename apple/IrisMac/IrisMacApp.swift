@@ -15,6 +15,7 @@ struct IrisMacApp: App {
     _root = State(initialValue: root)
     root.installNotificationClicks()
     root.installHotkey()
+    root.installLaunchDetection()
     root.startTelemetry()
     // The list and the event stream run from launch, popover open or not: a notification per finished memo needs them.
     root.begin()
@@ -121,6 +122,10 @@ private struct MenuBarLabel: View {
       .task {
         guard root.needsOnboarding else { return }
         root.showOnboarding(source: "launch")
+      }
+      // A launch by the user opens the window (a launch at login stays in the menu bar); `initial` catches a decision made before this view existed.
+      .onChange(of: root.launchWindowPending, initial: true) {
+        if root.takeLaunchWindow() { open(MacWindowID.main) }
       }
       .onChange(of: root.windowRequest) { open(MacWindowID.main) }
       .onChange(of: root.onboardingRequest) { open(MacWindowID.onboarding) }

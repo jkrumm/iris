@@ -56,6 +56,7 @@
       await writeRefusedPanel()
       await writeArtifactIslands()
       await writeArtifactScreens()
+      await writeQuickAsk()
       NSApp.terminate(nil)
     }
 
@@ -76,6 +77,7 @@
       root.selectedMemoID = SampleData.hermesFollowUpID
       try? await Task.sleep(for: .seconds(2))
       write(windowTitled: Self.mainTitle, as: "window-running")
+      await writeStreaming(memoID: SampleData.hermesFollowUpID)
       // A thread that cannot be read: its own reply and transcript show, with the reason (another memo in between drops the cached model).
       root.selectedMemoID = replyMemoID
       try? await Task.sleep(for: .seconds(1))
@@ -107,6 +109,38 @@
       write(windowTitled: Self.mainTitle, as: "window-sent")
       try? await Task.sleep(for: .seconds(2.4))
       write(windowTitled: Self.mainTitle, as: "window-answered")
+    }
+
+    /// The running turn of the open conversation as the event stream fills it: the tool Hermes started, then the text so far.
+    private func writeStreaming(memoID: String) async {
+      guard let fake = root.fakeAPI else { return }
+      fake.emit(.memoActivity(MemoActivity(id: memoID, attempt: 1, tool: "web")))
+      // l10n:ignore sample text of a streamed answer
+      let pieces = [
+        "The Friday release is on track. ", "Two reviews are still open and the migration ", "has run on staging.",
+      ]
+      for (offset, piece) in pieces.enumerated() {
+        fake.emit(.memoDelta(MemoDelta(id: memoID, attempt: 1, seq: offset + 1, text: piece)))
+      }
+      try? await Task.sleep(for: .seconds(1.5))
+      write(windowTitled: Self.mainTitle, as: "window-streaming")
+    }
+
+    /// A question typed into the popover's quick-ask line and sent: the answer streams in under the line. The fake pipeline holds
+    /// the stream for a moment before the stored answer replaces it, so the picture is taken as soon as the text shows.
+    private func writeQuickAsk() async {
+      let composer = root.quickAskComposer
+      // l10n:ignore sample text typed into the field
+      composer.text = "Where do we stand on the Friday release?"
+      await root.sendTyped(composer, mode: .hermes)
+      for _ in 0..<300 where !isStreaming(root.quickAnswer) { try? await Task.sleep(for: .milliseconds(15)) }
+      // The view catches up with the model on the next turn of the run loop.
+      try? await Task.sleep(for: .milliseconds(60))
+      write(windowTitled: Self.panelTitle, as: "menu-ask", chrome: false)
+    }
+
+    private func isStreaming(_ answer: MacMemoDetailModel?) -> Bool {
+      answer?.turns.contains { if case .streaming = $0.content { true } else { false } } ?? false
     }
 
     /// Each Settings tab, the connection form filled in and probed so the result line is in the picture.

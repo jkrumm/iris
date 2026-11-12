@@ -8,6 +8,7 @@ import SwiftUI
 struct MacMainWindow: View {
   @Bindable var root: MacCompositionRoot
   @State private var player = MacAudioPlayer()
+  @Environment(\.controlActiveState) private var activeState
 
   var body: some View {
     NavigationSplitView {
@@ -45,12 +46,15 @@ struct MacMainWindow: View {
     .environment(\.replyImageStore, root.replyImages)
     .environment(\.artifactStore, root.artifacts)
     .macToast(root: root, model: root.windowHistory)
+    // The global key continues the conversation open here while this is the key window.
+    .onChange(of: activeState, initial: true) { root.isMainWindowFront = activeState == .key }
     .onAppear {
       root.windowDidAppear()
       root.noteWindow("main", "open")
     }
     .onDisappear {
       player.stop()
+      root.isMainWindowFront = false
       root.windowDidDisappear()
       root.noteWindow("main", "close")
     }

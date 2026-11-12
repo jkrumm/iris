@@ -70,6 +70,9 @@ extension Theme.Spacing {
   /// `.menu .st`: padding 6 / 10 / 2.
   public static let menuFooterTop = snug
   public static let menuFooterBottom = hair
+  /// The tallest the quick answer grows in the popover before it scrolls (the `menu` variant has no mockup of it yet; about a
+  /// third of the popover page).
+  public static let menuAnswerMaxHeight: CGFloat = 280
   /// A Mac chip's height (the quick-filter row in the popover's history page).
   public static let menuChipHeight: CGFloat = 26
   /// The Record button's padding (`.btn.sm`).

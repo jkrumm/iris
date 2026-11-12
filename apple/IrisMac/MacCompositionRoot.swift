@@ -73,6 +73,11 @@ final class MacCompositionRoot {
   var selectedMemoID: String?
   /// Bumped by every ``show(_:)``; the always-present menu-bar label opens the main window when it changes.
   private(set) var windowRequest = 0
+  /// The app was started by the user (not at login) and the main window is still to open: the menu-bar label takes it once
+  /// (``takeLaunchWindow()``), because only a view can open a window.
+  private(set) var launchWindowPending = false
+  /// The main window is the key window. The global key continues the conversation open in it (``frontConversationThreadID``).
+  var isMainWindowFront = false
   /// Bumped to open the onboarding window (the popover's connect prompt, and once at launch while nothing is saved).
   private(set) var onboardingRequest = 0
   /// Memos whose Delete is queued and has not run yet: the toolbar's Delete is off for them, and a second tap does nothing.
@@ -121,6 +126,7 @@ final class MacCompositionRoot {
   /// How long the "Queued" note stays.
   @ObservationIgnored var queuedNoteDuration = Duration.seconds(4)
   private var hotkeyListening: Task<Void, Never>?
+  @ObservationIgnored private var launchObserver: (any NSObjectProtocol)?
   private var createdListening: Task<Void, Never>?
   private var outboxObserving: Task<Void, Never>?
   /// Signals each `ready` of the current connection's event stream (see ``StreamTappingClient``).
@@ -140,6 +146,9 @@ final class MacCompositionRoot {
   private var windowEvents: AsyncStream<ServerEvent>
   /// The detail pane's model (see ``detailModel(for:)``).
   @ObservationIgnored private var detailCache: MacMemoDetailModel?
+  /// The popover's quick answer: the memo its quick-ask line just created, followed live. Nil until a question is asked.
+  private(set) var quickAnswer: MacMemoDetailModel?
+  @ObservationIgnored private var quickAnswerFollowing: Task<Void, Never>?
   /// The main window is on screen: its list takes the mirrored events.
   private var isWindowOpen = false
   private var following: Task<Void, Never>?
@@ -333,7 +342,7 @@ final class MacCompositionRoot {
     hotkeyListening = Task { [weak self] in
       for await _ in presses {
         self?.events.hotkey()
-        self?.recording.toggle()
+        self?.recording.toggle(threadID: self?.frontConversationThreadID)
       }
     }
   }
@@ -477,7 +486,18 @@ final class MacCompositionRoot {
   /// The composer of a conversation (`threadId`) or of the New memo page (nil). One per key, kept until the connection changes,
   /// so what was typed survives a look at another memo.
   func composer(for threadId: String?) -> ComposerModel {
-    let key = threadId ?? ""
+    composer(key: threadId ?? "", threadId: threadId)
+  }
+
+  /// The popover's quick-ask line: a new Hermes memo with a draft of its own, apart from the New memo page's.
+  var quickAskComposer: ComposerModel {
+    composer(key: Self.quickAskKey, threadId: nil)
+  }
+
+  /// Not a thread id (those are UUIDs), so it never meets a conversation's composer.
+  private static let quickAskKey = "quick-ask"
+
+  private func composer(key: String, threadId: String?) -> ComposerModel {
     if let cached = composers[key] { return cached }
     let model = ComposerModel(request: ComposerRequest(threadId: threadId), outbox: textOutbox)
     composers[key] = model
@@ -503,6 +523,10 @@ final class MacCompositionRoot {
   }
 
   private func didSend(_ memo: Memo, from model: ComposerModel) {
+    if model === composers[Self.quickAskKey] {
+      showQuickAnswer(for: memo)
+      return
+    }
     if let threadId = model.threadId, let open = detailCache, open.memoID == selectedMemoID,
       open.memo?.threadId == threadId
     {
@@ -514,6 +538,77 @@ final class MacCompositionRoot {
         memoID: memo.id, memo: memo, client: api, pasteboard: MacPasteboard())
     }
     selectedMemoID = memo.id
+  }
+
+  // MARK: Quick ask
+
+  /// The memo the quick-ask line created shows in the popover with its live turn (tools, then the streaming answer), until the
+  /// owner dismisses it or opens it in the window. The window's selection stays as it was.
+  private func showQuickAnswer(for memo: Memo) {
+    quickAnswerFollowing?.cancel()
+    let answer = MacMemoDetailModel(memoID: memo.id, memo: memo, client: api, pasteboard: MacPasteboard())
+    quickAnswer = answer
+    let events = history.liveEvents()
+    // Owned by the root; replaced by the next question, cancelled by a dismiss or a connection change.
+    quickAnswerFollowing = Task {
+      for await event in events { await answer.apply(event) }
+    }
+  }
+
+  /// The popover goes back to the newest memos.
+  func dismissQuickAnswer() {
+    quickAnswerFollowing?.cancel()
+    quickAnswerFollowing = nil
+    quickAnswer = nil
+  }
+
+  /// "Open in window": the question and its answer continue in the main window.
+  func openQuickAnswerInWindow() {
+    guard let id = quickAnswer?.memoID else { return }
+    dismissQuickAnswer()
+    show(id, source: "quick-ask")
+  }
+
+  // MARK: Voice
+
+  /// The composer's microphone: a Hermes take; in a conversation (`threadID`) the memo continues it.
+  func talk(in threadID: String?) {
+    recording.toggle(mode: .hermes, threadID: threadID)
+  }
+
+  /// The conversation the global key continues: the one open in the main window while that window is the key window. Nil
+  /// otherwise (a new memo), and for a memo with no Hermes session.
+  var frontConversationThreadID: String? {
+    guard isMainWindowFront, let id = selectedMemoID, let open = detailCache, open.memoID == id else { return nil }
+    return open.replyThreadID
+  }
+
+  // MARK: Launch
+
+  /// Called once the system has finished launching the app. A launch by the user opens the main window (the menu bar alone looked
+  /// like nothing had started); a launch at login stays in the menu bar, and a first run shows the onboarding window instead.
+  func launchDidFinish(loginItem: Bool) {
+    guard !loginItem, !needsOnboarding else { return }
+    launchWindowPending = true
+  }
+
+  /// The label's one look at the launch: true once, when the main window is to open.
+  func takeLaunchWindow() -> Bool {
+    defer { launchWindowPending = false }
+    if launchWindowPending { events.window("main", action: "request", source: "launch") }
+    return launchWindowPending
+  }
+
+  /// Production: watches for the end of launching and reads how the app was started.
+  func installLaunchDetection() {
+    guard mode == .production, launchObserver == nil else { return }
+    launchObserver = NotificationCenter.default.addObserver(
+      forName: NSApplication.didFinishLaunchingNotification, object: nil, queue: .main
+    ) { [weak self] _ in
+      // Delivered on the main queue, so the main actor is where this runs. The launch event is only current inside this call.
+      let loginItem = MacLaunchOrigin.isLoginItem(NSAppleEventManager.shared().currentAppleEvent)
+      MainActor.assumeIsolated { self?.launchDidFinish(loginItem: loginItem) }
+    }
   }
 
   private func noteQueued(_ model: ComposerModel) {
@@ -660,6 +755,7 @@ final class MacCompositionRoot {
     queues = [:]
     deletingIDs = []
     detailCache = nil
+    dismissQuickAnswer()
     composers = [:]
     queuedTimer?.cancel()
     queuedNote = nil
