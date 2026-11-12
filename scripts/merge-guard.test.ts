@@ -110,9 +110,15 @@ describe("headState", () => {
     expect(headState("check.yml", []).kind).toBe("none");
   });
 
-  it("is red on a failure or an unreadable list", () => {
+  it("is red on a failure and pending on an unreadable list (a gh hiccup is retried by --wait)", () => {
     expect(headState("check.yml", [run("completed", "failure")]).kind).toBe("red");
-    expect(headState("check.yml", null).kind).toBe("red");
+    expect(headState("check.yml", null).kind).toBe("pending");
+  });
+
+  it("treats an unreadable master list as pending, not final", () => {
+    const verdict = evaluate(ports({ runs: null }));
+    expect(verdict.refusals).toEqual([]);
+    expect(verdict.pending).toHaveLength(1);
   });
 
   it("skips a cancelled newer run", () => {

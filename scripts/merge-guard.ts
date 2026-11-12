@@ -50,7 +50,7 @@ export type HeadState = { kind: "green" } | { kind: "pending" | "red" | "none"; 
 /** The head's run of one workflow: cancelled runs were superseded and are skipped. */
 export function headState(workflow: string, runs: CiRun[] | null): HeadState {
   if (runs === null)
-    return { kind: "red", reason: `${workflow} runs of the head cannot be read (gh failed)` };
+    return { kind: "pending", reason: `${workflow} runs of the head cannot be read (gh failed)` };
   const last = runs.find((r) => r.conclusion !== "cancelled");
   if (!last) return { kind: "none", reason: `${workflow} has no finished run on the head` };
   if (last.status !== "completed")
@@ -91,8 +91,10 @@ export function evaluate(ports: GuardPorts, options: { allowRed?: boolean } = {}
   }
 
   if (!options.allowRed) {
-    const red = masterRed(ports.ciRuns());
-    if (red) refusals.push(red);
+    const runs = ports.ciRuns();
+    const red = masterRed(runs);
+    // An unreadable list (a gh hiccup) is retried by --wait, like a run that is still going.
+    if (red) (runs === null ? pending : refusals).push(red);
   }
 
   // The full gate is CI's (project.yaml `checks.ci`): the exact head needs its own finished green run, apple.yml too when its filter matches.
