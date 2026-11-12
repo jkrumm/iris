@@ -1,5 +1,14 @@
 import { describe, expect, it } from "bun:test";
-import { type CiRun, type GuardPorts, evaluate, masterRed } from "./merge-guard";
+import {
+  type CiRun,
+  type GuardPorts,
+  evaluate,
+  headState,
+  masterRed,
+  matchesPaths,
+} from "./merge-guard";
+
+const APPLE_PATHS = ["apple/**", "contracts/**", "Makefile", "scripts/uitest-*"];
 
 const run = (status: string, conclusion: string): CiRun => ({
   status,
@@ -12,6 +21,12 @@ const ports = (options: {
   known?: boolean;
   rebased?: boolean;
   runs?: CiRun[] | null;
+  /** the head's check.yml runs (default green) */
+  headCheck?: CiRun[] | null;
+  /** the head's apple.yml runs (default none) */
+  headApple?: CiRun[] | null;
+  files?: string[] | null;
+  paths?: string[] | null;
 }): GuardPorts => ({
   git(args) {
     if (args[0] === "rev-parse") return options.known === false ? null : "abc123";
@@ -19,6 +34,16 @@ const ports = (options: {
     return "";
   },
   ciRuns: () => (options.runs === undefined ? [green] : options.runs),
+  headRuns: (workflow) =>
+    workflow === "check.yml"
+      ? options.headCheck === undefined
+        ? [green]
+        : options.headCheck
+      : options.headApple === undefined
+        ? []
+        : options.headApple,
+  changedFiles: () => (options.files === undefined ? ["server/src/app.ts"] : options.files),
+  applePaths: () => (options.paths === undefined ? APPLE_PATHS : options.paths),
 });
 
 describe("masterRed", () => {
@@ -68,5 +93,69 @@ describe("evaluate", () => {
 
   it("is clear when rebased on a green master", () => {
     expect(evaluate(ports({})).refusals).toEqual([]);
+  });
+});
+
+describe("matchesPaths", () => {
+  it("matches the workflow's globs", () => {
+    expect(matchesPaths(APPLE_PATHS, ["apple/Packages/IrisCore/Foo.swift"])).toBe(true);
+    expect(matchesPaths(APPLE_PATHS, ["scripts/uitest-map.json"])).toBe(true);
+    expect(matchesPaths(APPLE_PATHS, ["server/src/app.ts", "docs/TDD.md"])).toBe(false);
+  });
+});
+
+describe("headState", () => {
+  it("is pending while the run goes and none before one exists", () => {
+    expect(headState("check.yml", [run("in_progress", "")]).kind).toBe("pending");
+    expect(headState("check.yml", []).kind).toBe("none");
+  });
+
+  it("is red on a failure or an unreadable list", () => {
+    expect(headState("check.yml", [run("completed", "failure")]).kind).toBe("red");
+    expect(headState("check.yml", null).kind).toBe("red");
+  });
+
+  it("skips a cancelled newer run", () => {
+    expect(headState("check.yml", [run("completed", "cancelled"), green]).kind).toBe("green");
+  });
+});
+
+describe("evaluate: the head's CI", () => {
+  it("is pending (not final) while check.yml runs on the head", () => {
+    const verdict = evaluate(ports({ headCheck: [run("in_progress", "")] }));
+    expect(verdict.refusals).toEqual([]);
+    expect(verdict.pending).toHaveLength(1);
+  });
+
+  it("refuses a red head even with allowRed", () => {
+    const verdict = evaluate(ports({ headCheck: [run("completed", "failure")] }), {
+      allowRed: true,
+    });
+    expect(verdict.refusals).toHaveLength(1);
+  });
+
+  it("waits for a head with no run yet", () => {
+    expect(evaluate(ports({ headCheck: [] })).pending).toHaveLength(1);
+  });
+
+  it("does not need apple.yml when no changed file matches its filter", () => {
+    expect(evaluate(ports({ files: ["server/src/app.ts"], headApple: [] }))).toEqual({
+      refusals: [],
+      pending: [],
+    });
+  });
+
+  it("needs a green apple.yml run when apple/** changed", () => {
+    const files = ["apple/Packages/IrisCore/Foo.swift"];
+    expect(evaluate(ports({ files, headApple: [] })).pending).toHaveLength(1);
+    expect(
+      evaluate(ports({ files, headApple: [run("completed", "failure")] })).refusals,
+    ).toHaveLength(1);
+    expect(evaluate(ports({ files, headApple: [green] }))).toEqual({ refusals: [], pending: [] });
+  });
+
+  it("refuses when it cannot tell whether apple.yml applies", () => {
+    expect(evaluate(ports({ files: null })).refusals).toHaveLength(1);
+    expect(evaluate(ports({ paths: null })).refusals).toHaveLength(1);
   });
 });

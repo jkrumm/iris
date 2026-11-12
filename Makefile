@@ -25,6 +25,23 @@ CHECK_APPLE := $(if $(shell command -v xcodebuild 2>/dev/null),check-apple)
 .PHONY: check
 check: check-server check-contracts check-strings check-web guard $(CHECK_APPLE) ## Everything CI runs except e2e (check-apple joins where Xcode exists)
 
+# The lead's tier (project.yaml `checks.fast`): everything `check` runs except the simulator-free-but-heavy Apple parts, which CI proves on the exact head
+# (apple.yml: check-apple, snapshots, uitest on hosted xcode-27; `make merge-guard` demands its green run when the branch touches its paths).
+# Web: the Playwright e2e is CI's `web` job (WEB_E2E=0). Apple: theme drift and swift format lint always where swift exists; swift test of the packages only when the branch changed apple/.
+CHECK_FAST_APPLE := $(if $(shell command -v swift 2>/dev/null),check-fast-apple)
+
+.PHONY: check-fast
+check-fast: check-server check-contracts check-strings guard $(CHECK_FAST_APPLE) ## Lead tier: server, contracts, strings, web (no e2e), guard, Apple theme drift + lint (+ package tests if apple/ changed); CI runs the full gate
+	$(MAKE) --no-print-directory check-web WEB_E2E=0
+
+.PHONY: check-fast-apple
+check-fast-apple:
+	cd $(APPLE_DIR)/tools && bun install --frozen-lockfile && bun gen-theme.ts --check
+	$(MAKE) --no-print-directory lint-apple
+	@if git diff --quiet origin/master...HEAD -- $(APPLE_DIR) 2>/dev/null && git diff --quiet HEAD -- $(APPLE_DIR) 2>/dev/null; then \
+		echo "  apple/ unchanged against origin/master: swift test of the packages is CI's"; \
+	else $(MAKE) --no-print-directory test-packages; fi
+
 .PHONY: check-server
 check-server: ## oxlint, oxfmt --check, tsc --noEmit, bun test (server and scripts)
 	cd server && bun install --frozen-lockfile

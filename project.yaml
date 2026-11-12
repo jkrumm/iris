@@ -9,6 +9,7 @@ deploy:
   migrations: [] # SQLite migrations are code (server/src/adapters/sqlite-migrations.ts), applied at boot
 ship:
   - { paths: ["**"], via: push }
+checks: { fast: make check-fast, full: make check, ci: true } # a lead runs fast; CI (check.yml on ubuntu, apple.yml on hosted xcode-27) runs the full gate on the PR head and `make merge-guard` demands its green runs
 leads: 2 # server and web rows run beside one Apple row; Apple builds still serialise on scripts/apple-slot
 signals:
   github:
