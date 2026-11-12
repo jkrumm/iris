@@ -36,6 +36,9 @@ JOBS_STATE_DIR="${JOBS_STATE_DIR:-$HOME/.local/state/jobs}"
 # scripts/apple-slot waits up to 30 min for the Apple lock and the factory test slot (other workers share them); the build itself gets 40 min; jobrun's deadline covers both.
 LOCK_WAIT_SECS=1800
 BUILD_SECS=2400
+# `factory slot run` (inside apple-slot) kills a command after its own 30 min run limit and answers rc 124, whatever BUILD_SECS says; a loaded host took 33 min
+# for a Mac archive once. The slot's limit sits above the build's `timeout`, so `timeout` is the only deadline the build has.
+SLOT_RUN_MS=$(( (BUILD_SECS + 300) * 1000 ))
 JOB_DEADLINE_SECS=4800
 
 # The poller's LaunchAgent has PATH=~/.local/bin:/opt/homebrew/bin:/usr/bin:/bin: no /usr/sbin (`spctl` in mac-release.sh) and no /sbin.
@@ -235,7 +238,7 @@ run_hook() { # <hook> <sha>
   sample_peak $$ "$RELEASE_HOME/peak-$hook.kb" &
   local sampler=$!
   # shellcheck disable=SC2086  # $target is "testflight UPLOAD=1": two words on purpose
-  (cd "$tree" && SWIFT_JOBS="$JOBS_CAP" APPLE_LOCK_WAIT="$LOCK_WAIT_SECS" scripts/apple-slot nice -n 10 timeout "$BUILD_SECS" make ${=target})
+  (cd "$tree" && SWIFT_JOBS="$JOBS_CAP" APPLE_LOCK_WAIT="$LOCK_WAIT_SECS" FACTORY_SLOT_RUN_MS="$SLOT_RUN_MS" scripts/apple-slot nice -n 10 timeout "$BUILD_SECS" make ${=target})
   rc=$?
   kill "$sampler" 2>/dev/null
   log "$hook: peak memory $(( $(cat "$RELEASE_HOME/peak-$hook.kb" 2>/dev/null || print 0) / 1024 )) MB (process-tree RSS)"
