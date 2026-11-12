@@ -1221,7 +1221,7 @@ run shows nothing and never blocks or fails a take.
     Playback uses a bare `AVPlayer` (`MacAudioPlayer`; macOS has no `AVAudioSession`). Replies are typed or spoken inside a thread (the composer's
     microphone binds the take to the thread; the global key continues the conversation in front in the main window), and the running turn streams
     (tools, then text) as on the iPhone; the popover has a focused quick-ask line whose answer streams in the popover. The main window opens at a
-    launch by the user, not at login. Not on the Mac: Mermaid images (shown as code). The window's list takes the popover's one event stream by mirror (`StreamTappingClient.mirror`), not a second connection.
+    launch by the user, not at login. The window's list takes the popover's one event stream by mirror (`StreamTappingClient.mirror`), not a second connection.
     Reply artifacts render inline as on the iPhone (§4 "Artifacts in the conversation"); the viewer is a window of its own (a `WindowGroup` over
     `ArtifactViewerRequest`, opened through `\.openArtifact`), one per artifact.
   - *Live updates:* the list and `HistoryModel.observeEvents()` start at launch, independently of each other (a hung first list

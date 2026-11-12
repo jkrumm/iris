@@ -183,6 +183,7 @@ targets:
       - Iris/ReplyAssetLoading.swift
       # The activity line of a running answer ("Using terminal"): the iPhone's wording.
       - Iris/ToolActivityText.swift
+      - Iris/LiveConversation.swift
       # The capture side: the outbox stack, its API uploader and the created-memo log are the iPhone's, compiled in as they are.
       - Iris/CaptureStack.swift
       - Iris/APIOutboxUploader.swift

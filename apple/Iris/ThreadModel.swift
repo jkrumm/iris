@@ -120,8 +120,7 @@ final class ThreadModel {
       } else {
         ([anchor] + sentMemos).flatMap { ConversationTimeline.entries(of: $0) }
       }
-    dropFinishedLiveTurns(entries)
-    var next = entries.map { liveTurn(for: $0) ?? ConversationTurn($0) }
+    var next = LiveConversation.turns(of: entries, live: &live)
     turnCount = next.count { if case .user = $0.content { true } else { false } }
     if let held {
       next.append(ConversationTurn(id: "held.user", memoID: nil, date: nil, content: .user(held)))
@@ -133,29 +132,6 @@ final class ThreadModel {
             caption: String(localized: "Sends after the first answer", comment: "Pending turn of a held reply"))))
     }
     if next != turns { turns = next }
-  }
-
-  /// A memo that ended (result-ready or failed) no longer has a live turn.
-  private func dropFinishedLiveTurns(_ entries: [ConversationEntry]) {
-    for entry in entries where entry.memo.state.isResultReady || entry.memo.state == .failed {
-      live.drop(memoID: entry.memo.id)
-    }
-  }
-
-  /// The pending entry of a memo with live events: the streaming reply once there is a complete base, else the tool list. The
-  /// streaming turn takes the id of the final reply, so the finished answer replaces it in place.
-  private func liveTurn(for entry: ConversationEntry) -> ConversationTurn? {
-    guard case .pending = entry.kind, let turn = live.turn(for: entry.memo.id) else { return nil }
-    if !turn.shownText.isEmpty {
-      return ConversationTurn(
-        id: "\(entry.memo.id).reply", memoID: entry.memo.id, date: nil,
-        content: .streaming(markdown: turn.shownText, activity: turn.currentTool.map(ToolActivityText.label(for:))))
-    }
-    guard !turn.tools.isEmpty else { return nil }
-    let lines = turn.tools.enumerated().map {
-      ActivityLine(id: $0.offset, label: ToolActivityText.label(for: $0.element))
-    }
-    return ConversationTurn(id: entry.id, memoID: entry.memo.id, date: nil, content: .working(lines))
   }
 
   /// The memo for a turn's Details sheet: the loaded thread's version, or the anchor.

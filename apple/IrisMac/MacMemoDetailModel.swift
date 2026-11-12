@@ -89,27 +89,8 @@ final class MacMemoDetailModel {
     }
     if memo.isConversation { isChat = true }
     let entries = thread.map { ConversationTimeline.entries(of: $0) } ?? ConversationTimeline.entries(of: memo)
-    for entry in entries where entry.memo.state.isResultReady || entry.memo.state == .failed {
-      live.drop(memoID: entry.memo.id)
-    }
-    let next = entries.map { liveTurn(for: $0) ?? ConversationTurn($0) }
+    let next = LiveConversation.turns(of: entries, live: &live)
     if next != turns { turns = next }
-  }
-
-  /// The pending entry of a memo with live events: the streaming reply once there is a complete base, else the tool list. The
-  /// streaming turn takes the id of the final reply (`<memo>.reply`), so the stored answer replaces it in place.
-  private func liveTurn(for entry: ConversationEntry) -> ConversationTurn? {
-    guard case .pending = entry.kind, let turn = live.turn(for: entry.memo.id) else { return nil }
-    if !turn.shownText.isEmpty {
-      return ConversationTurn(
-        id: "\(entry.memo.id).reply", memoID: entry.memo.id, date: nil,
-        content: .streaming(markdown: turn.shownText, activity: turn.currentTool.map(ToolActivityText.label(for:))))
-    }
-    guard !turn.tools.isEmpty else { return nil }
-    let lines = turn.tools.enumerated().map {
-      ActivityLine(id: $0.offset, label: ToolActivityText.label(for: $0.element))
-    }
-    return ConversationTurn(id: entry.id, memoID: entry.memo.id, date: nil, content: .working(lines))
   }
 
   // MARK: Live
