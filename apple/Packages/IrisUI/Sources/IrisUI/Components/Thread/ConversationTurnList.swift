@@ -121,7 +121,8 @@ public struct ConversationTurnList: View {
   ) -> some View {
     AssistantTurnView(
       markdown: markdown, time: time(turn.date), mermaid: mermaid, artifacts: artifacts,
-      identifier: style.assistantIdentifier ?? "thread.turn.assistant", textRole: style.textRole ?? .callout,
+      identifier: isStreaming ? "thread.turn.streaming" : style.assistantIdentifier ?? "thread.turn.assistant",
+      textRole: style.textRole ?? .callout,
       onOpenImage: onOpenImage, onCopy: copy(plainText(markdown)), isStreaming: isStreaming, activity: activity)
   }
 

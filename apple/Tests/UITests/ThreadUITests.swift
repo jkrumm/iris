@@ -29,14 +29,15 @@ final class ThreadUITests: IrisUITestCase {
     }
   }
 
-  /// The answer that has not arrived: the pipeline's dashes, or the tool list once the first tool started (the fake starts one
-  /// 15 % into its step, which a slow runner can reach before the first query).
+  /// The answer that has not arrived: the pipeline's dashes, the tool list once the first tool started (the fake starts one
+  /// 15 % into its step), or the streaming reply once its deltas came (85 %); it stays until `notified`, so a slow runner
+  /// still finds one of the three.
   @MainActor
   private func runningTurn(_ app: XCUIApplication) -> XCUIElement {
     app.descendants(matching: .any)
       .matching(
         NSCompoundPredicate(
-          orPredicateWithSubpredicates: ["thread.turn.pending", "thread.turn.activity"].map {
+          orPredicateWithSubpredicates: ["thread.turn.pending", "thread.turn.activity", "thread.turn.streaming"].map {
             NSPredicate(format: "identifier == %@", $0)
           })
       ).firstMatch
