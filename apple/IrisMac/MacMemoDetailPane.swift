@@ -45,6 +45,10 @@ struct MacMemoDetailPane: View {
     .safeAreaInset(edge: .bottom, spacing: 0) { composer }
     .toolbar { toolbar }
     .task(id: refreshToken) { await model.load() }
+    // The running turn streams in: the window's list multicasts the stream's tool and text events.
+    .task {
+      for await event in root.windowHistory.liveEvents() { await model.apply(event) }
+    }
     // A memo opened from the popover or a banner may be past the window's filter or pages: the list takes it in, so its actions find it.
     .task(id: model.memo?.id) {
       guard let memo = model.memo else { return }

@@ -3,8 +3,8 @@ import IrisCore
 import IrisUI
 import SwiftUI
 
-/// The popover's home (`mac.html` `.menu`): the title with the Hermes and Transcribe buttons, the newest memos, the two menu lines and the
-/// connection line.
+/// The popover's home (`mac.html` `.menu`): the title with the Hermes and Transcribe buttons, the quick-ask line (focused when the
+/// popover opens; its answer streams in below it), the newest memos, the menu lines and the connection line.
 struct MacHomePage: View {
   let root: MacCompositionRoot
   /// The mockup shows four rows; the newest five fit a popover.
@@ -15,8 +15,9 @@ struct MacHomePage: View {
   var body: some View {
     VStack(alignment: .leading, spacing: Theme.Spacing.menuGap) {
       header
+      if root.isConfigured { MacQuickAsk(root: root) }
       MacOutboxStrip(model: root.outbox)
-      recent
+      if root.quickAnswer == nil { recent }
       MacMenuDivider()
       MacMenuLine(
         title: String(localized: "New memo…", comment: "Menu line: opens the main window on the New memo page"),
@@ -188,5 +189,101 @@ private struct TakeButtonStyle: ViewModifier {
       .padding(.vertical, Theme.Spacing.menuButtonVertical)
       .background(color.opacity(prominent ? 0.18 : 0.12), in: .capsule)
       .contentShape(.capsule)
+  }
+}
+
+/// The popover's quick-ask line: Return sends the text to Hermes as a new memo, and the answer streams in under the line (the
+/// tools Hermes uses, then the text) until it is dismissed or opened in the window to continue. While an answer shows, the newest
+/// memos make room for it.
+private struct MacQuickAsk: View {
+  let root: MacCompositionRoot
+  @FocusState private var focused: Bool
+
+  var body: some View {
+    let composer = root.quickAskComposer
+    VStack(alignment: .leading, spacing: Theme.Spacing.snug) {
+      HStack(alignment: .bottom, spacing: Theme.Spacing.macComposerGap) {
+        MacPromptField(
+          model: composer,
+          placeholder: String(localized: "Ask Hermes…", comment: "Popover quick-ask placeholder"),
+          isEnabled: true, identifier: "mac.menu.ask.field", leavesOnEscape: false, focus: $focused
+        ) {
+          send(composer)
+        }
+        Button {
+          send(composer)
+        } label: {
+          Image(systemName: "arrow.up")
+            .fontWeight(.semibold)
+            .foregroundStyle(composer.canSend ? Theme.Accent.onFill : Theme.Ink.muted)
+            .frame(width: Theme.Spacing.macComposerButtonSize, height: Theme.Spacing.macComposerButtonSize)
+            .background(composer.canSend ? Theme.Accent.fill : Theme.Surface.elevated, in: .circle)
+            .contentShape(.circle)
+        }
+        .buttonStyle(.plain)
+        .disabled(!composer.canSend)
+        .accessibilityLabel(Text("Send to Hermes", comment: "Composer: sends the text to Hermes"))
+        .accessibilityIdentifier("mac.menu.ask.send")
+      }
+      if let failure = composer.failure {
+        Text(verbatim: failure)
+          .themeFont(.caption)
+          .foregroundStyle(Theme.Status.bad)
+          .accessibilityIdentifier("mac.menu.ask.error")
+      }
+      if root.queuedNote == ObjectIdentifier(composer) {
+        Text(
+          "Queued. It is sent as soon as the server answers.",
+          comment: "Note under the composer after a memo went to the outbox"
+        )
+        .themeFont(.caption)
+        .foregroundStyle(Theme.Ink.muted)
+        .accessibilityIdentifier("mac.menu.ask.queued")
+      }
+      if let answer = root.quickAnswer {
+        MacQuickAnswer(root: root, answer: answer)
+      }
+    }
+    .padding(.horizontal, Theme.Spacing.menuRowHorizontal)
+    .padding(.bottom, Theme.Spacing.snug)
+    // The popover keeps its content between openings, so a first appearance is not the only moment the line takes the keyboard.
+    .task { focused = true }
+    .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { _ in focused = true }
+  }
+
+  private func send(_ composer: ComposerModel) {
+    guard composer.canSend else { return }
+    Task { await root.sendTyped(composer, mode: .hermes) }
+  }
+}
+
+/// The question just asked and its answer as they stream: the conversation component the window uses, over the popover's own
+/// model of the memo. It reloads when the popover's list hears the memo change, which is when the stored answer replaces the stream.
+private struct MacQuickAnswer: View {
+  let root: MacCompositionRoot
+  let answer: MacMemoDetailModel
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: Theme.Spacing.snug) {
+      ScrollView {
+        MacConversationView(turns: answer.turns, onCopy: { answer.copyTurn($0) }, onOpenImage: { _ in })
+      }
+      .frame(maxHeight: Theme.Spacing.menuAnswerMaxHeight)
+      .fixedSize(horizontal: false, vertical: true)
+      HStack {
+        Button(String(localized: "Open in window", comment: "Popover: continues the quick answer in the main window")) {
+          root.openQuickAnswerInWindow()
+        }
+        .accessibilityIdentifier("mac.menu.ask.open")
+        Spacer()
+        Button(String(localized: "Done", comment: "Popover: dismisses the quick answer")) { root.dismissQuickAnswer() }
+          .accessibilityIdentifier("mac.menu.ask.dismiss")
+      }
+      .buttonStyle(.plain)
+      .themeFont(.footnote, weight: .semibold)
+      .foregroundStyle(Theme.Accent.tint)
+    }
+    .task(id: root.history.revision(of: answer.memoID) + root.reconnects) { await answer.load() }
+    .accessibilityIdentifier("mac.menu.ask.answer")
   }
 }

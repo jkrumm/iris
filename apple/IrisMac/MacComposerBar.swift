@@ -3,8 +3,9 @@ import IrisUI
 import SwiftUI
 
 /// The bar pinned to the foot of the detail column where the owner types: a field that grows from one line to eight, a Send
-/// button, and on the New memo page a microphone that starts a Hermes take. Return sends, Shift-Return starts a new line,
-/// Command-Return always sends. A new memo can go to Hermes or be only transcribed (the send is a menu); a reply into a conversation
+/// button, and a microphone that starts a Hermes take (in a conversation, a take that continues it). Return sends, Shift-Return
+/// starts a new line at the caret, Command-Return always sends, Command-L focuses the field and Escape leaves it. A conversation
+/// opens with the field focused. A new memo can go to Hermes or be only transcribed (the send is a menu); a reply into a conversation
 /// goes to Hermes. What the outbox says (a refusal, "queued") and the length near the server's limit show above the field.
 struct MacComposerBar: View {
   let root: MacCompositionRoot
@@ -15,7 +16,7 @@ struct MacComposerBar: View {
     VStack(alignment: .leading, spacing: Theme.Spacing.hair) {
       notes
       HStack(alignment: .bottom, spacing: Theme.Spacing.macComposerGap) {
-        if model.threadId == nil { microphone }
+        microphone
         field
         send
       }
@@ -26,7 +27,14 @@ struct MacComposerBar: View {
     .frame(maxWidth: .infinity)
     .background(Theme.Surface.background)
     .overlay(alignment: .top) { Divider().overlay(Theme.Surface.hairline) }
-    .task { if model.threadId == nil { focused = true } }
+    .task { focused = true }
+    .background {
+      // Command-L: the keyboard goes to the field from anywhere in the window.
+      Button(action: { focused = true }) { Color.clear }
+        .keyboardShortcut("l")
+        .opacity(0)
+        .accessibilityHidden(true)
+    }
     .accessibilityIdentifier("mac.composer")
   }
 
@@ -42,38 +50,19 @@ struct MacComposerBar: View {
   }
 
   private var field: some View {
-    TextField(placeholder, text: $model.text, axis: .vertical)
-      .textFieldStyle(.plain)
-      .lineLimit(1...8)
-      .macFont(.body)
-      .focused($focused)
-      .disabled(!root.isConfigured)
-      .onKeyPress(keys: [.return]) { press in handleReturn(press) }
-      .padding(.horizontal, Theme.Spacing.macComposerFieldHorizontal)
-      .padding(.vertical, Theme.Spacing.macComposerFieldVertical)
-      .background(Theme.Surface.panel, in: .rect(cornerRadius: Theme.Spacing.macComposerRadius))
-      .overlay {
-        RoundedRectangle(cornerRadius: Theme.Spacing.macComposerRadius)
-          .strokeBorder(Theme.Surface.border, lineWidth: 0.5)
-      }
-      .accessibilityIdentifier("mac.composer.field")
-  }
-
-  /// Return sends, Shift-Return adds a line at the end of the text (the caret is not read); Command-Return is the Send button's key.
-  private func handleReturn(_ press: KeyPress) -> KeyPress.Result {
-    if press.modifiers.contains(.shift) {
-      model.text.append("\n")
-      return .handled
+    MacPromptField(
+      model: model, placeholder: placeholder, isEnabled: root.isConfigured, identifier: "mac.composer.field",
+      leavesOnEscape: true, focus: $focused
+    ) {
+      submit(.hermes)
     }
-    if model.canSend { submit(.hermes) }
-    return .handled
   }
 
   // MARK: Buttons
 
   private var microphone: some View {
     Button {
-      root.recording.toggle(mode: .hermes)
+      root.talk(in: model.threadId)
     } label: {
       Image(systemName: "mic")
         .foregroundStyle(Theme.Accent.tint)
@@ -82,8 +71,16 @@ struct MacComposerBar: View {
     }
     .buttonStyle(.plain)
     .disabled(!root.isConfigured)
-    .help(String(localized: "Talk to Hermes", comment: "Composer: starts a voice memo for Hermes"))
-    .accessibilityLabel(Text("Talk to Hermes", comment: "Composer: starts a voice memo for Hermes"))
+    .help(
+      model.threadId == nil
+        ? String(localized: "Talk to Hermes", comment: "Composer: starts a voice memo for Hermes")
+        : String(localized: "Reply by voice", comment: "Composer: records a spoken reply in the conversation")
+    )
+    .accessibilityLabel(
+      model.threadId == nil
+        ? Text("Talk to Hermes", comment: "Composer: starts a voice memo for Hermes")
+        : Text("Reply by voice", comment: "Composer: records a spoken reply in the conversation")
+    )
     .accessibilityIdentifier("mac.composer.mic")
   }
 

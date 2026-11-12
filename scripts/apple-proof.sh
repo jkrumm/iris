@@ -25,7 +25,7 @@ DD=apple/.dd.noindex
 # Capped like the Makefile's test runners: 2 build jobs (an uncapped cold build of both schemes peaked at a 1-minute load of 408 on 12 cores), low priority.
 XCB=(nice -n 10 xcodebuild -project apple/Iris.xcodeproj -derivedDataPath "$DD" CODE_SIGNING_ALLOWED=NO -jobs "${SWIFT_JOBS:-2}"
   IDEBuildOperationMaxNumberOfConcurrentCompileTasks="${SWIFT_JOBS:-2}" SWIFT_COMPILATION_MODE=incremental)
-MAC_EXPECTED=(menu window-all window-thread window-chat-mermaid window-running window-filtered window-new window-composer window-sent
+MAC_EXPECTED=(menu menu-ask window-all window-thread window-chat-mermaid window-running window-streaming window-filtered window-new window-composer window-sent
   window-answered settings-connection settings-recording settings-general onboarding recording recording-refused artifact-island artifact-island-dark
   artifact-cards artifact-cards-dark artifact-viewer artifact-viewer-dark)
 

@@ -6,10 +6,15 @@ import SwiftUI
 /// tall as its content.
 struct MacMenuPanel: View {
   @Bindable var root: MacCompositionRoot
+  @Environment(\.openWindow) private var openWindow
 
   var body: some View {
     MacHomePage(root: root)
       .frame(width: Theme.Spacing.menuWidth)
+      // The quick answer is the window's conversation component: its diagrams and documents load the same way.
+      .environment(\.replyImageStore, root.replyImages)
+      .environment(\.artifactStore, root.artifacts)
+      .environment(\.openArtifact, OpenArtifactAction { openWindow(id: MacWindowID.artifact, value: $0) })
       .background(Theme.Surface.background)
       // A delete from a row's context menu has its undo here.
       .macToast(root: root, model: root.history)

@@ -35,6 +35,9 @@ final class MacMemoDetailModel {
   /// The pane lays the memo out as a chat: ``Memo/isConversation``. Once a memo has shown as one it stays one, so the chat does not
   /// turn into a document when the memo is deleted meanwhile.
   private(set) var isChat = false
+  /// What streams while a turn of this conversation runs: the tools started and the reply text so far (display only, folded from
+  /// `memo.delta` / `memo.activity`). A turn that has some shows as the working list, then as the streaming answer.
+  @ObservationIgnored private var live = LiveTurns()
   private(set) var baselines = StepBaselines()
   private(set) var isRetrying = false
   private(set) var loadFailed = false
@@ -86,7 +89,73 @@ final class MacMemoDetailModel {
     }
     if memo.isConversation { isChat = true }
     let entries = thread.map { ConversationTimeline.entries(of: $0) } ?? ConversationTimeline.entries(of: memo)
-    turns = entries.map { ConversationTurn($0) }
+    for entry in entries where entry.memo.state.isResultReady || entry.memo.state == .failed {
+      live.drop(memoID: entry.memo.id)
+    }
+    let next = entries.map { liveTurn(for: $0) ?? ConversationTurn($0) }
+    if next != turns { turns = next }
+  }
+
+  /// The pending entry of a memo with live events: the streaming reply once there is a complete base, else the tool list. The
+  /// streaming turn takes the id of the final reply (`<memo>.reply`), so the stored answer replaces it in place.
+  private func liveTurn(for entry: ConversationEntry) -> ConversationTurn? {
+    guard case .pending = entry.kind, let turn = live.turn(for: entry.memo.id) else { return nil }
+    if !turn.shownText.isEmpty {
+      return ConversationTurn(
+        id: "\(entry.memo.id).reply", memoID: entry.memo.id, date: nil,
+        content: .streaming(markdown: turn.shownText, activity: turn.currentTool.map(ToolActivityText.label(for:))))
+    }
+    guard !turn.tools.isEmpty else { return nil }
+    let lines = turn.tools.enumerated().map {
+      ActivityLine(id: $0.offset, label: ToolActivityText.label(for: $0.element))
+    }
+    return ConversationTurn(id: entry.id, memoID: entry.memo.id, date: nil, content: .working(lines))
+  }
+
+  // MARK: Live
+
+  /// A live event of the event stream. `ready` (every connect) forgets what was streamed, since `attempt` restarts after a server
+  /// restart, and fetches the partial reply again as the base; a delta or tool of a memo of this conversation updates its turn.
+  func apply(_ event: ServerEvent) async {
+    switch event {
+    case .ready:
+      live.reset()
+      refreshConversation()
+      await seedLive()
+    case .memoDelta(let delta):
+      guard belongs(delta.id) else { return }
+      live.apply(event)
+      refreshConversation()
+    case .memoActivity(let activity):
+      guard belongs(activity.id) else { return }
+      live.apply(event)
+      refreshConversation()
+    case .memoUpdated, .memoDone:
+      return
+    }
+  }
+
+  private func belongs(_ id: String) -> Bool {
+    memoID == id || (thread?.memos.contains { $0.id == id } ?? false)
+  }
+
+  /// Seeds the live turn of every running memo from its detail's `partialReply`, so a pane that opens mid-turn (or after a
+  /// reconnect) has a complete base for the deltas that follow.
+  func seedLive() async {
+    let current = generation
+    let memos = thread?.memos ?? (memo.map { [$0] } ?? [])
+    for running in memos where !running.state.isResultReady && running.state != .failed {
+      do {
+        let partial = try await client.memo(id: running.id).partialReply
+        guard !Task.isCancelled, current == generation else { return }
+        live.seed(memoID: running.id, partial: partial)
+      } catch is CancellationError {
+        return
+      } catch {
+        logger.error("partial reply fetch failed: \(String(describing: error), privacy: .public)")
+      }
+    }
+    refreshConversation()
   }
 
   /// A memo this Mac just created in the open conversation shows at once, as a user turn with its pending answer, before the next
@@ -136,6 +205,7 @@ final class MacMemoDetailModel {
       refreshConversation()
       await loadThread(of: fresh.memo, generation: current)
       refreshConversation()
+      await seedLive()
     } catch is CancellationError {
       return
     } catch {

@@ -1831,6 +1831,69 @@
           }
         }
       }
+    },
+    "Reply by voice" : {
+      "comment" : "Composer: records a spoken reply in the conversation",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Per Sprache antworten"
+          }
+        }
+      }
+    },
+    "Ask Hermes…" : {
+      "comment" : "Popover quick-ask placeholder",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hermes fragen …"
+          }
+        }
+      }
+    },
+    "Open in window" : {
+      "comment" : "Popover: continues the quick answer in the main window",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Im Fenster öffnen"
+          }
+        }
+      }
+    },
+    "Using terminal" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Terminal wird verwendet"
+          }
+        }
+      }
+    },
+    "Searching the web" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Durchsucht das Web"
+          }
+        }
+      }
+    },
+    "Using %@" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ wird verwendet"
+          }
+        }
+      }
     }
   },
   "version" : "1.0"
