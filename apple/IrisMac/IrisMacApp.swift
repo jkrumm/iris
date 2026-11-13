@@ -2,8 +2,21 @@ import AppKit
 import IrisUI
 import SwiftUI
 
+/// A Dock click on the running app: SwiftUI has no hook for it, AppKit sends it to the delegate.
+final class MacAppDelegate: NSObject, NSApplicationDelegate {
+  /// Set once by ``IrisMacApp``; returns whether it handled the reopen.
+  @MainActor static var onReopen: (() -> Void)?
+
+  @MainActor func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+    guard let onReopen = Self.onReopen else { return true }
+    onReopen()
+    return false
+  }
+}
+
 @main
 struct IrisMacApp: App {
+  @NSApplicationDelegateAdaptor(MacAppDelegate.self) private var delegate
   @State private var root: MacCompositionRoot
   /// ⌘Tab and the Dock while a real window is open.
   private let activation = MacActivationPolicy()
@@ -20,6 +33,19 @@ struct IrisMacApp: App {
     // The list and the event stream run from launch, popover open or not: a notification per finished memo needs them.
     root.begin()
     activation.install()
+    MacAppDelegate.onReopen = { [root] in
+      let windows = NSApp.windows
+      switch MacActivationPolicy.reopenAction(
+        hasVisibleWindow: MacActivationPolicy.hasVisibleWindow(windows), needsOnboarding: root.needsOnboarding)
+      {
+      case .bringToFront:
+        root.noteWindow("main", "front", source: "dock")
+        NSApp.activate()
+        windows.first { $0.isVisible && $0.styleMask.contains(.titled) && $0.canBecomeMain }?.makeKeyAndOrderFront(nil)
+      case .openOnboarding: root.showOnboarding(source: "dock")
+      case .openMain: root.showMainWindow(source: "dock")
+      }
+    }
     // The screenshot proof exists in Debug builds only (it reaches for a private window capture), and only on the fake composition.
     #if DEBUG
       if root.mode == .fake, let snapshot = MacSnapshotRun(arguments: ProcessInfo.processInfo.arguments, root: root) {
