@@ -21,4 +21,12 @@ struct MacActivationPolicyTests {
     let panel = Facts(isVisible: true, isTitled: false, canBecomeMain: false)
     #expect(MacActivationPolicy.policy(for: [panel, window]) == .regular)
   }
+
+  @Test("a Dock click opens the main window, raises a visible one, or opens the onboarding when nothing is saved")
+  func reopen() {
+    #expect(MacActivationPolicy.reopenAction(hasVisibleWindow: false, needsOnboarding: false) == .openMain)
+    #expect(MacActivationPolicy.reopenAction(hasVisibleWindow: true, needsOnboarding: false) == .bringToFront)
+    #expect(MacActivationPolicy.reopenAction(hasVisibleWindow: false, needsOnboarding: true) == .openOnboarding)
+    #expect(MacActivationPolicy.reopenAction(hasVisibleWindow: true, needsOnboarding: true) == .bringToFront)
+  }
 }

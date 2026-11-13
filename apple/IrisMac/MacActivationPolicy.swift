@@ -17,6 +17,22 @@ final class MacActivationPolicy {
     windows.contains { $0.isVisible && $0.isTitled && $0.canBecomeMain } ? .regular : .accessory
   }
 
+  /// What a Dock click (or a Finder or Spotlight launch of the running app) should do.
+  enum ReopenAction: Equatable {
+    case openOnboarding, openMain, bringToFront
+  }
+
+  /// Nothing saved: the onboarding is the only useful window. Otherwise the main window, raised if one is already visible.
+  static func reopenAction(hasVisibleWindow: Bool, needsOnboarding: Bool) -> ReopenAction {
+    if hasVisibleWindow { return .bringToFront }
+    return needsOnboarding ? .openOnboarding : .openMain
+  }
+
+  /// A visible titled window that can be main, the same test as ``policy(for:)``.
+  static func hasVisibleWindow(_ windows: [NSWindow]) -> Bool {
+    windows.contains { $0.isVisible && $0.styleMask.contains(.titled) && $0.canBecomeMain }
+  }
+
   private var observers: [any NSObjectProtocol] = []
 
   /// Starts following windows. Called once at launch.

@@ -661,8 +661,8 @@ final class MacCompositionRoot {
   }
 
   /// A window or scene appeared or closed (`main`, `settings`, `onboarding`), for the device log.
-  func noteWindow(_ name: String, _ action: String) {
-    events.window(name, action: action)
+  func noteWindow(_ name: String, _ action: String, source: String? = nil) {
+    events.window(name, action: action, source: source)
   }
 
   /// Opens the onboarding window (the popover's connect prompt).
