@@ -376,7 +376,8 @@ proof-apple: generate ## A verifier's proof of an Apple change in one slot: iOS 
 # tracked: team, key and device resolve at runtime (scripts/device-lib.sh).
 # --- TestFlight (Wave 22 P2, skill `apple-dev`). Through scripts/apple-slot like every xcodebuild job (the poller's release hook wraps its whole make call the same way). ---
 # UPLOAD=0 (default until the App Store Connect app record exists): a signed .ipa in .artifacts/testflight/export; UPLOAD=1: export and upload.
-# Team id and the ASC Team key come from op://mini/apple-developer via secrets-run (scripts/apple-signing-key.sh); CFBundleVersion = <commit count>.<UTC epoch hours> (a same-sha rebuild still gets a new number).
+# Team id and the ASC Team key come from op://mini/apple-developer via secrets-run (scripts/apple-signing-key.sh); CFBundleVersion = <commit count>.<UTC epoch hours> (a same-sha rebuild still gets a new number);
+# the marketing version is `bun scripts/version.ts` (the Mac release of the same sha gets the same one). DRY_RUN=1 prints version, build and notes only.
 UPLOAD ?= 0
 .PHONY: testflight
 testflight: ## Archive Iris (Release), export a signed .ipa (UPLOAD=0, default) or upload to TestFlight (UPLOAD=1)
@@ -405,7 +406,8 @@ _device:
 
 # --- Mac release (TDD §5 "Updates", skill `apple-dev`). Through scripts/apple-slot like every xcodebuild job. ---
 # IDENTITY=development (Apple Development, no notarization, draft only) | developer-id (notarized + stapled; needs the certificate in the keychain);
-# PUBLISH=draft (never served as releases/latest) | release. SIGNING_ONLY=1 stops after the signature check.
+# PUBLISH=draft (never served as releases/latest) | release. SIGNING_ONLY=1 stops after the signature check. DRY_RUN=1 prints the version, the tag
+# and the release notes only. The tag is mac-v<version>-<build>; the notes (the apple/ commit subjects since the previous release) go in the appcast and the release body.
 .PHONY: mac-release
 mac-release: ## Sign, zip and publish a Sparkle release of IrisMac: IDENTITY=development|developer-id [PUBLISH=draft|release]
 	@$(APPLE) scripts/mac-release.sh

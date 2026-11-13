@@ -8,7 +8,12 @@
 #   PUBLISH=release        a published release: every installed app finds it (default for developer-id; needs a clean tree)
 #   Both need a HEAD that is on origin (the release's target).
 #
-# Steps: xcodegen, archive IrisMac (Release, CURRENT_PROJECT_VERSION = `git rev-list --count HEAD`), check the signature (team,
+# Version: MARKETING_VERSION = `bun scripts/version.ts` (0.MINOR.PATCH from git, deterministic for the sha; the TestFlight build of the same sha gets the
+# same number), CURRENT_PROJECT_VERSION = `git rev-list --count HEAD` (what Sparkle compares). The tag is mac-v<version>-<build>. The release notes are
+# the subjects of the apple/ commits since the previous published Mac release (`bun scripts/version.ts notes`): generate_appcast embeds the .html next to
+# the zip as the item's description (Sparkle's update dialog), and the GitHub release body is the same list. DRY_RUN=1 prints version, tag and notes and stops.
+#
+# Steps: xcodegen, archive IrisMac (Release), check the signature (team,
 # Hardened Runtime, audio-input, no sandbox), [notarize + staple], ditto zip, appcast through `generate_appcast`, verify the
 # appcast's EdDSA signature against the zip, `gh release create` with the zip + appcast.xml. Nothing is written back to the repo.
 #
@@ -51,6 +56,13 @@ ARCHIVE="$WORK/IrisMac.xcarchive"
 UPLOAD="$WORK/upload"
 DERIVED="$PWD/$APPLE_DIR/.dd.noindex"
 JOBS="${SWIFT_JOBS:-2}"  # the same build-jobs cap as the Makefile and apple-proof
+MARKETING="$(bun scripts/version.ts)"
+
+if [ "${DRY_RUN:-0}" = 1 ]; then
+  echo "  mac-release (dry run): version=$MARKETING build=$BUILD tag=mac-v$MARKETING-$BUILD identity=$IDENTITY publish=$PUBLISH"
+  bun scripts/version.ts notes
+  exit 0
+fi
 
 for tool in xcodebuild xcodegen codesign ditto jq secrets-run xcrun; do
   command -v "$tool" >/dev/null || { echo "  missing tool: $tool" >&2; exit 1; }
@@ -78,7 +90,7 @@ ISSUER="$ASC_ISSUER_ID"
 
 # Hardened Runtime and a secure timestamp are what notarization asks for; they cost nothing on a development build.
 # CODE_SIGN_INJECT_BASE_ENTITLEMENTS=NO keeps Xcode from adding get-task-allow, which notarization refuses.
-SIGN=(DEVELOPMENT_TEAM="$TEAM" CURRENT_PROJECT_VERSION="$BUILD" ENABLE_HARDENED_RUNTIME=YES OTHER_CODE_SIGN_FLAGS=--timestamp
+SIGN=(DEVELOPMENT_TEAM="$TEAM" MARKETING_VERSION="$MARKETING" CURRENT_PROJECT_VERSION="$BUILD" ENABLE_HARDENED_RUNTIME=YES OTHER_CODE_SIGN_FLAGS=--timestamp
   CODE_SIGN_INJECT_BASE_ENTITLEMENTS=NO)
 AUTH=()
 case "$IDENTITY" in
@@ -105,7 +117,7 @@ case "$IDENTITY" in
     ;;
 esac
 
-echo "  mac-release: identity=$IDENTITY publish=$PUBLISH build=$BUILD team=<resolved>"
+echo "  mac-release: identity=$IDENTITY publish=$PUBLISH version=$MARKETING build=$BUILD team=<resolved>"
 if [ -n "${RESUME_BUILD:-}" ]; then
   [ -d "$ARCHIVE" ] || { echo "  RESUME_BUILD=$BUILD: no archive at $ARCHIVE" >&2; exit 1; }
   rm -rf "$UPLOAD"
@@ -193,10 +205,42 @@ fi
 plist() { /usr/libexec/PlistBuddy -c "Print :$1" "$APP/Contents/Info.plist"; }
 VERSION="$(plist CFBundleShortVersionString)"
 [ "$(plist CFBundleVersion)" = "$BUILD" ] || { echo "  CFBundleVersion is not $BUILD" >&2; exit 1; }
+# The app and every extension carry the computed version (a resumed build keeps the version it was archived with).
+if [ -z "${RESUME_BUILD:-}" ]; then
+  while IFS= read -r info; do
+    got="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$info")"
+    [ "$got" = "$MARKETING" ] || { echo "  $info has version $got, not $MARKETING" >&2; exit 1; }
+  done < <(find "$APP/Contents" -name Info.plist -path '*/Contents/Info.plist' -not -path '*/Frameworks/*')
+fi
 TAG="mac-v$VERSION-$BUILD"
 ZIP="IrisMac-$VERSION-$BUILD.zip"
 # The stapled app is what gets zipped, and the zip is signed last (stapling changes bytes).
 ditto -c -k --sequesterRsrc --keepParent "$APP" "$UPLOAD/$ZIP"
+
+# --- release notes -------------------------------------------------------------------------------------------------------
+
+if [ -z "${GH_TOKEN:-}" ]; then
+  GH_TOKEN="$(secrets-run read op://mini/github/token 2>/dev/null || true)"
+  if [ -n "$GH_TOKEN" ]; then export GH_TOKEN; else unset GH_TOKEN; fi
+fi
+# The previous published Mac release's commit (its release target); the notes are what changed since. Anything missing or not an ancestor
+# (a first release, a rewritten history) falls back to the version script's baseline.
+SINCE=()
+prev_tag="$(gh release list --repo "$REPO" --limit 30 --json tagName,isDraft --jq '[.[] | select(.isDraft | not) | select(.tagName | startswith("mac-v"))][0].tagName // empty' 2>/dev/null || true)"
+if [ -n "$prev_tag" ]; then
+  prev_sha="$(gh api "repos/$REPO/releases/tags/$prev_tag" --jq .target_commitish 2>/dev/null || true)"
+  if [ -n "$prev_sha" ] && git merge-base --is-ancestor "$prev_sha" "$SHA" 2>/dev/null; then SINCE=(--since "$prev_sha"); fi
+fi
+NOTES_MD="$WORK/notes.md"
+NOTES_HTML="$UPLOAD/${ZIP%.zip}.html"  # the archive's name: generate_appcast embeds it (no DOCTYPE or body tags) as the item's CDATA description
+bun scripts/version.ts notes ${SINCE[@]+"${SINCE[@]}"} >"$NOTES_MD"
+if [ -s "$NOTES_MD" ]; then
+  bun scripts/version.ts notes ${SINCE[@]+"${SINCE[@]}"} --format html >"$NOTES_HTML"
+else
+  echo "No app changes since the previous release." >"$NOTES_MD"
+  echo "<p>No app changes since the previous release.</p>" >"$NOTES_HTML"
+fi
+echo "  release notes since ${prev_tag:-the baseline}: $(grep -c '^- ' "$NOTES_MD" || true) item(s)"
 
 # The tools of the pinned Sparkle package (matches the framework in the app); a manual download is the fallback.
 SPARKLE_BIN="${SPARKLE_BIN:-}"
@@ -207,22 +251,20 @@ if [ -z "$SPARKLE_BIN" ]; then
 fi
 [ -x "$SPARKLE_BIN/generate_appcast" ] || { echo "  Sparkle tools not found (set SPARKLE_BIN)" >&2; exit 1; }
 
-"$SPARKLE_BIN/generate_appcast" --ed-key-file "$SPARKLE_KEY_FILE" \
+"$SPARKLE_BIN/generate_appcast" --ed-key-file "$SPARKLE_KEY_FILE" --embed-release-notes \
   --download-url-prefix "https://github.com/$REPO/releases/download/$TAG/" "$UPLOAD"
 APPCAST="$UPLOAD/appcast.xml"
 SIG="$(sed -n 's/.*sparkle:edSignature="\([^"]*\)".*/\1/p' "$APPCAST" | head -n 1)"
 [ -n "$SIG" ] || { echo "  appcast has no sparkle:edSignature" >&2; exit 1; }
+grep -q "sparkle:shortVersionString>$VERSION<" "$APPCAST" || { echo "  appcast short version is not $VERSION" >&2; exit 1; }
+grep -q "<description>" "$APPCAST" || { echo "  appcast item has no release notes" >&2; exit 1; }
 grep -q "sparkle:version>$BUILD<" "$APPCAST" || { echo "  appcast version is not $BUILD" >&2; exit 1; }
 "$SPARKLE_BIN/sign_update" --verify --ed-key-file "$SPARKLE_KEY_FILE" "$UPLOAD/$ZIP" "$SIG"
 echo "  appcast signature verifies against $ZIP"
 
 # --- publish -------------------------------------------------------------------------------------------------------------
 
-if [ -z "${GH_TOKEN:-}" ]; then
-  GH_TOKEN="$(secrets-run read op://mini/github/token 2>/dev/null || true)"
-  if [ -n "$GH_TOKEN" ]; then export GH_TOKEN; else unset GH_TOKEN; fi
-fi
-FLAGS=(--repo "$REPO" --target "$SHA" --title "Iris Mac $VERSION ($BUILD)" --notes "Iris for Mac $VERSION, build $BUILD, signed $IDENTITY.")
+FLAGS=(--repo "$REPO" --target "$SHA" --title "Iris Mac $VERSION ($BUILD)" --notes-file "$NOTES_MD")
 if [ "$PUBLISH" = "draft" ]; then FLAGS+=(--draft); fi
 gh release create "$TAG" "$UPLOAD/$ZIP" "$APPCAST" "${FLAGS[@]}"
 echo "  released $TAG ($PUBLISH): $ZIP + appcast.xml"
