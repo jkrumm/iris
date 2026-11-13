@@ -19,7 +19,7 @@
     <string>bun</string>
     <string>__HOME__/.iris/app/scripts/testflight-crashes.ts</string>
   </array>
-  <!-- launchd has no PATH: jobrun, secrets-run and rd live in ~/.local/bin, bun in ~/.bun/bin. -->
+  <!-- launchd has no PATH: jobrun, secrets-run and factory live in ~/.local/bin, bun in ~/.bun/bin. -->
   <key>EnvironmentVariables</key>
   <dict>
     <key>PATH</key><string>__HOME__/.local/bin:__HOME__/.bun/bin:/opt/homebrew/bin:/usr/bin:/bin</string>

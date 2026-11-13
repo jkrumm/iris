@@ -317,7 +317,7 @@ describe("filing through the factory CLI", () => {
     facts: { why: "w", what: "x", change: "c", acceptance: "a" },
   };
 
-  it("builds the owner-path argv with the key and no rd verb", () => {
+  it("builds the owner-path argv with the key", () => {
     expect(factoryIssueArgv(request)).toEqual([
       "factory",
       "issue",
