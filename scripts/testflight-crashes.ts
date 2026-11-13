@@ -1,12 +1,12 @@
 #!/usr/bin/env bun
 /**
  * TestFlight crash intake: lists the new `betaFeedbackCrashSubmissions` of `com.jkrumm.iris` from the App Store
- * Connect API, reads each crash log, and files one factory Issue per crash signature through `rd issue iris`.
+ * Connect API, reads each crash log, and files one factory Issue per crash signature through `factory issue new`.
  * Run hourly by `launchd/com.jkrumm.iris-testflight-crashes.plist.template` through `jobrun`.
  *
  *   bun scripts/testflight-crashes.ts [--dry-run] [--baseline] [--state <file>] [--artifacts <dir>]
  *
- *   --dry-run    read and print what would be filed; file nothing, write nothing (not even the logs)
+ *   --dry-run    read and print the exact `factory issue new` command and facts per group; file nothing, write nothing (not even the logs)
  *   --baseline   mark every report that exists now as seen without filing (first install, already-fixed crashes)
  *
  * The Team key comes from `op://mini/apple-developer/asc-*` through `secrets-run` (never `op`, never argv);
@@ -77,7 +77,7 @@ export interface IssueRequest {
 
 export interface Deps {
   api: CrashApi;
-  /** Files one Issue; rejects when `rd` refuses. A repeated `key` is the factory's no-op. */
+  /** Files one Issue; rejects when `factory` refuses. A repeated `key` is the factory's no-op. */
   fileIssue(request: IssueRequest): Promise<void>;
   stateFile: string;
   artifactsDir: string;
@@ -337,22 +337,44 @@ async function saveState(stateFile: string, state: State): Promise<void> {
   await rename(tmp, stateFile);
 }
 
-export async function rdFileIssue(request: IssueRequest): Promise<void> {
-  const proc = Bun.spawn(
-    ["rd", "issue", "iris", request.title, "--facts", "-", "--key", request.key],
-    {
-      stdin: new Blob([JSON.stringify(request.facts)]),
-      stdout: "pipe",
-      stderr: "pipe",
-    },
-  );
+/** The owner path of the factory CLI: on the mini it authenticates itself, `--key` makes a replay return the stored Issue, `--alone` keeps a crash from being chained behind open Issues. The facts go on stdin. */
+export function factoryIssueArgv(request: IssueRequest): string[] {
+  return [
+    "factory",
+    "issue",
+    "new",
+    "--repo",
+    "iris",
+    "--title",
+    request.title,
+    "--facts",
+    "-",
+    "--key",
+    request.key,
+    "--alone",
+  ];
+}
+
+function shellQuote(arg: string): string {
+  return /^[\w@%+=:,./-]+$/.test(arg) ? arg : `'${arg.replaceAll("'", `'\\''`)}'`;
+}
+
+export async function fileFactoryIssue(request: IssueRequest): Promise<void> {
+  const proc = Bun.spawn(factoryIssueArgv(request), {
+    stdin: new Blob([JSON.stringify(request.facts)]),
+    env: process.env,
+    stdout: "pipe",
+    stderr: "pipe",
+  });
   const [stdout, stderr, code] = await Promise.all([
     new Response(proc.stdout).text(),
     new Response(proc.stderr).text(),
     proc.exited,
   ]);
   if (code !== 0)
-    throw new Error(`rd issue exited ${code}: ${truncate((stderr || stdout).trim(), 300)}`);
+    throw new Error(
+      `factory issue new exited ${code}: ${truncate((stderr || stdout).trim(), 300)}`,
+    );
   out(`  filed ${request.key}: ${stdout.trim().split("\n")[0] ?? ""}`);
 }
 
@@ -418,6 +440,8 @@ export async function run(deps: Deps, options: Options): Promise<Outcome> {
     if (earlierKey) issue.key = earlierKey;
     if (options.dryRun) {
       out(`  would file ${issue.key}: ${issue.title} (${group.length} report(s))`);
+      out(`    command: ${factoryIssueArgv(issue).map(shellQuote).join(" ")}`);
+      out(`    facts (stdin): ${JSON.stringify(issue.facts)}`);
       for (const report of group) {
         out(
           `    ${report.id} ${report.date} build ${report.build}: ${report.irisFrames.slice(0, 3).join(" <- ") || "no app frames"}`,
@@ -467,7 +491,7 @@ async function main(): Promise<number> {
     const baseUrl = process.env["ASC_BASE_URL"] ?? ASC_BASE_URL;
     const deps: Deps = {
       api: createAscApi(await loadCredentials(), baseUrl),
-      fileIssue: rdFileIssue,
+      fileIssue: fileFactoryIssue,
       stateFile: values.state ?? join(homedir(), ".iris", "testflight-crashes-seen.json"),
       artifactsDir: values.artifacts ?? join(repoRoot, ".artifacts", "testflight-crashes"),
     };

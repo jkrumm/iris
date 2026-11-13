@@ -1,12 +1,14 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "bun:test";
 import { generateKeyPairSync, verify } from "node:crypto";
 import { existsSync, readFileSync, statSync } from "node:fs";
-import { mkdtemp, rm } from "node:fs/promises";
+import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   createAscApi,
   createJwt,
+  factoryIssueArgv,
+  fileFactoryIssue,
   normalizePem,
   parseCrashLog,
   run,
@@ -117,7 +119,7 @@ async function harness() {
   const deps: Deps = {
     api: createAscApi(credentials, baseUrl),
     fileIssue: async (request) => {
-      if (rdFails) throw new Error("rd refused");
+      if (rdFails) throw new Error("factory refused");
       filed.push(request);
     },
     stateFile: join(dir, "state", "seen.json"),
@@ -305,6 +307,92 @@ describe("run", () => {
       seenBefore: 1,
       failed: 0,
     });
+  });
+});
+
+describe("filing through the factory CLI", () => {
+  const request: IssueRequest = {
+    title: "fix(app): TestFlight crash in it's.board (EXC_CRASH)",
+    key: "testflight-crash-A1",
+    facts: { why: "w", what: "x", change: "c", acceptance: "a" },
+  };
+
+  it("builds the owner-path argv with the key", () => {
+    expect(factoryIssueArgv(request)).toEqual([
+      "factory",
+      "issue",
+      "new",
+      "--repo",
+      "iris",
+      "--title",
+      request.title,
+      "--facts",
+      "-",
+      "--key",
+      "testflight-crash-A1",
+      "--alone",
+    ]);
+  });
+
+  /** A fake `factory` first on PATH records its argv (one per line) and stdin; exit code and message are set per test. */
+  async function fakeFactory(exitCode: number) {
+    const dir = await mkdtemp(join(tmpdir(), "tf-crashes-factory-"));
+    cleanup.push(dir);
+    const bin = join(dir, "factory");
+    await writeFile(
+      bin,
+      `#!/bin/sh\nprintf '%s\\n' "$@" > "${dir}/argv"\ncat > "${dir}/stdin"\necho "issue_9 filed"\necho "boom" >&2\nexit ${exitCode}\n`,
+    );
+    await chmod(bin, 0o755);
+    return dir;
+  }
+
+  it("spawns `factory` with that argv and the facts JSON on stdin", async () => {
+    const dir = await fakeFactory(0);
+    const path = process.env["PATH"];
+    process.env["PATH"] = `${dir}:${path}`;
+    try {
+      await fileFactoryIssue(request);
+    } finally {
+      process.env["PATH"] = path;
+    }
+    expect(readFileSync(join(dir, "argv"), "utf8").trimEnd().split("\n")).toEqual(
+      factoryIssueArgv(request).slice(1),
+    );
+    expect(JSON.parse(readFileSync(join(dir, "stdin"), "utf8"))).toEqual(request.facts);
+  });
+
+  it("throws with the CLI's message when factory exits non-zero", async () => {
+    const dir = await fakeFactory(3);
+    const path = process.env["PATH"];
+    process.env["PATH"] = `${dir}:${path}`;
+    try {
+      await expect(fileFactoryIssue(request)).rejects.toThrow("factory issue new exited 3: boom");
+    } finally {
+      process.env["PATH"] = path;
+    }
+  });
+
+  it("dry run prints the exact command and the facts", async () => {
+    reports = [
+      { id: "A1", createdDate: "2026-11-06T16:00:00Z", comment: "", log: crashLog({ top: board }) },
+    ];
+    const { deps } = await harness();
+    const lines: string[] = [];
+    const write = process.stdout.write.bind(process.stdout);
+    process.stdout.write = ((chunk: string | Uint8Array) => {
+      lines.push(String(chunk));
+      return true;
+    }) as typeof process.stdout.write;
+    try {
+      await run(deps, { dryRun: true, baseline: false });
+    } finally {
+      process.stdout.write = write;
+    }
+    const text = lines.join("");
+    expect(text).toContain("command: factory issue new --repo iris --title '");
+    expect(text).toContain("--facts - --key testflight-crash-A1 --alone");
+    expect(text).toContain('facts (stdin): {"');
   });
 });
 
