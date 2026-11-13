@@ -17,7 +17,8 @@ settings:
     SWIFT_STRICT_CONCURRENCY: complete
     SWIFT_APPROACHABLE_CONCURRENCY: YES
     SWIFT_DEFAULT_ACTOR_ISOLATION: MainActor
-    MARKETING_VERSION: "0.1.0"
+    # A dev value: the release scripts pass MARKETING_VERSION=$(bun scripts/version.ts) (0.MINOR.PATCH from git), so a local build is 0.0.0.
+    MARKETING_VERSION: "0.0.0"
     CURRENT_PROJECT_VERSION: "1"
     GENERATE_INFOPLIST_FILE: NO
     ENABLE_USER_SCRIPT_SANDBOXING: YES
@@ -207,7 +208,7 @@ targets:
       path: IrisMac/Info.plist
       properties:
         CFBundleDisplayName: Iris
-        # `scripts/mac-release.sh` passes CURRENT_PROJECT_VERSION (the commit count): Sparkle compares CFBundleVersion.
+        # `scripts/mac-release.sh` passes MARKETING_VERSION (scripts/version.ts) and CURRENT_PROJECT_VERSION (the commit count): Sparkle compares CFBundleVersion.
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         LSUIElement: true

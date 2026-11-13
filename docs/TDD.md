@@ -1275,7 +1275,10 @@ run shows nothing and never blocks or fails a take.
   The root owns the updater only when `IrisMacApp` hands it an engine, which it does outside `-IrisFakeData`. Info.plist:
   `SUFeedURL` (the `releases/latest/download/appcast.xml` URL of this repo), `SUPublicEDKey`, `SUEnableAutomaticChecks`, and
   `CFBundleShortVersionString` / `CFBundleVersion` from `MARKETING_VERSION` / `CURRENT_PROJECT_VERSION`; the release script sets
-  the latter to the commit count, so Sparkle always sees a growing build. "Check for Updates…" is a popover line
+  the latter to the commit count, so Sparkle always sees a growing build, and the former to `bun scripts/version.ts`:
+  `0.MINOR.PATCH` from git (MINOR = 1 + the `feat` commits touching `apple/` since the 0.1.0 baseline, PATCH = the `apple/` commits since the
+  newest of them), deterministic per commit, the same number on TestFlight and on the Mac (AGENTS.md "Versions"). The appcast item
+  carries the release notes (the `apple/` commit subjects since the previous release), which Sparkle's update dialog shows. "Check for Updates…" is a popover line
   (`MacMenuLine`, id `mac.menu.update`) and a `CheckForUpdatesButton` in Settings > General, both disabled while
   `Updater.canCheckForUpdates` is false and absent without an updater. No custom `NSUpdateSecurityPolicy`.
   Releases: `make mac-release` (`scripts/mac-release.sh`; AGENTS.md "Mac releases") archives, signs, zips with `ditto`, runs

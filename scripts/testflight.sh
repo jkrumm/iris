@@ -5,6 +5,8 @@
 # Team id and the App Store Connect Team key come from op://mini/apple-developer via secrets-run (scripts/apple-signing-key.sh); the key is a
 # 0600 temp file deleted on every exit, nothing secret reaches argv or a log. CFBundleVersion = "<commit count>.<UTC epoch hours>" (passed as CURRENT_PROJECT_VERSION, the Info.plists read it), never committed:
 # App Store Connect rejects a repeated build number, so a same-sha weekly rebuild must still raise it (the second component).
+# The marketing version (CFBundleShortVersionString) is `bun scripts/version.ts` (0.MINOR.PATCH from git, the same number the Mac release of that sha gets),
+# passed as MARKETING_VERSION; the archive's Info.plists are read back and must carry it. DRY_RUN=1 prints version, build and the notes and stops.
 # `make testflight` runs this through scripts/apple-slot like every xcodebuild job (the poller's release hook wraps its make call the same way).
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -24,12 +26,18 @@ trap 'rm -rf "$TMP_DIR"; rm -f "${KEY_FILE:-}"' EXIT
 # Strictly increasing per upload: a new commit raises the first component, a rebuild of the same sha the second (1-3 dot-separated integers).
 build="$(git rev-list --count HEAD).$(( $(date -u +%s) / 3600 ))"
 sha="$(git rev-parse --short HEAD)"
+version="$(bun scripts/version.ts)"
+if [ "${DRY_RUN:-0}" = 1 ]; then
+  echo "  testflight (dry run): version=$version build=$build sha=$sha"
+  bun scripts/version.ts notes
+  exit 0
+fi
 team="${TEAM:-$(apple_dev_field team-id)}"
 paid_signing_setup
 rm -rf "$OUT"
 mkdir -p "$OUT"
 JOBS="${SWIFT_JOBS:-2}"  # the same build-jobs cap as the Makefile and apple-proof: an uncapped archive starves the mini
-echo "  testflight: build=$build sha=$sha team=<resolved> upload=$UPLOAD"
+echo "  testflight: version=$version build=$build sha=$sha team=<resolved> upload=$UPLOAD"
 echo "  testflight: xcodebuild -jobs $JOBS"
 
 # Runs one xcodebuild step with its whole output in $LOG; a failure prints the tail and the hints below.
@@ -68,7 +76,14 @@ step "archive (Release, generic/platform=iOS)" \
   xcodebuild archive -project "$APPLE_DIR/Iris.xcodeproj" -scheme Iris -configuration Release \
   -destination 'generic/platform=iOS' -archivePath "$ARCHIVE" -derivedDataPath "$APPLE_DIR/.dd.noindex" \
   -jobs "$JOBS" \
-  "${SIGNING_ARGS[@]}" DEVELOPMENT_TEAM="$team" CURRENT_PROJECT_VERSION="$build" IRIS_BUILD_SHA="$sha"
+  "${SIGNING_ARGS[@]}" DEVELOPMENT_TEAM="$team" MARKETING_VERSION="$version" CURRENT_PROJECT_VERSION="$build" IRIS_BUILD_SHA="$sha"
+
+# Every bundle of the archive (the app and its extensions) carries the computed version.
+while IFS= read -r plist; do
+  got="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$plist")"
+  [ "$got" = "$version" ] || { echo "  $plist has version $got, not $version" >&2; exit 1; }
+  echo "  $(basename "$(dirname "$plist")"): $got"
+done < <(find "$ARCHIVE/Products/Applications" -name Info.plist -path '*.app/Info.plist' -o -name Info.plist -path '*.appex/Info.plist')
 
 # The export options: the tracked template plus the team id and the destination, in a temp copy.
 options="$TMP_DIR/ExportOptions.plist"
@@ -80,7 +95,7 @@ step "export (destination $([ "$UPLOAD" = 1 ] && echo upload || echo export))" \
   xcodebuild -exportArchive -archivePath "$ARCHIVE" -exportPath "$EXPORT_DIR" -exportOptionsPlist "$options" "${SIGNING_ARGS[@]}"
 
 if [ "$UPLOAD" = 1 ]; then
-  echo "  uploaded build $build ($sha) to App Store Connect; processing takes a few minutes, then the internal group's automatic distribution takes over"
+  echo "  uploaded $version build $build ($sha) to App Store Connect; processing takes a few minutes, then the internal group's automatic distribution takes over"
   exit 0
 fi
 
