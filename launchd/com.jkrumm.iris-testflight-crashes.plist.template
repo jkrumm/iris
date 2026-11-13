@@ -4,7 +4,7 @@
 <dict>
   <key>Label</key><string>com.jkrumm.iris-testflight-crashes</string>
   <!-- Hourly: scripts/testflight-crashes.ts reads new TestFlight crash reports from App Store Connect and files one factory
-       Issue per crash signature (`rd issue iris`). Runs from the deploy clone like the poller; wrapped in `jobrun`
+       Issue per crash signature (`factory issue new --repo iris`, keyed per crash group). Runs from the deploy clone like the poller; wrapped in `jobrun`
        (recorded in ~/.local/state/jobs, graded by `jobs-grade`). RunAtLoad is false: the first run follows
        `make testflight-crashes-baseline`. The flags here, the Makefile `testflight-crashes` target and StartInterval
        must stay in step. -->
