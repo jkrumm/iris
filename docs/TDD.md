@@ -74,7 +74,7 @@ Iris has three deliverables in one monorepo:
 
 ```
 iris/
-  AGENTS.md                 the only agent instruction file (dotfiles/docs/agents-md.md)
+  AGENTS.md                 the agent instruction file: root plus nested per directory (dotfiles/docs/agents-md.md)
   Makefile                  check = check-server + check-contracts + check-apple
   contracts/                schema/*.json (JSON Schema) + fixtures/*.json, one pair per endpoint/event
   server/                   Bun + Elysia + bun:sqlite (§3)
