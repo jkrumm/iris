@@ -348,8 +348,12 @@ export function createSqliteMemoStore(params: { db: Database; clock: Clock }): M
     }
     // `act` set the memo's own session; a memo created to continue a thread keeps its thread (its `thread_id` is never its id).
     if (cleared.includes("act")) {
+      // A transcript's first memo is the thread's own id by design and no `act` ever ran for it: its `thread_id` stays.
       const ownThread = db
-        .query("UPDATE memos SET thread_id = NULL WHERE id = ? AND thread_id = id")
+        .query(
+          `UPDATE memos SET thread_id = NULL WHERE id = ? AND thread_id = id
+             AND NOT EXISTS (SELECT 1 FROM threads t WHERE t.id = memos.id AND t.kind = 'transcript')`,
+        )
         .run(id);
       // The session `act` opened is gone with it: no thread row may list an empty conversation.
       if (ownThread.changes > 0) {
@@ -375,6 +379,34 @@ export function createSqliteMemoStore(params: { db: Database; clock: Clock }): M
        VALUES (?, ?, ?, ?, ?, ?)
        ON CONFLICT (id) DO UPDATE SET updated_at = excluded.updated_at, last_memo_id = excluded.last_memo_id`,
     ).run(thread.id, thread.kind, thread.title, at, at, memoId);
+  };
+
+  const startTranscriptThread = db.transaction((params: { id: string; title: string }): boolean => {
+    const memo = db
+      .query<{ created_at: string; thread_id: string | null }, [string]>(
+        "SELECT created_at, thread_id FROM memos WHERE id = ?",
+      )
+      .get(params.id);
+    if (!memo) return false;
+    const at = stamp();
+    db.query(
+      `INSERT OR IGNORE INTO threads (id, kind, title, created_at, updated_at, last_memo_id)
+       VALUES (?, 'transcript', ?, ?, ?, ?)`,
+    ).run(params.id, params.title, memo.created_at, at, params.id);
+    db.query("UPDATE memos SET thread_id = id WHERE id = ? AND thread_id IS NULL").run(params.id);
+    return true;
+  });
+
+  /** A part created into a transcript thread is its newest memo: `act` moves a Hermes thread, nothing runs it for a transcript. */
+  const touchTranscriptThread = (params: {
+    threadId: string | undefined;
+    memoId: string;
+    at: string;
+  }) => {
+    if (params.threadId === undefined) return;
+    db.query(
+      "UPDATE threads SET updated_at = ?, last_memo_id = ? WHERE id = ? AND kind = 'transcript'",
+    ).run(params.at, params.memoId, params.threadId);
   };
 
   const insertReplyAssets = (id: string, assets: readonly ReplyAsset[]) => {
@@ -424,6 +456,13 @@ export function createSqliteMemoStore(params: { db: Database; clock: Clock }): M
          WHERE memo_id = ? AND step = ?`,
       ).run(at, usage === undefined ? null : JSON.stringify(usage), costUsd ?? null, id, step);
       if (patch?.thread) upsertThread(id, at, patch.thread);
+      // A transcript thread is titled by its first memo's headline, so a summary that lands after the promotion renames it.
+      if (step === "summarize" && patch?.summary) {
+        db.query("UPDATE threads SET title = ? WHERE id = ? AND kind = 'transcript'").run(
+          patch.summary.headline,
+          id,
+        );
+      }
       // A reported thread is also the memo's `thread_id`.
       const columns: MemoColumnPatch | undefined = patch?.thread
         ? { ...patch, threadId: patch.thread.id }
@@ -483,7 +522,9 @@ export function createSqliteMemoStore(params: { db: Database; clock: Clock }): M
     db.query<VocabTerm, []>("SELECT term, doc FROM memo_fts_vocab").all();
 
   const memoStore: Omit<MemoStore, keyof ThreadStore> = {
-    createMemo({ id, mode, device, startedAt, threadId }) {
+    startTranscriptThread,
+
+    createMemo: db.transaction(({ id, mode, device, startedAt, threadId }) => {
       const at = stamp();
       const inserted = db
         .query(
@@ -491,12 +532,13 @@ export function createSqliteMemoStore(params: { db: Database; clock: Clock }): M
            VALUES (?, ?, ?, ?, 'receiving', ?, ?, ?) ON CONFLICT (id) DO NOTHING`,
         )
         .run(id, mode, device, startedAt, threadId ?? null, at, at);
+      if (inserted.changes > 0) touchTranscriptThread({ threadId, memoId: id, at });
       const row = memoById(id);
       if (!row) throw new Error(`memo ${id} vanished after insert`);
       return { memo: toMemo(row), created: inserted.changes > 0 };
-    },
+    }),
 
-    createTextMemo({ id, mode, device, startedAt, text, threadId }) {
+    createTextMemo: db.transaction(({ id, mode, device, startedAt, text, threadId }) => {
       const at = stamp();
       const inserted = db
         .query(
@@ -504,10 +546,11 @@ export function createSqliteMemoStore(params: { db: Database; clock: Clock }): M
            VALUES (?, ?, ?, ?, 'transcribed', ?, ?, ?, ?) ON CONFLICT (id) DO NOTHING`,
         )
         .run(id, mode, device, startedAt, text, threadId ?? null, at, at);
+      if (inserted.changes > 0) touchTranscriptThread({ threadId, memoId: id, at });
       const row = memoById(id);
       if (!row) throw new Error(`memo ${id} vanished after insert`);
       return { memo: toMemo(row), created: inserted.changes > 0 };
-    },
+    }),
 
     getMemo(id) {
       const row = memoById(id);

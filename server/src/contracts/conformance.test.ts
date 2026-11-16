@@ -766,12 +766,12 @@ describe("request fixtures are accepted by the server", () => {
     const { app, db } = testApp({ handlers: handlers() });
     // A request fixture that names a thread continues one that already exists.
     for (const f of [...fixturesOf("memos.create.request"), ...fixturesOf("memos.text.request")]) {
-      const threadId = (f.value as { threadId?: string }).threadId;
+      const { threadId, mode } = f.value as { threadId?: string; mode: string };
       if (threadId === undefined) continue;
       db.query(
         `INSERT OR IGNORE INTO threads (id, kind, title, created_at, updated_at)
-         VALUES (?, 'hermes', 'earlier turn', '2026-03-14T09:00:00.000Z', '2026-03-14T09:00:00.000Z')`,
-      ).run(threadId);
+         VALUES (?, ?, 'earlier turn', '2026-03-14T09:00:00.000Z', '2026-03-14T09:00:00.000Z')`,
+      ).run(threadId, mode === "transcribe" ? "transcript" : "hermes");
     }
     for (const f of fixturesOf("memos.create.request")) {
       const res = await call(app, { method: "POST", path: "/v1/memos", json: f.value });

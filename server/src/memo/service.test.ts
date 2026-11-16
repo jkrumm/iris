@@ -9,8 +9,10 @@ import {
   deferred,
   fakeAudio,
   legacyParkedMemo,
+  markFailed,
   seedMemo,
   testStore,
+  transition,
 } from "./test-support.js";
 
 const bytes = (n = 4) => new Uint8Array(n).fill(7);
@@ -630,15 +632,158 @@ describe("thread continuation", () => {
     ).toBe("not_found");
   });
 
-  it("400s a thread on a transcribe memo", async () => {
+  it("refuses a transcribe memo in a hermes thread and a hermes mode in a transcript thread", async () => {
     const { service, store } = setup();
-    const threadId = seedThread(store, "thread-1");
+    const hermesThread = seedThread(store, "thread-1");
     expect(
-      await codeOf(() => service.createTextMemo({ ...typed(), mode: "transcribe", threadId })),
-    ).toBe("bad_request");
+      await codeOf(() =>
+        service.createTextMemo({ ...typed(), mode: "transcribe", threadId: hermesThread }),
+      ),
+    ).toBe("conflict");
     expect(
-      await codeOf(() => service.createMemo({ ...input(), mode: "transcribe", threadId })),
-    ).toBe("bad_request");
+      await codeOf(() =>
+        service.createMemo({ ...input(), mode: "transcribe", threadId: hermesThread }),
+      ),
+    ).toBe("conflict");
+
+    const first = service.createTextMemo({ ...typed(), mode: "transcribe", text: "eins" }).memo;
+    service.createTextMemo({ ...typed(), mode: "transcribe", threadId: first.id });
+    for (const mode of ["hermes", "auto"] as const) {
+      expect(
+        await codeOf(() => service.createTextMemo({ ...typed(), mode, threadId: first.id })),
+      ).toBe("conflict");
+      expect(await codeOf(() => service.createMemo({ ...input(), mode, threadId: first.id }))).toBe(
+        "conflict",
+      );
+    }
+  });
+});
+
+describe("transcript continuation", () => {
+  const transcribed = (service: ReturnType<typeof setup>["service"], text = "eins") =>
+    service.createTextMemo({ ...typed(), mode: "transcribe", text }).memo;
+
+  it("promotes the first memo to a transcript thread and keeps the parts in order", () => {
+    const { service } = setup({}, 16, false);
+    const first = transcribed(service);
+    expect(first.threadId).toBeNull();
+
+    const second = service.createTextMemo({
+      ...typed(),
+      mode: "transcribe",
+      text: "zwei",
+      threadId: first.id,
+    }).memo;
+    const third = service.createMemo({ ...input(), mode: "transcribe", threadId: first.id }).memo;
+    expect(second.threadId).toBe(first.id);
+    expect(third.threadId).toBe(first.id);
+
+    const detail = service.getThread(first.id);
+    expect(detail.thread).toMatchObject({ id: first.id, kind: "transcript", title: "eins" });
+    expect(detail.memos.map((m) => m.id)).toEqual([first.id, second.id, third.id]);
+    expect(detail.messages.map((m) => [m.role, m.content])).toEqual([
+      ["user", "eins"],
+      ["user", "zwei"],
+    ]);
+    expect(service.get(first.id).memo.threadId).toBe(first.id);
+  });
+
+  it("moves the thread's update time and last memo with each part", () => {
+    const { service, clock } = setup();
+    const first = transcribed(service);
+    clock.advance(1000);
+    const second = service.createTextMemo({
+      ...typed(),
+      mode: "transcribe",
+      threadId: first.id,
+    }).memo;
+    clock.advance(1000);
+    const third = service.createMemo({ ...input(), mode: "transcribe", threadId: first.id }).memo;
+    const { thread } = service.getThread(first.id);
+    expect(thread.lastMemoId).toBe(third.id);
+    expect(thread.updatedAt).toBe(third.createdAt);
+    expect(thread.updatedAt > second.createdAt).toBe(true);
+    // A replay changes nothing.
+    service.createMemo({ ...input(), id: third.id, mode: "transcribe", threadId: first.id });
+    expect(service.getThread(first.id).thread.updatedAt).toBe(third.createdAt);
+  });
+
+  it("keeps the first memo in its thread when it is retried from transcribe", () => {
+    const { service, store } = setup();
+    const first = service.createMemo({ ...input(), mode: "transcribe" }).memo;
+    store.markReceived({ id: first.id, segmentCount: 1 });
+    store.completeStep({
+      id: first.id,
+      step: "transcribe",
+      from: "received",
+      to: "transcribed",
+      patch: { transcript: "eins" },
+    });
+    const second = service.createTextMemo({
+      ...typed(),
+      mode: "transcribe",
+      threadId: first.id,
+    }).memo;
+    markFailed(store, { id: first.id, step: "summarize", error: "agw down" });
+    service.retry({ id: first.id, from: "transcribe" });
+    expect(service.get(first.id).memo.threadId).toBe(first.id);
+    expect(service.getThread(first.id).memos.map((m) => m.id)).toEqual([first.id, second.id]);
+  });
+
+  it("replays a continuation and 409s one that names another thread", async () => {
+    const { service } = setup();
+    const first = transcribed(service);
+    const other = transcribed(service, "andere");
+    const params = { ...typed(), mode: "transcribe" as const, threadId: first.id };
+    expect(service.createTextMemo(params).created).toBe(true);
+    expect(service.createTextMemo(params).created).toBe(false);
+    expect(await codeOf(() => service.createTextMemo({ ...params, threadId: other.id }))).toBe(
+      "conflict",
+    );
+  });
+
+  it("is a 404 for anything that is not a live, unpromoted transcribe memo", async () => {
+    const { service, store } = setup();
+    const part = service.createTextMemo({
+      ...typed(),
+      mode: "transcribe",
+      threadId: transcribed(service).id,
+    }).memo;
+    const hermesMemo = service.createTextMemo({ ...typed(), mode: "hermes" }).memo;
+    const gone = transcribed(service, "weg");
+    transition(store, { id: gone.id, from: "transcribed", to: "notified" });
+    service.delete(gone.id);
+    for (const threadId of ["nope", part.id, hermesMemo.id, gone.id]) {
+      expect(
+        await codeOf(() => service.createTextMemo({ ...typed(), mode: "transcribe", threadId })),
+      ).toBe("not_found");
+    }
+    expect(store.getThread(part.id)).toBeNull();
+  });
+
+  it("409s bad_state while the first memo has no transcript", async () => {
+    const { service } = setup();
+    const recording = service.createMemo({ ...input(), mode: "transcribe" }).memo;
+    expect(
+      await codeOf(() =>
+        service.createTextMemo({ ...typed(), mode: "transcribe", threadId: recording.id }),
+      ),
+    ).toBe("bad_state");
+  });
+
+  it("retitles the thread when the first memo's summary lands", () => {
+    const { service, store } = setup();
+    const first = transcribed(service, "ein langer Anfang");
+    service.createTextMemo({ ...typed(), mode: "transcribe", threadId: first.id });
+    expect(service.getThread(first.id).thread.title).toBe("ein langer Anfang");
+    store.completeStep({
+      id: first.id,
+      step: "summarize",
+      from: "transcribed",
+      to: "summarized",
+      patch: { summary: { headline: "Einkaufsliste", detail: "d", spoken: "x" } },
+    });
+    expect(service.getThread(first.id).thread.title).toBe("Einkaufsliste");
   });
 });
 

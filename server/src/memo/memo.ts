@@ -213,11 +213,14 @@ export function continuedThread(memo: Pick<Memo, "id" | "threadId">): string | n
   return memo.threadId !== null && memo.threadId !== memo.id ? memo.threadId : null;
 }
 
-/** New threads are `hermes`; `chat` rows are from before the modes folded into one and stay readable. */
-export const THREAD_KINDS = ["chat", "hermes"] as const;
+/**
+ * A Hermes session is `hermes` (`chat` rows are from before the modes folded into one and stay readable); a transcript
+ * continued with further recordings is `transcript` (its id is its first memo's id, Hermes is never involved).
+ */
+export const THREAD_KINDS = ["chat", "hermes", "transcript"] as const;
 export type ThreadKind = (typeof THREAD_KINDS)[number];
 
-/** A Hermes session that one or more memos ran in. */
+/** A Hermes session that one or more memos ran in, or a transcript made of several recordings. */
 export interface Thread {
   id: string;
   kind: ThreadKind;

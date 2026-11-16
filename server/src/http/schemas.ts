@@ -98,7 +98,8 @@ const memoFields = {
   // transcript is longer than 400 characters, null otherwise (show the transcript whole) and null on memos from before it existed.
   transcriptGist: Nullable(t.String()),
   // Present once the memo belongs to a Hermes session (chat or not): set when `act` ran in it, or at creation for a memo that
-  // continues a thread; omitted, never null, otherwise.
+  // continues a thread; omitted, never null, otherwise. A transcribe memo carries it once it is a part of a continued transcript
+  // (the first memo's id, on the first memo too).
   threadId: t.Optional(t.String()),
   // Present (and `true`) only for a typed memo, one created from text; omitted for a recording.
   typed: t.Optional(t.Literal(true)),
@@ -196,7 +197,8 @@ export const SegmentParams = t.Object({
   n: t.String({ pattern: "^[0-9]{1,7}$" }),
 });
 
-// `threadId` continues that thread: the memo is delivered into its Hermes session (404 for an unknown thread).
+// `threadId` continues that thread: in a Hermes mode the memo is delivered into its Hermes session, in mode `transcribe` it is a further
+// part of the transcript whose first memo has that id (404 for an unknown thread, 409 `conflict` for a thread of the other kind).
 export const CreateMemoBody = t.Object({
   id: t.String(),
   mode: RequestMode,

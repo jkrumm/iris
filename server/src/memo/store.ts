@@ -31,6 +31,11 @@ export interface ThreadStore {
 /** Synchronous on purpose: the one adapter is bun:sqlite, and every method is a single statement or transaction. */
 export interface MemoStore extends ThreadStore {
   /**
+   * Makes a memo the first part of a `transcript` thread: one transaction inserts the thread (id = the memo's id) and sets the
+   * memo's `thread_id` to it. Idempotent: an existing thread stays as it is. False when the memo does not exist.
+   */
+  startTranscriptThread(params: { id: string; title: string }): boolean;
+  /**
    * Idempotent on `id`: an existing memo is returned untouched with `created: false`. `threadId` names the thread the new
    * memo continues (the service has checked it exists); it is ignored for an existing memo.
    */

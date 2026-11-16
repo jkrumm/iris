@@ -1,0 +1,80 @@
+{
+  "thread": {
+    "id": "6a1f3d85-2c47-4e90-b8d2-7f0e5a9c3b14",
+    "kind": "transcript",
+    "title": "Einkaufsliste für das Wochenende",
+    "createdAt": "2026-03-14T11:20:00.000Z",
+    "updatedAt": "2026-03-14T15:42:10.000Z",
+    "lastMemoId": "b3d91e47-5a02-4c68-9f1d-8e2a7c4b6015"
+  },
+  "memos": [
+    {
+      "id": "6a1f3d85-2c47-4e90-b8d2-7f0e5a9c3b14",
+      "mode": "transcribe",
+      "device": "iphone",
+      "startedAt": "2026-03-14T11:20:00.000Z",
+      "state": "notified",
+      "failedStep": null,
+      "error": null,
+      "segmentCount": 2,
+      "audioSeconds": 14.2,
+      "transcript": "Für das Wochenende brauche ich Tomaten, Mozzarella und frisches Basilikum.",
+      "route": null,
+      "destinationRef": null,
+      "replyText": null,
+      "summary": {
+        "headline": "Einkaufsliste für das Wochenende",
+        "detail": "Tomaten, Mozzarella und frisches Basilikum.",
+        "spoken": "Tomaten, Mozzarella und Basilikum."
+      },
+      "transcriptGist": null,
+      "threadId": "6a1f3d85-2c47-4e90-b8d2-7f0e5a9c3b14",
+      "done": false,
+      "favorite": false,
+      "archived": false,
+      "createdAt": "2026-03-14T11:20:00.000Z",
+      "updatedAt": "2026-03-14T11:20:41.870Z"
+    },
+    {
+      "id": "b3d91e47-5a02-4c68-9f1d-8e2a7c4b6015",
+      "mode": "transcribe",
+      "device": "iphone",
+      "startedAt": "2026-03-14T15:42:10.000Z",
+      "state": "notified",
+      "failedStep": null,
+      "error": null,
+      "segmentCount": 1,
+      "audioSeconds": 6.8,
+      "transcript": "Außerdem noch Hafermilch und Brot mitbringen.",
+      "route": null,
+      "destinationRef": null,
+      "replyText": null,
+      "summary": {
+        "headline": "Hafermilch und Brot",
+        "detail": "Außerdem Hafermilch und Brot mitbringen.",
+        "spoken": "Hafermilch und Brot."
+      },
+      "transcriptGist": null,
+      "threadId": "6a1f3d85-2c47-4e90-b8d2-7f0e5a9c3b14",
+      "done": false,
+      "favorite": false,
+      "archived": false,
+      "createdAt": "2026-03-14T15:42:10.000Z",
+      "updatedAt": "2026-03-14T15:42:31.400Z"
+    }
+  ],
+  "messages": [
+    {
+      "memoId": "6a1f3d85-2c47-4e90-b8d2-7f0e5a9c3b14",
+      "role": "user",
+      "content": "Für das Wochenende brauche ich Tomaten, Mozzarella und frisches Basilikum.",
+      "createdAt": "2026-03-14T11:20:00.000Z"
+    },
+    {
+      "memoId": "b3d91e47-5a02-4c68-9f1d-8e2a7c4b6015",
+      "role": "user",
+      "content": "Außerdem noch Hafermilch und Brot mitbringen.",
+      "createdAt": "2026-03-14T15:42:10.000Z"
+    }
+  ]
+}

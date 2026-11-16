@@ -13,7 +13,8 @@
           "kind": {
             "enum": [
               "chat",
-              "hermes"
+              "hermes",
+              "transcript"
             ],
             "type": "string"
           },

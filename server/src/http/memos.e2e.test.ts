@@ -180,7 +180,7 @@ describe("mode transcribe over HTTP", () => {
     expect(ran).toEqual(["notify"]);
   });
 
-  it("refuses to continue a thread and a retry from a step it does not have", async () => {
+  it("404s a continuation of an unknown thread", async () => {
     const { app } = testApp({ handlers: fakeHandlers });
     const threaded = await call(app, {
       method: "POST",
@@ -193,8 +193,8 @@ describe("mode transcribe over HTTP", () => {
         threadId: "t",
       },
     });
-    expect(threaded.status).toBe(400);
-    expect(await json(threaded)).toMatchObject({ error: "bad_request" });
+    expect(threaded.status).toBe(404);
+    expect(await json(threaded)).toMatchObject({ error: "not_found" });
   });
 
   it("retries a failed notify back to transcribed, not to a summarized state it never had", async () => {
