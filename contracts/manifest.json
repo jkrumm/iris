@@ -434,10 +434,15 @@
       "method": "GET",
       "path": "/v1/memos/:id/speech",
       "auth": "bearer",
+      "query": "memos.speech.query",
       "responses": {
         "200": {
           "mediaType": "audio/mpeg",
-          "description": "Speech of the summary's spoken text."
+          "description": "Speech of the answer: the default variant, or with variant=summary the spoken line and with variant=full the whole reply."
+        },
+        "400": {
+          "mediaType": "application/json",
+          "schema": "error"
         },
         "404": {
           "mediaType": "application/json",

@@ -1,6 +1,7 @@
 import { t } from "elysia";
 import { MEMO_ERROR_CODES } from "../memo/errors.js";
 import { MEMO_MODES, MEMO_STATES, STEPS, THREAD_KINDS } from "../memo/memo.js";
+import { SPEECH_VARIANTS } from "../memo/speech-text.js";
 import { APNS_ENVS, PLATFORMS } from "../ports/devices.js";
 import { TELEMETRY_MAX_RECORDS } from "../telemetry/limits.js";
 
@@ -184,6 +185,11 @@ export const MemoList = t.Object({
 });
 
 export const MemoIdParams = t.Object({ id: t.String() });
+// `summary` speaks the triage line, `full` the whole reply; absent keeps the default (the whole reply up to 600 characters, else the summary).
+// `UnionEnum` defaults a missing value to its first member; an absent variant must stay absent.
+export const SpeechQuery = t.Object({
+  variant: t.Optional(t.UnionEnum([...SPEECH_VARIANTS], { default: undefined })),
+});
 export const AssetParams = t.Object({ id: t.String(), assetId: t.String() });
 export const SegmentParams = t.Object({
   id: t.String(),

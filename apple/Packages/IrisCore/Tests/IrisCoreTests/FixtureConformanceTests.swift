@@ -47,6 +47,7 @@ let fixtureTypes: [String: RoundTrip] = [
   "memos.text.request": roundTrip(CreateTextMemoRequest.self),
   "memos.text.response": roundTrip(Memo.self),
   "memos.restore.response": roundTrip(Memo.self),
+  "memos.speech.query": roundTrip(SpeechQuery.self),
   "memos.result.query": roundTrip(MemoResultQuery.self),
   "memos.result.response": roundTrip(Memo.self),
   "memos.retry.request": roundTrip(RetryMemoRequest.self),

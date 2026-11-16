@@ -51,6 +51,34 @@ describe("audio door speaker", () => {
     expect(call.init.signal).toBeInstanceOf(AbortSignal);
   });
 
+  it("speaks a text over the door's input limit in pieces and joins the audio", async () => {
+    const inputs: string[] = [];
+    const fakeFetch = (async (_url: string | URL | Request, init?: RequestInit) => {
+      const input = (JSON.parse(init?.body as string) as { input: string }).input;
+      inputs.push(input);
+      return new Response(new Uint8Array([inputs.length, inputs.length]));
+    }) as typeof fetch;
+    const speaker = createAudioDoorSpeaker({ client: door(fakeFetch) });
+    const sentence = "Das ist ein langer Satz über die Migration. ";
+    const text = sentence.repeat(200).trim(); // 8800 characters
+
+    const { bytes } = await speaker.speak({ memoId: MEMO_ID, text });
+    expect(inputs).toHaveLength(3);
+    for (const input of inputs) expect(input.length).toBeLessThanOrEqual(3500);
+    expect(inputs.join(" ")).toBe(text);
+    expect([...bytes]).toEqual([1, 1, 2, 2, 3, 3]);
+  });
+
+  it("fails the whole read when one piece fails", async () => {
+    let calls = 0;
+    const fakeFetch = (async (_url: string | URL | Request, _init?: RequestInit) =>
+      ++calls === 2 ? new Response("no", { status: 502 }) : new Response(MP3)) as typeof fetch;
+    const speaker = createAudioDoorSpeaker({ client: door(fakeFetch) });
+    const text = "Das ist ein langer Satz über die Migration. ".repeat(200);
+    const error = await speaker.speak({ memoId: MEMO_ID, text }).catch((e: unknown) => e);
+    expect(error).toMatchObject({ code: "unavailable", message: "speech synthesis failed: 502" });
+  });
+
   it("fails as unavailable on a non-2xx", async () => {
     const { speaker } = setup(() => new Response("upstream error", { status: 502 }));
     const error = await speaker.speak({ memoId: MEMO_ID, text: "x" }).catch((e: unknown) => e);

@@ -8,6 +8,19 @@ import { type ArtifactKind, readArtifact } from "./reply-artifacts.js";
 /** Cleaned replies up to this many characters (about 40 s aloud) are spoken whole; longer ones fall back to the summary. */
 export const SPEECH_MAX_CHARS = 600;
 
+/** What `GET /memos/:id/speech?variant=` can ask for; absent is `speechVariant`'s own choice. */
+export const SPEECH_VARIANTS = ["summary", "full"] as const;
+export type SpeechVariant = (typeof SPEECH_VARIANTS)[number];
+
+/**
+ * The most a `full` read speaks (about 13 minutes aloud, three synthesis chunks): it bounds the spend and the wait of one
+ * request. A longer reply is cut at a sentence; 74 of 84 production replies are under 600 characters, none near this.
+ */
+export const SPEECH_FULL_MAX_CHARS = 12_000;
+
+/** One door call takes at most this much text: the door answers 400 over 4096 characters, so a long read goes in pieces below it. */
+export const SPEECH_CHUNK_CHARS = 3_500;
+
 type Language = "de" | "en";
 
 interface Phrases {
@@ -322,4 +335,66 @@ export function speechVariant(params: { reply: string | null; spoken: string | n
   // The summary is capped too (the agw schema allows 300 characters, a stored one may be anything).
   const room = SPEECH_MAX_CHARS - PHRASES[language].details.length - 1;
   return `${clip(spoken || cleaned, room)} ${PHRASES[language].details}`;
+}
+
+/**
+ * `variant=summary`: the triage `spoken` line alone, with no "details on screen" suffix; the first sentences of the reply
+ * when the memo has none. Never longer than `SPEECH_MAX_CHARS`.
+ */
+export function summarySpeech(params: { reply: string | null; spoken: string | null }): string {
+  const reply = params.reply?.trim() ?? "";
+  const language = reply === "" ? undefined : detectLanguage(reply);
+  const spoken = params.spoken ? markdownToSpeech(params.spoken, language) : "";
+  return clip(spoken || (reply === "" ? "" : markdownToSpeech(reply, language)), SPEECH_MAX_CHARS);
+}
+
+/** `variant=full`: the whole cleaned reply up to `SPEECH_FULL_MAX_CHARS`, cut at a sentence beyond it. Without a reply, the `spoken` line. */
+export function fullSpeech(params: { reply: string | null; spoken: string | null }): string {
+  const reply = params.reply?.trim() ?? "";
+  const language = reply === "" ? undefined : detectLanguage(reply);
+  const cleaned = reply === "" ? "" : markdownToSpeech(reply, language);
+  const spoken = params.spoken ? markdownToSpeech(params.spoken, language) : "";
+  return clip(cleaned || spoken, SPEECH_FULL_MAX_CHARS);
+}
+
+/** The text a request speaks: the named variant, or `speechVariant` when none is named. */
+export function speechText(
+  params: { reply: string | null; spoken: string | null },
+  variant: SpeechVariant | undefined,
+): string {
+  if (variant === "summary") return summarySpeech(params);
+  if (variant === "full") return fullSpeech(params);
+  return speechVariant(params);
+}
+
+/**
+ * Splits `text` into pieces of at most `max` characters for one synthesis call each: at paragraph breaks first, then at
+ * sentence ends, then at a word. Joining the pieces with a space gives back the text (up to the whitespace at the cuts).
+ */
+export function splitForSpeech(text: string, max: number = SPEECH_CHUNK_CHARS): string[] {
+  const pieces: string[] = [];
+  for (const paragraph of text.split(/\n{2,}/)) {
+    let rest = paragraph.trim();
+    while (rest.length > max) {
+      // The last sentence end in the first `max` characters, else the last space, else a hard cut.
+      const window = rest.slice(0, max + 1);
+      const sentence = Math.max(
+        ...[...window.matchAll(/[.!?](?=\s)/g)].map((m) => (m.index ?? 0) + 1),
+        0,
+      );
+      const space = window.lastIndexOf(" ");
+      const cut = sentence >= max / 2 ? sentence : space > 0 ? space : max;
+      pieces.push(rest.slice(0, cut).trim());
+      rest = rest.slice(cut).trim();
+    }
+    if (rest !== "") pieces.push(rest);
+  }
+  const chunks: string[] = [];
+  for (const piece of pieces) {
+    const last = chunks.at(-1);
+    if (last !== undefined && last.length + piece.length + 2 <= max) {
+      chunks[chunks.length - 1] = `${last}\n\n${piece}`;
+    } else chunks.push(piece);
+  }
+  return chunks;
 }

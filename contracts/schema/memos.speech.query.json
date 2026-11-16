@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "variant": {
+      "enum": [
+        "summary",
+        "full"
+      ],
+      "type": "string"
+    }
+  },
+  "title": "memos.speech.query",
+  "type": "object"
+}

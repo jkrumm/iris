@@ -178,3 +178,23 @@ public struct MemoResultQuery: Codable, Hashable, Sendable {
     return [URLQueryItem(name: "wait", value: String(wait))]
   }
 }
+
+/// Query of `GET /v1/memos/:id/speech`. `summary` speaks the triage line, `full` the whole reply; without a variant the
+/// server keeps its default (the whole reply up to 600 characters, else the summary).
+public struct SpeechQuery: Codable, Hashable, Sendable {
+  public enum Variant: String, Codable, Hashable, Sendable {
+    case summary
+    case full
+  }
+
+  public var variant: Variant?
+
+  public init(variant: Variant? = nil) {
+    self.variant = variant
+  }
+
+  public var queryItems: [URLQueryItem] {
+    guard let variant else { return [] }
+    return [URLQueryItem(name: "variant", value: variant.rawValue)]
+  }
+}

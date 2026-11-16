@@ -196,20 +196,24 @@ export function fakeSpeaker(
   };
 }
 
-/** In-memory cache keyed by memo id; one entry per memo, replaced when the text changes. */
+/** In-memory cache keyed by memo id and variant (`<id>` or `<id>/<variant>`); one entry each, replaced when the text changes. */
 export function fakeSpeechCache(): SpeechCache & { entries: Map<string, unknown> } {
   const entries = new Map<string, { text: string; bytes: Uint8Array }>();
+  const keyOf = (memoId: string, variant: string | undefined) =>
+    variant ? `${memoId}/${variant}` : memoId;
   return {
     entries,
-    async get({ memoId, text }) {
-      const entry = entries.get(memoId);
+    async get({ memoId, variant, text }) {
+      const entry = entries.get(keyOf(memoId, variant));
       return entry?.text === text ? entry.bytes : null;
     },
-    async put({ memoId, text, bytes }) {
-      entries.set(memoId, { text, bytes });
+    async put({ memoId, variant, text, bytes }) {
+      entries.set(keyOf(memoId, variant), { text, bytes });
     },
     async remove(memoId) {
-      entries.delete(memoId);
+      for (const key of entries.keys()) {
+        if (key === memoId || key.startsWith(`${memoId}/`)) entries.delete(key);
+      }
     },
   };
 }

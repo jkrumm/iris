@@ -173,4 +173,35 @@ describe("speech", () => {
     expect(decode(await media.speech(memo.id))).toBe("mp3:Zweite Antwort.");
     expect(texts).toEqual(["Erste Antwort.", "Zweite Antwort."]);
   });
+
+  it("speaks the summary line or the whole reply by variant, each with its own cache entry", async () => {
+    const { speaker, texts } = countingSpeaker();
+    const { media, memo, withReply } = setup(speaker);
+    const reply = "Das ist ein langer Satz über die Migration. ".repeat(45).trim();
+    withReply(reply, "Die Migration ist fertig.");
+
+    expect(decode(await media.speech(memo.id, "summary"))).toBe("mp3:Die Migration ist fertig.");
+    expect(decode(await media.speech(memo.id, "full"))).toBe(`mp3:${reply}`);
+    expect(decode(await media.speech(memo.id))).toBe(
+      "mp3:Die Migration ist fertig. Details auf dem Bildschirm.",
+    );
+    expect(texts).toHaveLength(3);
+
+    await media.speech(memo.id, "summary");
+    await media.speech(memo.id, "full");
+    await media.speech(memo.id);
+    expect(texts).toHaveLength(3);
+  });
+
+  it("does not let concurrent variants of one memo share a synthesis", async () => {
+    const { speaker, texts } = countingSpeaker();
+    const { media, memo, withReply } = setup(speaker);
+    withReply("Kurze Antwort.", "Kurz.");
+    const [summary, full] = await Promise.all([
+      media.speech(memo.id, "summary"),
+      media.speech(memo.id, "full"),
+    ]);
+    expect([decode(summary), decode(full)]).toEqual(["mp3:Kurz.", "mp3:Kurze Antwort."]);
+    expect(texts.toSorted()).toEqual(["Kurz.", "Kurze Antwort."]);
+  });
 });
