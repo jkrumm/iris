@@ -387,6 +387,8 @@ async function probeTranscribe(base: string) {
     `transcribe, summarize and notify ran (got ${steps})`,
   );
 
+  await probeTranscriptContinue(base, memo.id);
+
   const typed = await sendTyped(base, "So wie getippt.", "transcribe");
   assert(typed.state === "notified", `typed transcribe memo is notified (got ${typed.state})`);
   assert(typed.route === null, "typed transcribe memo has no route");
@@ -396,6 +398,113 @@ async function probeTranscribe(base: string) {
     `a typed transcribe memo summarizes and notifies (got ${typedSteps})`,
   );
   out("e2e: transcribe memo ok");
+}
+
+/**
+ * A transcript continued with a recording and with typed text: the first memo's id is the thread, `GET /threads/:id` reads every
+ * part back in order, and a Hermes thread and a transcript thread refuse each other's modes.
+ */
+async function probeTranscriptContinue(base: string, firstId: string) {
+  const call = (path: string, init?: RequestInit) =>
+    fetch(`${base}/v1${path}`, {
+      ...init,
+      headers: {
+        authorization: `Bearer ${TOKEN}`,
+        ...(init?.body ? { "content-type": "application/json" } : {}),
+      },
+    });
+  const post = (path: string, body: unknown) =>
+    call(path, { method: "POST", body: JSON.stringify(body) });
+
+  const send = Bun.spawn(
+    [
+      "bun",
+      "scripts/send-memo.ts",
+      "fixtures/audio/de-90s.m4a",
+      "--url",
+      base,
+      "--token",
+      TOKEN,
+      "--mode",
+      "transcribe",
+      "--thread",
+      firstId,
+    ],
+    { cwd: ROOT, stdout: "inherit", stderr: "inherit" },
+  );
+  assert(
+    (await send.exited) === 0,
+    "send-memo --mode transcribe --thread reached notified (exit 0)",
+  );
+  const second = (await (await call("/memos?limit=1")).json()) as { items: { id: string }[] };
+  const secondId = second.items[0]?.id;
+  assert(secondId && secondId !== firstId, "the recorded continuation is a memo of its own");
+
+  const typed = await sendTyped(base, "Und noch ein getippter Teil.", "transcribe", firstId);
+  assert(
+    typed.threadId === firstId,
+    `a typed continuation joins the transcript (got ${typed.threadId})`,
+  );
+
+  const detailRes = await call(`/threads/${firstId}`);
+  assert(
+    detailRes.status === 200,
+    `GET /threads/:id of a transcript is 200 (got ${detailRes.status})`,
+  );
+  const detail = (await detailRes.json()) as {
+    thread: ThreadWire;
+    memos: { id: string; threadId: string; transcript: string | null; state: string }[];
+    messages: { memoId: string; role: string; content: string }[];
+  };
+  assert(
+    detail.thread.kind === "transcript",
+    `the thread is a transcript (got ${detail.thread.kind})`,
+  );
+  assert(detail.thread.id === firstId, "the thread is named by the first memo");
+  assert(
+    detail.memos.map((m) => m.id).join() === [firstId, secondId, typed.id].join(),
+    `the parts read back in order (got ${detail.memos.map((m) => m.id).join()})`,
+  );
+  assert(
+    detail.memos.every((m) => m.threadId === firstId && m.state === "notified"),
+    "every part carries the thread id and is notified",
+  );
+  assert(
+    detail.messages.every((m) => m.role === "user") && detail.messages.length === 3,
+    "a transcript thread has one user message per part and no replies",
+  );
+  assert(detail.messages[2]?.content === "Und noch ein getippter Teil.", "the typed part is last");
+
+  const threads = (await (await call("/threads")).json()) as { items: ThreadWire[] };
+  const hermesThread = threads.items.find((t) => t.kind === "hermes");
+  assert(hermesThread, "a hermes thread exists to refuse against");
+  const refused = [
+    await post("/memos/text", {
+      id: crypto.randomUUID(),
+      mode: "transcribe",
+      startedAt: new Date().toISOString(),
+      text: "x",
+      threadId: hermesThread.id,
+    }),
+    await post("/memos/text", {
+      id: crypto.randomUUID(),
+      mode: "hermes",
+      startedAt: new Date().toISOString(),
+      text: "x",
+      threadId: firstId,
+    }),
+  ];
+  for (const res of refused) {
+    assert(
+      res.status === 409,
+      `a thread of the other kind is refused with 409 (got ${res.status})`,
+    );
+    assert(
+      ((await res.json()) as { error: string }).error === "conflict",
+      "the refusal is the conflict code",
+    );
+  }
+  out("e2e: transcript continuation ok");
 }
 
 /** The gist of the transcript: written for a transcript over 400 characters, null for a shorter one, in a Hermes and a transcribe memo. */

@@ -215,6 +215,20 @@ describe("listMemos search and filters", () => {
     ).not.toThrow();
   });
 
+  it("indexes the title of a promoted transcript thread and follows its rename", () => {
+    const { store, db } = testStore();
+    const first = memoWith(store, "transcribed", { transcript: "Einkauf" });
+    expect(store.startTranscriptThread({ id: first, title: "Wochenmarkt" })).toBe(true);
+    expect(ids(store.listMemos({ limit: 5, q: "wochenmarkt" }))).toEqual([first]);
+    db.query("UPDATE threads SET title = 'Bauernhof' WHERE id = ?").run(first);
+    expect(ids(store.listMemos({ limit: 5, q: "wochenmarkt" }))).toEqual([]);
+    expect(ids(store.listMemos({ limit: 5, q: "bauernhof" }))).toEqual([first]);
+    expect(store.startTranscriptThread({ id: "unknown", title: "x" })).toBe(false);
+    expect(() =>
+      db.query("INSERT INTO memo_fts (memo_fts) VALUES ('integrity-check')").run(),
+    ).not.toThrow();
+  });
+
   it("keeps the index exact when a reply is cleared and a memo is purged", () => {
     const { store, db } = testStore();
     const id = memoWith(store, "acted", {

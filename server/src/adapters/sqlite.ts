@@ -377,6 +377,22 @@ export function createSqliteMemoStore(params: { db: Database; clock: Clock }): M
     ).run(thread.id, thread.kind, thread.title, at, at, memoId);
   };
 
+  const startTranscriptThread = db.transaction((params: { id: string; title: string }): boolean => {
+    const memo = db
+      .query<{ created_at: string; thread_id: string | null }, [string]>(
+        "SELECT created_at, thread_id FROM memos WHERE id = ?",
+      )
+      .get(params.id);
+    if (!memo) return false;
+    const at = stamp();
+    db.query(
+      `INSERT OR IGNORE INTO threads (id, kind, title, created_at, updated_at, last_memo_id)
+       VALUES (?, 'transcript', ?, ?, ?, ?)`,
+    ).run(params.id, params.title, memo.created_at, at, params.id);
+    db.query("UPDATE memos SET thread_id = id WHERE id = ? AND thread_id IS NULL").run(params.id);
+    return true;
+  });
+
   const insertReplyAssets = (id: string, assets: readonly ReplyAsset[]) => {
     const insert = db.query(
       `INSERT INTO reply_assets (memo_id, id, block_index, format, scheme, width, height)
@@ -424,6 +440,13 @@ export function createSqliteMemoStore(params: { db: Database; clock: Clock }): M
          WHERE memo_id = ? AND step = ?`,
       ).run(at, usage === undefined ? null : JSON.stringify(usage), costUsd ?? null, id, step);
       if (patch?.thread) upsertThread(id, at, patch.thread);
+      // A transcript thread is titled by its first memo's headline, so a summary that lands after the promotion renames it.
+      if (step === "summarize" && patch?.summary) {
+        db.query("UPDATE threads SET title = ? WHERE id = ? AND kind = 'transcript'").run(
+          patch.summary.headline,
+          id,
+        );
+      }
       // A reported thread is also the memo's `thread_id`.
       const columns: MemoColumnPatch | undefined = patch?.thread
         ? { ...patch, threadId: patch.thread.id }
@@ -483,6 +506,8 @@ export function createSqliteMemoStore(params: { db: Database; clock: Clock }): M
     db.query<VocabTerm, []>("SELECT term, doc FROM memo_fts_vocab").all();
 
   const memoStore: Omit<MemoStore, keyof ThreadStore> = {
+    startTranscriptThread,
+
     createMemo({ id, mode, device, startedAt, threadId }) {
       const at = stamp();
       const inserted = db

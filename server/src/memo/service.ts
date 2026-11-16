@@ -22,6 +22,7 @@ import {
   type ThreadMessage,
   purgeAt,
   threadMessages,
+  threadTitle,
 } from "./memo.js";
 import type { Runner } from "./runner.js";
 import type { MemoStore } from "./store.js";
@@ -179,27 +180,59 @@ export function createMemoService(deps: {
   };
 
   /**
-   * A thread to continue must exist, and Hermes must be registered: a turn accepted now could only fail at act. A replay of an existing memo is judged by its stored thread instead
-   * (`assertSameThread`).
+   * The first part of a transcript becomes its thread when a continuation names it (id = the memo's id): only a live,
+   * unpromoted `transcribe` memo that has its text qualifies, anything else is no thread.
    */
-  const assertCanContinue = (params: { id: string; threadId: string | undefined }) => {
-    const { id, threadId } = params;
-    if (threadId === undefined || store.getMemo(id)) return;
-    if (!store.getThread(threadId)) {
-      throw new MemoError("not_found", `thread ${threadId} not found`);
+  const promoteTranscript = (memoId: string): Thread | null => {
+    const first = store.getMemo(memoId);
+    if (
+      !first ||
+      first.deletedAt !== null ||
+      first.mode !== "transcribe" ||
+      first.threadId !== null
+    ) {
+      return null;
     }
-    if (!hermes) {
+    if (first.transcript === null || first.transcript.trim() === "") {
+      throw new MemoError(
+        "bad_state",
+        `memo ${memoId} has no transcript yet, so it cannot be continued`,
+      );
+    }
+    store.startTranscriptThread({
+      id: memoId,
+      title: first.summary?.headline ?? threadTitle(first.transcript),
+    });
+    return store.getThread(memoId);
+  };
+
+  /**
+   * A thread to continue must exist and be of the memo's kind: a `transcribe` memo continues a transcript (its first memo's id
+   * names it), every other mode a Hermes session, which needs Hermes registered (a turn accepted now could only fail at act).
+   * A replay of an existing memo is judged by its stored thread instead (`assertSameThread`).
+   */
+  const assertCanContinue = (params: {
+    id: string;
+    mode: MemoMode;
+    threadId: string | undefined;
+  }) => {
+    const { id, mode, threadId } = params;
+    if (threadId === undefined || store.getMemo(id)) return;
+    const thread =
+      store.getThread(threadId) ?? (runsAct(mode) ? null : promoteTranscript(threadId));
+    if (!thread) throw new MemoError("not_found", `thread ${threadId} not found`);
+    const transcript = thread.kind === "transcript";
+    if (transcript === runsAct(mode)) {
+      throw new MemoError(
+        "conflict",
+        `thread ${threadId} is a ${transcript ? "transcript" : "hermes"} thread, which mode ${mode} cannot continue`,
+      );
+    }
+    if (!transcript && !hermes) {
       throw new MemoError(
         "destination_unavailable",
         "hermes is not available, so a thread cannot be continued",
       );
-    }
-  };
-
-  /** A thread continues in Hermes, which a transcribe-only memo never reaches. */
-  const assertNoThreadInTranscribe = (params: { mode: MemoMode; threadId: string | undefined }) => {
-    if (!runsAct(params.mode) && params.threadId !== undefined) {
-      throw new MemoError("bad_request", "mode transcribe cannot continue a thread");
     }
   };
 
@@ -226,8 +259,7 @@ export function createMemoService(deps: {
       if (Number.isNaN(Date.parse(startedAt))) {
         throw new MemoError("bad_request", "startedAt must be an ISO timestamp");
       }
-      assertNoThreadInTranscribe({ mode, threadId });
-      assertCanContinue({ id, threadId });
+      assertCanContinue({ id, mode, threadId });
       const result = store.createMemo({ id, mode, device, startedAt, threadId });
       if (!result.created) {
         if (result.memo.device !== device) {
@@ -251,8 +283,7 @@ export function createMemoService(deps: {
       if ([...trimmed].length > MAX_TEXT_CHARS) {
         throw new MemoError("bad_request", `text exceeds ${MAX_TEXT_CHARS} characters`);
       }
-      assertNoThreadInTranscribe({ mode, threadId });
-      assertCanContinue({ id, threadId });
+      assertCanContinue({ id, mode, threadId });
       const result = store.createTextMemo({ id, mode, device, startedAt, text: trimmed, threadId });
       if (!result.created) {
         const { memo } = result;

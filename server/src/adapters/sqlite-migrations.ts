@@ -296,4 +296,34 @@ export const MIGRATIONS: readonly string[] = [
 
   INSERT INTO memo_fts (memo_fts) VALUES ('rebuild');
   `,
+  // A transcript continued with further recordings is a thread of kind `transcript` (its id is the first memo's id). SQLite cannot alter
+  // a CHECK, so the table is rebuilt; dropping it takes the two search triggers on `threads` with it, so they are created again below
+  // exactly as entry 19 made them.
+  `
+  CREATE TABLE threads_new (
+    id TEXT PRIMARY KEY,
+    kind TEXT NOT NULL CHECK (kind IN ('chat', 'hermes', 'transcript')),
+    title TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    last_memo_id TEXT
+  );
+  INSERT INTO threads_new (id, kind, title, created_at, updated_at, last_memo_id)
+    SELECT id, kind, title, created_at, updated_at, last_memo_id FROM threads;
+  DROP TABLE threads;
+  ALTER TABLE threads_new RENAME TO threads;
+
+  CREATE TRIGGER memo_fts_thread_insert AFTER INSERT ON threads BEGIN
+    INSERT INTO memo_fts (memo_fts, rowid, ${SEARCH_COLUMNS})
+    SELECT 'delete', m.seq, ${searchValues("m", "NULL")} FROM memos m WHERE m.thread_id = new.id;
+    INSERT INTO memo_fts (rowid, ${SEARCH_COLUMNS})
+    SELECT m.seq, ${searchValues("m", "new.title")} FROM memos m WHERE m.thread_id = new.id;
+  END;
+  CREATE TRIGGER memo_fts_thread_update AFTER UPDATE OF title ON threads BEGIN
+    INSERT INTO memo_fts (memo_fts, rowid, ${SEARCH_COLUMNS})
+    SELECT 'delete', m.seq, ${searchValues("m", "old.title")} FROM memos m WHERE m.thread_id = new.id;
+    INSERT INTO memo_fts (rowid, ${SEARCH_COLUMNS})
+    SELECT m.seq, ${searchValues("m", "new.title")} FROM memos m WHERE m.thread_id = new.id;
+  END;
+  `,
 ];
