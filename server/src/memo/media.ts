@@ -11,7 +11,7 @@ import { log } from "../telemetry/log.js";
 import { MemoError } from "./errors.js";
 import { isTyped } from "./memo.js";
 import { artifactContentType } from "./reply-artifacts.js";
-import { speechVariant } from "./speech-text.js";
+import { speechText, type SpeechVariant } from "./speech-text.js";
 import type { MemoStore } from "./store.js";
 
 const ASSET_TYPES = { svg: "image/svg+xml", png: "image/png" } as const;
@@ -20,8 +20,11 @@ const ASSET_TYPES = { svg: "image/svg+xml", png: "image/png" } as const;
 export interface MemoMedia {
   /** The concatenated recording, built on first use and then read from disk. */
   recording(id: string): Promise<Recording>;
-  /** mp3 of the speech-ready variant of the answer (`speechVariant`); synthesized once per variant text and then read from disk. */
-  speech(id: string): Promise<Uint8Array>;
+  /**
+   * mp3 of the speech-ready text of the answer (`speechText`: the default `speechVariant` when none is named, else the
+   * `summary` line or the `full` reply); synthesized once per variant text and then read from disk.
+   */
+  speech(id: string, variant?: SpeechVariant): Promise<Uint8Array>;
   /** One rendered file of the memo's reply (a Mermaid block as svg or png), with its media type. */
   asset(id: string, assetId: string): Promise<{ bytes: Uint8Array; type: string }>;
 }
@@ -82,20 +85,23 @@ export function createMemoMedia(deps: {
       });
     },
 
-    async speech(id) {
+    async speech(id, variant) {
       const memo = mustGet(id);
       if (!speaker) throw new MemoError("unavailable", "speech is not configured");
       // Derived on every call, never stored: a retry that changes the reply changes the text and so the cache key.
-      const text = speechVariant({ reply: memo.replyText, spoken: memo.summary?.spoken ?? null });
+      const text = speechText(
+        { reply: memo.replyText, spoken: memo.summary?.spoken ?? null },
+        variant,
+      );
       if (!text)
         throw new MemoError("bad_state", `memo ${id} has no summary or reply to speak yet`);
-      // Keyed like the cache (id + text): a caller must not join a synthesis of different text.
+      // Keyed like the cache (id + variant + text): a caller must not join a synthesis of other text or into another entry.
       const textHash = createHash("sha256").update(text).digest("hex");
-      return once(`speech/${id}/${textHash}`, async () => {
-        const cached = await speechCache.get({ memoId: id, text });
+      return once(`speech/${id}/${variant ?? "default"}/${textHash}`, async () => {
+        const cached = await speechCache.get({ memoId: id, variant, text });
         if (cached) return cached;
         const { bytes } = await speaker.speak({ memoId: id, text });
-        await speechCache.put({ memoId: id, text, bytes });
+        await speechCache.put({ memoId: id, variant, text, bytes });
         return bytes;
       });
     },

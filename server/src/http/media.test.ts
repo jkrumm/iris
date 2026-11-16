@@ -128,6 +128,41 @@ describe("GET /v1/memos/:id/audio", () => {
     expect(await body(res)).toEqual(BYTES);
   });
 
+  it("serves the summary and the full variant of one memo from two cache entries", async () => {
+    const h = testApp();
+    const reply = "This is a long sentence about the migration. ".repeat(45).trim();
+    const id = withResult(h, {
+      summary: { headline: "H", detail: "D", spoken: "Done and dusted." },
+      replyText: reply,
+    });
+    const summary = await speech(h, id, "summary");
+    const full = await speech(h, id, "full");
+    expect(summary.status).toBe(200);
+    expect(full.status).toBe(200);
+    expect(summary.headers.get("content-type")).toBe("audio/mpeg");
+    expect(await summary.text()).toBe("mp3:Done and dusted.");
+    expect(await full.text()).toBe(`mp3:${reply}`);
+    expect(h.speechCache.entries.size).toBe(2);
+
+    await speech(h, id, "summary");
+    await speech(h, id, "full");
+    expect(h.speaker?.calls).toHaveLength(2);
+
+    // No variant is today's behaviour and its own third entry.
+    const plain = await speech(h, id);
+    expect(await plain.text()).toBe("mp3:Done and dusted. Details on screen.");
+    expect(h.speechCache.entries.size).toBe(3);
+  });
+
+  it("400s an unknown variant in the usual error shape, without synthesizing", async () => {
+    const h = testApp();
+    const id = withResult(h, { replyText: "The reply." });
+    const res = await speech(h, id, "loud");
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({ error: "bad_request" });
+    expect(h.speaker?.calls).toHaveLength(0);
+  });
+
   it("409s a soft-deleted memo until it is restored", async () => {
     const h = testApp();
     const id = received(h);
@@ -188,7 +223,10 @@ describe("GET /v1/memos/:id/audio", () => {
   });
 });
 
-const speech = (h: Harness, id: string) => call(h.app, { path: `/v1/memos/${id}/speech` });
+const speech = (h: Harness, id: string, variant?: string) =>
+  call(h.app, {
+    path: `/v1/memos/${id}/speech${variant === undefined ? "" : `?variant=${variant}`}`,
+  });
 
 /** Sets the step-written fields the way the pipeline would. */
 function withResult(h: Harness, patch: MemoPatch) {

@@ -3,7 +3,7 @@ import { configured } from "../memo/errors.js";
 import type { MemoMedia } from "../memo/media.js";
 import type { Recording } from "../ports/audio.js";
 import type { deviceAuth } from "./auth.js";
-import { AssetParams, ErrorBody, MemoIdParams } from "./schemas.js";
+import { AssetParams, ErrorBody, MemoIdParams, SpeechQuery } from "./schemas.js";
 
 // Building the recording or synthesizing speech can outlast Bun's 10 s idle timeout, which counts
 // silence on the socket. Bun accepts at most 255 seconds.
@@ -84,14 +84,14 @@ export function mediaRoutes(deps: {
     )
     .get(
       "/:id/speech",
-      async ({ params, request, server }) => {
+      async ({ params, query, request, server }) => {
         server?.timeout(request, BUILD_TIMEOUT_SECONDS);
-        const bytes = await configured(media, "media").speech(params.id);
+        const bytes = await configured(media, "media").speech(params.id, query.variant);
         return new Response(bytes, {
           headers: { "content-type": "audio/mpeg", "content-length": String(bytes.byteLength) },
         });
       },
-      { params: MemoIdParams, response: errors },
+      { params: MemoIdParams, query: SpeechQuery, response: { ...errors, 400: ErrorBody } },
     )
     .get(
       "/:id/assets/:assetId",

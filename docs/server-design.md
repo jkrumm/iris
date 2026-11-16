@@ -10,7 +10,7 @@ How the pipeline behaves and why. Moved out of the root AGENTS.md; `docs/TDD.md`
   listen, background `driveAll`, signals, DB close, OTel flush.
 - `server/src/memo/` — domain: `memo.ts` (states, steps, transitions, `runsAct`: every mode but `transcribe` hands the memo to Hermes; `normalizeKind` / `normalizeActions`, `OPTIONAL_STEPS`), `store.ts` (port), `runner.ts`
   (idempotent step runner, concurrency-bounded `driveAll`, `idle()`), `service.ts` (`MemoService`, what HTTP calls), `media.ts`
-  (`MemoMedia`: the combined recording and the spoken result, both disk-cached and single-flight), `speech-text.ts` (`speechVariant`: the markdown-free, length-capped text `/speech` synthesizes, TDD §3), `keyed-queue.ts` (one Hermes thread's turns run one at a time), `events.ts` (in-process
+  (`MemoMedia`: the combined recording and the spoken result, both disk-cached and single-flight), `speech-text.ts` (`speechText` / `speechVariant`: the markdown-free text `/speech` synthesizes, length-capped except `variant=full`, TDD §3), `keyed-queue.ts` (one Hermes thread's turns run one at a time), `events.ts` (in-process
   pub/sub), `progress.ts` (in-process bus for `memo.delta` / `memo.activity` while act runs, and the in-memory `partialReply`), `purge.ts` (the purger: removes soft-deleted memos' files and rows after the 10-minute undo window), `errors.ts` (`MemoError` codes, `configured()` for optional subsystems), `test-support.ts` (fake audio, seeded and parked memos).
 - `server/src/pipeline/steps.ts` — `createStepHandlers`: the four step handlers (`transcribe`, `act`, `summarize`, `notify`), each a pure function
   of (memo, ports); a handler is registered only when its port is provided (`act` needs the Hermes destination); `summarize` is always registered (no summarizer = the step fails and is skipped).
@@ -94,7 +94,7 @@ How the pipeline behaves and why. Moved out of the root AGENTS.md; `docs/TDD.md`
 
 - **Audio and speech are derived, disk-cached and single-flight:** the recording is `<audio>/<id>/combined.m4a` (mono 16 kHz
   AAC from `ffmpegConcat`, built on the first request; removed with the segments), speech is
-  `<IRIS_DATA>/speech/<id>.mp3` with the spoken text in `<id>.txt`, so a retry that changes the variant text re-synthesizes
+  `<IRIS_DATA>/speech/<id>.mp3` (and `<id>.summary.mp3`, `<id>.full.mp3` for `?variant=`) with the spoken text in the matching `.txt`, so a retry that changes the variant text re-synthesizes
   instead of replaying stale audio (the key is the derived speech variant, never stored). A failed combine or synthesis caches nothing. `/audio` honours a single `bytes=` range;
   multi-range and malformed headers get the whole body, a range past the end gets 416.
 
@@ -105,7 +105,7 @@ How the pipeline behaves and why. Moved out of the root AGENTS.md; `docs/TDD.md`
   run that records the call and its cost; both adapters put it on the span and the `audio_door.*` log lines as `agw.run_id` (the old `x-audio-source`
   attribution is gone). A 401 (`{error:{message:'unauthorized'}}`, an unknown or rotated token) is a plain, non-transient failure.
 
-- **Speech request** to the door: `POST /audio/speech {input, response_format: "mp3"}`.
+- **Speech request** to the door: `POST /audio/speech {input, response_format: "mp3"}`; a text over 3,500 characters (only `variant=full`) goes in several calls, one after the other, and the mp3 files are joined (the door rejects over 4096).
   No `model` or `voice`: the door owns both and detects the language. A non-2xx is 503 `unavailable`.
 
 - **Bookkeeping failures** (`completeStep` throws after a handler ran) log `runner.bookkeeping_failed`

@@ -2,8 +2,11 @@ import { describe, expect, it } from "bun:test";
 import {
   detectLanguage,
   markdownToSpeech,
+  SPEECH_FULL_MAX_CHARS,
   SPEECH_MAX_CHARS,
+  speechText,
   speechVariant,
+  splitForSpeech,
 } from "./speech-text.js";
 
 describe("detectLanguage", () => {
@@ -250,5 +253,75 @@ describe("speechVariant", () => {
   it("is deterministic: the same inputs give the same text (the cache key)", () => {
     const params = { reply: long, spoken: "Fertig." };
     expect(speechVariant(params)).toBe(speechVariant({ ...params }));
+  });
+});
+
+describe("speechText variants", () => {
+  const sentence = "Das ist ein langer Satz über die Migration. ";
+  const long = sentence.repeat(45).trim(); // about 2000 characters
+
+  it("summary speaks the spoken line alone, full speaks the whole short reply", () => {
+    const params = { reply: "Das ist **gut** und fertig.", spoken: "Gut." };
+    expect(speechText(params, "summary")).toBe("Gut.");
+    expect(speechText(params, "full")).toBe("Das ist gut und fertig.");
+    expect(speechText(params, undefined)).toBe(speechVariant(params));
+  });
+
+  it("a 2000 character reply: summary is the spoken line without the suffix, full is every sentence", () => {
+    expect(long.length).toBeGreaterThan(1900);
+    const params = { reply: long, spoken: "Die Migration ist fertig." };
+    expect(speechText(params, "summary")).toBe("Die Migration ist fertig.");
+    expect(speechText(params, "full")).toBe(long);
+    expect(speechText(params, undefined)).toBe(
+      "Die Migration ist fertig. Details auf dem Bildschirm.",
+    );
+  });
+
+  it("a memo without a spoken line: summary is the first sentences of the reply, no suffix", () => {
+    const out = speechText({ reply: long, spoken: null }, "summary");
+    expect(out.length).toBeLessThanOrEqual(SPEECH_MAX_CHARS);
+    expect(out.endsWith("Migration.")).toBe(true);
+    expect(out).not.toContain("Bildschirm");
+    expect(long.startsWith(out)).toBe(true);
+  });
+
+  it("speaks the spoken line for both variants when there is no reply", () => {
+    expect(speechText({ reply: null, spoken: "Erledigt." }, "summary")).toBe("Erledigt.");
+    expect(speechText({ reply: null, spoken: "Erledigt." }, "full")).toBe("Erledigt.");
+    expect(speechText({ reply: null, spoken: null }, "full")).toBe("");
+  });
+
+  it("full cuts a reply beyond the upper bound at a sentence", () => {
+    const out = speechText({ reply: sentence.repeat(500), spoken: null }, "full");
+    expect(out.length).toBeLessThanOrEqual(SPEECH_FULL_MAX_CHARS);
+    expect(out.length).toBeGreaterThan(SPEECH_FULL_MAX_CHARS - sentence.length);
+    expect(out.endsWith("Migration.")).toBe(true);
+  });
+});
+
+describe("splitForSpeech", () => {
+  const sentence = "Das ist ein langer Satz über die Migration. ";
+
+  it("keeps a short text whole", () => {
+    expect(splitForSpeech("Kurz.")).toEqual(["Kurz."]);
+  });
+
+  it("splits at sentence ends under the limit and loses no word", () => {
+    const text = sentence.repeat(300).trim();
+    const chunks = splitForSpeech(text, 1000);
+    expect(chunks.length).toBeGreaterThan(8);
+    for (const chunk of chunks) {
+      expect(chunk.length).toBeLessThanOrEqual(1000);
+      expect(chunk.endsWith("Migration.")).toBe(true);
+    }
+    expect(chunks.join(" ")).toBe(text);
+  });
+
+  it("packs paragraphs and cuts a sentence-less run at a word", () => {
+    expect(splitForSpeech("Eins.\n\nZwei.\n\nDrei.", 100)).toEqual(["Eins.\n\nZwei.\n\nDrei."]);
+    const words = splitForSpeech("wort ".repeat(100).trim(), 50);
+    for (const chunk of words) expect(chunk.length).toBeLessThanOrEqual(50);
+    expect(words.join(" ")).toBe("wort ".repeat(100).trim());
+    expect(splitForSpeech("x".repeat(25), 10).map((c) => c.length)).toEqual([10, 10, 5]);
   });
 });

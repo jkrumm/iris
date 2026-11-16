@@ -87,12 +87,13 @@ export function testApp(
   const combiner = options.combiner ?? fakeCombiner();
   const speaker = options.speaker === false ? undefined : (options.speaker ?? fakeSpeaker());
   const assets = options.assets ?? fakeAssetStore();
+  const speechCache = fakeSpeechCache();
   const media = createMemoMedia({
     store,
     audio,
     combiner,
     speaker,
-    speechCache: fakeSpeechCache(),
+    speechCache,
     assets,
   });
   const otlp = options.otlp ?? fakeOtlpExporter();
@@ -125,6 +126,7 @@ export function testApp(
     devices,
     combiner,
     speaker,
+    speechCache,
     otlp,
     telemetry,
     relayLog,

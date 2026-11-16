@@ -340,6 +340,13 @@ synthesis path, so [Play] and spoken replies share it.
   `summary.spoken` + "Details on screen." (the first whole sentences of the cleaned reply when there is no summary, e.g. Hermes sent no `iris` block). Measured on the cleaned
   text, so a long code block does not push a short answer past it. Without a reply the (cleaned) `summary.spoken` is spoken. A notified memo
   with a reply and no summary is therefore speakable (`/speech` is 409 only when there is neither).
+- **Variants** (`GET /speech?variant=summary|full`, `speechText`): the owner chooses between a short and a whole read, since 88 % of replies are under 600 characters and
+  the threshold alone never lets a longer reply be heard in full. `summary` speaks `summary.spoken` with no "details on screen" (the first whole sentences of the reply, at
+  most `SPEECH_MAX_CHARS`, when there is none). `full` speaks the whole cleaned reply up to `SPEECH_FULL_MAX_CHARS` = 12,000 characters (about 13 minutes, three door calls): the
+  bound caps one request's spend and wait, and a longer reply is cut at a sentence. The audio door answers 400 over 4096 characters, so `createAudioDoorSpeaker` sends a text over
+  `SPEECH_CHUNK_CHARS` = 3,500 in pieces (`splitForSpeech`: paragraph, sentence, word) one after the other and joins the mp3 files, which play as one stream. No `variant` is
+  the threshold behaviour above, unchanged, so shipped apps and the auto-read of finished memos do not move. Each variant has its own cache entry (`<id>.mp3`, `<id>.summary.mp3`,
+  `<id>.full.mp3`, each with its text beside it) and its own single-flight key; an unknown value is a 400 `bad_request`.
 
 ### Reply assets: Mermaid blocks rendered by Pele (Wave 14)
 

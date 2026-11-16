@@ -226,6 +226,13 @@ async function probe(base: string) {
   assert(speech.status === 200, `GET /speech 200 (got ${speech.status})`);
   assert(type?.startsWith("audio/mpeg"), `/speech is audio/mpeg (got ${type})`);
   assert((await speech.arrayBuffer()).byteLength > 0, "/speech has bytes");
+  for (const variant of ["summary", "full"]) {
+    const res = await call(`/memos/${id}/speech?variant=${variant}`);
+    assert(res.status === 200, `GET /speech?variant=${variant} 200 (got ${res.status})`);
+    assert((await res.arrayBuffer()).byteLength > 0, `/speech?variant=${variant} has bytes`);
+  }
+  const loud = await call(`/memos/${id}/speech?variant=loud`);
+  assert(loud.status === 400, `GET /speech?variant=loud 400 (got ${loud.status})`);
 
   out(`e2e: R1 endpoints ok for memo ${id}`);
 }

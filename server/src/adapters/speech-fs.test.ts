@@ -53,4 +53,27 @@ describe("fs SpeechCache", () => {
       cache.put({ memoId: "../etc", text: "x", bytes: new Uint8Array([1]) }),
     ).rejects.toThrow();
   });
+
+  it("keeps one entry per variant beside the default one and removes them all", async () => {
+    const cache = createFsSpeechCache(dir);
+    await cache.put({ memoId, text: "Plain.", bytes: new Uint8Array([1]) });
+    await cache.put({ memoId, variant: "summary", text: "Short.", bytes: new Uint8Array([2]) });
+    await cache.put({ memoId, variant: "full", text: "Long.", bytes: new Uint8Array([3]) });
+    expect((await readdir(dir)).toSorted()).toEqual([
+      `${memoId}.full.mp3`,
+      `${memoId}.full.txt`,
+      `${memoId}.mp3`,
+      `${memoId}.summary.mp3`,
+      `${memoId}.summary.txt`,
+      `${memoId}.txt`,
+    ]);
+    expect([...((await cache.get({ memoId, variant: "summary", text: "Short." })) ?? [])]).toEqual([
+      2,
+    ]);
+    expect(await cache.get({ memoId, variant: "full", text: "Short." })).toBeNull();
+    expect([...((await cache.get({ memoId, text: "Plain." })) ?? [])]).toEqual([1]);
+
+    await cache.remove(memoId);
+    expect(await readdir(dir)).toEqual([]);
+  });
 });
