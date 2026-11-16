@@ -11,6 +11,7 @@ import {
   testStore,
   transition,
 } from "../memo/test-support.js";
+import { manualClock } from "../ports/clock.js";
 import { migrate } from "./sqlite.js";
 import { MIGRATIONS } from "./sqlite-migrations.js";
 
@@ -926,6 +927,21 @@ describe("route decisions history", () => {
 });
 
 describe("migrations", () => {
+  it("run where ALTER TABLE RENAME checks views and triggers (Linux builds default to it, Apple's does not)", () => {
+    const db = new Database(":memory:");
+    db.exec("PRAGMA legacy_alter_table = OFF");
+    migrate(db);
+    expect(db.query("PRAGMA user_version").get()).toEqual({ user_version: MIGRATIONS.length });
+    expect(db.query("PRAGMA legacy_alter_table").get()).toEqual({ legacy_alter_table: 0 });
+    const store = sqliteTestStore({ db, clock: manualClock() });
+    const id = seedMemo(store, "transcribed").id;
+    expect(store.startTranscriptThread({ id, title: "Wochenmarkt" })).toBe(true);
+    expect(store.listMemos({ limit: 5, q: "wochenmarkt" }).memos.map((m) => m.id)).toEqual([id]);
+    expect(() =>
+      db.query("INSERT INTO memo_fts (memo_fts) VALUES ('integrity-check')").run(),
+    ).not.toThrow();
+  });
+
   it("are idempotent on an existing database and keep its data", () => {
     const db = new Database(":memory:");
     const clock = testStore().clock;

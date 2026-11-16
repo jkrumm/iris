@@ -311,7 +311,9 @@ export const MIGRATIONS: readonly string[] = [
   INSERT INTO threads_new (id, kind, title, created_at, updated_at, last_memo_id)
     SELECT id, kind, title, created_at, updated_at, last_memo_id FROM threads;
   DROP TABLE threads;
+  PRAGMA legacy_alter_table = ON;
   ALTER TABLE threads_new RENAME TO threads;
+  PRAGMA legacy_alter_table = OFF;
 
   CREATE TRIGGER memo_fts_thread_insert AFTER INSERT ON threads BEGIN
     INSERT INTO memo_fts (memo_fts, rowid, ${SEARCH_COLUMNS})
