@@ -251,6 +251,9 @@ XCB        := $(XCB_NICE) xcodebuild -project $(APPLE_DIR)/Iris.xcodeproj -deriv
 APPLE      := scripts/apple-slot
 APPLE_SIM  := scripts/apple-slot --sim
 XCB_TEST   := -parallel-testing-enabled NO -maximum-parallel-testing-workers 1
+# In CI only: an xcodebuild test run that died of the hosted runner (no simulator found, the UI-test runner never bootstrapped) runs once more;
+# a run with a failed test of its own never does (scripts/xcb-retry, Issue 1650).
+XCB_RETRY  := $(if $(CI),$(CURDIR)/scripts/xcb-retry)
 
 .PHONY: generate
 generate: ## xcodegen: apple/project.yml -> apple/Iris.xcodeproj (gitignored)
@@ -292,18 +295,18 @@ _check-apple:
 	$(MAKE) lint-apple
 	$(MAKE) test-packages
 	$(MAKE) build-apple
-	$(XCB) -scheme IrisMac -destination 'platform=macOS' $(XCB_TEST) test
+	$(XCB_RETRY) $(XCB) -scheme IrisMac -destination 'platform=macOS' $(XCB_TEST) test
 
 .PHONY: snapshots
 snapshots: ## IrisUI snapshot tests on the pinned simulator, in the app build's derived data so Textual compiles once (RECORD=1 re-records the references)
-	@$(APPLE_SIM) sh -c 'cd $(APPLE_DIR)/Packages/IrisUI && TEST_RUNNER_RECORD=$(RECORD) $(XCB_NICE) xcodebuild test -scheme IrisUI -destination "$(SIM_DEST)" -derivedDataPath $(DD) $(XCB_CAP) $(XCB_TEST)'
+	@$(APPLE_SIM) sh -c 'cd $(APPLE_DIR)/Packages/IrisUI && TEST_RUNNER_RECORD=$(RECORD) $(XCB_RETRY) $(XCB_NICE) xcodebuild test -scheme IrisUI -destination "$(SIM_DEST)" -derivedDataPath $(DD) $(XCB_CAP) $(XCB_TEST)'
 
 .PHONY: uitest
 uitest: generate ## XCUITest flows on the pinned simulator (-IrisFakeCapture); ONLY="<Class>[/<test>] ..." runs those (UNIT=1 adds IrisTests); the full suite is CI's: refused locally
 	@if [ -z "$(ONLY)" ] && [ -z "$$CI" ] && [ -z "$$IRIS_FULL_UITEST" ]; then \
 		echo "  make uitest without ONLY=<Class>[/<test>] is CI's job (.github/workflows/apple.yml runs the full suite); locally run one class."; \
 		echo "  Explicit owner request only: IRIS_FULL_UITEST=1 make uitest"; exit 1; fi
-	@$(APPLE_SIM) $(XCB) -scheme Iris -destination '$(SIM_DEST)' $(XCB_TEST) $(foreach c,$(ONLY),-only-testing:IrisUITests/$(c)) $(if $(and $(ONLY),$(UNIT)),-only-testing:IrisTests) test
+	@$(APPLE_SIM) $(XCB_RETRY) $(XCB) -scheme Iris -destination '$(SIM_DEST)' $(XCB_TEST) $(foreach c,$(ONLY),-only-testing:IrisUITests/$(c)) $(if $(and $(ONLY),$(UNIT)),-only-testing:IrisTests) test
 
 # --- Agent verification (TDD §9/§10, D17): boot the pinned simulator, run the app, look at it. Output lands in .artifacts/ (gitignored). ---
 # The pinned device's UDID, resolved lazily from SIM_NAME/SIM_OS; empty when that device does not exist.

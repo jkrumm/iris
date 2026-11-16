@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+# xcb-retry <cmd…> — run an xcodebuild test command; run it once more when it died of the hosted runner, not of a test.
+#
+# Hosted `xcode-27` runners stall now and then, and the failure reads like a red suite: "Unable to find a device matching the provided
+# destination specifier" (CoreSimulator did not answer within xcodebuild's minute), "Early unexpected exit, operation never finished
+# bootstrapping" (the UI-test runner never started), a lockdown connect that "timed out after 120 seconds" (Issue 1650: run
+# 43842704767 and the runs of PR 144). None of them says anything about the code, and merge-guard refuses a head whose apple.yml is red.
+#
+# The rule is narrow on purpose: a retry happens only when the log carries one of those signatures AND no test recorded a failure of its
+# own (`✘ Test … recorded an issue`, an XCTest `error: -[…]`). A real red test is never run twice; it stays red. One retry, never more.
+# Used by the Makefile only when CI is set (`XCB_RETRY`); on the mini a stall is for a human to see. The exit code is the command's.
+set -u
+
+[[ $# -gt 0 ]] || { echo "usage: xcb-retry <cmd…>" >&2; exit 2; }
+
+infra='Unable to find a device matching the provided destination specifier|operation never finished bootstrapping|unable to connect to "com\.apple\.instruments\.deviceservice\.lockdown"'
+own='✘ Test .* recorded an issue|: error: -\[[A-Za-z0-9_.]+ [A-Za-z0-9_]+\]'
+
+log=$(mktemp -t xcb-retry)
+trap 'rm -f "$log"' EXIT
+
+"$@" 2>&1 | tee "$log"
+rc=${PIPESTATUS[0]}
+(( rc == 0 )) && exit 0
+
+if grep -Eq "$infra" "$log" && ! grep -Eq "$own" "$log"; then
+  echo "xcb-retry: exit $rc with a runner signature and no failed test of its own: $(grep -Eo "$infra" "$log" | sort -u | paste -sd ';' -)" >&2
+  echo "xcb-retry: shutting the simulators down and running the command once more" >&2
+  xcrun simctl shutdown all >/dev/null 2>&1 || true
+  sleep "${XCB_RETRY_PAUSE:-20}"
+  "$@"
+  exit $?
+fi
+exit "$rc"
