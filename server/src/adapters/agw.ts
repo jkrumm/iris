@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { DETAIL_MAX, HEADLINE_MAX } from "../memo/memo.js";
+import { clipCodePoints, DETAIL_MAX, GIST_MAX, HEADLINE_MAX } from "../memo/memo.js";
 import type { Summarization, Summarizer } from "../ports/summarizer.js";
 import { log } from "../telemetry/log.js";
 import type { AgwClient } from "./agw-client.js";
@@ -19,9 +19,14 @@ const TriageResponse = SummarySchema.extend({
   usage: z.looseObject({ costUsd: z.number().nullish() }).nullish(),
 });
 
+const GistResponse = z.looseObject({ summary: z.string() });
+
+/** About 30 words come to 200-230 characters; `GIST_MAX` is the hard cap behind it. */
+const GIST_WORDS = 30;
+
 /**
- * `Summarizer` on the agent-workflows `triage` capability. The host owns the prompt and the 4000-character
- * cut of transcript and reply, so the raw fields go over whole.
+ * `Summarizer` on the agent-workflows `triage` capability (the notification text) and `llm.summarize` (the gist). The host
+ * owns the triage prompt and its 4000-character cut of transcript and reply, so the raw fields go over whole.
  */
 export function createAgwSummarizer(opts: { client: AgwClient }): Summarizer {
   return {
@@ -41,6 +46,18 @@ export function createAgwSummarizer(opts: { client: AgwClient }): Summarizer {
         ...(usage ? { usage } : {}),
         ...(costUsd !== undefined ? { costUsd } : {}),
       };
+    },
+    async gist({ memoId, transcript }): Promise<string> {
+      const { data, runId } = await opts.client.call({
+        memoId,
+        path: "/llm/summarize",
+        body: { text: transcript, maxWords: GIST_WORDS, style: "paragraph" },
+        schema: GistResponse,
+      });
+      const gist = clipCodePoints(data.summary.replace(/\s+/g, " ").trim(), GIST_MAX);
+      if (gist === "") throw new Error("agw llm/summarize returned an empty gist");
+      log("agw.gisted", { memo_id: memoId, [RUN_ID_ATTR]: runId });
+      return gist;
     },
   };
 }

@@ -1,6 +1,9 @@
 export const MEMO_MODES = ["auto", "journal", "hermes", "tab", "chat", "transcribe"] as const;
 export type MemoMode = (typeof MEMO_MODES)[number];
 
+/** The `triage` route of a memo that never reached Hermes: the host puts it in the prompt as the memo's destination. */
+export const TRANSCRIBE_ROUTE = "transcript only, not sent to an assistant";
+
 /**
  * Every mode but `transcribe` hands the memo to Hermes (`act`); `transcribe` stops after the transcript. The other modes are the
  * owner's pick as the app offered it (`auto` and `hermes` pick nothing); Hermes decides either way.
@@ -125,6 +128,11 @@ export interface Memo {
   replyArtifacts: ReplyArtifact[];
   summary: Summary | null;
   /**
+   * What the speaker said or asked, in the transcript's language (at most `GIST_MAX`); written by `summarize` only when the
+   * transcript is longer than `GIST_MIN_TRANSCRIPT`, null otherwise and while the step has not run.
+   */
+  transcriptGist: string | null;
+  /**
    * The Hermes session the memo ran in: set by `act` (a fresh memo's own session, so equal to its id), or at creation for a
    * memo that continues a thread. Null before then.
    */
@@ -189,6 +197,7 @@ export type MemoColumnPatch = Partial<
     | "destinationRef"
     | "replyText"
     | "summary"
+    | "transcriptGist"
     | "threadId"
     | "kind"
     | "hermesHeadline"
@@ -316,8 +325,8 @@ const TRANSITIONS: Partial<Record<Step, Transition>> = {
 
 const ACT_STEPS: readonly Step[] = ["ingest", "transcribe", "act", "summarize", "notify"];
 
-/** Mode `transcribe` stops after the transcript: `notify` runs straight from `transcribed`, no `act` row exists. */
-const TRANSCRIBE_ONLY_STEPS: readonly Step[] = ["ingest", "transcribe", "notify"];
+/** Mode `transcribe` stops after the transcript: `summarize` (the memo's title) runs straight from `transcribed`, no `act` row exists. */
+const TRANSCRIBE_ONLY_STEPS: readonly Step[] = ["ingest", "transcribe", "summarize", "notify"];
 
 /** The steps a memo of `mode` goes through, in pipeline order; the pipeline of every memo, old ones included. */
 export function stepsOf(mode: MemoMode): readonly Step[] {
@@ -328,7 +337,7 @@ function transitionOf(step: Step, mode: MemoMode): Transition {
   if (!stepsOf(mode).includes(step)) {
     throw new IllegalTransitionError(`step ${step} does not run in mode ${mode}`);
   }
-  if (step === "notify" && !runsAct(mode)) return { from: "transcribed", to: "notified" };
+  if (step === "summarize" && !runsAct(mode)) return { from: "transcribed", to: "summarized" };
   const transition = TRANSITIONS[step];
   if (!transition) throw new IllegalTransitionError(`step ${step} has no transition`);
   return transition;
@@ -421,6 +430,15 @@ export const KIND_MAX = 24;
 export const HEADLINE_MAX = 60;
 /** Longest summary detail line, in code points (agw `triage`'s `detail` cap, and the clipped transcript `notify` falls back to). */
 export const DETAIL_MAX = 240;
+/** Longest `transcriptGist`, in code points. */
+export const GIST_MAX = 240;
+/** A transcript this long (code points) or shorter is shown whole: it gets no gist. */
+export const GIST_MIN_TRANSCRIPT = 400;
+
+/** Whether `summarize` writes a `transcriptGist` for this transcript. */
+export function needsGist(transcript: string): boolean {
+  return Array.from(transcript).length > GIST_MIN_TRANSCRIPT;
+}
 /** The most tool names a memo keeps. */
 export const ACTIONS_MAX = 12;
 

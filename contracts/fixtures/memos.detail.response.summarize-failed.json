@@ -13,6 +13,7 @@
   "destinationRef": "iris-4e8a2c7d-91b3-4f06-8d5a-3b7e1c9f2a60",
   "replyText": "Alles notiert. Montag: Pull Requests prüfen. Mittwoch: Feature-Freeze. Donnerstag: Release. Die Datenbankmigration bleibt als offener Punkt.",
   "summary": null,
+  "transcriptGist": null,
   "done": false,
   "favorite": false,
   "archived": false,

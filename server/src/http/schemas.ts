@@ -93,6 +93,9 @@ const memoFields = {
   // Present only when the reply has valid `iris-show` / `iris-doc` fences; omitted, never empty or null, otherwise.
   replyArtifacts: t.Optional(t.Array(ReplyArtifact)),
   summary: Nullable(Summary),
+  // What the speaker said or asked, at most 240 characters, in the transcript's language; written with the summary only when the
+  // transcript is longer than 400 characters, null otherwise (show the transcript whole) and null on memos from before it existed.
+  transcriptGist: Nullable(t.String()),
   // Present once the memo belongs to a Hermes session (chat or not): set when `act` ran in it, or at creation for a memo that
   // continues a thread; omitted, never null, otherwise.
   threadId: t.Optional(t.String()),

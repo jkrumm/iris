@@ -279,6 +279,8 @@ interface TypedMemo {
   kind?: string;
   actions?: string[];
   summary: { headline: string; detail: string; spoken: string } | null;
+  transcript: string | null;
+  transcriptGist: string | null;
   steps: { step: string }[];
 }
 
@@ -331,7 +333,7 @@ async function sendTyped(
   return (await (await call(`/memos/${id}`)).json()) as TypedMemo;
 }
 
-/** Mode transcribe: a recording ends notified after transcribe and notify alone, with the transcript and no route, reply or summary. */
+/** Mode transcribe: a recording ends notified after transcribe, summarize and notify, with the transcript, a headline and no route or reply. */
 async function probeTranscribe(base: string) {
   const send = Bun.spawn(
     [
@@ -363,20 +365,54 @@ async function probeTranscribe(base: string) {
   assert(Boolean(memo.transcript), "transcribe memo carries the transcript");
   assert(memo.route === null, `transcribe memo has no route (got ${memo.route})`);
   assert(memo.replyText === null, "transcribe memo has no reply");
-  assert(memo.summary === null, "transcribe memo has no summary");
+  assert(
+    memo.summary?.headline === "Headline" &&
+      memo.summary.headline !== memo.transcript?.slice(0, 60),
+    `transcribe memo is titled by the summarizer, not its first words (got ${JSON.stringify(memo.summary)})`,
+  );
   assert(
     memo.kind === undefined && memo.actions === undefined,
     "transcribe memo has no kind or actions",
   );
   const steps = memo.steps.map((step) => step.step).join(",");
-  assert(steps === "transcribe,notify", `only transcribe and notify ran (got ${steps})`);
+  assert(
+    steps === "transcribe,summarize,notify",
+    `transcribe, summarize and notify ran (got ${steps})`,
+  );
 
   const typed = await sendTyped(base, "So wie getippt.", "transcribe");
   assert(typed.state === "notified", `typed transcribe memo is notified (got ${typed.state})`);
   assert(typed.route === null, "typed transcribe memo has no route");
   const typedSteps = typed.steps.map((step) => step.step).join(",");
-  assert(typedSteps === "notify", `a typed transcribe memo only notifies (got ${typedSteps})`);
+  assert(
+    typedSteps === "summarize,notify",
+    `a typed transcribe memo summarizes and notifies (got ${typedSteps})`,
+  );
   out("e2e: transcribe memo ok");
+}
+
+/** The gist of the transcript: written for a transcript over 400 characters, null for a shorter one, in a Hermes and a transcribe memo. */
+async function probeGist(base: string) {
+  const long = "Das ist ein langer Gedanke, der ausführlich festgehalten wird. ".repeat(14).trim();
+  const short = "Das ist ein kurzer Gedanke.".repeat(7);
+  assert(
+    long.length >= 880 && long.length <= 920,
+    `the long text is about 900 characters (got ${long.length})`,
+  );
+  assert(short.length < 400, `the short text is under 400 characters (got ${short.length})`);
+  for (const mode of ["hermes", "transcribe"]) {
+    const withGist = await sendTyped(base, long, mode);
+    assert(
+      withGist.transcriptGist === "Gist.",
+      `a ${mode} memo with a ${long.length}-character transcript has a gist (got ${withGist.transcriptGist})`,
+    );
+    const without = await sendTyped(base, short, mode);
+    assert(
+      without.transcriptGist === null,
+      `a ${mode} memo with a ${short.length}-character transcript has none (got ${without.transcriptGist})`,
+    );
+  }
+  out("e2e: transcript gist ok");
 }
 
 /** Every memo is a Hermes thread: a typed memo in the default mode reaches notified with Hermes's result and a thread id. */
@@ -518,6 +554,7 @@ async function main() {
   await probeTyped(base);
   await probeHermesThread(base);
   await probeTranscribe(base);
+  await probeGist(base);
 }
 
 async function cleanup() {

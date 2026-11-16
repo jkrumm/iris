@@ -40,6 +40,7 @@ export const memoJson = (memo: Memo) => ({
     })),
   }),
   summary: memo.summary,
+  transcriptGist: memo.transcriptGist,
   ...(memo.threadId !== null && { threadId: memo.threadId }),
   ...(isTyped(memo) && { typed: true as const }),
   ...(memo.kind !== null && { kind: memo.kind }),

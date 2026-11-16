@@ -19,6 +19,7 @@
         "detail": "Der Plan für die Woche steht: Montag Review der offenen Pull Requests, Mittwoch Feature-Freeze, Donnerstag Release. Offen bleibt nur die Migration der Datenbank.",
         "spoken": "Der Wochenplan steht. Release ist am Donnerstag, offen ist nur noch die Datenbankmigration."
       },
+      "transcriptGist": null,
       "done": false,
       "favorite": false,
       "archived": false,

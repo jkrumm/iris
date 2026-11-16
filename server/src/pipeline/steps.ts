@@ -6,6 +6,9 @@ import {
   HEADLINE_MAX,
   type HandlerStep,
   type Memo,
+  needsGist,
+  runsAct,
+  TRANSCRIBE_ROUTE,
   type Summary,
 } from "../memo/memo.js";
 import type { ReplyProgress } from "../memo/progress.js";
@@ -17,6 +20,7 @@ import type { Notifier } from "../ports/notifier.js";
 import type { Summarizer } from "../ports/summarizer.js";
 import type { Transcriber } from "../ports/transcriber.js";
 import type { MemoStore } from "../memo/store.js";
+import { log } from "../telemetry/log.js";
 import { getActiveSpan } from "../telemetry/otel.js";
 
 // Each step is a pure function of (memo, ports): it reads what earlier steps stored on the memo,
@@ -142,21 +146,32 @@ export function createStepHandlers(deps: {
   }
 
   // Always present: without a summarizer (or when triage fails) the step fails and the runner skips it, `summarize` being optional.
-  // Triage sees the transcript and the final reply only, never tool traffic; every memo it summarizes went to Hermes.
+  // Triage sees the transcript and the final reply only, never tool traffic; a `transcribe` memo has no reply and no Hermes turn.
+  // The gist is an extra of the extra: a failed gist call leaves the headline and detail, it never fails the step.
   handlers.summarize = async ({ memo }) => {
     if (!summarizer) throw new Error("summarize: no summarizer configured");
-    const result = await summarizer.summarize({
-      memoId: memo.id,
-      route: "hermes",
-      transcript: required(memo.transcript, "transcript", "summarize"),
-      replyText: memo.replyText,
-    });
+    const transcript = required(memo.transcript, "transcript", "summarize");
+    const [result, transcriptGist] = await Promise.all([
+      summarizer.summarize({
+        memoId: memo.id,
+        route: runsAct(memo.mode) ? "hermes" : TRANSCRIBE_ROUTE,
+        transcript,
+        replyText: memo.replyText,
+      }),
+      needsGist(transcript)
+        ? summarizer.gist({ memoId: memo.id, transcript }).catch((err: unknown) => {
+            log("summarize.gist_failed", { memo_id: memo.id, error: String(err) });
+            return null;
+          })
+        : null,
+    ]);
     getActiveSpan().setAttributes({
       summary_chars: result.summary.headline.length + result.summary.detail.length,
+      gist_chars: transcriptGist?.length ?? 0,
       cost_usd: result.costUsd,
     });
     return {
-      patch: { summary: result.summary },
+      patch: { summary: result.summary, transcriptGist },
       usage: result.usage,
       ...(result.costUsd !== undefined && { costUsd: result.costUsd }),
     };

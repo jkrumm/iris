@@ -97,3 +97,34 @@ describe("agw summarizer", () => {
     );
   });
 });
+
+describe("agw gist", () => {
+  const gistParams = { memoId: params.memoId, transcript: "Ein langer Gedanke. ".repeat(30) };
+  const answer = (summary: string) =>
+    Response.json({ summary }, { headers: { "agw-run-id": RUN_ID } });
+
+  it("posts the transcript whole to llm/summarize with a 30-word bound and returns the one-line summary", async () => {
+    const { calls, summarizer } = setup(() => answer("  Er denkt\nlaut nach.  "));
+    expect(await summarizer.gist(gistParams)).toBe("Er denkt laut nach.");
+    expect(calls).toEqual([
+      {
+        url: "http://127.0.0.1:7791/llm/summarize",
+        body: { text: gistParams.transcript, maxWords: 30, style: "paragraph" },
+      },
+    ]);
+  });
+
+  it("cuts an answer over 240 characters and refuses an empty one", async () => {
+    const long = setup(() => answer("wort ".repeat(100)));
+    const gist = await long.summarizer.gist(gistParams);
+    expect(Array.from(gist)).toHaveLength(240);
+    expect(gist.endsWith("…")).toBe(true);
+    const empty = setup(() => answer("  "));
+    await expect(empty.summarizer.gist(gistParams)).rejects.toThrow("empty gist");
+  });
+
+  it("fails like any agw call on a host error", async () => {
+    const { summarizer } = setup(() => new Response("{}", { status: 400 }));
+    await expect(summarizer.gist(gistParams)).rejects.toThrow("400");
+  });
+});

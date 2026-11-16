@@ -231,4 +231,8 @@ export const MIGRATIONS: readonly string[] = [
     PRIMARY KEY (memo_id, id)
   );
   `,
+  // A short gist of what the speaker said, written by `summarize` for a transcript over 400 characters; NULL otherwise.
+  `
+  ALTER TABLE memos ADD COLUMN transcript_gist TEXT;
+  `,
 ];

@@ -25,7 +25,7 @@ function setup(
     destination?: FakeDestination | null;
     notifier?: ReturnType<typeof fakeNotifier>;
     /** `null` leaves the pipeline without agw: `summarize` fails and is skipped. */
-    summarizer?: Pick<ReturnType<typeof fakeSummarizer>, "calls" | "summarize"> | null;
+    summarizer?: Pick<ReturnType<typeof fakeSummarizer>, "calls" | "summarize" | "gist"> | null;
     replyAssets?: (store: MemoStore) => ReplyAssets;
   } = {},
 ) {
@@ -441,8 +441,9 @@ describe("pipeline end to end", () => {
     expect(notifier.calls.map((c) => c.summary.headline)).toEqual(["hello iris"]);
   });
 
-  it("ends a transcribe-mode memo after transcribe, announcing the transcript", async () => {
-    const { store, runner, destination, notifier } = setup();
+  it("ends a transcribe-mode memo after transcribe and summarize, announcing the summary headline", async () => {
+    const summarizer = fakeSummarizer({ result: { costUsd: 0.001 } });
+    const { store, runner, destination, notifier } = setup({ summarizer });
     const id = crypto.randomUUID();
     store.createMemo({
       id,
@@ -459,16 +460,93 @@ describe("pipeline end to end", () => {
       transcript: "hello iris",
       route: null,
       replyText: null,
-      summary: null,
+      summary: { headline: "Headline" },
+      transcriptGist: null,
       kind: null,
       actions: [],
     });
     expect(store.listStepRecords(id).map((s) => [s.step, s.status])).toEqual([
       ["transcribe", "done"],
+      ["summarize", "done"],
       ["notify", "done"],
     ]);
     expect(destination.calls).toEqual([]);
-    expect(notifier.calls.map((c) => c.summary.headline)).toEqual(["hello iris"]);
+    // Triage sees the transcript alone, with no reply; a transcript this short has no gist.
+    expect(summarizer.calls).toEqual([
+      expect.objectContaining({ transcript: "hello iris", replyText: null }),
+    ]);
+    expect(summarizer.calls[0]?.route).not.toBe("hermes");
+    expect(summarizer.gistCalls).toEqual([]);
+    expect(notifier.calls.map((c) => c.summary.headline)).toEqual(["Headline"]);
+  });
+
+  describe("transcript gist", () => {
+    const long = "word ".repeat(180).trim(); // 899 characters
+    const short = "word ".repeat(40).trim(); // 199 characters
+    const run = async (opts: {
+      mode: "transcribe" | "auto";
+      text: string;
+      summarizer?: ReturnType<typeof fakeSummarizer>;
+    }) => {
+      const summarizer = opts.summarizer ?? fakeSummarizer({ gist: "What was said." });
+      const { store, runner, notifier } = setup({
+        summarizer,
+        transcriber: fakeTranscriber({ result: { text: opts.text } }),
+      });
+      const id = crypto.randomUUID();
+      store.createMemo({
+        id,
+        mode: opts.mode,
+        device: "iphone",
+        startedAt: "2026-01-01T00:00:00.000Z",
+      });
+      store.recordSegment({ id, index: 0, bytes: 1, sha256: "sha-0" });
+      store.markReceived({ id, segmentCount: 1 });
+      await runner.drive(id);
+      return { memo: store.getMemo(id), summarizer, notifier };
+    };
+
+    it("is written for a Hermes memo with a long transcript and null for a short one", async () => {
+      const withLong = await run({ mode: "auto", text: long });
+      expect(withLong.memo).toMatchObject({ state: "notified", transcriptGist: "What was said." });
+      expect(withLong.summarizer.gistCalls).toHaveLength(1);
+      const withShort = await run({ mode: "auto", text: short });
+      expect(withShort.memo).toMatchObject({ state: "notified", transcriptGist: null });
+      expect(withShort.summarizer.gistCalls).toEqual([]);
+    });
+
+    it("is written for a transcribe memo with a long transcript", async () => {
+      const { memo } = await run({ mode: "transcribe", text: long });
+      expect(memo).toMatchObject({
+        state: "notified",
+        transcriptGist: "What was said.",
+        summary: { headline: "Headline" },
+      });
+    });
+
+    it("needs more than 400 characters", async () => {
+      expect(
+        (await run({ mode: "transcribe", text: "x".repeat(400) })).memo?.transcriptGist,
+      ).toBeNull();
+      expect((await run({ mode: "transcribe", text: "x".repeat(401) })).memo?.transcriptGist).toBe(
+        "What was said.",
+      );
+    });
+
+    it("a failing gist call keeps the summary and the memo reaches notified", async () => {
+      const { memo, notifier } = await run({
+        mode: "transcribe",
+        text: long,
+        summarizer: fakeSummarizer({ gistFailWith: new Error("agw down") }),
+      });
+      expect(memo).toMatchObject({
+        state: "notified",
+        failedStep: null,
+        transcriptGist: null,
+        summary: { headline: "Headline" },
+      });
+      expect(notifier.calls.map((c) => c.summary.headline)).toEqual(["Headline"]);
+    });
   });
 
   it("waits at transcribed when no destination is configured", async () => {
@@ -488,6 +566,7 @@ describe("pipeline end to end", () => {
         if (broken) throw new Error("agw down");
         return inner.summarize(params);
       },
+      gist: inner.gist,
     };
     const { store, runner, transcriber, destination, notifier } = setup({ summarizer });
     const { id } = seedWithSegments(store, [0]);
