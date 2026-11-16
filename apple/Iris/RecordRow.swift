@@ -2,14 +2,18 @@ import IrisCore
 import IrisUI
 import SwiftUI
 
-/// The record control in the tab bar's bottom accessory: three visible buttons, no hidden gesture. A large Hermes button
-/// (the default: a take whose memo goes to Hermes), a smaller Transcribe button (a take that only becomes a transcript) and a
-/// smaller Text button (opens the composer). The accessory is a capsule in two placements: `expanded` has room for icon and
-/// title on every button, `inline` (the tab bar is minimized) keeps the title on Hermes only.
+/// The record control in the tab bar's bottom accessory: three visible buttons, no hidden gesture, all the same capsule
+/// height. Hermes is the one primary (the default: a take whose memo goes to Hermes, `Accent.fill`); Transcribe (a take that
+/// only becomes a transcript) and Text (opens the composer) are the same capsule in a tinted secondary fill, so no button reads
+/// as a tab. The accessory is a capsule in two placements: `expanded` has room for icon and title on every button, `inline`
+/// (the tab bar is minimized) keeps the title on Hermes only and the other two are icon-only capsules.
 struct RecordRow: View {
   let model: TakeModel
   let onCompose: () -> Void
   @Environment(\.tabViewBottomAccessoryPlacement) private var placement
+
+  /// The secondary buttons' fill: the accent at the strength of the user's chat bubble (`ChatBubble`), a shape without a second primary.
+  private static let secondaryFillOpacity = 0.14
 
   private var showsSecondaryTitles: Bool { placement != .inline }
 
@@ -20,10 +24,7 @@ struct RecordRow: View {
       } label: {
         Label("Hermes", systemImage: MemoMode.hermes.recordIcon)
           .labelStyle(RecordLabelStyle(showsTitle: true))
-          .foregroundStyle(Theme.Accent.onFill)
-          .frame(maxWidth: .infinity, minHeight: Theme.Spacing.tapTarget)
-          .background(Theme.Accent.fill, in: .capsule)
-          .contentShape(.capsule)
+          .recordCapsule(foreground: Theme.Accent.onFill, fill: Theme.Accent.fill, fillsWidth: true)
       }
       .buttonStyle(.plain)
       .accessibilityLabel("Hermes")
@@ -35,9 +36,7 @@ struct RecordRow: View {
       } label: {
         Label("Transcribe", systemImage: MemoMode.transcribe.recordIcon)
           .labelStyle(RecordLabelStyle(showsTitle: showsSecondaryTitles))
-          .foregroundStyle(Theme.Accent.tint)
-          .frame(minHeight: Theme.Spacing.tapTarget)
-          .contentShape(.rect)
+          .recordCapsule(foreground: Theme.Accent.tint, fill: Theme.Accent.tint.opacity(Self.secondaryFillOpacity))
       }
       .buttonStyle(.plain)
       .accessibilityLabel("Transcribe")
@@ -47,9 +46,7 @@ struct RecordRow: View {
       Button(action: onCompose) {
         Label("Text", systemImage: "keyboard")
           .labelStyle(RecordLabelStyle(showsTitle: showsSecondaryTitles))
-          .foregroundStyle(Theme.Accent.tint)
-          .frame(minHeight: Theme.Spacing.tapTarget)
-          .contentShape(.rect)
+          .recordCapsule(foreground: Theme.Accent.tint, fill: Theme.Accent.tint.opacity(Self.secondaryFillOpacity))
       }
       .buttonStyle(.plain)
       .accessibilityLabel("Text")
@@ -59,6 +56,20 @@ struct RecordRow: View {
     .themeFont(.subheadline, weight: .semibold)
     .padding(.horizontal, Theme.Spacing.snug)
     .disabled(!model.canStart)
+  }
+}
+
+extension View {
+  /// One record button: a capsule at the tap-target height (a circle when icon-only), so the three buttons differ in fill only.
+  fileprivate func recordCapsule<Fill: ShapeStyle>(foreground: Color, fill: Fill, fillsWidth: Bool = false) -> some View
+  {
+    self
+      .foregroundStyle(foreground)
+      .frame(
+        minWidth: Theme.Spacing.tapTarget, maxWidth: fillsWidth ? .infinity : nil, minHeight: Theme.Spacing.tapTarget
+      )
+      .background(fill, in: .capsule)
+      .contentShape(.capsule)
   }
 }
 

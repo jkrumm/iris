@@ -8,7 +8,7 @@ final class TypedMemoUITests: IrisUITestCase {
     start(app)
     XCTAssertTrue(waitForPresence(app.descendants(matching: .any)["history.list"], timeout: 10))
 
-    app.buttons["history.compose"].tap()
+    app.descendants(matching: .any)["record.text"].tap()
     let send = app.buttons["composer.send"]
     XCTAssertTrue(waitForPresence(send, timeout: 5))
     XCTAssertFalse(send.isEnabled, "nothing typed yet")

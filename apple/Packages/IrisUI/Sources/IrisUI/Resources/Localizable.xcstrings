@@ -817,6 +817,17 @@
         }
       }
     },
+    "Show all" : {
+      "comment" : "Expands a long transcript that is cut after a few lines",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Alles anzeigen"
+          }
+        }
+      }
+    },
     "Show full screen" : {
       "comment" : "Button on an inline artifact: opens it full screen",
       "localizations" : {
@@ -830,6 +841,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Show full screen"
+          }
+        }
+      }
+    },
+    "Show less" : {
+      "comment" : "Collapses a long transcript to its first lines",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Weniger anzeigen"
           }
         }
       }

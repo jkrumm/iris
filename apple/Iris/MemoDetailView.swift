@@ -3,7 +3,7 @@ import IrisUI
 import SwiftUI
 
 /// The detail of a memo that is a document (Transcribe mode, or a deleted memo), top to bottom: headline with the kind chip and one
-/// meta line (day, time, cost), what was said as a bubble with the compact recording player inside it (a pending bubble while the
+/// meta line (day, time, cost) and a prominent Copy transcript button, what was said as a bubble with the compact recording player inside it (a pending bubble while the
 /// transcript is on its way), and Details (step waterfall, copy rows, ids; collapsed, open on a failed memo), then the icon-only
 /// retry at the bottom. A Hermes memo opens the conversation screen instead. It reloads when `refreshToken` changes (History bumps
 /// it on a `memo.updated` event).
@@ -12,6 +12,8 @@ struct MemoDetailView: View {
   @State private var playback: MemoPlayback
   @State private var isRecordingExpanded = false
   private let refreshToken: () -> Int
+  /// The transcript is copied, not reread: the bubble shows this many lines, then Show all.
+  private static let transcriptLineLimit = 8
 
   init(model: MemoDetailModel, refreshToken: @escaping () -> Int = { 0 }) {
     _model = State(initialValue: model)
@@ -73,7 +75,33 @@ struct MemoDetailView: View {
           .themeFont(.callout)
           .foregroundStyle(Theme.Status.bad)
       }
+      if memo.plainTranscript != nil {
+        copyTranscriptButton
+          .padding(.top, Theme.Spacing.sm)
+      }
     }
+  }
+
+  /// The reason most people open a transcript: one prominent button that copies it, confirms in place and taps the haptic.
+  private var copyTranscriptButton: some View {
+    let isCopied = model.copied == .transcript
+    return Button {
+      model.copy(.transcript)
+    } label: {
+      Label(
+        isCopied
+          ? String(localized: "Copied", comment: "Detail: confirmation after Copy")
+          : String(localized: "Copy transcript", comment: "Detail: copies the transcript as plain text"),
+        systemImage: isCopied ? "checkmark" : "doc.on.doc"
+      )
+      .contentTransition(.symbolEffect(.replace))
+      .frame(maxWidth: .infinity)
+    }
+    .buttonStyle(.primary)
+    .controlSize(.large)
+    .animation(.snappy(duration: 0.25), value: isCopied)
+    .sensoryFeedback(.success, trigger: model.copyCount)
+    .accessibilityIdentifier("detail.copy")
   }
 
   // MARK: Conversation
@@ -86,7 +114,7 @@ struct MemoDetailView: View {
       if let text = memo.plainTranscript {
         UserTurnView(
           text: text, time: memo.timeText, identifier: "detail.transcript", onCopy: { model.copy(.transcript) },
-          hasFooter: model.audioRequest != nil
+          hasFooter: model.audioRequest != nil, collapsedLineLimit: Self.transcriptLineLimit
         ) {
           player
         }

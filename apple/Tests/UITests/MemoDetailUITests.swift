@@ -67,6 +67,28 @@ final class MemoDetailUITests: IrisUITestCase {
     XCTAssertTrue(waitForPresence(confirmed, timeout: 5), "the button says Copied: \(copy.label)")
   }
 
+  /// A transcript memo's screen leads with Copy transcript under the title: one tap puts the transcript on the pasteboard and the
+  /// button confirms.
+  @MainActor
+  func testCopyTranscriptButtonPutsTheTranscriptOnThePasteboard() throws {
+    let app = launch(holdCopied: true)
+    UIPasteboard.general.string = "stale"
+    revealRow(containing: "Nur ein Gedanke", in: app).tap()
+    XCTAssertTrue(waitForPresence(app.descendants(matching: .any)["memo.detail"], timeout: 10))
+
+    let copy = app.buttons["detail.copy"]
+    XCTAssertTrue(waitForPresence(copy, timeout: 10))
+    XCTAssertEqual(copy.label, "Copy transcript")
+    copy.tap()
+    let confirmed = app.buttons.matching(identifier: "detail.copy").matching(
+      NSPredicate(format: "label == %@", "Copied")
+    ).firstMatch
+    XCTAssertTrue(waitForPresence(confirmed, timeout: 5), "the button says Copied: \(copy.label)")
+    XCTAssertEqual(
+      UIPasteboard.general.string,
+      "Nur ein Gedanke für später: die Aufnahme beim Anruf nicht abbrechen, sondern pausieren.")
+  }
+
   @MainActor
   func testTheDetailsSheetShowsTheStepWaterfallAndThePlayer() {
     let app = launch()

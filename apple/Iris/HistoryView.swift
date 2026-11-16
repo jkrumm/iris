@@ -12,8 +12,6 @@ struct HistoryView: View {
   let onConnect: () -> Void
   /// Builds the detail model of a tapped row (the composition root owns the client and the media source).
   let makeDetail: (Memo) -> MemoDetailModel
-  /// Builds the model of the composer sheet (the composition root owns the client).
-  let makeComposer: (ComposerRequest) -> ComposerModel
   /// Builds the model of a conversation screen.
   let makeThread: (Memo) -> ThreadModel
   /// The mockup's row: 12 pt above and below, 20 pt screen margin on both sides (`history.html` `.row`).
@@ -23,7 +21,6 @@ struct HistoryView: View {
   /// The day header draws its own margin: its solid backing has to reach both screen edges.
   private static let headerInsets = EdgeInsets()
   @State private var showingFilters = false
-  @State private var composer: ComposerRequest?
 
   var body: some View {
     NavigationStack(path: $path) {
@@ -86,7 +83,7 @@ struct HistoryView: View {
       .safeAreaInset(edge: .bottom, spacing: 0) {
         HistorySearchBar(
           text: $model.filters.searchText, filterCount: model.filters.activeFilterCount,
-          onFilter: { showingFilters = true }, onCompose: { composer = ComposerRequest() }
+          onFilter: { showingFilters = true }
         )
         // Solid down to the screen edge: the Record accessory and the tab bar (also the minimized one under a take banner)
         // are glass over this, not over the rows.
@@ -102,12 +99,6 @@ struct HistoryView: View {
           kinds: model.filters.kinds(in: model.memos)
         )
         .presentationDragIndicator(.visible)
-      }
-      .sheet(item: $composer) { request in
-        BuiltOnce(make: { makeComposer(request) }) { composer in
-          ComposerView(model: composer, onSent: { model.insert($0) }, onQueued: { model.didQueue() })
-        }
-        .id(request.id)
       }
       .refreshable { await model.load() }
       .task(id: model.filters) {
