@@ -68,11 +68,12 @@ final class MemoDetailUITests: IrisUITestCase {
   }
 
   /// A transcript memo's screen leads with Copy transcript under the title: one tap puts the transcript on the pasteboard and the
-  /// button confirms.
+  /// button confirms. The pasteboard is read through the app (paste into the composer): the test process itself gets `nil` from
+  /// `UIPasteboard.general`, since a read across processes is blocked.
   @MainActor
   func testCopyTranscriptButtonPutsTheTranscriptOnThePasteboard() throws {
+    let transcript = "Nur ein Gedanke für später: die Aufnahme beim Anruf nicht abbrechen, sondern pausieren."
     let app = launch(holdCopied: true)
-    UIPasteboard.general.string = "stale"
     revealRow(containing: "Nur ein Gedanke", in: app).tap()
     XCTAssertTrue(waitForPresence(app.descendants(matching: .any)["memo.detail"], timeout: 10))
 
@@ -84,9 +85,20 @@ final class MemoDetailUITests: IrisUITestCase {
       NSPredicate(format: "label == %@", "Copied")
     ).firstMatch
     XCTAssertTrue(waitForPresence(confirmed, timeout: 5), "the button says Copied: \(copy.label)")
-    XCTAssertEqual(
-      UIPasteboard.general.string,
-      "Nur ein Gedanke für später: die Aufnahme beim Anruf nicht abbrechen, sondern pausieren.")
+
+    // Back to History, open the composer from the record row and paste: the field holds what the button copied.
+    app.navigationBars.buttons.element(boundBy: 0).tap()
+    let text = app.descendants(matching: .any)["record.text"]
+    XCTAssertTrue(waitForPresence(text, timeout: 10))
+    text.tap()
+    let field = app.textViews["composer.field"]
+    XCTAssertTrue(waitForPresence(field, timeout: 10))
+    field.tap()
+    let paste = app.descendants(matching: .any).matching(NSPredicate(format: "label == 'Paste'")).firstMatch
+    XCTAssertTrue(waitForPresence(paste, timeout: 10), "the pasteboard holds text, so the field offers Paste")
+    paste.tap()
+    let pasted = app.textViews["composer.field"].value as? String
+    XCTAssertEqual(pasted, transcript)
   }
 
   @MainActor
