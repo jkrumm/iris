@@ -220,7 +220,7 @@ an index answers a prefix search without scanning every transcript, and `unicode
 text needs ("kalend" finds "Kalender", "ubung" finds "Übung"). The index is external-content over the view `memo_search`, so it stores no second copy
 of the text and `rebuild` / `integrity-check` work; triggers keep it in step with `memos`. User input never reaches the MATCH syntax: the text is
 split on whitespace, words without a letter or digit are dropped (text with none matches nothing), every remaining term is double-quoted (embedded
-quotes doubled) and prefix-matched (`"kalend"*`), terms are ANDed. SQLite's own `changes` counts trigger writes in `bun:sqlite`, so
+quotes doubled) and prefix-matched (`"kalend"*`), terms are ANDed. The index also holds the reply text, `hermes_headline` and the thread title (migration 19); a query with no hit is retried with each unknown word of four or more letters replaced by its nearest indexed terms (`fts-search.ts`, edit distance against `memo_fts_vocab`). SQLite's own `changes` counts trigger writes in `bun:sqlite`, so
 `createMemo` / `createTextMemo` read `changes > 0`, not `=== 1`, to tell a new row from a conflict.
 
 Planned for R3, not built: `memos.target_tab` / `language`. Device tokens are not stored: the token map lives in `IRIS_DEVICE_TOKENS`.
