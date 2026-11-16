@@ -66,9 +66,14 @@ class IrisUITestCase: XCTestCase {
       case .some(false): confirmedAbsent = true
       case nil: break
       }
-    } while Date() < deadline
+    } while Date() < deadline || (!confirmedAbsent && Date() < hardCap(after: deadline))
     return confirmedAbsent ? false : nil
   }
+
+  /// How far past its own deadline a wait keeps asking when no query has answered yet: on a loaded runner one timed-out
+  /// query can eat the whole window of a short wait (run 43842704767: a 2 s absence check spent 30 s in two timed-out
+  /// queries and failed without ever having looked). A wait ends with an answer, or after this long without one.
+  private func hardCap(after deadline: Date) -> Date { deadline.addingTimeInterval(90) }
 
   /// Waits for `element` to exist. A query that times out on a loaded runner is asked again until `timeout` is over, so the
   /// only way to fail is an element that is really not there.
@@ -88,10 +93,15 @@ class IrisUITestCase: XCTestCase {
   @MainActor
   func waitForAbsence(_ element: XCUIElement, timeout: TimeInterval = 10) -> Bool {
     let deadline = Date().addingTimeInterval(timeout)
+    var answered = false
     repeat {
       let slice = min(5, max(deadline.timeIntervalSinceNow, 0.5))
-      if QueryRetry.attempt({ element.waitForNonExistence(timeout: slice) }) == true { return true }
-    } while Date() < deadline
+      switch QueryRetry.attempt({ element.waitForNonExistence(timeout: slice) }) {
+      case .some(true): return true
+      case .some(false): answered = true
+      case nil: break
+      }
+    } while Date() < deadline || (!answered && Date() < hardCap(after: deadline))
     return false
   }
 
