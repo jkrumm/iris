@@ -90,7 +90,7 @@ describe("memo lifecycle over HTTP", () => {
 describe("mode transcribe over HTTP", () => {
   const START = "2026-01-01T00:00:00.000Z";
 
-  it("ends notified after transcribe and notify alone, with the transcript and no route or reply", async () => {
+  it("ends notified after transcribe, summarize and notify, with the transcript and no route or reply", async () => {
     const ran: string[] = [];
     const record =
       (step: string, patch?: { transcript: string }): StepHandler =>
@@ -139,15 +139,16 @@ describe("mode transcribe over HTTP", () => {
       replyText: null,
       summary: null,
     });
-    expect(ran).toEqual(["transcribe", "notify"]);
+    expect(ran).toEqual(["transcribe", "summarize", "notify"]);
     const detail = await json(await call(app, { path: `/v1/memos/${id}` }));
     expect(detail.steps.map((s) => [s.step, s.status])).toEqual([
       ["transcribe", "done"],
+      ["summarize", "done"],
       ["notify", "done"],
     ]);
   });
 
-  it("ends a typed memo at once: the text is the transcript, only notify runs", async () => {
+  it("ends a typed memo at once: the text is the transcript, act never runs", async () => {
     const ran: string[] = [];
     const { app } = testApp({
       handlers: {

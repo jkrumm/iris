@@ -102,6 +102,8 @@ public struct Memo: Codable, Hashable, Sendable, Identifiable {
   /// The reply's valid `iris-show` / `iris-doc` fences; empty when there are none, omitted then. An invalid fence is absent and stays a code block.
   public var replyArtifacts: [ReplyArtifact]
   public var summary: MemoSummary?
+  /// What the speaker said or asked (at most 240 characters, the transcript's language); the server writes it only for a transcript over 400 characters, `null` otherwise and on memos from before it existed.
+  public var transcriptGist: String?
   /// The Hermes session (chat or not) the memo belongs to: set when `act` ran in it, or at creation for a memo that continues
   /// a thread (`CreateMemoRequest.threadId`); omitted (never `null`) otherwise.
   public var threadId: String?
@@ -144,6 +146,7 @@ public struct Memo: Codable, Hashable, Sendable, Identifiable {
     replyBlocks: [ReplyBlock] = [],
     replyArtifacts: [ReplyArtifact] = [],
     summary: MemoSummary? = nil,
+    transcriptGist: String? = nil,
     threadId: String? = nil,
     kind: String? = nil,
     actions: [String] = [],
@@ -172,6 +175,7 @@ public struct Memo: Codable, Hashable, Sendable, Identifiable {
     self.replyBlocks = replyBlocks
     self.replyArtifacts = replyArtifacts
     self.summary = summary
+    self.transcriptGist = transcriptGist
     self.threadId = threadId
     self.kind = kind
     self.actions = actions
@@ -187,7 +191,7 @@ public struct Memo: Codable, Hashable, Sendable, Identifiable {
 
   private enum CodingKeys: String, CodingKey {
     case id, mode, device, startedAt, state, failedStep, error, segmentCount, audioSeconds, transcript, route
-    case destinationRef, replyText, replyBlocks, replyArtifacts, summary, threadId, createdAt, updatedAt
+    case destinationRef, replyText, replyBlocks, replyArtifacts, summary, transcriptGist, threadId, createdAt, updatedAt
     case done, favorite, archived, deletedAt, purgeAt, kind, actions
     case isTyped = "typed"
   }
@@ -210,6 +214,7 @@ public struct Memo: Codable, Hashable, Sendable, Identifiable {
     replyBlocks = try container.decodeIfPresent([ReplyBlock].self, forKey: .replyBlocks) ?? []
     replyArtifacts = try container.decodeIfPresent([ReplyArtifact].self, forKey: .replyArtifacts) ?? []
     summary = try container.decode(MemoSummary?.self, forKey: .summary)
+    transcriptGist = try container.decodeIfPresent(String.self, forKey: .transcriptGist)
     threadId = try container.decodeIfPresent(String.self, forKey: .threadId)
     kind = try container.decodeIfPresent(String.self, forKey: .kind)
     actions = try container.decodeIfPresent([String].self, forKey: .actions) ?? []
@@ -242,6 +247,7 @@ public struct Memo: Codable, Hashable, Sendable, Identifiable {
     if !replyBlocks.isEmpty { try container.encode(replyBlocks, forKey: .replyBlocks) }
     if !replyArtifacts.isEmpty { try container.encode(replyArtifacts, forKey: .replyArtifacts) }
     try container.encode(summary, forKey: .summary)
+    try container.encode(transcriptGist, forKey: .transcriptGist)
     try container.encodeIfPresent(threadId, forKey: .threadId)
     if isTyped { try container.encode(true, forKey: .isTyped) }
     try container.encode(done, forKey: .done)

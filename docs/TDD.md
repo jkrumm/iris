@@ -122,17 +122,17 @@ from `HERMES_URL` + `HERMES_TOKEN` and records `act` in `degraded` when it is mi
 receiving ──complete──> received ──> transcribed ──act──> acted ──notify──> notified (terminal)
 any step ──error──> failed(step)   ──retry(from)──> <step>
 typed memo:       created transcribed ──act──> acted ──> notified
-mode transcribe:  received ──> transcribed ──notify──> notified   (no act)
+mode transcribe:  received ──> transcribed ──summarize──> summarized ──notify──> notified   (no act)
 ```
 
-- **Pipeline per mode:** `stepsOf(mode)` in `memo/memo.ts` is the pipeline for every memo: `ingest → transcribe → act → summarize → notify` for every mode but `transcribe` (`runsAct(mode)`), `ingest → transcribe → notify` for mode `transcribe`;
-  a typed memo (`POST /memos/text`, created `transcribed`) starts at `act` (`notify` in mode `transcribe`). `nextStep`, `advance({state, step, mode})` and `stateBefore({step, mode})` read one transition table per mode; `stateBefore` throws
+- **Pipeline per mode:** `stepsOf(mode)` in `memo/memo.ts` is the pipeline for every memo: `ingest → transcribe → act → summarize → notify` for every mode but `transcribe` (`runsAct(mode)`), `ingest → transcribe → summarize → notify` for mode `transcribe`;
+  a typed memo (`POST /memos/text`, created `transcribed`) starts at `act` (`summarize` in mode `transcribe`). `nextStep`, `advance({state, step, mode})` and `stateBefore({step, mode})` read one transition table per mode; `stateBefore` throws
   `IllegalTransitionError` for a step outside the mode's pipeline. The state is the last finished step. The modes on the wire are unchanged (`auto|journal|hermes|tab|chat|transcribe`, stored as received); Hermes decides what the memo is, so only `transcribe` differs.
 - **Waiting for Hermes:** `act` has a handler only when a `Destination` is composed. Without one the memo stays `transcribed` (a degraded start, `/health` lists `act`) and the runner drives it once the server runs with Hermes configured. A memo that stays `transcribed`
   is therefore either waiting for a configured Hermes or has no running runner; a memo that failed there is `failed(act)`.
-- **Mode `transcribe` (Wave 17 S2):** the owner picks "just the transcript" up front. The steps it does not have are absent, not skipped: no `act` row on the timeline (`GET /memos/:id` `steps` holds `transcribe` and `notify`;
-  the waterfall only draws rows that exist), `reply_text`, `summary`, `kind` and `actions` stay empty and the server needs no Hermes to finish the memo. The memo ends in the ordinary terminal `notified`, so `isResultReady`, `/result` and `memo.done`
-  need no special case. `notify` announces the transcript clipped to a 60-code-point headline, the alert title is the generic "Iris" (no kind chip). A typed memo in this mode runs only `notify` and ends at once. A `threadId` with this mode is 400
+- **Mode `transcribe` (Wave 17 S2):** the owner picks "just the transcript" up front. The steps it does not have are absent, not skipped: no `act` row on the timeline (`GET /memos/:id` `steps` holds `transcribe`, `summarize` and `notify`;
+  the waterfall only draws rows that exist), `reply_text`, `kind` and `actions` stay empty (`summary` is the `summarize` headline, `transcript_gist` its gist for a transcript over 400 characters) and the server needs no Hermes to finish the memo. The memo ends in the ordinary terminal `notified`, so `isResultReady`, `/result` and `memo.done`
+  need no special case. `notify` announces the summary headline (the transcript clipped to 60 code points when `summarize` failed), the alert title is the generic "Iris" (no kind chip). A typed memo in this mode runs `summarize` and `notify` and ends at once. A `threadId` with this mode is 400
   `bad_request` (a thread continues in Hermes, which this mode never reaches).
 - **Old rows:** `routed`, `needs_route` and the step `route` are no longer produced (`summarize` and `summarized` are live); `STEPS` and `MEMO_STATES` keep them so old rows read. Migration 14 settled the open ones (§Data model). `isResultReady` is
   terminal or an old `needs_route`; `isDeletable` still includes `needs_route`.

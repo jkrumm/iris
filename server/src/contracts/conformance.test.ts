@@ -202,9 +202,9 @@ describe("flows: every response conforms", () => {
     expect(items.find((m) => m.id === id)?.threadId).toBe(id);
   });
 
-  it("a transcribe memo ends notified with the transcript, no route, reply or summary, and two steps", async () => {
+  it("a transcribe memo ends notified with the transcript, no route or reply, and three steps", async () => {
     const { app } = testApp({
-      handlers: handlers({ act: async () => ({}), summarize: async () => ({}) }),
+      handlers: handlers({ act: async () => ({}) }),
     });
     const id = crypto.randomUUID();
     const created = await create(app, id, "transcribe");
@@ -229,10 +229,10 @@ describe("flows: every response conforms", () => {
       transcript: "Hallo Welt",
       route: null,
       replyText: null,
-      summary: null,
     });
     expect((detail["steps"] as { step: string }[]).map((s) => s.step)).toEqual([
       "transcribe",
+      "summarize",
       "notify",
     ]);
 

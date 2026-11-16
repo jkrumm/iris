@@ -7,12 +7,17 @@
   "failedStep": null,
   "error": null,
   "segmentCount": 2,
-  "audioSeconds": 17.3,
-  "transcript": "Ideen für das Wochenende: früh los zum See, danach Brunch bei den Nachbarn, abends Kino.",
+  "audioSeconds": 41.6,
+  "transcript": "Ideen für das Wochenende: früh los zum See, solange es noch nicht so voll ist, danach Brunch bei den Nachbarn, die uns schon zweimal eingeladen haben. Am Nachmittag könnten wir die Fahrräder aus dem Keller holen und prüfen, ob die Reifen noch halten, und wenn das Wetter mitspielt, eine kleine Runde durch die Weinberge drehen. Abends dann Kino, am liebsten den neuen Film, über den alle reden. Und ich muss unbedingt noch Karten reservieren, bevor sie ausverkauft sind.",
   "route": null,
   "destinationRef": null,
   "replyText": null,
-  "summary": null,
+  "summary": {
+    "headline": "Wochenende: See, Brunch, Kino",
+    "detail": "Früh zum See, danach Brunch bei den Nachbarn, abends ins Kino.",
+    "spoken": "Das Wochenende beginnt am See, danach gibt es Brunch bei den Nachbarn und abends Kino."
+  },
+  "transcriptGist": "Wochenendplan: früh zum See, Brunch bei den Nachbarn, Radtour durch die Weinberge, abends Kino. Vorher Karten reservieren.",
   "done": false,
   "favorite": false,
   "archived": false,
@@ -26,15 +31,32 @@
       "finishedAt": "2026-03-14T11:20:11.620Z",
       "error": null,
       "usage": {
-        "audioSeconds": 17.3
+        "audioSeconds": 41.6
       },
-      "costUsd": 0.0017,
+      "costUsd": 0.0041,
+      "attempts": 1
+    },
+    {
+      "step": "summarize",
+      "status": "done",
+      "startedAt": "2026-03-14T11:20:11.650Z",
+      "finishedAt": "2026-03-14T11:20:12.400Z",
+      "error": null,
+      "usage": {
+        "inputTokens": 210,
+        "outputTokens": 64,
+        "reasoningTokens": 0,
+        "totalTokens": 274,
+        "cacheReadTokens": 0,
+        "costUsd": 0.0004
+      },
+      "costUsd": 0.0004,
       "attempts": 1
     },
     {
       "step": "notify",
       "status": "done",
-      "startedAt": "2026-03-14T11:20:11.700Z",
+      "startedAt": "2026-03-14T11:20:12.450Z",
       "finishedAt": "2026-03-14T11:20:12.890Z",
       "error": null,
       "usage": null,

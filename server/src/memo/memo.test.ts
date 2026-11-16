@@ -91,22 +91,27 @@ describe("stepsOf", () => {
 });
 
 describe("mode transcribe", () => {
-  it("runs transcribe, then notify straight from transcribed", () => {
-    expect(stepsOf("transcribe")).toEqual(["ingest", "transcribe", "notify"]);
+  it("runs transcribe, then summarize and notify, with no act in between", () => {
+    expect(stepsOf("transcribe")).toEqual(["ingest", "transcribe", "summarize", "notify"]);
     expect(nextStep({ state: "received", mode: "transcribe" })).toBe("transcribe");
-    expect(nextStep({ state: "transcribed", mode: "transcribe" })).toBe("notify");
+    expect(nextStep({ state: "transcribed", mode: "transcribe" })).toBe("summarize");
+    expect(nextStep({ state: "summarized", mode: "transcribe" })).toBe("notify");
     expect(nextStep({ state: "notified", mode: "transcribe" })).toBeNull();
-    expect(advance({ state: "transcribed", step: "notify", mode: "transcribe" })).toBe("notified");
-    expect(stateBefore({ step: "notify", mode: "transcribe" })).toBe("transcribed");
+    expect(advance({ state: "transcribed", step: "summarize", mode: "transcribe" })).toBe(
+      "summarized",
+    );
+    expect(advance({ state: "summarized", step: "notify", mode: "transcribe" })).toBe("notified");
+    expect(stateBefore({ step: "summarize", mode: "transcribe" })).toBe("transcribed");
+    expect(stateBefore({ step: "notify", mode: "transcribe" })).toBe("summarized");
   });
 
-  it("refuses the steps it does not have, and notify from acted", () => {
-    for (const step of ["route", "act", "summarize"] as const) {
+  it("refuses the steps it does not have, and summarize from acted", () => {
+    for (const step of ["route", "act"] as const) {
       expect(() => advance({ state: "transcribed", step, mode: "transcribe" })).toThrow(
         IllegalTransitionError,
       );
     }
-    expect(() => advance({ state: "acted", step: "notify", mode: "transcribe" })).toThrow(
+    expect(() => advance({ state: "acted", step: "summarize", mode: "transcribe" })).toThrow(
       IllegalTransitionError,
     );
     expect(() => stateBefore({ step: "act", mode: "transcribe" })).toThrow(IllegalTransitionError);

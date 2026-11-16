@@ -246,7 +246,7 @@ struct FixtureConformanceTests {
     #expect(!encoded.contains("\"typed\""))
   }
 
-  @Test("a transcribe memo ends notified with a transcript, no route, reply or summary, and two steps")
+  @Test("a transcribe memo ends notified with a transcript, a summary and a gist, no route or reply, and three steps")
   func transcribeFixture() throws {
     let decoder = IrisJSON.makeDecoder()
     let detail = try decoder.decode(MemoDetail.self, from: Contracts.fixtureData("memos.detail.response.transcribe"))
@@ -255,8 +255,9 @@ struct FixtureConformanceTests {
     #expect(detail.memo.transcript != nil)
     #expect(detail.memo.route == nil)
     #expect(detail.memo.replyText == nil)
-    #expect(detail.memo.summary == nil)
-    #expect(detail.steps.map(\.step) == [.transcribe, .notify])
+    #expect(detail.memo.summary != nil)
+    #expect(detail.memo.transcriptGist != nil)
+    #expect(detail.steps.map(\.step) == [.transcribe, .summarize, .notify])
 
     let create = try decoder.decode(
       CreateMemoRequest.self, from: Contracts.fixtureData("memos.create.request.transcribe"))

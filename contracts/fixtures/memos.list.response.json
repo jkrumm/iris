@@ -15,6 +15,7 @@
       "destinationRef": null,
       "replyText": null,
       "summary": null,
+      "transcriptGist": null,
       "done": false,
       "favorite": false,
       "archived": false,
@@ -40,6 +41,7 @@
         "detail": "",
         "spoken": "Der Wochenplan steht. Release ist am Donnerstag, offen ist nur noch die Datenbankmigration."
       },
+      "transcriptGist": null,
       "done": false,
       "favorite": false,
       "archived": false,
@@ -66,6 +68,7 @@
       "destinationRef": null,
       "replyText": null,
       "summary": null,
+      "transcriptGist": null,
       "done": true,
       "favorite": true,
       "archived": false,

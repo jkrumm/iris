@@ -17,6 +17,7 @@
     "detail": "Ein Mutex hat genau einen Halter, ein Semaphor zählt freie Plätze und erlaubt mehrere gleichzeitige Halter.",
     "spoken": "Ein Mutex hat einen Halter, ein Semaphor zählt freie Plätze."
   },
+  "transcriptGist": null,
   "threadId": "9d4f2b68-1e73-4a85-b0c6-5f8a3e7d2c10",
   "done": false,
   "favorite": false,

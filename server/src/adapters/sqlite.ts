@@ -63,6 +63,7 @@ interface MemoRow {
   destination_ref: string | null;
   reply_text: string | null;
   summary_json: string | null;
+  transcript_gist: string | null;
   thread_id: string | null;
   kind: string | null;
   /** The headline of Hermes's iris block, NULL before `act` and when the reply carried none. */
@@ -225,6 +226,7 @@ const toMemo = (row: MemoRow): Memo => ({
   replyBlocks: parseReplyBlocks(row),
   replyArtifacts: parseReplyArtifacts(row),
   summary: parseSummary(row),
+  transcriptGist: row.transcript_gist,
   threadId: row.thread_id,
   kind: row.kind,
   hermesHeadline: row.hermes_headline,
@@ -268,6 +270,7 @@ const PATCH_COLUMNS = {
   destinationRef: "destination_ref",
   replyText: "reply_text",
   summary: "summary_json",
+  transcriptGist: "transcript_gist",
   threadId: "thread_id",
   kind: "kind",
   hermesHeadline: "hermes_headline",
@@ -278,7 +281,7 @@ const PATCH_COLUMNS = {
 const STEP_COLUMNS: Partial<Record<Step, (keyof MemoColumnPatch)[]>> = {
   transcribe: ["audioSeconds", "transcript"],
   act: ["destinationRef", "replyText", "kind", "hermesHeadline", "actions"],
-  summarize: ["summary"],
+  summarize: ["summary", "transcriptGist"],
 };
 
 const toStepRecord = (row: StepRow): StepRecord => ({

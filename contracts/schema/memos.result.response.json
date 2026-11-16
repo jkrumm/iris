@@ -278,6 +278,16 @@
         }
       ]
     },
+    "transcriptGist": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
     "typed": {
       "const": true,
       "type": "boolean"
@@ -301,6 +311,7 @@
     "destinationRef",
     "replyText",
     "summary",
+    "transcriptGist",
     "done",
     "favorite",
     "archived",

@@ -107,16 +107,29 @@ export function fakeDestination(
 
 const DEFAULT_SUMMARY: Summary = { headline: "Headline", detail: "Detail", spoken: "Spoken." };
 
+const DEFAULT_GIST = "Gist.";
+
+/** `failWith` fails `summarize`, `gistFailWith` fails `gist`; `gistCalls` records `gist`. */
 export function fakeSummarizer(
-  options: Options<Summarization> = {},
-): Summarizer & Calls<Parameters<Summarizer["summarize"]>[0]> {
+  options: Options<Summarization> & { gist?: string; gistFailWith?: Error } = {},
+): Summarizer &
+  Calls<Parameters<Summarizer["summarize"]>[0]> & {
+    gistCalls: Parameters<Summarizer["gist"]>[0][];
+  } {
   const calls: Parameters<Summarizer["summarize"]>[0][] = [];
+  const gistCalls: Parameters<Summarizer["gist"]>[0][] = [];
   return {
     calls,
+    gistCalls,
     async summarize(params) {
       calls.push(params);
       if (options.failWith) throw options.failWith;
       return { summary: DEFAULT_SUMMARY, ...options.result };
+    },
+    async gist(params) {
+      gistCalls.push(params);
+      if (options.gistFailWith) throw options.gistFailWith;
+      return options.gist ?? DEFAULT_GIST;
     },
   };
 }

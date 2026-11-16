@@ -542,7 +542,7 @@ describe("completeStep", () => {
       hermesHeadline: "Buy milk",
       actions: ["web_search"],
     });
-    complete("summarize", "acted", "summarized", { summary });
+    complete("summarize", "acted", "summarized", { summary, transcriptGist: "He said milk." });
     store.markStepStarted({ id, step: "notify" });
     markFailed(store, { id, step: "notify", error: "boom" });
 
@@ -554,6 +554,7 @@ describe("completeStep", () => {
       hermesHeadline: "Buy milk",
       actions: ["web_search"],
       summary,
+      transcriptGist: "He said milk.",
       replyText: "x",
     });
 
@@ -567,6 +568,7 @@ describe("completeStep", () => {
       destinationRef: null,
       replyText: null,
       summary: null,
+      transcriptGist: null,
       kind: null,
       hermesHeadline: null,
       actions: [],
