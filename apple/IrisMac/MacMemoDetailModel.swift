@@ -41,8 +41,7 @@ final class MacMemoDetailModel {
   private(set) var baselines = StepBaselines()
   private(set) var isRetrying = false
   private(set) var loadFailed = false
-  /// The toolbar's Details popover is open. It lives here so a window snapshot can open it; a model per memo means it closes when
-  /// the selection moves.
+  /// The toolbar's Details popover is open. A model per memo means it closes when the selection moves.
   var isShowingDetails = false
   /// The text last copied, until the confirmation timer ends it; the button reads "Copied" meanwhile.
   private(set) var copied: CopyTarget?
