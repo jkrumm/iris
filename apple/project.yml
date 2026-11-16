@@ -171,6 +171,8 @@ targets:
       - Iris/StepText.swift
       - Iris/WaterfallBuilder.swift
       - Iris/Pasteboard.swift
+      # The Details popover builds one model per answer it shows, once (the iPhone's helper).
+      - Iris/BuiltOnce.swift
       # The desktop app: the media download behind Play, the thread read.
       - Iris/MediaDownloader.swift
       - Iris/MemoMediaSource.swift

@@ -735,6 +735,12 @@ final class MacCompositionRoot {
     return model
   }
 
+  /// A model of its own for one memo of the open conversation, for the Details popover's steps (the pane's cached model belongs
+  /// to the memo it shows). Not cached: the popover builds it once per memo it shows.
+  func detailsModel(for memo: Memo) -> MacMemoDetailModel {
+    MacMemoDetailModel(memoID: memo.id, memo: memo, client: api, pasteboard: MacPasteboard())
+  }
+
   /// The saved connection changed: everything that belongs to the old server goes (its lists, the selected memo,
   /// what was announced), the client points at the new one, and following starts over.
   private func connectionChanged() {

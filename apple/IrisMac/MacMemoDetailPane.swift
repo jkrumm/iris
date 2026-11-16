@@ -3,9 +3,10 @@ import IrisUI
 import SwiftUI
 
 /// The main window's detail column. A Hermes memo is a chat (`Memo.isConversation`): the headline and one quiet metadata line, the
-/// conversation as bubbles, Details (steps, ids) in a disclosure group, and the composer pinned at the foot to reply. A
+/// conversation as bubbles and the composer pinned at the foot to reply. A
 /// transcribe-mode memo keeps the document layout: reply, summary and transcript as plain sections
-/// with small uppercase labels, and no composer. Actions sit in the window toolbar. It reloads when `refreshToken` changes (the
+/// with small uppercase labels, and no composer. Actions sit in the window toolbar, Details (steps, copy rows, ids, per answer) in a
+/// popover from its Details button. It reloads when `refreshToken` changes (the
 /// window's list bumps a memo's revision on its `memo.updated` event, for any memo of the open conversation), so a running turn
 /// becomes its answer in place.
 struct MacMemoDetailPane: View {
@@ -104,7 +105,7 @@ struct MacMemoDetailPane: View {
     }
   }
 
-  /// The conversation as bubbles, what Hermes used, and the steps.
+  /// The conversation as bubbles.
   @ViewBuilder private func chat(_ memo: Memo) -> some View {
     MacConversationView(
       turns: model.turns, onCopy: { model.copyTurn($0) }, onOpenImage: { zoomed = MacZoomedDiagram(image: $0) }
@@ -120,8 +121,6 @@ struct MacMemoDetailPane: View {
       .foregroundStyle(Theme.Status.warn)
       .accessibilityIdentifier("mac.detail.conversation-error")
     }
-    MacActionsLine(memo: memo)
-    MacMemoDetails(model: model)
   }
 
   /// The composer of the memo's conversation, pinned to the foot of the pane.
@@ -149,6 +148,7 @@ struct MacMemoDetailPane: View {
         playButtons(memo)
         copyMenu
         retryControl
+        detailsButton
       }
       ToolbarItemGroup(placement: .primaryAction) {
         Button(
@@ -173,6 +173,17 @@ struct MacMemoDetailPane: View {
         }
       }
     }
+  }
+
+  private var detailsButton: some View {
+    Button(
+      String(localized: "Details", comment: "Detail toolbar: opens the memo's details"), systemImage: "info.circle"
+    ) { model.isShowingDetails.toggle() }
+    .help(String(localized: "Details", comment: "Detail toolbar: opens the memo's details"))
+    .popover(isPresented: $model.isShowingDetails, arrowEdge: .bottom) {
+      MacMemoDetailsPopover(root: root, model: model)
+    }
+    .accessibilityIdentifier("mac.detail.details")
   }
 
   @ViewBuilder private func playButtons(_ memo: Memo) -> some View {

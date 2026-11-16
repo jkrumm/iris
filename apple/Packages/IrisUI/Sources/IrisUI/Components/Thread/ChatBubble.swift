@@ -33,11 +33,12 @@ struct BubbleWidth: Layout {
 
 /// One message of the conversation: a rounded bubble (the user's in the accent tint on the right, Iris's on the panel surface on
 /// the left) with a small time caption under it. The `footer` sits inside the bubble under the content, behind a hairline; with
-/// `onCopy` a long press on the bubble offers Copy.
+/// `onCopy` a long press on the bubble offers Copy, with `onDetails` Details.
 struct ChatBubble<Content: View, Footer: View>: View {
   let side: BubbleSide
   let time: String
   let onCopy: (() -> Void)?
+  let onDetails: (() -> Void)?
   /// Whether the footer row (and the hairline above it) is drawn. A footer built from an `if` is never an `EmptyView`, so the
   /// caller says when there is nothing to show.
   let hasFooter: Bool
@@ -45,12 +46,13 @@ struct ChatBubble<Content: View, Footer: View>: View {
   let footer: Footer
 
   init(
-    side: BubbleSide, time: String, onCopy: (() -> Void)? = nil, hasFooter: Bool = true,
+    side: BubbleSide, time: String, onCopy: (() -> Void)? = nil, onDetails: (() -> Void)? = nil, hasFooter: Bool = true,
     @ViewBuilder content: () -> Content, @ViewBuilder footer: () -> Footer
   ) {
     self.side = side
     self.time = time
     self.onCopy = onCopy
+    self.onDetails = onDetails
     self.hasFooter = hasFooter
     self.content = content()
     self.footer = footer()
@@ -109,12 +111,27 @@ struct ChatBubble<Content: View, Footer: View>: View {
           }
         }
       }
+      if let onDetails {
+        Button(action: onDetails) {
+          Label {
+            Text("Details", bundle: #bundle, comment: "Context menu of a chat bubble: opens the details of its memo")
+          } icon: {
+            Image(systemName: "info.circle")
+          }
+        }
+        .accessibilityIdentifier("thread.turn.details")
+      }
     }
   }
 }
 
 extension ChatBubble where Footer == EmptyView {
-  init(side: BubbleSide, time: String, onCopy: (() -> Void)? = nil, @ViewBuilder content: () -> Content) {
-    self.init(side: side, time: time, onCopy: onCopy, hasFooter: false, content: content, footer: { EmptyView() })
+  init(
+    side: BubbleSide, time: String, onCopy: (() -> Void)? = nil, onDetails: (() -> Void)? = nil,
+    @ViewBuilder content: () -> Content
+  ) {
+    self.init(
+      side: side, time: time, onCopy: onCopy, onDetails: onDetails, hasFooter: false, content: content,
+      footer: { EmptyView() })
   }
 }

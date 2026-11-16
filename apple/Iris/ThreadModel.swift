@@ -134,10 +134,23 @@ final class ThreadModel {
     if next != turns { turns = next }
   }
 
+  /// Every memo of the conversation, oldest first: the Details sheet steps through them.
+  var memos: [Memo] { detail?.memos ?? ([anchor] + sentMemos) }
+
   /// The memo for a turn's Details sheet: the loaded thread's version, or the anchor.
   func memo(id: String) -> Memo? {
     if let found = detail?.memos.first(where: { $0.id == id }) { return found }
     return ([anchor] + sentMemos).first { $0.id == id }
+  }
+
+  // MARK: Retry
+
+  /// Runs the failed memo's last step again from the conversation (the Retry under its failed turn); a failure is the screen's toast.
+  func retry(_ memo: MemoDetailModel) async {
+    guard let step = memo.primaryRetryStep else { return }
+    await memo.retry(from: step)
+    if let failed = memo.failure { showFailure(failed.message) }
+    await load()
   }
 
   // MARK: Loading

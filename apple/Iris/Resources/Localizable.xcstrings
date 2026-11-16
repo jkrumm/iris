@@ -1,6 +1,36 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "Answer %lld of %lld" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Antwort %1$lld von %2$lld"
+          }
+        }
+      }
+    },
+    "Earlier answer" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Frühere Antwort"
+          }
+        }
+      }
+    },
+    "Later answer" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Spätere Antwort"
+          }
+        }
+      }
+    },
     "%@ (partial)" : {
       "localizations" : {
         "de" : {
@@ -217,46 +247,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "%1$lld von %2$lld Zeichen"
-          }
-        }
-      }
-    },
-    "%lld segments" : {
-      "localizations" : {
-        "en" : {
-          "variations" : {
-            "plural" : {
-              "one" : {
-                "stringUnit" : {
-                  "state" : "translated",
-                  "value" : "%lld segment"
-                }
-              },
-              "other" : {
-                "stringUnit" : {
-                  "state" : "translated",
-                  "value" : "%lld segments"
-                }
-              }
-            }
-          }
-        },
-        "de" : {
-          "variations" : {
-            "plural" : {
-              "one" : {
-                "stringUnit" : {
-                  "state" : "translated",
-                  "value" : "%lld Segment"
-                }
-              },
-              "other" : {
-                "stringUnit" : {
-                  "state" : "translated",
-                  "value" : "%lld Segmente"
-                }
-              }
-            }
           }
         }
       }
@@ -1171,16 +1161,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Memo gelöscht"
-          }
-        }
-      }
-    },
-    "Memo ID" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Memo-ID"
           }
         }
       }
@@ -2261,16 +2241,6 @@
         }
       }
     },
-    "Thread ID" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Unterhaltungs-ID"
-          }
-        }
-      }
-    },
     "Today" : {
       "localizations" : {
         "de" : {
@@ -2618,16 +2588,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Art"
-          }
-        }
-      }
-    },
-    "Hermes used: %@" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Hermes nutzte: %@"
           }
         }
       }

@@ -41,13 +41,14 @@ final class MacMemoDetailModel {
   private(set) var baselines = StepBaselines()
   private(set) var isRetrying = false
   private(set) var loadFailed = false
+  /// The toolbar's Details popover is open. It lives here so a window snapshot can open it; a model per memo means it closes when
+  /// the selection moves.
+  var isShowingDetails = false
   /// The text last copied, until the confirmation timer ends it; the button reads "Copied" meanwhile.
   private(set) var copied: CopyTarget?
   /// What the last failed action says, until the next action.
   private(set) var failure: String?
   let memoID: String
-  /// The owner's own open or close of the waterfall; nil until the first tap.
-  private var waterfallChoice: Bool?
   private var baselinesLoaded = false
   /// Bumped by every load and by a retry's answer. A response that finds it changed belongs to a request that was
   /// superseded (an event-triggered load that a retry's load overtook, or the other way round) and is dropped.
@@ -151,13 +152,6 @@ final class MacMemoDetailModel {
   /// Puts one turn's text on the pasteboard (an answer as plain text).
   func copyTurn(_ text: String) {
     pasteboard.copy(text)
-  }
-
-  /// Details (the step rows and the ids) show under their line: collapsed until the owner opens them, except for a failed
-  /// memo, whose failed step (and its retry) is what the owner came for.
-  var isWaterfallExpanded: Bool {
-    get { waterfallChoice ?? (memo?.state == .failed) }
-    set { waterfallChoice = newValue }
   }
 
   // MARK: Waterfall

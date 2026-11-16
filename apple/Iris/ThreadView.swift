@@ -4,8 +4,9 @@ import IrisUI
 import SwiftUI
 
 /// One conversation as a rendered document: a turn per question and answer, an answer still on its way as a pending
-/// turn with the pipeline's dashes, and a bar at the bottom to reply by text or hold to talk. A Details button after each
-/// memo opens that memo's details sheet. It reloads when `refreshToken` changes (History bumps a memo's revision on its
+/// turn with the pipeline's dashes, and a bar at the bottom to reply by text or hold to talk. The toolbar's Details button opens
+/// the details sheet on the newest answer (earlier ones one step away), a bubble's context menu on its own memo, and a failed
+/// turn has its Retry under it. It reloads when `refreshToken` changes (History bumps a memo's revision on its
 /// `memo.updated` event), and the reply replaces the pending turn with a short fade.
 struct ThreadView: View {
   @State private var model: ThreadModel
@@ -33,14 +34,15 @@ struct ThreadView: View {
     let memoIDs: [String]
   }
 
+  /// The memo the Details sheet opens on; the sheet steps through all the conversation's memos.
   private struct DetailsTarget: Identifiable {
-    let memo: Memo
-    var id: String { memo.id }
+    let memoID: String
+    var id: String { memoID }
   }
 
   /// - Parameters:
   ///   - refreshToken: Folds what History knows of this conversation (its memos' revisions, its memo count) into one number the screen reloads on.
-  ///   - makeDetail: Builds the model of a memo's Details sheet.
+  ///   - makeDetail: Builds the model of a memo's Details sheet, and the Retry of a failed turn.
   ///   - memoRevision: History's revision of one memo, which the Details sheet reloads on.
   ///   - liveEvents: A stream of the live events (`ready`, `memo.delta`, `memo.activity`) while the screen is up; the default ends at once.
   ///   - onSent: Told of every memo this screen creates (History lists it at once).
@@ -66,8 +68,10 @@ struct ThreadView: View {
           ConversationTurnList(
             turns: model.turns, style: .phone, dayTitle: { HistoryDaySection.title(of: $0) },
             onOpenImage: { zoomed = ZoomedImage(image: $0) },
-            onDetails: { id in
-              if let memo = model.memo(id: id) { details = DetailsTarget(memo: memo) }
+            onDetails: { details = DetailsTarget(memoID: $0) },
+            onRetry: { id in
+              guard let memo = model.memo(id: id) else { return }
+              Task { await model.retry(makeDetail(memo)) }
             })
           Color.clear.frame(height: 1).id(Self.bottom)
         }
@@ -103,6 +107,17 @@ struct ThreadView: View {
     .reportsScreen("thread")
     .navigationBarTitleDisplayMode(.inline)
     .toolbarVisibility(.hidden, for: .tabBar)
+    .toolbar {
+      ToolbarItem(placement: .topBarTrailing) {
+        Button(
+          String(localized: "Details", comment: "Toolbar button that opens a memo's details"),
+          systemImage: "info.circle"
+        ) {
+          if let newest = model.memos.last { details = DetailsTarget(memoID: newest.id) }
+        }
+        .accessibilityIdentifier("thread.details")
+      }
+    }
     .task(id: refreshToken(model.threadID, model.memoIDs)) { await model.load() }
     .task {
       for await event in liveEvents() { await model.apply(event) }
@@ -127,10 +142,8 @@ struct ThreadView: View {
       if scenePhase != .active { cancelVoice() }
     }
     .sheet(item: $details) { target in
-      BuiltOnce(make: { makeDetail(target.memo) }) { detail in
-        MemoDetailsSheet(model: detail, refreshToken: { memoRevision(target.id) })
-      }
-      .id(target.id)
+      MemoDetailsSheet(
+        memos: model.memos, selectedID: target.memoID, makeDetail: makeDetail, memoRevision: memoRevision)
     }
     .fullScreenCover(item: $zoomed) { item in
       ZoomableImageView(

@@ -73,6 +73,7 @@
       // The diagram of the first answer has been fetched by now.
       try? await Task.sleep(for: .seconds(2))
       write(windowTitled: Self.mainTitle, as: "window-chat-mermaid")
+      await writeDetails(memoID: threadMemoID)
       // A turn in flight: the pending bubble with the pipeline's dashes.
       root.selectedMemoID = SampleData.hermesFollowUpID
       try? await Task.sleep(for: .seconds(2))
@@ -91,6 +92,26 @@
       write(windowTitled: Self.mainTitle, as: "window-filtered")
       root.scope = .all
       await writeNewMemo()
+    }
+
+    /// The open conversation's Details popover (steps, copy rows, ids; Previous and Next between its answers), light and dark. The
+    /// popover is a window of its own, so the main window's picture does not hold it.
+    private func writeDetails(memoID: String) async {
+      let model = root.detailModel(for: memoID)
+      model.isShowingDetails = true
+      try? await Task.sleep(for: .seconds(2))
+      let popover = NSApp.windows.first { $0.isVisible && String(describing: type(of: $0)).contains("Popover") }
+      guard let popover else {
+        Self.logger.error("no Details popover; windows: \(describeWindows(), privacy: .public)")
+        return
+      }
+      write(popover, as: "window-details")
+      NSApp.appearance = NSAppearance(named: .darkAqua)
+      try? await Task.sleep(for: .seconds(1))
+      write(popover, as: "window-details-dark")
+      NSApp.appearance = nil
+      model.isShowingDetails = false
+      try? await Task.sleep(for: .milliseconds(500))
     }
 
     /// The New memo page, empty and with a draft; then the draft sent through the fake outbox: the new memo opens with its question

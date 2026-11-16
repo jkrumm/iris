@@ -157,19 +157,34 @@ final class ThreadUITests: IrisUITestCase {
     XCTAssertTrue(waitForAbsence(element(app, "memo.detail"), timeout: 1))
   }
 
-  /// A Hermes memo that failed at act is a conversation too; its Details button opens the sheet with the steps and the retry.
+  /// A Hermes memo that failed at act is a conversation too: its failure and its Retry sit under the failed turn, without
+  /// opening anything; the toolbar's Details open the steps and the retry bar.
   @MainActor
-  func testTheDetailsButtonOpensTheStepsAndRetryOfAFailedMemo() {
+  func testAFailedMemoShowsItsFailureAndRetryWithoutOpeningDetails() {
     let app = launch()
     revealRow(containing: "xcodegen", in: app).tap()
 
     XCTAssertTrue(waitForPresence(element(app, "thread.view"), timeout: 10))
-    let details = app.buttons["thread.turn.details"].firstMatch
+    XCTAssertTrue(waitForPresence(element(app, "thread.turn.failed"), timeout: 10))
+    let retry = app.buttons["thread.turn.retry"]
+    XCTAssertTrue(waitForPresence(retry, timeout: 5))
+    XCTAssertTrue(waitForAbsence(element(app, "memo.details"), timeout: 1), "nothing was opened")
+    retry.tap()
+    XCTAssertTrue(waitForAbsence(retry, timeout: 15), "the retried memo is no longer failed")
+  }
+
+  @MainActor
+  func testTheToolbarOpensTheStepsAndRetryOfAFailedMemo() {
+    let app = launch()
+    revealRow(containing: "xcodegen", in: app).tap()
+
+    XCTAssertTrue(waitForPresence(element(app, "thread.view"), timeout: 10))
+    let details = app.buttons["thread.details"]
     XCTAssertTrue(waitForPresence(details, timeout: 10))
     details.tap()
 
     XCTAssertTrue(waitForPresence(element(app, "memo.details"), timeout: 10))
-    XCTAssertTrue(waitForPresence(app.staticTexts["Transcribe"], timeout: 10), "a failed memo opens its steps")
+    XCTAssertTrue(waitForPresence(app.staticTexts["Transcribe"], timeout: 10), "the steps are open")
     XCTAssertTrue(waitForPresence(app.buttons["detail.step.retry"], timeout: 5))
     XCTAssertTrue(waitForPresence(app.buttons["detail.action.retry"], timeout: 5))
   }

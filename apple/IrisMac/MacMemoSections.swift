@@ -3,8 +3,8 @@ import IrisUI
 import SwiftUI
 
 /// The document layout under the detail's header, for a memo with no Hermes session (a transcript, one that failed before `act`):
-/// sections without boxes, a small uppercase label, the content, spacing between. Details close the pane: the step table and the
-/// ids in a disclosure group, collapsed unless the memo failed. A memo in a session is a chat instead (``MacConversationView``).
+/// sections without boxes, a small uppercase label, the content, spacing between. Details (steps, copy rows, ids) are the toolbar's
+/// popover. A memo in a session is a chat instead (``MacConversationView``).
 struct MacMemoSections: View {
   let model: MacMemoDetailModel
 
@@ -12,10 +12,8 @@ struct MacMemoSections: View {
     if let memo = model.memo {
       VStack(alignment: .leading, spacing: Theme.Spacing.macSectionGap) {
         reply(memo)
-        MacActionsLine(memo: memo)
         summary(memo)
         transcript(memo)
-        MacMemoDetails(model: model)
       }
     }
   }
@@ -54,24 +52,6 @@ struct MacMemoSections: View {
           .textSelection(.enabled)
           .accessibilityIdentifier("mac.detail.transcript")
       }
-    }
-  }
-}
-
-/// What Hermes used for the memo, one quiet line under the reply; nothing when it used no tool.
-struct MacActionsLine: View {
-  let memo: Memo
-
-  var body: some View {
-    if !memo.actions.isEmpty {
-      let tools = memo.actions.joined(separator: ", ")
-      Text(
-        verbatim: String(
-          localized: "Hermes used: \(tools)", comment: "Detail: the tools Hermes ran for the memo, names are data")
-      )
-      .macFont(.caption)
-      .foregroundStyle(Theme.Ink.muted)
-      .accessibilityIdentifier("mac.detail.actions")
     }
   }
 }

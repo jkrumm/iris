@@ -1,6 +1,36 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "Answer %lld of %lld" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Antwort %1$lld von %2$lld"
+          }
+        }
+      }
+    },
+    "Earlier answer" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Frühere Antwort"
+          }
+        }
+      }
+    },
+    "Later answer" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Spätere Antwort"
+          }
+        }
+      }
+    },
     "%@ to stop" : {
       "localizations" : {
         "de" : {
@@ -344,16 +374,6 @@
         }
       }
     },
-    "Cost" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Kosten"
-          }
-        }
-      }
-    },
     "Could not change the login item." : {
       "localizations" : {
         "de" : {
@@ -470,16 +490,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Details"
-          }
-        }
-      }
-    },
-    "Device" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Gerät"
           }
         }
       }
@@ -616,16 +626,6 @@
         }
       }
     },
-    "Hermes used: %@" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Hermes nutzte: %@"
-          }
-        }
-      }
-    },
     "Iris" : {
       "localizations" : {
         "de" : {
@@ -682,16 +682,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Bibliothek"
-          }
-        }
-      }
-    },
-    "Memo ID" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Memo-ID"
           }
         }
       }
@@ -1192,16 +1182,6 @@
         }
       }
     },
-    "Running" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Läuft"
-          }
-        }
-      }
-    },
     "Save" : {
       "localizations" : {
         "de" : {
@@ -1329,16 +1309,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Status"
-          }
-        }
-      }
-    },
-    "Step" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Schritt"
           }
         }
       }
@@ -1549,32 +1519,12 @@
         }
       }
     },
-    "Thread ID" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Unterhaltungs-ID"
-          }
-        }
-      }
-    },
     "Threads" : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Unterhaltungen"
-          }
-        }
-      }
-    },
-    "Time" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Zeit"
           }
         }
       }
@@ -1595,26 +1545,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Token abgelehnt"
-          }
-        }
-      }
-    },
-    "Total" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Gesamt"
-          }
-        }
-      }
-    },
-    "Total so far" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Bisher gesamt"
           }
         }
       }
