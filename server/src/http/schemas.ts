@@ -230,7 +230,7 @@ export const FlagsBody = t.Object(
 export const ListQuery = t.Object({
   limit: t.Optional(t.Numeric()),
   cursor: t.Optional(t.String()),
-  // Search text: transcript and summary headline, case/umlaut-insensitive, each term a prefix, terms ANDed.
+  // Search text: transcript, headlines, reply and thread title, case/umlaut-insensitive, each term a prefix, terms ANDed; a typo is corrected when nothing matches.
   q: t.Optional(t.String({ maxLength: 200 })),
   // `UnionEnum` defaults a missing value to its first member; an absent filter must stay absent.
   state: t.Optional(t.UnionEnum([...MEMO_STATES], { default: undefined })),

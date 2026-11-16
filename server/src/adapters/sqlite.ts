@@ -23,6 +23,7 @@ import type { MemoStore, StagedReplyAssets, ThreadStore } from "../memo/store.js
 import type { Clock } from "../ports/clock.js";
 import { log } from "../telemetry/log.js";
 import { MIGRATIONS } from "./sqlite-migrations.js";
+import { correctedMatch, ftsMatch, type VocabTerm } from "./fts-search.js";
 import { createSqliteThreadStore } from "./sqlite-threads.js";
 
 /** Opens the data file with WAL and foreign keys on. Tests pass `:memory:`. */
@@ -249,19 +250,6 @@ const REPLY_ARTIFACTS_JSON = `(SELECT json_group_array(json_object(
 
 /** `SELECT` list for a memo row: the columns, the reply's rendered blocks and its artifacts. */
 const MEMO_SELECT = `memos.*, ${REPLY_ASSETS_JSON} AS reply_assets_json, ${REPLY_ARTIFACTS_JSON} AS reply_artifacts_json`;
-
-/**
- * The FTS5 MATCH expression for a user's search text: every term quoted (embedded quotes doubled, so input
- * never reaches the MATCH syntax as an operator) and prefix-matched, terms ANDed. `undefined`: no search
- * (blank text). `null`: text without a single letter or digit, which matches nothing.
- */
-function ftsMatch(q: string): string | null | undefined {
-  const words = q.split(/\s+/).filter(Boolean);
-  if (words.length === 0) return undefined;
-  const terms = words.filter((word) => /[\p{L}\p{N}]/u.test(word));
-  if (terms.length === 0) return null;
-  return terms.map((term) => `"${term.replaceAll('"', '""')}"*`).join(" ");
-}
 
 /** Column behind each patchable memo field. */
 const PATCH_COLUMNS = {
@@ -490,6 +478,10 @@ export function createSqliteMemoStore(params: { db: Database; clock: Clock }): M
     return true;
   });
 
+  /** Every indexed term with the number of memos it occurs in. */
+  const indexVocabulary = () =>
+    db.query<VocabTerm, []>("SELECT term, doc FROM memo_fts_vocab").all();
+
   const memoStore: Omit<MemoStore, keyof ThreadStore> = {
     createMemo({ id, mode, device, startedAt, threadId }) {
       const at = stamp();
@@ -553,16 +545,31 @@ export function createSqliteMemoStore(params: { db: Database; clock: Clock }): M
       }
       const match = q === undefined ? undefined : ftsMatch(q);
       if (match === null) filters.push("0");
-      else if (match !== undefined) {
-        filters.push("memos.seq IN (SELECT rowid FROM memo_fts WHERE memo_fts MATCH ?)");
-        args.push(match);
+      const search = (expression: string | undefined, upTo: number | null, max: number) => {
+        const where = [...filters];
+        const params = [...args];
+        if (expression !== undefined) {
+          where.push("memos.seq IN (SELECT rowid FROM memo_fts WHERE memo_fts MATCH ?)");
+          params.push(expression);
+        }
+        if (upTo !== null) {
+          where.push("memos.seq < ?");
+          params.push(upTo);
+        }
+        return db
+          .query<MemoRow, (string | number)[]>(
+            `SELECT ${MEMO_SELECT} FROM memos WHERE ${where.join(" AND ")} ORDER BY seq DESC LIMIT ?`,
+          )
+          .all(...params, max);
+      };
+      const expression = match ?? undefined;
+      let rows = search(expression, before, limit + 1);
+      // An exact query with no hit at all (a later page of a hit list is not that) is retried with its misspelt words corrected.
+      if (rows.length === 0 && expression !== undefined && q !== undefined) {
+        const hadHits = before !== null && search(expression, null, 1).length > 0;
+        const corrected = hadHits ? null : correctedMatch(q, indexVocabulary());
+        if (corrected !== null) rows = search(corrected, before, limit + 1);
       }
-      if (before !== null) filters.push("memos.seq < ?");
-      const rows = db
-        .query<MemoRow, (string | number)[]>(
-          `SELECT ${MEMO_SELECT} FROM memos WHERE ${filters.join(" AND ")} ORDER BY seq DESC LIMIT ?`,
-        )
-        .all(...args, ...(before === null ? [] : [before]), limit + 1);
       const page = rows.slice(0, limit);
       const last = page.at(-1);
       return {

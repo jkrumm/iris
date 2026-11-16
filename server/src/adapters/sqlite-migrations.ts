@@ -1,3 +1,13 @@
+/** The summary headline inside `summary_json` of the memo row aliased `row` (a malformed value indexes as no headline). */
+const summaryHeadline = (row: string) =>
+  `CASE WHEN json_valid(${row}.summary_json) THEN json_extract(${row}.summary_json, '$.headline') END`;
+
+/** The five indexed texts of migration 19, in the column order of `memo_fts`, for the memo row aliased `row` and a thread title expression. */
+const searchValues = (row: string, threadTitle: string) =>
+  `${row}.transcript, ${summaryHeadline(row)}, ${row}.reply_text, ${row}.hermes_headline, ${threadTitle}`;
+const SEARCH_COLUMNS = "transcript, headline, reply, hermes_headline, thread_title";
+const titleOf = (row: string) => `(SELECT t.title FROM threads t WHERE t.id = ${row}.thread_id)`;
+
 /** Append-only: a shipped migration is never edited, a schema change is a new entry at the end. */
 export const MIGRATIONS: readonly string[] = [
   `
@@ -234,5 +244,56 @@ export const MIGRATIONS: readonly string[] = [
   // A short gist of what the speaker said, written by `summarize` for a transcript over 400 characters; NULL otherwise.
   `
   ALTER TABLE memos ADD COLUMN transcript_gist TEXT;
+  `,
+  // Search covers what Hermes answered and the conversation too: the index is rebuilt over the transcript, the summary headline,
+  // the reply text, `hermes_headline` and the thread title (a view joins the title). `memo_fts_vocab` (fts5vocab) lists the indexed
+  // terms, which typo correction reads when an exact query finds nothing. A thread insert or title update reindexes its memos.
+  `
+  DROP TRIGGER memo_fts_insert;
+  DROP TRIGGER memo_fts_delete;
+  DROP TRIGGER memo_fts_update;
+  DROP TABLE memo_fts;
+  DROP VIEW memo_search;
+
+  CREATE VIEW memo_search AS
+    SELECT memos.seq AS seq, memos.transcript AS transcript, ${summaryHeadline("memos")} AS headline,
+      memos.reply_text AS reply, memos.hermes_headline AS hermes_headline, ${titleOf("memos")} AS thread_title
+    FROM memos;
+
+  CREATE VIRTUAL TABLE memo_fts USING fts5(
+    ${SEARCH_COLUMNS},
+    content = 'memo_search', content_rowid = 'seq',
+    tokenize = 'unicode61 remove_diacritics 2'
+  );
+  CREATE VIRTUAL TABLE memo_fts_vocab USING fts5vocab (memo_fts, row);
+
+  CREATE TRIGGER memo_fts_insert AFTER INSERT ON memos BEGIN
+    INSERT INTO memo_fts (rowid, ${SEARCH_COLUMNS})
+    VALUES (new.seq, ${searchValues("new", titleOf("new"))});
+  END;
+  CREATE TRIGGER memo_fts_delete AFTER DELETE ON memos BEGIN
+    INSERT INTO memo_fts (memo_fts, rowid, ${SEARCH_COLUMNS})
+    VALUES ('delete', old.seq, ${searchValues("old", titleOf("old"))});
+  END;
+  CREATE TRIGGER memo_fts_update AFTER UPDATE OF transcript, summary_json, reply_text, hermes_headline, thread_id ON memos BEGIN
+    INSERT INTO memo_fts (memo_fts, rowid, ${SEARCH_COLUMNS})
+    VALUES ('delete', old.seq, ${searchValues("old", titleOf("old"))});
+    INSERT INTO memo_fts (rowid, ${SEARCH_COLUMNS})
+    VALUES (new.seq, ${searchValues("new", titleOf("new"))});
+  END;
+  CREATE TRIGGER memo_fts_thread_insert AFTER INSERT ON threads BEGIN
+    INSERT INTO memo_fts (memo_fts, rowid, ${SEARCH_COLUMNS})
+    SELECT 'delete', m.seq, ${searchValues("m", "NULL")} FROM memos m WHERE m.thread_id = new.id;
+    INSERT INTO memo_fts (rowid, ${SEARCH_COLUMNS})
+    SELECT m.seq, ${searchValues("m", "new.title")} FROM memos m WHERE m.thread_id = new.id;
+  END;
+  CREATE TRIGGER memo_fts_thread_update AFTER UPDATE OF title ON threads BEGIN
+    INSERT INTO memo_fts (memo_fts, rowid, ${SEARCH_COLUMNS})
+    SELECT 'delete', m.seq, ${searchValues("m", "old.title")} FROM memos m WHERE m.thread_id = new.id;
+    INSERT INTO memo_fts (rowid, ${SEARCH_COLUMNS})
+    SELECT m.seq, ${searchValues("m", "new.title")} FROM memos m WHERE m.thread_id = new.id;
+  END;
+
+  INSERT INTO memo_fts (memo_fts) VALUES ('rebuild');
   `,
 ];

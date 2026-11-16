@@ -192,17 +192,122 @@ describe("listMemos search and filters", () => {
     expect(ids(store.listMemos({ limit: 10, state: "needs_route" }))).toEqual([parked]);
   });
 
+  it("finds what Hermes answered: reply text, its headline and the thread title", () => {
+    const { store, db } = testStore();
+    const reply = memoWith(store, "acted", {
+      transcript: "irgendwas",
+      replyText: "Der Zahnarzttermin steht am Montag",
+    });
+    const headline = memoWith(store, "acted", {
+      transcript: "noch was",
+      hermesHeadline: "Wecker gestellt",
+    });
+    const threaded = memoWith(store, "acted", {
+      transcript: "und noch was",
+      thread: { id: "t1", kind: "hermes", title: "Urlaubsplanung Island" },
+    });
+
+    expect(ids(store.listMemos({ limit: 5, q: "zahnarzt" }))).toEqual([reply]);
+    expect(ids(store.listMemos({ limit: 5, q: "wecker" }))).toEqual([headline]);
+    expect(ids(store.listMemos({ limit: 5, q: "island" }))).toEqual([threaded]);
+    expect(() =>
+      db.query("INSERT INTO memo_fts (memo_fts) VALUES ('integrity-check')").run(),
+    ).not.toThrow();
+  });
+
+  it("keeps the index exact when a reply is cleared and a memo is purged", () => {
+    const { store, db } = testStore();
+    const id = memoWith(store, "acted", {
+      transcript: "Hallo",
+      replyText: "Bananenbrot",
+      thread: { id: "t2", kind: "hermes", title: "Backen" },
+    });
+    db.query("UPDATE threads SET title = 'Kochen' WHERE id = 't2'").run();
+    expect(ids(store.listMemos({ limit: 5, q: "backen" }))).toEqual([]);
+    expect(ids(store.listMemos({ limit: 5, q: "kochen" }))).toEqual([id]);
+    db.query("DELETE FROM memos WHERE id = ?").run(id);
+    expect(ids(store.listMemos({ limit: 5, q: "bananenbrot" }))).toEqual([]);
+    expect(() =>
+      db.query("INSERT INTO memo_fts (memo_fts) VALUES ('integrity-check')").run(),
+    ).not.toThrow();
+  });
+
+  describe("typo tolerance", () => {
+    it("finds a memo through one or two wrong letters", () => {
+      const { store } = testStore();
+      const espresso = memoWith(store, "notified", {
+        transcript: "Ich trinke gern Espresso am Morgen",
+      });
+      memoWith(store, "notified", { transcript: "Milch kaufen" });
+
+      expect(ids(store.listMemos({ limit: 5, q: "expresso" }))).toEqual([espresso]);
+      expect(ids(store.listMemos({ limit: 5, q: "esspreso" }))).toEqual([espresso]);
+      expect(ids(store.listMemos({ limit: 5, q: "espersso" }))).toEqual([espresso]);
+      expect(ids(store.listMemos({ limit: 5, q: "expres" }))).toEqual([espresso]);
+      expect(ids(store.listMemos({ limit: 5, q: "expresso morgen" }))).toEqual([espresso]);
+      expect(ids(store.listMemos({ limit: 5, q: "expresso milch" }))).toEqual([]);
+    });
+
+    it("finds a typo in a word that only a reply contains", () => {
+      const { store } = testStore();
+      const id = memoWith(store, "notified", {
+        transcript: "x",
+        replyText: "Der Zahnarzttermin ist am Montag",
+      });
+      expect(ids(store.listMemos({ limit: 5, q: "zahnarzttermn" }))).toEqual([id]);
+    });
+
+    it("lists an exact match and never mixes in a corrected one", () => {
+      const { store } = testStore();
+      const exact = memoWith(store, "notified", { transcript: "Espresso kochen" });
+      memoWith(store, "notified", { transcript: "Expresso kochen" });
+      expect(ids(store.listMemos({ limit: 5, q: "espresso" }))).toEqual([exact]);
+    });
+
+    it("returns nothing for a word with no near term or a short word", () => {
+      const { store } = testStore();
+      memoWith(store, "notified", { transcript: "Espresso kochen" });
+      expect(ids(store.listMemos({ limit: 5, q: "xylophon" }))).toEqual([]);
+      expect(ids(store.listMemos({ limit: 5, q: "kochn" }))).toHaveLength(1);
+      expect(ids(store.listMemos({ limit: 5, q: "koh" }))).toEqual([]);
+      expect(ids(store.listMemos({ limit: 5, q: "... ---" }))).toEqual([]);
+    });
+
+    it("pages a corrected result and keeps the filters", () => {
+      const { store } = testStore();
+      const old = memoWith(store, "notified", { transcript: "Espresso eins", kind: "note" });
+      const task = memoWith(store, "notified", { transcript: "Espresso zwei", kind: "task" });
+      const newest = memoWith(store, "notified", { transcript: "Espresso drei", kind: "note" });
+      const first = store.listMemos({ limit: 1, q: "expresso" });
+      expect(ids(first)).toEqual([newest]);
+      const second = store.listMemos({ limit: 1, q: "expresso", cursor: first.nextCursor });
+      expect(ids(second)).toEqual([task]);
+      expect(ids(store.listMemos({ limit: 5, q: "expresso", kind: "note" }))).toEqual([
+        newest,
+        old,
+      ]);
+    });
+
+    it("finds über with uber", () => {
+      const { store } = testStore();
+      const id = memoWith(store, "notified", { transcript: "Das ist über alles" });
+      expect(ids(store.listMemos({ limit: 5, q: "uber" }))).toEqual([id]);
+    });
+  });
+
   it("backfills the index for memos that existed before the migration", () => {
     const db = new Database(":memory:");
     migrate(db, MIGRATIONS.slice(0, MIGRATIONS.length - 1));
     db.query(
-      `INSERT INTO memos (id, mode, device, started_at, state, transcript, summary_json, created_at, updated_at)
-       VALUES (?, 'auto', 'iphone', 't', 'notified', 'Der Kalender spinnt', ?, 't', 't')`,
+      `INSERT INTO memos (id, mode, device, started_at, state, transcript, summary_json, reply_text, created_at, updated_at)
+       VALUES (?, 'auto', 'iphone', 't', 'notified', 'Der Kalender spinnt', ?, 'Zahnarzttermin notiert', 't', 't')`,
     ).run("old", JSON.stringify({ headline: "Äpfel kaufen", detail: "d", spoken: "s" }));
 
     const store = sqliteTestStore({ db, clock: testStore().clock });
     expect(ids(store.listMemos({ limit: 5, q: "kalend" }))).toHaveLength(1);
     expect(ids(store.listMemos({ limit: 5, q: "apfel" }))).toHaveLength(1);
+    expect(ids(store.listMemos({ limit: 5, q: "zahnarzt" }))).toHaveLength(1);
+    expect(ids(store.listMemos({ limit: 5, q: "kalnder" }))).toHaveLength(1);
     const check = db.query("INSERT INTO memo_fts (memo_fts) VALUES ('integrity-check')");
     expect(() => check.run()).not.toThrow();
   });
