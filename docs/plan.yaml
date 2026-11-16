@@ -416,3 +416,351 @@ rows:
         The skill names both fences with valid examples (each example validates against the schema: a test or a
         one-off script whose output is quoted in the ship note); one real memo asking for "a comparison of three
         options as a table" comes back with a replyArtifacts entry (memo id named).
+
+  # --- Owner usage feedback, 2026-11-16 (iPhone and Mac). Server rows run beside the Apple rows; Apple rows share lane `apple` (one at a time).
+  - key: memo-titles-gist
+    title: Transcribe memos get a summarized title, and long transcripts a short gist of what was said
+    facts:
+      why: >-
+        Owner feedback 2026-11-16. A transcribe-only memo has no title: TRANSCRIBE_ONLY_STEPS in
+        server/src/memo/memo.ts:320 is ingest, transcribe, notify, so `summarize` never runs and the clients fall back to
+        the first 60 characters of sloppy dictation (apple/Iris/MemoPresentation.swift:8-27). In a Hermes conversation
+        the owner's own turn is shown whole (transcripts average 615 characters in production, the longest 5091); he
+        wants a short summary of what he said with the full text one tap away.
+      what: >-
+        server/src/memo/memo.ts (step lists, Summary), server/src/pipeline/steps.ts (handlers.summarize),
+        server/src/ports/summarizer.ts, server/src/adapters/agw.ts, the memo wire schema in server/src/http/schemas.ts,
+        contracts/ (make contracts, fixtures, make check-contracts), docs/http-api.md, docs/server-design.md. No Apple
+        code: the clients follow in row turn-collapse.
+      change: >-
+        (1) Run `summarize` for transcribe memos too (optional step, as today): agw POST /triage already accepts
+        `reply: null`, so the headline, detail and spoken line come from the transcript alone; `notify` then uses that
+        headline. (2) A nullable `transcriptGist` on the memo (at most 240 characters, the transcript's language): what
+        the speaker said or asked, written only when the transcript is longer than 400 characters. Produce it inside the
+        `summarize` step with one more cheap call through the agw host (the `llm summarize` capability; read `agw schema
+        llm summarize` for its route and options) behind the Summarizer port, and treat its failure like a failed
+        optional step: the memo still reaches notified. For a transcribe memo the triage `detail` may serve as the gist
+        if it reads as one, which saves the second call. (3) A one-off, idempotent script under scripts/ (or the existing
+        retry route from `summarize`) that titles the existing transcribe memos; run it once after the deploy.
+      acceptance: >-
+        A fake-booted test sends a transcribe memo and reads back summary.headline that is not the transcript's first
+        words; a Hermes memo with a 900-character transcript has transcriptGist, one with 200 characters has null; a
+        failing gist call leaves the memo notified; make check-contracts and make e2e pass; after the deploy `make
+        smoke` still reaches notified and a real transcribe memo (id named in the ship note) shows a headline; the
+        backfill ran and its count is in the ship note.
+
+  - key: search-typos
+    title: Memo search tolerates a typo and also finds what Hermes answered
+    facts:
+      why: >-
+        Owner feedback 2026-11-16: typing a misspelt "espresso" in the Mac search finds nothing. Search is FTS5 with
+        every word quoted, prefix-matched and ANDed (ftsMatch in server/src/adapters/sqlite.ts:252-260), so one wrong
+        letter gives zero rows; the index (memo_fts, server/src/adapters/sqlite-migrations.ts:120-146) covers only the
+        transcript and the summary headline, not the reply text, hermes_headline or the thread title.
+      what: >-
+        server/src/adapters/sqlite.ts, server/src/adapters/sqlite-migrations.ts (a new migration, never an edited one),
+        their tests, docs/http-api.md and docs/server-design.md. The route, its `q` parameter and the response shape
+        stay as they are: no contract change, no client change.
+      change: >-
+        (1) Index reply_text, hermes_headline and the thread title as well, with a migration that rebuilds the index.
+        (2) Typo tolerance without a native extension (bun:sqlite loads none): when the exact prefix query returns
+        nothing, correct each query word of four or more letters against the index vocabulary (an fts5vocab table) by
+        Damerau-Levenshtein distance (1 for words up to 7 letters, 2 above), take the few nearest terms and run the
+        query again with them ORed per word. Check that the tokenizer folds case and diacritics (unicode61
+        remove_diacritics 2) so "uber" finds "über". Exact hits always rank before corrected ones. This is a
+        single-owner database of a few hundred memos: keep it in SQL plus a small pure function, no search service.
+      acceptance: >-
+        Tests in the sqlite adapter suite: "expresso" and "esspreso" find a memo whose transcript says "Espresso"; a
+        word that occurs only in a reply finds its memo; an exact match is listed before a corrected one; a query with
+        no near term still returns an empty list; the migration runs on a copy of a database with existing memos. make
+        check-fast and make e2e pass; after the deploy `GET /v1/memos?q=expresso` on production returns a memo (quote
+        the count).
+
+  - key: speech-variants
+    title: The spoken reply can be asked for as a summary or in full
+    facts:
+      why: >-
+        Owner feedback 2026-11-16: the speaker button reads the whole answer, which he rarely wants, least of all on
+        the phone; he wants to choose between a summarized and a full read. Today GET /v1/memos/:id/speech
+        (server/src/http/media.ts:86-89) has one behaviour, speechVariant in server/src/memo/speech-text.ts:309-324:
+        the whole reply when it fits SPEECH_MAX_CHARS (600), else the triage `spoken` line plus "details on screen".
+        88 % of production replies (74 of 84) are under 600 characters, so nearly every read is the full reply, and a reply over
+        600 can never be heard in full.
+      what: >-
+        server/src/memo/speech-text.ts, server/src/memo/media.ts, server/src/http/media.ts and schemas.ts, the speech
+        cache under the data directory (its key must include the variant), contracts/ (make contracts, fixtures, make
+        check-contracts), docs/http-api.md. No Apple code: the clients follow in row reply-playback-clients.
+      change: >-
+        An optional query parameter `variant` on the speech route: `summary` speaks the triage `spoken` line (when the
+        memo has none, the first sentences of the reply, as the long-reply fallback does today) with no "details on
+        screen" suffix; `full` speaks the whole cleaned reply whatever its length (state the upper bound you choose and
+        why; chunk the synthesis if the audio door needs it); absent, the behaviour is exactly today's, so shipped apps
+        and the auto-read of finished memos do not change. An unknown value is a 400 in the route's usual error shape.
+      acceptance: >-
+        Unit tests for the three cases on a short reply, a 2000-character reply and a memo without a spoken line; a
+        route test shows two cache entries for two variants of one memo and a 400 for `variant=loud`; make
+        check-contracts and make e2e pass; after the deploy both variants of one production memo answer 200 with audio
+        of clearly different length (memo id and byte counts in the ship note).
+
+  - key: transcript-continue-server
+    checkpoint: spec
+    title: A transcript can be continued with another recording
+    facts:
+      why: >-
+        Owner feedback 2026-11-16: he wants to add to a transcript after the fact (record more, the text grows) and
+        copy the whole. Today a follow-up exists only for Hermes memos; the server refuses it for a transcript with
+        "mode transcribe cannot continue a thread" (server/src/memo/service.ts:199-203).
+      what: >-
+        server/src/memo/service.ts and memo.ts, server/src/adapters/sqlite.ts and sqlite-migrations.ts,
+        server/src/http/schemas.ts, contracts/, docs/http-api.md, docs/TDD.md. No Apple code: row
+        transcript-continue-apple follows.
+      change: >-
+        The Spec decides the model; the default to argue for or against is to reuse threads rather than rewrite a memo:
+        a transcribe memo may carry `threadId`, a thread of kind transcript gets a server-made id (a Hermes thread's id
+        is the Hermes session id, server/src/adapters/hermes.ts:226-227), every continuation is its own memo with its
+        own audio and steps, and the thread's title follows the first memo's headline. The alternative is appending
+        segments to the one memo and re-running transcribe. Name what each costs for audio playback, retry, search,
+        favourites and delete. Then build the chosen model on the server with the contract fixtures.
+      acceptance: >-
+        A fake-booted e2e records a transcribe memo, continues it and reads both parts back in order through the
+        public routes; continuing a transcript with a Hermes thread id (and the reverse) is still refused with a clear
+        code; make check-contracts and make e2e pass; `make smoke` after the deploy.
+
+  - key: ios-capture-and-transcript
+    lane: apple
+    prio: 30
+    title: "iPhone: the record row's three actions read as buttons, one way to type a memo, and a transcript is copied in one tap"
+    facts:
+      why: >-
+        Owner feedback 2026-11-16 from daily use. (1) In the record row above the tab bar only Hermes is a filled
+        capsule; Transcribe and Text are tinted text without a shape (apple/Iris/RecordRow.swift:33-57) and read as tabs.
+        (2) The pencil in the history search bar (apple/Iris/HistorySearchBar.swift:58-66) opens the same ComposerView
+        as the Text button right below it, through a second composer state and sheet (HistoryView.swift:89,106-111 next
+        to RootView.swift:88-95). (3) He never rereads his own transcript, he copies it: the transcript screen
+        (apple/Iris/MemoDetailView.swift:10-106) shows it as a chat bubble whose copy is a long-press
+        (IrisUI Components/Thread/ChatBubble.swift:102-108) or a row inside the collapsed Details
+        (apple/Iris/MemoDetailsSection.swift:76-103).
+      what: >-
+        apple/Iris/RecordRow.swift, HistorySearchBar.swift, HistoryView.swift, MemoDetailView.swift, the history row,
+        String catalogs, the UI tests and snapshots that name these controls. Not the Mac app, not the conversation
+        (Hermes) screen.
+      change: >-
+        (1) Transcribe and Text become real buttons in the row: the same capsule shape and height as Hermes in a
+        secondary fill from Theme tokens, Hermes stays the one primary. Keep the compact placement legible (icons only
+        where titles are hidden today). (2) Remove the pencil from the search bar and HistoryView's own composer state
+        and sheet; the Text button is the one entry. Update the tests that used the pencil's identifier. (3) The
+        transcript screen leads with a prominent Copy transcript button under the title (confirmation and haptic like
+        the existing copy), the text below it is clamped to about eight lines with Show all, and the recording player
+        stays. (4) A history row of a memo with a transcript gets a swipe action and a context-menu entry Copy.
+      acceptance: >-
+        Snapshots or proof PNGs of the record row (light, dark, compact) and of the transcript screen; a UI test taps
+        the copy button and reads the pasteboard; no identifier of the removed pencil is left in apple/ (rg quoted);
+        CI apple.yml green.
+      limits: At most one targeted local Apple run; CI validates.
+
+  - key: details-from-the-top
+    lane: apple
+    prio: 25
+    title: "iPhone and Mac: one Details view per answer, opened from the top of the screen"
+    facts:
+      why: >-
+        Owner feedback 2026-11-16. On the iPhone the details of an answer open from a quiet button after the turn
+        (IrisUI Components/Thread/ConversationTurnList.swift:80-84,150-164 into apple/Iris/MemoDetailsSheet.swift),
+        while a transcript shows them as an inline section (apple/Iris/MemoDetailsSection.swift in MemoDetailView): two
+        looks for one thing, and the entry is at the very end. On the Mac it "looks really bad": no per-answer details
+        at all (MacConversationView.swift:18-22 passes no onDetails), only a DisclosureGroup at the foot of the chat
+        (apple/IrisMac/MacMemoDetailPane.swift:108-124) with a dense four-column Grid for the open memo's steps
+        (apple/IrisMac/MacMemoDetails.swift:53-100), without the copy rows, "Hermes used" or ids layout the phone has.
+      what: >-
+        apple/Iris/MemoDetailView.swift, MemoDetailsSheet.swift, MemoDetailsSection.swift, ThreadView.swift,
+        apple/IrisMac/MacMemoDetailPane.swift, MacMemoDetails.swift, MacConversationView.swift, the shared turn list in
+        apple/Packages/IrisUI, String catalogs, snapshots, docs/apple-app.md and docs/mac-app.md.
+      change: >-
+        One Details content view shared by both apps (move the section into IrisUI if that is what sharing needs): step
+        waterfall, copy rows, "Hermes used", ids. iPhone: a toolbar button at the top of the transcript screen and of
+        the conversation opens it as the existing sheet; in a conversation it shows the newest answer and lets the owner
+        step to earlier ones, and the per-turn entry stays reachable (the turn's context menu) without the trailing
+        button under every answer. A failed memo still surfaces its failure and retry without opening anything. Mac: the
+        same content in a popover or inspector from a toolbar button of the detail pane, per answer, replacing the foot
+        DisclosureGroup and the Grid.
+      acceptance: >-
+        Proof PNGs or snapshots: the iPhone conversation and transcript screens with Details opened from the toolbar,
+        the Mac detail pane with Details open, light and dark; a UI test opens Details from the toolbar on a
+        conversation with two answers and reaches the earlier one; a failed memo still shows its retry; CI apple.yml
+        green.
+      limits: At most one targeted local Apple run (make proof-apple); CI validates.
+
+  - key: turn-collapse
+    lane: apple
+    after: [memo-titles-gist]
+    after_needs: shipped
+    title: "iPhone and Mac: a long dictated turn shows its gist, with the full message one tap away"
+    facts:
+      why: >-
+        Owner feedback 2026-11-16: his own turn in a Hermes conversation is long, sloppy dictation and pushes the
+        answer away; he wants a summary of what he said and a way to view the full message. UserTurnView
+        (apple/Packages/IrisUI/Sources/IrisUI/Components/Thread/UserTurnView.swift:31-40) renders the whole transcript
+        with no limit. Row memo-titles-gist put a nullable `transcriptGist` on the memo (see contracts/fixtures and
+        docs/http-api.md).
+      what: >-
+        apple/Packages/IrisCore (Memo model, fixture decode tests), apple/Packages/IrisUI Components/Thread
+        (UserTurnView, ConversationTurnList), sample data, snapshots, String catalogs. Both apps get it through IrisUI.
+      change: >-
+        Decode `transcriptGist`. A user turn longer than about six lines is collapsed: it shows the gist when the memo
+        has one, else the first lines, and a Show full message control that expands in place (and collapses again);
+        copy always copies the full text. While a turn is still being transcribed or has no gist yet, the clamp is the
+        fallback and the bubble must not jump when the gist arrives. A typed memo and a short turn look as today.
+      acceptance: >-
+        A decode test for the fixture with and without the field; snapshots of a collapsed turn with a gist, a
+        collapsed turn without one and the expanded state, on iPhone and Mac; copy on a collapsed turn yields the full
+        transcript (test); CI apple.yml green.
+      limits: At most one targeted local Apple run; CI validates.
+
+  - key: reply-playback-clients
+    lane: apple
+    after: [speech-variants]
+    after_needs: shipped
+    title: "iPhone and Mac: play the reply as a summary or in full, and every Mac action says what it does"
+    facts:
+      why: >-
+        Owner feedback 2026-11-16: on the Mac he could not tell the play button from the speaker button (play is his
+        own recording, which he never wants to hear; the speaker is the spoken reply), he wants tooltips on the
+        actions, and he wants to choose between a summarized and a full read on both apps. Toolbar:
+        apple/IrisMac/MacMemoDetailPane.swift:149-223 (Copy menu, Archive and Delete have no .help; the row context menu
+        in MacMemoActions.swift:48-72 has none). iPhone: ReplyPlayButton (apple/Iris/ReplyPlayButton.swift:5) inside
+        MemoDetailsSheet.swift:83-88. Row speech-variants added `variant=summary|full` to GET /v1/memos/:id/speech
+        (docs/http-api.md).
+      what: >-
+        apple/Packages/IrisCore (the speech request), apple/IrisMac/MacMemoDetailPane.swift, MacMemoActions.swift,
+        MacAudioPlayer, apple/Iris/ReplyPlayButton.swift and where it is placed, String catalogs, tests, docs.
+      change: >-
+        The speech request carries a variant. Mac: the speaker control plays the summary on click and offers Summary
+        and Full reply in its menu; Play recording leaves the toolbar's first row and moves into the overflow or Copy
+        menu; every toolbar control and context-menu entry has a .help that names the thing it acts on ("Read the
+        reply aloud (summary)", "Play your recording"). iPhone: the reply's play control offers the same two choices,
+        summary first, and is reachable from the answer without opening Details. The auto-read of finished memos
+        (Settings, Spoken replies) keeps the server default.
+      acceptance: >-
+        Tests show the request URL for each variant; a UI or package test lists a .help for every Mac toolbar control;
+        proof PNGs of the Mac toolbar with the speaker menu open and of the iPhone control; CI apple.yml green.
+      limits: At most one targeted local Apple run; CI validates.
+
+  - key: mac-shell-status
+    lane: apple
+    prio: 20
+    title: "Mac: the Dock opens the main window, the app shows its version and update state, and the sidebar stops saying Connected"
+    facts:
+      why: >-
+        Owner feedback 2026-11-16 on Iris Mac 0.3.x. (1) Clicking the Dock icon did not bring up the main window; he
+        had to use the menu bar's Open Iris. The reopen handler (apple/IrisMac/IrisMacApp.swift:36-49,
+        MacActivationPolicy.swift:26-30) only raises "the first visible titled window" when any is visible (Settings
+        or a Sparkle window count), and what a launch from the Dock or Spotlight opens when the app was not running is
+        decided in MacCompositionRoot.launchDidFinish (:603). (2) Settings shows no version, so he cannot tell whether
+        he is current. (3) Nothing in the app shows that an update is available or that it is up to date; the only
+        entry is Check for Updates… (MacHomePage.swift:40-47, MacSettingsView.swift:221-223). (4) He was offered two
+        updates one after the other (0.3.0 build 811, then 0.3.1 build 816 from the same day) although the appcast
+        carries only the newest build (scripts/mac-release.sh:56,254). (5) The sidebar footer always shows the
+        connection line (MacSidebar.swift:37-53), also when all is well. (6) Favorites has no count
+        (MacSidebar.swift:14).
+      what: >-
+        apple/IrisMac (IrisMacApp.swift, MacActivationPolicy.swift, MacCompositionRoot.swift, MacSidebar.swift,
+        MacMenuPanel.swift, MacSettingsView.swift, Updater.swift, UpdateSparkleEngine.swift, UpdateViews.swift), their
+        tests, String catalogs, docs/mac-app.md.
+      change: >-
+        (1) A Dock click, and a launch by the user (not as a login item), always ends with the main window in front:
+        opened when it is not, raised when another window is; onboarding stays the exception. (2) Settings shows
+        version and build. (3) The updater's state is surfaced: Settings says "Up to date" or "Version x available"
+        with the install action, and the main window and the menu bar panel show a quiet badge only while an update is
+        available. Read the Sparkle documentation for the delegate callbacks that report a found or staged update
+        before choosing them. (4) Find why two updates were offered in sequence (the likely cause is an older build
+        Sparkle had already downloaded and staged before the newer one was published); fix it if a setting or a check
+        before install cures it, else state the cause in docs/mac-app.md. (5) The connection line appears in the
+        sidebar and the popover only when the link is not connected (connecting, unreachable, token rejected, not
+        configured), with its hint. (6) Favorites shows its count in the sidebar when it is above zero, from data the
+        app already has or a count the list route already returns; no new route.
+      acceptance: >-
+        Unit tests for the reopen decision (a visible Settings window still ends on the main window) and the launch
+        origin; a test for when the connection line is shown; proof PNGs of Settings with the version and update state,
+        the sidebar connected (no line, Favorites with a count) and unreachable; the cause of the double update named
+        in the ship note; CI apple.yml green.
+      limits: At most one targeted local Apple run; CI validates. No release is cut by hand, the poller's hook does it.
+
+  - key: mac-transcribe-and-filters
+    lane: apple
+    after: [mac-shell-status]
+    title: "Mac: start a transcription from the main window and filter the list by kind and state"
+    facts:
+      why: >-
+        Owner feedback 2026-11-16. The main window can start a new chat but not a transcription: its toolbar has only
+        New memo (apple/IrisMac/MacMainWindow.swift:33-45) and the composer's microphone records for Hermes only
+        (MacComposerBar.swift:63-84); Transcribe exists only in the menu bar panel (MacHomePage.swift:76-112). And
+        the Mac has no filter by kind or state, which the iPhone has (apple/Iris/HistoryFilterSheet.swift:24-111);
+        after row mac-shell-status the sidebar's bottom-left is empty while connected.
+      what: >-
+        apple/IrisMac (MacMainWindow.swift, MacSidebar.swift, MacMemoList.swift, MacLibraryScope.swift,
+        MacCompositionRoot.swift, the recording panel), the shared history model in apple/Iris/HistoryModel.swift only
+        as far as the Mac must call what the iPhone filter already calls, tests, String catalogs, docs/mac-app.md.
+      change: >-
+        (1) A Transcribe action in the main window (toolbar, next to New memo, with a shortcut and a .help) that starts
+        the same transcribe-only take as the menu bar panel, with the same recording panel and Stop; while a take runs
+        the action shows Stop. (2) Kind and state filters for the list in the lower part of the sidebar: the kinds
+        present in the loaded memos as toggles, and the states the iPhone offers, driving the same query parameters
+        the iPhone's filter drives; an active filter is visible and cleared with one click. Memos have no tags, the
+        free-form `kind` is the filter.
+      acceptance: >-
+        A test starts and stops a transcribe take from the main-window action on the fake composition; a test shows
+        the list request carrying the chosen kind and state; proof PNGs of the main window with the Transcribe action
+        and the sidebar with an active filter, light and dark; CI apple.yml green.
+      limits: At most one targeted local Apple run; CI validates.
+
+  - key: mac-basalt-shell
+    lane: apple
+    prio: -10
+    title: "Mac: sidebar, list and Settings wear the Basalt theme like the conversation does"
+    facts:
+      why: >-
+        Owner feedback 2026-11-16: the Mac app looks like stock SwiftUI everywhere except the conversation, which has
+        the Basalt colours; he wants Basalt throughout. The detail pane uses Theme.Surface.background
+        (apple/IrisMac/MacMemoDetailPane.swift:44) while the sidebar and the memo list are native lists on system
+        backgrounds (MacSidebar.swift:21, MacMemoList.swift:30), rows use .secondary (MacMemoListRow.swift:21,36), the
+        recording panel .regularMaterial (RecordingPanelView.swift:31) and Settings a system TabView and Form.
+      what: >-
+        apple/IrisMac views only (sidebar, list, rows, Settings, recording panel, menu bar panel), Theme tokens as
+        generated by make theme (never edited by hand; a missing token is added in apple/tools/gen-theme.ts), snapshots,
+        docs/mac-app.md. No behaviour change.
+      change: >-
+        The window's chrome and every pane take their surfaces, ink, separators, selection and accent from Theme
+        tokens: sidebar and list backgrounds, row text and selection, Settings panes, the recording panel. Keep what
+        the platform does better than a repaint (sidebar translucency may go, native list selection behaviour, focus
+        rings, the system red of the recording menu-bar icon stay). Replace every system colour and .secondary in
+        apple/IrisMac that has a Theme equivalent; list the ones kept and why in docs/mac-app.md.
+      acceptance: >-
+        Proof PNGs of the main window (sidebar, list, conversation), Settings and the menu bar panel in light and dark,
+        where sidebar, list and detail read as one palette; rg shows no .secondary / Color(nsColor:) left in
+        apple/IrisMac outside the documented exceptions; CI apple.yml green.
+      limits: At most one targeted local Apple run (make proof-apple); CI validates.
+
+  - key: transcript-continue-apple
+    lane: apple
+    after: [transcript-continue-server, ios-capture-and-transcript]
+    after_needs: shipped
+    title: "iPhone and Mac: continue a transcript with another recording and copy the whole"
+    facts:
+      why: >-
+        Owner feedback 2026-11-16: he wants to extend a transcript after the fact. Row transcript-continue-server
+        built the server side behind an owner-approved Spec; read that Issue's Spec, docs/http-api.md and the new
+        contract fixtures first, they say which model was chosen.
+      what: >-
+        apple/Packages/IrisCore (models, fixture decode tests, the outbox request), apple/Iris (the transcript screen
+        from row ios-capture-and-transcript, the record flow), apple/IrisMac (the detail pane), IrisCapture only as far
+        as a take must carry the continuation target, String catalogs, tests, snapshots.
+      change: >-
+        The transcript screen gets Continue recording: it starts a transcribe take bound to this transcript, the new
+        text appears below the earlier parts when it is transcribed, and Copy transcript copies all parts in order.
+        The history shows a continued transcript once, not once per part. The Mac shows and copies the whole; recording
+        a continuation on the Mac is in scope only if row mac-transcribe-and-filters has shipped its Transcribe action.
+        A continuation recorded offline is queued by the outbox like any take.
+      acceptance: >-
+        Fixture decode tests; a UI test continues a transcript on the fake composition and copies both parts; proof
+        PNGs of a two-part transcript on iPhone and Mac; CI apple.yml green.
+      limits: At most one targeted local Apple run; CI validates.
