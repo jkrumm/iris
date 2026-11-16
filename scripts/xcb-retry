@@ -16,7 +16,7 @@ set -u
 infra='Unable to find a device matching the provided destination specifier|operation never finished bootstrapping|unable to connect to "com\.apple\.instruments\.deviceservice\.lockdown"'
 own='✘ Test .* recorded an issue|: error: -\[[A-Za-z0-9_.]+ [A-Za-z0-9_]+\]'
 
-log=$(mktemp -t xcb-retry)
+log=$(mktemp "${TMPDIR:-/tmp}/xcb-retry.XXXXXX")
 trap 'rm -f "$log"' EXIT
 
 "$@" 2>&1 | tee "$log"
