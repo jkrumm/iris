@@ -2,10 +2,10 @@ name: apple
 on:
   push:
     branches: [master]
-    paths: ["apple/**", "contracts/**", ".swift-format", "Makefile", ".github/workflows/apple.yml", ".github/actions/apple/**", "scripts/uitest-*", "scripts/apple-slot"]
+    paths: ["apple/**", "contracts/**", ".swift-format", "Makefile", ".github/workflows/apple.yml", ".github/actions/apple/**", "scripts/uitest-*", "scripts/apple-slot", "scripts/xcb-retry"]
   pull_request:
     branches: [master]
-    paths: ["apple/**", "contracts/**", ".swift-format", "Makefile", ".github/workflows/apple.yml", ".github/actions/apple/**", "scripts/uitest-*", "scripts/apple-slot"]
+    paths: ["apple/**", "contracts/**", ".swift-format", "Makefile", ".github/workflows/apple.yml", ".github/actions/apple/**", "scripts/uitest-*", "scripts/apple-slot", "scripts/xcb-retry"]
   # Nightly: the full UI suite, which a push or PR runs only in part (uitest job).
   schedule:
     - cron: "17 2 * * *"

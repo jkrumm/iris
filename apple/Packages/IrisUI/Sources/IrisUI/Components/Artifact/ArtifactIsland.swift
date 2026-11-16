@@ -199,7 +199,12 @@ final class ArtifactIsland {
     Self.logger.notice("refresh height \(value, privacy: .public) at \(self.elapsed, privacy: .public)")
     bridgeReportedHeight(CGFloat(value))
     // A page that answered is up even if its animation frames are throttled (an occluded Mac window) and `ready` never came.
-    bridgeReady()
+    // The bridge's measure hook exists from document start, before the page's own script has defined `window.iris`: ready then
+    // would push a payload the page drops (`if (window.iris)`), and nothing pushes it again. A bundled page counts as up only
+    // once `window.iris` is there; the bridge's `ready` message (after DOMContentLoaded) comes with it.
+    guard case .bundled = entry else { return bridgeReady() }
+    let renderer = try? await page.callJavaScript("return typeof window.iris === 'object'", contentWorld: .page)
+    if (renderer as? Bool) == true { bridgeReady() }
   }
 
   // MARK: Bridge callbacks

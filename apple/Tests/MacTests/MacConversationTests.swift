@@ -52,8 +52,9 @@ struct MacConversationTests {
     #expect(answer.memoID == created.id && root.selectedMemoID == nil, "the window's selection is left alone")
     #expect(answer.turns.first?.content == .user("Where do we stand?"))
 
-    #expect(await eventually { isStreaming(answer) != nil })
-    #expect(isStreaming(answer) == "This is the fake answer to your message.")
+    // The fake streams the answer in pieces: the first streaming turn holds a prefix, so wait for the whole text.
+    let full = "This is the fake answer to your message."
+    #expect(await eventually { isStreaming(answer) == full }, "streamed so far: \(isStreaming(answer) ?? "nothing")")
   }
 
   @Test("Open in window shows the quick answer's memo in the main window and clears the popover")
