@@ -348,8 +348,12 @@ export function createSqliteMemoStore(params: { db: Database; clock: Clock }): M
     }
     // `act` set the memo's own session; a memo created to continue a thread keeps its thread (its `thread_id` is never its id).
     if (cleared.includes("act")) {
+      // A transcript's first memo is the thread's own id by design and no `act` ever ran for it: its `thread_id` stays.
       const ownThread = db
-        .query("UPDATE memos SET thread_id = NULL WHERE id = ? AND thread_id = id")
+        .query(
+          `UPDATE memos SET thread_id = NULL WHERE id = ? AND thread_id = id
+             AND NOT EXISTS (SELECT 1 FROM threads t WHERE t.id = memos.id AND t.kind = 'transcript')`,
+        )
         .run(id);
       // The session `act` opened is gone with it: no thread row may list an empty conversation.
       if (ownThread.changes > 0) {
@@ -392,6 +396,18 @@ export function createSqliteMemoStore(params: { db: Database; clock: Clock }): M
     db.query("UPDATE memos SET thread_id = id WHERE id = ? AND thread_id IS NULL").run(params.id);
     return true;
   });
+
+  /** A part created into a transcript thread is its newest memo: `act` moves a Hermes thread, nothing runs it for a transcript. */
+  const touchTranscriptThread = (params: {
+    threadId: string | undefined;
+    memoId: string;
+    at: string;
+  }) => {
+    if (params.threadId === undefined) return;
+    db.query(
+      "UPDATE threads SET updated_at = ?, last_memo_id = ? WHERE id = ? AND kind = 'transcript'",
+    ).run(params.at, params.memoId, params.threadId);
+  };
 
   const insertReplyAssets = (id: string, assets: readonly ReplyAsset[]) => {
     const insert = db.query(
@@ -508,7 +524,7 @@ export function createSqliteMemoStore(params: { db: Database; clock: Clock }): M
   const memoStore: Omit<MemoStore, keyof ThreadStore> = {
     startTranscriptThread,
 
-    createMemo({ id, mode, device, startedAt, threadId }) {
+    createMemo: db.transaction(({ id, mode, device, startedAt, threadId }) => {
       const at = stamp();
       const inserted = db
         .query(
@@ -516,12 +532,13 @@ export function createSqliteMemoStore(params: { db: Database; clock: Clock }): M
            VALUES (?, ?, ?, ?, 'receiving', ?, ?, ?) ON CONFLICT (id) DO NOTHING`,
         )
         .run(id, mode, device, startedAt, threadId ?? null, at, at);
+      if (inserted.changes > 0) touchTranscriptThread({ threadId, memoId: id, at });
       const row = memoById(id);
       if (!row) throw new Error(`memo ${id} vanished after insert`);
       return { memo: toMemo(row), created: inserted.changes > 0 };
-    },
+    }),
 
-    createTextMemo({ id, mode, device, startedAt, text, threadId }) {
+    createTextMemo: db.transaction(({ id, mode, device, startedAt, text, threadId }) => {
       const at = stamp();
       const inserted = db
         .query(
@@ -529,10 +546,11 @@ export function createSqliteMemoStore(params: { db: Database; clock: Clock }): M
            VALUES (?, ?, ?, ?, 'transcribed', ?, ?, ?, ?) ON CONFLICT (id) DO NOTHING`,
         )
         .run(id, mode, device, startedAt, text, threadId ?? null, at, at);
+      if (inserted.changes > 0) touchTranscriptThread({ threadId, memoId: id, at });
       const row = memoById(id);
       if (!row) throw new Error(`memo ${id} vanished after insert`);
       return { memo: toMemo(row), created: inserted.changes > 0 };
-    },
+    }),
 
     getMemo(id) {
       const row = memoById(id);

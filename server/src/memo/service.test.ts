@@ -9,6 +9,7 @@ import {
   deferred,
   fakeAudio,
   legacyParkedMemo,
+  markFailed,
   seedMemo,
   testStore,
   transition,
@@ -685,6 +686,48 @@ describe("transcript continuation", () => {
       ["user", "zwei"],
     ]);
     expect(service.get(first.id).memo.threadId).toBe(first.id);
+  });
+
+  it("moves the thread's update time and last memo with each part", () => {
+    const { service, clock } = setup();
+    const first = transcribed(service);
+    clock.advance(1000);
+    const second = service.createTextMemo({
+      ...typed(),
+      mode: "transcribe",
+      threadId: first.id,
+    }).memo;
+    clock.advance(1000);
+    const third = service.createMemo({ ...input(), mode: "transcribe", threadId: first.id }).memo;
+    const { thread } = service.getThread(first.id);
+    expect(thread.lastMemoId).toBe(third.id);
+    expect(thread.updatedAt).toBe(third.createdAt);
+    expect(thread.updatedAt > second.createdAt).toBe(true);
+    // A replay changes nothing.
+    service.createMemo({ ...input(), id: third.id, mode: "transcribe", threadId: first.id });
+    expect(service.getThread(first.id).thread.updatedAt).toBe(third.createdAt);
+  });
+
+  it("keeps the first memo in its thread when it is retried from transcribe", () => {
+    const { service, store } = setup();
+    const first = service.createMemo({ ...input(), mode: "transcribe" }).memo;
+    store.markReceived({ id: first.id, segmentCount: 1 });
+    store.completeStep({
+      id: first.id,
+      step: "transcribe",
+      from: "received",
+      to: "transcribed",
+      patch: { transcript: "eins" },
+    });
+    const second = service.createTextMemo({
+      ...typed(),
+      mode: "transcribe",
+      threadId: first.id,
+    }).memo;
+    markFailed(store, { id: first.id, step: "summarize", error: "agw down" });
+    service.retry({ id: first.id, from: "transcribe" });
+    expect(service.get(first.id).memo.threadId).toBe(first.id);
+    expect(service.getThread(first.id).memos.map((m) => m.id)).toEqual([first.id, second.id]);
   });
 
   it("replays a continuation and 409s one that names another thread", async () => {
