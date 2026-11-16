@@ -70,6 +70,8 @@ final class HistoryModel {
   private var unhiddenThisSession: Set<String> = []
   /// Drops the cached media (recording, spoken reply, diagrams) of a memo that is deleted or gone.
   private let evictMedia: (String) -> Void
+  /// Where Copy puts a transcript; nil where the host has no Copy on a row (the Mac panel).
+  private let pasteboard: (any Pasteboard)?
   /// Bumped by every first-page load; a response that finds it changed belongs to filters that are gone.
   private var generation = 0
 
@@ -81,8 +83,10 @@ final class HistoryModel {
   ///   other client (a fake), which then never sees a switch.
   init(
     client: any APIClient, hiddenStore: any HiddenMemoStore = InMemoryHiddenMemoStore(),
-    evictMedia: @escaping (String) -> Void = { _ in }, serverKey: (() -> String?)? = nil
+    evictMedia: @escaping (String) -> Void = { _ in }, serverKey: (() -> String?)? = nil,
+    pasteboard: (any Pasteboard)? = nil
   ) {
+    self.pasteboard = pasteboard
     self.client = client
     self.serverKey = serverKey ?? { (client as? ReconfigurableAPIClient)?.serverKey }
     self.hiddenStore = hiddenStore
@@ -383,6 +387,14 @@ final class HistoryModel {
       message: String(
         localized: "Queued. It is sent as soon as the server answers.", comment: "Toast after a memo went to the outbox"
       ))
+  }
+
+  /// Puts the memo's transcript on the pasteboard as plain text and confirms with a toast; nothing for a memo without one.
+  func copyTranscript(of memo: Memo) {
+    guard let pasteboard, let text = memo.plainTranscript else { return }
+    pasteboard.copy(text)
+    toast = HistoryToast(
+      kind: .info, message: String(localized: "Transcript copied", comment: "Toast after Copy on a memo row"))
   }
 
   func dismissToast(id: HistoryToast.ID) {

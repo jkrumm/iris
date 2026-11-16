@@ -619,3 +619,28 @@ struct HistoryModelTests {
     #expect(second.link != .unreachable)
   }
 }
+
+@MainActor
+@Suite("HistoryModel copy")
+struct HistoryModelCopyTests {
+  let pasteboard = FakePasteboard()
+  let model: HistoryModel
+
+  init() {
+    model = HistoryModel(client: FakeAPIClient(now: { MemoFactory.now }), pasteboard: pasteboard)
+  }
+
+  @Test("Copy on a row puts the trimmed transcript on the pasteboard and confirms with an info toast")
+  func copiesTheTranscript() {
+    model.copyTranscript(of: MemoFactory.memo("a", transcript: "  Plane den Wochenplan. \n"))
+    #expect(pasteboard.copied == ["Plane den Wochenplan."])
+    #expect(model.toast?.kind == .info)
+  }
+
+  @Test("a memo without a transcript copies nothing and raises no toast")
+  func nothingToCopy() {
+    model.copyTranscript(of: MemoFactory.memo("b", transcript: "   "))
+    #expect(pasteboard.copied.isEmpty)
+    #expect(model.toast == nil)
+  }
+}

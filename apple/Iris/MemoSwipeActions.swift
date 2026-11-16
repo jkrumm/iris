@@ -22,6 +22,9 @@ struct MemoSwipeActions: ViewModifier {
         }
         .tint(Theme.Status.warn)
         .accessibilityIdentifier("history.swipe.favorite")
+        if hasTranscript {
+          copyButton.tint(Theme.Accent.tint).accessibilityIdentifier("history.swipe.copy")
+        }
       }
       .swipeActions(edge: .trailing, allowsFullSwipe: true) {
         Button(archiveTitle, systemImage: memo.archived ? "tray.and.arrow.up" : "archivebox") {
@@ -36,6 +39,22 @@ struct MemoSwipeActions: ViewModifier {
           .accessibilityIdentifier("history.swipe.delete")
         }
       }
+      .contextMenu {
+        if hasTranscript {
+          copyButton.accessibilityIdentifier("history.menu.copy")
+        }
+      }
+  }
+
+  private var hasTranscript: Bool { memo.plainTranscript != nil }
+
+  private var copyButton: some View {
+    Button(
+      String(localized: "Copy", comment: "Swipe and context action: copies a memo's transcript"),
+      systemImage: "doc.on.doc"
+    ) {
+      model.copyTranscript(of: memo)
+    }
   }
 
   private var doneTitle: String {

@@ -70,8 +70,7 @@ struct RootView: View {
       Tab(String(localized: "History", comment: "Tab title"), systemImage: "clock", value: Section.history) {
         HistoryView(
           model: history, path: $historyPath, isConfigured: isConfigured, onConnect: { selection = .settings },
-          makeDetail: makeDetail,
-          makeComposer: makeComposer, makeThread: makeThread)
+          makeDetail: makeDetail, makeThread: makeThread)
       }
       Tab(String(localized: "Stats", comment: "Tab title"), systemImage: "chart.bar", value: Section.stats) {
         StatsView(model: stats)

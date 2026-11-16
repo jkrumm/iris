@@ -9,14 +9,17 @@ public struct UserTurnView<Footer: View>: View {
   private let textRole: Theme.TextRole
   private let onCopy: (() -> Void)?
   private let hasFooter: Bool
+  private let collapsedLineLimit: Int?
   private let footer: Footer
 
   /// - Parameters:
   ///   - textRole: The size of the text: the iPhone's 15 pt `.subheadline`, the Mac passes `.footnote`.
   ///   - hasFooter: `false` when the footer builds nothing (an `if` that did not hold): no hairline, no empty row.
+  ///   - collapsedLineLimit: Cuts the text after this many lines behind a Show all button (a long transcript); `nil` shows it whole.
   public init(
     text: String, time: String, identifier: String = "thread.turn.user", textRole: Theme.TextRole = .subheadline,
-    onCopy: (() -> Void)? = nil, hasFooter: Bool = true, @ViewBuilder footer: () -> Footer
+    onCopy: (() -> Void)? = nil, hasFooter: Bool = true, collapsedLineLimit: Int? = nil,
+    @ViewBuilder footer: () -> Footer
   ) {
     self.text = text
     self.time = time
@@ -24,16 +27,21 @@ public struct UserTurnView<Footer: View>: View {
     self.textRole = textRole
     self.onCopy = onCopy
     self.hasFooter = hasFooter
+    self.collapsedLineLimit = collapsedLineLimit
     self.footer = footer()
   }
 
   public var body: some View {
     ChatBubble(side: .user, time: time, onCopy: onCopy, hasFooter: hasFooter) {
-      Text(verbatim: text)
-        .themeFont(textRole)
-        .foregroundStyle(Theme.Ink.primary)
-        .textSelection(.enabled)
-        .frame(maxWidth: .infinity, alignment: .leading)
+      if let collapsedLineLimit {
+        ClampedText(text: text, role: textRole, lineLimit: collapsedLineLimit)
+      } else {
+        Text(verbatim: text)
+          .themeFont(textRole)
+          .foregroundStyle(Theme.Ink.primary)
+          .textSelection(.enabled)
+          .frame(maxWidth: .infinity, alignment: .leading)
+      }
     } footer: {
       footer
     }

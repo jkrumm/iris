@@ -138,7 +138,8 @@ final class CompositionRoot: CaptureIntentHandler, PlaybackIntentHandler {
       takeController = TakeController(
         stack: stack, liveActivity: coordinator, outbox: service, microphone: mic, canRecord: true,
         isConfigured: { true }, requestPermission: { true }, speech: speech, preview: .fake(tap: capture.recorder))
-      history = HistoryModel(client: fake, evictMedia: { MediaDownloader.shared.evict(memoID: $0) })
+      history = HistoryModel(
+        client: fake, evictMedia: { MediaDownloader.shared.evict(memoID: $0) }, pasteboard: SystemPasteboard())
       stats = StatsModel(client: fake)
       settings = SettingsModel(client: fake, queue: service)
       replyImages = ReplyImageStore(
@@ -179,7 +180,7 @@ final class CompositionRoot: CaptureIntentHandler, PlaybackIntentHandler {
         preview: production.preview)
       history = HistoryModel(
         client: client, hiddenStore: UserDefaultsHiddenMemoStore(),
-        evictMedia: { MediaDownloader.shared.evict(memoID: $0) })
+        evictMedia: { MediaDownloader.shared.evict(memoID: $0) }, pasteboard: SystemPasteboard())
       stats = StatsModel(client: client)
       settings = SettingsModel(client: client, queue: service, credentials: credentials)
       fakeCapture = nil

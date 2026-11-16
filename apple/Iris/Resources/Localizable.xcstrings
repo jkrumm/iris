@@ -602,6 +602,17 @@
         }
       }
     },
+    "Copy" : {
+      "comment" : "Swipe and context action: copies a memo's transcript",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kopieren"
+          }
+        }
+      }
+    },
     "Copy a memo id for debugging" : {
       "localizations" : {
         "de" : {
@@ -2336,6 +2347,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Transkript"
+          }
+        }
+      }
+    },
+    "Transcript copied" : {
+      "comment" : "Toast after Copy on a memo row",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Transkript kopiert"
           }
         }
       }

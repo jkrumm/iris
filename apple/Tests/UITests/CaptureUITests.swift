@@ -53,7 +53,7 @@ final class CaptureUITests: IrisUITestCase {
   func testAMemoTypedOfflineIsQueuedThenSentWithRetryNow() {
     let app = launch(offline: true)
 
-    let compose = app.buttons["history.compose"]
+    let compose = app.descendants(matching: .any)["record.text"]
     XCTAssertTrue(waitForPresence(compose, timeout: 10))
     compose.tap()
     let field = app.textViews["composer.field"]
