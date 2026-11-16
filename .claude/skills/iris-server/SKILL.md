@@ -5,7 +5,7 @@ description: Work on iris-server (Bun + Elysia + bun:sqlite) — ports and adapt
 
 # iris-server
 
-Design: `docs/TDD.md` §3. Invariants: `.claude/rules/server.md`. Every command below was run on the mini (2026-10-27).
+Design: `docs/TDD.md` §3. Invariants: `server/AGENTS.md`. Every command below was run on the mini (2026-10-27).
 
 ## Gate
 

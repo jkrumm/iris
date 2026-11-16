@@ -103,13 +103,13 @@ Pairing a phone with the mini is an owner step (trust prompt on the phone, Devel
 - Device signing, paid (default, `DEVICE_SIGNING=paid`): `scripts/device-build.sh` reads `team-id`, `asc-key-id`, `asc-issuer-id`, `asc-key-p8` from
   `op://mini/apple-developer` via `secrets-run read`, rebuilds the `.p8` (1Password flattened its newlines) into a 0600 `mktemp` file, deletes it on exit, and runs
   `xcodebuild … -destination id=<device> -allowProvisioningUpdates -authenticationKeyPath <file> -authenticationKeyID <id> -authenticationKeyIssuerID <issuer> DEVELOPMENT_TEAM=<team-id> build`
-  (flags checked against `xcodebuild -help` on Xcode 27.1). The tracked entitlements apply as they are. Details: AGENTS.md "Device".
+  (flags checked against `xcodebuild -help` on Xcode 27.1). The tracked entitlements apply as they are. Details: docs/device.md.
 - Device signing, Personal Team (ran, `DEVICE_SIGNING=personal`): `-allowProvisioningUpdates DEVELOPMENT_TEAM=<id>` signs with the one Apple Development identity in the login
   keychain (`security find-identity -v -p codesigning`), headless. The team id comes from `defaults export com.apple.dt.Xcode - | plutil -extract IDEProvisioningTeamByIdentifier json -o - -`
   (`isFreeProvisioningTeam`). A Personal Team profile fails with "doesn't match the entitlements file's value for the com.apple.security.application-groups entitlement" and cannot
   carry `aps-environment`: the script strips both via the `IRIS_*_ENTITLEMENTS` build settings. Remove a key from a plist with `PlistBuddy -c "Delete :com.apple.…"`: `plutil -remove` reads the dots as a key path.
 - Headless signing with the ASC Team key (ran 2026-11-04): the flags above create and download the profiles without Xcode's account (App ID + Push worked). The API key cannot create an App Group
-  identifier or attach it to an App ID: the Account Holder registers `group.com.jkrumm.iris` and enables it on the three App IDs in the portal (done 2026-11-05; then the same flags sign all three targets with the group, AGENTS.md "Device").
+  identifier or attach it to an App ID: the Account Holder registers `group.com.jkrumm.iris` and enables it on the three App IDs in the portal (done 2026-11-05; then the same flags sign all three targets with the group, docs/device.md).
 - If codesign ever hangs on a keychain prompt over SSH/launchd: `security unlock-keychain` then
   `security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k <keychain-pass> <keychain>` (**unverified**, not needed so far).
 - Mac apps (MenuBarExtra, hotkey, mic) need a **stable signing identity**: TCC (microphone, accessibility) grants are keyed to
@@ -136,11 +136,11 @@ make testflight UPLOAD=1                         # destination upload: the expor
 - `altool` is not used (the export uploads). If it is ever needed: `xcrun altool --upload-app -f <ipa> --api-key <id> --api-issuer <issuer> --p8-file-path <file>` (`--api-key`/`--api-issuer`, not the older `--apiKey`; `--p8-file-path` avoids the `~/.private_keys` lookup). **Unverified.**
 - Cloud signing at export is **unverified until the first run**. If it fails with a missing distribution certificate, the script says so: the Team key needs the Admin role (or an Apple Distribution certificate with its private key goes into the mini's login keychain, Account Holder). It never creates certificates.
   The App Group `group.com.jkrumm.iris` must exist in the portal (Account Holder) or the profile does not match the tracked entitlements. The upload also needs the App Store Connect app record for `com.jkrumm.iris`.
-- Poller: `release-hooks.sh` runs this detached after a deploy when `apple/**` changed, weekly otherwise; off without `TESTFLIGHT=1` in `~/.iris/release.env` (AGENTS.md "Release hooks"). A run in progress shows in `~/Library/Logs/iris-release-testflight.log`; one at a time by the Apple lock.
+- Poller: `release-hooks.sh` runs this detached after a deploy when `apple/**` changed, weekly otherwise; off without `TESTFLIGHT=1` in `~/.iris/release.env` (docs/release-and-ops.md). A run in progress shows in `~/Library/Logs/iris-release-testflight.log`; one at a time by the Apple lock.
 
 ## Mac release (Sparkle)
 
-`make mac-release IDENTITY=development|developer-id [PUBLISH=draft|release]` (`scripts/mac-release.sh`; AGENTS.md "Mac releases"). The target
+`make mac-release IDENTITY=development|developer-id [PUBLISH=draft|release]` (`scripts/mac-release.sh`; docs/release-and-ops.md). The target
 takes the Apple slot itself; add a deadline with `scripts/apple-slot timeout 2400 make mac-release IDENTITY=development PUBLISH=draft`.
 
 - Tools: Sparkle 2.10.1's `generate_keys`, `sign_update`, `generate_appcast` come with the SPM package

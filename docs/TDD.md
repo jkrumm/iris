@@ -109,7 +109,7 @@ The server is a few deep modules behind ports, in email-gateway's style.
 | `telemetry/` | `otel.ts`, `otel-format.ts`, `log.ts`, `relay.ts` (the client relay) | `withRootSpan`, `withSpan`, `log`, `relay`, `OtlpExporter` |
 
 **Shipped:** `memo/`, `pipeline/` (`steps.ts`), `notify/`, `telemetry/`, `http/`, `adapters/`, `ports/`. Routing is not a module any more: Hermes decides (§Pipeline steps, Retired 2026-11-04). `devices/` is the `DeviceStore` port plus `adapters/sqlite-devices.ts`; `GET /v1/stats` is the read-only `StatsStore` port plus `adapters/sqlite-stats.ts`. The module and
-file map of the code is in `AGENTS.md` §Layout.
+file map of the code is in `docs/server-design.md` (Module map).
 
 Ports, each with a production adapter and an in-memory fake (shipped: `Transcriber`, `Speaker`, `Destination` (Hermes, the only one; `fakeDestination` answers `done`, kind `note`, two actions),
 `Notifier`, `DeviceStore`, `StatsStore` (SQLite only, no fake), `AudioStore`, `AudioCombiner`, `Clock`, `DiagramRenderer` (Pele + resvg-js), `AssetStore` (reply asset files); `Ids` is unused).
@@ -227,7 +227,7 @@ Planned for R3, not built: `memos.target_tab` / `language`. Device tokens are no
 
 ### HTTP API (`/v1`, bearer = device token; `/health` is public)
 
-Shipped; the authoritative list is `contracts/manifest.json` and the table in `AGENTS.md`.
+Shipped; the authoritative list is `contracts/manifest.json` and the table in `docs/http-api.md`.
 
 | Method + path | Purpose |
 |-|-|
@@ -1068,7 +1068,7 @@ run shows nothing and never blocks or fails a take.
   The push-to-start token comes from `Activity<MemoAttributes>.pushToStartTokenUpdates`.
 - **Device signing:** `make device` signs with the paid team by default, headless (`-allowProvisioningUpdates` with the App Store Connect Team key
   from `op://mini/apple-developer`, written to a 0600 temp file for the build only), so `aps-environment` and the App Group are in the build.
-  `DEVICE_SIGNING=personal` stays as the free-team fallback without both entitlements (AGENTS.md "Device").
+  `DEVICE_SIGNING=personal` stays as the free-team fallback without both entitlements (docs/device.md).
 - **Categories:**
   - `MEMO_DONE`: [Reply] [Reply by voice] [Play], all `.foreground` (a notification action cannot run an `AppIntent` itself); the tap on the alert is the open.
   - `NotificationRoute.route(actionIdentifier:userInfo:)` (pure) maps the action and the payload's top-level `memo` id: tap → open the conversation, Reply → open with the keyboard up, Reply by voice → open with `focus=voice`
@@ -1277,11 +1277,11 @@ run shows nothing and never blocks or fails a take.
   `CFBundleShortVersionString` / `CFBundleVersion` from `MARKETING_VERSION` / `CURRENT_PROJECT_VERSION`; the release script sets
   the latter to the commit count, so Sparkle always sees a growing build, and the former to `bun scripts/version.ts`:
   `0.MINOR.PATCH` from git (MINOR = 1 + the `feat` commits touching `apple/` since the 0.1.0 baseline, PATCH = the `apple/` commits since the
-  newest of them), deterministic per commit, the same number on TestFlight and on the Mac (AGENTS.md "Versions"). The appcast item
+  newest of them), deterministic per commit, the same number on TestFlight and on the Mac (docs/release-and-ops.md). The appcast item
   carries the release notes (the `apple/` commit subjects since the previous release), which Sparkle's update dialog shows. "Check for Updates…" is a popover line
   (`MacMenuLine`, id `mac.menu.update`) and a `CheckForUpdatesButton` in Settings > General, both disabled while
   `Updater.canCheckForUpdates` is false and absent without an updater. No custom `NSUpdateSecurityPolicy`.
-  Releases: `make mac-release` (`scripts/mac-release.sh`; AGENTS.md "Mac releases") archives, signs, zips with `ditto`, runs
+  Releases: `make mac-release` (`scripts/mac-release.sh`; docs/release-and-ops.md) archives, signs, zips with `ditto`, runs
   `generate_appcast`, verifies the EdDSA signature and creates a GitHub release with `IrisMac-<version>-<build>.zip` and
   `appcast.xml` (drafts are never `releases/latest`). The EdDSA key lives in the mini's login keychain; the tools read it from
   `--ed-key-file` because the keychain prompt hangs headless. Sparkle's helpers (Autoupdate, Updater.app, the XPC services) are
@@ -1521,7 +1521,7 @@ the `IrisCore` dependency when R1 wires them together.
 
   Only the machine toolchain (XcodeGen, `xcodes`, `pymobiledevice3`) lands in
   dotfiles.
-- **Iris rules:** `.claude/rules/apple.md` and `server.md` hold the Iris
+- **Iris rules:** the nested `AGENTS.md` files (`server/`, `apple/` and its packages) hold the Iris
   invariants, each pointing at its TDD section.
 - **Own skills:**
 
@@ -1569,7 +1569,7 @@ the `IrisCore` dependency when R1 wires them together.
   - the deploy poller starts the build detached when `apple/**` changed on a
     green master, plus a weekly rebuild (builds expire after 90 days); the
     internal group's automatic distribution installs it on the phone, and
-    `make device` stays for debugging (AGENTS.md "Release hooks").
+    `make device` stays for debugging (docs/release-and-ops.md).
   - First upload 2026-11-06: build `687.498322` of app record `Iris Agents`
     reached `processingState VALID` and the internal group `Internal` (`IN_BETA_TESTING`)
     without a review; nothing is listed in the App Store. The first attempt failed in

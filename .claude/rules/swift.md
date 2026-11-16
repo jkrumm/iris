@@ -6,7 +6,7 @@ paths: ["**/*.swift", "**/Package.swift", "**/project.yml", "**/*.xcconfig"]
 # Swift Standards
 
 Toolchain: Xcode 27.1, Swift 6.4, iOS/macOS 26.0 minimum. Iris invariants (capture, outbox, Live Activity limits)
-live in `.claude/rules/apple.md`; this file is generic Swift.
+live in `apple/AGENTS.md` and `apple/Packages/IrisCapture/AGENTS.md`; this file is generic Swift.
 
 ## Language mode and concurrency
 

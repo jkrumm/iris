@@ -1,0 +1,35 @@
+# HTTP API
+
+Every route of iris-server with its status codes. The machine-readable form is `contracts/manifest.json` and `contracts/schema/`; this page carries the semantics they do not. Rules for changing a route: `server/AGENTS.md`.
+
+All under `/v1`, `Authorization: Bearer <token>`. Errors: `{error: <code>, message}`.
+
+| Route | Result |
+|-|-|
+| `POST /memos` `{id, mode: hermes\|transcribe\|auto\|chat\|journal\|tab, startedAt, threadId?}` | 201 memo; 200 if it exists for this device; 409 other device or another `threadId` on the replay; `threadId` continues that thread (delivered into its Hermes session), 404 when unknown; the mode is stored as received (`auto`, `chat`, `journal`, `tab` are what the installed app still sends: Hermes gets them as a hint line) |
+| `POST /memos/text` `{id, mode, startedAt, text, threadId?}` | 202 memo created in `transcribed` (`transcript` = trimmed text, driven from `act`; a replay too); memo carries `typed: true`; any mode; 400 empty, over 20 000 code points, or no/unknown `mode`; 409 another body (incl. `threadId`), device or a recorded memo with that id; 404 unknown `threadId` |
+| `PUT /memos/:id/segments/:n` raw `audio/mp4` bytes | 200, idempotent by sha256 (same sha no-op, different sha 409); 413 over `IRIS_MAX_SEGMENT_BYTES`; 409 after `complete` |
+| `POST /memos/:id/complete` `{segmentCount}` | 202 memo (repeat too); 422 `missing_segments` + `missing: [...]`; 409 `conflict` when a segment sits at an index >= `segmentCount` (readers ignore such indices) |
+| `POST /memos/:id/retry` `{from}` | 202 memo; 409 unless `failed` (or the `notified` case below); 400 `from: "transcribe"` on a typed memo, and a `from` that is not a step of the memo's pipeline (`transcribe`, `act`, `summarize`, `notify`; mode `transcribe`: only `transcribe`, `notify`) or lies after the step that failed; an old memo that failed at `route` retries from `act`; also 202 for a `notified` memo with `from: "summarize"` when its `summarize` step failed (re-runs summarize, then notify, which re-sends the push by the notify rule: the `end` with its alert, else the alert push, whose collapse id replaces the banner) |
+| `GET /memos?limit&cursor&q&state&favorite&archived&kind&thread` | `{items, nextCursor}`, newest first; `q` = FTS5 over transcript + headline (prefix, case/umlaut-insensitive), `state` exact, `kind` = the memo's kind, exact after the same normalisation as the stored one (`GET /memos?kind=%20Note` finds `note`), `thread=true` the memos of a conversation (a thread with at least two live memos, i.e. a continued one; a memo alone in its own session is none), `favorite=true`, `archived=true` (only archived; hidden otherwise); soft-deleted memos never listed; old `needs_route` memos are paged like any other |
+| `GET /memos/:id` | memo + `steps` timeline + `segmentCount`; `partialReply {attempt, seq, text}` only while `act` has streamed visible text (omitted otherwise); 404 unknown. A soft-deleted memo is returned too (with `deletedAt` / `purgeAt`); 404 once purged |
+| `PATCH /memos/:id` `{done?, favorite?, archived?}` | 200 memo; ≥ 1 boolean, an empty body, unknown key or non-boolean 400; 409 `bad_state` on a soft-deleted memo; 404 unknown; publishes `memo.updated` |
+| `DELETE /memos/:id` | soft delete: 200 memo with `deletedAt` + `purgeAt` (10 min later); only `notified` / `failed` / `receiving` (a cancelled take: its later segment and `complete` are 409 `bad_state`, no pipeline) else 409 `bad_state`; a repeat is idempotent; a segment write still in flight is refused and its file removed right after it lands (recorded segments stay for a restore); the purger then removes audio, speech and rows (`memo.purged`) |
+| `POST /memos/:id/restore` | 200 memo, `deletedAt` cleared; 409 when not deleted; 404 once purged |
+| `GET /memos/:id/result?wait=<s>` | 200 once result-ready (`notified`, `failed`, or an old `needs_route` row), else 202 after the wait (0..600, default 0) |
+| `GET /threads?limit&cursor` | `{items: Thread[], nextCursor}`, newest `updatedAt` first; `Thread = {id, kind, title, createdAt, updatedAt, lastMemoId}` (`kind` is `hermes` for every new thread, `chat` only on old rows) |
+| `GET /threads/:id` | `{thread, memos (oldest first), messages: [{memoId, role: user\|assistant, content, createdAt}]}`: the conversation is built from the memos' transcripts and replies (Iris's own record, no Hermes read); 404 unknown |
+| `POST /devices/register` `{name, platform: ios\|macos, apnsToken?, apnsEnv?, pushToStartToken?}` | 200 `{device, name, platform, apnsEnv, hasApnsToken, hasPushToStartToken, registeredAt}`; upsert by the authenticated device |
+| `POST /telemetry` `{resource, spans, logs, dropped}` (the Swift `TelemetryBatch`) | 202 `{accepted: {spans, logs}}`; exported in the background as OTLP with `service.name=iris-ios\|iris-macos`, the memo trace id kept; 413 over 256 KiB, 400 over 500 spans+logs, a schema violation or a bad timestamp |
+| `PUT /memos/:id/activity-token` `{token}` (hex) | 204, replaces the stored token; 404 unknown memo |
+| `GET /memos/:id/audio` | `audio/mp4`, concatenated on first request and cached; `Range` → 206 / 416; 404; 409 while `receiving` or soft-deleted |
+| `GET /memos/:id/assets/:assetId` | a rendered Mermaid file of the reply (ids in the memo's `replyBlocks`): `image/svg+xml` (CSP `default-src 'none'`) or `image/png`, or a reply artifact (ids in `replyArtifacts`): `application/json`, `text/markdown; charset=utf-8`, `text/html; charset=utf-8` (html with a `sandbox` CSP), immutable cache; 404 unknown memo or asset; 409 when soft-deleted |
+| `GET /memos/:id/speech` | `audio/mpeg` TTS of the speech-ready variant (`speechVariant`: cleaned reply, or `summary.spoken` + "details on screen" past 600 chars; else `summary.spoken`), cached; 404; 409 with neither or when soft-deleted; 503 without the audio door (`AUDIO_DOOR_URL` + `AUDIO_DOOR_TOKEN`) |
+| `GET /stats?days=<n>` | `{days, from, to, perDay, perWeek, stepMedians (per step and kind, with n), costPerKind}` over the last `n` local days (default 30, 1..365 else 400); read-only SQL/JS aggregates, `null` kind = mode `transcribe`, no ```iris block, or an old memo |
+| `GET /events` | SSE: `ready`, `memo.updated` per state change (and per flag change, delete or restore, without `memo.done`), plus `memo.done` when result-ready, `memo.delta` `{id, attempt, seq, text}` and `memo.activity` `{id, attempt, tool}` while `act` runs (relayed from Hermes on the separate `memo/progress.ts` bus, never `MemoEvents`; deltas coalesced to ≤ 1/150 ms, the ```iris fence held back; a new `attempt` resets the client buffer; the stored `replyText` replaces the stream), `: keepalive` every 15 s |
+
+Codes: not_found 404, conflict / bad_state / destination_unavailable 409, missing_segments 422, too_large 413, bad_request 400, unavailable 503.
+Wire JSON is camelCase.
+States: `receiving → received → transcribed → acted → summarized → notified`, with `failed(step)` as a side state. `routed` and
+`needs_route` are only read (old rows); the migration moved every open one on.
+
