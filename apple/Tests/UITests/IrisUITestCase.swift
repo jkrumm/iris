@@ -17,8 +17,8 @@ import XCTest
 /// an element's attributes is a snapshot of the whole accessibility tree, and on a loaded VM (an animating History list, a
 /// thread with a rendered answer) the app does not answer in time. It hit `ReplyFlowReviewUITests` and
 /// `CaptureUITests` at a bare `row.exists` (run 41017094962). Every wait and every probe of a test therefore goes through
-/// ``waitForPresence(_:timeout:)``, ``waitForAbsence(_:timeout:)`` and ``revealRow(containing:in:)`` below: they ask again until
-/// the deadline when a query times out, instead of failing at the first one. A bare `exists`/`frame` read of an element that
+/// ``waitForPresence(_:timeout:)``, ``waitForAbsence(_:timeout:)`` and ``revealRow(containing:in:)`` below: they ask again when a
+/// query times out (until the deadline once a query has answered, at most 90 s past it while none has), instead of failing at the first one. A bare `exists`/`frame` read of an element that
 /// may not be there yet, in a loop, is what to avoid in a test.
 class IrisUITestCase: XCTestCase {
   private var started: [XCUIApplication] = []
@@ -54,7 +54,7 @@ class IrisUITestCase: XCTestCase {
   // MARK: Queries on a busy hierarchy
 
   /// Looks for `element` for up to `timeout`: `true` when it is there, `false` when a full wait ended without it (a confirmed
-  /// absence), `nil` when every query timed out and nothing is known. A query that times out is asked again until the deadline.
+  /// absence), `nil` when every query timed out and nothing is known. A query that times out is asked again until the deadline, and past it (at most 90 s) while no query has answered.
   @MainActor
   func presence(of element: XCUIElement, within timeout: TimeInterval) -> Bool? {
     let deadline = Date().addingTimeInterval(timeout)
@@ -75,7 +75,7 @@ class IrisUITestCase: XCTestCase {
   /// queries and failed without ever having looked). A wait ends with an answer, or after this long without one.
   private func hardCap(after deadline: Date) -> Date { deadline.addingTimeInterval(90) }
 
-  /// Waits for `element` to exist. A query that times out on a loaded runner is asked again until `timeout` is over, so the
+  /// Waits for `element` to exist. A query that times out on a loaded runner is asked again until `timeout` is over (past it, at most 90 s, while no query has answered), so the
   /// only way to fail is an element that is really not there.
   @MainActor
   func waitForPresence(_ element: XCUIElement, timeout: TimeInterval = 10) -> Bool {
