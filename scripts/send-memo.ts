@@ -3,7 +3,7 @@
  * End-to-end harness: splits an audio file into 10 s m4a segments and drives the /v1 HTTP API
  * exactly like the phone does (create, upload segments, complete, long-poll the result).
  * `--text "<text>"` sends a typed memo instead (POST /v1/memos/text, no audio file).
- * `--thread <id>` continues that thread (a Hermes session) instead of starting one.
+ * `--thread <id>` continues that thread instead of starting one: a Hermes session, or with `--mode transcribe` the first memo of a transcript.
  *
  *   IRIS_TOKEN=<device-token> bun scripts/send-memo.ts <audio-file> [--url ..] [--mode hermes]
  *   IRIS_TOKEN=<device-token> bun scripts/send-memo.ts --text "kauf Milch" [--url ..] [--mode hermes]
