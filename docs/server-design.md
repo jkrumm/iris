@@ -1,0 +1,124 @@
+# Server design notes
+
+How the pipeline behaves and why. Moved out of the root AGENTS.md; `docs/TDD.md` §3 is the design of record and the code is the truth for shipped behaviour. Rules to follow when changing the server: `server/AGENTS.md`.
+
+## Module map
+
+
+- `server/src/app.ts` — `createApp({deviceTokens, memos, stats?, degraded?, progress?, sseKeepaliveMs?})`: mounts routes, no env/fs.
+- `server/src/index.ts` — entry point: SQLite, audio-fs, runner, service, then `compose()` for the downstream ports,
+  listen, background `driveAll`, signals, DB close, OTel flush.
+- `server/src/memo/` — domain: `memo.ts` (states, steps, transitions, `runsAct`: every mode but `transcribe` hands the memo to Hermes; `normalizeKind` / `normalizeActions`, `OPTIONAL_STEPS`), `store.ts` (port), `runner.ts`
+  (idempotent step runner, concurrency-bounded `driveAll`, `idle()`), `service.ts` (`MemoService`, what HTTP calls), `media.ts`
+  (`MemoMedia`: the combined recording and the spoken result, both disk-cached and single-flight), `speech-text.ts` (`speechVariant`: the markdown-free, length-capped text `/speech` synthesizes, TDD §3), `keyed-queue.ts` (one Hermes thread's turns run one at a time), `events.ts` (in-process
+  pub/sub), `progress.ts` (in-process bus for `memo.delta` / `memo.activity` while act runs, and the in-memory `partialReply`), `purge.ts` (the purger: removes soft-deleted memos' files and rows after the 10-minute undo window), `errors.ts` (`MemoError` codes, `configured()` for optional subsystems), `test-support.ts` (fake audio, seeded and parked memos).
+- `server/src/pipeline/steps.ts` — `createStepHandlers`: the four step handlers (`transcribe`, `act`, `summarize`, `notify`), each a pure function
+  of (memo, ports); a handler is registered only when its port is provided (`act` needs the Hermes destination); `summarize` is always registered (no summarizer = the step fails and is skipped).
+- `server/src/adapters/` — `sqlite.ts` (+ `sqlite-migrations.ts`, `PRAGMA user_version`; migration 7 adds the `memo_fts` FTS5 index behind history search, 14 the Hermes-decides columns), `sqlite-devices.ts`
+  (`DeviceStore`, same db), `sqlite-threads.ts` (`ThreadStore`: the thread read queries, composed into the memo store), `sqlite-stats.ts` (`StatsStore`: read-only aggregates behind `GET /stats`), `audio-fs.ts` (segments + `combined.m4a`), `speech-fs.ts` (`<id>.mp3` + `<id>.txt`), `assets-fs.ts` (`<id>/<asset id>` reply assets), `diagram-pele.ts` (`DiagramRenderer`: Pele + resvg-js; migration 11 adds `reply_assets`),
+  and the downstream adapters (`audio-door-client.ts`: the one door client, URL + bearer + `agw-run-id` + hang guard, no redirects; `audio-door.ts`: the transcriber + the ffmpeg combiner; `audio-door-speaker.ts`; `agw-client.ts`: the one agent-workflows host client, URL + bearer + `x-agw-purpose` / `x-agw-caller` / `x-agw-project` (all `iris`) + `agw-run-id` + hang guard, no redirects; `agw.ts`: the `triage` summarizer; `hermes.ts`: the one `Destination` (session, turn over SSE with a `hermes.frames` debug line per turn: event names, counts and key names, never values, the ```iris block, tool names); log notifier), and the APNs pair: `notifier-apns.ts` (`Notifier` over an `ApnsTransport`)
+  and `apns-node.ts` (the transport on `@parse/node-apn`; `apns-test-support.ts` generates test keys and certs).
+- `server/src/ports/` — `audio.ts` (`AudioStore`, `AudioCombiner`, `Recording`), `clock.ts` (system, fixed and manual clocks),
+  `transcriber.ts`, `speaker.ts` (+ `SpeechCache`), `devices.ts` (`DeviceStore`: devices, APNs tokens, Live Activity tokens), `diagram.ts` (`DiagramRenderer`), `assets.ts` (`AssetStore`),
+  `stats.ts` (`StatsStore`), `summarizer.ts` (`Summarizer`), `destination.ts` (`Destination`: the Hermes port, `Delivery` + `DeliveryMeta` + `DeliveryProgress` / `onProgress`), `notifier.ts` (`notify` + best-effort `phase`),
+  `apns.ts` (`ApnsTransport`), `fakes.ts` (in-memory fakes of the ports, incl. `fakeApnsTransport`).
+- `server/src/notify/` — `payloads.ts` (pure alert / Live Activity builders), `phases.ts` (`bindPhaseUpdates`: memo events →
+  `notifier.phase`), `select.ts` (`selectNotifier`: APNs or log, plus the transport's `close`), `apns-result.ts` (`isTransient` / `isDeadToken` / `isEnvironmentMismatch`, shared by the memo notifier),
+  `lifecycle.ts` (`createNotifyLifecycle`: stop / idle / close for shutdown).
+- `server/src/http/` — `auth.ts` (device-token guard), `memos.ts`, `devices.ts`, `media.ts` (audio + speech, `Range`; reply assets),
+  `threads.ts` (`/threads`), `stats.ts`, `events.ts` and `telemetry.ts` (route plugins; `telemetry.ts` reads and validates its own body), `schemas.ts` (every request/response shape as pure TypeBox, exported for the
+  contracts), `errors.ts` (the one `MemoError` → status mapping), `serialize.ts` (the one wire-shape mapping, camelCase),
+  `test-support.ts` (in-memory app for `app.handle` tests).
+- `server/src/telemetry/` — `otel.ts`, `otel-format.ts`, `log.ts`, copied from research-gateway
+  (hand-rolled OTLP JSON, no SDK). The trace id is the memo UUID with dashes stripped. Added here: `exportOtlp` in `otel.ts`
+  (posts a payload built elsewhere), `relay.ts` (`createTelemetryRelay`: a client `TelemetryBatch` → OTLP traces and logs under the
+  client's own resource, through the `OtlpExporter` port), `fakes.ts` (`fakeOtlpExporter`), `limits.ts` (256 KiB, 500 records).
+- `server/src/env.ts` — the only place `process.env` is parsed.
+- `server/src/contracts/` — `registry.ts` (contract name → TypeBox schema), `export.ts` (TypeBox → JSON Schema),
+  `manifest.ts` (zod shape of `contracts/manifest.json`), `routes.ts` (the real app's route table),
+  `check.ts` (`checkContracts`), `cli.ts` (`export` | `check`), `conformance.test.ts` (live app vs contracts).
+- `contracts/` — the wire contract Swift decodes: `schema/<name>.json` (generated, JSON Schema 2020-12),
+  `fixtures/<name>[.<variant>].json` (hand-written, valid against schema `<name>`), `manifest.json` (every route
+  with its schema names, status codes and media types; binary and SSE routes included).
+- `server/src/compose.ts` — `compose({env, db, devices, clock, dataDir})`: builds the stats store over `db` and is the one place a downstream port is chosen (fake under
+  `IRIS_FAKES=1`, real adapter when its env is set, else absent and named in `degraded`); also the notifier and the device tokens.
+  A new port is one entry there, its fake in `fakePorts`, and its env var in `env.ts`.
+- `scripts/` — `send-memo.ts` (driver), `e2e.ts` (`make e2e`), `smoke.sh`, `launch.sh` (LaunchAgent entry), `mini-deploy.sh` (poller tick), `testflight-crashes.ts`;
+  `launchd/` — plist templates; `fixtures/audio/` — the German smoke recording.
+
+## Pipeline behaviour
+
+- **Step results live on the memo row** (`audio_seconds`, `transcript`, `destination_ref`,
+  `reply_text`, `summary_json`, `kind`, `hermes_headline`, `actions_json`; `route` is only on old rows), written by `MemoStore.completeStep` in one transaction with the state
+  change and the done row; a lost compare-and-set writes nothing. `resetForRetry` clears the columns of
+  the re-run steps and later. A store error in `completeStep` is bookkeeping, not a step failure: it
+  propagates and the drive failure is logged.
+
+- **Downstream env** (all optional, empty = unset): `AUDIO_DOOR_URL` (https or a loopback host, else the start fails) + `AUDIO_DOOR_TOKEN` (both, for `transcribe` and `speech`) and `HERMES_URL` +
+  `HERMES_TOKEN` (both, for `act`), `AGW_URL` (https or a loopback host) + `AGW_API_SECRET` (both, for `summarize`). Without the first pair `/health` lists `transcribe` and `speech` in `degraded`; without the second `act`: a memo then waits at `transcribed` until Hermes is configured and the server restarts; without the third `summarize`, which never parks a memo: the step fails and is skipped (**Summarize is optional**). `speech` answers 503 `unavailable`.
+
+- **Hermes client only** (Issue 403): Iris reaches the software factory only through Hermes. There is no factory API call, push, Decisions tab or `FACTORY_*` env in Iris; the factory's surfaces (asks, answers, health) live in the Console. Migration 16 drops the old `factory_ask_pushes` table.
+
+- **Hermes decides** (TDD §3 "Hermes decides"; supersedes the routing, answering-a-park and chat-mode design of Waves 3-17, kept only as the TDD's "Retired 2026-11-04" paragraph): Iris no longer classifies. Every mode but `transcribe` runs `transcribe → act → summarize → notify`
+  (typed: `act → summarize → notify`); `act` hands the transcript to Hermes, which decides what the memo is and acts with its own skills. Every turn, a new session or a `threadId` continuation, carries the `system_message` `IRIS_SYSTEM_MESSAGE`
+  (`adapters/hermes.ts`; the turn comes from Iris, load `skill_view('iris')`, end the reply with one ```iris block) plus, for the legacy modes `chat` / `journal` / `tab`, the line `The owner picked: Chat.` / `Journal.` / `Tab.`
+  (`auto` and `hermes` add nothing; the mode is stored as received). The session `source` is `iris`. The block is `{kind, headline}` (no `spoken`: the spoken line and the summary are agw `triage`'s): the **last** ```iris fence of the final reply is parsed with zod (extra keys, an old `spoken` included, ignored; no fence, bad JSON or a missing key = no block, logged
+  `hermes.meta_invalid` with the reason, never the content) and cut out of `reply_text` either way. `kind` (trimmed, lower-case, 24 code points) is the memo's `kind` column; `headline` (60 code points) is the `hermes_headline` column, never on the wire and never the memo's `summary`. `notify` announces `summary.headline ?? hermes_headline ??` the transcript clipped to 60; `kind` is null without a block. `actions` are the tools of the turn from the session stream's `tool.started` frames (field `tool_name`; for `skill_view` the loaded skill's name from `args.name`, plugin prefix and path cut, and nothing for the `iris` skill that opens every turn or a call without a usable name),
+  deduplicated in first-seen order, ≤ 12, names only, never other arguments. `kind`, `hermes_headline` and `actions` are written by `completeStep` of `act` (the summary by `summarize`); a retry from `act` clears them and the summary. Memos whose `route` is set (before 2026-11-04) keep rendering from their rows; `stepsOf(mode)` is the pipeline for them too, so a
+  `failed(route)` memo retries from `act` (delivers to Hermes whatever its old route was). Migration 14 turned every open `needs_route` memo into `failed(act)` ("parked before routing moved to Hermes"; Retry from Act delivers it) and moved `routed` back to `transcribed` (`summarized` is a live state again);
+  `route_decisions` stays as history and is never written. Hermes is the only destination, so the herdr, herdr-core, journal and decider code, agw `decide` and their env (`HERDR_SOCKET`, `HC_*`, `BRAIN_DIR`) are gone; the `iris` skill in hermes-agent owns what they did.
+
+- **Summarize is optional** (`OPTIONAL_STEPS` in `memo/memo.ts`): `summarize` runs agw `triage` on the transcript and the final reply (the ```iris block already cut), never tool traffic, with `destination` always `hermes`. When it fails for good (after the runner's automatic retries; a triage error, a 402, no summarizer), `runner.runStep` calls `store.skipStep`: the step row stays `failed` (error and attempts kept), the memo moves `acted` → `summarized` (not `failed`), `notify` runs and the memo ends `notified` with `summary` null, a `step.skipped` log line and a `memo.updated` (step `summarize`). Every other step still fails the memo. `POST /retry {from: "summarize"}` also works on such a `notified` memo (`resetForRetry`: `notified` with a failed `summarize` row), resets it to `acted`, re-runs summarize and notify. `/speech` on a reply with no summary speaks the clipped cleaned reply (`speechVariant`), no 409. History and `memo.summary` null: clients show the transcript. `repairFailedSummaries` (Wave 16's boot repair for `failed(summarize)` rows) is gone: the step can no longer fail a memo, and the one-off ran on the production database.
+
+- **Threads** (TDD §3 act, data model): every Hermes session is a thread (`threads.kind` `hermes`; old `chat` rows stay). The Hermes adapter names it in `Delivery.thread` (`{id, kind, title}`, id = session id = `destination_ref`); `act` persists it
+  (`patch.thread`: `completeStep` upserts the `threads` row and sets the `act`-owned `memos.thread_id`). The memo wire carries `threadId`, omitted when null.
+  Continuing a thread: `threadId` on either create route (404 unknown thread, 409 `destination_unavailable` while Hermes is not configured, 409 on a replay naming another; `continuedThread` in `memo.ts` tells a continuation from a memo's own
+  session, whose id is the memo id), `deliver({threadId})` talks into the existing session. Turns into one thread run one at a time (`memo/keyed-queue.ts` in the `act` handler, keyed by the thread id, else the memo's own id, so a retry of the memo that opened a session queues behind a continuation; `runner.stop()` ends a wait in the line, the task never starts and the step stays `running` for the next boot; the second waits, at most 30 min: then `act` fails "thread <id> is busy" naming the memo ahead and its task never runs, the line stays ordered; a waiter parked there releases its `driveAll` slot through the handler's `whileWaiting` and takes one again when its turn comes). `/threads/:id`
+  builds its conversation from the thread's memos (transcript = user, `reply_text` = assistant), never from Hermes. Swift: `MemoMode` decodes an unknown value to `.unknown`.
+
+- **Mode `transcribe`** (TDD §3 state machine): the pipeline is `transcribe` → `notify` (`memo.ts` `stepsOf(mode)`; `nextStep`, `advance` and `stateBefore` take the mode), the memo ends
+  `notified` with the transcript and NULL `kind`, `reply_text` and `summary`, with no act row on the timeline; the alert headline is the
+  transcript's start. A typed memo in this mode runs `notify` only; `threadId` with it is 400; `POST /retry` from a step the mode lacks is 400. Swift: `MemoMode.transcribe`, offered by
+  `MemoMode.voiceModes` (and, as a typed memo, the composer); `PipelineSteps.applicable(to:)` gives such a memo two steps.
+
+- **`act` is at-least-once:** a crash or restart mid-`act` replays the step, which posts a second turn
+  into the same Hermes session (and, if the first turn already acted, repeats its side effect). Shutdown keeps the window small: `app.stop(true)`, `runner.stop()` (the
+  running step finishes, no further step or queued memo starts), `notifyLifecycle.stop()`, `await runner.idle()` + the in-flight
+  Live Activity pushes under one 30 s drain deadline (`shutdown.drain_timeout` logs the in-flight memo ids), the APNs transport `close()`, `db.close()`, then a separate 2 s OTel
+  flush deadline. The LaunchAgent's `ExitTimeOut` is 60 s to cover it.
+
+- **Devices:** identity is the authenticated device name from the token map, never the body (`name` is a display label).
+  `registerDevice` keeps a stored token when the field is omitted or `""` and clears it only on explicit `null`. The
+  response reports token presence, never the tokens. `DeviceStore.getDevice` + `getActivityToken` are what the APNs
+  notifier reads. Migrations are append-only: `devices` and `activity_tokens` (cascades with the memo) are entry 4.
+
+- **Audio and speech are derived, disk-cached and single-flight:** the recording is `<audio>/<id>/combined.m4a` (mono 16 kHz
+  AAC from `ffmpegConcat`, built on the first request; removed with the segments), speech is
+  `<IRIS_DATA>/speech/<id>.mp3` with the spoken text in `<id>.txt`, so a retry that changes the variant text re-synthesizes
+  instead of replaying stale audio (the key is the derived speech variant, never stored). A failed combine or synthesis caches nothing. `/audio` honours a single `bytes=` range;
+  multi-range and malformed headers get the whole body, a range past the end gets 416.
+
+- **Audio door timeouts are hang guards:** the STT call (30 min) throws `hangGuardFailure` and the speech call (2 min) a plain 503; neither is retried (one window, then `POST /retry`).
+
+- **Audio door** (agent-workflows `audio` process, `AUDIO_DOOR_URL` = `http://127.0.0.1:7792/v1`, bearer `AUDIO_DOOR_TOKEN`; contract: agent-workflows `packages/audio/README.md` "The door on the process"):
+  `POST /audio/transcriptions` (multipart) and `POST /audio/speech`, OpenAI-compatible. Every answer, errors included, carries `agw-run-id`, the
+  run that records the call and its cost; both adapters put it on the span and the `audio_door.*` log lines as `agw.run_id` (the old `x-audio-source`
+  attribution is gone). A 401 (`{error:{message:'unauthorized'}}`, an unknown or rotated token) is a plain, non-transient failure.
+
+- **Speech request** to the door: `POST /audio/speech {input, response_format: "mp3"}`.
+  No `model` or `voice`: the door owns both and detects the language. A non-2xx is 503 `unavailable`.
+
+- **Bookkeeping failures** (`completeStep` throws after a handler ran) log `runner.bookkeeping_failed`
+  and propagate; the step row stays `running` and the memo keeps its state until the next `driveAll`.
+
+- A stored `summary_json` that fails the zod `Summary` schema reads as `null` with a `memo.summary_invalid` log.
+
+- `HERMES_URL` is composed in `launch.sh` from `HERMES_HOST` + `HERMES_PORT`. Hermes is the only destination: no brain checkout or herdr is left in this server. The agent-workflows host (`AGW_URL`) serves `triage` only, behind `summarize`; the audio door is agent-workflows' `audio` process.
+
+- agent-workflows host calls (`POST /triage`, synchronous) carry `x-agw-purpose: iris`, `x-agw-caller: iris` and `x-agw-project: iris` (constants in `agw-client.ts`; the run record and the ledger book the spend as caller `iris`, project `iris`; a malformed value is a host 400) and `Authorization: Bearer <AGW_API_SECRET>`; `AGW_API_SECRET` is `op://mini/agent-workflows/API_SECRET` in `.env.local.tpl` (in `headless.refs`). Every answer, errors included, has `agw-run-id`, logged and set on the span as `agw.run_id`. 400, 401 and 502 `INVALID_OUTPUT` are final (any other 502 is transient); 500, 503 and network errors are transient (the runner's retries); the step error carries status, host code and run id, never the body (`agw.error_body` logs the code and the body length, `agw.response_unreadable` the parser message); a 5xx whose body stalls past the guard is a hang guard failure; the hang guard (30 min) aborts the request and is not transient. `costUsd` null is stored as null, never 0. `make verify` also probes `GET http://127.0.0.1:7791/health`.
+
+`make e2e` (`scripts/e2e.ts`, CI after `check`, needs ffmpeg) boots `server/src/index.ts` on a free port with
+`IRIS_FAKES=1` and a temp `IRIS_DATA`, runs `send-memo.ts` on the smoke recording (must reach `notified`), then probes
+`/devices/register`, `/activity-token`, `/audio` (Range 206), `/speech` (audio/mpeg) and the threads flow (a hermes memo, a reply into its thread
+with `send-memo.ts --thread`, then `/threads` and `/threads/:id` with both turns); every memo must reach `notified` with the fake Hermes's `kind` and `actions` and the fake summarizer's `summary`. The server is always killed.
+
