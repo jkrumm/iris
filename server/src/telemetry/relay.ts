@@ -3,7 +3,7 @@ import { MemoError } from "../memo/errors.js";
 import { log as defaultLog } from "./log.js";
 import { SEVERITY_NUMBER, SEVERITY_TEXT, STATUS_CODE, toOtlpAttributes } from "./otel.js";
 import type { LogRecord, SpanRecord, StatusCode } from "./otel.js";
-import type { LogSeverity } from "./otel-format.js";
+import { deploymentEnvironmentName, type LogSeverity } from "./otel-format.js";
 
 // The client telemetry relay (TDD §8): a batch of spans and logs from the iOS or macOS app, re-emitted
 // as OTLP JSON with the client's own resource (`service.name=iris-ios|iris-macos`). The memo trace id
@@ -85,24 +85,32 @@ function logRecord(entry: RelayLog, index: number): LogRecord {
   };
 }
 
-/** The OTLP resource every record of the batch shares. */
-function resourceOf(resource: RelayBatch["resource"]) {
+/**
+ * The OTLP resource every record of the batch shares. A build without a sha (`appVersion` `dev`) is a local build
+ * writing to the prod project, so it is `dev` whatever the server's environment is.
+ */
+function resourceOf(resource: RelayBatch["resource"], nodeEnv: string) {
+  const environment = resource.appVersion === "dev" ? "dev" : deploymentEnvironmentName(nodeEnv);
   return {
     scope: { name: resource.serviceName },
     resource: {
       attributes: toOtlpAttributes({
+        "service.namespace": "iris",
         "service.name": resource.serviceName,
         "service.version": resource.appVersion,
         "device.name": resource.deviceName,
-        "deployment.environment": env.NODE_ENV,
+        "deployment.environment.name": environment,
       }),
     },
   };
 }
 
 /** Pure: the OTLP traces and logs payloads of a batch (each absent when the batch has none of that signal). */
-export function buildRelayPayloads(batch: RelayBatch): { traces?: object; logs?: object } {
-  const { scope, resource } = resourceOf(batch.resource);
+export function buildRelayPayloads(
+  batch: RelayBatch,
+  nodeEnv: string = env.NODE_ENV,
+): { traces?: object; logs?: object } {
+  const { scope, resource } = resourceOf(batch.resource, nodeEnv);
   const spans = batch.spans.map(spanRecord);
   const logs = batch.logs.map(logRecord);
   return {

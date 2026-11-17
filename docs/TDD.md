@@ -1373,8 +1373,9 @@ the `IrisCore` dependency when R1 wires them together.
   - **iOS again:** `notify.received`, `play`.
 - **Server:** `withRootSpan`/`withSpan`/`log` from the copied research-gateway
   files.
-  - Resource attributes: `service.name=iris-server`, `host.name=mini`, and
-    `deployment.environment`.
+  - Resource attributes: `service.namespace=iris`, `service.name=iris-server`,
+    `service.version` (the build's short sha), `host.name=mini` and
+    `deployment.environment.name=prod|dev`.
   - Metrics as named log events: `memo.completed{kind, audio_s, total_ms,
     cost_usd}`, `stt.latency`; the Hermes adapter logs `hermes.meta_invalid{memo_id, reason}` when a reply has no valid `iris` block.
 - **Clients:** `IrisTelemetry` buffers spans and logs (in memory plus a file

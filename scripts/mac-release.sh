@@ -90,7 +90,7 @@ ISSUER="$ASC_ISSUER_ID"
 
 # Hardened Runtime and a secure timestamp are what notarization asks for; they cost nothing on a development build.
 # CODE_SIGN_INJECT_BASE_ENTITLEMENTS=NO keeps Xcode from adding get-task-allow, which notarization refuses.
-SIGN=(DEVELOPMENT_TEAM="$TEAM" MARKETING_VERSION="$MARKETING" CURRENT_PROJECT_VERSION="$BUILD" ENABLE_HARDENED_RUNTIME=YES OTHER_CODE_SIGN_FLAGS=--timestamp
+SIGN=(DEVELOPMENT_TEAM="$TEAM" MARKETING_VERSION="$MARKETING" CURRENT_PROJECT_VERSION="$BUILD" IRIS_BUILD_SHA="$(git rev-parse --short HEAD)" ENABLE_HARDENED_RUNTIME=YES OTHER_CODE_SIGN_FLAGS=--timestamp
   CODE_SIGN_INJECT_BASE_ENTITLEMENTS=NO)
 AUTH=()
 case "$IDENTITY" in

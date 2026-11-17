@@ -1,10 +1,10 @@
 import { AsyncLocalStorage } from "node:async_hooks";
-import pkg from "../../package.json" with { type: "json" };
 import { env } from "../env.js";
 import {
   toLogAttributes,
   severityFor,
   parseOtlpHeadersEnv,
+  deploymentEnvironmentName,
   type LogSeverity,
 } from "./otel-format.js";
 
@@ -104,18 +104,35 @@ export function parseResourceAttributesEnv(raw: string): Record<string, string> 
   return out;
 }
 
-// The same three attributes the LoggerProvider's `resourceFromAttributes` carried before, now
-// on both signals. No `host.name` set directly here — this service now runs on two hosts (the
-// VPS container and the mini's native LaunchAgent), so `OTEL_RESOURCE_ATTRIBUTES` is how each
-// instance stamps its own value (the mini sets `host.name=mini`) rather than this file guessing
-// at one.
+/**
+ * The resource of every server record (the telemetry contract): `service.namespace=iris`,
+ * `service.version` = the build's short sha, `deployment.environment.name` = prod|dev. `OTEL_RESOURCE_ATTRIBUTES`
+ * (launch.sh sets `host.name=mini`) overrides or adds any of them. Pure, so it is tested directly.
+ */
+export function serverResourceAttributes(input: {
+  serviceName: string;
+  buildSha: string;
+  nodeEnv: string;
+  resourceAttributes: string;
+}): Record<string, string> {
+  return {
+    "service.namespace": "iris",
+    "service.name": input.serviceName,
+    "service.version": input.buildSha,
+    "deployment.environment.name": deploymentEnvironmentName(input.nodeEnv),
+    ...parseResourceAttributesEnv(input.resourceAttributes),
+  };
+}
+
 const RESOURCE = {
-  attributes: toOtlpAttributes({
-    "service.name": env.OTEL_SERVICE_NAME,
-    "service.version": pkg.version,
-    "deployment.environment": env.NODE_ENV,
-    ...parseResourceAttributesEnv(env.OTEL_RESOURCE_ATTRIBUTES),
-  }),
+  attributes: toOtlpAttributes(
+    serverResourceAttributes({
+      serviceName: env.OTEL_SERVICE_NAME,
+      buildSha: env.IRIS_BUILD_SHA,
+      nodeEnv: env.NODE_ENV,
+      resourceAttributes: env.OTEL_RESOURCE_ATTRIBUTES,
+    }),
+  ),
 };
 
 // ── IDs ──────────────────────────────────────────────────────────────────────

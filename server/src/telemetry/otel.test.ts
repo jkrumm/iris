@@ -9,6 +9,7 @@ import type { SpanRecord, LogRecord } from "./otel.js";
 const {
   traceIdFromMemoId,
   parseResourceAttributesEnv,
+  serverResourceAttributes,
   withSpan,
   withRootSpan,
   emitOtelLog,
@@ -170,6 +171,36 @@ describe("emitOtelLog", () => {
     const outside = records.find((r) => r.body.stringValue === "research.done");
     expect(outside?.traceId).toBeUndefined();
     expect(outside?.spanId).toBeUndefined();
+  });
+});
+
+describe("serverResourceAttributes", () => {
+  const base = {
+    serviceName: "iris-server",
+    buildSha: "a1b2c3d",
+    nodeEnv: "production",
+    resourceAttributes: "host.name=mini",
+  };
+
+  it("stamps the namespace, the build sha as version, prod in production and the mini's host", () => {
+    expect(serverResourceAttributes(base)).toEqual({
+      "service.namespace": "iris",
+      "service.name": "iris-server",
+      "service.version": "a1b2c3d",
+      "deployment.environment.name": "prod",
+      "host.name": "mini",
+    });
+  });
+
+  it("is dev outside production, and OTEL_RESOURCE_ATTRIBUTES can override it", () => {
+    expect(
+      serverResourceAttributes({ ...base, nodeEnv: "development" })["deployment.environment.name"],
+    ).toBe("dev");
+    expect(
+      serverResourceAttributes({ ...base, resourceAttributes: "deployment.environment.name=dev" })[
+        "deployment.environment.name"
+      ],
+    ).toBe("dev");
   });
 });
 

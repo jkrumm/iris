@@ -59,6 +59,9 @@ fi
 
 # Templates can't expand $HOME.
 export IRIS_DATA="$HOME/.iris/data"
+# The build sha of this checkout (service.version of the server's records) and the host it runs on (the telemetry contract).
+export IRIS_BUILD_SHA="$(git -C "$DIR" rev-parse --short HEAD 2>/dev/null || print -n dev)"
+export OTEL_RESOURCE_ATTRIBUTES="${OTEL_RESOURCE_ATTRIBUTES:-host.name=mini}"
 # The audio door's caller token: the `iris=<token>` line of the local caller-token file (0600, not 1Password).
 # Whitespace and a CR from a CRLF edit are stripped before the empty check. Never echoed. A missing file or line starts degraded (`transcribe` and `speech` in /health), the reason goes to stderr.
 DOOR_TOKENS="$HOME/.agent-workflows/data/door-tokens"
