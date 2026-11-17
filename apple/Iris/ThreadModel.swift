@@ -57,6 +57,7 @@ final class ThreadModel {
   /// Bumped by every fetch and every local change; a fetch that is no longer the latest drops its answer.
   private var generation = 0
   private var toastCount = 0
+  private var isRetrying = false
   private let toastTimer: ExpiryTimer
 
   init(
@@ -147,7 +148,10 @@ final class ThreadModel {
 
   /// Runs the failed memo's last step again from the conversation (the Retry under its failed turn); a failure is the screen's toast.
   func retry(_ memo: MemoDetailModel) async {
-    guard let step = memo.primaryRetryStep else { return }
+    guard !isRetrying, let step = memo.primaryRetryStep else { return }
+    // Every tap builds a model of its own, so the model's guard cannot stop a second tap while this one runs.
+    isRetrying = true
+    defer { isRetrying = false }
     await memo.retry(from: step)
     if let failed = memo.failure { showFailure(failed.message) }
     await load()

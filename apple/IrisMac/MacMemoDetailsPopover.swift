@@ -44,10 +44,11 @@ struct MacMemoDetailsPopover: View {
 
   @ViewBuilder private var page: some View {
     if selectedID == model.memoID {
-      MacMemoDetailsPage(model: model, loadsItself: false)
+      MacMemoDetailsPage(model: model, refreshToken: nil)
     } else if let memo = memos.first(where: { $0.id == selectedID }) {
       BuiltOnce(make: { root.detailsModel(for: memo) }) { other in
-        MacMemoDetailsPage(model: other, loadsItself: true)
+        // Reloads on the window's revision of the memo, as the iPhone's sheet does.
+        MacMemoDetailsPage(model: other, refreshToken: root.windowHistory.revision(of: memo.id))
       }
       .id(memo.id)
     }
@@ -84,8 +85,8 @@ struct MacMemoDetailsPopover: View {
 /// One memo's page: the kind chip and meta line, the error of a failed memo, then the shared Details.
 private struct MacMemoDetailsPage: View {
   let model: MacMemoDetailModel
-  /// The pane loads the memo it shows; the popover loads every other one.
-  let loadsItself: Bool
+  /// The pane loads the memo it shows (`nil`); the popover loads every other one, again whenever this changes.
+  let refreshToken: Int?
 
   var body: some View {
     if let memo = model.memo {
@@ -104,7 +105,7 @@ private struct MacMemoDetailsPage: View {
         }
       }
       .frame(maxWidth: .infinity, alignment: .leading)
-      .task { if loadsItself { await model.load() } }
+      .task(id: refreshToken) { if refreshToken != nil { await model.load() } }
     }
   }
 
