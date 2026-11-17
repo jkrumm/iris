@@ -76,9 +76,31 @@ final class MacMemoDetailModel {
   /// The open memo continues a conversation another memo started (a reply, not a first question).
   var continuesThread: Bool { memo?.continuesThread ?? false }
 
-  /// The composer's thread: only a memo that has a Hermes session can be replied to.
+  /// The recordings of the transcript the open memo belongs to, oldest first: the loaded thread's (the open memo as the list has it),
+  /// else the memo alone.
+  var parts: [Memo] {
+    guard let memo else { return [] }
+    guard let thread, thread.thread.kind == "transcript" else { return [memo] }
+    var parts = thread.memos.filter { !$0.isDeleted && $0.id != memo.id }
+    parts.append(memo)
+    return parts.sorted { ($0.createdAt, $0.id) < ($1.createdAt, $1.id) }
+  }
+
+  /// Every part's words, joined in order: what Copy transcript copies.
+  var wholeTranscript: String? { TranscriptText.whole(of: parts) }
+
+  /// The thread a Continue recording take belongs to (the first part's id); nil while the memo is no transcript or has none to
+  /// continue yet, since the server refuses a continuation until the first part has a transcript.
+  var continuationTarget: String? {
+    guard let target = memo?.transcriptThreadID else { return nil }
+    let head = parts.first { $0.id == target } ?? memo
+    return head?.plainTranscript == nil ? nil : target
+  }
+
+  /// The composer's thread (and the one the global key continues): only a Hermes memo that has a session can be replied to. A
+  /// transcript's memos have a thread too, but the server refuses a Hermes memo in it.
   var replyThreadID: String? {
-    guard let memo, !memo.isDeleted else { return nil }
+    guard let memo, !memo.isDeleted, memo.mode == .hermes else { return nil }
     return memo.threadId
   }
 
@@ -226,7 +248,7 @@ final class MacMemoDetailModel {
   func copy(_ target: CopyTarget) {
     let text =
       switch target {
-      case .transcript: memo?.plainTranscript
+      case .transcript: wholeTranscript
       case .reply: memo?.plainReply
       }
     guard let text else { return }

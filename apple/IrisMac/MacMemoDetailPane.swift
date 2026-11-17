@@ -69,7 +69,8 @@ struct MacMemoDetailPane: View {
     if let thread = model.thread {
       token += thread.memos.reduce(0) { $0 + history.revision(of: $1.id) }
     }
-    if let threadId = model.memo?.threadId {
+    // A transcript's first part has no thread until something continues it: its own id names the thread then.
+    if let threadId = model.memo?.threadId ?? model.memo?.transcriptThreadID {
       token += history.memos.count { $0.threadId == threadId }
     }
     return token
@@ -146,6 +147,7 @@ struct MacMemoDetailPane: View {
       let actions = MacMemoActions(root: root, model: root.windowHistory)
       ToolbarItemGroup(placement: .primaryAction) {
         MacSpeakerMenu(root: root, player: player, memo: memo)
+        continueButton
         copyMenu
         retryControl
         MacMoreMenu(root: root, player: player, memo: memo)
@@ -184,6 +186,18 @@ struct MacMemoDetailPane: View {
       MacMemoDetailsPopover(root: root, model: model)
     }
     .accessibilityIdentifier("mac.detail.details")
+  }
+
+  /// Records another part of this transcript: a Transcribe take bound to its first part, stopped by the toolbar's Stop like any take.
+  @ViewBuilder private var continueButton: some View {
+    if let target = model.continuationTarget, !root.recording.isRecording {
+      Button(
+        String(localized: "Continue recording", comment: "Detail toolbar: records another part of this transcript"),
+        systemImage: "text.alignleft"
+      ) { root.recording.toggle(mode: .transcribe, threadID: target) }
+      .help(MacMemoControl.continueRecording.help)
+      .accessibilityIdentifier("mac.detail.continue")
+    }
   }
 
   @ViewBuilder private var copyMenu: some View {

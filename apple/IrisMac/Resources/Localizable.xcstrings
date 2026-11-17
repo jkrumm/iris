@@ -265,6 +265,34 @@
         }
       }
     },
+    "Continue recording" : {
+      "comment" : "Detail toolbar: records another part of this transcript",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Weiter aufnehmen"
+          }
+        }
+      }
+    },
+    "Record more and add it to this transcript" : {
+      "comment" : "Tooltip of the toolbar's Continue recording",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Weiter aufnehmen und den Text an dieses Transkript anhängen"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Record more and add it to this transcript"
+          }
+        }
+      }
+    },
     "Copy the transcript or the reply" : {
       "comment" : "Tooltip of the toolbar's Copy menu",
       "localizations" : {

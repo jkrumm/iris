@@ -367,6 +367,28 @@ struct FixtureConformanceTests {
     #expect(detail.messages.map(\.memoId) == detail.memos.flatMap { [$0.id, $0.id] })
   }
 
+  @Test("A transcribe memo's `threadId` names the transcript's first memo; the thread is its parts, oldest first")
+  func transcriptThreads() throws {
+    let decoder = IrisJSON.makeDecoder()
+    let create = try decoder.decode(
+      CreateMemoRequest.self, from: Contracts.fixtureData("memos.create.request.transcribe-continue"))
+    #expect(create.mode == .transcribe)
+    let text = try decoder.decode(
+      CreateTextMemoRequest.self, from: Contracts.fixtureData("memos.text.request.transcribe-continue"))
+    #expect(text.mode == .transcribe && text.threadId == create.threadId)
+
+    let detail = try decoder.decode(
+      ThreadDetail.self, from: Contracts.fixtureData("threads.detail.response.transcript"))
+    #expect(detail.thread.kind == "transcript")
+    #expect(detail.id == detail.memos.first?.id, "the thread is named by its first memo")
+    #expect(detail.memos.map(\.isTranscriptPart) == [false, true])
+    #expect(create.threadId == detail.id && detail.memos.last?.id == create.id)
+    #expect(
+      TranscriptText.whole(of: detail.memos)
+        == "Für das Wochenende brauche ich Tomaten, Mozzarella und frisches Basilikum.\n\nAußerdem noch Hafermilch und Brot mitbringen."
+    )
+  }
+
   @Test("A thread kind is passed through as the wire string")
   func threadKindPassthrough() throws {
     let page = try IrisJSON.makeDecoder().decode(ThreadPage.self, from: Contracts.fixtureData("threads.list.response"))

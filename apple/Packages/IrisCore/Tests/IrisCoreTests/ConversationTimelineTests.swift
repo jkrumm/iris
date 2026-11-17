@@ -105,6 +105,31 @@ struct ConversationTimelineTests {
     #expect(!memo(deletedAt: ConversationFixtures.now).isConversation)
   }
 
+  @Test("a transcribe memo in another memo's thread is a transcript part; the first part and a Hermes reply are not")
+  func transcriptParts() {
+    #expect(memo("b", mode: .transcribe, threadId: "a").isTranscriptPart)
+    #expect(!memo("a", mode: .transcribe, threadId: "a").isTranscriptPart, "the first part, once continued")
+    #expect(!memo("a", mode: .transcribe).isTranscriptPart, "a transcript nothing continued")
+    #expect(!memo("b", threadId: "a").isTranscriptPart, "a Hermes reply")
+    #expect(!memo("b", mode: .transcribe, threadId: "a", deletedAt: ConversationFixtures.now).isTranscriptPart)
+    #expect(memo("b", mode: .transcribe, threadId: "a").transcriptThreadID == "a")
+    #expect(memo("a", mode: .transcribe).transcriptThreadID == "a")
+    #expect(memo("a").transcriptThreadID == nil)
+  }
+
+  @Test("the whole transcript joins the parts in order, one paragraph each, and skips parts without text")
+  func wholeTranscript() {
+    let parts = [
+      memo("a", transcript: " First. \n", mode: .transcribe, threadId: "a"),
+      memo("b", state: .received, transcript: nil, mode: .transcribe, threadId: "a"),
+      memo("c", transcript: "Second.", mode: .transcribe, threadId: "a"),
+      memo("d", transcript: "Gone.", mode: .transcribe, threadId: "a", deletedAt: ConversationFixtures.now),
+    ]
+    #expect(TranscriptText.whole(of: parts) == "First.\n\nSecond.")
+    #expect(TranscriptText.whole(of: [parts[1]]) == nil)
+    #expect(TranscriptText.whole(of: []) == nil)
+  }
+
   @Test("a sent memo joins the thread once, with its transcript as the user message")
   func appendingSent() throws {
     let detail = ConversationFixtures.detail([memo("a", reply: "x")])

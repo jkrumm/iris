@@ -6,6 +6,7 @@ import Foundation
 enum MacMemoControl: CaseIterable {
   case readReply, stopReply, readSummary, readFull
   case playRecording, stopRecording, more
+  case continueRecording
   case copyMenu, copyTranscript, copyReply
   case retryMenu, details
   case favorite, unfavorite, archive, unarchive, delete
@@ -29,6 +30,9 @@ enum MacMemoControl: CaseIterable {
       String(localized: "Stop your recording", comment: "Tooltip: stops the user's recording")
     case .more:
       String(localized: "More actions for this memo", comment: "Tooltip of the toolbar's overflow menu")
+    case .continueRecording:
+      String(
+        localized: "Record more and add it to this transcript", comment: "Tooltip of the toolbar's Continue recording")
     case .copyMenu:
       String(localized: "Copy the transcript or the reply", comment: "Tooltip of the toolbar's Copy menu")
     case .copyTranscript:

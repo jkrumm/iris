@@ -127,6 +127,39 @@ struct MacConversationTests {
     await root.recording.settled()
   }
 
+  @Test("Continue recording on a transcript starts a Transcribe take bound to its first part")
+  func continueRecordingBindsTheTranscript() async throws {
+    let engine = FakeTakeEngine()
+    let root = await loadedRoot(engine: engine)
+    let open = root.detailModel(for: SampleData.transcriptPartID)
+    await open.load()
+    #expect(open.continuationTarget == SampleData.transcriptThreadID, "a later part continues the first part's thread")
+    let target = try #require(open.continuationTarget)
+
+    root.recording.toggle(mode: .transcribe, threadID: target)
+    await root.recording.settled()
+    #expect(engine.startedModes == [.transcribe] && engine.startedThreadIDs == [SampleData.transcriptThreadID])
+    root.recording.cancel()
+    await root.recording.settled()
+
+    #expect(
+      root.detailModel(for: "0b6d1f4e-3a52-4c1d-9f0e-7a2c5d8e1b34").continuationTarget == nil,
+      "a Hermes memo is no transcript")
+  }
+
+  @Test("a continued transcript in front is no conversation: the global key starts a new memo")
+  func hotkeyIgnoresATranscript() async {
+    let root = await loadedRoot(hotkey: FakeTakeHotkey(), engine: FakeTakeEngine())
+    root.selectedMemoID = SampleData.transcriptThreadID
+    let open = root.detailModel(for: SampleData.transcriptThreadID)
+    await open.load()
+    #expect(open.memo?.threadId == SampleData.transcriptThreadID, "the transcript has a thread")
+    #expect(open.parts.map(\.id) == [SampleData.transcriptThreadID, SampleData.transcriptPartID])
+    #expect(open.replyThreadID == nil)
+    root.isMainWindowFront = true
+    #expect(root.frontConversationThreadID == nil)
+  }
+
   @Test("the global key continues the conversation in front in the main window, and starts a new memo otherwise")
   func hotkeyContinuesFrontConversation() async throws {
     let hotkey = FakeTakeHotkey()

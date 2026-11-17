@@ -57,7 +57,7 @@ extension SampleData {
     "No. A hang guard is a **plain error**: one window, then `POST /retry` starts it again."
 
   static func threadDetails(now: Date = Date()) -> [ThreadDetail] {
-    [chatThread(now: now), hermesThread(now: now), artifactThread(now: now)]
+    [chatThread(now: now), hermesThread(now: now), artifactThread(now: now), transcriptThread(now: now)]
   }
 
   private static func chatThread(now: Date) -> ThreadDetail {
@@ -119,6 +119,44 @@ extension SampleData {
         ThreadMessage(memoId: first.id, role: .user, content: first.transcript ?? "", createdAt: first.createdAt),
         ThreadMessage(memoId: first.id, role: .assistant, content: first.replyText ?? "", createdAt: first.updatedAt),
         ThreadMessage(memoId: second.id, role: .user, content: second.transcript ?? "", createdAt: second.createdAt),
+      ])
+  }
+
+  // MARK: A transcript with two recordings
+
+  nonisolated static let transcriptThreadID = "7f3b9c20-4d18-4a65-b8e1-2c5a0d9e6f43"
+  nonisolated static let transcriptPartID = "7f3b9c20-4d18-4a65-b8e1-2c5a0d9e6f44"
+  static let transcriptFirstText = "Für das Wochenende brauche ich Tomaten, Mozzarella und frisches Basilikum."
+  static let transcriptSecondText = "Außerdem noch Hafermilch und Brot mitbringen."
+
+  /// The oldest sample, so History lists it last: a Transcribe memo that a second recording continued. Like the server's thread of
+  /// kind `transcript`, it is named by its first memo's id; History shows that one row, the screens read both parts.
+  private static func transcriptThread(now: Date) -> ThreadDetail {
+    let start = now.addingTimeInterval(-230_000)
+    let first = Memo(
+      id: transcriptThreadID, mode: .transcribe, device: "iphone", startedAt: start, state: .notified, segmentCount: 2,
+      audioSeconds: 14.2, transcript: transcriptFirstText,
+      summary: MemoSummary(
+        headline: "Einkaufsliste für das Wochenende", detail: "Tomaten, Mozzarella und frisches Basilikum.",
+        spoken: "Tomaten, Mozzarella und Basilikum."),
+      threadId: transcriptThreadID, createdAt: start, updatedAt: start.addingTimeInterval(41))
+    let later = start.addingTimeInterval(15_000)
+    let second = Memo(
+      id: transcriptPartID, mode: .transcribe, device: "iphone", startedAt: later, state: .notified, segmentCount: 1,
+      audioSeconds: 6.8, transcript: transcriptSecondText,
+      summary: MemoSummary(
+        headline: "Hafermilch und Brot", detail: "Außerdem Hafermilch und Brot mitbringen.",
+        spoken: "Hafermilch und Brot."),
+      threadId: transcriptThreadID, createdAt: later, updatedAt: later.addingTimeInterval(21))
+    return ThreadDetail(
+      thread: MemoThread(
+        id: transcriptThreadID, kind: "transcript", title: "Einkaufsliste für das Wochenende",
+        createdAt: first.createdAt,
+        updatedAt: second.updatedAt, lastMemoId: second.id),
+      memos: [first, second],
+      messages: [
+        ThreadMessage(memoId: first.id, role: .user, content: transcriptFirstText, createdAt: first.createdAt),
+        ThreadMessage(memoId: second.id, role: .user, content: transcriptSecondText, createdAt: second.createdAt),
       ])
   }
 

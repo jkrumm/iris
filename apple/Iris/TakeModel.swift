@@ -183,11 +183,12 @@ final class TakeModel {
 
   // MARK: Actions
 
-  func start(mode: MemoMode = .hermes) async {
+  /// `threadID` binds the take to a thread: a Transcribe take continues that transcript (the first part's id).
+  func start(mode: MemoMode = .hermes, threadID: String? = nil) async {
     guard canStart else { return }
     failure = nil
     do {
-      try await controller.start(mode: mode)
+      try await controller.start(mode: mode, threadID: threadID)
     } catch {
       reportStartFailure(error)
     }

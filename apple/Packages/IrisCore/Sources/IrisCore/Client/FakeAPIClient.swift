@@ -192,7 +192,7 @@ public actor FakeAPIClient: APIClient {
       try requireSameThread(existing, request.threadId)
       return existing
     }
-    try requireThread(request.threadId)
+    try requireThread(request.threadId, mode: request.mode)
     let timestamp = now()
     let memo = Memo(
       id: request.id, mode: request.mode, device: deviceID, startedAt: request.startedAt, state: .receiving,
@@ -223,7 +223,7 @@ public actor FakeAPIClient: APIClient {
       }
       return existing
     }
-    try requireThread(request.threadId)
+    try requireThread(request.threadId, mode: request.mode)
     let timestamp = now()
     let memo = Memo(
       id: request.id, mode: request.mode, device: deviceID, startedAt: request.startedAt, state: .transcribed,
@@ -431,7 +431,8 @@ public actor FakeAPIClient: APIClient {
       }
     }
     let thread = MemoThread(
-      id: id, kind: "hermes", title: first.summary?.headline ?? first.transcript ?? "", createdAt: first.createdAt,
+      id: id, kind: first.mode == .transcribe ? "transcript" : "hermes",
+      title: first.summary?.headline ?? first.transcript ?? "", createdAt: first.createdAt,
       updatedAt: last.updatedAt, lastMemoId: last.id)
     return ThreadDetail(thread: thread, memos: members, messages: messages)
   }
@@ -499,10 +500,25 @@ public actor FakeAPIClient: APIClient {
     throw error
   }
 
-  /// A memo that names a thread must find it, as on the server.
-  private func requireThread(_ threadId: String?) throws {
-    guard let threadId, threads[threadId] == nil, storedThread(id: threadId) == nil else { return }
-    throw notFound("thread \(threadId) not found")
+  /// A memo that names a thread must find it, as on the server. A `transcribe` memo's thread is a transcript, named by its first
+  /// memo's id: that memo (live, with a transcript) is promoted by the first continuation (its `threadId` becomes its own id); a
+  /// Hermes thread and a transcript never mix (409), a continuation or a deleted memo is no thread (404).
+  private func requireThread(_ threadId: String?, mode: MemoMode) throws {
+    guard let threadId else { return }
+    let head = memos[threadId]?.memo
+    let isTranscript = head.map { $0.mode == .transcribe } ?? threads[threadId].map { $0.thread.kind == "transcript" }
+    if let isTranscript, isTranscript != (mode == .transcribe) {
+      throw APIError.server(status: 409, body: ErrorBody(error: .conflict, message: "thread is of another kind"))
+    }
+    guard mode == .transcribe, let head else {
+      guard threads[threadId] == nil, storedThread(id: threadId) == nil else { return }
+      throw notFound("thread \(threadId) not found")
+    }
+    guard !head.isDeleted, head.threadId == nil || head.threadId == head.id else {
+      throw notFound("thread \(threadId) not found")
+    }
+    guard head.transcript != nil else { throw badState("memo \(threadId) has no transcript yet") }
+    memos[threadId]?.memo.threadId = head.id
   }
 
   private func requireSameThread(_ memo: Memo, _ threadId: String?) throws {

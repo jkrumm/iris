@@ -75,7 +75,7 @@ struct HistoryView: View {
           threadView(memo)
         } else {
           BuiltOnce(make: { makeDetail(memo) }) { detail in
-            MemoDetailView(model: detail, refreshToken: { model.revision(of: memo.id) })
+            MemoDetailView(model: detail, refreshToken: { model.transcriptRevision(of: memo) })
           }
           .id(memo.id)
         }

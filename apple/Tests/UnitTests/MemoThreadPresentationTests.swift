@@ -30,11 +30,25 @@ struct MemoThreadPresentationTests {
   )
   func sampleThreadIDs() {
     let details = SampleData.details(now: MemoFactory.now)
-    let opening = details.map(\.memo).filter(\.continuesThread).map(\.id).sorted()
+    let hermes = details.map(\.memo).filter { $0.mode == .hermes }
+    let opening = hermes.filter(\.continuesThread).map(\.id).sorted()
     #expect(opening == [SampleData.chatFollowUpID, SampleData.hermesFollowUpID].sorted())
-    let own = details.map(\.memo).filter { $0.threadId == $0.id }
+    let own = hermes.filter { $0.threadId == $0.id }
     #expect(own.count >= 4, "acted Hermes memos are in their own session")
     #expect(own.allSatisfy { !$0.continuesThread && $0.destinationRef != nil })
+  }
+
+  @Test("the sample transcript is shaped like the server's: the first memo names the thread, the second is a part")
+  func sampleTranscript() throws {
+    let all = SampleData.details(now: MemoFactory.now).map(\.memo)
+    let first = try #require(all.first { $0.id == SampleData.transcriptThreadID })
+    let second = try #require(all.first { $0.id == SampleData.transcriptPartID })
+    #expect(first.threadId == first.id && !first.isTranscriptPart)
+    #expect(second.threadId == first.id && second.isTranscriptPart)
+    let thread = try #require(SampleData.threadDetails(now: MemoFactory.now).first { $0.id == first.id })
+    #expect(thread.thread.kind == "transcript")
+    let whole = "\(SampleData.transcriptFirstText)\n\n\(SampleData.transcriptSecondText)"
+    #expect(TranscriptText.whole(of: thread.memos) == whole)
   }
 
   @Test("a conversation entry becomes the turn the screens draw, with the memo's progress, caption and error")

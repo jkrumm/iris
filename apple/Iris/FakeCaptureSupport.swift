@@ -45,11 +45,15 @@ actor FakePipeline {
   }
 
   /// Walks `memoID` to `notified`. A typed memo is created already transcribed (and keeps its own words as the transcript),
-  /// so it only has the act and the answer ahead of it.
+  /// so it only has the act and the answer ahead of it. A transcribe memo has no act and no answer: its text is all there is.
   func run(_ memoID: String, typed: Bool = false) {
     guard tasks[memoID] == nil else { return }
     // Owned by `tasks`; cancelled with the pipeline.
     tasks[memoID] = Task { [client, step] in
+      if let memo = try? await client.memo(id: memoID).memo, memo.mode == .transcribe {
+        await Self.transcribeOnly(memoID, typed: typed, step: step, client: client)
+        return
+      }
       // The reply is stored at `notified`, so the running turn stays on screen for two steps (UI tests on a slow runner
       // still catch it); the streamed text is the same words.
       let answer = typed ? "This is the fake answer to your message." : "This is the fake answer to your voice memo."
@@ -73,6 +77,19 @@ actor FakePipeline {
         try? await client.advance(memoID, to: state, transcript: transcript, replyText: reply)
       }
     }
+  }
+
+  /// The pipeline of a transcribe memo: the transcript, then done. A part that continues a transcript has its own words, so the
+  /// whole text grows by this one.
+  private static func transcribeOnly(_ memoID: String, typed: Bool, step: Duration, client: FakeAPIClient) async {
+    if !typed {
+      try? await Task.sleep(for: step)
+      guard !Task.isCancelled else { return }
+      try? await client.advance(memoID, to: .transcribed, transcript: "This is the fake transcript of your voice memo.")
+    }
+    try? await Task.sleep(for: step)
+    guard !Task.isCancelled else { return }
+    try? await client.advance(memoID, to: .notified)
   }
 
   /// What a running `act` emits: three tool starts at about 15 %, 40 % and 65 % of the step, then (about 85 %) the answer in
