@@ -10,17 +10,22 @@ public struct UserTurnView<Footer: View>: View {
   private let onCopy: (() -> Void)?
   private let onDetails: (() -> Void)?
   private let hasFooter: Bool
+  private let gist: String?
   private let collapsedLineLimit: Int?
+  private let startsExpanded: Bool
   private let footer: Footer
 
   /// - Parameters:
   ///   - textRole: The size of the text: the iPhone's 15 pt `.subheadline`, the Mac passes `.footnote`.
   ///   - hasFooter: `false` when the footer builds nothing (an `if` that did not hold): no hairline, no empty row.
-  ///   - collapsedLineLimit: Cuts the text after this many lines behind a Show all button (a long transcript); `nil` shows it whole.
+  ///   - gist: The short gist of a long transcript (the memo's `transcriptGist`); shown in place of the text while it is folded.
+  ///   - collapsedLineLimit: Folds a text longer than this many lines to its gist, else to its first lines, behind a Show full
+  ///     message button (a long transcript); `nil` shows it whole.
+  ///   - startsExpanded: Opens a folded text expanded (previews and snapshots; the reader's own tap does the rest).
   public init(
     text: String, time: String, identifier: String = "thread.turn.user", textRole: Theme.TextRole = .subheadline,
     onCopy: (() -> Void)? = nil, onDetails: (() -> Void)? = nil, hasFooter: Bool = true,
-    collapsedLineLimit: Int? = nil,
+    gist: String? = nil, collapsedLineLimit: Int? = nil, startsExpanded: Bool = false,
     @ViewBuilder footer: () -> Footer
   ) {
     self.text = text
@@ -30,14 +35,17 @@ public struct UserTurnView<Footer: View>: View {
     self.onCopy = onCopy
     self.onDetails = onDetails
     self.hasFooter = hasFooter
+    self.gist = gist
     self.collapsedLineLimit = collapsedLineLimit
+    self.startsExpanded = startsExpanded
     self.footer = footer()
   }
 
   public var body: some View {
     ChatBubble(side: .user, time: time, onCopy: onCopy, onDetails: onDetails, hasFooter: hasFooter) {
       if let collapsedLineLimit {
-        ClampedText(text: text, role: textRole, lineLimit: collapsedLineLimit)
+        ClampedText(
+          text: text, gist: gist, role: textRole, lineLimit: collapsedLineLimit, startsExpanded: startsExpanded)
       } else {
         Text(verbatim: text)
           .themeFont(textRole)
@@ -57,10 +65,12 @@ public struct UserTurnView<Footer: View>: View {
 extension UserTurnView where Footer == EmptyView {
   public init(
     text: String, time: String, identifier: String = "thread.turn.user", textRole: Theme.TextRole = .subheadline,
-    onCopy: (() -> Void)? = nil, onDetails: (() -> Void)? = nil
+    onCopy: (() -> Void)? = nil, onDetails: (() -> Void)? = nil, gist: String? = nil, collapsedLineLimit: Int? = nil,
+    startsExpanded: Bool = false
   ) {
     self.init(
       text: text, time: time, identifier: identifier, textRole: textRole, onCopy: onCopy, onDetails: onDetails,
-      hasFooter: false, footer: { EmptyView() })
+      hasFooter: false, gist: gist, collapsedLineLimit: collapsedLineLimit, startsExpanded: startsExpanded,
+      footer: { EmptyView() })
   }
 }

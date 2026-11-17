@@ -57,6 +57,17 @@ struct MemoThreadPresentationTests {
     #expect(answer.content == .assistant("**Hi**", mermaid: [:]) && answer.date == MemoFactory.now)
   }
 
+  @Test("a user turn carries its memo's gist, nil while the server has not written one")
+  func userTurnGist() {
+    var long = memo("g", mode: .hermes, threadId: nil)
+    let entry = { (memo: Memo) in
+      ConversationEntry(id: "g.user", memo: memo, date: nil, kind: .user("the whole transcript"))
+    }
+    #expect(ConversationTurn(entry(long)).content == .user("the whole transcript", gist: nil))
+    long.transcriptGist = "the gist"
+    #expect(ConversationTurn(entry(long)).content == .user("the whole transcript", gist: "the gist"))
+  }
+
   @Test("a memo's reply artifacts are keyed by kind and per-kind index, as assets of the memo")
   func artifactMapping() {
     var withArtifacts = memo("m", mode: .hermes, threadId: "m")

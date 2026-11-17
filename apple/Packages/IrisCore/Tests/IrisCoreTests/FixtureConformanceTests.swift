@@ -269,6 +269,23 @@ struct FixtureConformanceTests {
     #expect(MemoMode.allCases.contains(.transcribe))
   }
 
+  @Test("`transcriptGist` decodes when present and is nil when null or missing (a server before the field)")
+  func transcriptGistOptional() throws {
+    let decoder = IrisJSON.makeDecoder()
+    let transcribe = try Contracts.fixtureData("memos.detail.response.transcribe")
+    let withGist = try decoder.decode(MemoDetail.self, from: transcribe).memo
+    #expect(withGist.transcriptGist?.hasPrefix("Wochenendplan") == true)
+
+    let null = try decoder.decode(MemoDetail.self, from: Contracts.fixtureData("memos.detail.response")).memo
+    #expect(null.transcriptGist == nil)
+
+    var object = try #require(JSONSerialization.jsonObject(with: transcribe) as? [String: Any])
+    #expect(object.removeValue(forKey: "transcriptGist") != nil)
+    let missing = try decoder.decode(MemoDetail.self, from: JSONSerialization.data(withJSONObject: object)).memo
+    #expect(missing.transcriptGist == nil)
+    #expect(missing.transcript == withGist.transcript)
+  }
+
   @Test("a memo that finished without a summary: `summary` is null, the summarize step is failed, the memo is notified")
   func summarizeFailedFixture() throws {
     let detail = try IrisJSON.makeDecoder().decode(

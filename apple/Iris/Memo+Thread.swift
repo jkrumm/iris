@@ -56,7 +56,7 @@ extension ConversationTurn {
   init(_ entry: ConversationEntry) {
     let content: Content =
       switch entry.kind {
-      case .user(let text): .user(text)
+      case .user(let text): .user(text, gist: entry.memo.transcriptGist)
       case .reply(let markdown):
         .assistant(markdown, mermaid: entry.memo.mermaidAssets, artifacts: entry.memo.artifactAssets)
       case .pending: .pending(entry.memo.stepProgress, caption: entry.memo.pendingCaption)

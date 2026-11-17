@@ -15,7 +15,8 @@ public struct ActivityLine: Equatable, Sendable, Identifiable {
 /// The app derives these from the conversation's entries; ``ConversationTurnList`` renders them.
 public struct ConversationTurn: Identifiable, Equatable, Sendable {
   public enum Content: Equatable, Sendable {
-    case user(String)
+    /// What the user said; `gist` is the memo's short gist of a long transcript, `nil` until the server wrote one.
+    case user(String, gist: String? = nil)
     /// The finished answer with its memo's Mermaid renders (by fence index) and artifacts (by kind and index).
     case assistant(String, mermaid: [Int: MermaidAsset], artifacts: [ArtifactAsset.Key: ArtifactAsset] = [:])
     case pending(StepProgress, caption: String)

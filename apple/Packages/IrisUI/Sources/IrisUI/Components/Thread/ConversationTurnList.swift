@@ -46,6 +46,9 @@ public struct ConversationTurnList: View {
       failedIdentifier: "mac.detail.turn.failed")
   }
 
+  /// A turn of the user's longer than this many lines is folded to its gist (else its first lines).
+  static let userLineLimit = 6
+
   private let turns: [ConversationTurn]
   private let style: Style
   private let dayTitle: (Date) -> String
@@ -97,10 +100,12 @@ public struct ConversationTurnList: View {
 
   @ViewBuilder private func view(for turn: ConversationTurn) -> some View {
     switch turn.content {
-    case .user(let text):
+    case .user(let text, let gist):
       UserTurnView(
         text: text, time: time(turn.date), identifier: style.userIdentifier ?? "thread.turn.user",
-        textRole: style.textRole ?? .subheadline, onCopy: copy(text), onDetails: details(of: turn))
+        textRole: style.textRole ?? .subheadline, onCopy: userCopy(turn.content), onDetails: details(of: turn),
+        gist: gist,
+        collapsedLineLimit: Self.userLineLimit)
     case .assistant(let markdown, let mermaid, let artifacts):
       assistant(turn, markdown: markdown, mermaid: mermaid, artifacts: artifacts, isStreaming: false, activity: nil)
     case .streaming(let markdown, let activity):
@@ -145,6 +150,12 @@ public struct ConversationTurnList: View {
         .textSelection(.enabled)
         .accessibilityIdentifier(style.failedIdentifier)
     }
+  }
+
+  /// Copy on the user's bubble: the full text, whatever the bubble shows (its gist or its first lines).
+  func userCopy(_ content: ConversationTurn.Content) -> (() -> Void)? {
+    guard case .user(let text, _) = content else { return nil }
+    return copy(text)
   }
 
   private func copy(_ text: String) -> (() -> Void)? {

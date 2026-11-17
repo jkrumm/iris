@@ -215,6 +215,63 @@
       Self.assert(view, width: 390, height: 560)
     }
 
+    static let dictation = """
+      So, um, I was thinking about the retry thing again, like, when a step fails the second time and the runner waits \
+      eight seconds, does the memo still show as running in the history list or does it flip to failed right away, \
+      because yesterday I saw it sit there for almost a minute and I could not tell whether it was working or stuck. \
+      Also the notification came in before the reply was there, which is odd. Anyway, can you check both and tell me \
+      what actually happens, and if it is the history list, fix it, and if it is the runner, just write down what you \
+      find and do not change anything yet. Thanks.
+      """
+
+    static let dictationGist =
+      "Asks whether a memo stays running while a step retries and why the notification came before the reply."
+
+    /// One folded user turn as the iPhone and the Mac draw it: the gist, the first lines, or the expanded text.
+    private static func longTurn(gist: String?, expanded: Bool, mac: Bool) -> some View {
+      UserTurnView(
+        text: dictation, time: "9:41 AM", textRole: mac ? .footnote : .subheadline, gist: gist,
+        collapsedLineLimit: ConversationTurnList.userLineLimit, startsExpanded: expanded
+      )
+      .padding(Theme.Spacing.lg)
+    }
+
+    @Test("a long dictated turn is folded to its gist behind Show full message", .tags(.snapshot))
+    func longTurnGist() {
+      Self.assert(Self.longTurn(gist: Self.dictationGist, expanded: false, mac: false), width: 390, height: 220)
+    }
+
+    @Test("a long dictated turn without a gist is cut after its first lines", .tags(.snapshot))
+    func longTurnClamped() {
+      Self.assert(Self.longTurn(gist: nil, expanded: false, mac: false), width: 390, height: 260)
+    }
+
+    @Test("an expanded long turn shows the whole message and Show less", .tags(.snapshot))
+    func longTurnExpanded() {
+      Self.assert(Self.longTurn(gist: Self.dictationGist, expanded: true, mac: false), width: 390, height: 420)
+    }
+
+    @Test("the Mac's long turn: gist, first lines and expanded", .tags(.snapshot))
+    func longTurnMac() {
+      let view = VStack(alignment: .leading, spacing: Theme.Spacing.xl) {
+        Self.longTurn(gist: Self.dictationGist, expanded: false, mac: true)
+        Self.longTurn(gist: nil, expanded: false, mac: true)
+        Self.longTurn(gist: Self.dictationGist, expanded: true, mac: true)
+      }
+      Self.assert(view, width: 480, height: 640)
+    }
+
+    @Test("a short turn and a typed one look as before, with or without a gist", .tags(.snapshot))
+    func shortTurnUnfolded() {
+      let view = VStack(alignment: .leading, spacing: Theme.Spacing.lg) {
+        UserTurnView(
+          text: "And a hang guard, is that retried too?", time: "9:44 AM", gist: "Not shown: the text fits.",
+          collapsedLineLimit: ConversationTurnList.userLineLimit)
+      }
+      .padding(Theme.Spacing.lg)
+      Self.assert(view, width: 390, height: 120)
+    }
+
     @Test("an answer that has not arrived shows the step dashes", .tags(.snapshot))
     func pending() {
       let view = VStack(alignment: .leading, spacing: Theme.Spacing.xl) {
