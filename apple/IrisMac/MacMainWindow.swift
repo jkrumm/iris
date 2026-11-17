@@ -42,6 +42,7 @@ struct MacMainWindow: View {
         .help(String(localized: "New memo", comment: "Main window toolbar: opens the New memo page"))
         .accessibilityIdentifier("mac.toolbar.new-memo")
       }
+      ToolbarItem(placement: .navigation) { MacTranscribeButton(root: root) }
       if let updater = root.updater {
         ToolbarItem(placement: .primaryAction) { UpdateBadge(updater: updater) }
       }

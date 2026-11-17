@@ -258,6 +258,44 @@ struct MacCompositionRootTests {
     await root.recording.settled()
   }
 
+  @Test("the main window's Transcribe action starts a transcribe take and, while it runs, stops it")
+  func toolbarTranscribeStartsAndStops() async throws {
+    let root = fakeRoot()
+    let engine = try #require(root.fakeTake)
+    root.toggleTranscribe()
+    await root.recording.settled()
+    #expect(root.recording.isRecording && engine.startedModes == [.transcribe])
+    root.toggleTranscribe()
+    await root.recording.settled()
+    #expect(
+      !root.recording.isRecording && engine.startedModes == [.transcribe], "the second press stops, it starts nothing")
+  }
+
+  @Test("the sidebar filter puts the chosen kind and state on the list request, and Clear takes them off")
+  func filterReachesTheListRequest() async throws {
+    let root = fakeRoot()
+    let fake = try #require(root.fakeAPI)
+    root.begin()
+    #expect(await loadedWindow(root))
+    let kind = try #require(root.filterKinds.first)
+    root.toggleKindFilter(kind)
+    root.toggleStateFilter(.failed)
+    await root.windowHistory.load()
+    let queries = await fake.calls.compactMap { call -> ListMemosQuery? in
+      if case .listMemos(let query) = call { query } else { nil }
+    }
+    let last = try #require(queries.last)
+    #expect(last.kind == kind && last.state == .failed)
+    #expect(root.filterKinds.contains(kind), "the chosen kind stays offered")
+    root.scope = .favorites
+    #expect(
+      root.windowHistory.filters.query().kind == kind && root.windowHistory.filters.query().state == .failed
+        && root.windowHistory.filters.query().favorite, "a scope change keeps the kind and the state")
+    root.clearKindAndStateFilter()
+    #expect(!root.windowHistory.filters.hasKindOrState && root.windowHistory.filters.query().favorite)
+    #expect(root.history.filters == HistoryFilters(), "the popover's list is never filtered")
+  }
+
   @Test("the window list loads its first page and finds the sample memos")
   func windowListLoads() async {
     let root = fakeRoot()
