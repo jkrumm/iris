@@ -68,6 +68,34 @@ struct FakeAPIClientTests {
     return thread
   }
 
+  @Test("A transcribe memo continues a transcript: the first part is promoted, the kinds never mix")
+  func transcriptContinuation() async throws {
+    let fake = FakeAPIClient(now: { Date(timeIntervalSince1970: 1_773_480_100) })
+    _ = try await fake.createTextMemo(
+      CreateTextMemoRequest(id: "a", mode: .transcribe, startedAt: started, text: "one"))
+    #expect(try await fake.memo(id: "a").memo.threadId == nil)
+
+    let part = try await fake.createMemo(
+      CreateMemoRequest(id: "b", mode: .transcribe, startedAt: started, threadId: "a"))
+    #expect(part.threadId == "a" && part.isTranscriptPart)
+    #expect(try await fake.memo(id: "a").memo.threadId == "a", "promoted by the first continuation")
+    let detail = try await fake.thread(id: "a")
+    #expect(detail.thread.kind == "transcript")
+    #expect(detail.memos.map(\.id) == ["a", "b"])
+
+    // A Hermes memo cannot join a transcript, and a transcribe memo cannot join a Hermes thread or a continuation.
+    await #expect(throws: APIError.self) {
+      try await fake.createMemo(CreateMemoRequest(id: "c", mode: .hermes, startedAt: started, threadId: "a"))
+    }
+    await #expect(throws: APIError.self) {
+      try await fake.createMemo(CreateMemoRequest(id: "d", mode: .transcribe, startedAt: started, threadId: "b"))
+    }
+    _ = try await fake.createTextMemo(CreateTextMemoRequest(id: "h", mode: .hermes, startedAt: started, text: "ask"))
+    await #expect(throws: APIError.self) {
+      try await fake.createMemo(CreateMemoRequest(id: "e", mode: .transcribe, startedAt: started, threadId: "h"))
+    }
+  }
+
   @Test("A memo that continues a thread files itself there and moves the thread; an unknown thread is a 404")
   func continuesThread() async throws {
     let fake = FakeAPIClient(now: { Date(timeIntervalSince1970: 1_773_480_100) })

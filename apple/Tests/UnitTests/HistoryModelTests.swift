@@ -24,6 +24,44 @@ struct HistoryModelTests {
     try await client.memo(id: id).memo
   }
 
+  @Test("a continued transcript is one row, its first part's; the parts that continue it have none")
+  func transcriptPartsHaveNoRow() async {
+    await seed(
+      MemoFactory.memo("a", age: 30, mode: .transcribe, threadId: "a"),
+      MemoFactory.memo("b", age: 20, mode: .transcribe, threadId: "a"),
+      MemoFactory.memo("c", age: 10, mode: .transcribe),
+      MemoFactory.memo("d", age: 5, threadId: "d"))
+    await model.load()
+
+    #expect(model.memoIDs == ["d", "c", "a"])
+    #expect(model.sections.flatMap(\.memos).map(\.id) == ["d", "c", "a"])
+    #expect(Set(ids) == ["a", "b", "c", "d"], "the parts stay loaded: the open transcript and its revision read them")
+    #expect(model.listedMemos.map(\.id) == ["d", "c", "a"], "the Mac panel's recent list reads the same rows")
+  }
+
+  @Test("a search lists a part that holds the phrase, so a hit always has a row")
+  func searchListsTranscriptParts() async {
+    await seed(
+      MemoFactory.memo("a", age: 30, mode: .transcribe, transcript: "Tomaten", threadId: "a"),
+      MemoFactory.memo("b", age: 20, mode: .transcribe, transcript: "Hafermilch", threadId: "a"))
+    model.filters.searchText = "Hafermilch"
+    await model.load()
+    #expect(model.sections.flatMap(\.memos).map(\.id).contains("b"))
+  }
+
+  @Test("a transcript's revision moves with any of its parts and with a new one joining")
+  func transcriptRevision() async {
+    await seed(
+      MemoFactory.memo("a", age: 30, mode: .transcribe, threadId: "a"),
+      MemoFactory.memo("b", age: 20, mode: .transcribe, threadId: "a"))
+    await model.load()
+    let first = MemoFactory.memo("a", mode: .transcribe, threadId: "a")
+    let before = model.transcriptRevision(of: first)
+
+    await model.handle(.memoUpdated(MemoEvent(id: "b", state: .notified, at: MemoFactory.now)))
+    #expect(model.transcriptRevision(of: first) != before)
+  }
+
   // MARK: Live events
 
   @Test("liveEvents multicasts ready, delta and activity, and nothing else; a finished stream is forgotten")
@@ -635,6 +673,35 @@ struct HistoryModelCopyTests {
     model.copyTranscript(of: MemoFactory.memo("a", transcript: "  Plane den Wochenplan. \n"))
     #expect(pasteboard.copied == ["Plane den Wochenplan."])
     #expect(model.toast?.kind == .info)
+  }
+
+  @Test("Copy on a continued transcript's row puts every part on the pasteboard, in order")
+  func copiesTheWholeTranscript() async throws {
+    let client = FakeAPIClient(now: { MemoFactory.now })
+    let model = HistoryModel(client: client, pasteboard: pasteboard)
+    let first = MemoFactory.memo("a", age: 20, mode: .transcribe, transcript: "One.")
+    await client.seed(MemoFactory.detail(first))
+    _ = try await client.createTextMemo(
+      CreateTextMemoRequest(id: "b", mode: .transcribe, startedAt: MemoFactory.now, text: "Two.", threadId: "a"))
+
+    await model.copyTranscript(of: try await client.memo(id: "a").memo)?.value
+    #expect(pasteboard.copied == ["One.\n\nTwo."])
+    #expect(model.toast?.kind == .info)
+  }
+
+  @Test("Copy on a first part whose row predates the continuation still copies every part")
+  func copiesAContinuedTranscriptFromAStaleRow() async throws {
+    let client = FakeAPIClient(now: { MemoFactory.now })
+    let model = HistoryModel(client: client, pasteboard: pasteboard)
+    await client.seed(MemoFactory.detail(MemoFactory.memo("a", age: 20, mode: .transcribe, transcript: "One.")))
+    let stale = try await client.memo(id: "a").memo
+    let part = try await client.createTextMemo(
+      CreateTextMemoRequest(id: "b", mode: .transcribe, startedAt: MemoFactory.now, text: "Two.", threadId: "a"))
+    model.insert(part)
+    #expect(stale.threadId == nil)
+
+    await model.copyTranscript(of: stale)?.value
+    #expect(pasteboard.copied == ["One.\n\nTwo."])
   }
 
   @Test("a memo without a transcript copies nothing and raises no toast")

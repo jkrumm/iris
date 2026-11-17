@@ -562,6 +562,17 @@
         }
       }
     },
+    "Continue recording" : {
+      "comment" : "Detail: records another part of this transcript",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Weiter aufnehmen"
+          }
+        }
+      }
+    },
     "Continues this conversation." : {
       "localizations" : {
         "de" : {
@@ -1571,6 +1582,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Die Aufnahme startet mit dem Mikrofon, das für diese Route gewählt ist."
+          }
+        }
+      }
+    },
+    "Records more and adds the text below this transcript." : {
+      "comment" : "Detail: hint",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nimmt weiter auf und hängt den Text unter dieses Transkript."
           }
         }
       }

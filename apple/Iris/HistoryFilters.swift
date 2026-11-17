@@ -26,6 +26,9 @@ struct HistoryFilters: Hashable {
 
   var isFiltering: Bool { activeFilterCount > 0 || thread || trimmedSearch != nil }
 
+  /// A search is active: its hits are listed as they are, a part of a continued transcript included.
+  var isSearching: Bool { trimmedSearch != nil }
+
   /// The server alone can decide membership: a thread and `q` are not on the wire memo.
   var needsServerMatching: Bool { quick == .threads || thread || trimmedSearch != nil }
 

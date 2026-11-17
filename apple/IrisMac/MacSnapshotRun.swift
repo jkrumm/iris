@@ -97,6 +97,10 @@
       root.selectedMemoID = threadMemoID
       try? await Task.sleep(for: .seconds(2))
       write(windowTitled: Self.mainTitle, as: "window-thread-failed")
+      // A transcript continued with a second recording: one document of both parts.
+      root.selectedMemoID = SampleData.transcriptThreadID
+      try? await Task.sleep(for: .seconds(3))
+      write(windowTitled: Self.mainTitle, as: "window-transcript")
       root.selectedMemoID = replyMemoID
       root.scope = .threads
       try? await Task.sleep(for: .seconds(2))

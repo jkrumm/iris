@@ -10,12 +10,15 @@ import os
 @Observable
 final class MemoDetailModel {
   private(set) var detail: MemoDetail
+  /// The transcript the memo is a part of (`GET /v1/threads/:id`), once the memo has a thread: a first part that something
+  /// continued, or a continuation. Nil for a single recording, while it loads and when it cannot be read.
+  private(set) var thread: ThreadDetail?
   private(set) var baselines = StepBaselines()
   private(set) var isRetrying = false
 
   /// What the Copy buttons copy.
   enum CopyTarget: Equatable {
-    case transcript, reply
+    case transcript, reply, part
   }
 
   /// The text last copied, until the confirmation timer (``copiedDuration``) or ``clearCopied()`` ends it: the button shows "Copied" meanwhile.
@@ -67,6 +70,26 @@ final class MemoDetailModel {
   var audioRequest: MediaRequest? { media.audio(for: memo) }
   var speechRequest: MediaRequest? { media.speech(for: memo) }
 
+  /// The parts of the transcript this memo belongs to, oldest first: the loaded thread's, else the memo alone. The open memo is
+  /// always the freshest copy of itself.
+  var parts: [Memo] {
+    guard let thread, thread.thread.kind == "transcript" else { return [memo] }
+    var parts = thread.memos.filter { !$0.isDeleted && $0.id != memo.id }
+    parts.append(memo)
+    return parts.sorted { ($0.createdAt, $0.id) < ($1.createdAt, $1.id) }
+  }
+
+  /// Every part's words, joined in order: what Copy transcript copies.
+  var wholeTranscript: String? { TranscriptText.whole(of: parts) }
+
+  /// The thread a Continue recording takes belongs to (the first part's id); nil while the memo has no transcript to continue,
+  /// since the server refuses a continuation until the first part has one.
+  var continuationTarget: String? {
+    guard let target = memo.transcriptThreadID else { return nil }
+    let head = parts.first { $0.id == target } ?? memo
+    return head.plainTranscript == nil ? nil : target
+  }
+
   /// Reply speech exists once the memo is done and has something to say.
   var canPlayReply: Bool { memo.state == .notified && speechRequest != nil }
 
@@ -97,12 +120,24 @@ final class MemoDetailModel {
 
   /// Puts the transcript or the reply on the pasteboard as plain text (a string, no markup, no style).
   func copy(_ target: CopyTarget) {
-    let text =
+    let text: String? =
       switch target {
-      case .transcript: memo.plainTranscript
+      case .transcript: wholeTranscript
       case .reply: memo.plainReply
+      // A single part is copied through ``copyPart(_:)``, which knows which one.
+      case .part: nil
       }
     guard let text else { return }
+    put(text, as: target)
+  }
+
+  /// One part's words (a bubble's own Copy).
+  func copyPart(_ part: Memo) {
+    guard let text = part.plainTranscript else { return }
+    put(text, as: .part)
+  }
+
+  private func put(_ text: String, as target: CopyTarget) {
     pasteboard.copy(text)
     copied = target
     copyCount += 1
@@ -123,6 +158,7 @@ final class MemoDetailModel {
       let fresh = try await client.memo(id: memo.id)
       guard !Task.isCancelled else { return }
       detail = fresh
+      await loadThread()
     } catch is CancellationError {
       return
     } catch {
@@ -137,6 +173,24 @@ final class MemoDetailModel {
     } catch {
       // No baseline means no faster/slower tags, which is the honest state.
       logger.error("stats load failed: \(String(describing: error), privacy: .public)")
+    }
+  }
+
+  /// A transcript with more than one recording has a thread: its other parts come from there. A failed read keeps the parts on
+  /// screen.
+  private func loadThread() async {
+    guard memo.mode == .transcribe, !memo.isDeleted, let threadId = memo.threadId else {
+      thread = nil
+      return
+    }
+    do {
+      let fresh = try await client.thread(id: threadId)
+      guard !Task.isCancelled else { return }
+      thread = fresh
+    } catch is CancellationError {
+      return
+    } catch {
+      logger.error("transcript thread load failed: \(String(describing: error), privacy: .public)")
     }
   }
 

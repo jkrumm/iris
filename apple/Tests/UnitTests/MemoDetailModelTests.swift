@@ -239,6 +239,35 @@ struct MemoDetailModelTests {
     #expect(detail.copied == nil)
   }
 
+  @Test("a continued transcript reads its parts from the thread, copies them whole and offers Continue recording")
+  func continuedTranscript() async throws {
+    let pasteboard = FakePasteboard()
+    let first = MemoFactory.memo("a", age: 60, mode: .transcribe, transcript: "One.")
+    let detail = await model(first, pasteboard: pasteboard)
+    #expect(detail.parts.map(\.id) == ["a"])
+    #expect(detail.continuationTarget == "a", "a first part with a transcript continues itself")
+
+    _ = try await client.createTextMemo(
+      CreateTextMemoRequest(id: "b", mode: .transcribe, startedAt: MemoFactory.now, text: "Two.", threadId: "a"))
+    await detail.load()
+    #expect(detail.parts.map(\.id) == ["a", "b"])
+    #expect(detail.wholeTranscript == "One.\n\nTwo.")
+
+    detail.copy(.transcript)
+    #expect(pasteboard.copied == ["One.\n\nTwo."])
+    detail.copyPart(detail.parts[1])
+    #expect(pasteboard.copied.last == "Two." && detail.copied == .part)
+  }
+
+  @Test("Continue recording is offered on any part, to the first part's thread, and only once there is a transcript")
+  func continuationTarget() async throws {
+    let part = MemoFactory.memo("b", age: 10, mode: .transcribe, transcript: "Two.", threadId: "a")
+    #expect(await model(part).continuationTarget == "a")
+    let empty = MemoFactory.memo("n", state: .received, mode: .transcribe, transcript: " ")
+    #expect(await model(empty).continuationTarget == nil)
+    #expect(await model(MemoFactory.memo("h")).continuationTarget == nil, "a Hermes memo is no transcript")
+  }
+
   @Test("the Copied confirmation ends with the injected timer, and a second copy restarts it")
   func copiedConfirmationTimer() async {
     let timers = ToastTimers()

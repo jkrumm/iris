@@ -4,7 +4,8 @@ import Foundation
 public struct MemoThread: Codable, Hashable, Sendable, Identifiable {
   /// The Hermes session id, which is also `Memo.threadId` of every memo in it.
   public var id: String
-  /// Wire passthrough ("hermes", "chat" on old rows); the app ignores it.
+  /// Wire passthrough: "hermes", "transcript" (a transcript continued with more recordings; its id is its first memo's) or
+  /// "chat" on old rows. Only the detail of a transcribe memo reads it.
   public var kind: String
   /// The first words of the thread's first transcript.
   public var title: String

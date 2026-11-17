@@ -38,10 +38,15 @@ final class HistoryModel {
   /// The ids of ``memos`` in order: what the list animates on, so a reorder animates and a flag change does not.
   private(set) var memoIDs: [String] = []
 
+  /// What the lists show, newest first: ``memos`` without the recordings that continue a transcript, since the transcript is one
+  /// row, its first part's, and they are read inside it. A search lists its hits as the server found them, so a phrase only a
+  /// later recording holds still has a row to open.
+  var listedMemos: [Memo] { filters.isSearching ? items : items.filter { !$0.isTranscriptPart } }
+
   private func regroup() {
-    let all = memos
-    sections = HistoryDaySection.group(all)
-    memoIDs = all.map(\.id)
+    let rows = listedMemos
+    sections = HistoryDaySection.group(rows)
+    memoIDs = rows.map(\.id)
   }
 
   private let client: any APIClient
@@ -214,6 +219,15 @@ final class HistoryModel {
 
   func revision(of id: String) -> Int {
     revisions[id, default: 0]
+  }
+
+  /// The revision of a transcript as one: the memo's own, its first part's, every loaded part's, and how many there are, so an open
+  /// transcript reloads when any recording of it changes or another one joins.
+  func transcriptRevision(of memo: Memo) -> Int {
+    guard let thread = memo.transcriptThreadID else { return revision(of: memo.id) }
+    return items.reduce(revision(of: memo.id) &+ revision(of: thread)) { total, other in
+      other.threadId == thread ? total &+ revision(of: other.id) &+ 1 : total
+    }
   }
 
   /// The events a conversation screen follows live (`ready`, `memo.delta`, `memo.activity`), multicast to every open stream. The
@@ -392,9 +406,26 @@ final class HistoryModel {
       ))
   }
 
-  /// Puts the memo's transcript on the pasteboard as plain text and confirms with a toast; nothing for a memo without one.
-  func copyTranscript(of memo: Memo) {
-    guard let pasteboard, let text = memo.plainTranscript else { return }
+  /// Puts the memo's transcript on the pasteboard as plain text and confirms with a toast; nothing for a memo without one. A
+  /// transcript continued with more recordings is copied whole: its parts are read from the server (the loaded rows when that
+  /// fails), the first part's text alone only when neither has more.
+  @discardableResult
+  func copyTranscript(of memo: Memo) -> Task<Void, Never>? {
+    guard let pasteboard, let text = memo.plainTranscript else { return nil }
+    // The first part's row may predate the continuation (the server promotes it without an event): the loaded parts say so.
+    let thread = memo.threadId ?? (items.contains { $0.threadId == memo.id } ? memo.id : nil)
+    guard memo.mode == .transcribe, !memo.isDeleted, let thread else {
+      copied(text, to: pasteboard)
+      return nil
+    }
+    return Task {
+      let parts = (try? await client.thread(id: thread).memos) ?? items.filter { $0.threadId == thread }
+      let ordered = parts.sorted { ($0.createdAt, $0.id) < ($1.createdAt, $1.id) }
+      copied(TranscriptText.whole(of: ordered) ?? text, to: pasteboard)
+    }
+  }
+
+  private func copied(_ text: String, to pasteboard: any Pasteboard) {
     pasteboard.copy(text)
     toast = HistoryToast(
       kind: .info, message: String(localized: "Transcript copied", comment: "Toast after Copy on a memo row"))

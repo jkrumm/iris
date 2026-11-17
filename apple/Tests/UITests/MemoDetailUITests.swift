@@ -195,4 +195,49 @@ final class MemoDetailUITests: IrisUITestCase {
     expectation(for: gone, evaluatedWith: stepRetry)
     waitForExpectations(timeout: 10)
   }
+
+  /// A transcript is continued with another recording: Continue recording starts a Transcribe take bound to it, the new text lands
+  /// below the earlier part once the fake pipeline has transcribed it, History still lists the transcript once, and Copy transcript
+  /// puts both parts on the pasteboard (read through the composer, like the single-part copy test).
+  @MainActor
+  func testContinueRecordingAddsAPartAndCopyTakesBoth() throws {
+    let first = "Nur ein Gedanke für später: die Aufnahme beim Anruf nicht abbrechen, sondern pausieren."
+    let second = "This is the fake transcript of your voice memo."
+    let app = launch(holdCopied: true)
+    revealRow(containing: "Nur ein Gedanke", in: app).tap()
+    XCTAssertTrue(waitForPresence(app.descendants(matching: .any)["memo.detail"], timeout: 10))
+
+    let more = app.buttons["detail.continue"]
+    XCTAssertTrue(waitForPresence(more, timeout: 10))
+    more.tap()
+    XCTAssertTrue(waitForPresence(app.descendants(matching: .any)["take.screen"], timeout: 10))
+    app.descendants(matching: .any)["take.stop"].tap()
+    XCTAssertTrue(waitForAbsence(app.descendants(matching: .any)["take.screen"], timeout: 15))
+
+    // The fake pipeline transcribes the part after about a second; it appears under the first part.
+    XCTAssertTrue(waitForPresence(app.staticTexts[second], timeout: 30), "the new part shows below the earlier one")
+
+    let copy = app.buttons["detail.copy"]
+    copy.tap()
+    let confirmed = app.buttons.matching(identifier: "detail.copy").matching(
+      NSPredicate(format: "label == %@", "Copied")
+    ).firstMatch
+    XCTAssertTrue(waitForPresence(confirmed, timeout: 5), "the button says Copied: \(copy.label)")
+
+    // History lists the transcript once: the part has no row of its own.
+    app.navigationBars.buttons.element(boundBy: 0).tap()
+    XCTAssertTrue(waitForPresence(app.descendants(matching: .any)["history.list"], timeout: 10))
+    XCTAssertEqual(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", second)).count, 0)
+
+    let text = app.descendants(matching: .any)["record.text"]
+    XCTAssertTrue(waitForPresence(text, timeout: 10))
+    text.tap()
+    let field = app.textViews["composer.field"]
+    XCTAssertTrue(waitForPresence(field, timeout: 10))
+    field.tap()
+    let paste = app.descendants(matching: .any).matching(NSPredicate(format: "label == 'Paste'")).firstMatch
+    XCTAssertTrue(waitForPresence(paste, timeout: 10))
+    paste.tap()
+    XCTAssertEqual(app.textViews["composer.field"].value as? String, "\(first)\n\n\(second)")
+  }
 }

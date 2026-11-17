@@ -4,6 +4,37 @@ extension Memo {
   /// A Hermes memo is a conversation as soon as it exists, before `act` too; a transcript-only memo and a deleted one are
   /// documents. Both platforms open the chat layout on this one rule.
   public var isConversation: Bool { !isDeleted && mode == .hermes }
+
+  /// A recording that continues a transcript: a `transcribe` memo whose thread is another memo's (the first part's) id. It is a
+  /// part of that transcript, never a History row of its own. The first part's own `threadId` is its id, or `nil` while nothing
+  /// continued it yet.
+  public var isTranscriptPart: Bool {
+    !isDeleted && mode == .transcribe && threadId.map { $0 != id } ?? false
+  }
+
+  /// The id a recording continues this transcript with: the first part's id. For a continuation part its thread's id, for a
+  /// first part its own. `nil` for a Hermes memo, a deleted memo and a transcript that has none to read yet (no transcript text:
+  /// the server answers 409 `bad_state` until the first part has one).
+  public var transcriptThreadID: String? {
+    guard !isDeleted, mode == .transcribe else { return nil }
+    return threadId ?? id
+  }
+}
+
+/// The whole text of a transcript: its parts' transcripts in order, one paragraph each. The server keeps the parts as separate
+/// memos and leaves the joining to the client; Copy puts this on the pasteboard and the screens show it.
+public enum TranscriptText {
+  /// The blank line between two parts.
+  public static let separator = "\n\n"
+
+  /// The trimmed transcripts of `memos` (oldest first) joined; parts with no text are skipped, `nil` when nothing is left.
+  public static func whole(of memos: [Memo]) -> String? {
+    let texts = memos.filter { !$0.isDeleted }.compactMap { memo -> String? in
+      let text = memo.transcript?.trimmingCharacters(in: .whitespacesAndNewlines)
+      return text?.isEmpty == false ? text : nil
+    }
+    return texts.isEmpty ? nil : texts.joined(separator: separator)
+  }
 }
 
 /// One block of a conversation, in the order it is read: what was said, the answer, an answer still on its way, a turn that failed.

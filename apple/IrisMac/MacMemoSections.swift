@@ -42,15 +42,22 @@ struct MacMemoSections: View {
     }
   }
 
+  /// The transcript: one block per recording, a blank line between them, so a continued transcript reads as the one text Copy puts on
+  /// the pasteboard.
   @ViewBuilder private func transcript(_ memo: Memo) -> some View {
-    if let text = memo.transcript {
+    let parts = model.parts.filter { $0.transcript != nil }
+    if !parts.isEmpty {
       MacSection(String(localized: "Transcript", comment: "Section label of the transcript")) {
-        Text(verbatim: text)
-          .macFont(.body)
-          .lineSpacing(Theme.Spacing.macLineSpacing)
-          .foregroundStyle(Theme.Ink.primary)
-          .textSelection(.enabled)
-          .accessibilityIdentifier("mac.detail.transcript")
+        VStack(alignment: .leading, spacing: Theme.Spacing.macSectionGap) {
+          ForEach(parts) { part in
+            Text(verbatim: part.transcript ?? "")
+              .macFont(.body)
+              .lineSpacing(Theme.Spacing.macLineSpacing)
+              .foregroundStyle(Theme.Ink.primary)
+              .textSelection(.enabled)
+              .accessibilityIdentifier(part.id == memo.id ? "mac.detail.transcript" : "mac.detail.transcript.part")
+          }
+        }
       }
     }
   }

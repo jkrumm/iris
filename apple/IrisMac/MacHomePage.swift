@@ -134,7 +134,7 @@ struct MacHomePage: View {
       .frame(maxWidth: .infinity)
       .padding(Theme.Spacing.menuInset)
     } else {
-      let memos = root.history.memos.prefix(Self.recentCount)
+      let memos = root.history.listedMemos.prefix(Self.recentCount)
       if memos.isEmpty {
         Text(
           root.history.loadFailed
