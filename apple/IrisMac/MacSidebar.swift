@@ -21,6 +21,7 @@ struct MacSidebar: View {
       }
     }
     .listStyle(.sidebar)
+    .macShellList(Theme.Surface.panel)
     .safeAreaInset(edge: .bottom, spacing: 0) { footer }
     .accessibilityIdentifier("mac.sidebar")
   }
@@ -29,18 +30,18 @@ struct MacSidebar: View {
   {
     Label {
       HStack {
-        Text(verbatim: title).macFont(.body)
+        Text(verbatim: title).macFont(.body).macRowInk(Theme.Ink.primary)
         if let badge {
           Spacer(minLength: 0)
           Text(verbatim: badge)
             .macFont(.caption)
-            .foregroundStyle(Theme.Ink.muted)
+            .macRowInk(Theme.Ink.muted)
             .monospacedDigit()
             .accessibilityIdentifier("mac.sidebar.favorites.count")
         }
       }
     } icon: {
-      Image(systemName: systemImage)
+      Image(systemName: systemImage).macRowInk(Theme.Ink.secondary)
     }
     .tag(scope)
     .accessibilityIdentifier("mac.sidebar.\(String(describing: scope))")
@@ -51,7 +52,7 @@ struct MacSidebar: View {
     let status = MacConnectionStatus(isConfigured: root.isConfigured, link: root.history.link)
     VStack(alignment: .leading, spacing: 0) {
       if root.isConfigured {
-        Divider()
+        MacShellDivider()
         MacSidebarFilter(root: root)
       }
       if status.isShown { statusLine(status) }

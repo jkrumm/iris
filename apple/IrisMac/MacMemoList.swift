@@ -24,10 +24,12 @@ struct MacMemoList: View {
           Text(verbatim: section.title())
             .macFont(.caption, weight: .semibold)
             .textCase(.uppercase)
+            .foregroundStyle(Theme.Ink.muted)
         }
       }
     }
     .listStyle(.inset)
+    .macShellList(Theme.Surface.background)
     .environment(\.defaultMinListRowHeight, Theme.Spacing.macRowMinHeight)
     .overlay { emptyState }
     .searchable(

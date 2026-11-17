@@ -54,6 +54,7 @@ struct MacConnectionForm: View {
             .accessibilityIdentifier("mac.settings.error")
         }
       }
+      .macSettingsRow()
       Section {
         // One row: what a test or save since the last edit found, else what the link says (the two would read "Connected" twice).
         LabeledContent(String(localized: "Status", comment: "Settings: the connection status row")) {
@@ -65,6 +66,7 @@ struct MacConnectionForm: View {
         }
         .accessibilityIdentifier("mac.settings.status")
       }
+      .macSettingsRow()
       Section {
         HStack {
           Spacer()
@@ -84,8 +86,9 @@ struct MacConnectionForm: View {
           .accessibilityIdentifier("mac.settings.save")
         }
       }
+      .macSettingsRow()
     }
-    .formStyle(.grouped)
+    .macSettingsPane()
     .onChange(of: model.urlText) { tester.fieldsChanged(urlText: model.urlText, tokenText: model.tokenText) }
     .onChange(of: model.tokenText) { tester.fieldsChanged(urlText: model.urlText, tokenText: model.tokenText) }
   }
@@ -194,8 +197,9 @@ struct MacRecordingForm: View {
           Text("Press it anywhere to start and stop a voice memo.", comment: "Settings: what the recording key does")
         }
       }
+      .macSettingsRow()
     }
-    .formStyle(.grouped)
+    .macSettingsPane()
   }
 }
 
@@ -218,6 +222,7 @@ struct MacGeneralForm: View {
             .foregroundStyle(Theme.Status.bad)
         }
       }
+      .macSettingsRow()
       Section {
         LabeledContent(String(localized: "Version", comment: "Settings: the running app's version")) {
           Text(verbatim: AppVersion().display)
@@ -227,6 +232,7 @@ struct MacGeneralForm: View {
         }
         if let updater { UpdateStateRow(updater: updater) }
       }
+      .macSettingsRow()
       Section {
         HStack {
           if let updater { CheckForUpdatesButton(updater: updater) }
@@ -237,8 +243,9 @@ struct MacGeneralForm: View {
           .accessibilityIdentifier("mac.settings.quit")
         }
       }
+      .macSettingsRow()
     }
-    .formStyle(.grouped)
+    .macSettingsPane()
   }
 
   private func setLaunchAtLogin(_ wanted: Bool) {

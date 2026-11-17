@@ -50,6 +50,7 @@
       }
       try? await Task.sleep(for: .seconds(4))
       write(windowTitled: Self.panelTitle, as: "menu", chrome: false)
+      await writeDark(windowTitled: Self.panelTitle, as: "menu-dark", chrome: false)
       await writeMainWindow()
       await writeSettings()
       await writeOnboarding()
@@ -73,6 +74,8 @@
       resize(windowTitled: Self.mainTitle, width: Theme.Spacing.windowWidth, height: Theme.Spacing.windowHeight)
       try? await Task.sleep(for: .seconds(1))
       write(windowTitled: Self.mainTitle, as: "window-all")
+      await writeDark(windowTitled: Self.mainTitle, as: "window-all-dark")
+      await writeShell()
       await writeSpeakerMenu()
       await writeShellStates()
       // The memo with a run's steps: waterfall, copy rows, tools, ids.
@@ -180,6 +183,37 @@
       try? await Task.sleep(for: .seconds(1))
       write(window, as: name)
       window.close()
+    }
+
+    /// The sidebar, the list and the open conversation side by side in a window of ours, light and dark: the main window's own picture
+    /// comes out blank on a host whose window server has no display, and this is what shows the three columns as one palette.
+    private func writeShell() async {
+      let player = MacAudioPlayer()
+      let size = NSSize(width: Theme.Spacing.windowWidth, height: Theme.Spacing.windowHeight)
+      for (suffix, appearance) in [("", NSAppearance.Name.aqua), ("-dark", .darkAqua)] {
+        let host = NSHostingView(
+          rootView: HStack(spacing: 0) {
+            MacSidebar(root: root).frame(width: Theme.Spacing.windowSidebarIdeal)
+            Theme.Surface.hairline.frame(width: 1)
+            MacMemoList(root: root, model: root.windowHistory, player: player)
+              .frame(width: Theme.Spacing.windowListIdeal)
+            Theme.Surface.hairline.frame(width: 1)
+            MacMemoDetailPane(root: root, model: root.detailModel(for: replyMemoID), player: player)
+          }
+          .tint(Theme.Accent.fill)
+          .environment(\.replyImageStore, root.replyImages)
+          .environment(\.artifactStore, root.artifacts)
+          .frame(width: size.width, height: size.height))
+        host.appearance = NSAppearance(named: appearance)
+        host.frame = NSRect(origin: .zero, size: size)
+        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        window.appearance = NSAppearance(named: appearance)
+        window.contentView = host
+        window.orderFrontRegardless()
+        try? await Task.sleep(for: .seconds(2))
+        write(window, as: "window-shell\(suffix)", chrome: false)
+        window.close()
+      }
     }
 
     /// The main window's toolbar actions (New memo, Transcribe, and Stop while a take runs) hosted in a strip of ours, light and
@@ -307,6 +341,7 @@
       await root.connectionTest.settled()
       try? await Task.sleep(for: .seconds(1))
       writeSettingsWindow(as: "settings-connection")
+      await writeSettingsWindowDark(as: "settings-connection-dark")
       root.settingsTab = .recording
       try? await Task.sleep(for: .seconds(1))
       writeSettingsWindow(as: "settings-recording")
@@ -369,17 +404,40 @@
     // MARK: Writing
 
     /// The Settings window carries the selected tab's name as its title, so it is found by being the Settings scene's window.
-    private func writeSettingsWindow(as name: String) {
+    private func writeSettingsWindowDark(as name: String) async {
+      guard let window = settingsWindow() else { return }
+      await writeDark(window, as: name)
+    }
+
+    private func settingsWindow() -> NSWindow? {
       let titles = [
         String(localized: "Connection", comment: "Settings tab"),
         String(localized: "Recording", comment: "Settings tab"),
         String(localized: "General", comment: "Settings tab"),
       ]
-      guard let window = NSApp.windows.first(where: { titles.contains($0.title) && $0.isVisible }) else {
-        Self.logger.error("no visible Settings window: \(describeWindows(), privacy: .public)")
-        return
-      }
+      let window = NSApp.windows.first(where: { titles.contains($0.title) && $0.isVisible })
+      if window == nil { Self.logger.error("no visible Settings window: \(describeWindows(), privacy: .public)") }
+      return window
+    }
+
+    private func writeSettingsWindow(as name: String) {
+      guard let window = settingsWindow() else { return }
       write(window, as: name)
+    }
+
+    /// The same window in the dark appearance (the system's stays as it was), after a moment for the views to redraw.
+    private func writeDark(windowTitled title: String, as name: String, chrome: Bool = true) async {
+      guard let window = NSApp.windows.first(where: { $0.title == title && $0.isVisible }) else { return }
+      await writeDark(window, as: name, chrome: chrome)
+    }
+
+    private func writeDark(_ window: NSWindow, as name: String, chrome: Bool = true) async {
+      let before = window.appearance
+      window.appearance = NSAppearance(named: .darkAqua)
+      try? await Task.sleep(for: .seconds(1))
+      write(window, as: name, chrome: chrome)
+      window.appearance = before
+      try? await Task.sleep(for: .milliseconds(500))
     }
 
     private func resize(windowTitled title: String, width: CGFloat, height: CGFloat) {
