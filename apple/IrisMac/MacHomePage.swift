@@ -42,7 +42,10 @@ struct MacHomePage: View {
         MacMenuLine(
           title: String(localized: "Check for Updates…", comment: "Menu line: looks for a new version of Iris"),
           id: "mac.menu.update",
-          hint: ""
+          hint: updater.availableVersion.map {
+            String(localized: "Version \($0) available", comment: "Update badge; the argument is the version number")
+          } ?? "",
+          emphasized: updater.availableVersion != nil
         ) { updater.checkForUpdates() }
         .disabled(!updater.canCheckForUpdates)
       }
@@ -155,6 +158,8 @@ struct MacMenuLine: View {
   let title: String
   let id: String
   let hint: String
+  /// The hint is a notice (an update is waiting), not a key: it shows in the accent colour.
+  var emphasized = false
   let action: () -> Void
   @State private var hovering = false
 
@@ -163,7 +168,7 @@ struct MacMenuLine: View {
       HStack {
         Text(verbatim: title).themeFont(.footnote).foregroundStyle(Theme.Ink.primary)
         Spacer()
-        Text(verbatim: hint).themeFont(.caption).foregroundStyle(Theme.Ink.faint)
+        Text(verbatim: hint).themeFont(.caption).foregroundStyle(emphasized ? Theme.Accent.tint : Theme.Ink.faint)
       }
       .padding(.horizontal, Theme.Spacing.menuRowHorizontal)
       .padding(.vertical, Theme.Spacing.menuLineVertical)

@@ -37,6 +37,10 @@ struct MacConnectionLine: View {
 
   var body: some View {
     let status = MacConnectionStatus(isConfigured: root.isConfigured, link: root.history.link)
+    if status.isShown { line(status) }
+  }
+
+  private func line(_ status: MacConnectionStatus) -> some View {
     HStack(spacing: Theme.Spacing.snug) {
       Circle()
         .fill(color(status.tone))

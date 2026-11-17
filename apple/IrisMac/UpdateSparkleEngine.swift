@@ -8,22 +8,50 @@ import Sparkle
 @MainActor
 final class SparkleUpdateEngine: UpdateEngine {
   private let controller: SPUStandardUpdaterController
+  /// Sparkle holds its delegate weakly.
+  private let relay = UpdateRelay()
   private var observation: NSKeyValueObservation?
   var onAvailabilityChange: (() -> Void)?
+  var onStatusChange: (() -> Void)?
+  private(set) var status = UpdateStatus.unknown {
+    didSet {
+      guard status != oldValue else { return }
+      onStatusChange?()
+    }
+  }
 
   var canCheckForUpdates: Bool { controller.updater.canCheckForUpdates }
 
   init() {
-    controller = SPUStandardUpdaterController(startingUpdater: true, updaterDelegate: nil, userDriverDelegate: nil)
+    controller = SPUStandardUpdaterController(startingUpdater: false, updaterDelegate: relay, userDriverDelegate: nil)
+    relay.onStatus = { [weak self] status in self?.status = status }
     // KVO fires on the thread that changed the value; Sparkle changes it on the main thread, and the hop keeps it so either way.
     observation = controller.updater.observe(\.canCheckForUpdates) { [weak self] _, _ in
       Task { @MainActor in self?.onAvailabilityChange?() }
     }
+    // Started after the relay is wired: the first scheduled check may find an update (or resume a staged one) at once.
+    controller.startUpdater()
   }
 
   func checkForUpdates() {
     // A menu-bar (LSUIElement) app has no active window: bring Sparkle's alert in front.
     NSApp.activate()
     controller.updater.checkForUpdates()
+  }
+}
+
+/// Sparkle's own word on what a check found. `didFindValidUpdate` also fires for an update Sparkle resumes (one it downloaded
+/// or staged earlier), so the status is right after a relaunch too. A skipped update keeps showing: the user can still install it
+/// from Settings.
+@MainActor
+private final class UpdateRelay: NSObject, SPUUpdaterDelegate {
+  var onStatus: ((UpdateStatus) -> Void)?
+
+  func updater(_ updater: SPUUpdater, didFindValidUpdate item: SUAppcastItem) {
+    onStatus?(.available(version: item.displayVersionString, build: item.versionString))
+  }
+
+  func updaterDidNotFindUpdate(_ updater: SPUUpdater, error: any Error) {
+    onStatus?(.upToDate)
   }
 }

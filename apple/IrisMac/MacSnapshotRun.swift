@@ -23,16 +23,22 @@
 
     let directory: URL
     let root: MacCompositionRoot
+    /// Scripts what an update check found, for the Settings and badge pictures; nil when the run has no updater.
+    let updateEngine: ScriptedUpdateEngine?
     /// The sample memos the main window is shown on: one with a reply, a chat thread.
     let replyMemoID: String
     let threadMemoID = SampleData.chatFollowUpID
 
-    init?(arguments: [String], root: MacCompositionRoot, replyMemoID: String = "0b6d1f4e-3a52-4c1d-9f0e-7a2c5d8e1b34") {
+    init?(
+      arguments: [String], root: MacCompositionRoot, updateEngine: ScriptedUpdateEngine? = nil,
+      replyMemoID: String = "0b6d1f4e-3a52-4c1d-9f0e-7a2c5d8e1b34"
+    ) {
       guard let index = arguments.firstIndex(of: Self.argument), arguments.indices.contains(index + 1) else {
         return nil
       }
       directory = URL(filePath: arguments[index + 1], directoryHint: .isDirectory)
       self.root = root
+      self.updateEngine = updateEngine
       self.replyMemoID = replyMemoID
     }
 
@@ -67,6 +73,7 @@
       resize(windowTitled: Self.mainTitle, width: Theme.Spacing.windowWidth, height: Theme.Spacing.windowHeight)
       try? await Task.sleep(for: .seconds(1))
       write(windowTitled: Self.mainTitle, as: "window-all")
+      await writeShellStates()
       // The memo with a run's steps: waterfall, copy rows, tools, ids.
       await writeDetails(memoID: replyMemoID, names: [("window-details", .aqua), ("window-details-dark", .darkAqua)])
       root.selectedMemoID = threadMemoID
@@ -95,6 +102,45 @@
       write(windowTitled: Self.mainTitle, as: "window-filtered")
       root.scope = .all
       await writeNewMemo()
+    }
+
+    /// The sidebar and toolbar in the states the shell changes: the server not reachable (the connection line appears), then back
+    /// (it goes), and an update waiting (the toolbar badge).
+    private func writeShellStates() async {
+      // Two favorites, so the sidebar shows its count.
+      for memo in root.history.memos.prefix(2) {
+        _ = try? await root.fakeAPI?.setFlags(id: memo.id, done: nil, favorite: true, archived: nil)
+      }
+      await root.history.load()
+      try? await Task.sleep(for: .seconds(1))
+      await writeSidebar(as: "sidebar-connected")
+      await root.fakeAPI?.enqueueFailure(.transport(.notConnectedToInternet), for: .listMemos)
+      await root.history.load()
+      try? await Task.sleep(for: .seconds(1))
+      write(windowTitled: Self.mainTitle, as: "window-unreachable")
+      await writeSidebar(as: "sidebar-unreachable")
+      await root.history.load()
+      try? await Task.sleep(for: .seconds(1))
+      updateEngine?.status = .available(version: "0.3.2", build: "820")
+      try? await Task.sleep(for: .seconds(1))
+      write(windowTitled: Self.mainTitle, as: "window-update")
+      updateEngine?.status = .upToDate
+    }
+
+    /// The sidebar alone in a window of ours: the main window's own picture comes out blank on a host whose window server has no
+    /// display for it, and the sidebar is what the connection line and the Favorites count change.
+    private func writeSidebar(as name: String) async {
+      let host = NSHostingView(
+        rootView: MacSidebar(root: root).frame(width: 240, height: 420).background(Theme.Surface.background))
+      host.frame = NSRect(x: 0, y: 0, width: 240, height: 420)
+      let window = NSWindow(
+        contentRect: host.frame, styleMask: [.titled], backing: .buffered, defer: false)
+      window.title = "Iris sidebar snapshot"
+      window.contentView = host
+      window.orderFrontRegardless()
+      try? await Task.sleep(for: .seconds(1))
+      write(window, as: name)
+      window.close()
     }
 
     /// The open conversation's Details popover content (steps, copy rows, ids; Previous and Next between its answers), light and dark.
@@ -182,8 +228,12 @@
       try? await Task.sleep(for: .seconds(1))
       writeSettingsWindow(as: "settings-recording")
       root.settingsTab = .general
+      updateEngine?.status = .upToDate
       try? await Task.sleep(for: .seconds(1))
       writeSettingsWindow(as: "settings-general")
+      updateEngine?.status = .available(version: "0.3.2", build: "820")
+      try? await Task.sleep(for: .seconds(1))
+      writeSettingsWindow(as: "settings-general-update")
     }
 
     private func writeOnboarding() async {

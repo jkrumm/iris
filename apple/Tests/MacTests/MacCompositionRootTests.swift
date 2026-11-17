@@ -544,6 +544,35 @@ struct MacConnectionStatusTests {
     #expect(MacConnectionStatus(isConfigured: true, link: .rejected).tone == .bad)
     #expect(MacConnectionStatus(isConfigured: true, link: .unknown).tone == .muted)
   }
+
+  @Test("the line shows only while the link is not connected")
+  func shownOnlyWhenNotConnected() {
+    #expect(!MacConnectionStatus(isConfigured: true, link: .live).isShown)
+    #expect(MacConnectionStatus(isConfigured: true, link: .unknown).isShown)
+    #expect(MacConnectionStatus(isConfigured: true, link: .unreachable).isShown)
+    #expect(MacConnectionStatus(isConfigured: true, link: .rejected).isShown)
+    #expect(MacConnectionStatus(isConfigured: false, link: .live).isShown)
+    #expect(MacConnectionStatus(isConfigured: false, link: .unknown).isShown)
+  }
+}
+
+@Suite("Mac sidebar Favorites count")
+struct MacFavoritesCountTests {
+  private func memo(_ id: Int, favorite: Bool) -> Memo {
+    Memo(
+      id: "00000000-0000-4000-8000-\(String(format: "%012d", id))", mode: .hermes, device: "mac", startedAt: .now,
+      state: .received, favorite: favorite, createdAt: .now, updatedAt: .now)
+  }
+
+  @Test("no count without a favorite; the count of favorites otherwise; a longer list than loaded adds a plus")
+  func text() {
+    let none = [memo(1, favorite: false), memo(2, favorite: false)]
+    #expect(MacFavoritesCount.text(memos: [], hasMore: false) == nil)
+    #expect(MacFavoritesCount.text(memos: none, hasMore: true) == nil)
+    let some = none + [memo(3, favorite: true), memo(4, favorite: true)]
+    #expect(MacFavoritesCount.text(memos: some, hasMore: false) == "2")
+    #expect(MacFavoritesCount.text(memos: some, hasMore: true) == "2+")
+  }
 }
 
 @MainActor

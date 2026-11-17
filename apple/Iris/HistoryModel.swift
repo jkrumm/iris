@@ -30,6 +30,9 @@ final class HistoryModel {
 
   var memos: [Memo] { items }
 
+  /// More pages exist than ``memos`` holds.
+  var hasMorePages: Bool { nextCursor != nil }
+
   /// ``memos`` grouped into day sections, rebuilt when the list changes rather than by every evaluation of the view.
   private(set) var sections: [HistoryDaySection] = []
   /// The ids of ``memos`` in order: what the list animates on, so a reorder animates and a flag change does not.

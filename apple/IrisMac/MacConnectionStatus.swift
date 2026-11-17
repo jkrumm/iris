@@ -12,6 +12,10 @@ struct MacConnectionStatus: Equatable {
   let hint: String?
   let tone: Tone
 
+  /// Whether the line is worth showing: only while the link is not connected (connecting, unreachable, token rejected, not
+  /// configured). A healthy link says nothing.
+  var isShown: Bool { tone != .good }
+
   init(isConfigured: Bool, link: ServerLink) {
     switch (isConfigured, link) {
     case (false, _):

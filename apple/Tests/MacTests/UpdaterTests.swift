@@ -57,4 +57,27 @@ struct UpdaterTests {
     root.updater?.checkForUpdates()
     #expect(engine.checks == 1)
   }
+
+  @Test("the status starts from the engine and follows what its checks find")
+  func statusFollowsEngine() {
+    let engine = ScriptedUpdateEngine()
+    let updater = Updater(engine: engine)
+    #expect(updater.status == .unknown)
+    #expect(updater.availableVersion == nil)
+    engine.status = .upToDate
+    #expect(updater.status == .upToDate)
+    #expect(updater.availableVersion == nil)
+    engine.status = .available(version: "0.3.2", build: "820")
+    #expect(updater.availableVersion == "0.3.2")
+    engine.status = .upToDate
+    #expect(updater.availableVersion == nil)
+    #expect(
+      Updater(engine: ScriptedUpdateEngine(status: .available(version: "1.0", build: "9"))).availableVersion == "1.0")
+  }
+
+  @Test("the app version reads the bundle's marketing version and build")
+  func appVersion() {
+    #expect(AppVersion(marketing: "0.3.1", build: "816").display == "0.3.1 (816)")
+    #expect(!AppVersion().marketing.isEmpty)
+  }
 }
