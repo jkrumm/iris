@@ -194,7 +194,7 @@ struct ReplyPausesForTakeTests {
 /// A speech route that answers after a delay, so a test can stop a download that is still on the wire.
 private struct SlowSource: MemoMediaSource {
   func audio(for memo: Memo) -> MediaRequest? { nil }
-  func speech(for memo: Memo) -> MediaRequest? {
+  func speech(for memo: Memo, variant: SpeechVariant?) -> MediaRequest? {
     MediaRequest(url: URL(string: "https://slow.media.example.com/speech")!, headers: [:], cacheName: "slow.mp3")
   }
   func asset(memoID: String, assetID: String) -> MediaRequest? { nil }

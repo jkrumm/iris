@@ -1,6 +1,397 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "Read the summary" : {
+      "comment" : "Speaker menu: the short spoken form",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zusammenfassung vorlesen"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Read the summary"
+          }
+        }
+      }
+    },
+    "Read the full reply" : {
+      "comment" : "Speaker menu: the whole reply spoken",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ganze Antwort vorlesen"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Read the full reply"
+          }
+        }
+      }
+    },
+    "Read reply aloud" : {
+      "comment" : "Detail toolbar: speaks the reply",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Antwort vorlesen"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Read reply aloud"
+          }
+        }
+      }
+    },
+    "More" : {
+      "comment" : "Detail toolbar: overflow menu",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mehr"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "More"
+          }
+        }
+      }
+    },
+    "Read the reply aloud (summary)" : {
+      "comment" : "Tooltip of the speaker button: plays the spoken summary",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Antwort vorlesen (Zusammenfassung)"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Read the reply aloud (summary)"
+          }
+        }
+      }
+    },
+    "Stop reading the reply" : {
+      "comment" : "Tooltip of the speaker button while the reply speaks",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vorlesen der Antwort beenden"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Stop reading the reply"
+          }
+        }
+      }
+    },
+    "Read the short summary of the reply aloud" : {
+      "comment" : "Tooltip of the speaker menu's summary entry",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Die kurze Zusammenfassung der Antwort vorlesen"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Read the short summary of the reply aloud"
+          }
+        }
+      }
+    },
+    "Read the whole reply aloud" : {
+      "comment" : "Tooltip of the speaker menu's full-reply entry",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Die ganze Antwort vorlesen"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Read the whole reply aloud"
+          }
+        }
+      }
+    },
+    "Play your recording" : {
+      "comment" : "Tooltip: plays what the user said, not the reply",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Deine Aufnahme abspielen"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Play your recording"
+          }
+        }
+      }
+    },
+    "Stop your recording" : {
+      "comment" : "Tooltip: stops the user's recording",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Deine Aufnahme anhalten"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Stop your recording"
+          }
+        }
+      }
+    },
+    "More actions for this memo" : {
+      "comment" : "Tooltip of the toolbar's overflow menu",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Weitere Aktionen für dieses Memo"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "More actions for this memo"
+          }
+        }
+      }
+    },
+    "Copy the transcript or the reply" : {
+      "comment" : "Tooltip of the toolbar's Copy menu",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Transkript oder Antwort kopieren"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Copy the transcript or the reply"
+          }
+        }
+      }
+    },
+    "Copy the transcript as plain text" : {
+      "comment" : "Tooltip of the Copy menu's transcript entry",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Das Transkript als reinen Text kopieren"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Copy the transcript as plain text"
+          }
+        }
+      }
+    },
+    "Copy the reply as plain text" : {
+      "comment" : "Tooltip of the Copy menu's reply entry",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Die Antwort als reinen Text kopieren"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Copy the reply as plain text"
+          }
+        }
+      }
+    },
+    "Retry the memo from one of its failed steps" : {
+      "comment" : "Tooltip of the Retry menu",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Das Memo ab einem fehlgeschlagenen Schritt wiederholen"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Retry the memo from one of its failed steps"
+          }
+        }
+      }
+    },
+    "Show the steps, costs and ids of this answer" : {
+      "comment" : "Tooltip of the Details button",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Schritte, Kosten und IDs dieser Antwort anzeigen"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Show the steps, costs and ids of this answer"
+          }
+        }
+      }
+    },
+    "Add this memo to your favorites" : {
+      "comment" : "Tooltip of Favorite",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dieses Memo zu den Favoriten hinzufügen"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Add this memo to your favorites"
+          }
+        }
+      }
+    },
+    "Remove this memo from your favorites" : {
+      "comment" : "Tooltip of Unfavorite",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dieses Memo aus den Favoriten entfernen"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Remove this memo from your favorites"
+          }
+        }
+      }
+    },
+    "Move this memo to the archive" : {
+      "comment" : "Tooltip of Archive",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dieses Memo ins Archiv verschieben"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Move this memo to the archive"
+          }
+        }
+      }
+    },
+    "Move this memo back out of the archive" : {
+      "comment" : "Tooltip of Unarchive",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dieses Memo aus dem Archiv zurückholen"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Move this memo back out of the archive"
+          }
+        }
+      }
+    },
+    "Delete this memo (you can undo it for a few seconds)" : {
+      "comment" : "Tooltip of Delete",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dieses Memo löschen (einige Sekunden lang rückgängig zu machen)"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Delete this memo (you can undo it for a few seconds)"
+          }
+        }
+      }
+    },
+    "Mark this memo as done" : {
+      "comment" : "Tooltip of Done",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dieses Memo als erledigt markieren"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mark this memo as done"
+          }
+        }
+      }
+    },
+    "Mark this memo as not done" : {
+      "comment" : "Tooltip of Not done",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dieses Memo als nicht erledigt markieren"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mark this memo as not done"
+          }
+        }
+      }
+    },
     "Answer %lld of %lld" : {
       "localizations" : {
         "de" : {
@@ -1006,16 +1397,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Aufnahme abspielen"
-          }
-        }
-      }
-    },
-    "Play reply" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Antwort abspielen"
           }
         }
       }

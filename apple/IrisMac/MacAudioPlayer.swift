@@ -6,7 +6,8 @@ import os
 /// What the Mac plays for a memo: the recording or the spoken reply.
 enum MacClip: Equatable {
   case recording
-  case reply
+  /// The spoken reply in one of its two forms: switching form while one plays starts the other.
+  case reply(SpeechVariant)
 }
 
 /// The one player of the main window: the memo's recording or its spoken reply. The iPhone's `MemoPlayer` configures an
@@ -36,6 +37,13 @@ final class MacAudioPlayer {
 
   func isCurrent(_ memoID: String, _ clip: MacClip) -> Bool {
     current?.memoID == memoID && current?.clip == clip
+  }
+
+  /// The memo's spoken reply (either form) is loading or playing.
+  func isReplyCurrent(_ memoID: String) -> Bool {
+    guard let current, current.memoID == memoID else { return false }
+    if case .reply = current.clip { return true }
+    return false
   }
 
   /// Plays `request` for the memo, or stops it when that clip is the one that plays. `nil`: nothing to play.

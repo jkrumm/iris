@@ -1,6 +1,40 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "Read the summary" : {
+      "comment" : "Menu item: speaks the short summary of the reply",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zusammenfassung vorlesen"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Read the summary"
+          }
+        }
+      }
+    },
+    "Read the full reply" : {
+      "comment" : "Menu item: speaks the whole reply",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ganze Antwort vorlesen"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Read the full reply"
+          }
+        }
+      }
+    },
     "Hermes used: %@" : {
       "comment" : "Details: the tools Hermes ran for the memo, names are data",
       "localizations" : {

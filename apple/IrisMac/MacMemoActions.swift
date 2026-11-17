@@ -55,21 +55,25 @@ struct MacMemoContextMenu: View {
         ? String(localized: "Not done", comment: "Context menu") : String(localized: "Done", comment: "Context menu"),
       systemImage: "checkmark"
     ) { actions.toggleDone(memo) }
+    .help((memo.done ? MacMemoControl.notDone : .done).help)
     Button(
       memo.favorite
         ? String(localized: "Unfavorite", comment: "Context menu")
         : String(localized: "Favorite", comment: "Context menu"),
       systemImage: memo.favorite ? "star.slash" : "star"
     ) { actions.toggleFavorite(memo) }
+    .help((memo.favorite ? MacMemoControl.unfavorite : .favorite).help)
     Button(
       memo.archived
         ? String(localized: "Unarchive", comment: "Context menu")
         : String(localized: "Archive", comment: "Context menu"),
       systemImage: memo.archived ? "tray.and.arrow.up" : "archivebox"
     ) { actions.toggleArchived(memo) }
+    .help((memo.archived ? MacMemoControl.unarchive : .archive).help)
     if memo.state.isDeletable {
       Divider()
       Button("Delete", systemImage: "trash", role: .destructive) { actions.delete(memo) }
+        .help(MacMemoControl.delete.help)
     }
   }
 }

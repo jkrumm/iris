@@ -7,7 +7,7 @@ import Testing
 /// A source whose speech download always fails (nothing listens on the port).
 private struct UnreachableSource: MemoMediaSource {
   func audio(for memo: Memo) -> MediaRequest? { nil }
-  func speech(for memo: Memo) -> MediaRequest? {
+  func speech(for memo: Memo, variant: SpeechVariant?) -> MediaRequest? {
     MediaRequest(url: URL(string: "http://127.0.0.1:9/speech")!, headers: [:])
   }
   func asset(memoID: String, assetID: String) -> MediaRequest? { nil }
@@ -40,6 +40,19 @@ struct SpeechPlayerTests {
     await speech.toggle(first, source: source)
     #expect(speech.isPlaying("first"))
     speech.stop()
+  }
+
+  @Test("the other form of the playing reply starts over, the same form pauses; the form is remembered")
+  func variantsSwitch() async {
+    let speech = SpeechPlayer()
+    await speech.toggle(first, source: source, variant: .summary)
+    #expect(speech.isPlaying("first") && speech.variant == .summary && speech.playingMemoID == "first")
+    await speech.toggle(first, source: source, variant: .full)
+    #expect(speech.isPlaying("first") && speech.variant == .full)
+    await speech.toggle(first, source: source, variant: .full)
+    #expect(!speech.isPlaying("first") && speech.variant == .full && speech.playingMemoID == nil)
+    speech.stop()
+    #expect(speech.variant == nil)
   }
 
   @Test("a second memo's reply replaces the first")

@@ -1,6 +1,25 @@
 import CoreGraphics
 import SwiftUI
 
+/// How a conversation plays its answers: which memo speaks now, which answers can speak, and what the play control does. With it,
+/// every finished answer carries ``ReplyPlayButton`` in its footer.
+public struct ReplyControls {
+  public var playingMemoID: String?
+  public var canPlay: (String) -> Bool
+  public var onPlay: (String, ReplyPlayChoice) -> Void
+  public var onStop: (String) -> Void
+
+  public init(
+    playingMemoID: String?, canPlay: @escaping (String) -> Bool,
+    onPlay: @escaping (String, ReplyPlayChoice) -> Void, onStop: @escaping (String) -> Void
+  ) {
+    self.playingMemoID = playingMemoID
+    self.canPlay = canPlay
+    self.onPlay = onPlay
+    self.onStop = onStop
+  }
+}
+
 /// The one turn renderer the iPhone's chat and the Mac's detail pane share: per turn the optional line that opens a new exchange,
 /// then the bubble, a pending turn with the pipeline's dashes, or a failed turn in the failure colour. The body is only the
 /// `ForEach`, so the iPhone embeds it in its `LazyVStack` and the Mac in a `VStack`.
@@ -57,6 +76,7 @@ public struct ConversationTurnList: View {
   private let onOpenImage: (CGImage) -> Void
   private let onDetails: ((String) -> Void)?
   private let onRetry: ((String) -> Void)?
+  private let reply: ReplyControls?
 
   /// - Parameters:
   ///   - dayTitle: The title of the line that opens an exchange (the app owns the day formatter).
@@ -64,11 +84,12 @@ public struct ConversationTurnList: View {
   ///   - onCopy: Adds Copy to a bubble's long press with the text to copy; `nil` leaves the bubbles without it.
   ///   - onDetails: Called with a memo's id; non-nil adds Details to the long press of the memo's bubbles.
   ///   - onRetry: Called with a memo's id; non-nil shows Retry under a failed turn.
+  ///   - reply: Non-nil puts the play control (summary or full) under every finished answer that can speak.
   public init(
     turns: [ConversationTurn], style: Style, dayTitle: @escaping (Date) -> String,
     plainText: @escaping (String) -> String = { $0 }, onCopy: ((String) -> Void)? = nil,
     onOpenImage: @escaping (CGImage) -> Void = { _ in }, onDetails: ((String) -> Void)? = nil,
-    onRetry: ((String) -> Void)? = nil
+    onRetry: ((String) -> Void)? = nil, reply: ReplyControls? = nil
   ) {
     self.turns = turns
     self.style = style
@@ -78,6 +99,7 @@ public struct ConversationTurnList: View {
     self.onOpenImage = onOpenImage
     self.onDetails = onDetails
     self.onRetry = onRetry
+    self.reply = reply
   }
 
   public var body: some View {
@@ -128,12 +150,26 @@ public struct ConversationTurnList: View {
     _ turn: ConversationTurn, markdown: String, mermaid: [Int: MermaidAsset],
     artifacts: [ArtifactAsset.Key: ArtifactAsset], isStreaming: Bool, activity: String?
   ) -> some View {
-    AssistantTurnView(
+    let speaking = isStreaming ? nil : speakingMemoID(of: turn)
+    return AssistantTurnView(
       markdown: markdown, time: time(turn.date), mermaid: mermaid, artifacts: artifacts,
       identifier: isStreaming ? "thread.turn.streaming" : style.assistantIdentifier ?? "thread.turn.assistant",
       textRole: style.textRole ?? .callout,
       onOpenImage: onOpenImage, onCopy: copy(plainText(markdown)), onDetails: details(of: turn),
-      isStreaming: isStreaming, activity: activity)
+      isStreaming: isStreaming, activity: activity, hasFooter: speaking != nil
+    ) {
+      if let reply, let speaking {
+        ReplyPlayButton(
+          isPlaying: reply.playingMemoID == speaking, onPlay: { reply.onPlay(speaking, $0) },
+          onStop: { reply.onStop(speaking) })
+      }
+    }
+  }
+
+  /// The memo whose play control the answer carries: a finished answer of a memo that can speak.
+  private func speakingMemoID(of turn: ConversationTurn) -> String? {
+    guard let reply, let memoID = turn.memoID, reply.canPlay(memoID) else { return nil }
+    return memoID
   }
 
   @ViewBuilder private func failed(_ message: String) -> some View {

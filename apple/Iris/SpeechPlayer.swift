@@ -1,4 +1,5 @@
 import IrisCore
+import IrisUI
 import Observation
 
 /// The one player of spoken replies in the app: the detail screen's Play, `PlayReplyIntent` and the spoken-replies setting
@@ -10,6 +11,8 @@ final class SpeechPlayer {
   let player: MemoPlayer
   /// The memo whose reply the player holds (or is loading).
   private(set) var memoID: String?
+  /// The form of the reply the player holds (`nil`: the server's default, what the auto-read plays).
+  private(set) var variant: SpeechVariant?
   /// Pauses the recording of the detail screen that is open, if any: bound by its ``MemoPlayback``, called right before a
   /// reply starts so a reply the user starts (Play, `PlayReplyIntent`) never plays over a recording. A spoken reply never
   /// gets here while the recording plays: ``SpokenReplies`` waits on ``isBusy``.
@@ -34,6 +37,9 @@ final class SpeechPlayer {
 
   func isPlaying(_ id: String) -> Bool { memoID == id && player.isPlaying }
 
+  /// The memo whose reply is audible now, if any.
+  var playingMemoID: String? { player.isPlaying ? memoID : nil }
+
   /// Something is audible or about to be: a reply loading or playing, or the open detail's recording playing. A reply that
   /// starts on its own (``SpokenReplies``) waits instead of interrupting it; a start the user asks for does not look at it.
   var isBusy: Bool { player.isLoading || player.isPlaying || recording?.isPlaying() == true }
@@ -49,11 +55,11 @@ final class SpeechPlayer {
     recording = nil
   }
 
-  /// Plays the reply of `memo`, or pauses it when it is the one playing (and resumes it when paused). A tap while a reply is
-  /// still loading is ignored.
-  func toggle(_ memo: Memo, source: any MemoMediaSource) async {
+  /// Plays the reply of `memo` in `variant`, or pauses it when that form is the one playing (and resumes it when paused). The
+  /// other form of the same reply starts from the top instead. A tap while a reply is still loading is ignored.
+  func toggle(_ memo: Memo, source: any MemoMediaSource, variant: SpeechVariant? = nil) async {
     guard !player.isLoading else { return }
-    if memoID == memo.id, player.isLoaded {
+    if memoID == memo.id, self.variant == variant, player.isLoaded {
       if !player.isPlaying {
         guard !captureActive() else { return }
         recording?.pause()
@@ -61,24 +67,30 @@ final class SpeechPlayer {
       player.toggle()
       return
     }
-    await play(memo, source: source)
+    await play(memo, source: source, variant: variant)
   }
 
   /// Starts the reply of `memo` from the top, replacing whatever was speaking; true when it is playing. Nothing happens
   /// (false) when the memo has no speech or another reply is still loading. `shouldPlay` is asked again once the download is
   /// done, so a reply the caller no longer wants (the app went to the background meanwhile) stays silent.
   @discardableResult
-  func play(_ memo: Memo, source: any MemoMediaSource, shouldPlay: () -> Bool = { true }) async -> Bool {
-    guard !player.isLoading, !captureActive(), let request = source.speech(for: memo) else { return false }
+  func play(
+    _ memo: Memo, source: any MemoMediaSource, variant: SpeechVariant? = nil, shouldPlay: () -> Bool = { true }
+  ) async -> Bool {
+    guard !player.isLoading, !captureActive(), let request = source.speech(for: memo, variant: variant) else {
+      return false
+    }
     attempt += 1
     let mine = attempt
     memoID = memo.id
+    self.variant = variant
     await player.load(request)
     // Overtaken (a pause, a stop or another start): whoever did that owns `memoID` now. A download that failed or was
     // cancelled leaves the player holding nothing, so it must not claim the memo either.
     guard attempt == mine, memoID == memo.id else { return false }
     guard player.isLoaded else {
       memoID = nil
+      self.variant = nil
       return false
     }
     // Nothing suspends between these checks and the start: a take that opened while the speech downloaded has priority.
@@ -109,5 +121,16 @@ final class SpeechPlayer {
     attempt += 1
     player.teardown()
     memoID = nil
+    variant = nil
+  }
+}
+
+extension SpeechVariant {
+  /// The form a play control's menu entry asks for.
+  init(_ choice: ReplyPlayChoice) {
+    switch choice {
+    case .summary: self = .summary
+    case .full: self = .full
+    }
   }
 }

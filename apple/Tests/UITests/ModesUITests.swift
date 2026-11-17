@@ -87,13 +87,18 @@ final class ModesUITests: IrisUITestCase {
     let app = launch()
     openDetails(containing: "Wochenplan abgestimmt", in: app)
 
-    let play = app.buttons["detail.action.play"]
+    // A Menu answers to its identifier twice (the menu and its button): the first match is the control.
+    let play = app.buttons["detail.action.play"].firstMatch
     XCTAssertTrue(waitForPresence(play, timeout: 10))
     XCTAssertEqual(play.label, "Play reply")
     play.tap()
-    waitForLabel(app.buttons["detail.action.play"], "Stop reply")
-    app.buttons["detail.action.play"].tap()
-    waitForLabel(app.buttons["detail.action.play"], "Play reply")
+    let summary = app.buttons["detail.action.play.summary"].firstMatch
+    XCTAssertTrue(waitForPresence(summary, timeout: 5), "the menu offers the summary first")
+    XCTAssertTrue(app.buttons["detail.action.play.full"].firstMatch.exists, "and the full reply")
+    summary.tap()
+    waitForLabel(app.buttons["detail.action.play"].firstMatch, "Stop reply")
+    app.buttons["detail.action.play"].firstMatch.tap()
+    waitForLabel(app.buttons["detail.action.play"].firstMatch, "Play reply")
   }
 
   @MainActor
