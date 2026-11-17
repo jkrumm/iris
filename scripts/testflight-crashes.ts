@@ -33,7 +33,7 @@ const MAX_FRAMES = 12;
 const MAX_COMMENT_CHARS = 600;
 const REQUEST_TIMEOUT_MS = 30_000;
 const JWT_TTL_SECONDS = 600;
-/** Apple's API answers 500s and stray 404s on a healthy key for hours at a time; one tick retries 4 times (2 s, 4 s, 8 s) before it fails. */
+/** Apple's API answers 500s and stray 404s on a healthy key for hours at a time; a request is tried 4 times (waits of 2 s, 4 s, 8 s) before it fails. */
 const RETRY = { attempts: 4, delayMs: 2000 };
 
 const repoRoot = resolve(import.meta.dir, "..");
@@ -217,11 +217,10 @@ export function createAscApi(
 ): CrashApi {
   const token = createJwt(credentials, Math.floor(Date.now() / 1000));
 
-  /** One attempt; a 5xx, a 429, a 404 of a path that must exist and a network failure are transient. */
+  /** One attempt; a 5xx, a 429, any 404 and a network failure are transient (`missing`: the answer was a 404). */
   async function attempt(
     url: string,
-    allowMissing: boolean,
-  ): Promise<{ body: Json | null } | { transient: Error }> {
+  ): Promise<{ body: Json } | { transient: Error; missing: boolean }> {
     let response: Response;
     try {
       response = await fetch(url, {
@@ -229,15 +228,17 @@ export function createAscApi(
         signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
       });
     } catch (error) {
-      return { transient: error instanceof Error ? error : new Error(String(error)) };
+      return {
+        transient: error instanceof Error ? error : new Error(String(error)),
+        missing: false,
+      };
     }
-    if (allowMissing && response.status === 404) return { body: null };
     if (!response.ok) {
       const failure = new Error(
         `App Store Connect answered ${response.status} for ${new URL(url).pathname}`,
       );
       if (response.status >= 500 || response.status === 429 || response.status === 404)
-        return { transient: failure };
+        return { transient: failure, missing: response.status === 404 };
       throw failure;
     }
     return { body: asRecord(await response.json()) };
@@ -246,9 +247,13 @@ export function createAscApi(
   async function get(path: string, allowMissing = false): Promise<Json | null> {
     const url = path.startsWith("http") ? path : `${baseUrl}${path}`;
     for (let n = 1; ; n++) {
-      const result = await attempt(url, allowMissing);
+      const result = await attempt(url);
       if ("body" in result) return result.body;
-      if (n >= retry.attempts) throw result.transient;
+      if (n >= retry.attempts) {
+        // A log that is still a 404 after every retry is a report without one.
+        if (allowMissing && result.missing) return null;
+        throw result.transient;
+      }
       await Bun.sleep(retry.delayMs * 2 ** (n - 1));
     }
   }

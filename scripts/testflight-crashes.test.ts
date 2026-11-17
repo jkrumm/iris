@@ -56,6 +56,7 @@ const credentials: AscCredentials = {
 let reports: FakeReport[] = [];
 let failWith: number | null = null;
 let failFirst = 0;
+let failLogFirst = 0;
 let authorized = true;
 let server: ReturnType<typeof Bun.serve>;
 let baseUrl = "";
@@ -98,6 +99,10 @@ beforeAll(() => {
           links: {},
         });
       }
+      if (failLogFirst > 0 && url.pathname.endsWith("/crashLog")) {
+        failLogFirst -= 1;
+        return new Response("{}", { status: 404 });
+      }
       const log = /^\/v1\/betaFeedbackCrashSubmissions\/([^/]+)\/crashLog$/.exec(url.pathname);
       const report = reports.find((r) => r.id === log?.[1]);
       if (!report?.log) return new Response("{}", { status: 404 });
@@ -114,6 +119,7 @@ afterEach(async () => {
   reports = [];
   failWith = null;
   failFirst = 0;
+  failLogFirst = 0;
   await Promise.all(cleanup.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
 });
 
@@ -291,6 +297,17 @@ describe("run", () => {
     await run(deps, { dryRun: false, baseline: false });
     expect(filed.map((f) => f.key)).toEqual(["testflight-crash-A1"]);
     expect(failFirst).toBe(0);
+  });
+
+  it("retries a stray 404 of a crash log, then files the report with the log", async () => {
+    reports = [
+      { id: "A1", createdDate: "2026-11-06T16:00:00Z", comment: "", log: crashLog({ top: board }) },
+    ];
+    failLogFirst = 1;
+    const { deps, filed } = await harness();
+    await run(deps, { dryRun: false, baseline: false });
+    expect(filed[0]?.title).toContain(board);
+    expect(failLogFirst).toBe(0);
   });
 
   it("leaves a report unseen when filing fails, so the next run retries it", async () => {
