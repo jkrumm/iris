@@ -18,7 +18,7 @@
           badge: .init(text: "+39 % slower", tone: .slower), start: 0.31, length: 0.415),
         StepWaterfallRow(
           id: "summarize", title: "Summarize", phase: .failed, metric: "5.7 s", attempts: "2 attempts",
-          error: "agw triage failed: 402 payment required", isOptional: true,
+          error: "agw triage failed: 402", isOptional: true,
           optionalNote: "The memo is done without it", retryTitle: "Retry from Summarize", start: 0.725, length: 0.208),
         StepWaterfallRow(id: "notify", title: "Notify", phase: .done, metric: "1.9 s", start: 0.933, length: 0.067),
       ]

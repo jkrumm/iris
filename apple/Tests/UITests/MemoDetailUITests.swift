@@ -50,6 +50,7 @@ final class MemoDetailUITests: IrisUITestCase {
   @MainActor
   func testTheToolbarOpensTheNewestAnswerAndStepsToTheEarlierOne() {
     let newestID = "c1a0b7d2-4e61-4f38-9a15-3d8e6b2f7c41"
+    let earlierID = "c1a0b7d2-4e61-4f38-9a15-3d8e6b2f7c40"
     let app = launch()
     revealRow(containing: "Hang guards are not retried", in: app).tap()
     XCTAssertTrue(waitForPresence(app.descendants(matching: .any)["thread.view"], timeout: 10))
@@ -66,7 +67,7 @@ final class MemoDetailUITests: IrisUITestCase {
     XCTAssertTrue(waitForPresence(app.staticTexts["Answer 1 of 2"], timeout: 5))
     XCTAssertTrue(waitForAbsence(app.staticTexts[newestID], timeout: 5), "the earlier answer has its own ids")
     XCTAssertFalse(app.buttons["memo.details.previous"].isEnabled, "nothing before the first")
-    XCTAssertTrue(waitForPresence(app.staticTexts["Act · Hermes"], timeout: 5))
+    XCTAssertTrue(waitForPresence(app.staticTexts[earlierID], timeout: 5), "the earlier answer's own memo id")
   }
 
   /// A transcript memo's screen no longer carries Details inline: its toolbar opens them as the same sheet.
