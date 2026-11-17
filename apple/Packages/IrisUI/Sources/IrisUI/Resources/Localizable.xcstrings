@@ -880,13 +880,13 @@
         }
       }
     },
-    "Show all" : {
-      "comment" : "Expands a long transcript that is cut after a few lines",
+    "Show full message" : {
+      "comment" : "Expands a long transcript that is folded to its gist or its first lines",
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Alles anzeigen"
+            "value" : "Ganze Nachricht anzeigen"
           }
         }
       }
@@ -909,7 +909,7 @@
       }
     },
     "Show less" : {
-      "comment" : "Collapses a long transcript to its first lines",
+      "comment" : "Collapses a long transcript to its gist or first lines",
       "localizations" : {
         "de" : {
           "stringUnit" : {
@@ -1045,6 +1045,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "You"
+          }
+        }
+      }
+    },
+    "Summary" : {
+      "comment" : "Label over the short gist a long transcript is folded to",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zusammenfassung"
           }
         }
       }

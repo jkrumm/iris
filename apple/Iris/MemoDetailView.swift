@@ -13,7 +13,7 @@ struct MemoDetailView: View {
   @State private var isRecordingExpanded = false
   @State private var showsDetails = false
   private let refreshToken: () -> Int
-  /// The transcript is copied, not reread: the bubble shows this many lines, then Show all.
+  /// The transcript is copied, not reread: the bubble shows this many lines, then Show full message.
   private static let transcriptLineLimit = 8
 
   init(model: MemoDetailModel, refreshToken: @escaping () -> Int = { 0 }) {
@@ -130,7 +130,7 @@ struct MemoDetailView: View {
       if let text = memo.plainTranscript {
         UserTurnView(
           text: text, time: memo.timeText, identifier: "detail.transcript", onCopy: { model.copy(.transcript) },
-          hasFooter: model.audioRequest != nil, collapsedLineLimit: Self.transcriptLineLimit
+          hasFooter: model.audioRequest != nil, gist: memo.transcriptGist, collapsedLineLimit: Self.transcriptLineLimit
         ) {
           player
         }
