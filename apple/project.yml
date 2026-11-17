@@ -213,6 +213,8 @@ targets:
         # `scripts/mac-release.sh` passes MARKETING_VERSION (scripts/version.ts) and CURRENT_PROJECT_VERSION (the commit count): Sparkle compares CFBundleVersion.
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        # The git sha of the release (`scripts/mac-release.sh` passes IRIS_BUILD_SHA), the `service.version` of the Mac's records.
+        IrisBuildSHA: $(IRIS_BUILD_SHA)
         LSUIElement: true
         LSMinimumSystemVersion: "26.0"
         NSMicrophoneUsageDescription: Iris records your voice memos.
