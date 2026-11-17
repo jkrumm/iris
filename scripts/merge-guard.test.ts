@@ -8,7 +8,14 @@ import {
   matchesPaths,
 } from "./merge-guard";
 
-const APPLE_PATHS = ["apple/**", "contracts/**", "Makefile", "scripts/uitest-*"];
+const APPLE_PATHS = [
+  "apple/**",
+  "!apple/*.md",
+  "!apple/**/*.md",
+  "contracts/**",
+  "apple/Makefile.mk",
+  "scripts/uitest-*",
+];
 
 const run = (status: string, conclusion: string): CiRun => ({
   status,
@@ -101,6 +108,14 @@ describe("matchesPaths", () => {
     expect(matchesPaths(APPLE_PATHS, ["apple/Packages/IrisCore/Foo.swift"])).toBe(true);
     expect(matchesPaths(APPLE_PATHS, ["scripts/uitest-map.json"])).toBe(true);
     expect(matchesPaths(APPLE_PATHS, ["server/src/app.ts", "docs/TDD.md"])).toBe(false);
+  });
+
+  it("lets a `!` glob exclude markdown under apple/, and a mixed change still matches", () => {
+    expect(matchesPaths(APPLE_PATHS, ["apple/AGENTS.md"])).toBe(false);
+    expect(matchesPaths(APPLE_PATHS, ["apple/Packages/IrisUI/AGENTS.md"])).toBe(false);
+    expect(matchesPaths(APPLE_PATHS, ["apple/AGENTS.md", "apple/Iris/RootView.swift"])).toBe(true);
+    expect(matchesPaths(APPLE_PATHS, ["Makefile", "web/src/app.ts"])).toBe(false);
+    expect(matchesPaths(APPLE_PATHS, ["apple/Makefile.mk"])).toBe(true);
   });
 });
 

@@ -11,7 +11,7 @@
 #
 # Output: .artifacts/proof/<time>/{ios/,mac/,mac-de/,proof.txt} (mac/ English, mac-de/ German). Exit 0 only when the iOS screenshot and every expected Mac PNG exist
 # and no simulator is left booted. This proves "it builds, launches and looks right"; the test suites stay CI's.
-# Env: SIM_NAME / SIM_OS (the Makefile's pinned simulator), IOS_ARGS (extra launch arguments for Iris), PROOF_MAC=0 / PROOF_IOS=0
+# Env: SIM_NAME / SIM_OS (the pinned simulator in apple/Makefile.mk), IOS_ARGS (extra launch arguments for Iris), PROOF_MAC=0 / PROOF_IOS=0
 # (skip a half), UI_SETTLE (seconds before the UI tree, default 8), MAC_TIMEOUT (seconds for the Mac snapshot run, default 240).
 set -uo pipefail
 cd "$(dirname "$0")/.."
@@ -22,7 +22,7 @@ UI_SETTLE=${UI_SETTLE:-8}
 MAC_TIMEOUT=${MAC_TIMEOUT:-240}
 APP_BUNDLE=com.jkrumm.iris
 DD=apple/.dd.noindex
-# Capped like the Makefile's test runners: 2 build jobs (an uncapped cold build of both schemes peaked at a 1-minute load of 408 on 12 cores), low priority.
+# Capped like apple/Makefile.mk's test runners: 2 build jobs (an uncapped cold build of both schemes peaked at a 1-minute load of 408 on 12 cores), low priority.
 XCB=(nice -n 10 xcodebuild -project apple/Iris.xcodeproj -derivedDataPath "$DD" CODE_SIGNING_ALLOWED=NO -jobs "${SWIFT_JOBS:-2}"
   IDEBuildOperationMaxNumberOfConcurrentCompileTasks="${SWIFT_JOBS:-2}" SWIFT_COMPILATION_MODE=incremental)
 MAC_EXPECTED=(menu menu-dark menu-ask window-all window-all-dark window-shell window-shell-dark speaker-menu window-thread window-chat-mermaid window-details window-details-dark window-details-thread window-running window-streaming window-filtered window-new window-composer window-sent

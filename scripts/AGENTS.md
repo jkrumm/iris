@@ -11,7 +11,7 @@ Tests sit next to the scripts and run with `bun test scripts`. Deploy, release h
 ## Deploy and runtime
 
 - Push to master deploys: `com.jkrumm.iris-deploy` runs `scripts/mini-deploy.sh` every 120 s and deploys only when `check` is green on that sha and no memo is mid-step (`/health` `inflight` is 0). The server runs from the deploy clone `~/.iris/app`, never from a checkout; data lives in `~/.iris/data`.
-- A tick restarts only for runtime paths (docs, tests, the Makefile and `launchd/` do not). A changed `launchd/` template needs `make launchd-install` on the mini.
+- A tick restarts only for runtime paths (docs, tests, the Makefile (and `apple/Makefile.mk`) and `launchd/` do not). A changed `launchd/` template needs `make launchd-install` on the mini.
 - `scripts/launch.sh` refuses to start with `IRIS_FAKES` set or a base secret ref that does not resolve; a missing OTel overlay starts degraded. Secrets come from `.env.local.tpl` and `.env.mini.tpl` through `secrets-run`; never `op`.
 - Release hooks (`testflight`, `mac`) are off unless the untracked `~/.iris/release.env` enables them, start only through the gate (marker at least 12 h old, Apple lock free, factory slot free) and never from a single commit. `DRY_RUN=1 scripts/release-hooks.sh <sha>` prints what would start and changes nothing. A hook's marker is written only after its make target succeeded.
 - Both apps get `0.MINOR.PATCH` from `bun scripts/version.ts` (git only, deterministic per commit; a shallow clone fails loud). `make testflight` and `make mac-release` take `DRY_RUN=1` to print version, build and notes without signing.

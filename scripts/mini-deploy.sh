@@ -189,7 +189,7 @@ main() {
     case "$f" in
       server/package.json|server/bun.lock) deps_changed=1; restart_needed=1 ;;
       *.md|docs/*) ;;  # docs-only changes never restart anything
-      *.test.ts|.github/*|Makefile|scripts/send-memo.ts|scripts/smoke.sh) ;;
+      *.test.ts|.github/*|Makefile|apple/Makefile.mk|scripts/send-memo.ts|scripts/smoke.sh) ;;
       launchd/*) launchd_changed=1 ;;
       *) restart_needed=1 ;;
     esac
