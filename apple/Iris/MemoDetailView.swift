@@ -4,13 +4,14 @@ import SwiftUI
 
 /// The detail of a memo that is a document (Transcribe mode, or a deleted memo), top to bottom: headline with the kind chip and one
 /// meta line (day, time, cost) and a prominent Copy transcript button, what was said as a bubble with the compact recording player inside it (a pending bubble while the
-/// transcript is on its way), and Details (step waterfall, copy rows, ids; collapsed, open on a failed memo), then the icon-only
-/// retry at the bottom. A Hermes memo opens the conversation screen instead. It reloads when `refreshToken` changes (History bumps
+/// transcript is on its way), then the icon-only retry at the bottom. Details (step waterfall, copy rows, ids) open as a sheet from
+/// the toolbar button; a failed memo shows its error in the header and its retry at the bottom without opening anything. A Hermes memo opens the conversation screen instead. It reloads when `refreshToken` changes (History bumps
 /// it on a `memo.updated` event).
 struct MemoDetailView: View {
   @State private var model: MemoDetailModel
   @State private var playback: MemoPlayback
   @State private var isRecordingExpanded = false
+  @State private var showsDetails = false
   private let refreshToken: () -> Int
   /// The transcript is copied, not reread: the bubble shows this many lines, then Show all.
   private static let transcriptLineLimit = 8
@@ -28,7 +29,6 @@ struct MemoDetailView: View {
       VStack(alignment: .leading, spacing: Theme.Spacing.sectionTop) {
         header
         conversation
-        MemoDetailsSection(model: model, onRetry: model.retry(stepID:))
       }
       .padding(.horizontal, Theme.Spacing.screenMargin)
       .padding(.top, Theme.Spacing.sm)
@@ -49,6 +49,22 @@ struct MemoDetailView: View {
     .reportsScreen("memo.detail")
     .navigationBarTitleDisplayMode(.inline)
     .toolbarVisibility(.hidden, for: .tabBar)
+    .toolbar {
+      ToolbarItem(placement: .topBarTrailing) {
+        Button(
+          String(localized: "Details", comment: "Toolbar button that opens a memo's details"),
+          systemImage: "info.circle"
+        ) {
+          showsDetails = true
+        }
+        .accessibilityIdentifier("memo.details.open")
+      }
+    }
+    .sheet(isPresented: $showsDetails) {
+      MemoDetailsSheet(
+        memos: [model.memo], selectedID: model.memo.id, showsPlayers: false, makeDetail: { _ in model },
+        memoRevision: { _ in refreshToken() })
+    }
     .task(id: refreshToken()) { await model.load() }
     .task(id: model.audioRequest) { await playback.recording.load(model.audioRequest) }
     .onAppear { playback.attach() }

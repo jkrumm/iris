@@ -327,6 +327,34 @@ struct ThreadModelTests {
     #expect(thread.memoIDs == ["a", "b"])
   }
 
+  // MARK: Details and retry
+
+  @Test("the memos of the conversation, oldest first, are what the Details sheet steps through")
+  func memosOldestFirst() async {
+    let thread = await openedOn([memo("a", age: 100, reply: "x"), memo("b", age: 10, reply: "y")])
+    #expect(thread.memos.map(\.id) == ["a"], "the anchor alone until the thread loads")
+    await thread.load()
+    #expect(thread.memos.map(\.id) == ["a", "b"])
+  }
+
+  @Test("Retry under a failed turn restarts the failed step and reloads the conversation")
+  func retryFromTheConversation() async {
+    let failed = Memo(
+      id: "f", mode: .hermes, device: "iphone", startedAt: MemoFactory.now, state: .failed, failedStep: .act,
+      error: "boom", transcript: "question f", threadId: threadID, isTyped: true, createdAt: MemoFactory.now,
+      updatedAt: MemoFactory.now)
+    let thread = await openedOn([memo("a", age: 100, reply: "x"), failed])
+    await thread.load()
+    #expect(thread.turns.map(\.id).contains("f.failed"))
+
+    await client.seed(MemoFactory.detail(failed, steps: []))
+    let detail = MemoDetailModel(
+      memo: failed, client: client, media: FakeMediaSource(), speech: SpeechPlayer(), pasteboard: FakePasteboard())
+    await thread.retry(detail)
+    #expect(await client.calls.contains(.retryMemo(id: "f", request: RetryMemoRequest(from: .act))))
+    #expect(thread.failure == nil)
+  }
+
   // MARK: Typed reply
 
   @Test(

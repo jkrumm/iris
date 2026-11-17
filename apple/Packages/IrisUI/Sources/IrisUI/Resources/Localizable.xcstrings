@@ -1,6 +1,69 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "Hermes used: %@" : {
+      "comment" : "Details: the tools Hermes ran for the memo, names are data",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hermes nutzte: %@"
+          }
+        }
+      }
+    },
+    "%lld segments" : {
+      "comment" : "Details: uploaded recording segments",
+      "localizations" : {
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld segment"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld segments"
+                }
+              }
+            }
+          }
+        },
+        "de" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld Segment"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld Segmente"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "Memo ID" : {
+      "comment" : "Details: label of the memo's id",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Memo-ID"
+          }
+        }
+      }
+    },
     "%@ of %@" : {
       "comment" : "VoiceOver value of the player's timeline: elapsed of total, both as m:ss",
       "localizations" : {
@@ -173,7 +236,7 @@
       }
     },
     "Copied" : {
-      "comment" : "VoiceOver label of a code block's copy button right after it copied",
+      "comment" : "Details: confirmation after Copy",
       "localizations" : {
         "de" : {
           "stringUnit" : {
@@ -235,7 +298,7 @@
       }
     },
     "Details" : {
-      "comment" : "Button under a conversation's memo that opens its details",
+      "comment" : "Section line of a memo's details: steps, cost, ids",
       "localizations" : {
         "de" : {
           "stringUnit" : {
@@ -937,6 +1000,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Task"
+          }
+        }
+      }
+    },
+    "Thread ID" : {
+      "comment" : "Details: label of the thread's id",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Unterhaltungs-ID"
           }
         }
       }

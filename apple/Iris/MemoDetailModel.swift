@@ -12,15 +12,6 @@ final class MemoDetailModel {
   private(set) var detail: MemoDetail
   private(set) var baselines = StepBaselines()
   private(set) var isRetrying = false
-  /// The owner's own open or close of the waterfall; nil until the first tap.
-  private var waterfallChoice: Bool?
-
-  /// Details (the step rows and the ids) show under their line: collapsed until the owner opens them, except for a failed
-  /// memo, whose failed step (and its retry) is what the owner came for. A tap wins over that default.
-  var isWaterfallExpanded: Bool {
-    get { waterfallChoice ?? (memo.state == .failed) }
-    set { waterfallChoice = newValue }
-  }
 
   /// What the Copy buttons copy.
   enum CopyTarget: Equatable {

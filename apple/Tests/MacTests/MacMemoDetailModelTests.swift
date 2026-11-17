@@ -54,24 +54,20 @@ struct MacMemoDetailModelTests {
     #expect(await eventually { model.copied == nil })
   }
 
-  @Test("a finished memo has nothing to retry; the waterfall starts collapsed")
+  @Test("a finished memo has nothing to retry")
   func finishedMemo() async {
     let model = await model()
     await model.load()
-    #expect(model.retrySteps.isEmpty && !model.isWaterfallExpanded)
-    model.isWaterfallExpanded = true
-    #expect(model.isWaterfallExpanded)
+    #expect(model.retrySteps.isEmpty)
   }
 
-  @Test(
-    "a memo failed at act offers a retry from there; the retry restarts it and the waterfall opens on its own")
+  @Test("a memo failed at act offers a retry from there; the retry restarts it")
   func retries() async {
     let failedID = "9e2c4b70-1a58-4d36-8f07-5b3a6d1c8e24"
     let api = FakeAPIClient()
     await SampleData.seed(api)
     let model = MacMemoDetailModel(memoID: failedID, client: api, pasteboard: RecordingPasteboard())
     await model.load()
-    #expect(model.isWaterfallExpanded)
     #expect(model.retrySteps.last == .act)
     await model.retry(from: .act)
     #expect(model.failure == nil && !model.isRetrying)

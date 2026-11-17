@@ -2,8 +2,8 @@ import CoreGraphics
 import SwiftUI
 
 /// Iris's answer as a turn of the conversation: a bubble on the panel surface on the left holding the reply as a rendered
-/// document, the time under it. A `footer` (the detail's Play reply) sits inside the bubble under the reply; `onCopy` adds Copy to
-/// its long press.
+/// document, the time under it. A `footer` (the detail's Play reply) sits inside the bubble under the reply; `onCopy` adds Copy and `onDetails` Details
+/// to its long press.
 public struct AssistantTurnView<Footer: View>: View {
   private let markdown: String
   private let time: String
@@ -13,6 +13,7 @@ public struct AssistantTurnView<Footer: View>: View {
   private let textRole: Theme.TextRole
   private let onOpenImage: (CGImage) -> Void
   private let onCopy: (() -> Void)?
+  private let onDetails: (() -> Void)?
   private let hasFooter: Bool
   private let isStreaming: Bool
   private let activity: String?
@@ -27,7 +28,8 @@ public struct AssistantTurnView<Footer: View>: View {
     markdown: String, time: String, mermaid: [Int: MermaidAsset] = [:],
     artifacts: [ArtifactAsset.Key: ArtifactAsset] = [:], identifier: String = "thread.turn.assistant",
     textRole: Theme.TextRole = .callout, onOpenImage: @escaping (CGImage) -> Void = { _ in },
-    onCopy: (() -> Void)? = nil, isStreaming: Bool = false, activity: String? = nil, hasFooter: Bool = true,
+    onCopy: (() -> Void)? = nil, onDetails: (() -> Void)? = nil, isStreaming: Bool = false,
+    activity: String? = nil, hasFooter: Bool = true,
     @ViewBuilder footer: () -> Footer
   ) {
     self.markdown = markdown
@@ -38,6 +40,7 @@ public struct AssistantTurnView<Footer: View>: View {
     self.textRole = textRole
     self.onOpenImage = onOpenImage
     self.onCopy = onCopy
+    self.onDetails = onDetails
     self.isStreaming = isStreaming
     self.activity = activity
     self.hasFooter = hasFooter
@@ -45,7 +48,7 @@ public struct AssistantTurnView<Footer: View>: View {
   }
 
   public var body: some View {
-    ChatBubble(side: .assistant, time: time, onCopy: onCopy, hasFooter: hasFooter) {
+    ChatBubble(side: .assistant, time: time, onCopy: onCopy, onDetails: onDetails, hasFooter: hasFooter) {
       VStack(alignment: .leading, spacing: Theme.Spacing.cozy) {
         MessageContentView(
           markdown: markdown, isStreaming: isStreaming, mermaid: mermaid, artifacts: artifacts, textRole: textRole,
@@ -66,12 +69,13 @@ extension AssistantTurnView where Footer == EmptyView {
     markdown: String, time: String, mermaid: [Int: MermaidAsset] = [:],
     artifacts: [ArtifactAsset.Key: ArtifactAsset] = [:], identifier: String = "thread.turn.assistant",
     textRole: Theme.TextRole = .callout, onOpenImage: @escaping (CGImage) -> Void = { _ in },
-    onCopy: (() -> Void)? = nil, isStreaming: Bool = false, activity: String? = nil
+    onCopy: (() -> Void)? = nil, onDetails: (() -> Void)? = nil, isStreaming: Bool = false,
+    activity: String? = nil
   ) {
     self.init(
       markdown: markdown, time: time, mermaid: mermaid, artifacts: artifacts, identifier: identifier,
       textRole: textRole,
-      onOpenImage: onOpenImage, onCopy: onCopy, isStreaming: isStreaming, activity: activity, hasFooter: false,
-      footer: { EmptyView() })
+      onOpenImage: onOpenImage, onCopy: onCopy, onDetails: onDetails, isStreaming: isStreaming, activity: activity,
+      hasFooter: false, footer: { EmptyView() })
   }
 }

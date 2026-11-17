@@ -207,8 +207,8 @@ struct MemoDetailModelTests {
 
   // MARK: Waterfall total and copy
 
-  @Test("the waterfall is collapsed until the owner opens it, and its line is the total time and cost")
-  func collapsedWithATotal() async {
+  @Test("the line of Details is the total time and cost, once the steps have loaded")
+  func totalOfTheLoadedSteps() async {
     let memo = MemoFactory.memo("m", route: "hermes")
     let detail = await model(
       memo,
@@ -216,26 +216,12 @@ struct MemoDetailModelTests {
         MemoFactory.step(.transcribe, at: 0, for: 8, cost: 0.0002),
         MemoFactory.step(.act, at: 8, for: 4, cost: 0.0001),
       ])
-    #expect(detail.isWaterfallExpanded == false)
     #expect(detail.totalValue(now: MemoFactory.now) == nil, "no steps loaded yet, so no total")
 
     await detail.load()
     let expected = "\(StepText.duration(milliseconds: 12_000)) · \(StepText.dollars(0.0003))"
     #expect(detail.totalValue(now: MemoFactory.now) == expected)
-    #expect(detail.rows(now: MemoFactory.now).count >= 2, "the rows are there for when it opens")
-  }
-
-  @Test("a failed memo opens its waterfall on its own, and the owner's tap wins either way")
-  func failedMemoOpensTheWaterfall() async {
-    let detail = await model(failed())
-    #expect(detail.isWaterfallExpanded)
-    detail.isWaterfallExpanded = false
-    #expect(!detail.isWaterfallExpanded)
-
-    let finished = await model(MemoFactory.memo("n", state: .notified, route: "hermes"))
-    #expect(!finished.isWaterfallExpanded)
-    finished.isWaterfallExpanded = true
-    #expect(finished.isWaterfallExpanded)
+    #expect(detail.rows(now: MemoFactory.now).count >= 2, "the rows are there")
   }
 
   @Test("copy puts the transcript, trimmed, on the pasteboard as one plain string")

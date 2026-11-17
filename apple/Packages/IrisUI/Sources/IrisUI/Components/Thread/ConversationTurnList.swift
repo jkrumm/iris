@@ -5,8 +5,8 @@ import SwiftUI
 /// then the bubble, a pending turn with the pipeline's dashes, or a failed turn in the failure colour. The body is only the
 /// `ForEach`, so the iPhone embeds it in its `LazyVStack` and the Mac in a `VStack`.
 ///
-/// With `onDetails` set, the last turn of each memo is followed by a quiet Details button that reports the memo's id; a turn
-/// without a memo (a reply held on this device) never gets one.
+/// With `onDetails` set, a long press on a bubble offers Details and reports the turn's memo id; a turn without a memo (a reply
+/// held on this device) never gets one. With `onRetry` set, a failed turn is followed by a Retry button that reports its memo's id.
 public struct ConversationTurnList: View {
   /// What differs between the platforms.
   public struct Style: Equatable, Sendable {
@@ -53,16 +53,19 @@ public struct ConversationTurnList: View {
   private let onCopy: ((String) -> Void)?
   private let onOpenImage: (CGImage) -> Void
   private let onDetails: ((String) -> Void)?
+  private let onRetry: ((String) -> Void)?
 
   /// - Parameters:
   ///   - dayTitle: The title of the line that opens an exchange (the app owns the day formatter).
   ///   - plainText: What Copy puts on the pasteboard for an answer, given its markdown; the app owns the markdown stripping.
   ///   - onCopy: Adds Copy to a bubble's long press with the text to copy; `nil` leaves the bubbles without it.
-  ///   - onDetails: Called with a memo's id; non-nil shows the Details button after each memo's last turn.
+  ///   - onDetails: Called with a memo's id; non-nil adds Details to the long press of the memo's bubbles.
+  ///   - onRetry: Called with a memo's id; non-nil shows Retry under a failed turn.
   public init(
     turns: [ConversationTurn], style: Style, dayTitle: @escaping (Date) -> String,
     plainText: @escaping (String) -> String = { $0 }, onCopy: ((String) -> Void)? = nil,
-    onOpenImage: @escaping (CGImage) -> Void = { _ in }, onDetails: ((String) -> Void)? = nil
+    onOpenImage: @escaping (CGImage) -> Void = { _ in }, onDetails: ((String) -> Void)? = nil,
+    onRetry: ((String) -> Void)? = nil
   ) {
     self.turns = turns
     self.style = style
@@ -71,6 +74,7 @@ public struct ConversationTurnList: View {
     self.onCopy = onCopy
     self.onOpenImage = onOpenImage
     self.onDetails = onDetails
+    self.onRetry = onRetry
   }
 
   public var body: some View {
@@ -79,19 +83,16 @@ public struct ConversationTurnList: View {
         // A question after an answer opens a new exchange.
         if index > 0, case .user = turn.content { ExchangeDivider(title: turn.date.map(dayTitle)) }
         view(for: turn)
-        if let onDetails, let memoID = turn.memoID, endsMemo(at: index) {
-          detailsButton { onDetails(memoID) }
-        }
       }
       .id(turn.id)
       .transition(.opacity)
     }
   }
 
-  /// The turn is the last one of its memo: the next turn belongs to another memo, or there is none.
-  private func endsMemo(at index: Int) -> Bool {
-    guard index + 1 < turns.count else { return true }
-    return turns[index + 1].memoID != turns[index].memoID
+  /// The turn's way into its memo's Details, if the list has one and the turn has a memo.
+  private func details(of turn: ConversationTurn) -> (() -> Void)? {
+    guard let onDetails, let memoID = turn.memoID else { return nil }
+    return { onDetails(memoID) }
   }
 
   @ViewBuilder private func view(for turn: ConversationTurn) -> some View {
@@ -99,7 +100,7 @@ public struct ConversationTurnList: View {
     case .user(let text):
       UserTurnView(
         text: text, time: time(turn.date), identifier: style.userIdentifier ?? "thread.turn.user",
-        textRole: style.textRole ?? .subheadline, onCopy: copy(text))
+        textRole: style.textRole ?? .subheadline, onCopy: copy(text), onDetails: details(of: turn))
     case .assistant(let markdown, let mermaid, let artifacts):
       assistant(turn, markdown: markdown, mermaid: mermaid, artifacts: artifacts, isStreaming: false, activity: nil)
     case .streaming(let markdown, let activity):
@@ -109,7 +110,10 @@ public struct ConversationTurnList: View {
     case .pending(let progress, let caption):
       PendingTurnView(progress: progress, caption: caption)
     case .failed(let message):
-      failed(message)
+      VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
+        failed(message)
+        if let onRetry, let memoID = turn.memoID { retryButton { onRetry(memoID) } }
+      }
     }
   }
 
@@ -123,7 +127,8 @@ public struct ConversationTurnList: View {
       markdown: markdown, time: time(turn.date), mermaid: mermaid, artifacts: artifacts,
       identifier: isStreaming ? "thread.turn.streaming" : style.assistantIdentifier ?? "thread.turn.assistant",
       textRole: style.textRole ?? .callout,
-      onOpenImage: onOpenImage, onCopy: copy(plainText(markdown)), isStreaming: isStreaming, activity: activity)
+      onOpenImage: onOpenImage, onCopy: copy(plainText(markdown)), onDetails: details(of: turn),
+      isStreaming: isStreaming, activity: activity)
   }
 
   @ViewBuilder private func failed(_ message: String) -> some View {
@@ -147,21 +152,19 @@ public struct ConversationTurnList: View {
     return { onCopy(text) }
   }
 
-  private func detailsButton(_ action: @escaping () -> Void) -> some View {
+  private func retryButton(_ action: @escaping () -> Void) -> some View {
     Button(action: action) {
       Label {
-        Text("Details", bundle: #bundle, comment: "Button under a conversation's memo that opens its details")
+        Text("Retry", bundle: #bundle, comment: "Button under a failed turn: runs the memo's failed step again")
       } icon: {
-        Image(systemName: "info.circle")
+        Image(systemName: "arrow.clockwise")
       }
-      .themeFont(.caption)
-      .foregroundStyle(Theme.Ink.muted)
-      .frame(minHeight: Theme.Spacing.tapTarget, alignment: .leading)
-      .contentShape(.rect)
+      .themeFont(.footnote, weight: .semibold)
     }
-    .buttonStyle(.plain)
-    .frame(maxWidth: .infinity, alignment: .leading)
-    .accessibilityIdentifier("thread.turn.details")
+    .buttonStyle(.bordered)
+    .buttonBorderShape(.capsule)
+    .tint(Theme.Accent.tint)
+    .accessibilityIdentifier("thread.turn.retry")
   }
 
   /// The clock time only: the day sits in the exchange dividers.

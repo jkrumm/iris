@@ -13,50 +13,83 @@ final class MemoDetailUITests: IrisUITestCase {
   }
 
   /// Opens the History row whose label contains `text` (the list is scrolled until the row is on screen): a Hermes memo is a
-  /// conversation, and its Details button opens the sheet this suite is about.
+  /// conversation, and the toolbar's Details button opens the sheet this suite is about.
   @MainActor
   private func openRow(containing text: String, in app: XCUIApplication) {
     let row = revealRow(containing: text, in: app)
     row.tap()
     XCTAssertTrue(waitForPresence(app.descendants(matching: .any)["thread.view"], timeout: 10))
-    let details = app.buttons["thread.turn.details"].firstMatch
+    let details = app.buttons["thread.details"]
     XCTAssertTrue(waitForPresence(details, timeout: 10))
     details.tap()
     XCTAssertTrue(waitForPresence(app.descendants(matching: .any)["memo.details"], timeout: 10))
   }
 
-  /// Details start collapsed to their line; a tap on it opens the steps and the ids.
+  /// Details open on their steps and ids (whoever opened the sheet came for them); a tap on the Details line folds them and
+  /// opens them again.
   @MainActor
-  private func expandSteps(in app: XCUIApplication) {
-    let toggle = app.buttons["detail.steps.toggle"]
-    XCTAssertTrue(waitForPresence(toggle, timeout: 10))
-    toggle.tap()
-  }
-
-  @MainActor
-  func testDetailsAreCollapsedAndOpenOnTap() {
+  func testDetailsOpenOnTheStepsAndTheLineFoldsThem() {
     let app = launch()
     openRow(containing: "Wochenplan abgestimmt", in: app)
 
     let toggle = app.buttons["detail.steps.toggle"]
     XCTAssertTrue(waitForPresence(toggle, timeout: 10))
     XCTAssertTrue(toggle.label.contains("Details"), "the line is the Details line: \(toggle.label)")
-    XCTAssertTrue(waitForAbsence(app.staticTexts["Act · Hermes"], timeout: 2), "collapsed by default")
-
-    XCTAssertTrue(waitForAbsence(app.descendants(matching: .any)["detail.ids"], timeout: 2), "the ids are in Details")
+    XCTAssertTrue(waitForPresence(app.staticTexts["Act · Hermes"], timeout: 5), "open by default")
+    XCTAssertTrue(waitForPresence(app.descendants(matching: .any)["detail.ids"], timeout: 5))
 
     toggle.tap()
-    XCTAssertTrue(waitForPresence(app.staticTexts["Act · Hermes"], timeout: 5))
-    XCTAssertTrue(waitForPresence(app.descendants(matching: .any)["detail.ids"], timeout: 5))
-    app.buttons["detail.steps.toggle"].tap()
     XCTAssertTrue(waitForAbsence(app.staticTexts["Act · Hermes"], timeout: 5))
+    XCTAssertTrue(
+      waitForAbsence(app.descendants(matching: .any)["detail.ids"], timeout: 2), "the ids fold with the steps")
+    app.buttons["detail.steps.toggle"].tap()
+    XCTAssertTrue(waitForPresence(app.staticTexts["Act · Hermes"], timeout: 5))
+  }
+
+  /// A conversation of two answers: the toolbar's Details opens on the newest one and steps back to the earlier.
+  @MainActor
+  func testTheToolbarOpensTheNewestAnswerAndStepsToTheEarlierOne() {
+    let newestID = "c1a0b7d2-4e61-4f38-9a15-3d8e6b2f7c41"
+    let earlierID = "c1a0b7d2-4e61-4f38-9a15-3d8e6b2f7c40"
+    let app = launch()
+    revealRow(containing: "Hang guards are not retried", in: app).tap()
+    XCTAssertTrue(waitForPresence(app.descendants(matching: .any)["thread.view"], timeout: 10))
+    let details = app.buttons["thread.details"]
+    XCTAssertTrue(waitForPresence(details, timeout: 10))
+    details.tap()
+    XCTAssertTrue(waitForPresence(app.descendants(matching: .any)["memo.details"], timeout: 10))
+
+    XCTAssertTrue(waitForPresence(app.staticTexts["Answer 2 of 2"], timeout: 5), "opens on the newest answer")
+    XCTAssertTrue(waitForPresence(app.staticTexts[newestID], timeout: 5), "its memo id is the one on the page")
+    XCTAssertFalse(app.buttons["memo.details.next"].isEnabled, "nothing after the newest")
+
+    app.buttons["memo.details.previous"].tap()
+    XCTAssertTrue(waitForPresence(app.staticTexts["Answer 1 of 2"], timeout: 5))
+    XCTAssertTrue(waitForAbsence(app.staticTexts[newestID], timeout: 5), "the earlier answer has its own ids")
+    XCTAssertFalse(app.buttons["memo.details.previous"].isEnabled, "nothing before the first")
+    XCTAssertTrue(waitForPresence(app.staticTexts[earlierID], timeout: 5), "the earlier answer's own memo id")
+  }
+
+  /// A transcript memo's screen no longer carries Details inline: its toolbar opens them as the same sheet.
+  @MainActor
+  func testATranscriptScreenOpensDetailsFromItsToolbar() {
+    let app = launch()
+    revealRow(containing: "Nur ein Gedanke", in: app).tap()
+    XCTAssertTrue(waitForPresence(app.descendants(matching: .any)["memo.detail"], timeout: 10))
+    XCTAssertTrue(waitForAbsence(app.buttons["detail.steps.toggle"], timeout: 2), "no inline Details")
+
+    let open = app.buttons["memo.details.open"]
+    XCTAssertTrue(waitForPresence(open, timeout: 10))
+    open.tap()
+    XCTAssertTrue(waitForPresence(app.descendants(matching: .any)["memo.details"], timeout: 10))
+    XCTAssertTrue(waitForPresence(app.descendants(matching: .any)["detail.ids"], timeout: 5))
+    XCTAssertTrue(waitForAbsence(app.buttons["memo.details.previous"], timeout: 1), "one memo, nothing to step to")
   }
 
   @MainActor
   func testDetailsHaveCopyRowsForTranscriptAndReplyThatConfirm() {
     let app = launch(holdCopied: true)
     openRow(containing: "Wochenplan abgestimmt", in: app)
-    expandSteps(in: app)
 
     let copy = app.buttons["detail.transcript.copy"]
     XCTAssertTrue(waitForPresence(copy, timeout: 10))
@@ -106,7 +139,6 @@ final class MemoDetailUITests: IrisUITestCase {
     let app = launch()
     openRow(containing: "Wochenplan abgestimmt", in: app)
 
-    expandSteps(in: app)
     XCTAssertTrue(waitForPresence(app.staticTexts["Act · Hermes"], timeout: 10))
     XCTAssertTrue(waitForPresence(app.staticTexts["Transcribe"], timeout: 2))
     XCTAssertTrue(waitForPresence(app.staticTexts["Notify"], timeout: 2))
@@ -133,7 +165,7 @@ final class MemoDetailUITests: IrisUITestCase {
     let app = launch()
     openRow(containing: "xcodegen", in: app)
 
-    // A failed memo opens its waterfall on its own: the failed step and its retry are on screen.
+    // The failed step and its retry are on screen.
     let stepRetry = app.buttons["detail.step.retry"]
     XCTAssertTrue(waitForPresence(stepRetry, timeout: 10))
     XCTAssertTrue(waitForPresence(app.staticTexts["hermes request failed: upstream 503"], timeout: 2))
@@ -152,7 +184,6 @@ final class MemoDetailUITests: IrisUITestCase {
     let app = launch()
     openRow(containing: "Erinnere mich bitte daran, am Montag", in: app)
 
-    expandSteps(in: app)
     XCTAssertTrue(waitForPresence(app.descendants(matching: .any)["detail.step.optional"], timeout: 10))
     XCTAssertTrue(waitForPresence(app.staticTexts["agw triage failed: 402 payment required"], timeout: 2))
     XCTAssertTrue(waitForPresence(app.staticTexts["Notify"], timeout: 2), "the steps after the skipped one still ran")

@@ -67,12 +67,16 @@
       resize(windowTitled: Self.mainTitle, width: Theme.Spacing.windowWidth, height: Theme.Spacing.windowHeight)
       try? await Task.sleep(for: .seconds(1))
       write(windowTitled: Self.mainTitle, as: "window-all")
+      // The memo with a run's steps: waterfall, copy rows, tools, ids.
+      await writeDetails(memoID: replyMemoID, names: [("window-details", .aqua), ("window-details-dark", .darkAqua)])
       root.selectedMemoID = threadMemoID
       try? await Task.sleep(for: .seconds(2))
       write(windowTitled: Self.mainTitle, as: "window-thread")
       // The diagram of the first answer has been fetched by now.
       try? await Task.sleep(for: .seconds(2))
       write(windowTitled: Self.mainTitle, as: "window-chat-mermaid")
+      // The conversation: Previous and Next between its answers.
+      await writeDetails(memoID: threadMemoID, names: [("window-details-thread", .aqua)])
       // A turn in flight: the pending bubble with the pipeline's dashes.
       root.selectedMemoID = SampleData.hermesFollowUpID
       try? await Task.sleep(for: .seconds(2))
@@ -91,6 +95,27 @@
       write(windowTitled: Self.mainTitle, as: "window-filtered")
       root.scope = .all
       await writeNewMemo()
+    }
+
+    /// The open conversation's Details popover content (steps, copy rows, ids; Previous and Next between its answers), light and dark.
+    /// The popover is a window of its own that the window server answers 2 x 1 pixels for, so its view is hosted in a window of
+    /// ours and drawn from there.
+    private func writeDetails(memoID: String, names: [(String, NSAppearance.Name)]) async {
+      let model = root.detailModel(for: memoID)
+      for (name, appearance) in names {
+        let host = NSHostingView(
+          rootView: MacMemoDetailsPopover(root: root, model: model).background(Theme.Surface.background))
+        host.appearance = NSAppearance(named: appearance)
+        let size = host.fittingSize
+        let window = NSWindow(
+          contentRect: NSRect(origin: .zero, size: size), styleMask: [.borderless], backing: .buffered, defer: false)
+        window.contentView = host
+        window.appearance = NSAppearance(named: appearance)
+        window.orderFrontRegardless()
+        try? await Task.sleep(for: .seconds(1))
+        write(window, as: name, chrome: false)
+        window.close()
+      }
     }
 
     /// The New memo page, empty and with a draft; then the draft sent through the fake outbox: the new memo opens with its question

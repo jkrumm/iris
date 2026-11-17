@@ -49,12 +49,12 @@ final class ModesUITests: IrisUITestCase {
     tap(row, until: element(app, "memo.detail"))
   }
 
-  /// Opens the History row of a Hermes memo, which is a conversation, and from it the memo's Details sheet.
+  /// Opens the History row of a Hermes memo, which is a conversation, and from its toolbar the memo's Details sheet.
   @MainActor
   private func openDetails(containing text: String, in app: XCUIApplication) {
     let row = revealRow(containing: text, in: app)
     tap(row, until: element(app, "thread.view"))
-    let details = app.buttons["thread.turn.details"].firstMatch
+    let details = app.buttons["thread.details"]
     tap(details, until: element(app, "memo.details"))
   }
 
@@ -140,14 +140,6 @@ final class ModesUITests: IrisUITestCase {
 
   // MARK: Detail
 
-  /// The tools line lives in Details, which start collapsed.
-  @MainActor
-  private func expandDetails(in app: XCUIApplication) {
-    let toggle = app.buttons["detail.steps.toggle"]
-    XCTAssertTrue(waitForPresence(toggle, timeout: 10))
-    toggle.tap()
-  }
-
   @MainActor
   func testTheDetailShowsTheKindChipAndWhatHermesUsed() {
     let app = launch()
@@ -156,7 +148,6 @@ final class ModesUITests: IrisUITestCase {
     let chip = app.descendants(matching: .any)
       .matching(NSPredicate(format: "label == %@", "Kind: GitHub issue")).firstMatch
     XCTAssertTrue(waitForPresence(chip, timeout: 10), "the free-form kind is the chip, capitalised")
-    expandDetails(in: app)
     let actions = element(app, "detail.actions")
     XCTAssertTrue(waitForPresence(actions, timeout: 2))
     XCTAssertEqual(actions.label, "Hermes used: terminal, github")
@@ -170,7 +161,6 @@ final class ModesUITests: IrisUITestCase {
       waitForPresence(
         app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Kind: Answer")).firstMatch,
         timeout: 10))
-    expandDetails(in: app)
     XCTAssertTrue(waitForAbsence(element(app, "detail.actions"), timeout: 1))
   }
 
@@ -181,7 +171,10 @@ final class ModesUITests: IrisUITestCase {
     let chip = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Kind: Transcript"))
       .firstMatch
     XCTAssertTrue(waitForPresence(chip, timeout: 10))
-    expandDetails(in: app)
+    // Details are a sheet from the toolbar, not a section of the screen; a transcript memo used no tool.
+    XCTAssertTrue(waitForAbsence(element(app, "detail.ids"), timeout: 1), "the screen carries no inline Details")
+    tap(app.buttons["memo.details.open"], until: element(app, "memo.details"))
+    XCTAssertTrue(waitForPresence(element(app, "detail.ids"), timeout: 5))
     XCTAssertTrue(waitForAbsence(element(app, "detail.actions"), timeout: 1))
   }
 

@@ -36,7 +36,9 @@ struct LocalizationTests {
 
   @Test("A plural key resolves to a stringsdict entry")
   func pluralDictionary() throws {
-    let path = try #require(try german(.main).path(forResource: "Localizable", ofType: "stringsdict"))
+    let url = try #require(Bundle.main.url(forResource: "IrisUI_IrisUI", withExtension: "bundle"))
+    let bundle = try #require(Bundle(url: url))
+    let path = try #require(try german(bundle).path(forResource: "Localizable", ofType: "stringsdict"))
     let dictionary = try #require(NSDictionary(contentsOfFile: path))
     #expect(dictionary["%lld segments"] != nil)
   }
