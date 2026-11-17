@@ -36,6 +36,8 @@
       )
       .padding(.horizontal, Theme.Spacing.screenMargin)
       .padding(.vertical, Theme.Spacing.md)
+      // The texts come from the catalog: the references are English whatever language the recording machine runs in.
+      .environment(\.locale, Locale(identifier: "en_US"))
     }
 
     @Test("open by default: every step, the copy rows, what Hermes used, the ids and the device", .tags(.snapshot))

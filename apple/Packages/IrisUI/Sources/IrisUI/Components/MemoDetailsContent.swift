@@ -70,11 +70,15 @@ public struct MemoDetailsContent: View {
   private func copyRow(_ row: CopyRow) -> some View {
     VStack(spacing: 0) {
       Button(action: row.action) {
-        Label(
-          row.isCopied
-            ? String(localized: "Copied", bundle: #bundle, comment: "Details: confirmation after Copy") : row.title,
-          systemImage: row.isCopied ? "checkmark" : "doc.on.doc"
-        )
+        Label {
+          if row.isCopied {
+            Text("Copied", bundle: #bundle, comment: "Details: confirmation after Copy")
+          } else {
+            Text(verbatim: row.title)
+          }
+        } icon: {
+          Image(systemName: row.isCopied ? "checkmark" : "doc.on.doc")
+        }
         .themeFont(.subheadline)
         .foregroundStyle(row.isCopied ? Theme.Status.good : Theme.Accent.tint)
         .padding(.horizontal, Theme.Spacing.cardInsetHorizontal)
@@ -94,9 +98,7 @@ public struct MemoDetailsContent: View {
     if !tools.isEmpty {
       let names = tools.joined(separator: ", ")
       Text(
-        verbatim: String(
-          localized: "Hermes used: \(names)", bundle: #bundle,
-          comment: "Details: the tools Hermes ran for the memo, names are data")
+        "Hermes used: \(names)", bundle: #bundle, comment: "Details: the tools Hermes ran for the memo, names are data"
       )
       .themeFont(.caption)
       .foregroundStyle(Theme.Ink.muted)
@@ -110,11 +112,11 @@ public struct MemoDetailsContent: View {
   /// The ids to quote when something is wrong, then the device and the recording's segments.
   private var idsFooter: some View {
     VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
-      idRow(String(localized: "Memo ID", bundle: #bundle, comment: "Details: label of the memo's id"), memoID)
+      idRow(Text("Memo ID", bundle: #bundle, comment: "Details: label of the memo's id"), memoID)
       if let threadID, threadID != memoID {
-        idRow(String(localized: "Thread ID", bundle: #bundle, comment: "Details: label of the thread's id"), threadID)
+        idRow(Text("Thread ID", bundle: #bundle, comment: "Details: label of the thread's id"), threadID)
       }
-      Text(verbatim: deviceLine)
+      deviceLine
         .themeFont(.caption)
         .foregroundStyle(Theme.Ink.faint)
     }
@@ -124,20 +126,25 @@ public struct MemoDetailsContent: View {
     .accessibilityIdentifier("detail.ids")
   }
 
-  private func idRow(_ title: String, _ value: String) -> some View {
+  private func idRow(_ title: Text, _ value: String) -> some View {
     VStack(alignment: .leading, spacing: Theme.Spacing.hair) {
-      Text(verbatim: title)
+      title
         .themeFont(.caption)
         .foregroundStyle(Theme.Ink.muted)
       IDValueField(value)
     }
   }
 
-  private var deviceLine: String {
-    guard let segmentCount else { return device }
-    return device + " · "
-      + String(
-        localized: "\(segmentCount) segments", bundle: #bundle,
-        comment: "Details: uploaded recording segments")
+  /// The device, then the recording's segments when known ("iphone · 2 segments").
+  @ViewBuilder private var deviceLine: some View {
+    if let segmentCount {
+      HStack(spacing: 0) {
+        Text(verbatim: device + " · ")
+        Text("\(segmentCount) segments", bundle: #bundle, comment: "Details: uploaded recording segments")
+      }
+      .accessibilityElement(children: .combine)
+    } else {
+      Text(verbatim: device)
+    }
   }
 }
