@@ -134,6 +134,26 @@ struct MemoMediaSourceTests {
     #expect(speech.cacheName == "abc.speech.mp3" && !speech.isReusable)
     #expect(source.speech(for: MemoFactory.memo("abc")) == nil)
   }
+
+  @Test("the speech request carries the variant as a query item and keeps each form in its own file")
+  func speechVariants() throws {
+    let source = AuthenticatedMediaSource(
+      baseURL: try #require(URL(string: "https://example.com")), bearerToken: "token")
+    let memo = MemoFactory.memo("abc", replyText: "ok")
+    let server = try #require(source.speech(for: memo))
+    #expect(server.url.absoluteString == "https://example.com/v1/memos/abc/speech")
+    #expect(server.cacheName == "abc.speech.mp3")
+    let summary = try #require(source.speech(for: memo, variant: .summary))
+    #expect(summary.url.absoluteString == "https://example.com/v1/memos/abc/speech?variant=summary")
+    #expect(summary.cacheName == "abc.speech.summary.mp3")
+    let full = try #require(source.speech(for: memo, variant: .full))
+    #expect(full.url.absoluteString == "https://example.com/v1/memos/abc/speech?variant=full")
+    #expect(full.cacheName == "abc.speech.full.mp3")
+    for request in [server, summary, full] {
+      #expect(request.headers == ["Authorization": "Bearer token"] && !request.isReusable)
+    }
+    #expect(source.speech(for: MemoFactory.memo("abc"), variant: .full) == nil)
+  }
 }
 
 private final class RecordingSession: PlaybackAudioSession {

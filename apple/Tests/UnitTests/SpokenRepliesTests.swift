@@ -45,7 +45,7 @@ private nonisolated final class SlowSpeechStub: URLProtocol {
 
 private struct StubSpeechSource: MemoMediaSource {
   func audio(for memo: Memo) -> MediaRequest? { nil }
-  func speech(for memo: Memo) -> MediaRequest? {
+  func speech(for memo: Memo, variant: SpeechVariant?) -> MediaRequest? {
     guard memo.isSpeakable, let url = URL(string: "https://speech.stub.example.com/\(memo.id)") else { return nil }
     return MediaRequest(url: url, headers: [:], cacheName: "\(memo.id).speech.m4a")
   }

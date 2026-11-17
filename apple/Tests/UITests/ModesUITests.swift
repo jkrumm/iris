@@ -91,6 +91,10 @@ final class ModesUITests: IrisUITestCase {
     XCTAssertTrue(waitForPresence(play, timeout: 10))
     XCTAssertEqual(play.label, "Play reply")
     play.tap()
+    let summary = app.buttons["detail.action.play.summary"]
+    XCTAssertTrue(waitForPresence(summary, timeout: 5), "the menu offers the summary first")
+    XCTAssertTrue(app.buttons["detail.action.play.full"].exists, "and the full reply")
+    summary.tap()
     waitForLabel(app.buttons["detail.action.play"], "Stop reply")
     app.buttons["detail.action.play"].tap()
     waitForLabel(app.buttons["detail.action.play"], "Play reply")

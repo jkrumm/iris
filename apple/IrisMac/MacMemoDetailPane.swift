@@ -145,9 +145,10 @@ struct MacMemoDetailPane: View {
     if let memo = liveMemo {
       let actions = MacMemoActions(root: root, model: root.windowHistory)
       ToolbarItemGroup(placement: .primaryAction) {
-        playButtons(memo)
+        MacSpeakerMenu(root: root, player: player, memo: memo)
         copyMenu
         retryControl
+        MacMoreMenu(root: root, player: player, memo: memo)
         detailsButton
       }
       ToolbarItemGroup(placement: .primaryAction) {
@@ -157,18 +158,17 @@ struct MacMemoDetailPane: View {
             : String(localized: "Favorite", comment: "Context menu"),
           systemImage: memo.favorite ? "star.fill" : "star"
         ) { actions.toggleFavorite(memo) }
-        .help(
-          memo.favorite
-            ? String(localized: "Unfavorite", comment: "Context menu")
-            : String(localized: "Favorite", comment: "Context menu"))
+        .help((memo.favorite ? MacMemoControl.unfavorite : .favorite).help)
         Button(
           memo.archived
             ? String(localized: "Unarchive", comment: "Context menu")
             : String(localized: "Archive", comment: "Context menu"),
           systemImage: memo.archived ? "tray.and.arrow.up" : "archivebox"
         ) { actions.toggleArchived(memo) }
+        .help((memo.archived ? MacMemoControl.unarchive : .archive).help)
         if memo.state.isDeletable {
           Button(String(localized: "Delete", comment: "Context menu"), systemImage: "trash") { actions.delete(memo) }
+            .help(MacMemoControl.delete.help)
             .disabled(root.deletingIDs.contains(memo.id))
         }
       }
@@ -179,37 +179,11 @@ struct MacMemoDetailPane: View {
     Button(
       String(localized: "Details", comment: "Detail toolbar: opens the memo's details"), systemImage: "info.circle"
     ) { model.isShowingDetails.toggle() }
-    .help(String(localized: "Details", comment: "Detail toolbar: opens the memo's details"))
+    .help(MacMemoControl.details.help)
     .popover(isPresented: $model.isShowingDetails, arrowEdge: .bottom) {
       MacMemoDetailsPopover(root: root, model: model)
     }
     .accessibilityIdentifier("mac.detail.details")
-  }
-
-  @ViewBuilder private func playButtons(_ memo: Memo) -> some View {
-    let source = root.mediaSource
-    if let request = source.audio(for: memo) {
-      let playing = player.isCurrent(memo.id, .recording)
-      Button(
-        playing
-          ? String(localized: "Stop recording", comment: "Detail toolbar: stops the recording")
-          : String(localized: "Play recording", comment: "Detail toolbar: plays the recording"),
-        systemImage: playing ? "stop.fill" : "play.fill"
-      ) { player.toggle(memo.id, .recording, request: request) }
-      .help(String(localized: "Play recording", comment: "Detail toolbar: plays the recording"))
-      .accessibilityIdentifier("mac.detail.play-recording")
-    }
-    if let request = source.speech(for: memo) {
-      let playing = player.isCurrent(memo.id, .reply)
-      Button(
-        playing
-          ? String(localized: "Stop reply", comment: "Detail toolbar: stops the spoken reply")
-          : String(localized: "Play reply", comment: "Detail toolbar: plays the spoken reply"),
-        systemImage: playing ? "stop.circle.fill" : "speaker.wave.2"
-      ) { player.toggle(memo.id, .reply, request: request) }
-      .help(String(localized: "Play reply", comment: "Detail toolbar: plays the spoken reply"))
-      .accessibilityIdentifier("mac.detail.play-reply")
-    }
   }
 
   @ViewBuilder private var copyMenu: some View {
@@ -217,9 +191,11 @@ struct MacMemoDetailPane: View {
       Menu {
         if memo.transcript != nil {
           Button(String(localized: "Copy transcript", comment: "Detail toolbar menu")) { model.copy(.transcript) }
+            .help(MacMemoControl.copyTranscript.help)
         }
         if memo.replyText != nil {
           Button(String(localized: "Copy reply", comment: "Detail toolbar menu")) { model.copy(.reply) }
+            .help(MacMemoControl.copyReply.help)
         }
       } label: {
         Label(
@@ -228,6 +204,7 @@ struct MacMemoDetailPane: View {
             : String(localized: "Copied", comment: "Detail: confirmation after Copy"),
           systemImage: model.copied == nil ? "doc.on.doc" : "checkmark")
       }
+      .help(MacMemoControl.copyMenu.help)
       .accessibilityIdentifier("mac.detail.copy")
     }
   }
@@ -238,7 +215,7 @@ struct MacMemoDetailPane: View {
       Button(
         String(localized: "Retry", comment: "Detail toolbar: retries a failed step"), systemImage: "arrow.clockwise"
       ) { Task { await model.retry(from: step) } }
-      .help(String(localized: "Retry from \(step.title)", comment: "Button on the step a memo failed at"))
+      .help(MacMemoControl.retry(from: step.title))
       .disabled(model.isRetrying)
       .accessibilityIdentifier("mac.detail.retry")
     } else if steps.count > 1 {
@@ -252,6 +229,7 @@ struct MacMemoDetailPane: View {
         Label(
           String(localized: "Retry", comment: "Detail toolbar: retries a failed step"), systemImage: "arrow.clockwise")
       }
+      .help(MacMemoControl.retryMenu.help)
       .disabled(model.isRetrying)
       .accessibilityIdentifier("mac.detail.retry")
     }

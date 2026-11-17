@@ -73,6 +73,7 @@
       resize(windowTitled: Self.mainTitle, width: Theme.Spacing.windowWidth, height: Theme.Spacing.windowHeight)
       try? await Task.sleep(for: .seconds(1))
       write(windowTitled: Self.mainTitle, as: "window-all")
+      await writeSpeakerMenu()
       await writeShellStates()
       // The memo with a run's steps: waterfall, copy rows, tools, ids.
       await writeDetails(memoID: replyMemoID, names: [("window-details", .aqua), ("window-details-dark", .darkAqua)])
@@ -125,6 +126,37 @@
       try? await Task.sleep(for: .seconds(1))
       write(windowTitled: Self.mainTitle, as: "window-update")
       updateEngine?.status = .upToDate
+    }
+
+    /// The toolbar's audio controls and the speaker's menu: the main window's toolbar comes out blank on a host whose window server has
+    /// no display, and a menu is a window of the system's that the window server answers 2 x 1 pixels for. So the toolbar's own
+    /// ``MacSpeakerMenu`` and ``MacMoreMenu`` are hosted in a strip of ours, and the menu's entries (``MacSpeakerEntries``) under it, in
+    /// the menu's material.
+    private func writeSpeakerMenu() async {
+      guard let memo = try? await root.fakeAPI?.memo(id: replyMemoID).memo else { return }
+      let player = MacAudioPlayer()
+      let host = NSHostingView(
+        rootView: VStack(alignment: .leading, spacing: Theme.Spacing.cozy) {
+          HStack(spacing: Theme.Spacing.cozy) {
+            MacSpeakerMenu(root: root, player: player, memo: memo)
+            MacMoreMenu(root: root, player: player, memo: memo)
+          }
+          .labelStyle(.iconOnly)
+          VStack(alignment: .leading, spacing: Theme.Spacing.snug) { MacSpeakerEntries(onRead: { _ in }) }
+            .buttonStyle(.plain)
+            .padding(Theme.Spacing.cozy)
+            .background(.regularMaterial, in: .rect(cornerRadius: Theme.Spacing.cozy))
+        }
+        .padding(Theme.Spacing.inset)
+        .background(Theme.Surface.background))
+      host.frame = NSRect(origin: .zero, size: host.fittingSize)
+      let window = NSWindow(
+        contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+      window.contentView = host
+      window.orderFrontRegardless()
+      try? await Task.sleep(for: .seconds(1))
+      write(window, as: "speaker-menu", chrome: false)
+      window.close()
     }
 
     /// The sidebar alone in a window of ours: the main window's own picture comes out blank on a host whose window server has no

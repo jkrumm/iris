@@ -16,9 +16,15 @@ nonisolated struct MediaRequest: Equatable, Sendable {
 /// the spoken reply (`GET /v1/memos/:id/speech`). `nil` means there is nothing to play for that memo.
 nonisolated protocol MemoMediaSource: Sendable {
   func audio(for memo: Memo) -> MediaRequest?
-  func speech(for memo: Memo) -> MediaRequest?
+  /// `variant` `nil` is the server's default form (the auto-read, `PlayReplyIntent`); `summary` and `full` ask for one.
+  func speech(for memo: Memo, variant: SpeechVariant?) -> MediaRequest?
   /// A file of a reply (`GET /v1/memos/:id/assets/:assetId`): the PNG of a Mermaid diagram or an artifact's file.
   func asset(memoID: String, assetID: String) -> MediaRequest?
+}
+
+extension MemoMediaSource {
+  /// The server's default speech form.
+  nonisolated func speech(for memo: Memo) -> MediaRequest? { speech(for: memo, variant: nil) }
 }
 
 /// The server's media routes with the device token in the `Authorization` header (``MediaDownloader`` sends it; the
@@ -33,9 +39,10 @@ nonisolated struct AuthenticatedMediaSource: MemoMediaSource {
     return request(memo, "audio", fileExtension: "m4a", isReusable: true)
   }
 
-  func speech(for memo: Memo) -> MediaRequest? {
+  func speech(for memo: Memo, variant: SpeechVariant?) -> MediaRequest? {
     guard memo.isSpeakable else { return nil }
-    return request(memo, "speech", fileExtension: "mp3", isReusable: false)
+    return request(
+      memo, "speech", variant: variant, fileExtension: "mp3", isReusable: false)
   }
 
   func asset(memoID: String, assetID: String) -> MediaRequest? {
@@ -45,11 +52,19 @@ nonisolated struct AuthenticatedMediaSource: MemoMediaSource {
       cacheName: "\(memoID).\(assetID).asset", isReusable: true)
   }
 
-  private func request(_ memo: Memo, _ route: String, fileExtension: String, isReusable: Bool) -> MediaRequest {
-    MediaRequest(
-      url: baseURL.appending(path: "v1/memos/\(memo.id)/\(route)"),
-      headers: ["Authorization": "Bearer \(bearerToken)"],
-      cacheName: "\(memo.id).\(route).\(fileExtension)", isReusable: isReusable)
+  /// A variant is a query item and part of the cache name, so the summary and the full reply never share a file.
+  private func request(
+    _ memo: Memo, _ route: String, variant: SpeechVariant? = nil, fileExtension: String, isReusable: Bool
+  ) -> MediaRequest {
+    var url = baseURL.appending(path: "v1/memos/\(memo.id)/\(route)")
+    var name = "\(memo.id).\(route)"
+    if let variant {
+      url.append(queryItems: [URLQueryItem(name: "variant", value: variant.rawValue)])
+      name += ".\(variant.rawValue)"
+    }
+    return MediaRequest(
+      url: url, headers: ["Authorization": "Bearer \(bearerToken)"], cacheName: "\(name).\(fileExtension)",
+      isReusable: isReusable)
   }
 }
 
@@ -67,9 +82,9 @@ nonisolated struct FakeMediaSource: MemoMediaSource {
     return clip(named: "\(memo.id).audio", seconds: memo.audioSeconds ?? 10)
   }
 
-  func speech(for memo: Memo) -> MediaRequest? {
+  func speech(for memo: Memo, variant: SpeechVariant?) -> MediaRequest? {
     guard memo.isSpeakable else { return nil }
-    return clip(named: "\(memo.id).speech", seconds: 4)
+    return clip(named: "\(memo.id).speech.\(variant?.rawValue ?? "default")", seconds: variant == .full ? 8 : 4)
   }
 
   /// The sample artifact's file for its asset id, else a small diagram-like PNG (boxes and arrows) in the ink of the appearance
@@ -131,6 +146,6 @@ extension Memo {
 /// Nothing to play: the media source while the app has no connection.
 nonisolated struct UnavailableMediaSource: MemoMediaSource {
   func audio(for memo: Memo) -> MediaRequest? { nil }
-  func speech(for memo: Memo) -> MediaRequest? { nil }
+  func speech(for memo: Memo, variant: SpeechVariant?) -> MediaRequest? { nil }
   func asset(memoID: String, assetID: String) -> MediaRequest? { nil }
 }

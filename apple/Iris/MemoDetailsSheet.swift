@@ -151,9 +151,12 @@ private struct MemoDetailsPage: View {
       MemoRecordingPlayer(playback: playback, isExpanded: $isRecordingExpanded)
     }
     if model.canPlayReply {
-      ReplyPlayButton(isPlaying: playback.isReplyPlaying) {
-        Task { await playback.toggleReply(model.memo, source: model.media) }
-      }
+      ReplyPlayButton(
+        isPlaying: playback.isReplyPlaying,
+        onPlay: { choice in
+          Task { await playback.toggleReply(model.memo, source: model.media, variant: SpeechVariant(choice)) }
+        },
+        onStop: { playback.speech.pause() })
     }
   }
 

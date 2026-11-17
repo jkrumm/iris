@@ -37,9 +37,9 @@ final class MemoPlayback {
   }
 
   /// `memo`'s reply is loaded the first time it plays; a tap while it is still loading is ignored.
-  func toggleReply(_ memo: Memo, source: any MemoMediaSource) async {
+  func toggleReply(_ memo: Memo, source: any MemoMediaSource, variant: SpeechVariant? = nil) async {
     recording.pause()
-    await speech.toggle(memo, source: source)
+    await speech.toggle(memo, source: source, variant: variant)
   }
 
   func pauseAll() {

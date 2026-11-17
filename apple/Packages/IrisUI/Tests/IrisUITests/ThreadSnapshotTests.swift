@@ -161,7 +161,7 @@
         AssistantTurnView(
           markdown: Self.reply, time: "9:42 AM", mermaid: [0: Self.asset], identifier: "detail.reply"
         ) {
-          ReplyPlayButton(isPlaying: false, onToggle: {})
+          ReplyPlayButton(isPlaying: false, onPlay: { _ in }, onStop: {})
         }
       }
       .padding(Theme.Spacing.lg)

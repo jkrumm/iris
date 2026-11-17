@@ -45,8 +45,8 @@
     @Test("the reply's play control: idle and while it speaks", .tags(.snapshot))
     func replyPlay() {
       let view = VStack(alignment: .leading, spacing: Theme.Spacing.md) {
-        ReplyPlayButton(isPlaying: false, onToggle: {})
-        ReplyPlayButton(isPlaying: true, onToggle: {})
+        ReplyPlayButton(isPlaying: false, onPlay: { _ in }, onStop: {})
+        ReplyPlayButton(isPlaying: true, onPlay: { _ in }, onStop: {})
       }
       .padding(Theme.Spacing.lg)
       .frame(maxWidth: .infinity, alignment: .leading)
