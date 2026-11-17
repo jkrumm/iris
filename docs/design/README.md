@@ -119,8 +119,7 @@ Stats colours: Hermes blue, Journal green, Chat violet, Tabs orange, checked wit
   simulator reports a hardware keyboard, so no keyboard is drawn; the field and Send stay reachable and the flow is asserted by the UI test). The code colors and their token table are in
   TDD §4 "Reply layout and code themes". Uploaded 2026-10-30 with a 7-day presign, so ask for fresh links after 2026-11-06.
 - **Route configuration (Wave 17 I6), for the owner's async review:** answers "where is routing configured?" (`feedback-device-1.md` §3). Render only, nothing is built. Simulator renders on the
-  fake stack (iPhone 17, iOS 27.0), light then dark, from `scripts/route-config-shots.sh` (`RouteConfigReviewUITests`); the screens exist in the app only under the launch argument
-  `-IrisRouteConfigReview`. Private objects in the image store, not committed; links on request (`imgcli private-url <key> --expires 7d`). Keys are `private/<key>`, under `2026/10/`, light then dark:
+  fake stack (iPhone 17, iOS 27.0), light then dark, made by the review surface's driver (`scripts/route-config-shots.sh` and `RouteConfigReviewUITests`, both removed in `002b679`; the screens are no longer in the app). Private objects in the image store, not committed; links on request (`imgcli private-url <key> --expires 7d`). Keys are `private/<key>`, under `2026/10/`, light then dark:
   1. Settings → Routes, the overview: the server's three destinations with their status (Journal shown as not set up), and the audio route with its microphone rule. `z9i0l5eaxwh7r5id.png` / `2agzy42djip1qeo3.png`
   2. Herdr destination: what it does, how to send a memo there (spoken "tab <name>", the Tab record mode), the live tabs and their agent state. `5ypunicd0fhwqc5s.png` / `0mm0tk2bd4bvza1k.png`
   3. A destination the server has not set up (Journal): it says what the server lacks instead of offering a switch. `dcw2wn4sf4cywh8m.png` / `sc8ktc8byidevjfu.png`
