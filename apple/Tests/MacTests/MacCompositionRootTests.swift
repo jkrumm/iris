@@ -161,6 +161,8 @@ struct MacCompositionRootTests {
     #expect(await loadedWindow(root))
     root.scope = .favorites
     root.windowHistory.filters.searchText = "nothing says this"
+    root.toggleKindFilter("no-such-kind")
+    root.toggleStateFilter(.failed)
     #expect(await eventually { !root.windowHistory.isLoading })
     await root.windowHistory.load()
     let memo = try await fake.memo(id: Self.finished).memo
@@ -168,6 +170,7 @@ struct MacCompositionRootTests {
 
     await root.ensureHeld(memo)
     #expect(root.scope == .all && root.windowHistory.filters.searchText.isEmpty)
+    #expect(!root.windowHistory.filters.hasKindOrState, "a kind or state filter that hides the memo is cleared")
     #expect(root.windowHistory.memos.contains { $0.id == memo.id })
 
     let initial = memo.favorite
