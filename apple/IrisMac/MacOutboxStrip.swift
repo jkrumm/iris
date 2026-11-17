@@ -31,7 +31,7 @@ struct MacOutboxStrip: View {
       .padding(.vertical, Theme.Spacing.md)
       .background(Theme.Surface.panel)
       .accessibilityIdentifier("mac.outbox")
-      Divider()
+      MacShellDivider()
     }
   }
 

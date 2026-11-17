@@ -28,7 +28,7 @@ struct RecordingPanelView: View {
     .padding(.horizontal, Theme.Spacing.panelHorizontal)
     .padding(.vertical, Theme.Spacing.panelVertical)
     .frame(width: Self.width, alignment: .leading)
-    .background(.regularMaterial, in: .rect(cornerRadius: Theme.Spacing.panelRadius))
+    .background(Theme.Surface.elevated, in: .rect(cornerRadius: Theme.Spacing.panelRadius))
     .overlay { RoundedRectangle(cornerRadius: Theme.Spacing.panelRadius).stroke(Theme.Surface.hairline) }
     .onGeometryChange(for: CGSize.self) {
       $0.size

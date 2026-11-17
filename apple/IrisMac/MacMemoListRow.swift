@@ -2,7 +2,7 @@ import IrisCore
 import IrisUI
 import SwiftUI
 
-/// A memo in the main window's list: a compact two-line row on the system's selection highlight, no box. The headline (13 pt
+/// A memo in the main window's list: a compact two-line row on the list's native selection highlight, no box. The headline (13 pt
 /// semibold, up to two lines), then a status dot with the kind and the audio length in 11 pt; the time and the flags sit right.
 struct MacMemoListRow: View {
   let memo: Memo
@@ -12,13 +12,14 @@ struct MacMemoListRow: View {
       VStack(alignment: .leading, spacing: Theme.Spacing.macRowLineGap) {
         Text(verbatim: memo.rowHeadline)
           .macFont(.body, weight: .semibold)
+          .macRowInk(Theme.Ink.primary)
           .lineLimit(2)
         HStack(spacing: Theme.Spacing.snug) {
           MacRowStatusMark(memo: memo)
           Text(verbatim: memo.macRowMeta.text).lineLimit(1)
         }
         .macFont(.caption)
-        .foregroundStyle(.secondary)
+        .macRowInk(Theme.Ink.muted)
       }
       Spacer(minLength: 0)
       VStack(alignment: .trailing, spacing: Theme.Spacing.macRowLineGap) {
@@ -33,7 +34,7 @@ struct MacMemoListRow: View {
         }
       }
       .macFont(.caption)
-      .foregroundStyle(.secondary)
+      .macRowInk(Theme.Ink.muted)
     }
     .opacity(memo.done ? 0.6 : 1)
     .frame(minHeight: Theme.Spacing.macRowMinHeight, alignment: .topLeading)

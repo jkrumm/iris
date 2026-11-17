@@ -47,6 +47,7 @@ struct MacMainWindow: View {
         ToolbarItem(placement: .primaryAction) { UpdateBadge(updater: updater) }
       }
     }
+    .tint(Theme.Accent.fill)
     .environment(\.replyImageStore, root.replyImages)
     .environment(\.artifactStore, root.artifacts)
     .macToast(root: root, model: root.windowHistory)
