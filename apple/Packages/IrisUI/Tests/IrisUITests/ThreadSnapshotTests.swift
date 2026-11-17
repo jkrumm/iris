@@ -261,6 +261,31 @@
       Self.assert(view, width: 480, height: 1000)
     }
 
+    /// A continued transcript as the iPhone and the Mac draw it: one bubble per recording, oldest first, the later part still
+    /// transcribing under them.
+    private static func twoPartTranscript(mac: Bool) -> some View {
+      VStack(alignment: .leading, spacing: Theme.Spacing.xl) {
+        UserTurnView(
+          text: "Für das Wochenende brauche ich Tomaten, Mozzarella und frisches Basilikum.", time: "11:20 AM",
+          textRole: mac ? .footnote : .subheadline)
+        UserTurnView(
+          text: "Außerdem noch Hafermilch und Brot mitbringen.", time: "3:42 PM",
+          textRole: mac ? .footnote : .subheadline)
+        PendingTurnView(progress: StepProgress(completed: 1, total: 2), caption: "Transcribing…")
+      }
+      .padding(Theme.Spacing.lg)
+    }
+
+    @Test("a transcript continued with a second recording reads as two bubbles in order", .tags(.snapshot))
+    func twoPartTranscript() {
+      Self.assert(Self.twoPartTranscript(mac: false), width: 390, height: 300)
+    }
+
+    @Test("the Mac's two-part transcript", .tags(.snapshot))
+    func twoPartTranscriptMac() {
+      Self.assert(Self.twoPartTranscript(mac: true), width: 480, height: 300)
+    }
+
     @Test("a short turn and a typed one look as before, with or without a gist", .tags(.snapshot))
     func shortTurnUnfolded() {
       let view = VStack(alignment: .leading, spacing: Theme.Spacing.lg) {
