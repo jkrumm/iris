@@ -46,10 +46,16 @@ struct MacSidebar: View {
     .accessibilityIdentifier("mac.sidebar.\(String(describing: scope))")
   }
 
-  /// The link to the server, as in the popover's foot; absent while the link is fine.
+  /// The kind and state filter, and under it the link to the server, as in the popover's foot (absent while the link is fine).
   @ViewBuilder private var footer: some View {
     let status = MacConnectionStatus(isConfigured: root.isConfigured, link: root.history.link)
-    if status.isShown { statusLine(status) }
+    VStack(alignment: .leading, spacing: 0) {
+      if root.isConfigured {
+        Divider()
+        MacSidebarFilter(root: root)
+      }
+      if status.isShown { statusLine(status) }
+    }
   }
 
   private func statusLine(_ status: MacConnectionStatus) -> some View {

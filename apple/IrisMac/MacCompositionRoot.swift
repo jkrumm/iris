@@ -576,6 +576,35 @@ final class MacCompositionRoot {
     recording.toggle(mode: .hermes, threadID: threadID)
   }
 
+  /// The main window's Transcribe action: a transcript-only take, the same one as the popover's button, with the recording
+  /// panel. While a take runs (either mode) it stops it.
+  func toggleTranscribe() {
+    recording.toggle(mode: .transcribe)
+  }
+
+  // MARK: List filter
+
+  /// The kinds the sidebar offers: the kinds of the window's list and of the popover's unfiltered newest memos (so a narrowed list
+  /// does not take the other kinds away), most frequent first; the selected kind is always among them.
+  var filterKinds: [String] {
+    windowHistory.filters.kinds(in: history.memos + windowHistory.memos)
+  }
+
+  /// The states the sidebar offers: the iPhone's filter sheet's.
+  static let filterStates: [MemoState] = [.failed, .notified]
+
+  func toggleKindFilter(_ kind: String) {
+    windowHistory.filters.toggleKind(kind)
+  }
+
+  func toggleStateFilter(_ state: MemoState) {
+    windowHistory.filters.toggleState(state)
+  }
+
+  func clearKindAndStateFilter() {
+    windowHistory.filters.clearKindAndState()
+  }
+
   /// The conversation the global key continues: the one open in the main window while that window is the key window. Nil
   /// otherwise (a new memo), and for a memo with no Hermes session.
   var frontConversationThreadID: String? {

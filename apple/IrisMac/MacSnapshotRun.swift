@@ -102,6 +102,7 @@
       try? await Task.sleep(for: .seconds(2))
       write(windowTitled: Self.mainTitle, as: "window-filtered")
       root.scope = .all
+      await writeTranscribeAndFilter()
       await writeNewMemo()
     }
 
@@ -161,18 +162,64 @@
 
     /// The sidebar alone in a window of ours: the main window's own picture comes out blank on a host whose window server has no
     /// display for it, and the sidebar is what the connection line and the Favorites count change.
-    private func writeSidebar(as name: String) async {
+    private func writeSidebar(as name: String, appearance: NSAppearance.Name = .aqua) async {
       let host = NSHostingView(
         rootView: MacSidebar(root: root).frame(width: 240, height: 420).background(Theme.Surface.background))
       host.frame = NSRect(x: 0, y: 0, width: 240, height: 420)
+      host.appearance = NSAppearance(named: appearance)
       let window = NSWindow(
         contentRect: host.frame, styleMask: [.titled], backing: .buffered, defer: false)
       window.title = "Iris sidebar snapshot"
+      window.appearance = NSAppearance(named: appearance)
       window.contentView = host
       window.orderFrontRegardless()
       try? await Task.sleep(for: .seconds(1))
       write(window, as: name)
       window.close()
+    }
+
+    /// The main window's toolbar actions (New memo, Transcribe, and Stop while a take runs) hosted in a strip of ours, light and
+    /// dark, and the sidebar with an active kind and state filter, light and dark. The window's own toolbar comes out blank on a
+    /// host with no display.
+    private func writeTranscribeAndFilter() async {
+      for (suffix, appearance) in [("", NSAppearance.Name.aqua), ("-dark", .darkAqua)] {
+        for recording in [false, true] {
+          let host = NSHostingView(
+            rootView: HStack(spacing: Theme.Spacing.cozy) {
+              Button(
+                String(localized: "New memo", comment: "Main window toolbar: opens the New memo page"),
+                systemImage: "square.and.pencil"
+              ) {}
+              if recording {
+                Button(String(localized: "Stop", comment: "Stops the take"), systemImage: "stop.fill") {}
+              } else {
+                MacTranscribeButton(root: root)
+              }
+            }
+            .labelStyle(.titleAndIcon)
+            .padding(Theme.Spacing.inset)
+            .background(Theme.Surface.background))
+          host.appearance = NSAppearance(named: appearance)
+          host.frame = NSRect(origin: .zero, size: host.fittingSize)
+          let window = NSWindow(
+            contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+          window.appearance = NSAppearance(named: appearance)
+          window.contentView = host
+          window.orderFrontRegardless()
+          try? await Task.sleep(for: .seconds(1))
+          write(window, as: "window-toolbar-\(recording ? "stop" : "transcribe")\(suffix)", chrome: false)
+          window.close()
+        }
+      }
+      if let kind = root.filterKinds.first {
+        root.toggleKindFilter(kind)
+        root.toggleStateFilter(.notified)
+        try? await Task.sleep(for: .seconds(1))
+        await writeSidebar(as: "sidebar-filtered", appearance: .aqua)
+        await writeSidebar(as: "sidebar-filtered-dark", appearance: .darkAqua)
+        write(windowTitled: Self.mainTitle, as: "window-filter-active")
+        root.clearKindAndStateFilter()
+      }
     }
 
     /// The open conversation's Details popover content (steps, copy rows, ids; Previous and Next between its answers), light and dark.

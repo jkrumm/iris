@@ -1,6 +1,83 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "Filter" : {
+      "comment" : "Sidebar group: narrows the memo list by kind and state",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Filter"
+          }
+        }
+      }
+    },
+    "Clear" : {
+      "comment" : "Sidebar: removes the kind and state filter",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zurücksetzen"
+          }
+        }
+      }
+    },
+    "Show all kinds and states again" : {
+      "comment" : "Tooltip of Clear in the sidebar's filter",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wieder alle Arten und Status zeigen"
+          }
+        }
+      }
+    },
+    "Kind" : {
+      "comment" : "Sidebar filter group",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Art"
+          }
+        }
+      }
+    },
+    "State" : {
+      "comment" : "Sidebar filter group",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Status"
+          }
+        }
+      }
+    },
+    "Record a take and get its transcript only (⇧⌘T)" : {
+      "comment" : "Tooltip of the toolbar's Transcribe",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aufnahme machen und nur das Transkript erhalten (⇧⌘T)"
+          }
+        }
+      }
+    },
+    "Stop the take and transcribe it" : {
+      "comment" : "Tooltip of the toolbar's Transcribe while a take runs",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aufnahme beenden und transkribieren"
+          }
+        }
+      }
+    },
     "Read the summary" : {
       "comment" : "Speaker menu: the short spoken form",
       "localizations" : {
