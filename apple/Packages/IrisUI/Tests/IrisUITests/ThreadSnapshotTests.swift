@@ -258,7 +258,7 @@
         Self.longTurn(gist: nil, expanded: false, mac: true)
         Self.longTurn(gist: Self.dictationGist, expanded: true, mac: true)
       }
-      Self.assert(view, width: 480, height: 640)
+      Self.assert(view, width: 480, height: 1000)
     }
 
     @Test("a short turn and a typed one look as before, with or without a gist", .tags(.snapshot))
