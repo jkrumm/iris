@@ -39,10 +39,20 @@ export interface Verdict {
   pending: string[];
 }
 
-/** Does `path` match one of the workflow's path globs? */
+/** Does a changed file run the workflow? GitHub's path filter: a `!` glob excludes what the globs before it matched, a later positive glob puts it back. */
 export function matchesPaths(globs: string[], files: string[]): boolean {
-  const compiled = globs.map((glob) => new Bun.Glob(glob));
-  return files.some((file) => compiled.some((glob) => glob.match(file)));
+  const compiled = globs.map((glob) =>
+    glob.startsWith("!")
+      ? { exclude: true, glob: new Bun.Glob(glob.slice(1)) }
+      : { exclude: false, glob: new Bun.Glob(glob) },
+  );
+  return files.some((file) => {
+    let matched = false;
+    for (const { exclude, glob } of compiled) {
+      if (glob.match(file)) matched = !exclude;
+    }
+    return matched;
+  });
 }
 
 export type HeadState = { kind: "green" } | { kind: "pending" | "red" | "none"; reason: string };

@@ -5,7 +5,7 @@ description: Verify an Iris Apple change — generate the project, boot the pinn
 
 # ios-verify
 
-Pinned simulator: `iPhone 17`, iOS 27.0 (`SIM_NAME`/`SIM_OS` in the Makefile). Generic toolchain recipes: skill `apple-dev`. No MCP (TDD D17).
+Pinned simulator: `iPhone 17`, iOS 27.0 (`SIM_NAME`/`SIM_OS` in `apple/Makefile.mk`). Generic toolchain recipes: skill `apple-dev`. No MCP (TDD D17).
 **Machine budget:** every target below runs through `scripts/apple-slot` (one Apple job at a time on the mini, bare in CI) and leaves no simulator booted: it shuts them down when it ends. Locally at most one targeted run per change; CI (`apple.yml`) proves the rest. A hands-on session (tap, snapshot-ui, several screenshots) sets `KEEP_SIM=1` on `run-sim` / `screenshot` / `ui-snapshot` and ends with `make sim-down`.
 Artifacts land in `.artifacts/` (gitignored); `Read` a PNG to look at it. Every target below ran on the mini against Xcode 27.1 (2026-10-27).
 

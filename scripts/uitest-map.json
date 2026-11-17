@@ -11,7 +11,7 @@
     "scripts/uitest-map.json",
     ".github/workflows/apple.yml",
     ".github/actions/apple/action.yml",
-    "Makefile"
+    "apple/Makefile.mk"
   ],
   "rules": [
     {
