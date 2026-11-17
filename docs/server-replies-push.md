@@ -40,6 +40,6 @@ Mermaid and artifact replies, APNs notify rules and transport, the Live Activity
   `TelemetryBatch`) so a bad token is 401 before any byte is read and an oversized body is cut off at 256 KiB (413 `too_large`).
   `compose()` always builds it (a `fakeOtlpExporter` under `IRIS_FAKES`, else `exportOtlp`, a no-op without `OTEL_EXPORTER_OTLP_ENDPOINT`).
   An export that fails, or is refused because `MAX_IN_FLIGHT` (4) posts are already outstanding (same bound as the batch flush, no fetch), is a `telemetry.relay_failed` log line, never an error to the client; the export is registered with `flushOtel`,
-  so the shutdown flush waits for it. Resource: `service.name` (client), `service.version`, `device.name`, `deployment.environment`;
+  so the shutdown flush waits for it. Resource: `service.namespace=iris`, `service.name` (client), `service.version`, `device.name`, `deployment.environment.name` (prod; dev for a build without a sha);
   `host.name=mini` is deliberately not on client records. No de-duplication of a resent batch.
 

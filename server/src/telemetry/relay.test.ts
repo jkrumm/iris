@@ -21,10 +21,11 @@ describe("buildRelayPayloads", () => {
 
     const resource = {
       attributes: [
+        { key: "service.namespace", value: { stringValue: "iris" } },
         { key: "service.name", value: { stringValue: "iris-ios" } },
         { key: "service.version", value: { stringValue: "1.0.0" } },
         { key: "device.name", value: { stringValue: "Johannes' iPhone" } },
-        { key: "deployment.environment", value: { stringValue: "test" } },
+        { key: "deployment.environment.name", value: { stringValue: "dev" } },
       ],
     };
     const scope = { name: "iris-ios" };
@@ -108,6 +109,21 @@ describe("buildRelayPayloads", () => {
     expect(payloads.traces).toBeUndefined();
     expect(JSON.stringify(payloads.logs)).toContain(
       '{"key":"service.name","value":{"stringValue":"iris-macos"}}',
+    );
+  });
+
+  it("stamps the iris namespace and prod for a release build on a production server, dev otherwise", () => {
+    const batch = fixture("telemetry.request.logs-only.json");
+    const attrs = (payloads: { logs?: object }) => JSON.stringify(payloads.logs);
+    const prod = attrs(buildRelayPayloads(batch, "production"));
+    expect(prod).toContain('{"key":"service.namespace","value":{"stringValue":"iris"}}');
+    expect(prod).toContain('{"key":"deployment.environment.name","value":{"stringValue":"prod"}}');
+    expect(attrs(buildRelayPayloads(batch, "development"))).toContain(
+      '{"key":"deployment.environment.name","value":{"stringValue":"dev"}}',
+    );
+    const local = { ...batch, resource: { ...batch.resource, appVersion: "dev" } };
+    expect(attrs(buildRelayPayloads(local, "production"))).toContain(
+      '{"key":"deployment.environment.name","value":{"stringValue":"dev"}}',
     );
   });
 

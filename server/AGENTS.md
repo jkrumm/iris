@@ -10,7 +10,7 @@ Elysia rules are dotfiles `rules/typescript.md` and `rules/elysia.md` (chain met
 - Tests are colocated `*.test.ts` with in-memory SQLite and injected fakes, HTTP through `app.handle(new Request())`. No `mock.module` or `spyOn`: they hide the port boundary. Run `make e2e` (needs ffmpeg) for anything on the pipeline.
 - Migrations in `src/adapters/sqlite-migrations.ts` are append-only (`PRAGMA user_version`): add one, never edit one.
 - `IRIS_FAKES=1` builds every port from fakes. Never set it in production; `scripts/launch.sh` refuses.
-- `server/package.json` is imported by `telemetry/otel.ts` for `service.version`; keep it there.
+- Resource attributes are `serverResourceAttributes` (`telemetry/otel.ts`): `service.version` is `IRIS_BUILD_SHA` (launch.sh exports the checkout's short sha), `deployment.environment.name` is prod|dev from `NODE_ENV`, `service.namespace=iris`. Client records take the same keys in `telemetry/relay.ts`.
 - Log through `telemetry/log.ts`, never `console.log`, and never a token, transcript or reply text.
 
 ## Wire contract

@@ -47,6 +47,8 @@ export const Env = z.object({
   // scripts/launch.sh refuses to start with it. Empty = off.
   IRIS_FAKES: z.preprocess(emptyToUndefined, z.stringbool().default(false)),
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
+  // The git sha of the running checkout (scripts/launch.sh exports it at start); the `service.version` of the server's records.
+  IRIS_BUILD_SHA: z.string().default("dev"),
   // Optional with no default: unset keeps local dev and every test console-only.
   OTEL_EXPORTER_OTLP_ENDPOINT: z.preprocess((v) => (v === "" ? undefined : v), z.url().optional()),
   OTEL_RESOURCE_ATTRIBUTES: z.string().default(""),

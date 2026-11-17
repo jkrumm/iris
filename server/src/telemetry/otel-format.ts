@@ -24,6 +24,11 @@ export function parseOtlpHeadersEnv(raw: string): Record<string, string> {
   return out;
 }
 
+/** `deployment.environment.name` for a `NODE_ENV`: production is `prod`, every other environment is `dev`. */
+export function deploymentEnvironmentName(nodeEnv: string): "prod" | "dev" {
+  return nodeEnv === "production" ? "prod" : "dev";
+}
+
 export type LogAttributeValue = string | number | boolean;
 
 /**
