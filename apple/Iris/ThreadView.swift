@@ -15,6 +15,8 @@ struct ThreadView: View {
   /// The shared speech player and media routes, through the detail model the app builds for the anchor: what the answers' play
   /// controls speak with.
   @State private var voice: MemoDetailModel?
+  /// A reply was started from this screen's controls: leaving stops it, as it does on the Details screen.
+  @State private var startedReply = false
   @State private var artifactBudget = ArtifactIslandBudget()
   private let refreshToken: (_ threadID: String?, _ memoIDs: [String]) -> Int
   private let makeDetail: (Memo) -> MemoDetailModel
@@ -140,6 +142,7 @@ struct ThreadView: View {
       presence?.show(anchorID: model.anchor.id, threadID: model.threadID, memoIDs: model.memoIDs)
     }
     .onDisappear {
+      stopReplyStartedHere()
       presence?.hide(anchorID: model.anchor.id)
       cancelVoice()
       model.handOver()
@@ -169,6 +172,7 @@ struct ThreadView: View {
       canPlay: { id in model.memo(id: id).map { voice.media.speech(for: $0) != nil } ?? false },
       onPlay: { id, choice in
         guard let memo = model.memo(id: id) else { return }
+        startedReply = true
         Task { await voice.speech.toggle(memo, source: voice.media, variant: SpeechVariant(choice)) }
       },
       onStop: { _ in voice.speech.pause() })
@@ -238,6 +242,14 @@ struct ThreadView: View {
         .transition(.move(edge: .bottom).combined(with: .opacity))
         .accessibilityIdentifier("thread.toast")
     }
+  }
+
+  /// Leaving the conversation ends a reply its own controls started (any answer of the thread), never one the app started by
+  /// itself (the auto-read).
+  private func stopReplyStartedHere() {
+    guard startedReply, let speech = voice?.speech else { return }
+    startedReply = false
+    if let id = speech.memoID, model.memoIDs.contains(id) { speech.stop(memoID: id) }
   }
 
   /// A hold that loses its finger (the screen goes away, the app backgrounds) never gets an `onEnded`: stop it here.

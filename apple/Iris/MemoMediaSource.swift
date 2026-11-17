@@ -59,7 +59,7 @@ nonisolated struct AuthenticatedMediaSource: MemoMediaSource {
     var url = baseURL.appending(path: "v1/memos/\(memo.id)/\(route)")
     var name = "\(memo.id).\(route)"
     if let variant {
-      url.append(queryItems: [URLQueryItem(name: "variant", value: variant.rawValue)])
+      url.append(queryItems: SpeechQuery(variant: variant).queryItems)
       name += ".\(variant.rawValue)"
     }
     return MediaRequest(
