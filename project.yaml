@@ -1,4 +1,4 @@
-# How the factory ships this project (software-factory docs/design.md §9).
+# How the factory ships this project (software-factory docs/project.md).
 apiVersion: factory/v2
 name: iris
 deploy:
@@ -6,9 +6,8 @@ deploy:
   targets:
     - { name: mini, host: mini, verify: make verify }
   hold: 10m # CI (~2 min) plus the poller's 120 s tick must land before `make version` is read
-  migrations: [] # SQLite migrations are code (server/src/adapters/sqlite-migrations.ts), applied at boot
 ship:
-  - { paths: ["**"], via: push }
+  - { via: push }
 checks: { fast: make check-fast, full: make check, ci: true } # a lead runs fast; CI (check.yml on ubuntu, apple.yml on hosted xcode-27) runs the full gate on the PR head and `make merge-guard` demands its green runs
 leads: 4 # two Apple rows beside two server and web rows; Apple builds still serialise on scripts/apple-slot
 lanes:
