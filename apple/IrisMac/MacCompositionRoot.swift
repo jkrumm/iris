@@ -150,7 +150,7 @@ final class MacCompositionRoot {
   private(set) var quickAnswer: MacMemoDetailModel?
   @ObservationIgnored private var quickAnswerFollowing: Task<Void, Never>?
   /// The main window is on screen: its list takes the mirrored events.
-  private var isWindowOpen = false
+  private(set) var isWindowOpen = false
   private var following: Task<Void, Never>?
   /// The last queued action per memo; the next one waits for it.
   private var queues: [String: (token: UUID, task: Task<Void, Never>)] = [:]
@@ -588,8 +588,7 @@ final class MacCompositionRoot {
   /// Called once the system has finished launching the app. A launch by the user opens the main window (the menu bar alone looked
   /// like nothing had started); a launch at login stays in the menu bar, and a first run shows the onboarding window instead.
   func launchDidFinish(loginItem: Bool) {
-    guard !loginItem, !needsOnboarding else { return }
-    launchWindowPending = true
+    launchWindowPending = MacLaunchOrigin(loginItem: loginItem).opensMainWindow(needsOnboarding: needsOnboarding)
   }
 
   /// The label's one look at the launch: true once, when the main window is to open.

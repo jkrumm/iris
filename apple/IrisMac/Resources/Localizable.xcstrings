@@ -1835,6 +1835,72 @@
           }
         }
       }
+    },
+    "Version" : {
+      "comment" : "Settings: the running app's version",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Version"
+          }
+        }
+      }
+    },
+    "Updates" : {
+      "comment" : "Settings: the update state row",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Updates"
+          }
+        }
+      }
+    },
+    "Not checked yet" : {
+      "comment" : "Settings: no update check has finished",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Noch nicht geprüft"
+          }
+        }
+      }
+    },
+    "Up to date" : {
+      "comment" : "Settings: this is the newest version",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Auf dem neuesten Stand"
+          }
+        }
+      }
+    },
+    "Install…" : {
+      "comment" : "Settings: opens the update window to install the new version",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Installieren…"
+          }
+        }
+      }
+    },
+    "Version %@ available" : {
+      "comment" : "Update badge and Settings row; the argument is the version number",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Version %@ verfügbar"
+          }
+        }
+      }
     }
   },
   "version" : "1.0"

@@ -42,6 +42,9 @@ struct MacMainWindow: View {
         .help(String(localized: "New memo", comment: "Main window toolbar: opens the New memo page"))
         .accessibilityIdentifier("mac.toolbar.new-memo")
       }
+      if let updater = root.updater {
+        ToolbarItem(placement: .primaryAction) { UpdateBadge(updater: updater) }
+      }
     }
     .environment(\.replyImageStore, root.replyImages)
     .environment(\.artifactStore, root.artifacts)

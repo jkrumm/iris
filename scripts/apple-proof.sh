@@ -26,7 +26,7 @@ DD=apple/.dd.noindex
 XCB=(nice -n 10 xcodebuild -project apple/Iris.xcodeproj -derivedDataPath "$DD" CODE_SIGNING_ALLOWED=NO -jobs "${SWIFT_JOBS:-2}"
   IDEBuildOperationMaxNumberOfConcurrentCompileTasks="${SWIFT_JOBS:-2}" SWIFT_COMPILATION_MODE=incremental)
 MAC_EXPECTED=(menu menu-ask window-all window-thread window-chat-mermaid window-details window-details-dark window-details-thread window-running window-streaming window-filtered window-new window-composer window-sent
-  window-answered settings-connection settings-recording settings-general onboarding recording recording-refused artifact-island artifact-island-dark
+  window-answered settings-connection settings-recording settings-general settings-general-update window-unreachable window-update sidebar-connected sidebar-unreachable onboarding recording recording-refused artifact-island artifact-island-dark
   artifact-cards artifact-cards-dark artifact-viewer artifact-viewer-dark)
 
 out=.artifacts/proof/$(date +%Y%m%d-%H%M%S)

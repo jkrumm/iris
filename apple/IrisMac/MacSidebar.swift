@@ -11,7 +11,9 @@ struct MacSidebar: View {
     List(selection: $root.scope) {
       Section(String(localized: "Library", comment: "Sidebar section")) {
         row(.all, String(localized: "All memos", comment: "Sidebar item"), "tray.full")
-        row(.favorites, String(localized: "Favorites", comment: "Sidebar item"), "star")
+        row(
+          .favorites, String(localized: "Favorites", comment: "Sidebar item"), "star",
+          badge: MacFavoritesCount.text(memos: root.history.memos, hasMore: root.history.hasMorePages))
         row(.archive, String(localized: "Archive", comment: "Sidebar item"), "archivebox")
       }
       Section(String(localized: "Conversations", comment: "Sidebar section")) {
@@ -23,9 +25,20 @@ struct MacSidebar: View {
     .accessibilityIdentifier("mac.sidebar")
   }
 
-  private func row(_ scope: MacLibraryScope, _ title: String, _ systemImage: String) -> some View {
+  private func row(_ scope: MacLibraryScope, _ title: String, _ systemImage: String, badge: String? = nil) -> some View
+  {
     Label {
-      Text(verbatim: title).macFont(.body)
+      HStack {
+        Text(verbatim: title).macFont(.body)
+        if let badge {
+          Spacer(minLength: 0)
+          Text(verbatim: badge)
+            .macFont(.caption)
+            .foregroundStyle(Theme.Ink.muted)
+            .monospacedDigit()
+            .accessibilityIdentifier("mac.sidebar.favorites.count")
+        }
+      }
     } icon: {
       Image(systemName: systemImage)
     }
@@ -33,10 +46,14 @@ struct MacSidebar: View {
     .accessibilityIdentifier("mac.sidebar.\(String(describing: scope))")
   }
 
-  /// The link to the server, as in the popover's foot.
-  private var footer: some View {
+  /// The link to the server, as in the popover's foot; absent while the link is fine.
+  @ViewBuilder private var footer: some View {
     let status = MacConnectionStatus(isConfigured: root.isConfigured, link: root.history.link)
-    return HStack(spacing: Theme.Spacing.snug) {
+    if status.isShown { statusLine(status) }
+  }
+
+  private func statusLine(_ status: MacConnectionStatus) -> some View {
+    HStack(spacing: Theme.Spacing.snug) {
       Circle()
         .fill(status.tone.color)
         .frame(width: Theme.Spacing.macDot, height: Theme.Spacing.macDot)
@@ -61,5 +78,15 @@ extension MacConnectionStatus.Tone {
     case .bad: Theme.Status.bad
     case .muted: Theme.Ink.faint
     }
+  }
+}
+
+/// The number beside Favorites: the favorites among the popover's unfiltered list (the newest 50 memos the app always holds, kept
+/// current by the event stream), so no route is added. A longer list than was loaded shows "n+".
+enum MacFavoritesCount {
+  static func text(memos: [Memo], hasMore: Bool) -> String? {
+    let count = memos.count { $0.favorite }
+    guard count > 0 else { return nil }
+    return hasMore ? "\(count)+" : "\(count)"
   }
 }

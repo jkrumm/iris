@@ -219,6 +219,15 @@ struct MacGeneralForm: View {
         }
       }
       Section {
+        LabeledContent(String(localized: "Version", comment: "Settings: the running app's version")) {
+          Text(verbatim: AppVersion().display)
+            .foregroundStyle(Theme.Ink.muted)
+            .textSelection(.enabled)
+            .accessibilityIdentifier("mac.settings.version")
+        }
+        if let updater { UpdateStateRow(updater: updater) }
+      }
+      Section {
         HStack {
           if let updater { CheckForUpdatesButton(updater: updater) }
           Spacer()

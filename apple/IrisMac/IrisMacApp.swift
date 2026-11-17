@@ -24,7 +24,21 @@ struct IrisMacApp: App {
   init() {
     // Sparkle only on a real launch: fake runs (screenshots, tests) get no updater, no network, no window.
     let isFake = ProcessInfo.processInfo.arguments.contains(MacCompositionRoot.fakeDataArgument)
-    let root = MacCompositionRoot(updateEngine: isFake ? nil : SparkleUpdateEngine())
+    // The screenshot proof shows Settings' version and update state, so its fake run gets a scripted engine.
+    #if DEBUG
+      let scriptedEngine: ScriptedUpdateEngine? =
+        isFake && ProcessInfo.processInfo.arguments.contains(MacSnapshotRun.argument)
+        ? ScriptedUpdateEngine(status: .upToDate) : nil
+    #else
+      let scriptedEngine: ScriptedUpdateEngine? = nil
+    #endif
+    let updateEngine: (any UpdateEngine)?
+    if isFake {
+      updateEngine = scriptedEngine
+    } else {
+      updateEngine = SparkleUpdateEngine()
+    }
+    let root = MacCompositionRoot(updateEngine: updateEngine)
     _root = State(initialValue: root)
     root.installNotificationClicks()
     root.installHotkey()
@@ -34,21 +48,19 @@ struct IrisMacApp: App {
     root.begin()
     activation.install()
     MacAppDelegate.onReopen = { [root] in
-      let windows = NSApp.windows
-      switch MacActivationPolicy.reopenAction(
-        hasVisibleWindow: MacActivationPolicy.hasVisibleWindow(windows), needsOnboarding: root.needsOnboarding)
+      // The main window is asked for in every case: SwiftUI opens it, or raises it above Settings and the other windows.
+      switch MacActivationPolicy.reopenAction(mainWindowOpen: root.isWindowOpen, needsOnboarding: root.needsOnboarding)
       {
-      case .bringToFront:
-        root.noteWindow("main", "front", source: "dock")
-        NSApp.activate()
-        windows.first { $0.isVisible && $0.styleMask.contains(.titled) && $0.canBecomeMain }?.makeKeyAndOrderFront(nil)
+      case .openMain, .raiseMain: root.showMainWindow(source: "dock")
       case .openOnboarding: root.showOnboarding(source: "dock")
-      case .openMain: root.showMainWindow(source: "dock")
       }
     }
     // The screenshot proof exists in Debug builds only (it reaches for a private window capture), and only on the fake composition.
     #if DEBUG
-      if root.mode == .fake, let snapshot = MacSnapshotRun(arguments: ProcessInfo.processInfo.arguments, root: root) {
+      if root.mode == .fake,
+        let snapshot = MacSnapshotRun(
+          arguments: ProcessInfo.processInfo.arguments, root: root, updateEngine: scriptedEngine)
+      {
         Task { await snapshot.run() }
       }
     #endif
