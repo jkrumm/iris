@@ -55,6 +55,7 @@ const credentials: AscCredentials = {
 
 let reports: FakeReport[] = [];
 let failWith: number | null = null;
+let failFirst = 0;
 let authorized = true;
 let server: ReturnType<typeof Bun.serve>;
 let baseUrl = "";
@@ -76,6 +77,10 @@ beforeAll(() => {
         );
       if (!authorized) return new Response("{}", { status: 401 });
       if (failWith) return new Response("{}", { status: failWith });
+      if (failFirst > 0 && url.pathname.startsWith("/v1/apps")) {
+        failFirst -= 1;
+        return new Response("{}", { status: failFirst % 2 ? 500 : 404 });
+      }
       if (url.pathname === "/v1/apps") return Response.json({ data: [{ id: "app-1" }] });
       if (url.pathname === "/v1/apps/app-1/betaFeedbackCrashSubmissions") {
         return Response.json({
@@ -108,6 +113,7 @@ const cleanup: string[] = [];
 afterEach(async () => {
   reports = [];
   failWith = null;
+  failFirst = 0;
   await Promise.all(cleanup.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
 });
 
@@ -117,7 +123,7 @@ async function harness() {
   const filed: IssueRequest[] = [];
   let rdFails = false;
   const deps: Deps = {
-    api: createAscApi(credentials, baseUrl),
+    api: createAscApi(credentials, baseUrl, { attempts: 3, delayMs: 1 }),
     fileIssue: async (request) => {
       if (rdFails) throw new Error("factory refused");
       filed.push(request);
@@ -274,6 +280,17 @@ describe("run", () => {
     await expect(run(deps, { dryRun: false, baseline: false })).rejects.toThrow("500");
     expect(filed).toHaveLength(0);
     expect(existsSync(deps.stateFile)).toBe(false);
+  });
+
+  it("retries a transient 500 or 404 and then reads the reports", async () => {
+    reports = [
+      { id: "A1", createdDate: "2026-11-06T16:00:00Z", comment: "", log: crashLog({ top: board }) },
+    ];
+    failFirst = 2;
+    const { deps, filed } = await harness();
+    await run(deps, { dryRun: false, baseline: false });
+    expect(filed.map((f) => f.key)).toEqual(["testflight-crash-A1"]);
+    expect(failFirst).toBe(0);
   });
 
   it("leaves a report unseen when filing fails, so the next run retries it", async () => {

@@ -33,6 +33,8 @@ const MAX_FRAMES = 12;
 const MAX_COMMENT_CHARS = 600;
 const REQUEST_TIMEOUT_MS = 30_000;
 const JWT_TTL_SECONDS = 600;
+/** Apple's API answers 500s and stray 404s on a healthy key for hours at a time; one tick retries 4 times (2 s, 4 s, 8 s) before it fails. */
+const RETRY = { attempts: 4, delayMs: 2000 };
 
 const repoRoot = resolve(import.meta.dir, "..");
 const out = (text: string) => process.stdout.write(`${text}\n`);
@@ -211,19 +213,44 @@ function asString(value: unknown): string {
 export function createAscApi(
   credentials: AscCredentials,
   baseUrl: string = ASC_BASE_URL,
+  retry: { attempts: number; delayMs: number } = RETRY,
 ): CrashApi {
   const token = createJwt(credentials, Math.floor(Date.now() / 1000));
 
+  /** One attempt; a 5xx, a 429, a 404 of a path that must exist and a network failure are transient. */
+  async function attempt(
+    url: string,
+    allowMissing: boolean,
+  ): Promise<{ body: Json | null } | { transient: Error }> {
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        headers: { authorization: `Bearer ${token}` },
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      });
+    } catch (error) {
+      return { transient: error instanceof Error ? error : new Error(String(error)) };
+    }
+    if (allowMissing && response.status === 404) return { body: null };
+    if (!response.ok) {
+      const failure = new Error(
+        `App Store Connect answered ${response.status} for ${new URL(url).pathname}`,
+      );
+      if (response.status >= 500 || response.status === 429 || response.status === 404)
+        return { transient: failure };
+      throw failure;
+    }
+    return { body: asRecord(await response.json()) };
+  }
+
   async function get(path: string, allowMissing = false): Promise<Json | null> {
     const url = path.startsWith("http") ? path : `${baseUrl}${path}`;
-    const response = await fetch(url, {
-      headers: { authorization: `Bearer ${token}` },
-      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-    });
-    if (allowMissing && response.status === 404) return null;
-    if (!response.ok)
-      throw new Error(`App Store Connect answered ${response.status} for ${new URL(url).pathname}`);
-    return asRecord(await response.json());
+    for (let n = 1; ; n++) {
+      const result = await attempt(url, allowMissing);
+      if ("body" in result) return result.body;
+      if (n >= retry.attempts) throw result.transient;
+      await Bun.sleep(retry.delayMs * 2 ** (n - 1));
+    }
   }
 
   async function appId(): Promise<string> {
