@@ -736,12 +736,13 @@ final class MacCompositionRoot {
   }
 
   /// Makes the main window's list hold `memo`, which it may not (a popover row or a banner opened a memo past the window's filter or
-  /// loaded pages): the scope goes to All memos (Archive for an archived memo, which All hides), the search is cleared, the first
+  /// loaded pages): the scope goes to All memos (Archive for an archived memo, which All hides), the search and the sidebar's kind and state are cleared, the first
   /// page loads, and the memo is inserted into the list. Its actions resolve the memo in the list when they run, so it must be there.
   /// A load that finishes after the insert replaces the list, so the insert is repeated until it sticks (bounded).
   func ensureHeld(_ memo: Memo) async {
     guard isConfigured, !windowHistory.memos.contains(where: { $0.id == memo.id }) else { return }
     windowHistory.filters.searchText = ""
+    windowHistory.filters.clearKindAndState()
     scope = memo.archived ? .archive : .all
     await windowHistory.load()
     for _ in 0..<5 {
