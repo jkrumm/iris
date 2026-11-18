@@ -6,7 +6,7 @@ app, and what was done about it. Spacing values come from the one scale, `Theme.
 
 ## Method
 
-1. Render the mockup (`make mockups`, PNGs in the gitignored `docs/design/renders/`) and screenshot the app at the same size,
+1. Render the mockup (`make mockups`; the PNGs are gitignored, see [the design README](../README.md)) and screenshot the app at the same size,
    light and dark, on the owner's phone class (iPhone 15 / iOS 26.5, `make sim run-sim screenshot SIM_NAME="iPhone 15" SIM_OS=26.5`)
    and on the pinned iPhone 17 / iOS 27.0. iOS 26 renders glass and bars differently from 27: judge the 26.5 shot first.
 2. Write the deltas as a table (screen, element, mockup value, app value, fix) in `<group>.md`.
