@@ -87,7 +87,8 @@ function logRecord(entry: RelayLog, index: number): LogRecord {
 
 /**
  * The OTLP resource every record of the batch shares. A build without a sha (`appVersion` `dev`) is a local build
- * writing to the prod project, so it is `dev` whatever the server's environment is.
+ * writing to the prod project, so it is `dev` whatever the server's environment is. `host.name` is the device name for the
+ * Mac app only.
  */
 function resourceOf(resource: RelayBatch["resource"], nodeEnv: string) {
   const environment = resource.appVersion === "dev" ? "dev" : deploymentEnvironmentName(nodeEnv);
@@ -99,6 +100,8 @@ function resourceOf(resource: RelayBatch["resource"], nodeEnv: string) {
         "service.name": resource.serviceName,
         "service.version": resource.appVersion,
         "device.name": resource.deviceName,
+        // The Mac is a host the telemetry contract names; a phone is a `client` and has none.
+        ...(resource.serviceName === "iris-macos" && { "host.name": resource.deviceName }),
         "deployment.environment.name": environment,
       }),
     },
