@@ -112,6 +112,17 @@ describe("buildRelayPayloads", () => {
     );
   });
 
+  it("sets host.name to the device name for iris-macos and not for iris-ios", () => {
+    const hostName = (batch: ReturnType<typeof fixture>) =>
+      JSON.stringify(buildRelayPayloads(batch).logs).match(
+        /"key":"host\.name","value":\{"stringValue":"([^"]*)"/,
+      )?.[1];
+    const mac = fixture("telemetry.request.logs-only.json");
+    expect(hostName(mac)).toBe(mac.resource.deviceName);
+    const ios = fixture("telemetry.request.json");
+    expect(hostName(ios)).toBeUndefined();
+  });
+
   it("stamps the iris namespace and prod for a release build on a production server, dev otherwise", () => {
     const batch = fixture("telemetry.request.logs-only.json");
     const attrs = (payloads: { logs?: object }) => JSON.stringify(payloads.logs);
