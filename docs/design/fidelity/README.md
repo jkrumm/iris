@@ -2,7 +2,7 @@
 
 The owner's feedback of 2026-10-30: the app drifted from the design renders "at many, many places". Each screen group lists
 every spacing, alignment, type and colour delta between the mockup (`docs/design/mockups/*.html`, round 2 wins) and the
-app, and what was done about it. Spacing values come from the one scale, `Theme.Spacing` (`IrisUI/Theme/Spacing.swift`).
+app, and what was done about it. Spacing values come from the one scale, `Theme.Spacing` (`apple/Packages/IrisUI/Sources/IrisUI/Theme/Spacing.swift`).
 
 ## Method
 
