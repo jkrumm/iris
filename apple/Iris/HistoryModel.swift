@@ -335,6 +335,12 @@ final class HistoryModel {
       let memo = try await client.memo(id: id).memo
       guard lifecycle[id] == started, server == serverKey() else { return }
       if memo.isDeleted { evictMedia(id) }
+      // A conversation row's star is the thread's (any turn), which the memo alone cannot say: when the newest turn reads unstarred under
+      // a starred row, the server's list decides (another device unstarred the thread, or an older turn holds the star).
+      if let held = items.first(where: { $0.id == memo.id }), held.conversation != nil, held.favorite, !memo.favorite {
+        await load()
+        return
+      }
       // A reply into a conversation the list does not hold a row of yet: the server knows its title and turns, the event does not.
       if row(for: memo) == nil, memo.continuesThread, filters.matches(memo), isWithinLoadedRows(memo) {
         await load()

@@ -16,6 +16,11 @@ struct MacDetailToolbar {
   let model: MacMemoDetailModel
   let player: MacAudioPlayer
   let memo: Memo
+  /// The memo's row in the window's list when the list holds one: a conversation's row is its newest memo, so the flags and Delete
+  /// read and act on it (its state, the thread's favorite), while the controls above stay on the memo that is open.
+  var row: Memo?
+
+  private var flagged: Memo { row ?? memo }
 
   @ViewBuilder var primary: some View {
     MacSpeakerMenu(root: root, player: player, memo: memo)
@@ -29,26 +34,26 @@ struct MacDetailToolbar {
   @ViewBuilder var flags: some View {
     let actions = MacMemoActions(root: root, model: root.windowHistory)
     Button(
-      memo.favorite
+      flagged.favorite
         ? String(localized: "Unfavorite", comment: "Context menu")
         : String(localized: "Favorite", comment: "Context menu"),
-      systemImage: memo.favorite ? "star.fill" : "star"
-    ) { actions.toggleFavorite(memo) }
+      systemImage: flagged.favorite ? "star.fill" : "star"
+    ) { actions.toggleFavorite(flagged) }
     .macToolbarInk()
-    .help((memo.favorite ? MacMemoControl.unfavorite : .favorite).help)
+    .help((flagged.favorite ? MacMemoControl.unfavorite : .favorite).help)
     Button(
-      memo.archived
+      flagged.archived
         ? String(localized: "Unarchive", comment: "Context menu")
         : String(localized: "Archive", comment: "Context menu"),
-      systemImage: memo.archived ? "tray.and.arrow.up" : "archivebox"
-    ) { actions.toggleArchived(memo) }
+      systemImage: flagged.archived ? "tray.and.arrow.up" : "archivebox"
+    ) { actions.toggleArchived(flagged) }
     .macToolbarInk()
-    .help((memo.archived ? MacMemoControl.unarchive : .archive).help)
-    if memo.state.isDeletable {
-      Button(String(localized: "Delete", comment: "Context menu"), systemImage: "trash") { actions.delete(memo) }
+    .help((flagged.archived ? MacMemoControl.unarchive : .archive).help)
+    if flagged.state.isDeletable {
+      Button(String(localized: "Delete", comment: "Context menu"), systemImage: "trash") { actions.delete(flagged) }
         .macToolbarInk()
         .help(MacMemoControl.delete.help)
-        .disabled(root.deletingIDs.contains(memo.id))
+        .disabled(root.deletingIDs.contains(flagged.id))
     }
   }
 

@@ -142,9 +142,14 @@ struct MacMemoDetailPane: View {
     root.windowHistory.memos.first { $0.id == model.memoID } ?? model.memo
   }
 
+  /// The list's row of the open memo: for a conversation its newest memo (the state and the thread's favorite), which the flags act on.
+  private var listRow: Memo? {
+    model.memo.flatMap { root.windowHistory.row(for: $0) }
+  }
+
   @ToolbarContentBuilder private var toolbar: some ToolbarContent {
     if let memo = liveMemo {
-      let bar = MacDetailToolbar(root: root, model: model, player: player, memo: memo)
+      let bar = MacDetailToolbar(root: root, model: model, player: player, memo: memo, row: listRow)
       ToolbarItemGroup(placement: .primaryAction) { bar.primary }
       ToolbarItemGroup(placement: .primaryAction) { bar.flags }
     }

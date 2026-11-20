@@ -73,6 +73,18 @@ struct HistoryModelTests {
     #expect(model.sections.flatMap(\.memos).count == 2)
   }
 
+  @Test("an event for the newest turn keeps the row's thread-wide star")
+  func eventKeepsAggregateStar() async {
+    await seed(
+      MemoFactory.memo("a", age: 30, favorite: true, threadId: "t"), MemoFactory.memo("b", age: 10, threadId: "t"))
+    await model.load()
+    #expect(model.memos.first?.favorite == true)
+
+    await model.handle(.memoUpdated(MemoEvent(id: "b", state: .notified, at: MemoFactory.now)))
+    #expect(
+      model.memoIDs == ["b"] && model.memos[0].favorite, "the server's list decides: an older turn holds the star")
+  }
+
   @Test("a flag, delete and undo on a conversation row reach every turn")
   func conversationRowActions() async throws {
     await seed(MemoFactory.memo("a", age: 30, threadId: "a"), MemoFactory.memo("b", age: 10, threadId: "a"))
