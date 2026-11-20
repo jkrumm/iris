@@ -889,7 +889,7 @@ the runner needs a workflow step and was left out of this change (owned files: `
   opens as audio with frames in it (a truncated AAC file does not); otherwise it is **moved** into `capture/quarantine/`. A file that a set-aside queue file names stays where it is, and when a set-aside queue file cannot be read, every candidate stays where it is (the read failure is logged).
   **Nothing is deleted** (the files of a memo the server completed, left by a crash between the save and the removal, are quarantined too).
   **A file the sweep cannot move** (a full disk, a read-only volume) stays in the capture directory and is tried again at the next launch; `SweepReport.stuck` / `Outbox.strayFiles()` (described by the `SegmentFileStore`) list it and Settings counts it with the set-aside files, marked "not moved" in the shared list. **Set-aside files are surfaced, not bounded by deletion.** `capture/quarantine/` and the `outbox.quarantined-*.json` files grow only when something went wrong, and the app never removes them on its own: Settings
-  shows "Kept on this device" (count and size, `SetAsideSummary`) with a share/copy of the list (names, sizes, dates; no audio), and past 50 files or 200 MB a note says so. A delete action waits for the owner's word.
+  shows "Kept on this device" (count and size, `SetAsideSummary`) with a share/copy of the list (names, sizes, dates; no audio), and past 50 files or 200 MB a note says so. A delete action waits for the owner's word. The files already there are **kept**, not purged after a time: they are the only copy of audio the server never got. They are logged once (`capture.quarantine`, at the first launch that finds the name; the ledger is in `UserDefaults` and forgets a name that has left the folder), later launches report the count only.
   Everything runs on a default `URLSession` (`URLSessionAPIClient`); the background `URLSession` and the `result?wait=600`
   long-poll as a background download are not built (device-only, below). The app side is `OutboxService` (submit text, await the
   first attempt for six seconds and answer `sent(memo)` or `queued`, retry, discard, the queue for Settings) over a lazy
@@ -1240,8 +1240,8 @@ run shows nothing and never blocks or fails a take.
     state to the root in stream order; `noteState` is synchronous, so an earlier event never overtakes a later one), the
     `memo.done` payload (its state is on the same stream: there is no separate `History` hook), and the **catch-up** after the stream (re)connects. A state that is not a kind (a retry) clears
     the record, so the memo's next finish is a new banner; a repeated event or a second feed posts nothing. The event's state is
-    not the answer: the memo is fetched fresh before posting and judged by that copy. The catch-up fetches the newest 50 memos
-    **unfiltered** (History's filters hide memos from its list, not from the banners): the first one of a connection is the
+    not the answer: the memo is fetched fresh before posting and judged by that copy. The catch-up reads the newest memos
+    **unfiltered** (the baseline 50, a later one 10, twice what it can announce; when the popover list is unfiltered it reads the page of that list's own reload on the same `ready` instead of asking again, so one `ready` is one list request, and falls back to its own request after 4 s or when the list is filtered) (History's filters hide memos from its list, not from the banners): the first one of a connection is the
     baseline (what is finished is recorded, nothing announced), later ones announce memos that reached a kind since — ones the
     connection saw running, and ones it never saw that started after the baseline's newest — at most five per catch-up, newest
     first, the rest recorded. Banners never carry the transcript, the reply or the park reason: generic words for parked and
@@ -1461,8 +1461,8 @@ the `IrisCore` dependency when R1 wires them together.
     | `take.discarded` | `segments` (closed so far); the take was dropped on purpose, so its segments never upload |
     | `outbox.segment.upload` | `index`, `attempt`, `status` (`ok`\|`permanent`\|`transient`\|`error`), `ms`, `error` (the error's type, never its message) |
     | `outbox.complete.sent` | `segment_count`, `status`, `ms`, `error` |
-    | `capture.quarantine` | `file`, `bytes`, `has_moov` (per set-aside file at launch) |
-    | `capture.level` | `rms_db`, `peak_db` (dBFS, twice a second while a take records) |
+    | `capture.quarantine` | `file`, `bytes`, `has_moov` (once per set-aside file, at the first launch that finds it; the launch record carries the count) |
+    | `capture.level` | `rms_db`, `peak_db` (dBFS, measured twice a second while a take records, reported about every 5 s or when the RMS moves 10 dB) |
     | `intent.perform` / `intent.result` | `intent`, `process`, `handler.present`, `mode`, `can_continue_in_foreground`, `press_lag_ms`; `ok`, `error` (type and case only); both carry the take's `memo.id` (Start: the new memo, on its result) |
     | `liveactivity.request` / `.update` / `.end` | `activity.id`, `phase`, `ok`, `error`, `push` (token or none), `dismissal` (`immediate`\|`after`), `reason` |
     | `liveactivity.snapshot` | `reason` (`launch`\|`launch_swept`\|`foreground`\|`background`), `count`, `states` (`id:state;…`), `age_s` (`id:seconds;…`) |

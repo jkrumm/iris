@@ -26,8 +26,8 @@ Capture, server binding, popover, windows, composer, notifications, telemetry an
   reason, banner text, token, URL or device id in one. Mac-only names: `mac.panel`, `mac.window`, `mac.hotkey`, `audio.input_switch`, `audio.input_recovery`, `notify.mac`, `outbox.user_action`, `app.lifecycle`.
 
 - **Mac notifications** (`MemoNotifier`, TDD §5) announce a **transition** into finished (`notified`) or failed (the title is the memo's kind), from the open event stream
-  (`memo.updated` / `memo.done` states) and from the catch-up after each `ready`: an unfiltered fetch of the newest 50 memos (the first of a connection is the silent
-  baseline; later ones announce memos that reached a kind meanwhile, at most 5, newest first). A state that is not a kind clears the record, so a retried memo announces
+  (`memo.updated` / `memo.done` states) and from the catch-up after each `ready`: an unfiltered page of the newest memos (the first of a connection is the silent
+  baseline, 50 memos; a later one asks for 10, or reads the page of the list's own reload on the same `ready` when that list is unfiltered, so one `ready` is one list request; later ones announce memos that reached a kind meanwhile, at most 5, newest first). A state that is not a kind clears the record, so a retried memo announces
   again; the memo is fetched fresh before it posts. Banners never carry the transcript, reply or park reason. A connection switch withdraws the old server's banners
   (and one posted during the switch); **known limit:** the Mac notifier announces from its open event stream only, so a memo that finished while the app was not running is not announced (APNs alerts reach the devices that registered a token, not this notifier).
 

@@ -78,14 +78,19 @@ final class MemoNotifier {
   /// At most this many memos are announced by one catch-up (newest first); the rest are recorded as seen. A long outage does
   /// not become a wall of banners.
   static let catchUpLimit = 5
+  /// What a catch-up asks the server for when it has no list to read: the baseline reads a long page (it records what this
+  /// connection starts from), a later one only as many as it can announce, twice that for the deleted and the already seen.
+  /// Older memos could not be announced anyway: at most `catchUpLimit` are.
+  static let baselinePageSize = 50
+  static let catchUpPageSize = 2 * catchUpLimit
 
   private let poster: any NotificationPoster
   /// The memo behind a `memo.done` id, fetched fresh from the server; nil when it cannot be had now. Set by the composition
   /// root once it can name itself.
   var lookup: (String) async -> Memo?
-  /// The newest memos of the server, **unfiltered** (History's filters must not hide a finished memo from the catch-up); nil
-  /// when they cannot be had now. Set by the composition root.
-  var fetchRecent: () async -> [Memo]? = { nil }
+  /// The newest `limit` memos of the server, **unfiltered** (History's filters must not hide a finished memo from the catch-up);
+  /// nil when they cannot be had now. Set by the composition root.
+  var fetchRecent: (_ limit: Int) async -> [Memo]? = { _ in nil }
   /// Where the device log hears of banners (see ``NotifierEvent``).
   var report: (NotifierEvent) -> Void = { _ in }
   private let retryDelays: [Duration]
@@ -197,21 +202,29 @@ final class MemoNotifier {
   ///
   /// One at a time, in the order they were asked for: a `ready` arriving while the previous catch-up is still fetching would
   /// otherwise let the later (fresher) fetch become the baseline and swallow what finished during the outage.
-  func catchUp(generation expected: Int? = nil) async {
+  ///
+  /// - Parameter shared: A page of the newest memos, unfiltered, that the caller already has or is about to get (the list's own
+  ///   load on the same `ready`), so the catch-up does not ask for it again; nil answers (or no closure) fall back to
+  ///   `fetchRecent`.
+  func catchUp(generation expected: Int? = nil, shared: (@MainActor () async -> [Memo]?)? = nil) async {
     let mine = expected ?? generation
     let previous = catchUpTail
     // Owned by `catchUpTail`: the next call waits on it, and this call waits on it below.
     let run = Task { [self] in
       await previous?.value
-      await runCatchUp(generation: mine)
+      await runCatchUp(generation: mine, shared: shared)
     }
     catchUpTail = run
     await run.value
   }
 
-  private func runCatchUp(generation mine: Int) async {
+  private func runCatchUp(generation mine: Int, shared: (@MainActor () async -> [Memo]?)?) async {
     guard mine == generation else { return }
-    let fetched = await fetchRecent()
+    var fetched = await shared?()
+    guard mine == generation else { return }
+    if fetched == nil {
+      fetched = await fetchRecent(baselineNewest == nil ? Self.baselinePageSize : Self.catchUpPageSize)
+    }
     guard mine == generation else { return }
     guard let page = fetched else {
       // The baseline (or the comparison with it) waits for the next catch-up; nothing is recorded from a fetch that failed.

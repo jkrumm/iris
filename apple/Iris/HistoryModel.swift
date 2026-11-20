@@ -82,6 +82,12 @@ final class HistoryModel {
   private let pasteboard: (any Pasteboard)?
   /// Bumped by every first-page load; a response that finds it changed belongs to filters that are gone.
   private var generation = 0
+  /// Counts the first-page loads that ended in an answer or a failure of their own (not superseded ones); see `firstPage(after:timeout:)`.
+  private(set) var loadsFinished = 0
+  /// What the last finished load brought, raw (before the local hides), when it was a load with no filter; nil when it was
+  /// filtered or failed.
+  private var lastPage: (serial: Int, items: [Memo]?)?
+  private var pageWaiters: [UUID: CheckedContinuation<[Memo]?, Never>] = [:]
 
   /// Ids whose delete settled before their hide arrived (a cancelled take's `DELETE` can be acknowledged before the cancel has
   /// told History): the hide then removes the row but does not keep the id hidden, since there is nothing left to wait for.
@@ -126,15 +132,58 @@ final class HistoryModel {
       loadFailed = false
       hasLoaded = true
       link = .live
+      finishLoad(page: requested == HistoryFilters() ? page.items : nil)
     } catch is CancellationError {
       return
     } catch {
       guard current == generation, server == serverKey() else { return }
       note(failure: error)
       logger.error("history load failed: \(String(describing: error), privacy: .public)")
+      finishLoad(page: nil)
       loadFailed = true
       // Rows from before the failure stay on a plain refresh; the error state takes over when there are none.
       if !memos.isEmpty { toast = HistoryToast(kind: .error, message: Self.loadFailedMessage) }
+    }
+  }
+
+  private func finishLoad(page: [Memo]?) {
+    loadsFinished += 1
+    lastPage = (loadsFinished, page)
+    let waiting = pageWaiters
+    pageWaiters = [:]
+    for waiter in waiting.values { waiter.resume(returning: page) }
+  }
+
+  /// The newest memos, unfiltered, from the first load that finishes after `serial` (a `loadsFinished` read earlier), so a caller
+  /// that wants the same page as this list does not ask the server for it a second time. nil when that load was filtered or
+  /// failed, or when it does not finish within `timeout` (a hung list must not hold the caller back).
+  func firstPage(after serial: Int, timeout: Duration = .seconds(4)) async -> [Memo]? {
+    await withTaskGroup(of: [Memo]?.self) { group in
+      group.addTask { await self.waitForPage(after: serial) }
+      group.addTask {
+        try? await Task.sleep(for: timeout)
+        return nil
+      }
+      let first = await group.next() ?? nil
+      group.cancelAll()
+      return first
+    }
+  }
+
+  private func waitForPage(after serial: Int) async -> [Memo]? {
+    let key = UUID()
+    return await withTaskCancellationHandler {
+      await withCheckedContinuation { (waiter: CheckedContinuation<[Memo]?, Never>) in
+        if let last = lastPage, last.serial > serial {
+          waiter.resume(returning: last.items)
+        } else if Task.isCancelled {
+          waiter.resume(returning: nil)
+        } else {
+          pageWaiters[key] = waiter
+        }
+      }
+    } onCancel: {
+      Task { @MainActor in self.pageWaiters.removeValue(forKey: key)?.resume(returning: nil) }
     }
   }
 
