@@ -54,6 +54,20 @@ struct MacMemoDetailModelTests {
     #expect(await eventually { model.copied == nil })
   }
 
+  @Test("Copy is a plain button when one thing can be copied and a menu when there are two")
+  func copyTargets() async {
+    let both = await model()
+    #expect(both.copyTargets == [.transcript, .reply])
+    let api = FakeAPIClient()
+    await SampleData.seed(api)
+    let memo = try? await api.memo(id: SampleData.transcriptThreadID).memo
+    let transcript = MacMemoDetailModel(
+      memoID: SampleData.transcriptThreadID, memo: memo, client: api, pasteboard: RecordingPasteboard())
+    #expect(transcript.copyTargets == [.transcript])
+    let unknown = MacMemoDetailModel(memoID: "missing", client: api, pasteboard: RecordingPasteboard())
+    #expect(unknown.copyTargets.isEmpty)
+  }
+
   @Test("a finished memo has nothing to retry")
   func finishedMemo() async {
     let model = await model()

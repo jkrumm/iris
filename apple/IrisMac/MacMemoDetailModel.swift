@@ -86,6 +86,15 @@ final class MacMemoDetailModel {
     return parts.sorted { ($0.createdAt, $0.id) < ($1.createdAt, $1.id) }
   }
 
+  /// What Copy can put on the pasteboard for the open memo, transcript first: the toolbar is a plain button for one, a menu for two.
+  var copyTargets: [CopyTarget] {
+    guard let memo else { return [] }
+    var targets: [CopyTarget] = []
+    if memo.transcript != nil { targets.append(.transcript) }
+    if memo.replyText != nil { targets.append(.reply) }
+    return targets
+  }
+
   /// Every part's words, joined in order: what Copy transcript copies.
   var wholeTranscript: String? { TranscriptText.whole(of: parts) }
 

@@ -129,40 +129,6 @@
         }
       }
     },
-    "More" : {
-      "comment" : "Detail toolbar: overflow menu",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Mehr"
-          }
-        },
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "More"
-          }
-        }
-      }
-    },
-    "Read the reply aloud (summary)" : {
-      "comment" : "Tooltip of the speaker button: plays the spoken summary",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Antwort vorlesen (Zusammenfassung)"
-          }
-        },
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Read the reply aloud (summary)"
-          }
-        }
-      }
-    },
     "Stop reading the reply" : {
       "comment" : "Tooltip of the speaker button while the reply speaks",
       "localizations" : {
@@ -244,23 +210,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Stop your recording"
-          }
-        }
-      }
-    },
-    "More actions for this memo" : {
-      "comment" : "Tooltip of the toolbar's overflow menu",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Weitere Aktionen für dieses Memo"
-          }
-        },
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "More actions for this memo"
           }
         }
       }
@@ -2394,6 +2343,61 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Version %@ verfügbar"
+          }
+        }
+      }
+    },
+    "Read the reply aloud: the summary or the whole reply" : {
+      "comment" : "Tooltip of the speaker menu: its entries read the summary or the whole reply",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Antwort vorlesen: die Zusammenfassung oder die ganze Antwort"
+          }
+        }
+      }
+    },
+    "Copy the transcript to the clipboard" : {
+      "comment" : "Tooltip of the toolbar's Copy of a transcript",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Transkript in die Zwischenablage kopieren"
+          }
+        }
+      }
+    },
+    "Copy the reply to the clipboard" : {
+      "comment" : "Tooltip of the toolbar's Copy of a reply",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Antwort in die Zwischenablage kopieren"
+          }
+        }
+      }
+    },
+    "Copy the whole transcript" : {
+      "comment" : "Tooltip of the Copy button at the transcript's label",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Das ganze Transkript kopieren"
+          }
+        }
+      }
+    },
+    "Copy this transcript without opening it" : {
+      "comment" : "Tooltip of the Copy button on a transcript row",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dieses Transkript kopieren, ohne es zu öffnen"
           }
         }
       }

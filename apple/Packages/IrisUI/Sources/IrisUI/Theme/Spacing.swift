@@ -82,8 +82,10 @@ extension Theme.Spacing {
 
 /// The Mac recording panel (`mac.html`, variant `panel`: `.panel`, `.panel .btn.stop`, `.panel .tm`, `.panel .wave`, `.panel .chip`, `.panel .btn.x`).
 extension Theme.Spacing {
-  /// `.panel` is 340 wide; the microphone is an icon, so German strings and a long device name cannot clip.
-  public static let panelWidth: CGFloat = 340
+  /// `.panel` is 340 wide in the mockup; 380 here, so the microphone chip can name the device (cut in the middle at
+  /// `panelMicNameMax`) and a German string or a long device name still cannot clip.
+  public static let panelWidth: CGFloat = 380
+  public static let panelMicNameMax: CGFloat = 120
   /// `.panel` radius 28: half the one-row height (a capsule); a failure message keeps the same corner.
   public static let panelRadius: CGFloat = 28
   /// `.panel` padding 10 / 10, gap 8 between its children.
@@ -143,6 +145,8 @@ extension Theme.Spacing {
   public static let macOnboardingGap: CGFloat = 16
   /// A status dot's diameter next to a route or state.
   public static let macDot: CGFloat = 7
+  /// The side of the Copy button that shows on a transcript row while the pointer is over it.
+  public static let macRowCopySize: CGFloat = 18
 }
 
 /// Chat bubbles of the memo detail and the thread (iMessage-style: the user right, Iris left). No mockup page draws them; the

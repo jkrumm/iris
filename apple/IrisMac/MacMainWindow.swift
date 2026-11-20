@@ -39,15 +39,20 @@ struct MacMainWindow: View {
           root.newMemo()
         }
         .keyboardShortcut("n")
+        .macToolbarInk()
         .help(String(localized: "New memo", comment: "Main window toolbar: opens the New memo page"))
         .accessibilityIdentifier("mac.toolbar.new-memo")
       }
-      ToolbarItem(placement: .navigation) { MacTranscribeButton(root: root) }
+      ToolbarItem(placement: .navigation) { MacTranscribeButton(root: root).macToolbarInk() }
       if let updater = root.updater {
         ToolbarItem(placement: .primaryAction) { UpdateBadge(updater: updater) }
       }
     }
+    // The accent is for selection and focus rings; every toolbar control sets its own neutral ink (`macToolbarInk`).
     .tint(Theme.Accent.fill)
+    // The title bar and toolbar strip wear the panes' surface, so the window reads as one surface.
+    .toolbarBackground(Theme.Surface.background, for: .windowToolbar)
+    .toolbarBackgroundVisibility(.visible, for: .windowToolbar)
     .environment(\.replyImageStore, root.replyImages)
     .environment(\.artifactStore, root.artifacts)
     .macToast(root: root, model: root.windowHistory)

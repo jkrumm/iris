@@ -11,7 +11,8 @@ struct MacMemoDetailsPopover: View {
   let model: MacMemoDetailModel
   @State private var selectedID: String
 
-  private static let width: CGFloat = 400
+  /// Wide enough for a 36-character id in 11 pt monospace and a step's title beside its metric chip; no wider.
+  private static let width: CGFloat = 320
   private static let maxHeight: CGFloat = 520
 
   init(root: MacCompositionRoot, model: MacMemoDetailModel) {
@@ -28,7 +29,7 @@ struct MacMemoDetailsPopover: View {
   private var index: Int? { memos.firstIndex { $0.id == selectedID } }
 
   var body: some View {
-    VStack(alignment: .leading, spacing: Theme.Spacing.macSectionGap) {
+    VStack(alignment: .leading, spacing: Theme.Spacing.cozy) {
       if memos.count > 1, let index { stepper(at: index) }
       // Short content sits at its own height; long content scrolls under the cap.
       ViewThatFits(in: .vertical) {
@@ -36,9 +37,11 @@ struct MacMemoDetailsPopover: View {
         ScrollView { page }
       }
     }
-    .padding(Theme.Spacing.macDetailMargin)
+    .padding(Theme.Spacing.inset)
     .frame(width: Self.width)
     .frame(maxHeight: Self.maxHeight)
+    // The iPhone's Details at desktop density: the Mac type scale and tighter insets.
+    .environment(\.detailsDensity, .desktop)
     .accessibilityIdentifier("mac.detail.details.popover")
   }
 
@@ -90,7 +93,7 @@ private struct MacMemoDetailsPage: View {
 
   var body: some View {
     if let memo = model.memo {
-      VStack(alignment: .leading, spacing: Theme.Spacing.macSectionGap) {
+      VStack(alignment: .leading, spacing: Theme.Spacing.cozy) {
         header(memo)
         if memo.state.isResultReady {
           section(memo, now: .now)

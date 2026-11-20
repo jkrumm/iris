@@ -1,4 +1,5 @@
 import Foundation
+import IrisCore
 import Testing
 
 @testable import IrisMac
@@ -11,6 +12,17 @@ struct MacMemoControlTests {
     #expect(helps.allSatisfy { !$0.isEmpty })
     #expect(Set(helps).count == helps.count)
     #expect(!MacMemoControl.retry(from: "Summarize").isEmpty)
+  }
+
+  @Test("only a transcript memo with a transcript offers Copy on its row")
+  @MainActor func rowCopy() async {
+    let api = FakeAPIClient()
+    await SampleData.seed(api)
+    let transcript = try? await api.memo(id: SampleData.transcriptThreadID).memo
+    #expect(transcript?.macRowCopyText == transcript?.plainTranscript)
+    #expect(transcript?.macRowCopyText?.isEmpty == false)
+    let conversation = try? await api.memo(id: "0b6d1f4e-3a52-4c1d-9f0e-7a2c5d8e1b34").memo
+    #expect(conversation?.mode == .hermes && conversation?.macRowCopyText == nil)
   }
 
   @Test("the speaker and the user's recording are told apart by name")

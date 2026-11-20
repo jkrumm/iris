@@ -55,7 +55,7 @@
       await writeSettings()
       await writeOnboarding()
       await writeRecordingPanel()
-      // A long microphone name must not widen the panel (the picker is an icon; the name is its tooltip).
+      // A long microphone name must not widen the panel: the chip cuts it in the middle.
       let long = InputPort(
         uid: "fake-long", name: "Yeti Nano Professional Studio Condenser Microphone (USB)", kind: .usb)
       root.fakeTake?.setMicrophones(Microphones(inputs: [FakeAudioDeviceDirectory.builtIn, long], current: long))
@@ -77,6 +77,7 @@
       await writeDark(windowTitled: Self.mainTitle, as: "window-all-dark")
       await writeShell()
       await writeSpeakerMenu()
+      await writeToolbarStrips()
       await writeShellStates()
       // The memo with a run's steps: waterfall, copy rows, tools, ids.
       await writeDetails(memoID: replyMemoID, names: [("window-details", .aqua), ("window-details-dark", .darkAqua)])
@@ -104,6 +105,11 @@
       root.selectedMemoID = SampleData.transcriptThreadID
       try? await Task.sleep(for: .seconds(3))
       write(windowTitled: Self.mainTitle, as: "window-transcript")
+      await writeTranscriptPane()
+      // The transcript memo's Details at desktop density, light and dark.
+      await writeDetails(
+        memoID: SampleData.transcriptThreadID,
+        names: [("window-details-transcript", .aqua), ("window-details-transcript-dark", .darkAqua)])
       root.selectedMemoID = replyMemoID
       root.scope = .threads
       try? await Task.sleep(for: .seconds(2))
@@ -138,7 +144,7 @@
 
     /// The toolbar's audio controls and the speaker's menu: the main window's toolbar comes out blank on a host whose window server has
     /// no display, and a menu is a window of the system's that the window server answers 2 x 1 pixels for. So the toolbar's own
-    /// ``MacSpeakerMenu`` and ``MacMoreMenu`` are hosted in a strip of ours, and the menu's entries (``MacSpeakerEntries``) under it, in
+    /// ``MacSpeakerMenu`` and ``MacRecordingButton`` are hosted in a strip of ours, and the menu's entries (``MacSpeakerEntries``) under it, in
     /// the menu's material.
     private func writeSpeakerMenu() async {
       guard let memo = try? await root.fakeAPI?.memo(id: replyMemoID).memo else { return }
@@ -147,7 +153,7 @@
         rootView: VStack(alignment: .leading, spacing: Theme.Spacing.cozy) {
           HStack(spacing: Theme.Spacing.cozy) {
             MacSpeakerMenu(root: root, player: player, memo: memo)
-            MacMoreMenu(root: root, player: player, memo: memo)
+            MacRecordingButton(root: root, player: player, memo: memo)
           }
           .labelStyle(.iconOnly)
           VStack(alignment: .leading, spacing: Theme.Spacing.snug) { MacSpeakerEntries(onRead: { _ in }) }
@@ -165,6 +171,64 @@
       try? await Task.sleep(for: .seconds(1))
       write(window, as: "speaker-menu", chrome: false)
       window.close()
+    }
+
+    /// The detail toolbar of a conversation memo (Copy is a menu: transcript and reply) and of a transcript memo (Copy is a button), light
+    /// and dark, in a strip of ours on the window's own tint: no control may draw in the accent. The strip carries the controls
+    /// of the real toolbar (``MacDetailToolbar``); the window's own toolbar comes out blank on a host with no display.
+    private func writeToolbarStrips() async {
+      let player = MacAudioPlayer()
+      let memos: [(String, String)] = [("conversation", replyMemoID), ("transcript", SampleData.transcriptThreadID)]
+      for (kind, id) in memos {
+        let model = root.detailModel(for: id)
+        await model.load()
+        guard let memo = model.memo else { continue }
+        let bar = MacDetailToolbar(root: root, model: model, player: player, memo: memo)
+        for (suffix, appearance) in [("", NSAppearance.Name.aqua), ("-dark", .darkAqua)] {
+          let host = NSHostingView(
+            rootView: HStack(spacing: Theme.Spacing.cozy) {
+              HStack(spacing: Theme.Spacing.snug) { bar.primary }
+              HStack(spacing: Theme.Spacing.snug) { bar.flags }
+            }
+            .labelStyle(.iconOnly)
+            .buttonStyle(.borderless)
+            .tint(Theme.Accent.fill)
+            .padding(Theme.Spacing.inset)
+            .background(Theme.Surface.background))
+          host.appearance = NSAppearance(named: appearance)
+          host.frame = NSRect(origin: .zero, size: host.fittingSize)
+          let window = NSWindow(contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+          window.appearance = NSAppearance(named: appearance)
+          window.contentView = host
+          window.orderFrontRegardless()
+          try? await Task.sleep(for: .seconds(1))
+          write(window, as: "window-toolbar-detail-\(kind)\(suffix)", chrome: false)
+          window.close()
+        }
+      }
+    }
+
+    /// The transcript memo's pane alone in a window of ours, light and dark: the Transcript section with its Copy button.
+    private func writeTranscriptPane() async {
+      let player = MacAudioPlayer()
+      let size = NSSize(width: 760, height: 520)
+      for (suffix, appearance) in [("", NSAppearance.Name.aqua), ("-dark", .darkAqua)] {
+        let host = NSHostingView(
+          rootView: MacMemoDetailPane(
+            root: root, model: root.detailModel(for: SampleData.transcriptThreadID), player: player
+          )
+          .tint(Theme.Accent.fill)
+          .frame(width: size.width, height: size.height))
+        host.appearance = NSAppearance(named: appearance)
+        host.frame = NSRect(origin: .zero, size: size)
+        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        window.appearance = NSAppearance(named: appearance)
+        window.contentView = host
+        window.orderFrontRegardless()
+        try? await Task.sleep(for: .seconds(2))
+        write(window, as: "window-transcript-pane\(suffix)", chrome: false)
+        window.close()
+      }
     }
 
     /// The sidebar alone in a window of ours: the main window's own picture comes out blank on a host whose window server has no
