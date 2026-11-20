@@ -91,13 +91,34 @@ struct MacCompositionRootTests {
     #expect(await poster.posted.count == 1)
   }
 
+  @Test("a ready after the first is one list request: the catch-up reads the list's page instead of asking for its own")
+  func oneListRequestPerReady() async throws {
+    let root = fakeRoot()
+    let fake = try #require(root.fakeAPI)
+    root.begin()
+    #expect(await eventually { !root.history.memos.isEmpty })
+    fake.emit(.ready)
+    #expect(await eventually { root.notifier.hasBaseline })
+    try? await Task.sleep(for: .milliseconds(300))
+    func lists() async -> Int {
+      await fake.calls.filter { if case .listMemos = $0 { true } else { false } }.count
+    }
+    let before = await lists()
+    let returns = root.reconnects
+    fake.emit(.ready)
+    #expect(await eventually { root.reconnects == returns + 1 })
+    #expect(await eventually { await lists() > before })
+    try? await Task.sleep(for: .milliseconds(400))
+    #expect(await lists() == before + 1)
+  }
+
   @Test("the catch-up reads the newest memos with no filter, whatever History is showing")
   func catchUpIsUnfiltered() async throws {
     let root = fakeRoot()
     root.begin()
     #expect(await eventually { !root.history.memos.isEmpty })
     root.history.filters.searchText = "no memo says this"
-    let recent = try #require(await root.notifier.fetchRecent())
+    let recent = try #require(await root.notifier.fetchRecent(MemoNotifier.catchUpPageSize))
     #expect(recent.contains { $0.id == Self.finished })
   }
 

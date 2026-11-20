@@ -248,8 +248,8 @@ final class MacCompositionRoot {
     // Always fetched: the list's copy can be stale, and a failed refresh must not announce a memo that is still running.
     notifier.lookup = { [weak self] id in try? await self?.api.memo(id: id).memo }
     // The catch-up reads the newest memos with no filter: History's filters decide what its list shows, not what is announced.
-    notifier.fetchRecent = { [weak self] in
-      guard let page = try? await self?.api.listMemos(ListMemosQuery(limit: 50)) else { return nil }
+    notifier.fetchRecent = { [weak self] limit in
+      guard let page = try? await self?.api.listMemos(ListMemosQuery(limit: limit)) else { return nil }
       return page.items
     }
     wireCreatedMemos()
@@ -438,8 +438,13 @@ final class MacCompositionRoot {
       guard !Task.isCancelled else { return }
       reconnects += 1
       let generation = notifier.generation
-      // One catch-up per `ready`, on its own task: it fetches and may post, and must not hold the next `ready` back.
-      Task { [notifier] in await notifier.catchUp(generation: generation) }
+      // One catch-up per `ready`, on its own task: it fetches and may post, and must not hold the next `ready` back. The list
+      // reloads on the same `ready`: when that load is unfiltered the catch-up reads its page instead of asking again.
+      let list = history
+      let loads = list.loadsFinished
+      Task { [notifier] in
+        await notifier.catchUp(generation: generation, shared: { await list.firstPage(after: loads) })
+      }
     }
   }
 

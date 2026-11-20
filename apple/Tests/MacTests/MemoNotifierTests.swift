@@ -259,6 +259,8 @@ struct MemoNotifierCatchUpTests {
   final class Server {
     var memos: [Memo] = []
     var fetches = 0
+    /// The page size each fetch asked for.
+    var limits: [Int] = []
 
     func memo(_ id: String) -> Memo? { memos.first { $0.id == id } }
 
@@ -273,9 +275,10 @@ struct MemoNotifierCatchUpTests {
   ) -> MemoNotifier {
     let notifier = MemoNotifier(
       poster: poster, connectionID: "c1", lookup: { server.memo($0) }, retryDelays: [.zero, .zero])
-    notifier.fetchRecent = {
+    notifier.fetchRecent = { limit in
       server.fetches += 1
-      return server.memos
+      server.limits.append(limit)
+      return Array(server.memos.sorted { $0.startedAt > $1.startedAt }.prefix(limit))
     }
     return notifier
   }
@@ -408,6 +411,37 @@ struct MemoNotifierCatchUpTests {
     #expect(await poster.posted.map(\.memoID) == ["new"])
   }
 
+  @Test("a catch-up after the baseline asks for a small page, not the baseline's long one")
+  func laterCatchUpsAskForASmallPage() async {
+    let poster = RecordingNotificationPoster()
+    let server = Server()
+    server.memos = (0..<30).map { memo("m\($0)", .notified, minutesAgo: Double(100 + $0)) }
+    let notifier = rig(poster, server)
+    await notifier.catchUp()
+    await notifier.catchUp()
+    await notifier.catchUp()
+    #expect(
+      server.limits == [MemoNotifier.baselinePageSize, MemoNotifier.catchUpPageSize, MemoNotifier.catchUpPageSize])
+    #expect(MemoNotifier.catchUpPageSize < MemoNotifier.baselinePageSize)
+    #expect(await poster.posted.isEmpty)
+  }
+
+  @Test(
+    "a page the caller already holds is the catch-up's page: nothing is fetched; a missing one falls back to a fetch")
+  func sharedPage() async {
+    let poster = RecordingNotificationPoster()
+    let server = Server()
+    server.memos = [memo("a", .acted)]
+    let notifier = rig(poster, server)
+    await notifier.catchUp(shared: { [self] in [memo("a", .acted)] })
+    #expect(notifier.hasBaseline && server.fetches == 0)
+    await notifier.catchUp(shared: { [self] in [memo("a", .notified)] })
+    #expect(server.fetches == 0)
+    #expect(await poster.posted.map(\.memoID) == ["a"])
+    await notifier.catchUp(shared: { nil })
+    #expect(server.limits == [MemoNotifier.catchUpPageSize])
+  }
+
   @Test("an empty server's first memo is new")
   func emptyBaseline() async {
     let poster = RecordingNotificationPoster()
@@ -458,7 +492,7 @@ struct MemoNotifierCatchUpTests {
     server.set("a", .notified)
     let (opened, open) = AsyncStream<Void>.makeStream()
     var started = false
-    notifier.fetchRecent = {
+    notifier.fetchRecent = { _ in
       started = true
       for await _ in opened { break }
       return server.memos
@@ -526,7 +560,7 @@ struct MemoNotifierCatchUpTests {
     var fetches = 0
     let running = [memo("a", .acted)]
     let finishedMeanwhile = [memo("a", .notified)]
-    notifier.fetchRecent = {
+    notifier.fetchRecent = { _ in
       fetches += 1
       if fetches == 1 {
         for await _ in opened { break }
@@ -576,7 +610,7 @@ struct MemoNotifierCatchUpTests {
     server.memos = [memo("a", .notified, minutesAgo: 5)]
     let notifier = rig(poster, server)
     var answer: [Memo]?
-    notifier.fetchRecent = { answer }
+    notifier.fetchRecent = { _ in answer }
     await notifier.catchUp()
     #expect(!notifier.hasBaseline)
     answer = server.memos
