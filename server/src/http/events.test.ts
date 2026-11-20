@@ -1,5 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import { markFailed, seedMemo } from "../memo/test-support.js";
+import { captureLogs } from "../memo/test-support.js";
+import { _test, type SpanRecord } from "../telemetry/otel.js";
 import { call, fakeHandlers, testApp } from "./test-support.js";
 
 /** Reads decoded chunks from an SSE body until `done` says enough, or the deadline passes. */
@@ -163,5 +165,55 @@ describe("GET /v1/events", () => {
     // Published after the cancel: the unsubscribed stream must not be written to.
     turn.onProgress({ type: "tool", tool: "late" });
     turn.end();
+  });
+});
+
+const streamSpans = (records: SpanRecord[]) =>
+  records
+    .filter((r) => r.name === "sse.stream")
+    .map((r) => Object.fromEntries(r.attributes.map((a) => [a.key, Object.values(a.value)[0]])));
+
+describe("GET /v1/events telemetry", () => {
+  it("counts open streams, marks a second stream of a device a reconnect and records each stream's end", async () => {
+    const { app } = testApp({ sseKeepaliveMs: 1000 });
+    const records: SpanRecord[] = [];
+    _test.onSpanExport((r) => records.push(r));
+    try {
+      const { lines } = await captureLogs(async () => {
+        const first = await call(app, { path: "/v1/events" });
+        const second = await call(app, { path: "/v1/events" });
+        await first.body?.cancel();
+        await second.body?.cancel();
+      });
+      const opened = lines.filter((l) => l["event"] === "sse.opened");
+      expect(opened.map((l) => [l["open_streams"], l["reconnect"]])).toEqual([
+        [1, false],
+        [2, true],
+      ]);
+    } finally {
+      _test.onSpanExport(null);
+    }
+    expect(streamSpans(records)).toEqual([
+      { open_streams: "1", reconnect: false, close_reason: "cancel" },
+      { open_streams: "0", reconnect: true, close_reason: "cancel" },
+    ]);
+    // The device's name never reaches a record.
+    expect(JSON.stringify(records)).not.toContain("iphone");
+  });
+
+  it("records an aborted request's end as abort", async () => {
+    const { app } = testApp({ sseKeepaliveMs: 1000 });
+    const records: SpanRecord[] = [];
+    _test.onSpanExport((r) => records.push(r));
+    try {
+      const controller = new AbortController();
+      const res = await call(app, { path: "/v1/events", signal: controller.signal });
+      controller.abort();
+      await Bun.sleep(10);
+      await res.body?.cancel().catch(() => undefined);
+    } finally {
+      _test.onSpanExport(null);
+    }
+    expect(streamSpans(records)[0]).toMatchObject({ close_reason: "abort" });
   });
 });
