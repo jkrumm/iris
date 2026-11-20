@@ -712,6 +712,51 @@ describe("completeStep", () => {
     );
   });
 
+  it("completeLate writes under the done row it started from, and nothing else", () => {
+    const { store } = testStore();
+    const { id } = seedMemo(store, "acted");
+    store.markStepStarted({ id, step: "summarize" });
+    store.completeStep({ id, step: "summarize", from: "acted", to: "summarized" });
+    const startedAt =
+      store.listStepRecords(id).find((r) => r.step === "summarize")?.startedAt ?? "";
+    const summary = { headline: "H", detail: "D", spoken: "S" };
+
+    expect(
+      store.completeLate({ id, step: "summarize", startedAt: "other", patch: { summary } }),
+    ).toBe(false);
+    expect(store.getMemo(id)?.summary).toBeNull();
+    expect(
+      store.completeLate({
+        id,
+        step: "summarize",
+        startedAt,
+        costUsd: 0.2,
+        usage: { n: 1 },
+        patch: { summary },
+      }),
+    ).toBe(true);
+    expect(store.getMemo(id)?.summary).toEqual(summary);
+    expect(store.listStepRecords(id).find((r) => r.step === "summarize")).toMatchObject({
+      status: "done",
+      costUsd: 0.2,
+      usage: { n: 1 },
+    });
+    // A piece without usage or cost keeps what an earlier one wrote.
+    store.completeLate({ id, step: "summarize", startedAt, patch: { transcriptGist: "g" } });
+    expect(store.listStepRecords(id).find((r) => r.step === "summarize")?.costUsd).toBe(0.2);
+
+    expect(store.failLate({ id, step: "summarize", startedAt: "other", error: "x" })).toBe(false);
+    expect(store.failLate({ id, step: "summarize", startedAt, error: "boom" })).toBe(true);
+    expect(store.listStepRecords(id).find((r) => r.step === "summarize")).toMatchObject({
+      status: "failed",
+      error: "boom",
+    });
+    // A failed row takes no more late writes.
+    expect(
+      store.completeLate({ id, step: "summarize", startedAt, patch: { transcriptGist: "x" } }),
+    ).toBe(false);
+  });
+
   it("resetForRetry re-runs a failed summarize on a notified memo, and only then", () => {
     const { store } = testStore();
     const { id } = seedMemo(store, "acted");

@@ -2,7 +2,7 @@ import { describe, expect, it } from "bun:test";
 import { createMemoEvents } from "../memo/events.js";
 import { MEMO_MODES, type Memo } from "../memo/memo.js";
 import { createRunner } from "../memo/runner.js";
-import { fakeAudio, seedMemo, testStore, transition } from "../memo/test-support.js";
+import { deferred, fakeAudio, seedMemo, testStore, transition } from "../memo/test-support.js";
 import {
   FAKE_META,
   fakeAssetStore,
@@ -482,6 +482,7 @@ describe("pipeline end to end", () => {
     const { store, runner, notifier } = setup();
     const { id } = seedWithSegments(store, [1, 0]);
     await runner.drive(id);
+    await runner.idle();
 
     expect(store.getMemo(id)).toMatchObject({
       state: "notified",
@@ -501,7 +502,8 @@ describe("pipeline end to end", () => {
       ["summarize", "done", null, 0.001],
       ["notify", "done", null, null],
     ]);
-    expect(notifier.calls.map((c) => c.summary.headline)).toEqual(["Headline"]);
+    // A short reply with Hermes's own headline notifies at once; triage's summary lands after (step cost included).
+    expect(notifier.calls.map((c) => c.summary.headline)).toEqual(["Hermes headline"]);
   });
 
   it("announces the transcript when Hermes sent no block and triage is not configured", async () => {
@@ -583,6 +585,7 @@ describe("pipeline end to end", () => {
       store.recordSegment({ id, index: 0, bytes: 1, sha256: "sha-0" });
       store.markReceived({ id, segmentCount: 1 });
       await runner.drive(id);
+      await runner.idle();
       return { memo: store.getMemo(id), summarizer, notifier };
     };
 
@@ -651,6 +654,7 @@ describe("pipeline end to end", () => {
     const { store, runner, transcriber, destination, notifier } = setup({ summarizer });
     const { id } = seedWithSegments(store, [0]);
     await runner.drive(id);
+    await runner.idle();
     // The memo ends notified without a summary; the alert carries the headline of Hermes's block.
     expect(store.getMemo(id)).toMatchObject({
       state: "notified",
@@ -675,8 +679,133 @@ describe("pipeline end to end", () => {
     expect(transcriber.calls).toHaveLength(1);
     expect(destination.calls).toHaveLength(1);
     expect(inner.calls).toHaveLength(1);
-    // notify re-sent with the real headline (the alert's collapse id replaces the banner)
-    expect(notifier.calls.map((c) => c.summary.headline)).toEqual(["Hermes headline", "Headline"]);
+    // notify runs again on the retry (a short reply notifies with Hermes's headline before triage returns)
+    expect(notifier.calls.map((c) => c.summary.headline)).toEqual([
+      "Hermes headline",
+      "Hermes headline",
+    ]);
+  });
+
+  describe("notifying before the summary", () => {
+    /** A summarizer whose triage and gist calls wait until the test lets them go. */
+    function gatedSummarizer() {
+      const inner = fakeSummarizer({ result: { costUsd: 0.001 }, gist: "What was said." });
+      const triage = deferred();
+      const gist = deferred();
+      return {
+        inner,
+        triage,
+        gist,
+        summarizer: {
+          calls: inner.calls,
+          async summarize(params: Parameters<typeof inner.summarize>[0]) {
+            await triage.promise;
+            return inner.summarize(params);
+          },
+          async gist(params: Parameters<typeof inner.gist>[0]) {
+            await gist.promise;
+            return inner.gist(params);
+          },
+        },
+      };
+    }
+    const long = "word ".repeat(180).trim();
+
+    it("a slow gist does not delay summarize, and still lands in the memo", async () => {
+      const { summarizer, gist, triage } = gatedSummarizer();
+      triage.resolve();
+      const { store, runner, events, notifier } = setup({
+        summarizer,
+        transcriber: fakeTranscriber({ result: { text: long } }),
+      });
+      const emitted: { step: string | null; flagChange?: true }[] = [];
+      events.subscribe((e) => emitted.push(e));
+      const id = crypto.randomUUID();
+      store.createMemo({
+        id,
+        mode: "transcribe",
+        device: "iphone",
+        startedAt: "2026-01-01T00:00:00.000Z",
+      });
+      store.recordSegment({ id, index: 0, bytes: 1, sha256: "sha-0" });
+      store.markReceived({ id, segmentCount: 1 });
+
+      await runner.drive(id);
+      // The gist call is still waiting: the memo is notified, with its headline and no gist.
+      expect(store.getMemo(id)).toMatchObject({
+        state: "notified",
+        summary: { headline: "Headline" },
+        transcriptGist: null,
+      });
+      expect(notifier.calls.map((c) => c.summary.headline)).toEqual(["Headline"]);
+
+      gist.resolve();
+      await runner.idle();
+      expect(store.getMemo(id)?.transcriptGist).toBe("What was said.");
+      // The late patch is announced as a refetch-only update: no alert, no memo.done.
+      expect(emitted.at(-1)).toMatchObject({ step: "summarize", flagChange: true });
+      expect(notifier.calls).toHaveLength(1);
+    });
+
+    it("a Hermes memo with a headline notifies before triage returns and later carries the summary", async () => {
+      const { summarizer, triage, inner } = gatedSummarizer();
+      const { store, runner, notifier } = setup({ summarizer });
+      const { id } = seedWithSegments(store, [0]);
+
+      await runner.drive(id);
+      expect(store.getMemo(id)).toMatchObject({
+        state: "notified",
+        summary: null,
+        hermesHeadline: "Hermes headline",
+      });
+      expect(notifier.calls.map((c) => c.summary.headline)).toEqual(["Hermes headline"]);
+      expect(store.listStepRecords(id).find((s) => s.step === "summarize")).toMatchObject({
+        status: "done",
+        costUsd: null,
+      });
+
+      triage.resolve();
+      await runner.idle();
+      expect(inner.calls).toHaveLength(1);
+      expect(store.getMemo(id)).toMatchObject({
+        state: "notified",
+        summary: { headline: "Headline", detail: "Detail", spoken: "Spoken." },
+      });
+      expect(store.listStepRecords(id).find((s) => s.step === "summarize")).toMatchObject({
+        status: "done",
+        costUsd: 0.001,
+      });
+      expect(notifier.calls).toHaveLength(1);
+    });
+
+    it("keeps triage on the path for a reply that is not spoken whole", async () => {
+      const { summarizer, triage } = gatedSummarizer();
+      const destination = fakeDestination({
+        result: { replyText: "A sentence of the reply. ".repeat(40) },
+      });
+      const { store, runner, notifier } = setup({ summarizer, destination });
+      const { id } = seedWithSegments(store, [0]);
+      const driven = runner.drive(id);
+      await Bun.sleep(20);
+      // Speech reads the triage line of a long reply the moment the memo is done, so notify waits for it.
+      expect(notifier.calls).toEqual([]);
+      triage.resolve();
+      await driven;
+      expect(notifier.calls.map((c) => c.summary.headline)).toEqual(["Headline"]);
+      expect(store.getMemo(id)?.summary).toMatchObject({ spoken: "Spoken." });
+    });
+
+    it("keeps triage on the path when Hermes sent no headline", async () => {
+      const { summarizer, triage } = gatedSummarizer();
+      const { store, runner, notifier } = setup({ summarizer, destination: metalessDestination() });
+      const { id } = seedWithSegments(store, [0]);
+      const driven = runner.drive(id);
+      await Bun.sleep(20);
+      expect(notifier.calls).toEqual([]);
+      triage.resolve();
+      await driven;
+      expect(notifier.calls.map((c) => c.summary.headline)).toEqual(["Headline"]);
+    });
   });
 
   it("skips summarize when no summarizer is configured: the memo ends notified", async () => {

@@ -338,6 +338,15 @@ export function speechVariant(params: { reply: string | null; spoken: string | n
 }
 
 /**
+ * Whether a reply is spoken whole (`speechVariant` does not need triage's `spoken` line for it): a non-empty reply whose
+ * cleaned text fits `SPEECH_MAX_CHARS`.
+ */
+export function isSpokenWhole(reply: string | null): boolean {
+  const text = reply?.trim() ?? "";
+  return text !== "" && markdownToSpeech(text, detectLanguage(text)).length <= SPEECH_MAX_CHARS;
+}
+
+/**
  * `variant=summary`: the triage `spoken` line alone, with no "details on screen" suffix; the first sentences of the reply
  * when the memo has none. Never longer than `SPEECH_MAX_CHARS`.
  */
