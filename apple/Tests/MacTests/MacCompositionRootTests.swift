@@ -238,6 +238,41 @@ struct MacCompositionRootTests {
     #expect(await fake.calls.filter { if case .deleteMemo = $0 { true } else { false } }.count == 1)
   }
 
+  @Test(
+    "the detail toolbar's flags and Delete act on a conversation's row: every turn, and the open older turn leaves the pane"
+  )
+  func conversationRowActions() async throws {
+    let root = fakeRoot()
+    let fake = try #require(root.fakeAPI)
+    let start = Date()
+    for (index, id) in ["conv-first", "conv-second"].enumerated() {
+      let at = start.addingTimeInterval(Double(index + 1) * 60)
+      await fake.seed(
+        MemoDetail(
+          memo: Memo(
+            id: id, mode: .hermes, device: "iphone", startedAt: at, state: .notified, transcript: id, threadId: "conv",
+            createdAt: at, updatedAt: at),
+          steps: []))
+    }
+    root.begin()
+    #expect(await loadedWindow(root))
+    let row = try #require(root.windowHistory.memos.first { $0.conversation != nil })
+    #expect(row.id == "conv-second" && row.rowID == "conv-first")
+    let opened = try await fake.memo(id: "conv-first").memo
+    #expect(root.windowHistory.row(for: opened)?.id == row.id, "the pane's first turn finds the conversation's row")
+
+    let actions = MacMemoActions(root: root, model: root.windowHistory)
+    actions.toggleFavorite(opened)
+    #expect(await eventually { await fake.memos["conv-first"]?.memo.favorite == true })
+    #expect(await fake.memos["conv-second"]?.memo.favorite == true)
+
+    root.show("conv-first")
+    actions.delete(row, opened: "conv-first")
+    #expect(root.selectedMemoID == nil, "the open turn leaves with its conversation")
+    #expect(await eventually { await fake.memos["conv-first"]?.memo.deletedAt != nil })
+    #expect(await fake.memos["conv-second"]?.memo.deletedAt != nil)
+  }
+
   @Test("Delete on a memo that cannot be deleted keeps the selection")
   func undeletableKeepsSelection() async throws {
     let root = fakeRoot()
