@@ -2,6 +2,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
+import { estimateTranscribeCostUsd } from "../memo/pricing.js";
 import type { AudioCombiner } from "../ports/audio.js";
 import { fetchFailure, hangGuardFailure, httpFailure, TransientError } from "../ports/transient.js";
 import type { Transcriber, TranscriptionResult } from "../ports/transcriber.js";
@@ -216,13 +217,17 @@ export function createAudioDoorTranscriber(opts: AudioDoorTranscriberOptions): T
           if (!parsed.success) {
             throw new Error("audio door transcription response has no text field");
           }
+          // The door's answer carries no cost (agent-workflows books it under `agw-run-id`): an estimate from the audio's length.
+          const costUsd = estimateTranscribeCostUsd(seconds);
+          span.setAttributes({ cost_usd: costUsd, cost_estimated: true });
           log("audio_door.transcribed", {
             memo_id: memoId,
             [RUN_ID_ATTR]: runId,
             audio_seconds: seconds,
             text_chars: parsed.data.text.length,
+            cost_usd: costUsd,
           });
-          return { text: parsed.data.text, audioSeconds: seconds };
+          return { text: parsed.data.text, audioSeconds: seconds, costUsd, costEstimated: true };
         },
       );
     },

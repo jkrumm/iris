@@ -7,6 +7,7 @@ import {
   threadTitle,
   type MemoMode,
 } from "../memo/memo.js";
+import { estimateTurnCostUsd } from "../memo/pricing.js";
 import type {
   Delivery,
   DeliveryMeta,
@@ -22,6 +23,8 @@ const DEFAULT_IDLE_MS = 300_000;
 // Plain request timeout for the quick session POST; the chat turn itself has no wall-clock cap.
 const SESSION_TIMEOUT_MS = 30_000;
 const ERROR_BODY_MAX = 300;
+// The post-turn read of the session's counters is bookkeeping: it never holds a delivery up for long.
+const SESSION_READ_TIMEOUT_MS = 5_000;
 
 /** The `source` of every Iris session. */
 const SOURCE = "iris";
@@ -102,14 +105,27 @@ const AssistantCompleted = z.object({
   partial: z.boolean(),
   interrupted: z.boolean(),
 });
+// The cache and call counts are optional: the session stream's `usage` carries only the three token totals today (hermes-agent
+// `_finish_turn_result`), the run stream's also the cache counts (`api_server_runs.py` `_USAGE_FIELDS`).
 const RunCompleted = z.object({
   usage: z
     .object({
       input_tokens: z.number(),
       output_tokens: z.number(),
       total_tokens: z.number(),
+      cache_read_tokens: z.number().nullish(),
+      cache_write_tokens: z.number().nullish(),
+      api_calls: z.number().nullish(),
     })
     .nullish(),
+});
+// `GET /api/sessions/{id}` (hermes-agent `_session_response`): the session's running totals over all its turns, with the
+// cache counts and the number of model calls that `run.completed` lacks.
+const SessionCounters = z.object({
+  model: z.string().nullish(),
+  cache_read_tokens: z.number().nullish(),
+  cache_write_tokens: z.number().nullish(),
+  api_call_count: z.number().nullish(),
 });
 // `tool.started` frames carry the tool's name and its arguments at the top level (hermes-agent `gateway/platforms/api_server.py`,
 // `_tool_progress`). The arguments are read for one tool only: `skill_view`, whose `name` is the skill Hermes loaded.
@@ -135,6 +151,21 @@ export function actionOf(frame: { tool_name: string; args?: unknown }): string |
   return skill === "" || skill === IRIS_SKILL ? null : skill;
 }
 const ErrorEvent = z.object({ message: z.string() });
+
+interface SessionTotals {
+  model: string | null;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  apiCalls: number;
+}
+
+/** A session that was just created has run no turn: its totals are zero. */
+const NO_TURNS: SessionTotals = {
+  model: null,
+  cacheReadTokens: 0,
+  cacheWriteTokens: 0,
+  apiCalls: 0,
+};
 const ErrorEnvelope = z.object({ error: z.object({ message: z.string().min(1) }) });
 
 export interface HermesDestinationOptions {
@@ -160,6 +191,40 @@ async function failureMessage(res: Response, signal: AbortSignal): Promise<strin
     // not JSON: fall through to the raw body
   }
   return text.slice(0, ERROR_BODY_MAX);
+}
+
+/**
+ * The session's running totals, or null when they cannot be read: best effort, bounded, never a failure of the turn. The
+ * body is parsed, never logged.
+ */
+async function readSessionTotals(params: {
+  doFetch: typeof fetch;
+  baseUrl: string;
+  sessionId: string;
+  headers: Record<string, string>;
+}): Promise<SessionTotals | null> {
+  try {
+    const res = await params.doFetch(
+      new URL(`/api/sessions/${encodeURIComponent(params.sessionId)}`, params.baseUrl).toString(),
+      {
+        method: "GET",
+        headers: params.headers,
+        signal: AbortSignal.timeout(SESSION_READ_TIMEOUT_MS),
+      },
+    );
+    if (res.status !== 200) return null;
+    const parsed = SessionCounters.safeParse(await res.json());
+    if (!parsed.success) return null;
+    const { model, cache_read_tokens, cache_write_tokens, api_call_count } = parsed.data;
+    return {
+      model: model ?? null,
+      cacheReadTokens: cache_read_tokens ?? 0,
+      cacheWriteTokens: cache_write_tokens ?? 0,
+      apiCalls: api_call_count ?? 0,
+    };
+  } catch {
+    return null;
+  }
 }
 
 function parseData(frame: SseFrame): unknown {
@@ -206,6 +271,59 @@ function frameShape() {
   };
 }
 
+interface TurnAccounting {
+  /** The delivery's `usage`: the token totals, plus whatever else is known of the turn. */
+  usage: Record<string, number | string> | undefined;
+  /** Estimated from the price table; undefined when the turn has no tokens or its model has no rate. */
+  costUsd: number | undefined;
+  /** The model the turn ran on when it has tokens but no rate (logged, never silent). */
+  unpricedModel: string | undefined;
+  spanAttributes: Record<string, number | string | boolean>;
+}
+
+/**
+ * What a turn used and cost. The cache counts and the number of model calls come from `run.completed` when it carries them,
+ * else from the growth of the session's totals over the turn (`before` to `after`; unknown when either read failed). Hermes
+ * prices the turns it runs through the Claude gateway at 0, so the cost is an estimate from `memo/pricing.ts`.
+ */
+function turnAccounting(params: {
+  usage: { inputTokens: number; outputTokens: number; totalTokens: number } | undefined;
+  runUsage: z.infer<typeof RunCompleted>["usage"];
+  before: SessionTotals | null;
+  after: SessionTotals | null;
+}): TurnAccounting {
+  const { usage, runUsage, before, after } = params;
+  const grew = (field: "cacheReadTokens" | "cacheWriteTokens" | "apiCalls"): number | undefined =>
+    before && after ? Math.max(0, after[field] - before[field]) : undefined;
+  const cacheReadTokens = runUsage?.cache_read_tokens ?? grew("cacheReadTokens");
+  const cacheWriteTokens = runUsage?.cache_write_tokens ?? grew("cacheWriteTokens");
+  const apiCalls = runUsage?.api_calls ?? grew("apiCalls");
+  const model = after?.model ?? undefined;
+
+  const known = {
+    ...(cacheReadTokens !== undefined && { cacheReadTokens }),
+    ...(cacheWriteTokens !== undefined && { cacheWriteTokens }),
+    ...(apiCalls !== undefined && { apiCalls }),
+    ...(model !== undefined && { model }),
+  };
+  const costUsd = usage
+    ? estimateTurnCostUsd({ model, tokens: { ...usage, ...known } })
+    : undefined;
+  return {
+    usage: usage ? { ...usage, ...known } : undefined,
+    costUsd,
+    unpricedModel: usage && costUsd === undefined ? (model ?? "unknown") : undefined,
+    spanAttributes: {
+      ...(usage && { input_tokens: usage.inputTokens, output_tokens: usage.outputTokens }),
+      ...(cacheReadTokens !== undefined && { cache_read_tokens: cacheReadTokens }),
+      ...(cacheWriteTokens !== undefined && { cache_write_tokens: cacheWriteTokens }),
+      ...(apiCalls !== undefined && { api_calls: apiCalls }),
+      ...(model !== undefined && { model }),
+      ...(costUsd !== undefined && { cost_usd: costUsd, cost_estimated: true }),
+    },
+  };
+}
+
 /**
  * Delivers a transcript to Hermes: a fresh session named after the memo (or, with a `threadId`, a turn into that existing
  * session), one chat turn over the named-event SSE stream with `systemMessage(mode)` as the turn's system prompt, and the final
@@ -227,8 +345,10 @@ export function createHermesDestination(opts: HermesDestinationOptions): Destina
       const sessionId = threadId ?? memoId;
       const attrs = { memo_id: memoId, downstream: "hermes" };
 
+      // A session this call created has no earlier turns, so its totals at the end are this turn's.
+      let created = false;
       if (threadId === undefined) {
-        await withSpan("hermes.create_session", attrs, async (span) => {
+        created = await withSpan("hermes.create_session", attrs, async (span) => {
           const timeout = AbortSignal.timeout(SESSION_TIMEOUT_MS);
           const res = await doFetch(new URL("/api/sessions", opts.baseUrl).toString(), {
             method: "POST",
@@ -240,7 +360,8 @@ export function createHermesDestination(opts: HermesDestinationOptions): Destina
           });
           span.setAttributes({ status: res.status });
           // 409 session_exists is fine: a retried memo reuses its session.
-          if (res.status === 201 || res.status === 409) return;
+          if (res.status === 201) return true;
+          if (res.status === 409) return false;
           throw httpFailure(
             `hermes session create failed: ${res.status} ${await failureMessage(res, timeout)}`,
             res.status,
@@ -254,9 +375,15 @@ export function createHermesDestination(opts: HermesDestinationOptions): Destina
       ).toString();
 
       return withSpan("hermes.chat_stream", attrs, async (span) => {
+        // The counters are the session's running totals: this turn's share is the difference to what they were before it.
+        const before = created
+          ? NO_TURNS
+          : await readSessionTotals({ doFetch, baseUrl: opts.baseUrl, sessionId, headers });
         // Until the response headers arrive the same idle limit applies, via an abort.
         const controller = new AbortController();
         const timer = setTimeout(() => controller.abort(), idleMs);
+        const sentAt = performance.now();
+        const sinceSent = () => Math.round(performance.now() - sentAt);
         const res = await doFetch(url, {
           method: "POST",
           headers,
@@ -269,7 +396,7 @@ export function createHermesDestination(opts: HermesDestinationOptions): Destina
           }
           throw fetchFailure(err);
         });
-        span.setAttributes({ status: res.status });
+        span.setAttributes({ status: res.status, headers_ms: sinceSent() });
         if (res.status !== 200 || !res.body) {
           // The abort guard stays armed through the error-body read, so a stalled body cannot hang the turn.
           const message = await failureMessage(res, controller.signal).finally(() =>
@@ -281,6 +408,9 @@ export function createHermesDestination(opts: HermesDestinationOptions): Destina
 
         let reply: { content: string; interrupted: boolean } | null = null;
         let usage: { inputTokens: number; outputTokens: number; totalTokens: number } | undefined;
+        let runUsage: z.infer<typeof RunCompleted>["usage"];
+        let sawFrame = false;
+        let sawToken = false;
         let sawDone = false;
         const toolNames: string[] = [];
         const shape = frameShape();
@@ -300,16 +430,28 @@ export function createHermesDestination(opts: HermesDestinationOptions): Destina
         try {
           for await (const frame of readSseFrames(res.body, { idleMs })) {
             shape.add(frame);
+            // Set as it happens, so a turn that fails after a stall still shows how long Hermes took to answer.
+            if (!sawFrame) {
+              sawFrame = true;
+              span.setAttributes({ first_frame_ms: sinceSent() });
+            }
             if (frame.event === "assistant.completed") {
               const completed = AssistantCompleted.safeParse(parseData(frame));
               if (completed.success && !completed.data.partial) reply = completed.data;
             } else if (frame.event === "assistant.delta") {
               const delta = AssistantDelta.safeParse(parseData(frame));
-              if (delta.success) progress({ type: "text", delta: delta.data.delta });
+              if (delta.success) {
+                if (!sawToken && delta.data.delta !== "") {
+                  sawToken = true;
+                  span.setAttributes({ first_token_ms: sinceSent() });
+                }
+                progress({ type: "text", delta: delta.data.delta });
+              }
             } else if (frame.event === "run.completed") {
               const completed = RunCompleted.safeParse(parseData(frame));
               const u = completed.success ? completed.data.usage : null;
               if (u) {
+                runUsage = u;
                 usage = {
                   inputTokens: u.input_tokens,
                   outputTokens: u.output_tokens,
@@ -341,6 +483,18 @@ export function createHermesDestination(opts: HermesDestinationOptions): Destina
         if (!sawDone) throw new Error("hermes stream ended without done");
         if (reply?.interrupted) throw new Error("hermes reply was interrupted");
 
+        const after = await readSessionTotals({
+          doFetch,
+          baseUrl: opts.baseUrl,
+          sessionId,
+          headers,
+        });
+        const turn = turnAccounting({ usage, runUsage, before, after });
+        span.setAttributes(turn.spanAttributes);
+        if (turn.unpricedModel !== undefined) {
+          log("hermes.cost_unpriced", { memo_id: memoId, model: turn.unpricedModel });
+        }
+
         const parsed = parseIrisBlock(reply?.content ?? "");
         if (parsed.invalid !== undefined) {
           log("hermes.meta_invalid", { memo_id: memoId, reason: parsed.invalid });
@@ -363,7 +517,8 @@ export function createHermesDestination(opts: HermesDestinationOptions): Destina
           replyText: parsed.reply,
           thread: { id: sessionId, kind: "hermes", title: threadTitle(transcript) },
           meta,
-          ...(usage ? { usage } : {}),
+          ...(turn.usage ? { usage: turn.usage } : {}),
+          ...(turn.costUsd !== undefined ? { costUsd: turn.costUsd, costEstimated: true } : {}),
         };
       });
     },

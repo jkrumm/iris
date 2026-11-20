@@ -3,6 +3,7 @@ import { captureLogs } from "../memo/test-support.js";
 import type { MemoMode } from "../memo/memo.js";
 import type { DeliveryProgress } from "../ports/destination.js";
 import { transientKind } from "../ports/transient.js";
+import { _test, type SpanRecord } from "../telemetry/otel.js";
 import {
   createHermesDestination,
   IRIS_SYSTEM_MESSAGE,
@@ -56,10 +57,19 @@ function fakeHermes(opts: {
   sessionStatus?: number;
   idleMs?: number;
   chat: (init: RequestInit) => Response | Promise<Response>;
+  /** What `GET /api/sessions/{id}` answers, one entry per read in order (the read before the turn, then the one after); 404 once used up. */
+  sessions?: Record<string, unknown>[];
 }) {
   const calls: Call[] = [];
+  const reads: Call[] = [];
+  const snapshots = [...(opts.sessions ?? [])];
   const fakeFetch = (async (input: string | URL | Request, init?: RequestInit) => {
     const url = String(input);
+    if (init?.method === "GET") {
+      reads.push({ url, init });
+      const snapshot = snapshots.shift();
+      return snapshot ? Response.json(snapshot) : new Response("", { status: 404 });
+    }
     calls.push({ url, init: init ?? {} });
     if (url.endsWith("/api/sessions")) {
       return opts.sessionStatus === 409
@@ -74,7 +84,7 @@ function fakeHermes(opts: {
     fetch: fakeFetch,
     ...(opts.idleMs !== undefined ? { idleMs: opts.idleMs } : {}),
   });
-  return { calls, destination };
+  return { calls, reads, destination };
 }
 
 const deliver = (d: ReturnType<typeof fakeHermes>["destination"]) =>
@@ -391,6 +401,181 @@ describe("hermes destination, continuing a thread", () => {
       message: "and then?",
       system_message: systemMessage("chat"),
     });
+  });
+});
+
+/** The span records built while `fn` runs, by name. */
+async function captureSpans(fn: () => Promise<unknown>): Promise<Map<string, SpanRecord>> {
+  const records = new Map<string, SpanRecord>();
+  _test.onSpanExport((r) => records.set(r.name, r));
+  try {
+    await fn();
+  } finally {
+    _test.onSpanExport(null);
+  }
+  return records;
+}
+
+/** A span's attributes as plain values (OTLP ints come as strings). */
+function attributesOf(span: SpanRecord | undefined): Record<string, string | number | boolean> {
+  const out: Record<string, string | number | boolean> = {};
+  for (const { key, value } of span?.attributes ?? []) {
+    if ("intValue" in value) out[key] = Number(value.intValue);
+    else if ("doubleValue" in value) out[key] = value.doubleValue;
+    else if ("boolValue" in value) out[key] = value.boolValue;
+    else out[key] = value.stringValue;
+  }
+  return out;
+}
+
+const HAIKU = "claude-haiku-5-5";
+const runCompletedWithCache = frame("run.completed", {
+  message_id: "m1",
+  usage: {
+    input_tokens: 40_000,
+    output_tokens: 1_000,
+    total_tokens: 41_000,
+    cache_read_tokens: 30_000,
+    cache_write_tokens: 5_000,
+    api_calls: 4,
+  },
+});
+
+describe("hermes destination, timing and usage", () => {
+  const stream = (usageFrame = runCompleted) =>
+    sseResponse([
+      frame("run.started", {}),
+      frame("assistant.delta", { message_id: "m1", delta: "Do" }),
+      completed("Done."),
+      usageFrame,
+      done,
+    ]);
+  const turn = { id: MEMO_ID, model: HAIKU };
+
+  it("puts the time to the first frame and the first token on the chat span", async () => {
+    const { destination } = fakeHermes({ chat: () => stream() });
+    const spans = await captureSpans(() => deliver(destination));
+    const attrs = attributesOf(spans.get("hermes.chat_stream"));
+    expect(attrs["first_frame_ms"]).toBeGreaterThanOrEqual(0);
+    expect(attrs["first_token_ms"]).toBeGreaterThanOrEqual(attrs["first_frame_ms"] as number);
+    expect(attrs["headers_ms"]).toBeGreaterThanOrEqual(0);
+  });
+
+  it("keeps the first-frame time on a turn that fails after it", async () => {
+    const { destination } = fakeHermes({
+      chat: () =>
+        sseResponse([frame("run.started", {}), frame("error", { message: "overloaded" })]),
+    });
+    const spans = await captureSpans(() => deliver(destination).catch(() => undefined));
+    const span = spans.get("hermes.chat_stream");
+    expect(span?.status.code).toBe(2);
+    expect(attributesOf(span)["first_frame_ms"]).toBeGreaterThanOrEqual(0);
+    expect(attributesOf(span)).not.toHaveProperty("first_token_ms");
+  });
+
+  it("takes the cache counts and the call count from run.completed when it has them", async () => {
+    const { destination, reads } = fakeHermes({
+      chat: () => stream(runCompletedWithCache),
+      sessions: [turn, turn],
+    });
+    const spans = await captureSpans(async () => {
+      const delivery = await deliver(destination);
+      expect(delivery.usage).toEqual({
+        inputTokens: 40_000,
+        outputTokens: 1_000,
+        totalTokens: 41_000,
+        cacheReadTokens: 30_000,
+        cacheWriteTokens: 5_000,
+        apiCalls: 4,
+        model: HAIKU,
+      });
+      // 5k uncached input, 30k read, 5k written, 1k output at the Haiku rates.
+      expect(delivery.costUsd).toBe(0.001925);
+      expect(delivery.costEstimated).toBe(true);
+    });
+    expect(attributesOf(spans.get("hermes.chat_stream"))).toMatchObject({
+      input_tokens: 40_000,
+      output_tokens: 1_000,
+      cache_read_tokens: 30_000,
+      cache_write_tokens: 5_000,
+      api_calls: 4,
+      model: HAIKU,
+      cost_usd: 0.001925,
+      cost_estimated: true,
+    });
+    // A session this call created is not read before its turn: one read, after it.
+    expect(reads).toHaveLength(1);
+  });
+
+  it("reads the counts off the new session when run.completed has none", async () => {
+    const { destination } = fakeHermes({
+      chat: () => stream(),
+      sessions: [{ ...turn, cache_read_tokens: 6, cache_write_tokens: 2, api_call_count: 3 }],
+    });
+    const delivery = await deliver(destination);
+    expect(delivery.usage).toEqual({
+      inputTokens: 10,
+      outputTokens: 5,
+      totalTokens: 15,
+      cacheReadTokens: 6,
+      cacheWriteTokens: 2,
+      apiCalls: 3,
+      model: HAIKU,
+    });
+  });
+
+  it("counts only this turn's share of a continued session's totals", async () => {
+    const { destination, reads } = fakeHermes({
+      chat: () => stream(),
+      sessions: [
+        { ...turn, cache_read_tokens: 100, cache_write_tokens: 40, api_call_count: 5 },
+        { ...turn, cache_read_tokens: 130, cache_write_tokens: 45, api_call_count: 8 },
+      ],
+    });
+    const delivery = await destination.deliver({
+      memoId: MEMO_ID,
+      transcript: "and then?",
+      mode: "auto",
+      threadId: "b6d2e8a4-3f91-4c07-9a52-7e1d0c4f8b63",
+    });
+    expect(delivery.usage).toMatchObject({ cacheReadTokens: 30, cacheWriteTokens: 5, apiCalls: 3 });
+    expect(reads).toHaveLength(2);
+  });
+
+  it("reports no cache counts for a retried session whose earlier totals cannot be read", async () => {
+    // 409: the session exists from an earlier run, so its totals are not this turn's; the read before the turn fails.
+    const { destination } = fakeHermes({
+      sessionStatus: 409,
+      chat: () => stream(),
+      sessions: [],
+    });
+    const delivery = await deliver(destination);
+    expect(delivery.usage).toEqual({ inputTokens: 10, outputTokens: 5, totalTokens: 15 });
+    // No model, no rate: no cost, and the log says why.
+    expect(delivery).not.toHaveProperty("costUsd");
+  });
+
+  it("logs a turn it cannot price, with the model, and still delivers", async () => {
+    const { destination } = fakeHermes({
+      chat: () => stream(),
+      sessions: [{ id: MEMO_ID, model: "some-other-model" }],
+    });
+    const { result, lines } = await captureLogs(() => deliver(destination));
+    expect(result.replyText).toBe("Done.");
+    expect(result).not.toHaveProperty("costUsd");
+    expect(lines.find((l) => l["event"] === "hermes.cost_unpriced")).toMatchObject({
+      memo_id: MEMO_ID,
+      model: "some-other-model",
+    });
+  });
+
+  it("delivers when the session read answers garbage", async () => {
+    const { destination } = fakeHermes({
+      chat: () => stream(),
+      sessions: [{ model: 7, cache_read_tokens: "many" }],
+    });
+    const delivery = await deliver(destination);
+    expect(delivery.usage).toEqual({ inputTokens: 10, outputTokens: 5, totalTokens: 15 });
   });
 });
 

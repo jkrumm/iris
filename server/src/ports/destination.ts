@@ -20,6 +20,8 @@ export interface Delivery {
   replyText: string;
   usage?: unknown;
   costUsd?: number;
+  /** `costUsd` is a price-table estimate (`memo/pricing.ts`), not a cost the destination reported. */
+  costEstimated?: boolean;
   /** The conversation the message landed in. The destination names it; `act` only persists it. */
   thread?: ThreadUpsert;
   meta?: DeliveryMeta;

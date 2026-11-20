@@ -14,6 +14,7 @@ import {
 } from "../ports/fakes.js";
 import { createReplyAssets, type ReplyAssets } from "../memo/reply-assets.js";
 import type { MemoStore } from "../memo/store.js";
+import { _test, withSpan, type SpanRecord } from "../telemetry/otel.js";
 import { createStepHandlers } from "./steps.js";
 
 type FakeDestination = ReturnType<typeof fakeDestination>;
@@ -148,6 +149,76 @@ describe("transcribe", () => {
     await expect(handlers.transcribe?.({ memo: seedWithSegments(store, [0]) })).rejects.toThrow(
       "empty transcript",
     );
+  });
+});
+
+/** The `cost_*` attributes of the span `fn` runs in, as the step handlers set them. */
+async function costAttributesOf(fn: () => Promise<unknown>): Promise<Record<string, unknown>> {
+  let record: SpanRecord | undefined;
+  _test.onSpanExport((r) => {
+    if (r.name === "step") record = r;
+  });
+  try {
+    await withSpan("step", {}, fn);
+  } finally {
+    _test.onSpanExport(null);
+  }
+  return Object.fromEntries(
+    (record?.attributes ?? [])
+      .filter((a) => a.key.startsWith("cost_"))
+      .map((a) => [a.key, Object.values(a.value)[0]]),
+  );
+}
+
+describe("estimated costs", () => {
+  it("transcribe stores an estimate's flag in usage and on the span; a reported cost carries none", async () => {
+    const estimated = setup({
+      transcriber: fakeTranscriber({ result: { costUsd: 0.0007, costEstimated: true } }),
+    });
+    const memo = seedWithSegments(estimated.store, [0]);
+    let result: Awaited<ReturnType<NonNullable<typeof estimated.handlers.transcribe>>> | undefined;
+    const attrs = await costAttributesOf(async () => {
+      result = await estimated.handlers.transcribe?.({ memo });
+    });
+    expect(result).toMatchObject({
+      usage: { audioSeconds: 12.5, costEstimated: true },
+      costUsd: 0.0007,
+    });
+    expect(attrs).toEqual({ cost_usd: 0.0007, cost_estimated: true });
+
+    const reported = setup();
+    const reportedAttrs = await costAttributesOf(async () => {
+      result = await reported.handlers.transcribe?.({
+        memo: seedWithSegments(reported.store, [0]),
+      });
+    });
+    expect(result).toMatchObject({ usage: { audioSeconds: 12.5 }, costUsd: 0.02 });
+    expect(result?.usage).not.toHaveProperty("costEstimated");
+    expect(reportedAttrs).toEqual({ cost_usd: 0.02, cost_estimated: false });
+  });
+
+  it("act merges the flag into the turn's usage and sets it on the span", async () => {
+    const { store, handlers } = setup({
+      destination: fakeDestination({
+        result: { usage: { inputTokens: 10 }, costUsd: 0.002, costEstimated: true },
+      }),
+    });
+    const memo = { ...seedMemo(store, "transcribed"), transcript: "do the thing" };
+    let result: Awaited<ReturnType<NonNullable<typeof handlers.act>>> | undefined;
+    const attrs = await costAttributesOf(async () => {
+      result = await handlers.act?.({ memo });
+    });
+    expect(result).toMatchObject({
+      usage: { inputTokens: 10, costEstimated: true },
+      costUsd: 0.002,
+    });
+    expect(attrs).toEqual({ cost_usd: 0.002, cost_estimated: true });
+  });
+
+  it("act without a cost sets no cost attribute at all", async () => {
+    const { store, handlers } = setup({ destination: fakeDestination({ result: {} }) });
+    const memo = { ...seedMemo(store, "transcribed"), transcript: "do the thing" };
+    expect(await costAttributesOf(async () => handlers.act?.({ memo }))).toEqual({});
   });
 });
 
