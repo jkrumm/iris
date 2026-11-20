@@ -205,13 +205,21 @@ nonisolated enum QuarantineInspector {
 }
 
 extension DeviceLog {
-  /// One `capture.quarantine` record per set-aside file: the server never hears of a file in that folder, so the data-loss case
-  /// is visible at once. The files are inspected on the cooperative pool, never the caller's actor.
+  /// The names of the set-aside files already reported; see `recordQuarantine(_:)`.
+  private nonisolated static let quarantineReportedKey = "com.jkrumm.iris.telemetry.quarantineReported"
+
+  /// One `capture.quarantine` record per set-aside file, **once**: the server never hears of a file in that folder, so the
+  /// data-loss case is visible when it happens, and the same file is not warned about again at every launch (the launch record
+  /// carries the count). The names reported so far are kept; a name that has left the folder is forgotten, so a new file that
+  /// reuses it would be reported. The files are inspected on the cooperative pool, never the caller's actor.
   @concurrent
   func recordQuarantine(_ files: [SetAsideFile]) async {
-    for file in files {
+    let defaults = defaults
+    let reported = Set(defaults.stringArray(forKey: Self.quarantineReportedKey) ?? [])
+    for file in files where !reported.contains(file.url.lastPathComponent) {
       event("capture.quarantine", severity: .warn, QuarantineInspector.attributes(of: file))
     }
+    defaults.set(Set(files.map { $0.url.lastPathComponent }).sorted(), forKey: Self.quarantineReportedKey)
   }
 }
 
