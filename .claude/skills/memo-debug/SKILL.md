@@ -54,7 +54,7 @@ Full recipe, the `run.id` filter and what each record means: skill `device`, "On
 ## Retry
 
 `POST /v1/memos/$ID/retry {"from":"<step>"}` re-drives from that step and clears the columns of it and later steps; 409 unless the memo is
-`failed`; 400 for a step outside the memo's pipeline (a typed memo has no `transcribe`, mode `transcribe` has no `act`). A stuck or failed Hermes turn retries from `act`; an old `failed(route)` also from `act`; a `notified` memo whose `summarize` failed retries from `summarize`. **Unverified live** (covered by server tests only); do it on a real failed memo, not a healthy one. `act` is at-least-once: a retry
+`failed`; 400 for a step outside the memo's pipeline (a typed memo has no `transcribe`, mode `transcribe` has no `act`). A stuck or failed Hermes turn retries from `act`; an old `failed(route)` also from `act`; a `notified` memo whose `summarize` failed, or is `done` with no summary (late work a restart cut), retries from `summarize` (and re-sends the push). **Unverified live** (covered by server tests only); do it on a real failed memo, not a healthy one. `act` is at-least-once: a retry
 of `act` posts a second turn into the same Hermes session. A downstream that was down turns the memo `failed`; check `/health` `degraded`
 first (`act` there means Hermes is not configured: the memo waits at `transcribed`, no retry needed once it is), then retry.
 
