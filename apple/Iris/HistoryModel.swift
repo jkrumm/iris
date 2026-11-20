@@ -285,12 +285,17 @@ final class HistoryModel {
     revisions[id, default: 0]
   }
 
-  /// A number that moves when a turn of the thread changes or another one joins: the revision of the list's row of it (its newest
-  /// turn, whose events a new turn brings) and how many turns the row stands for. The list holds one row per conversation, so a count
-  /// of rows says nothing about turns.
+  /// A number that moves when a turn of the thread changes or another one joins: the list's row of it (its newest turn, which a new turn
+  /// replaces), how many turns it stands for and its event revision, mixed rather than added (a join swaps the row for a memo with a lower
+  /// revision and a higher count, which a sum can cancel). The list holds one row per conversation, so a count of rows says nothing. Only
+  /// compared for equality within the running process.
   func threadActivity(_ threadID: String) -> Int {
     guard let row = items.first(where: { $0.threadId == threadID }) else { return 0 }
-    return revision(of: row.id) &+ (row.conversation?.turns ?? 1)
+    var hasher = Hasher()
+    hasher.combine(row.id)
+    hasher.combine(row.conversation?.turns ?? 1)
+    hasher.combine(revision(of: row.id))
+    return hasher.finalize()
   }
 
   /// The revision of a transcript as one: the memo's own, its first part's and the thread's activity (any recording of it changing,
