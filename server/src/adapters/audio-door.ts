@@ -7,7 +7,7 @@ import type { AudioCombiner } from "../ports/audio.js";
 import { fetchFailure, hangGuardFailure, httpFailure, TransientError } from "../ports/transient.js";
 import type { Transcriber, TranscriptionResult } from "../ports/transcriber.js";
 import { log } from "../telemetry/log.js";
-import { withSpan } from "../telemetry/otel.js";
+import { withSpan, type Span } from "../telemetry/otel.js";
 import { RUN_ID_ATTR, type AudioDoorClient } from "./audio-door-client.js";
 
 const MODEL = "voxtral-mini-transcribe-3-0";
@@ -71,12 +71,23 @@ const concatLine = (path: string) => `file '${path.replaceAll("'", "'\\''")}'`;
  * Joins the segments with ffmpeg's concat demuxer and re-encodes them as mono 16 kHz AAC in
  * m4a, the shape the transcription model wants. Works in a fresh temp dir that is always removed.
  */
-export const ffmpegConcat: ConcatFn = async (paths, opts) => {
+export const ffmpegConcat: ConcatFn = (paths, opts) =>
+  withSpan("audio.concat", { segments: paths.length }, (span) => concatSegments(paths, opts, span));
+
+async function concatSegments(
+  paths: string[],
+  opts: ConcatOptions | undefined,
+  span: Span,
+): Promise<{ bytes: Uint8Array; seconds: number }> {
   const timeoutMs = opts?.timeoutMs ?? PROCESS_TIMEOUT_MS;
   if (paths.length === 0) throw new Error("concat: no segments given");
+  let inputBytes = 0;
   for (const path of paths) {
-    if (!(await Bun.file(path).exists())) throw new Error(`concat: segment file missing: ${path}`);
+    const file = Bun.file(path);
+    if (!(await file.exists())) throw new Error(`concat: segment file missing: ${path}`);
+    inputBytes += file.size;
   }
+  span.setAttributes({ input_bytes: inputBytes });
 
   const dir = await mkdtemp(join(tmpdir(), "iris-concat-"));
   try {
@@ -84,6 +95,8 @@ export const ffmpegConcat: ConcatFn = async (paths, opts) => {
     const out = join(dir, "memo.m4a");
     await writeFile(list, `${paths.map(concatLine).join("\n")}\n`);
 
+    // The split tells a slow concat apart in the trace: a cold or contended ffmpeg, a slow probe, or the read-back.
+    const ffmpegStarted = performance.now();
     const ffmpeg = await run(
       [
         "ffmpeg",
@@ -112,23 +125,28 @@ export const ffmpegConcat: ConcatFn = async (paths, opts) => {
       ],
       timeoutMs,
     );
+    span.setAttributes({ ffmpeg_ms: Math.round(performance.now() - ffmpegStarted) });
     if (ffmpeg.code !== 0) throw failure("ffmpeg", ffmpeg.stderr, ffmpeg.code);
 
+    const probeStarted = performance.now();
     const probe = await run(
       ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", out],
       timeoutMs,
     );
+    span.setAttributes({ ffprobe_ms: Math.round(performance.now() - probeStarted) });
     if (probe.code !== 0) throw failure("ffprobe", probe.stderr, probe.code);
     const seconds = Number.parseFloat(probe.stdout.trim());
     if (!Number.isFinite(seconds)) {
       throw new Error(`ffprobe returned no duration: ${probe.stdout.trim().slice(0, 100)}`);
     }
 
-    return { bytes: new Uint8Array(await Bun.file(out).arrayBuffer()), seconds };
+    const bytes = new Uint8Array(await Bun.file(out).arrayBuffer());
+    span.setAttributes({ output_bytes: bytes.byteLength, audio_seconds: seconds });
+    return { bytes, seconds };
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
-};
+}
 
 /** The scrubber serves the same mono 16 kHz m4a the transcriber receives. */
 export const ffmpegCombiner: AudioCombiner = {
@@ -227,7 +245,13 @@ export function createAudioDoorTranscriber(opts: AudioDoorTranscriberOptions): T
             text_chars: parsed.data.text.length,
             cost_usd: costUsd,
           });
-          return { text: parsed.data.text, audioSeconds: seconds, costUsd, costEstimated: true };
+          return {
+            text: parsed.data.text,
+            audioSeconds: seconds,
+            costUsd,
+            costEstimated: true,
+            recording: bytes,
+          };
         },
       );
     },

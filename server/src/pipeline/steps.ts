@@ -85,6 +85,16 @@ export function createStepHandlers(deps: {
         .toSorted((a, b) => a - b)
         .map((index) => audio.path({ id: memo.id, index }));
       const result = await transcriber.transcribe({ memoId: memo.id, segmentPaths });
+      // The transcriber already encoded the recording: keep it so the first playback request is a file read, not a second concat.
+      // A cache write that fails costs only that second concat later, never the transcript.
+      if (result.recording) {
+        await audio.putCombined({ id: memo.id, bytes: result.recording }).catch((err: unknown) =>
+          log("memo.recording_store_failed", {
+            memo_id: memo.id,
+            error: err instanceof Error ? err.message : String(err),
+          }),
+        );
+      }
       if (result.text.trim() === "") throw new Error("empty transcript");
       getActiveSpan().setAttributes({
         audio_seconds: result.audioSeconds,
