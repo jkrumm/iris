@@ -90,6 +90,32 @@ struct HistoryModelTests {
     #expect(pasteboard.copied == ["One.\n\nTwo."])
   }
 
+  @Test("a page that brings a conversation's row replaces the stand-in older turn the list held for it")
+  func pageReplacesStandIn() async {
+    for index in 1...51 { await seed(MemoFactory.memo("s\(index)", age: Double(index), threadId: "s\(index)")) }
+    await seed(MemoFactory.memo("a", age: 300, threadId: "t"), MemoFactory.memo("b", age: 290, threadId: "t"))
+    await model.load()
+    #expect(model.memos.count == 50)
+    model.insert(MemoFactory.memo("a", age: 300, threadId: "t"))
+    let last = model.memos[model.memos.count - 1]
+    #expect(last.id == "a")
+
+    await model.loadMoreIfNeeded(current: last)
+    #expect(model.memos.count == 52)
+    #expect(model.memos.filter { $0.threadId == "t" }.map(\.id) == ["b"], "one row per conversation")
+  }
+
+  @Test("a row's own newest turn deleted alone reloads the list instead of dropping the conversation")
+  func deletedNewestTurnReloads() async throws {
+    await seed(MemoFactory.memo("a", age: 30, threadId: "t"), MemoFactory.memo("b", age: 10, threadId: "t"))
+    await model.load()
+    #expect(model.memoIDs == ["b"])
+
+    _ = try await client.deleteMemo(id: "b")
+    await model.handle(.memoUpdated(MemoEvent(id: "b", state: .notified, at: MemoFactory.now)))
+    #expect(model.memoIDs == ["a"] && model.memos[0].conversation == nil, "the earlier turn is a row of its own again")
+  }
+
   @Test("an event for the newest turn keeps the row's thread-wide star")
   func eventKeepsAggregateStar() async {
     await seed(

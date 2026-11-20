@@ -55,6 +55,16 @@ struct MacCompositionRootTests {
     #expect(text?.contains(SampleData.transcriptSecondText) == true)
   }
 
+  @Test("a row's Copy of a continued transcript whose thread cannot be read copies nothing, not one part")
+  func rowCopyNeedsTheThread() async throws {
+    let root = fakeRoot()
+    root.begin()
+    #expect(await eventually { !root.history.memos.isEmpty })
+    let row = try #require(root.history.memos.first { $0.rowID == SampleData.transcriptThreadID })
+    await root.fakeAPI?.enqueueFailure(.transport(.notConnectedToInternet), for: .thread)
+    #expect(await root.wholeTranscript(of: row) == nil)
+  }
+
   @Test("a memo.done event on the live stream posts a notification, with the panel closed")
   func notifiesOnDone() async {
     let poster = RecordingNotificationPoster()
