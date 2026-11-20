@@ -2,6 +2,7 @@ import type { MemoEvent } from "../memo/events.js";
 import {
   isTyped,
   purgeAt,
+  type Conversation,
   type Memo,
   type StepRecord,
   type Thread,
@@ -51,6 +52,18 @@ export const memoJson = (memo: Memo) => ({
   ...(memo.deletedAt !== null && { deletedAt: memo.deletedAt, purgeAt: purgeAt(memo) as string }),
   createdAt: memo.createdAt,
   updatedAt: memo.updatedAt,
+});
+
+/**
+ * An item of a collapsed list: the conversation's newest memo, with the `conversation` block when it stands for one (a thread with
+ * at least two live memos), whose `favorite` is true when any turn is a favorite.
+ */
+export const collapsedMemoJson = (memo: Memo, conversation: Conversation | undefined) => ({
+  ...memoJson(memo),
+  ...(conversation && {
+    favorite: conversation.favorite,
+    conversation: { id: conversation.id, title: conversation.title, turns: conversation.turns },
+  }),
 });
 
 const stepJson = (record: StepRecord) => ({

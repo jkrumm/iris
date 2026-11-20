@@ -74,6 +74,13 @@ export const ReplyArtifact = t.Object({
 
 export const Summary = t.Object({ headline: t.String(), detail: t.String(), spoken: t.String() });
 
+/**
+ * A collapsed list row's conversation. `id` is the first live memo of the thread: opening it shows the whole conversation, and it stays the
+ * row's identity when a reply makes another memo the newest. `title` is the first turn's headline, else the thread's title. `turns` counts
+ * the live memos. On such an item `favorite` is true when any turn is a favorite.
+ */
+export const Conversation = t.Object({ id: t.String(), title: t.String(), turns: Int });
+
 const memoFields = {
   id: t.String(),
   mode: t.UnionEnum([...MEMO_MODES]),
@@ -101,6 +108,9 @@ const memoFields = {
   // continues a thread; omitted, never null, otherwise. A transcribe memo carries it once it is a part of a continued transcript
   // (the first memo's id, on the first memo too).
   threadId: t.Optional(t.String()),
+  // Present only on an item of a collapsed list (`GET /memos?collapse=thread`) that stands for a conversation (a thread with at least
+  // two live memos): the item is then the conversation's newest memo; omitted, never null, otherwise.
+  conversation: t.Optional(Conversation),
   // Present (and `true`) only for a typed memo, one created from text; omitted for a recording.
   typed: t.Optional(t.Literal(true)),
   // What Hermes called the memo (lower-case, at most 24 characters); omitted, never null, when it reported none.
@@ -250,7 +260,11 @@ export const ListQuery = t.Object({
   kind: t.Optional(t.String()),
   // `thread=true` keeps the memos of a conversation: a thread (Hermes session) with at least two live memos, i.e. one that was continued.
   thread: t.Optional(t.Literal("true")),
+  // `collapse=thread` lists each conversation once, as its newest memo (with `conversation`); `q`, `favorite` and the cursor see the whole conversation.
+  collapse: t.Optional(t.Literal("thread")),
 });
+/** `?scope=thread` on `PATCH`, `DELETE` and `restore`: the change covers every live memo of the memo's thread (restore: the memos deleted with it). */
+export const ScopeQuery = t.Object({ scope: t.Optional(t.Literal("thread")) });
 export const ThreadIdParams = t.Object({ id: t.String() });
 export const ThreadListQuery = t.Object({
   limit: t.Optional(t.Numeric()),

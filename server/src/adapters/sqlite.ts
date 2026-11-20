@@ -251,6 +251,14 @@ const REPLY_ARTIFACTS_JSON = `(SELECT json_group_array(json_object(
 /** `SELECT` list for a memo row: the columns, the reply's rendered blocks and its artifacts. */
 const MEMO_SELECT = `memos.*, ${REPLY_ASSETS_JSON} AS reply_assets_json, ${REPLY_ARTIFACTS_JSON} AS reply_artifacts_json`;
 
+/** The memo is the newest live one of its thread, or has no thread. */
+const NEWEST_OF_THREAD = `(memos.thread_id IS NULL OR memos.seq = (SELECT max(newest.seq) FROM memos newest
+  WHERE newest.thread_id = memos.thread_id AND newest.deleted_at IS NULL))`;
+
+/** The memo or a live memo of its thread is a favorite. */
+const ANY_FAVORITE_OF_THREAD = `(memos.favorite = 1 OR (memos.thread_id IS NOT NULL AND EXISTS (SELECT 1 FROM memos fav
+  WHERE fav.thread_id = memos.thread_id AND fav.deleted_at IS NULL AND fav.favorite = 1)))`;
+
 /** Column behind each patchable memo field. */
 const PATCH_COLUMNS = {
   audioSeconds: "audio_seconds",
@@ -398,6 +406,15 @@ export function createSqliteMemoStore(params: { db: Database; clock: Clock }): M
     db.query("UPDATE memos SET thread_id = id WHERE id = ? AND thread_id IS NULL").run(params.id);
     return true;
   });
+
+  /** A memo that continues a conversation with a favorite turn is a favorite itself, so the conversation stays one when a reply makes it the newest. */
+  const inheritFavorite = (params: { id: string; threadId: string | undefined }) => {
+    if (params.threadId === undefined) return;
+    db.query(
+      `UPDATE memos SET favorite = 1 WHERE id = ? AND EXISTS (SELECT 1 FROM memos o
+         WHERE o.thread_id = ? AND o.id <> ? AND o.deleted_at IS NULL AND o.favorite = 1)`,
+    ).run(params.id, params.threadId, params.id);
+  };
 
   /** A part created into a transcript thread is its newest memo: `act` moves a Hermes thread, nothing runs it for a transcript. */
   const touchTranscriptThread = (params: {
@@ -580,7 +597,10 @@ export function createSqliteMemoStore(params: { db: Database; clock: Clock }): M
            VALUES (?, ?, ?, ?, 'receiving', ?, ?, ?) ON CONFLICT (id) DO NOTHING`,
         )
         .run(id, mode, device, startedAt, threadId ?? null, at, at);
-      if (inserted.changes > 0) touchTranscriptThread({ threadId, memoId: id, at });
+      if (inserted.changes > 0) {
+        touchTranscriptThread({ threadId, memoId: id, at });
+        inheritFavorite({ id, threadId });
+      }
       const row = memoById(id);
       if (!row) throw new Error(`memo ${id} vanished after insert`);
       return { memo: toMemo(row), created: inserted.changes > 0 };
@@ -594,7 +614,10 @@ export function createSqliteMemoStore(params: { db: Database; clock: Clock }): M
            VALUES (?, ?, ?, ?, 'transcribed', ?, ?, ?, ?) ON CONFLICT (id) DO NOTHING`,
         )
         .run(id, mode, device, startedAt, text, threadId ?? null, at, at);
-      if (inserted.changes > 0) touchTranscriptThread({ threadId, memoId: id, at });
+      if (inserted.changes > 0) {
+        touchTranscriptThread({ threadId, memoId: id, at });
+        inheritFavorite({ id, threadId });
+      }
       const row = memoById(id);
       if (!row) throw new Error(`memo ${id} vanished after insert`);
       return { memo: toMemo(row), created: inserted.changes > 0 };
@@ -605,7 +628,7 @@ export function createSqliteMemoStore(params: { db: Database; clock: Clock }): M
       return row ? toMemo(row) : null;
     },
 
-    listMemos({ limit, cursor, q, kind, state, favorite, archived, thread }) {
+    listMemos({ limit, cursor, q, kind, state, favorite, archived, thread, collapse }) {
       let before: number | null = null;
       if (cursor) {
         before = Number(cursor);
@@ -618,7 +641,9 @@ export function createSqliteMemoStore(params: { db: Database; clock: Clock }): M
         archived ? "memos.archived_at IS NOT NULL" : "memos.archived_at IS NULL",
       ];
       const args: (string | number)[] = [];
-      if (favorite) filters.push("memos.favorite = 1");
+      // One row per conversation: its newest live memo. A memo alone in its session, or with no thread yet, is its own row.
+      if (collapse) filters.push(NEWEST_OF_THREAD);
+      if (favorite) filters.push(collapse ? ANY_FAVORITE_OF_THREAD : "memos.favorite = 1");
       // A conversation: a thread with at least two live memos (a continued one). Every acted memo has a session of its own.
       if (thread) {
         filters.push(
@@ -640,8 +665,16 @@ export function createSqliteMemoStore(params: { db: Database; clock: Clock }): M
         const where = [...filters];
         const params = [...args];
         if (expression !== undefined) {
-          where.push("memos.seq IN (SELECT rowid FROM memo_fts WHERE memo_fts MATCH ?)");
-          params.push(expression);
+          if (collapse) {
+            // A hit in any live turn lists the conversation.
+            where.push(`(memos.seq IN (SELECT rowid FROM memo_fts WHERE memo_fts MATCH ?)
+              OR memos.thread_id IN (SELECT hit.thread_id FROM memos hit WHERE hit.thread_id IS NOT NULL AND hit.deleted_at IS NULL
+                AND hit.seq IN (SELECT rowid FROM memo_fts WHERE memo_fts MATCH ?)))`);
+            params.push(expression, expression);
+          } else {
+            where.push("memos.seq IN (SELECT rowid FROM memo_fts WHERE memo_fts MATCH ?)");
+            params.push(expression);
+          }
         }
         if (upTo !== null) {
           where.push("memos.seq < ?");
@@ -825,6 +858,18 @@ export function createSqliteMemoStore(params: { db: Database; clock: Clock }): M
         )
         .run(stamp(), id);
       return result.changes === 1;
+    },
+
+    listDeletedTogether(id) {
+      return db
+        .query<{ id: string }, [string]>(
+          `SELECT m.id FROM memos m JOIN memos me ON me.id = ?
+           WHERE m.deleted_at IS NOT NULL AND me.deleted_at IS NOT NULL AND m.deleted_at = me.deleted_at
+             AND (m.id = me.id OR (me.thread_id IS NOT NULL AND m.thread_id = me.thread_id))
+           ORDER BY m.seq`,
+        )
+        .all(id)
+        .map((row) => row.id);
     },
 
     listPurgeable(cutoff) {

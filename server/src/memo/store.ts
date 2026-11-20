@@ -10,6 +10,7 @@ import type {
   Step,
   StepRecord,
   Thread,
+  Conversation,
 } from "./memo.js";
 
 /** The read side of threads; the rows are written by `act` (`MemoPatch.thread`). */
@@ -27,6 +28,11 @@ export interface ThreadStore {
   listThreadMemos(id: string): Memo[];
   /** When `act` finished (the assistant's reply landed) for each live memo of the thread that got that far, by memo id. */
   listThreadReplies(id: string): Map<string, string>;
+  /**
+   * The conversations among `threadIds`, by thread id: only threads with at least two live memos have one (a memo alone in its
+   * session is no conversation). The title is the first live memo's summary headline, else the thread's title, else the clipped transcript.
+   */
+  conversations(threadIds: readonly string[]): Map<string, Conversation>;
 }
 
 /** Synchronous on purpose: the one adapter is bun:sqlite, and every method is a single statement or transaction. */
@@ -68,7 +74,9 @@ export interface MemoStore extends ThreadStore {
    * umlaut and prefix insensitive, terms ANDed; a query with no hit is retried with its misspelt words corrected), `kind` (the memo's kind, exact; the caller normalises it) and `state` filter exactly; all
    * combine. Soft-deleted memos never appear; archived ones only with `archived`, which then lists nothing else. `favorite`
    * keeps the favorites, `thread` the memos of a conversation (a thread with at least two live memos: one that was continued; a memo alone in its session is none). `nextCursor` is null on the last page; cursors stay
-   * valid as memos are added.
+   * valid as memos are added. `collapse` lists a conversation once, as its newest live memo (whatever the filters say about the
+   * other turns): `state`, `kind`, `archived` and the cursor read that memo, `favorite` keeps a conversation with any favorite turn, and `q` finds
+   * a conversation by any of its turns. A memo alone in its session is listed as it is.
    */
   listMemos(params: {
     limit: number;
@@ -79,6 +87,7 @@ export interface MemoStore extends ThreadStore {
     favorite?: boolean | undefined;
     archived?: boolean | undefined;
     thread?: boolean | undefined;
+    collapse?: boolean | undefined;
   }): {
     memos: Memo[];
     nextCursor: string | null;
@@ -152,6 +161,8 @@ export interface MemoStore extends ThreadStore {
   markDeleted(params: { id: string; at: string }): boolean;
   /** Clears `deleted_at`; false when the memo is unknown or not deleted. */
   restore(id: string): boolean;
+  /** The soft-deleted memos of the memo's thread that were deleted at the same instant as it (the memo included): one delete of a conversation. Just the memo when it has no thread. */
+  listDeletedTogether(id: string): string[];
   /** Ids of the memos soft-deleted at or before `cutoff` (ISO), oldest deletion first. */
   listPurgeable(cutoff: string): string[];
   /**

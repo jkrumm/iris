@@ -1,0 +1,63 @@
+{
+  "items": [
+    {
+      "id": "9a3c5e71-2f48-4b60-8d1a-6e0b7c2d9f35",
+      "mode": "hermes",
+      "device": "macbook",
+      "startedAt": "2026-03-14T10:12:00.000Z",
+      "state": "acted",
+      "failedStep": null,
+      "error": null,
+      "segmentCount": null,
+      "audioSeconds": null,
+      "transcript": "Und sie ist ziemlich dünn.",
+      "route": null,
+      "destinationRef": "iris-c4e8a2d6-7b19-4f35-a0c1-3d5e9f8b2a47",
+      "replyText": "Dann passen eher weite Schnitte.",
+      "summary": null,
+      "transcriptGist": null,
+      "threadId": "iris-c4e8a2d6-7b19-4f35-a0c1-3d5e9f8b2a47",
+      "conversation": {
+        "id": "c4e8a2d6-7b19-4f35-a0c1-3d5e9f8b2a47",
+        "title": "Geschenkideen für Ines",
+        "turns": 3
+      },
+      "typed": true,
+      "kind": "answer",
+      "done": false,
+      "favorite": true,
+      "archived": false,
+      "createdAt": "2026-03-14T10:12:00.205Z",
+      "updatedAt": "2026-03-14T10:12:09.730Z"
+    },
+    {
+      "id": "0b6d1f4e-3a52-4c1d-9f0e-7a2c5d8e1b34",
+      "mode": "hermes",
+      "device": "iphone",
+      "startedAt": "2026-03-14T09:20:41.000Z",
+      "state": "notified",
+      "failedStep": null,
+      "error": null,
+      "segmentCount": 4,
+      "audioSeconds": 38.4,
+      "transcript": "Erinnere mich bitte daran, am Montag die offenen Pull Requests durchzugehen.",
+      "route": null,
+      "destinationRef": "iris-0b6d1f4e-3a52-4c1d-9f0e-7a2c5d8e1b34",
+      "replyText": "Notiert.",
+      "summary": {
+        "headline": "Pull Requests am Montag prüfen",
+        "detail": "",
+        "spoken": "Notiert, am Montag sind die Pull Requests dran."
+      },
+      "transcriptGist": null,
+      "threadId": "0b6d1f4e-3a52-4c1d-9f0e-7a2c5d8e1b34",
+      "kind": "task",
+      "done": false,
+      "favorite": false,
+      "archived": false,
+      "createdAt": "2026-03-14T09:20:41.512Z",
+      "updatedAt": "2026-03-14T09:21:19.870Z"
+    }
+  ],
+  "nextCursor": null
+}

@@ -229,6 +229,18 @@ export interface Thread {
   updatedAt: string;
   lastMemoId: string | null;
 }
+/**
+ * What a collapsed history row says about the conversation it stands for (a thread with at least two live memos): `id` is the
+ * first live memo (opening it shows the whole conversation, as any memo of the thread does), `title` the first turn's
+ * headline, else the thread's title, `turns` the live memos, `favorite` whether any of them is a favorite.
+ */
+export interface Conversation {
+  id: string;
+  title: string;
+  turns: number;
+  favorite: boolean;
+}
+
 /** First characters of a thread's first transcript. */
 export const THREAD_TITLE_MAX = 60;
 
