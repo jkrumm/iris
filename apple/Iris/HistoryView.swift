@@ -120,9 +120,9 @@ struct HistoryView: View {
       ThreadView(
         model: thread,
         refreshToken: { threadID, ids in
-          // Any event for a memo of the conversation (the anchor's too: before `act` it has no thread yet), or a new memo of
-          // it showing up in the list (another device's turn).
-          let inThread = threadID.map { id in model.memos.count { $0.threadId == id } } ?? 0
+          // Any event for a memo of the conversation (the anchor's too: before `act` it has no thread yet), or a new turn of it
+          // showing up in the list (another device's turn).
+          let inThread = threadID.map { model.threadActivity($0) } ?? 0
           return ids.reduce(inThread) { $0 &+ model.revision(of: $1) }
         },
         makeDetail: makeDetail, memoRevision: { model.revision(of: $0) }, onSent: { model.insert($0) },

@@ -61,8 +61,8 @@ struct MacMemoDetailPane: View {
     .accessibilityIdentifier("mac.detail")
   }
 
-  /// The open memo's revision, the revisions of every memo of its conversation and how many the list holds of it, and the stream's
-  /// returns: any of them moving reloads the pane.
+  /// The open memo's revision, the revisions of every memo of its conversation and the list's activity of the thread (a turn another
+  /// device adds), and the stream's returns: any of them moving reloads the pane.
   private var refreshToken: Int {
     let history = root.windowHistory
     var token = history.revision(of: model.memoID) + root.reconnects
@@ -71,7 +71,7 @@ struct MacMemoDetailPane: View {
     }
     // A transcript's first part has no thread until something continues it: its own id names the thread then.
     if let threadId = model.memo?.threadId ?? model.memo?.transcriptThreadID {
-      token += history.memos.count { $0.threadId == threadId }
+      token += history.threadActivity(threadId)
     }
     return token
   }
