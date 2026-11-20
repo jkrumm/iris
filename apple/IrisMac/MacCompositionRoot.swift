@@ -788,14 +788,16 @@ final class MacCompositionRoot {
   }
 
   /// What a row's Copy puts on the pasteboard: the memo's whole transcript, every part of a continued one (its thread is read for
-  /// it), else the memo's own words when the thread cannot be read.
+  /// it), else the memo's own words for a memo with no thread. A memo with a thread whose read failed gives nothing: one part's words
+  /// are not the transcript.
   func wholeTranscript(of memo: Memo) async -> String? {
     let model = detailsModel(for: memo)
     await model.load()
     // A cancelled read leaves no thread: nothing is better than the first part's words passed off as the whole.
     guard !Task.isCancelled else { return nil }
     // A memo with a thread whose read failed has only itself as its parts: its words alone would be one part passed off as the whole.
-    if memo.threadId != nil, model.thread == nil { return nil }
+    // The fresh copy the model loaded decides whether there is a thread (another device may have continued a listed transcript).
+    if (model.memo?.threadId ?? memo.threadId) != nil, model.thread == nil { return nil }
     return model.wholeTranscript ?? memo.plainTranscript
   }
 
