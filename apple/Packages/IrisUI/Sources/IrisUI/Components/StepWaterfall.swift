@@ -14,6 +14,7 @@ public struct StepWaterfall<Footer: View>: View {
   private let isExpanded: Binding<Bool>
   private let onRetry: (String) -> Void
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  @Environment(\.detailsDensity) private var density
 
   /// - Parameters:
   ///   - totalTitle: The summary line's label ("Details" in the memo detail); the line is drawn when both strings are set.
@@ -54,15 +55,16 @@ public struct StepWaterfall<Footer: View>: View {
   private var showsRows: Bool { !hasSummary || isExpanded.wrappedValue }
 
   private func summary(title: String, value: String) -> some View {
-    Button {
+    let metrics = DetailsMetrics(density)
+    return Button {
       isExpanded.wrappedValue.toggle()
     } label: {
       HStack(spacing: Theme.Spacing.sm) {
         Image(systemName: "chevron.right")
-          .font(.system(size: 13, weight: .semibold))
+          .font(.system(size: metrics.chevronSize, weight: .semibold))
           .foregroundStyle(Theme.Ink.muted)
           .rotationEffect(.degrees(isExpanded.wrappedValue ? 90 : 0))
-          .frame(width: 22)
+          .frame(width: metrics.iconWidth)
         Text(verbatim: title)
           .foregroundStyle(Theme.Ink.muted)
         Spacer(minLength: Theme.Spacing.sm)
@@ -70,10 +72,10 @@ public struct StepWaterfall<Footer: View>: View {
           .fontWeight(.semibold)
           .foregroundStyle(Theme.Ink.primary)
       }
-      .themeFont(.subheadline)
+      .detailFont(.subheadline, mac: .body)
       .monospacedDigit()
-      .padding(.horizontal, Theme.Spacing.cardInsetHorizontal)
-      .padding(.vertical, Theme.Spacing.cardInsetVertical)
+      .padding(.horizontal, metrics.insetHorizontal)
+      .padding(.vertical, metrics.insetVertical)
       .frame(maxWidth: .infinity)
       .contentShape(.rect)
     }
@@ -105,17 +107,18 @@ private struct WaterfallRowView: View {
   let row: StepWaterfallRow
   let onRetry: (String) -> Void
 
-  private static let iconWidth: CGFloat = 22
-  private static let trackHeight: CGFloat = 3
   private static let minimumBar: CGFloat = 2
+  @Environment(\.detailsDensity) private var density
+
+  private var metrics: DetailsMetrics { DetailsMetrics(density) }
 
   var body: some View {
     VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
       HStack(alignment: .firstTextBaseline, spacing: Theme.Spacing.sm) {
         PhaseIcon(phase: row.phase, isOptional: row.isOptional)
-          .frame(width: Self.iconWidth)
+          .frame(width: metrics.iconWidth)
         Text(verbatim: row.title)
-          .themeFont(.subheadline, weight: .semibold)
+          .detailFont(.subheadline, mac: .body, weight: .semibold)
           .foregroundStyle(titleColor)
         Spacer(minLength: Theme.Spacing.sm)
         metric
@@ -125,44 +128,44 @@ private struct WaterfallRowView: View {
           if let badge = row.badge { BadgeTag(badge: badge) }
           if let attempts = row.attempts {
             Text(verbatim: attempts)
-              .themeFont(.caption, weight: .medium)
+              .detailFont(.caption, mac: .caption, weight: .medium)
               .foregroundStyle(Theme.Status.warn)
           }
           if let note = row.optionalNote {
             Text(verbatim: note)
-              .themeFont(.caption, weight: .medium)
+              .detailFont(.caption, mac: .caption, weight: .medium)
               .foregroundStyle(Theme.Ink.secondary)
               .accessibilityIdentifier("detail.step.optional")
           }
         }
-        .padding(.leading, Self.iconWidth + Theme.Spacing.sm)
+        .padding(.leading, metrics.iconWidth + Theme.Spacing.sm)
       }
       if let error = row.error {
         Text(verbatim: error)
-          .font(.system(.caption, design: .monospaced))
+          .font(density == .desktop ? .system(size: 11, design: .monospaced) : .system(.caption, design: .monospaced))
           .foregroundStyle(failureColor)
           .padding(Theme.Spacing.sm)
           .frame(maxWidth: .infinity, alignment: .leading)
           .background(failureColor.opacity(0.1), in: .rect(cornerRadius: Theme.Radius.control))
-          .padding(.leading, Self.iconWidth + Theme.Spacing.sm)
+          .padding(.leading, metrics.iconWidth + Theme.Spacing.sm)
       }
       if let retryTitle = row.retryTitle {
         Button {
           onRetry(row.id)
         } label: {
           Label(retryTitle, systemImage: "arrow.clockwise")
-            .themeFont(.footnote, weight: .semibold)
+            .detailFont(.footnote, mac: .caption, weight: .semibold)
         }
         .buttonStyle(.bordered)
         .buttonBorderShape(.capsule)
         .tint(Theme.Accent.tint)
-        .padding(.leading, Self.iconWidth + Theme.Spacing.sm)
+        .padding(.leading, metrics.iconWidth + Theme.Spacing.sm)
         .accessibilityIdentifier("detail.step.retry")
       }
     }
-    .padding(.horizontal, Theme.Spacing.cardInsetHorizontal)
-    .padding(.top, Theme.Spacing.cardInsetVertical)
-    .padding(.bottom, Theme.Spacing.cardInsetVertical + Self.trackHeight)
+    .padding(.horizontal, metrics.insetHorizontal)
+    .padding(.top, metrics.insetVertical)
+    .padding(.bottom, metrics.insetVertical + metrics.trackHeight)
     .overlay(alignment: .bottom) { track }
     .accessibilityElement(children: .contain)
     .accessibilityIdentifier("detail.step")
@@ -172,11 +175,11 @@ private struct WaterfallRowView: View {
     if let metric = row.metric {
       if row.phase == .waiting {
         Text(verbatim: metric)
-          .themeFont(.footnote)
+          .detailFont(.footnote, mac: .caption)
           .foregroundStyle(Theme.Ink.faint)
       } else {
         Text(verbatim: metric)
-          .themeFont(.footnote, weight: .medium)
+          .detailFont(.footnote, mac: .caption, weight: .medium)
           .monospacedDigit()
           .foregroundStyle(Theme.Ink.secondary)
           .padding(.horizontal, Theme.Spacing.sm)
@@ -222,7 +225,7 @@ private struct WaterfallRowView: View {
         }
       }
     }
-    .frame(height: Self.trackHeight)
+    .frame(height: metrics.trackHeight)
     .accessibilityHidden(true)
   }
 }
@@ -231,10 +234,11 @@ private struct PhaseIcon: View {
   let phase: StepWaterfallRow.Phase
   var isOptional = false
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  @Environment(\.detailsDensity) private var density
 
   var body: some View {
     Image(systemName: symbol)
-      .font(.system(size: 17))
+      .font(.system(size: DetailsMetrics(density).iconSize))
       .foregroundStyle(color)
       .symbolEffect(.pulse, isActive: phase == .running && !reduceMotion)
       .contentTransition(.symbolEffect(.replace))
@@ -274,7 +278,7 @@ private struct BadgeTag: View {
 
   var body: some View {
     Text(verbatim: badge.text)
-      .themeFont(.caption, weight: .semibold)
+      .detailFont(.caption, mac: .caption, weight: .semibold)
       .foregroundStyle(color)
       .padding(.horizontal, Theme.Spacing.sm)
       .padding(.vertical, Theme.Spacing.hair)
