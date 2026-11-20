@@ -36,7 +36,7 @@ struct MacMemoList: View {
       text: $model.filters.searchText, placement: .toolbar,
       prompt: String(localized: "Search transcripts", comment: "Search field prompt on the memo list")
     )
-    .onDeleteCommand { if let memo = selected { actions.delete(memo) } }
+    .onDeleteCommand { if let memo = selected ?? root.openRow(in: model) { actions.delete(memo) } }
     .onKeyPress(.space) {
       guard let memo = selected, let request = root.mediaSource.audio(for: memo) else { return .ignored }
       player.toggle(memo.id, .recording, request: request)
