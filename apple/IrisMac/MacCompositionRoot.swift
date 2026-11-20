@@ -740,6 +740,15 @@ final class MacCompositionRoot {
     return AuthenticatedMediaSource(baseURL: saved.serverURL, bearerToken: saved.token)
   }
 
+  /// The window's selection is a turn of `row`'s conversation (or the row's own memo): deleting the row takes it away, so the pane must
+  /// not keep showing it. The open memo may be an older turn the list has no row for; the detail model knows its thread.
+  func selection(isPartOf row: Memo) -> Bool {
+    guard let selected = selectedMemoID else { return false }
+    if selected == row.rowID || selected == row.id { return true }
+    guard let thread = row.threadId, let open = detailCache, open.memoID == selected else { return false }
+    return open.memo?.threadId == thread
+  }
+
   /// Makes the main window's list hold `memo`, which it may not (a popover row or a banner opened a memo past the window's filter or
   /// loaded pages): the scope goes to All memos (Archive for an archived memo, which All hides), the search and the sidebar's kind and state are cleared, the first
   /// page loads, and the memo is inserted into the list. Its actions resolve the memo in the list when they run, so it must be there.
