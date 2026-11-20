@@ -71,18 +71,54 @@ struct DeviceLogDeliveryTests {
     #expect(moov(queue) == false, "only recordings are inspected")
   }
 
+  private func isolatedLog(_ buffer: TelemetryBuffer, suite: String = "com.jkrumm.iris.tests.\(UUID().uuidString)")
+    -> DeviceLog
+  {
+    let resource = TelemetryResource(serviceName: .ios, deviceName: "x", appVersion: "dev")
+    let exporter = RelayExporter(buffer: buffer, transport: HangingTransport(), resource: resource)
+    return DeviceLog(events: DeviceEventLog(buffer: buffer), exporter: exporter, suiteName: suite)
+  }
+
   @Test("recording the quarantine emits one record per file with the name, never a path")
   func quarantineRecords() async throws {
     let file = FileManager.default.temporaryDirectory.appending(path: "iris-dump-\(UUID().uuidString).jsonl")
     defer { try? FileManager.default.removeItem(at: file) }
     let log = TelemetryBootstrap.makeDeviceLog(arguments: ["-IrisFakeCapture", "-IrisTelemetryDump", file.path])
-    let gone = URL(fileURLWithPath: "/nonexistent/dir/lost.m4a")
+    let gone = URL(fileURLWithPath: "/nonexistent/dir/\(UUID().uuidString).m4a")
     await log.recordQuarantine([SetAsideFile(url: gone, byteCount: 12, modifiedAt: nil)])
     await log.flush()
 
     let text = try String(contentsOf: file, encoding: .utf8)
     #expect(text.contains("capture.quarantine"))
-    #expect(text.contains("lost.m4a"))
+    #expect(text.contains(gone.lastPathComponent))
     #expect(!text.contains("/nonexistent"))
+  }
+
+  private func record(_ files: [SetAsideFile], in log: DeviceLog) async {
+    await log.recordQuarantine(files)
+    await log.events.settle()
+  }
+
+  @Test("a launch that finds the same set-aside files again logs no per-file warning; a new file is logged once")
+  func quarantineIsLoggedOnce() async {
+    let suite = "com.jkrumm.iris.tests.\(UUID().uuidString)"
+    let old = [
+      SetAsideFile(url: URL(fileURLWithPath: "/q/a.m4a"), byteCount: 1, modifiedAt: nil),
+      SetAsideFile(url: URL(fileURLWithPath: "/q/b.m4a"), byteCount: 2, modifiedAt: nil),
+    ]
+    let first = TelemetryBuffer(capacity: 10)
+    await record(old, in: isolatedLog(first, suite: suite))
+    #expect(await first.pendingCount == 2, "the launch that sets them aside reports each")
+
+    let second = TelemetryBuffer(capacity: 10)
+    let relaunch = isolatedLog(second, suite: suite)
+    await record(old, in: relaunch)
+    #expect(await second.pendingCount == 0, "the second launch with the same files warns about none")
+
+    let fresh = SetAsideFile(url: URL(fileURLWithPath: "/q/c.m4a"), byteCount: 3, modifiedAt: nil)
+    await record(old + [fresh], in: relaunch)
+    #expect(await second.pendingCount == 1, "only the file that is new")
+    await record(old + [fresh], in: relaunch)
+    #expect(await second.pendingCount == 1, "and not again")
   }
 }
