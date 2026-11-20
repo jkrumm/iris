@@ -71,7 +71,7 @@ struct MacMemoDetailPane: View {
     }
     // A transcript's first part has no thread until something continues it: its own id names the thread then.
     if let threadId = model.memo?.threadId ?? model.memo?.transcriptThreadID {
-      token += history.threadActivity(threadId)
+      token = token &+ history.threadActivity(threadId)
     }
     return token
   }
