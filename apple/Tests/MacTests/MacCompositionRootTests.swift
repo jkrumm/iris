@@ -270,6 +270,7 @@ struct MacCompositionRootTests {
     root.show("conv-middle")
     await root.detailModel(for: "conv-middle").load()
     #expect(root.selection(isPartOf: row), "the open turn belongs to the row's conversation")
+    #expect(root.openRow(in: root.windowHistory)?.id == row.id, "the Delete key finds the row of an open older turn")
     actions.delete(row)
     #expect(root.selectedMemoID == nil, "the open turn leaves with its conversation")
     #expect(await eventually { await fake.memos["conv-first"]?.memo.deletedAt != nil })

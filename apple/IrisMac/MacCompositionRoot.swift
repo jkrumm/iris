@@ -740,6 +740,15 @@ final class MacCompositionRoot {
     return AuthenticatedMediaSource(baseURL: saved.serverURL, bearerToken: saved.token)
   }
 
+  /// The list's row of the memo the pane shows when the selection is a turn the list has no row of (an older turn a banner opened): what
+  /// the Delete key acts on then.
+  func openRow(in list: HistoryModel) -> Memo? {
+    guard let selected = selectedMemoID, let open = detailCache, open.memoID == selected, let memo = open.memo else {
+      return nil
+    }
+    return list.row(for: memo)
+  }
+
   /// The window's selection is a turn of `row`'s conversation (or the row's own memo): deleting the row takes it away, so the pane must
   /// not keep showing it. The open memo may be an older turn the list has no row for; the detail model knows its thread.
   func selection(isPartOf row: Memo) -> Bool {
