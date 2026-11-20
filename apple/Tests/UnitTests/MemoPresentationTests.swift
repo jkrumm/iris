@@ -134,6 +134,16 @@ struct MemoPresentationTests {
     #expect(MemoFactory.memo("a", state: .received).rowStatus.isInFlight)
   }
 
+  @Test("a take that has not ended reads as recording, and as processing once it ends")
+  func recordingThenProcessing() {
+    let recording = MemoFactory.memo("a", state: .receiving)
+    #expect(recording.rowHeadline == "Recording…")
+    #expect(recording.rowStatus == .recording(label: "Recording", color: Theme.Status.bad))
+    let processing = MemoFactory.memo("a", state: .received, transcript: "Kurz")
+    #expect(processing.rowHeadline == "Kurz")
+    #expect(processing.rowStatus.isInFlight)
+  }
+
   @Test(
     "the dashes count the steps the state says are done",
     arguments: [

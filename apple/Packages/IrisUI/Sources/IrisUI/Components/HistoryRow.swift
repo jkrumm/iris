@@ -8,6 +8,8 @@ public enum HistoryRowStatus: Equatable {
   case inFlight(kind: String, dot: Color, label: String, progress: StepProgress? = nil)
   /// Needs the user (Failed): the coloured state replaces the kind.
   case alert(label: String, color: Color)
+  /// The take has not ended, so nothing runs yet: a red dot and the state, no kind.
+  case recording(label: String, color: Color)
 }
 
 /// One History row: the status line with the time right-aligned, the headline, and one grey secondary line.
@@ -108,7 +110,7 @@ public struct HistoryRow: View {
           .foregroundStyle(Theme.Accent.tint)
         if let progress { StepProgressDashes(progress: progress) }
       }
-    case .alert(let label, let color):
+    case .alert(let label, let color), .recording(let label, let color):
       HStack(spacing: Theme.Spacing.snug) {
         Dot(color: color)
         Text(verbatim: label)

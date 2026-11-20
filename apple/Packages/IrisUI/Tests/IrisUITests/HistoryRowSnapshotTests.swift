@@ -71,6 +71,13 @@
         width: 390, height: 100)
     }
 
+    @Test("a recording row shows a red dot and the take's title, no kind", .tags(.snapshot))
+    func recording() {
+      SnapshotSupport.assertLightAndDark(
+        row(.recording(label: "Recording", color: Theme.Status.bad), headline: "Recording…", time: "9:52"),
+        width: 390, height: 100)
+    }
+
     @Test("a done favorite is dimmed with a check and a star", .tags(.snapshot))
     func doneFavorite() {
       SnapshotSupport.assertLightAndDark(
