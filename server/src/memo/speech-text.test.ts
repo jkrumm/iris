@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import {
   detectLanguage,
+  isSpokenWhole,
   markdownToSpeech,
   SPEECH_FULL_MAX_CHARS,
   SPEECH_MAX_CHARS,
@@ -187,6 +188,18 @@ describe("markdownToSpeech", () => {
     expect(out).not.toMatch(/[#*`|\]]|https?:|\(\)/);
     expect(out).toContain("a code block");
     expect(out).toContain("a table with 1 row");
+  });
+});
+
+describe("isSpokenWhole", () => {
+  it("is true for a reply whose cleaned text fits, and false for none, a long one or one with nothing left to say", () => {
+    expect(isSpokenWhole("Erledigt, die Milch steht auf der Liste.")).toBe(true);
+    expect(isSpokenWhole(null)).toBe(false);
+    expect(isSpokenWhole("  ")).toBe(false);
+    expect(isSpokenWhole("Ein Satz. ".repeat(80))).toBe(false);
+    // Only a link: speechVariant falls back to triage's spoken line, so triage must stay on the path.
+    expect(markdownToSpeech("https://example.com/path")).toBe("");
+    expect(isSpokenWhole("https://example.com/path")).toBe(false);
   });
 });
 
