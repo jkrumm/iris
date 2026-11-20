@@ -25,6 +25,10 @@ const SESSION_TIMEOUT_MS = 30_000;
 const ERROR_BODY_MAX = 300;
 // The post-turn read of the session's counters is bookkeeping: it never holds a delivery up for long.
 const SESSION_READ_TIMEOUT_MS = 5_000;
+// Hermes writes a turn's counters to its session just after the stream's `done` (measured 2026-11-20: a read right after it
+// answered zeros and no model), so the read after a turn repeats until the call count has grown.
+const SETTLE_POLL_MS = 250;
+const SETTLE_ATTEMPTS = 12;
 
 /** The `source` of every Iris session. */
 const SOURCE = "iris";
@@ -174,6 +178,8 @@ export interface HermesDestinationOptions {
   fetch?: typeof fetch;
   /** Aborts the chat turn when Hermes sends no bytes for this long (default 5 min). */
   idleMs?: number;
+  /** Pause between reads of the session's counters after a turn; tests shorten it. */
+  settlePollMs?: number;
 }
 
 /** Hermes names a pre-stream failure in an OpenAI error envelope; anything else is truncated. */
@@ -225,6 +231,28 @@ async function readSessionTotals(params: {
   } catch {
     return null;
   }
+}
+
+/**
+ * The session's totals once they include the turn that just ended (more model calls than `before`), or null when they never
+ * did within the attempts or cannot be read: unknown, never zero.
+ */
+async function readSettledTotals(params: {
+  doFetch: typeof fetch;
+  baseUrl: string;
+  sessionId: string;
+  headers: Record<string, string>;
+  before: SessionTotals | null;
+  pollMs: number;
+}): Promise<SessionTotals | null> {
+  const { before, pollMs, ...read } = params;
+  if (!before) return null;
+  for (let attempt = 0; attempt < SETTLE_ATTEMPTS; attempt++) {
+    if (attempt > 0) await new Promise((resolve) => setTimeout(resolve, pollMs));
+    const totals = await readSessionTotals(read);
+    if (totals && totals.apiCalls > before.apiCalls) return totals;
+  }
+  return null;
 }
 
 function parseData(frame: SseFrame): unknown {
@@ -483,11 +511,13 @@ export function createHermesDestination(opts: HermesDestinationOptions): Destina
         if (!sawDone) throw new Error("hermes stream ended without done");
         if (reply?.interrupted) throw new Error("hermes reply was interrupted");
 
-        const after = await readSessionTotals({
+        const after = await readSettledTotals({
           doFetch,
           baseUrl: opts.baseUrl,
           sessionId,
           headers,
+          before,
+          pollMs: opts.settlePollMs ?? SETTLE_POLL_MS,
         });
         const turn = turnAccounting({ usage, runUsage, before, after });
         span.setAttributes(turn.spanAttributes);

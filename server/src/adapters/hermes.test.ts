@@ -82,6 +82,7 @@ function fakeHermes(opts: {
     baseUrl: BASE_URL,
     token: "test-token",
     fetch: fakeFetch,
+    settlePollMs: 1,
     ...(opts.idleMs !== undefined ? { idleMs: opts.idleMs } : {}),
   });
   return { calls, reads, destination };
@@ -450,7 +451,7 @@ describe("hermes destination, timing and usage", () => {
       usageFrame,
       done,
     ]);
-  const turn = { id: MEMO_ID, model: HAIKU };
+  const turn = { id: MEMO_ID, model: HAIKU, api_call_count: 4 };
 
   it("puts the time to the first frame and the first token on the chat span", async () => {
     const { destination } = fakeHermes({ chat: () => stream() });
@@ -558,7 +559,7 @@ describe("hermes destination, timing and usage", () => {
   it("logs a turn it cannot price, with the model, and still delivers", async () => {
     const { destination } = fakeHermes({
       chat: () => stream(),
-      sessions: [{ id: MEMO_ID, model: "some-other-model" }],
+      sessions: [{ id: MEMO_ID, model: "some-other-model", api_call_count: 2 }],
     });
     const { result, lines } = await captureLogs(() => deliver(destination));
     expect(result.replyText).toBe("Done.");
@@ -567,6 +568,31 @@ describe("hermes destination, timing and usage", () => {
       memo_id: MEMO_ID,
       model: "some-other-model",
     });
+  });
+
+  it("reads again until the session's counters include the turn, as Hermes writes them just after done", async () => {
+    const stale = { id: MEMO_ID, model: null, api_call_count: 0, cache_read_tokens: 0 };
+    const { destination, reads } = fakeHermes({
+      chat: () => stream(),
+      sessions: [
+        stale,
+        stale,
+        { ...turn, api_call_count: 2, cache_read_tokens: 8, cache_write_tokens: 1 },
+      ],
+    });
+    const delivery = await deliver(destination);
+    expect(delivery.usage).toMatchObject({ cacheReadTokens: 8, cacheWriteTokens: 1, apiCalls: 2 });
+    expect(reads).toHaveLength(3);
+  });
+
+  it("reports no counts, and no zeros, when the session never shows the turn", async () => {
+    const stale = { id: MEMO_ID, model: null, api_call_count: 0, cache_read_tokens: 0 };
+    const { destination } = fakeHermes({
+      chat: () => stream(),
+      sessions: Array.from({ length: 20 }, () => stale),
+    });
+    const delivery = await deliver(destination);
+    expect(delivery.usage).toEqual({ inputTokens: 10, outputTokens: 5, totalTokens: 15 });
   });
 
   it("delivers when the session read answers garbage", async () => {
