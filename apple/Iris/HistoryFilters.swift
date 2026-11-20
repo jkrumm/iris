@@ -26,7 +26,7 @@ struct HistoryFilters: Hashable {
 
   var isFiltering: Bool { activeFilterCount > 0 || thread || trimmedSearch != nil }
 
-  /// A search is active: its hits are listed as they are, a part of a continued transcript included.
+  /// A search is active: a conversation is found by any of its turns and listed once.
   var isSearching: Bool { trimmedSearch != nil }
 
   /// The server alone can decide membership: a thread and `q` are not on the wire memo.
@@ -71,7 +71,8 @@ struct HistoryFilters: Hashable {
   func query(cursor: String? = nil) -> ListMemosQuery {
     ListMemosQuery(
       limit: Self.pageSize, cursor: cursor, q: trimmedSearch, state: state,
-      favorite: quick == .favorites, archived: quick == .archived, kind: kind, thread: quick == .threads || thread)
+      favorite: quick == .favorites, archived: quick == .archived, kind: kind, thread: quick == .threads || thread,
+      collapse: true)
   }
 
   /// The flag, kind and state half of the filter, for a memo the client already holds (an SSE update, an

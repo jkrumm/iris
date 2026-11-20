@@ -19,9 +19,9 @@ struct MacMemoActions {
   /// and a second tap for the same memo does nothing while the first is waiting or running.
   func delete(_ memo: Memo) {
     guard memo.state.isDeletable, root.beginDelete(memo.id) else { return }
-    if root.selectedMemoID == memo.id { root.selectedMemoID = nil }
+    if root.selectedMemoID == memo.rowID { root.selectedMemoID = nil }
     act(memo) { [root] model, current in
-      defer { root.endDelete(current.id) }
+      defer { root.endDelete(memo.id) }
       await model.delete(current)
     } onDropped: { [root] in
       root.endDelete(memo.id)
@@ -35,7 +35,7 @@ struct MacMemoActions {
     onDropped: (@MainActor () -> Void)? = nil
   ) {
     root.perform(on: model, memoID: memo.id) { model in
-      guard let current = model.memos.first(where: { $0.id == memo.id }) else {
+      guard let current = model.row(for: memo) else {
         onDropped?()
         return
       }

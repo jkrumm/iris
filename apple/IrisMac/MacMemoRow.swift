@@ -14,11 +14,11 @@ struct MacMemoRow: View {
 
   var body: some View {
     Button {
-      root.show(memo.id)
+      root.show(memo.rowID)
     } label: {
       VStack(alignment: .leading, spacing: Theme.Spacing.menuRowLineGap) {
         HStack(alignment: .firstTextBaseline, spacing: Theme.Spacing.cozy) {
-          Text(verbatim: memo.rowHeadline)
+          Text(verbatim: memo.listHeadline)
             .themeFont(.footnote, weight: .semibold)
             .foregroundStyle(Theme.Ink.primary)
             .lineLimit(1)

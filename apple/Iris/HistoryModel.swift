@@ -38,10 +38,9 @@ final class HistoryModel {
   /// The ids of ``memos`` in order: what the list animates on, so a reorder animates and a flag change does not.
   private(set) var memoIDs: [String] = []
 
-  /// What the lists show, newest first: ``memos`` without the recordings that continue a transcript, since the transcript is one
-  /// row, its first part's, and they are read inside it. A search lists its hits as the server found them, so a phrase only a
-  /// later recording holds still has a row to open.
-  var listedMemos: [Memo] { filters.isSearching ? items : items.filter { !$0.isTranscriptPart } }
+  /// What the lists show, newest first: one row per conversation. The server collapses a thread to its newest memo (`collapse=thread`),
+  /// so the rows are ``memos`` as they are; a search finds a conversation by any of its turns.
+  var listedMemos: [Memo] { items }
 
   private func regroup() {
     let rows = listedMemos
@@ -70,6 +69,9 @@ final class HistoryModel {
   /// before the server's delete lands. Kept in the ``HiddenMemoStore``, so a relaunch before the delete settles still
   /// hides them; ``unhide(_:)`` clears an id once its delete is over.
   private var hidden: Set<String>
+  /// The rows of conversations this session deleted, by the id the delete answered with, for the undo (the restore answers with the
+  /// memo alone, so the row comes back as the conversation it was).
+  private var deletedConversations: [String: Memo] = [:]
   /// The ids ``hiddenStore`` held at launch; ``reconcileHidden(pendingDeletions:)`` is the only reader.
   private var restoredHidden: Set<String>
   private let hiddenStore: any HiddenMemoStore
@@ -199,6 +201,14 @@ final class HistoryModel {
     loadedServer = nil
   }
 
+  /// The row that stands for `memo`: the row of the memo itself, else of the conversation it is a turn of (a row is its conversation's
+  /// newest memo, so the first memo an open conversation shows is found through the thread or the row's conversation id).
+  func row(for memo: Memo) -> Memo? {
+    items.first { $0.id == memo.id }
+      ?? items.first { memo.threadId != nil && $0.threadId == memo.threadId }
+      ?? items.first { $0.conversation?.id == memo.id }
+  }
+
   /// Fetches the next page when `memo` is the last row on screen.
   func loadMoreIfNeeded(current memo: Memo) async {
     let server = serverKey()
@@ -325,6 +335,11 @@ final class HistoryModel {
       let memo = try await client.memo(id: id).memo
       guard lifecycle[id] == started, server == serverKey() else { return }
       if memo.isDeleted { evictMedia(id) }
+      // A reply into a conversation the list does not hold a row of yet: the server knows its title and turns, the event does not.
+      if row(for: memo) == nil, memo.continuesThread, filters.matches(memo), isWithinLoadedRows(memo) {
+        await load()
+        return
+      }
       place(memo)
     } catch let error as APIError {
       if case .server(404, _) = error {
@@ -357,14 +372,15 @@ final class HistoryModel {
 
   /// Removes the row at once; the toast offers the undo for as long as the server keeps the memo.
   func delete(_ memo: Memo) async {
-    guard let before = held(memo.id), before.state.isDeletable else { return }
+    guard let before = row(for: memo), before.state.isDeletable else { return }
     lifecycle[before.id, default: 0] += 1
     let started = lifecycle[before.id]
     remove(before.id)
     do {
-      let deleted = try await client.deleteMemo(id: before.id)
+      let deleted = try await client.deleteMemo(id: before.id, scope: Self.scope(of: before))
       guard lifecycle[before.id] == started else { return }
       evictMedia(deleted.id)
+      if before.conversation != nil { deletedConversations[deleted.id] = before }
       toast = HistoryToast(
         kind: .undoDelete(memoID: deleted.id),
         message: String(localized: "Memo deleted", comment: "Toast after a swipe delete"))
@@ -383,10 +399,14 @@ final class HistoryModel {
     lifecycle[id, default: 0] += 1
     let started = lifecycle[id]
     do {
-      let restored = try await client.restoreMemo(id: id)
+      let deletedRow = deletedConversations[id]
+      var restored = try await client.restoreMemo(id: id, scope: deletedRow == nil ? .memo : .thread)
       guard lifecycle[id] == started else { return }
+      deletedConversations[id] = nil
       // The owner asked for it back: whatever hid and unhid it earlier in this session no longer applies.
       unhiddenThisSession.remove(id)
+      // The row comes back as the conversation it was: the restore answers with the memo alone.
+      restored.conversation = deletedRow?.conversation
       place(restored, force: true)
     } catch is CancellationError {
       return
@@ -486,7 +506,7 @@ final class HistoryModel {
 
   /// Applies the flags to the row first and rolls it back (position included) when the server refuses.
   private func update(_ memo: Memo, done: Bool? = nil, favorite: Bool? = nil, archived: Bool? = nil) async {
-    guard let before = held(memo.id) else { return }
+    guard let before = row(for: memo) else { return }
     var after = before
     after.done = done ?? after.done
     after.favorite = favorite ?? after.favorite
@@ -494,7 +514,8 @@ final class HistoryModel {
     place(after, force: true)
     let started = lifecycle[before.id]
     do {
-      let saved = try await client.setFlags(id: before.id, done: done, favorite: favorite, archived: archived)
+      let saved = try await client.setFlags(
+        id: before.id, done: done, favorite: favorite, archived: archived, scope: Self.scope(of: before))
       guard lifecycle[before.id] == started else { return }
       place(saved, force: true)
     } catch is CancellationError {
@@ -514,8 +535,15 @@ final class HistoryModel {
 
   // MARK: List bookkeeping
 
-  private func held(_ id: String) -> Memo? {
-    memos.first { $0.id == id }
+  /// A row of a conversation acts on every turn of it (flags, delete, undo); a memo on its own acts alone.
+  private static func scope(of row: Memo) -> MemoScope {
+    row.conversation == nil ? .memo : .thread
+  }
+
+  /// `memo` is at least as new as the oldest row the list holds, or the list holds all its rows: it would sit among the loaded rows.
+  private func isWithinLoadedRows(_ memo: Memo) -> Bool {
+    guard nextCursor != nil, let tail = items.last else { return true }
+    return !Self.isNewer(tail, than: memo)
   }
 
   private func remove(_ id: String) {
@@ -525,11 +553,33 @@ final class HistoryModel {
   /// Puts `memo` where the server's list would: replaced in place, or dropped when it
   /// no longer matches the filters. A memo the list never held is skipped while it would belong to a
   /// page that is not loaded yet, unless `force` says the caller knows better (a rollback, an undo).
+  ///
+  /// A row is its conversation's newest memo, so a memo of a thread the list already holds a row of takes that row's place: an update of
+  /// the row's own memo keeps its conversation, a newer turn replaces the row (the title stays, the turn count and the time move, the
+  /// row re-sorts), an older turn changes nothing.
   private func place(_ memo: Memo, force: Bool = false) {
-    let known = held(memo.id) != nil
-    remove(memo.id)
+    if let index = items.firstIndex(where: { $0.id == memo.id }) {
+      var row = memo
+      if row.conversation == nil { row.conversation = items[index].conversation }
+      items.remove(at: index)
+      guard !hidden.contains(row.id), filters.matches(row) else { return }
+      Self.insert(row, into: &items)
+      return
+    }
+    if let threadId = memo.threadId, !memo.isDeleted, let index = items.firstIndex(where: { $0.threadId == threadId }) {
+      let held = items[index]
+      guard Self.isNewer(memo, than: held) else { return }
+      var row = memo
+      row.conversation = MemoConversation(
+        id: held.conversation?.id ?? held.id, title: held.conversation?.title ?? held.rowHeadline,
+        turns: (held.conversation?.turns ?? 1) + 1)
+      items.remove(at: index)
+      guard !hidden.contains(row.id), filters.matches(row) else { return }
+      Self.insert(row, into: &items)
+      return
+    }
     guard !hidden.contains(memo.id), filters.matches(memo) else { return }
-    if !known, !force, nextCursor != nil, let tail = items.last, Self.isNewer(tail, than: memo) { return }
+    if !force, nextCursor != nil, let tail = items.last, Self.isNewer(tail, than: memo) { return }
     Self.insert(memo, into: &items)
   }
 

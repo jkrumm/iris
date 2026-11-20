@@ -16,7 +16,7 @@ struct MacMemoList: View {
         Section {
           ForEach(section.memos) { memo in
             MacMemoListRow(root: root, memo: memo)
-              .tag(memo.id)
+              .tag(memo.rowID)
               .contextMenu { MacMemoContextMenu(actions: actions, memo: memo) }
               .task { await model.loadMoreIfNeeded(current: memo) }
           }
@@ -56,7 +56,7 @@ struct MacMemoList: View {
   private var actions: MacMemoActions { MacMemoActions(root: root, model: model) }
 
   private var selected: Memo? {
-    root.selectedMemoID.flatMap { id in model.memos.first { $0.id == id } }
+    root.selectedMemoID.flatMap { id in model.memos.first { $0.rowID == id || $0.id == id } }
   }
 
   @ViewBuilder private var emptyState: some View {

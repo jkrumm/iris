@@ -80,8 +80,23 @@ public struct ReplyArtifact: Codable, Hashable, Sendable {
   }
 }
 
+/// What a collapsed history row says about the conversation it stands for (`GET /v1/memos?collapse=thread`): the row is the
+/// conversation's newest memo. `id` is its first live memo, which opening shows the whole conversation of and which stays the
+/// row's identity when a reply makes another memo the newest; `title` is the first turn's headline; `turns` counts the live memos.
+public struct MemoConversation: Codable, Hashable, Sendable {
+  public var id: String
+  public var title: String
+  public var turns: Int
+
+  public init(id: String, title: String, turns: Int) {
+    self.id = id
+    self.title = title
+    self.turns = turns
+  }
+}
+
 /// A memo as returned by create, complete, retry, result and list. Every key is always present on the
-/// wire, unset ones as explicit `null`, which `encode(to:)` reproduces; the exceptions are `threadId`, `typed`, `replyBlocks`, `replyArtifacts`, `deletedAt` and `purgeAt`, which are omitted when `nil` / `false` / empty.
+/// wire, unset ones as explicit `null`, which `encode(to:)` reproduces; the exceptions are `threadId`, `typed`, `replyBlocks`, `replyArtifacts`, `deletedAt` and `purgeAt`, which are omitted when `nil` / `false` / empty (and `conversation`, present only on an item of a collapsed list).
 public struct Memo: Codable, Hashable, Sendable, Identifiable {
   public var id: String
   public var mode: MemoMode
@@ -107,6 +122,8 @@ public struct Memo: Codable, Hashable, Sendable, Identifiable {
   /// The Hermes session (chat or not) the memo belongs to: set when `act` ran in it, or at creation for a memo that continues
   /// a thread (`CreateMemoRequest.threadId`); omitted (never `null`) otherwise.
   public var threadId: String?
+  /// Present only on an item of a collapsed list that stands for a conversation; `favorite` is then true when any turn is a favorite.
+  public var conversation: MemoConversation?
   /// What the memo is (Hermes decides, e.g. "task", "note"); omitted (never `null`) when not classified.
   public var kind: String?
   /// The tools Hermes ran for the memo; empty when none, never `null` on the wire, omitted then.
@@ -148,6 +165,7 @@ public struct Memo: Codable, Hashable, Sendable, Identifiable {
     summary: MemoSummary? = nil,
     transcriptGist: String? = nil,
     threadId: String? = nil,
+    conversation: MemoConversation? = nil,
     kind: String? = nil,
     actions: [String] = [],
     isTyped: Bool = false,
@@ -177,6 +195,7 @@ public struct Memo: Codable, Hashable, Sendable, Identifiable {
     self.summary = summary
     self.transcriptGist = transcriptGist
     self.threadId = threadId
+    self.conversation = conversation
     self.kind = kind
     self.actions = actions
     self.isTyped = isTyped
@@ -192,7 +211,7 @@ public struct Memo: Codable, Hashable, Sendable, Identifiable {
   private enum CodingKeys: String, CodingKey {
     case id, mode, device, startedAt, state, failedStep, error, segmentCount, audioSeconds, transcript, route
     case destinationRef, replyText, replyBlocks, replyArtifacts, summary, transcriptGist, threadId, createdAt, updatedAt
-    case done, favorite, archived, deletedAt, purgeAt, kind, actions
+    case done, favorite, archived, deletedAt, purgeAt, kind, actions, conversation
     case isTyped = "typed"
   }
 
@@ -216,6 +235,7 @@ public struct Memo: Codable, Hashable, Sendable, Identifiable {
     summary = try container.decode(MemoSummary?.self, forKey: .summary)
     transcriptGist = try container.decodeIfPresent(String.self, forKey: .transcriptGist)
     threadId = try container.decodeIfPresent(String.self, forKey: .threadId)
+    conversation = try container.decodeIfPresent(MemoConversation.self, forKey: .conversation)
     kind = try container.decodeIfPresent(String.self, forKey: .kind)
     actions = try container.decodeIfPresent([String].self, forKey: .actions) ?? []
     isTyped = try container.decodeIfPresent(Bool.self, forKey: .isTyped) ?? false
@@ -249,6 +269,7 @@ public struct Memo: Codable, Hashable, Sendable, Identifiable {
     try container.encode(summary, forKey: .summary)
     try container.encode(transcriptGist, forKey: .transcriptGist)
     try container.encodeIfPresent(threadId, forKey: .threadId)
+    try container.encodeIfPresent(conversation, forKey: .conversation)
     if isTyped { try container.encode(true, forKey: .isTyped) }
     try container.encode(done, forKey: .done)
     try container.encode(favorite, forKey: .favorite)

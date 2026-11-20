@@ -102,11 +102,31 @@ public struct ConversationTurnList: View {
     self.reply = reply
   }
 
+  /// The lines between exchanges, by the id of the question they open (never the first turn's): `true` when the line carries its day,
+  /// which it does once per calendar day, before the first question of that day; `false` for a plain line between two exchanges of a
+  /// day already named. A question without a date has no day to name.
+  static func exchangeLines(of turns: [ConversationTurn], calendar: Calendar = .current) -> [String: Bool] {
+    var lines: [String: Bool] = [:]
+    var namedDay: Date?
+    for (index, turn) in turns.enumerated() {
+      guard index > 0, case .user = turn.content else { continue }
+      guard let date = turn.date else {
+        lines[turn.id] = false
+        continue
+      }
+      let day = calendar.startOfDay(for: date)
+      lines[turn.id] = day != namedDay
+      namedDay = day
+    }
+    return lines
+  }
+
   public var body: some View {
-    ForEach(Array(turns.enumerated()), id: \.element.id) { index, turn in
+    let lines = Self.exchangeLines(of: turns)
+    return ForEach(Array(turns.enumerated()), id: \.element.id) { _, turn in
       VStack(alignment: .leading, spacing: style.rowSpacing) {
-        // A question after an answer opens a new exchange.
-        if index > 0, case .user = turn.content { ExchangeDivider(title: turn.date.map(dayTitle)) }
+        // A question after an answer opens a new exchange; the line names its day the first time that day shows.
+        if let titled = lines[turn.id] { ExchangeDivider(title: titled ? turn.date.map(dayTitle) : nil) }
         view(for: turn)
       }
       .id(turn.id)

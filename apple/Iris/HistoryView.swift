@@ -31,9 +31,9 @@ struct HistoryView: View {
             ForEach(section.memos) { memo in
               NavigationLink(value: memo) {
                 HistoryRow(
-                  status: memo.rowStatus, headline: memo.rowHeadline, secondary: memo.rowSecondary,
+                  status: memo.rowStatus, headline: memo.listHeadline, secondary: memo.rowSecondary,
                   timeText: memo.timeText, isDone: memo.done, isFavorite: memo.favorite,
-                  isThread: memo.continuesThread)
+                  isThread: memo.isConversationRow)
               }
               .accessibilityIdentifier("history.row")
               .listRowInsets(Self.rowInsets)

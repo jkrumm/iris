@@ -277,12 +277,12 @@ struct FakeAPIClientTests {
 
   private func seedMemo(
     _ fake: FakeAPIClient, id: String, state: MemoState = .notified, createdAt: TimeInterval = 1_773_480_000,
-    threadId: String? = nil, kind: String? = nil
+    threadId: String? = nil, kind: String? = nil, transcript: String? = nil
   ) async {
     let date = Date(timeIntervalSince1970: createdAt)
     let memo = Memo(
-      id: id, mode: .hermes, device: "fake-device", startedAt: date, state: state, threadId: threadId, kind: kind,
-      createdAt: date, updatedAt: date)
+      id: id, mode: .hermes, device: "fake-device", startedAt: date, state: state, transcript: transcript,
+      threadId: threadId, kind: kind, createdAt: date, updatedAt: date)
     await fake.seed(MemoDetail(memo: memo, steps: []))
   }
 
@@ -361,6 +361,46 @@ struct FakeAPIClientTests {
     #expect(try await listedIDs(fake, ListMemosQuery(kind: "github issue")) == ["github"])
     #expect(try await listedIDs(fake, ListMemosQuery(kind: "answer")).isEmpty)
     #expect(try await listedIDs(fake, ListMemosQuery(thread: true)) == ["note", "task"])
+  }
+
+  @Test("a collapsed list has one row per conversation: its newest memo, with the conversation, found by any turn")
+  func collapsedList() async throws {
+    let fake = FakeAPIClient()
+    await seedMemo(fake, id: "first", createdAt: 1_773_480_000, threadId: "t1", transcript: "Geschenkideen")
+    await seedMemo(fake, id: "alone", createdAt: 1_773_480_001, threadId: "alone")
+    await seedMemo(fake, id: "second", createdAt: 1_773_480_002, threadId: "t1", transcript: "Ines ist 164 groß")
+    await seedMemo(fake, id: "third", createdAt: 1_773_480_003, threadId: "t1", transcript: "danke")
+
+    let collapsed = try await fake.listMemos(ListMemosQuery(collapse: true)).items
+    #expect(collapsed.map(\.id) == ["third", "alone"])
+    #expect(collapsed[0].conversation == MemoConversation(id: "first", title: "Geschenkideen", turns: 3))
+    #expect(collapsed[1].conversation == nil)
+    #expect(try await listedIDs(fake, ListMemosQuery(q: "164", collapse: true)) == ["third"])
+    #expect(try await listedIDs(fake, ListMemosQuery(q: "164")) == ["second"])
+    #expect(try await listedIDs(fake, ListMemosQuery(thread: true, collapse: true)) == ["third"])
+  }
+
+  @Test("a flag, a delete and its undo on a collapsed row reach every turn of the thread")
+  func threadScope() async throws {
+    let fake = FakeAPIClient()
+    await seedMemo(fake, id: "first", createdAt: 1_773_480_000, threadId: "t1")
+    await seedMemo(fake, id: "second", createdAt: 1_773_480_001, threadId: "t1")
+    await seedMemo(fake, id: "other", createdAt: 1_773_480_002, threadId: "t2")
+
+    _ = try await fake.setFlags(id: "second", done: nil, favorite: true, archived: nil, scope: .thread)
+    let flagged = await fake.memos
+    #expect(flagged["first"]?.memo.favorite == true && flagged["other"]?.memo.favorite == false)
+    #expect(await fake.calls.last == .setFlags(id: "second", done: nil, favorite: true, archived: nil, scope: .thread))
+
+    let deleted = try await fake.deleteMemo(id: "second", scope: .thread)
+    #expect(deleted.isDeleted)
+    let afterDelete = await fake.memos
+    #expect(afterDelete["first"]?.memo.isDeleted == true && afterDelete["other"]?.memo.isDeleted == false)
+    #expect(try await fake.listMemos(ListMemosQuery(collapse: true)).items.map(\.id) == ["other"])
+
+    _ = try await fake.restoreMemo(id: "second", scope: .thread)
+    #expect(await fake.memos["first"]?.memo.isDeleted == false)
+    #expect(try await fake.listMemos(ListMemosQuery(collapse: true)).items.map(\.id) == ["other", "second"])
   }
 
   @Test("a memo parked at needs_route in an old row is paged like any other, never pinned")
