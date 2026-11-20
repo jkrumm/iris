@@ -23,12 +23,13 @@ const DEFAULT_IDLE_MS = 300_000;
 // Plain request timeout for the quick session POST; the chat turn itself has no wall-clock cap.
 const SESSION_TIMEOUT_MS = 30_000;
 const ERROR_BODY_MAX = 300;
-// The post-turn read of the session's counters is bookkeeping: it never holds a delivery up for long.
+// One read of the session's counters is bookkeeping: a hung one is cut after this.
 const SESSION_READ_TIMEOUT_MS = 5_000;
 // Hermes writes a turn's counters to its session just after the stream's `done` (measured 2026-11-20: a read right after it
 // answered zeros and no model), so the read after a turn repeats until the call count has grown.
 const SETTLE_POLL_MS = 250;
-const SETTLE_ATTEMPTS = 12;
+// The window the repeats share: a delivery waits at most this long (plus one read in flight) for counters that do not settle.
+const SETTLE_WINDOW_MS = 3_000;
 
 /** The `source` of every Iris session. */
 const SOURCE = "iris";
@@ -178,8 +179,9 @@ export interface HermesDestinationOptions {
   fetch?: typeof fetch;
   /** Aborts the chat turn when Hermes sends no bytes for this long (default 5 min). */
   idleMs?: number;
-  /** Pause between reads of the session's counters after a turn; tests shorten it. */
+  /** Pause between reads of the session's counters after a turn, and the window they share; tests shorten both. */
   settlePollMs?: number;
+  settleWindowMs?: number;
 }
 
 /** Hermes names a pre-stream failure in an OpenAI error envelope; anything else is truncated. */
@@ -244,11 +246,13 @@ async function readSettledTotals(params: {
   headers: Record<string, string>;
   before: SessionTotals | null;
   pollMs: number;
+  windowMs: number;
 }): Promise<SessionTotals | null> {
-  const { before, pollMs, ...read } = params;
+  const { before, pollMs, windowMs, ...read } = params;
   if (!before) return null;
-  for (let attempt = 0; attempt < SETTLE_ATTEMPTS; attempt++) {
-    if (attempt > 0) await new Promise((resolve) => setTimeout(resolve, pollMs));
+  const until = performance.now() + windowMs;
+  for (let first = true; first || performance.now() < until; first = false) {
+    if (!first) await new Promise((resolve) => setTimeout(resolve, pollMs));
     const totals = await readSessionTotals(read);
     if (totals && totals.apiCalls > before.apiCalls) return totals;
   }
@@ -518,10 +522,14 @@ export function createHermesDestination(opts: HermesDestinationOptions): Destina
           headers,
           before,
           pollMs: opts.settlePollMs ?? SETTLE_POLL_MS,
+          windowMs: opts.settleWindowMs ?? SETTLE_WINDOW_MS,
         });
         const turn = turnAccounting({ usage, runUsage, before, after });
         span.setAttributes(turn.spanAttributes);
-        if (turn.unpricedModel !== undefined) {
+        if (after === null && usage) {
+          // The cost needs the session's model: say the read is why there is none, not the price table.
+          log("hermes.session_unsettled", { memo_id: memoId });
+        } else if (turn.unpricedModel !== undefined) {
           log("hermes.cost_unpriced", { memo_id: memoId, model: turn.unpricedModel });
         }
 

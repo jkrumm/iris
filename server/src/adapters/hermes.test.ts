@@ -83,6 +83,7 @@ function fakeHermes(opts: {
     token: "test-token",
     fetch: fakeFetch,
     settlePollMs: 1,
+    settleWindowMs: 15,
     ...(opts.idleMs !== undefined ? { idleMs: opts.idleMs } : {}),
   });
   return { calls, reads, destination };
@@ -591,8 +592,11 @@ describe("hermes destination, timing and usage", () => {
       chat: () => stream(),
       sessions: Array.from({ length: 20 }, () => stale),
     });
-    const delivery = await deliver(destination);
+    const { result: delivery, lines } = await captureLogs(() => deliver(destination));
     expect(delivery.usage).toEqual({ inputTokens: 10, outputTokens: 5, totalTokens: 15 });
+    // The log names the read, not the price table.
+    expect(lines.map((l) => l["event"])).toContain("hermes.session_unsettled");
+    expect(lines.map((l) => l["event"])).not.toContain("hermes.cost_unpriced");
   });
 
   it("delivers when the session read answers garbage", async () => {
