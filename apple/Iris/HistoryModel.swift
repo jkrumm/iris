@@ -222,7 +222,12 @@ final class HistoryModel {
       let page = try await client.listMemos(paging.query(cursor: cursor))
       guard loading == generation, server == serverKey() else { return }
       let known = Set(memos.map(\.id))
-      items += page.items.filter { !known.contains($0.id) && !hidden.contains($0.id) }
+      let fresh = page.items.filter { !known.contains($0.id) && !hidden.contains($0.id) }
+      // A row of the list that stands for a conversation this page brings its own row of (an older turn opened from a banner and held
+      // as a stand-in) gives way to it: one row per conversation.
+      let threads = Set(fresh.compactMap(\.threadId))
+      items.removeAll { $0.threadId.map(threads.contains) ?? false }
+      items += fresh
       nextCursor = page.nextCursor
     } catch is CancellationError {
       return
@@ -343,6 +348,11 @@ final class HistoryModel {
       }
       // A reply into a conversation the list does not hold a row of yet: the server knows its title and turns, the event does not.
       if row(for: memo) == nil, memo.continuesThread, filters.matches(memo), isWithinLoadedRows(memo) {
+        await load()
+        return
+      }
+      // One turn deleted alone (a client with no `scope`) leaves its conversation's earlier turns without a row: the server's list decides.
+      if memo.isDeleted, let held = items.first(where: { $0.id == memo.id }), (held.conversation?.turns ?? 0) > 1 {
         await load()
         return
       }
@@ -494,7 +504,21 @@ final class HistoryModel {
       return nil
     }
     return Task {
-      let parts = (try? await client.thread(id: thread).memos) ?? items.filter { $0.threadId == thread }
+      let loaded: [Memo]?
+      do {
+        loaded = try await client.thread(id: thread).memos
+      } catch {
+        loaded = nil
+        // A conversation's row holds only its newest part: one part is not passed off as the transcript.
+        if memo.conversation != nil {
+          show(
+            error: String(
+              localized: "Could not load the conversation", comment: "Toast when Copy could not read every part"),
+            cause: error)
+          return
+        }
+      }
+      let parts = loaded ?? items.filter { $0.threadId == thread }
       let ordered = parts.sorted { ($0.createdAt, $0.id) < ($1.createdAt, $1.id) }
       copied(TranscriptText.whole(of: ordered) ?? text, to: pasteboard)
     }
