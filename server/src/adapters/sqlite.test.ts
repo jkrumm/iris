@@ -751,10 +751,26 @@ describe("completeStep", () => {
       status: "failed",
       error: "boom",
     });
-    // A failed row takes no more late writes.
+    // A sibling piece still lands on the row a failed piece turned `failed`, but only on the row it started from.
     expect(
       store.completeLate({ id, step: "summarize", startedAt, patch: { transcriptGist: "x" } }),
+    ).toBe(true);
+    expect(store.failLate({ id, step: "summarize", startedAt, error: "again" })).toBe(false);
+    store.markStepStarted({ id, step: "summarize" });
+    expect(
+      store.completeLate({ id, step: "summarize", startedAt, patch: { transcriptGist: "y" } }),
     ).toBe(false);
+  });
+
+  it("resetForRetry re-runs a notified memo whose summarize is done but has no summary (late work cut by a restart)", () => {
+    const { store } = testStore();
+    const { id } = seedMemo(store, "acted");
+    store.markStepStarted({ id, step: "summarize" });
+    store.completeStep({ id, step: "summarize", from: "acted", to: "summarized" });
+    store.markStepStarted({ id, step: "notify" });
+    store.completeStep({ id, step: "notify", from: "summarized", to: "notified" });
+    expect(store.resetForRetry({ id, from: "summarize" })).toBe(true);
+    expect(store.getMemo(id)?.state).toBe("acted");
   });
 
   it("resetForRetry re-runs a failed summarize on a notified memo, and only then", () => {
