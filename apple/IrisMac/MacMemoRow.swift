@@ -10,6 +10,8 @@ struct MacMemoRow: View {
   let memo: Memo
   @State private var hovering = false
 
+  private var showsCopy: Bool { hovering && memo.macRowCopyText != nil }
+
   var body: some View {
     Button {
       root.show(memo.id)
@@ -31,6 +33,7 @@ struct MacMemoRow: View {
           Text(verbatim: memo.timeText)
             .monospacedDigit()
             .foregroundStyle(Theme.Ink.faint)
+            .opacity(showsCopy ? 0 : 1)
         }
         .themeFont(.caption)
         HStack(spacing: Theme.Spacing.snug) {
@@ -48,6 +51,15 @@ struct MacMemoRow: View {
       .contentShape(.rect)
     }
     .buttonStyle(.plain)
+    // A transcript row copies without opening the memo: the button takes the time's place while the pointer is over the row.
+    .overlay(alignment: .topTrailing) {
+      if showsCopy, let text = memo.macRowCopyText {
+        MacRowCopyButton(text: text)
+          .foregroundStyle(Theme.Ink.muted)
+          .padding(.horizontal, Theme.Spacing.menuRowHorizontal)
+          .padding(.vertical, Theme.Spacing.menuRowVertical)
+      }
+    }
     .onHover { hovering = $0 }
     .accessibilityIdentifier("mac.history.row")
     .contextMenu { MacMemoContextMenu(actions: MacMemoActions(root: root, model: model), memo: memo) }

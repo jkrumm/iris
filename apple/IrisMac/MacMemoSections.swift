@@ -42,12 +42,36 @@ struct MacMemoSections: View {
     }
   }
 
+  /// The small Copy at the transcript's label: the whole text (every part of a continued transcript), the toolbar's Copy in place.
+  private var transcriptCopy: some View {
+    let copied = model.copied == .transcript
+    return Button {
+      model.copy(.transcript)
+    } label: {
+      Label(
+        copied
+          ? String(localized: "Copied", comment: "Detail: confirmation after Copy")
+          : String(localized: "Copy", comment: "Detail: copies the section as plain text"),
+        systemImage: copied ? "checkmark" : "doc.on.doc"
+      )
+      .macFont(.caption)
+      .textCase(nil)
+    }
+    .buttonStyle(.borderless)
+    .foregroundStyle(Theme.Ink.muted)
+    .help(MacMemoControl.copyTranscriptSection.help)
+    .accessibilityIdentifier("mac.detail.transcript.copy")
+  }
+
   /// The transcript: one block per recording, a blank line between them, so a continued transcript reads as the one text Copy puts on
   /// the pasteboard.
   @ViewBuilder private func transcript(_ memo: Memo) -> some View {
     let parts = model.parts.filter { $0.transcript != nil }
     if !parts.isEmpty {
-      MacSection(String(localized: "Transcript", comment: "Section label of the transcript")) {
+      MacSection(
+        String(localized: "Transcript", comment: "Section label of the transcript"),
+        accessory: { transcriptCopy }
+      ) {
         VStack(alignment: .leading, spacing: Theme.Spacing.macSectionGap) {
           ForEach(parts) { part in
             Text(verbatim: part.transcript ?? "")
@@ -63,25 +87,37 @@ struct MacMemoSections: View {
   }
 }
 
-/// A section: its small uppercase label, then the content.
-struct MacSection<Content: View>: View {
+/// A section: its small uppercase label (with an optional control at its trailing end), then the content.
+struct MacSection<Accessory: View, Content: View>: View {
   private let title: String
+  private let accessory: Accessory
   private let content: Content
 
-  init(_ title: String, @ViewBuilder content: () -> Content) {
+  init(_ title: String, @ViewBuilder accessory: () -> Accessory, @ViewBuilder content: () -> Content) {
     self.title = title
+    self.accessory = accessory()
     self.content = content()
   }
 
   var body: some View {
     VStack(alignment: .leading, spacing: Theme.Spacing.macLabelGap) {
-      Text(verbatim: title)
-        .macFont(.caption, weight: .semibold)
-        .textCase(.uppercase)
-        .foregroundStyle(Theme.Ink.muted)
-        .accessibilityAddTraits(.isHeader)
+      HStack(spacing: Theme.Spacing.snug) {
+        Text(verbatim: title)
+          .macFont(.caption, weight: .semibold)
+          .textCase(.uppercase)
+          .foregroundStyle(Theme.Ink.muted)
+          .accessibilityAddTraits(.isHeader)
+        accessory
+        Spacer(minLength: 0)
+      }
       content
     }
     .frame(maxWidth: .infinity, alignment: .leading)
+  }
+}
+
+extension MacSection where Accessory == EmptyView {
+  init(_ title: String, @ViewBuilder content: () -> Content) {
+    self.init(title, accessory: { EmptyView() }, content: content)
   }
 }

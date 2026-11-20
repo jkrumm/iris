@@ -1,8 +1,9 @@
 import IrisCore
 import SwiftUI
 
-/// The speaker: a click reads the summary (or stops what is reading), its menu offers the summary and the whole reply. It is the
-/// only audio control in the toolbar's first row: the user's own recording lives in ``MacMoreMenu``.
+/// The speaker: one compact icon, no chevron segment. Idle it is a menu (the summary first, then the whole reply); while the reply
+/// reads it is a Stop button, so what reads can always be stopped in one click. It is the only control in the toolbar that reads the
+/// reply: the user's own recording is ``MacRecordingButton``.
 struct MacSpeakerMenu: View {
   let root: MacCompositionRoot
   let player: MacAudioPlayer
@@ -10,24 +11,30 @@ struct MacSpeakerMenu: View {
 
   var body: some View {
     if root.mediaSource.speech(for: memo, variant: .summary) != nil {
-      let reading = player.isReplyCurrent(memo.id)
-      Menu {
-        MacSpeakerEntries { readAloud($0) }
-      } label: {
-        Label(
-          reading
-            ? String(localized: "Stop reply", comment: "Detail toolbar: stops the spoken reply")
-            : String(localized: "Read reply aloud", comment: "Detail toolbar: speaks the reply"),
-          systemImage: reading ? "stop.circle.fill" : "speaker.wave.2")
-      } primaryAction: {
-        if reading {
+      if player.isReplyCurrent(memo.id) {
+        Button {
           player.stop()
-        } else {
-          readAloud(.summary)
+        } label: {
+          Label(
+            String(localized: "Stop reply", comment: "Detail toolbar: stops the spoken reply"),
+            systemImage: "stop.circle.fill")
         }
+        .macToolbarInk()
+        .help(MacMemoControl.stopReply.help)
+        .accessibilityIdentifier("mac.detail.play-reply")
+      } else {
+        Menu {
+          MacSpeakerEntries { readAloud($0) }
+        } label: {
+          Label(
+            String(localized: "Read reply aloud", comment: "Detail toolbar: speaks the reply"),
+            systemImage: "speaker.wave.2")
+        }
+        .menuIndicator(.hidden)
+        .macToolbarInk()
+        .help(MacMemoControl.readReply.help)
+        .accessibilityIdentifier("mac.detail.play-reply")
       }
-      .help((reading ? MacMemoControl.stopReply : .readReply).help)
-      .accessibilityIdentifier("mac.detail.play-reply")
     }
   }
 
@@ -56,8 +63,9 @@ struct MacSpeakerEntries: View {
   }
 }
 
-/// The overflow: the user's own recording, which the speaker must not be mistaken for.
-struct MacMoreMenu: View {
+/// The user's own recording, a direct button with the waveform glyph (the speaker is a speaker): it plays what was said, not the
+/// reply, so the two are never mistaken for each other.
+struct MacRecordingButton: View {
   let root: MacCompositionRoot
   let player: MacAudioPlayer
   let memo: Memo
@@ -65,20 +73,18 @@ struct MacMoreMenu: View {
   var body: some View {
     if let request = root.mediaSource.audio(for: memo) {
       let playing = player.isCurrent(memo.id, .recording)
-      Menu {
-        Button(
+      Button {
+        player.toggle(memo.id, .recording, request: request)
+      } label: {
+        Label(
           playing
             ? String(localized: "Stop recording", comment: "Detail toolbar: stops the recording")
             : String(localized: "Play recording", comment: "Detail toolbar: plays the recording"),
-          systemImage: playing ? "stop.fill" : "play.fill"
-        ) { player.toggle(memo.id, .recording, request: request) }
-        .help((playing ? MacMemoControl.stopRecording : .playRecording).help)
-        .accessibilityIdentifier("mac.detail.play-recording")
-      } label: {
-        Label(String(localized: "More", comment: "Detail toolbar: overflow menu"), systemImage: "ellipsis.circle")
+          systemImage: playing ? "stop.fill" : "waveform")
       }
-      .help(MacMemoControl.more.help)
-      .accessibilityIdentifier("mac.detail.more")
+      .macToolbarInk()
+      .help((playing ? MacMemoControl.stopRecording : .playRecording).help)
+      .accessibilityIdentifier("mac.detail.play-recording")
     }
   }
 }

@@ -107,17 +107,28 @@ struct RecordingPanelView: View {
     .accessibilityIdentifier("mac.recording.cancel")
   }
 
-  /// `.panel .chip`: the microphone as an icon and a chevron; the device's name is the tooltip and the VoiceOver value.
+  /// `.panel .chip`: the microphone icon, the name of the device in use (cut in the middle when long) and a chevron; the menu
+  /// puts a checkmark on the current device. The name is also the tooltip and the VoiceOver value.
   private var microphonePicker: some View {
     let inputs = model.microphones.inputs
-    let name = model.microphones.current?.name ?? ""
+    let current = model.microphones.current
+    let name = current?.name ?? ""
     return Menu {
       ForEach(inputs, id: \.uid) { input in
-        Button(input.name) { model.select(microphone: input.uid) }
+        Toggle(
+          input.name,
+          isOn: Binding(get: { input.uid == current?.uid }, set: { _ in model.select(microphone: input.uid) }))
       }
     } label: {
-      HStack(spacing: Theme.Spacing.hair) {
+      HStack(spacing: Theme.Spacing.snug) {
         Image(systemName: "mic").accessibilityHidden(true)
+        if !name.isEmpty {
+          Text(verbatim: name)
+            .themeFont(.footnote, weight: .medium)
+            .lineLimit(1)
+            .truncationMode(.middle)
+            .frame(maxWidth: Theme.Spacing.panelMicNameMax)
+        }
         Image(systemName: "chevron.down").themeFont(.micro, weight: .semibold).accessibilityHidden(true)
       }
       .themeFont(.footnote, weight: .medium)

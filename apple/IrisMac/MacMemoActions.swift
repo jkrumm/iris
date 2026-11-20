@@ -50,6 +50,13 @@ struct MacMemoContextMenu: View {
   let memo: Memo
 
   var body: some View {
+    if let text = memo.macRowCopyText {
+      Button(String(localized: "Copy transcript", comment: "Detail toolbar menu"), systemImage: "doc.on.doc") {
+        MacPasteboard().copy(text)
+      }
+      .help(MacMemoControl.copyTranscriptRow.help)
+      Divider()
+    }
     Button(
       memo.done
         ? String(localized: "Not done", comment: "Context menu") : String(localized: "Done", comment: "Context menu"),
@@ -99,7 +106,44 @@ struct MacRowStatusMark: View {
   }
 }
 
+/// The Copy of a transcript row, shown while the pointer is over the row: it puts the row's transcript on the pasteboard without
+/// opening the memo and says "Copied" for a moment. Not part of the row's selection or click.
+struct MacRowCopyButton: View {
+  let text: String
+  @State private var copied = false
+
+  var body: some View {
+    Button {
+      MacPasteboard().copy(text)
+      copied = true
+    } label: {
+      Label(
+        copied
+          ? String(localized: "Copied", comment: "Detail: confirmation after Copy")
+          : String(localized: "Copy", comment: "Detail: copies the section as plain text"),
+        systemImage: copied ? "checkmark" : "doc.on.doc"
+      )
+      .labelStyle(.iconOnly)
+      .macFont(.caption)
+      .frame(width: Theme.Spacing.macRowCopySize, height: Theme.Spacing.macRowCopySize)
+      .contentShape(.rect)
+    }
+    .buttonStyle(.plain)
+    .help(MacMemoControl.copyTranscriptRow.help)
+    // The confirmation ends with the view's task, so a row that leaves the list takes it along.
+    .task(id: copied) {
+      guard copied, (try? await Task.sleep(for: .seconds(1.5))) != nil else { return }
+      copied = false
+    }
+    .accessibilityIdentifier("mac.row.copy")
+  }
+}
+
 extension Memo {
+  /// What a row's Copy puts on the pasteboard: the transcript of a Transcribe memo, nil for any other (a Hermes memo is read as a
+  /// conversation, and a memo without a transcript has nothing to copy).
+  var macRowCopyText: String? { mode == .transcribe ? plainTranscript : nil }
+
   /// The memo is still in the pipeline: not finished and not failed.
   var macIsRunning: Bool { !state.isResultReady && state != .failed && state != .receiving }
 
