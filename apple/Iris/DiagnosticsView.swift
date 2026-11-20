@@ -124,7 +124,9 @@ struct DiagnosticsView: View {
     .navigationBarTitleDisplayMode(.inline)
     .task { model.selectedID = model.selectedID ?? selected?.id }
     .task(id: model.copyCount) {
-      guard model.isCopied, (try? await Task.sleep(for: .seconds(2))) != nil else { return }
+      // UI tests hold the confirmation (`-IrisCopiedSeconds 600`) so no query races the timer on a slow runner.
+      let held = UserDefaults.standard.double(forKey: "IrisCopiedSeconds")
+      guard model.isCopied, (try? await Task.sleep(for: .seconds(held > 0 ? held : 2))) != nil else { return }
       model.clearCopied()
     }
   }
