@@ -36,7 +36,7 @@ const SOURCE = "iris";
  * `api_server`, so this message, not the source, is what tells it the turn comes from Iris.
  */
 export const IRIS_SYSTEM_MESSAGE =
-  "This turn comes from Iris: the message is a transcript of the owner's voice memo (German or English, speech-to-text errors likely). Load skill_view('iris') and follow it: decide what the memo is, act with your skills (a side effect only when the memo asks for one), and end your reply with exactly one ```iris block.";
+  "This turn comes from Iris: the message is a transcript of the owner's voice memo (German or English, speech-to-text errors likely). Follow the iris skill, which is already loaded in your system prompt: decide what the memo is, act with your skills (a side effect only when the memo asks for one), and end your reply with exactly one ```iris block.";
 
 /** What the owner picked in an older app build, as one extra line; `auto` and `hermes` pick nothing. */
 const PICKED: Partial<Record<MemoMode, string>> = {
