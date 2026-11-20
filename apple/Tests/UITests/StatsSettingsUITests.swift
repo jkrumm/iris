@@ -2,9 +2,9 @@ import XCTest
 
 final class StatsSettingsUITests: IrisUITestCase {
   @MainActor
-  private func launch() -> XCUIApplication {
+  private func launch(holdCopied: Bool = false) -> XCUIApplication {
     let app = XCUIApplication()
-    app.launchArguments = SampleClock.arguments
+    app.launchArguments = SampleClock.arguments + (holdCopied ? ["-IrisCopiedSeconds", "600"] : [])
     start(app)
     XCTAssertTrue(waitForPresence(app.descendants(matching: .any)["history.list"], timeout: 10))
     return app
@@ -35,7 +35,7 @@ final class StatsSettingsUITests: IrisUITestCase {
 
   @MainActor
   func testDiagnosticsCopiesTheMemoIDAndConfirms() {
-    let app = launch()
+    let app = launch(holdCopied: true)
     app.tabBars.buttons["Settings"].tap()
     XCTAssertTrue(waitForPresence(app.descendants(matching: .any)["settings.outbox.empty"], timeout: 10))
 
