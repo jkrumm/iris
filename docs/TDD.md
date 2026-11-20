@@ -295,7 +295,7 @@ machine, Retries); retention (audio deleted 30 days after `notified`) is not bui
    `POST /api/sessions/:id/chat/stream {message: transcript, system_message}` and the final assistant text is collected from the SSE. `system_message` is Hermes' per-turn ephemeral system prompt (appended to that
    turn, never stored), so it is sent on every turn. It is `IRIS_SYSTEM_MESSAGE`, exported from the adapter:
 
-   > This turn comes from Iris: the message is a transcript of the owner's voice memo (German or English, speech-to-text errors likely). Load skill_view('iris') and follow it: decide what the memo is, act with your skills (a side effect only when the memo asks for one), and end your reply with exactly one ```iris block.
+   > This turn comes from Iris: the message is a transcript of the owner's voice memo (German or English, speech-to-text errors likely). Follow the iris skill, which is already loaded in your system prompt: decide what the memo is, act with your skills (a side effect only when the memo asks for one), and end your reply with exactly one ```iris block.
 
    The modes of an older app build add one line, `The owner picked: Chat.` / `Journal.` / `Tab.` (`systemMessage(mode)`); `auto` and `hermes` add nothing, and the thread kind is `hermes` either way.
    Hermes rewrites unknown session sources: `_normalize_session_source` keeps only its own allow-list (`api_server`, `browser`, `cli`, `telegram`, `discord`, `slack`, `desktop`, `dashboard`), so `iris` is stored as `api_server` there;
