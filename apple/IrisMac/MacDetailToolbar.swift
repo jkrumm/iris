@@ -51,7 +51,7 @@ struct MacDetailToolbar {
     .help((flagged.archived ? MacMemoControl.unarchive : .archive).help)
     if flagged.state.isDeletable {
       Button(String(localized: "Delete", comment: "Context menu"), systemImage: "trash") {
-        actions.delete(flagged, opened: model.memoID)
+        actions.delete(flagged)
       }
       .macToolbarInk()
       .help(MacMemoControl.delete.help)

@@ -245,7 +245,7 @@ struct MacCompositionRootTests {
     let root = fakeRoot()
     let fake = try #require(root.fakeAPI)
     let start = Date()
-    for (index, id) in ["conv-first", "conv-second"].enumerated() {
+    for (index, id) in ["conv-first", "conv-middle", "conv-second"].enumerated() {
       let at = start.addingTimeInterval(Double(index + 1) * 60)
       await fake.seed(
         MemoDetail(
@@ -257,7 +257,7 @@ struct MacCompositionRootTests {
     root.begin()
     #expect(await loadedWindow(root))
     let row = try #require(root.windowHistory.memos.first { $0.conversation != nil })
-    #expect(row.id == "conv-second" && row.rowID == "conv-first")
+    #expect(row.id == "conv-second" && row.rowID == "conv-first" && row.conversation?.turns == 3)
     let opened = try await fake.memo(id: "conv-first").memo
     #expect(root.windowHistory.row(for: opened)?.id == row.id, "the pane's first turn finds the conversation's row")
 
@@ -266,10 +266,14 @@ struct MacCompositionRootTests {
     #expect(await eventually { await fake.memos["conv-first"]?.memo.favorite == true })
     #expect(await fake.memos["conv-second"]?.memo.favorite == true)
 
-    root.show("conv-first")
-    actions.delete(row, opened: "conv-first")
+    // A banner opened a middle turn: neither the row's id nor the conversation's first memo.
+    root.show("conv-middle")
+    await root.detailModel(for: "conv-middle").load()
+    #expect(root.selection(isPartOf: row), "the open turn belongs to the row's conversation")
+    actions.delete(row)
     #expect(root.selectedMemoID == nil, "the open turn leaves with its conversation")
     #expect(await eventually { await fake.memos["conv-first"]?.memo.deletedAt != nil })
+    #expect(await fake.memos["conv-middle"]?.memo.deletedAt != nil)
     #expect(await fake.memos["conv-second"]?.memo.deletedAt != nil)
   }
 
