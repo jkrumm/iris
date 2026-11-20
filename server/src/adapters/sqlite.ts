@@ -324,12 +324,14 @@ export function createSqliteMemoStore(params: { db: Database; clock: Clock }): M
   const resetForRetry = db.transaction((id: string, from: Step) => {
     const mode = memoById(id)?.mode;
     if (mode === undefined) return false;
-    // A failed memo, or a finished one whose optional step failed on the way (`from` is that step).
+    // A failed memo, or a finished one whose optional step failed on the way (`from` is that step), or whose summarize
+    // was left without a summary by late work that never landed (a restart cut it).
     const reset = db
       .query(
         `UPDATE memos SET state = ?, failed_step = NULL, error = NULL, updated_at = ? WHERE id = ?
            AND (state = 'failed' OR (state = 'notified' AND EXISTS (
-             SELECT 1 FROM memo_steps WHERE memo_id = memos.id AND step = ? AND status = 'failed')))`,
+             SELECT 1 FROM memo_steps WHERE memo_id = memos.id AND step = ?
+               AND (status = 'failed' OR (status = 'done' AND step = 'summarize' AND summary_json IS NULL)))))`,
       )
       .run(stateBefore({ step: from, mode }), stamp(), id, from);
     if (reset.changes === 0) return false;
@@ -485,7 +487,8 @@ export function createSqliteMemoStore(params: { db: Database; clock: Clock }): M
     ).run(...values, id);
   };
 
-  const LATE_ROW = "memo_id = ? AND step = ? AND status = 'done' AND started_at = ?";
+  /** The step's row as its late work found it: a late piece that failed turned it `failed`, and a sibling piece still lands. */
+  const LATE_ROW = "memo_id = ? AND step = ? AND status IN ('done', 'failed') AND started_at = ?";
 
   const completeLate = db.transaction(
     (input: Parameters<MemoStore["completeLate"]>[0]): boolean => {
@@ -520,7 +523,7 @@ export function createSqliteMemoStore(params: { db: Database; clock: Clock }): M
     const at = stamp();
     const row = db
       .query(
-        `UPDATE memo_steps SET status = 'failed', finished_at = ?, error = ? WHERE ${LATE_ROW}`,
+        `UPDATE memo_steps SET status = 'failed', finished_at = ?, error = ? WHERE ${LATE_ROW} AND status = 'done'`,
       )
       .run(at, error, id, step, startedAt);
     if (row.changes === 0) return false;

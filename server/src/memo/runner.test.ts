@@ -401,7 +401,9 @@ describe("optional summarize", () => {
     expect(codeOf(() => runner.retry({ id: skipped, from: "notify" }))).toBe("bad_state");
     expect(codeOf(() => runner.retry({ id: skipped, from: "act" }))).toBe("bad_state");
 
-    const healthy = setup();
+    const healthy = setup({
+      summarize: async () => ({ patch: { summary: { headline: "H", detail: "D", spoken: "S" } } }),
+    });
     const ok = seedMemo(healthy.store, "acted").id;
     await healthy.runner.drive(ok);
     expect(codeOf(() => healthy.runner.retry({ id: ok, from: "summarize" }))).toBe("bad_state");
@@ -861,6 +863,15 @@ describe("automatic retries", () => {
       error: "400 bad request",
     });
     expect(lines.some((l) => l["event"] === "step.late_failed")).toBe(true);
+    expect(runner.retry({ id, from: "summarize" }).state).toBe("acted");
+    await runner.idle();
+  });
+
+  it("retries a notified memo whose late summary never landed", async () => {
+    const { store, runner } = setupRetry("summarize", async () => ({}));
+    const { id } = seedMemo(store, "acted");
+    await runner.drive(id);
+    expect(store.getMemo(id)).toMatchObject({ state: "notified", summary: null });
     expect(runner.retry({ id, from: "summarize" }).state).toBe("acted");
     await runner.idle();
   });

@@ -246,8 +246,11 @@ export function createRunner(deps: {
           { memo_id: memo.id, step, attempt: tries },
           work,
         );
-        if (result && store.completeLate({ id: memo.id, step, startedAt, ...result })) {
+        if (!result) return;
+        if (store.completeLate({ id: memo.id, step, startedAt, ...result })) {
           publish(memo.id, step, true);
+        } else {
+          log("step.late_dropped", { memo_id: memo.id, step });
         }
         return;
       } catch (err) {
@@ -448,11 +451,17 @@ export function createRunner(deps: {
           `cannot retry from ${from}: mode ${memo.mode} has no such step`,
         );
       }
-      // A finished memo retries only an optional step that failed on the way.
+      // A finished memo retries only an optional step that failed on the way, or whose late summary never landed (a restart cut it).
       const skippedOptional =
         memo.state === "notified" &&
         isOptionalStep(from) &&
-        store.listStepRecords(id).some((r) => r.step === from && r.status === "failed");
+        store
+          .listStepRecords(id)
+          .some(
+            (r) =>
+              r.step === from &&
+              (r.status === "failed" || (r.status === "done" && memo.summary === null)),
+          );
       if (!skippedOptional) {
         if (memo.state !== "failed" || !memo.failedStep) {
           throw new MemoError("bad_state", `memo ${id} is ${memo.state}, only failed memos retry`);
