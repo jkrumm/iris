@@ -1,14 +1,17 @@
 import { describe, expect, it } from "bun:test";
 import { createMemoEvents } from "../memo/events.js";
+import { createMemoMedia } from "../memo/media.js";
 import { MEMO_MODES, type Memo } from "../memo/memo.js";
 import { createRunner } from "../memo/runner.js";
 import { deferred, fakeAudio, seedMemo, testStore, transition } from "../memo/test-support.js";
 import {
   FAKE_META,
   fakeAssetStore,
+  fakeCombiner,
   fakeDestination,
   fakeDiagramRenderer,
   fakeNotifier,
+  fakeSpeechCache,
   fakeSummarizer,
   fakeTranscriber,
 } from "../ports/fakes.js";
@@ -134,6 +137,47 @@ describe("transcribe", () => {
     expect(transcriber.calls[0]?.segmentPaths).toEqual(
       [0, 1].map((n) => `/fake/${memo.id}/${n}.m4a`),
     );
+  });
+
+  it("stores the transcriber's recording, so the first recording request makes no second concat", async () => {
+    const recording = new Uint8Array([9, 8, 7]);
+    const { store, audio, handlers } = setup({
+      transcriber: fakeTranscriber({ result: { recording } }),
+    });
+    const memo = seedWithSegments(store, [0, 1]);
+    await handlers.transcribe?.({ memo });
+
+    const combiner = fakeCombiner();
+    const media = createMemoMedia({
+      store,
+      audio,
+      combiner,
+      speechCache: fakeSpeechCache(),
+      assets: fakeAssetStore(),
+    });
+    const served = await media.recording(memo.id);
+
+    expect(combiner.calls).toEqual([]);
+    expect(served.size).toBe(3);
+    expect(audio.combined.get(memo.id)).toEqual(recording);
+  });
+
+  it("stores no recording when the transcriber returns none, and the combiner builds it on request", async () => {
+    const { store, audio, handlers } = setup({ transcriber: fakeTranscriber() });
+    const memo = seedWithSegments(store, [0]);
+    await handlers.transcribe?.({ memo });
+    expect(audio.combined.has(memo.id)).toBe(false);
+  });
+
+  it("keeps the transcript when the recording cannot be stored", async () => {
+    const { store, audio, handlers } = setup({
+      transcriber: fakeTranscriber({ result: { recording: new Uint8Array([1]) } }),
+    });
+    audio.putCombined = async () => {
+      throw new Error("disk full");
+    };
+    const result = await handlers.transcribe?.({ memo: seedWithSegments(store, [0]) });
+    expect(result?.patch).toMatchObject({ transcript: "hello iris" });
   });
 
   it("omits the cost when the port reports none", async () => {

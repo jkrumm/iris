@@ -96,7 +96,7 @@ How the pipeline behaves and why. Moved out of the root AGENTS.md; `docs/TDD.md`
   notifier reads. Migrations are append-only: `devices` and `activity_tokens` (cascades with the memo) are entry 4.
 
 - **Audio and speech are derived, disk-cached and single-flight:** the recording is `<audio>/<id>/combined.m4a` (mono 16 kHz
-  AAC from `ffmpegConcat`, built on the first request; removed with the segments), speech is
+  AAC from `ffmpegConcat`, stored by the `transcribe` step from the bytes it sent to the audio door, so the first request is a file read; the combiner builds it only when the memo has none, e.g. a failed transcribe or a store error `memo.recording_store_failed`; removed with the segments). The concat is the child span `audio.concat` (`segments`, `input_bytes`, `ffmpeg_ms`, `ffprobe_ms`, `output_bytes`, `audio_seconds`), so a slow `memo.transcribe` shows whether ffmpeg, the probe or the read-back took the time, speech is
   `<IRIS_DATA>/speech/<id>.mp3` (and `<id>.summary.mp3`, `<id>.full.mp3` for `?variant=`) with the spoken text in the matching `.txt`, so a retry that changes the variant text re-synthesizes
   instead of replaying stale audio (the key is the derived speech variant, never stored). A failed combine or synthesis caches nothing. `/audio` honours a single `bytes=` range;
   multi-range and malformed headers get the whole body, a range past the end gets 416.

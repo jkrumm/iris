@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { captureLogs } from "../memo/test-support.js";
 import { transientKind } from "../ports/transient.js";
+import { _test, type SpanRecord } from "../telemetry/otel.js";
 import { createAudioDoorClient } from "./audio-door-client.js";
 import { createAudioDoorTranscriber, ffmpegConcat, type ConcatFn } from "./audio-door.js";
 
@@ -48,6 +49,8 @@ describe("audio door transcriber", () => {
       audioSeconds: 12.5,
       costUsd: 0.000729,
       costEstimated: true,
+      // The bytes the door was sent: the caller keeps them as the playable recording.
+      recording: AUDIO,
     });
     expect(concatCalls).toEqual([["/seg/0.m4a", "/seg/1.m4a"]]);
     expect(calls).toHaveLength(1);
@@ -265,7 +268,25 @@ describe.skipIf(!Bun.which("ffmpeg") || !Bun.which("ffprobe"))("ffmpegConcat (re
     }
     const before = await concatDirs();
 
-    const { bytes, seconds } = await ffmpegConcat(segments);
+    const spans: SpanRecord[] = [];
+    _test.onSpanExport((r) => spans.push(r));
+    let result: Awaited<ReturnType<typeof ffmpegConcat>>;
+    try {
+      result = await ffmpegConcat(segments);
+    } finally {
+      _test.onSpanExport(null);
+    }
+    const { bytes, seconds } = result;
+
+    // A slow concat is visible in the trace: one span with the segment count, bytes in and out and where the time went.
+    const concatSpan = spans.find((s) => s.name === "audio.concat");
+    const attrs = Object.fromEntries(
+      (concatSpan?.attributes ?? []).map((a) => [a.key, Object.values(a.value)[0]]),
+    );
+    expect(attrs).toMatchObject({ segments: "2", output_bytes: String(bytes.length) });
+    expect(Number(attrs["input_bytes"])).toBeGreaterThan(0);
+    expect(attrs).toHaveProperty("ffmpeg_ms");
+    expect(attrs).toHaveProperty("ffprobe_ms");
 
     expect(seconds).toBeGreaterThan(1.8);
     expect(seconds).toBeLessThan(2.4);
