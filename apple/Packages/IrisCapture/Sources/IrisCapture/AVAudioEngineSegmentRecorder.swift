@@ -448,7 +448,7 @@
       apply(rotator.append(frames: samples.count), samples: samples)
     }
 
-    /// `capture.level` twice a second, and the end of a configuration-change gap at the first sample after it.
+    /// `capture.level` about every 5 s (see `LevelReporter`), and the end of a configuration-change gap at the first sample after it.
     private func reportLevel(_ samples: [Float]) {
       if let start = configurationGapStart {
         configurationGapStart = nil
