@@ -528,7 +528,11 @@ export function createHermesDestination(opts: HermesDestinationOptions): Destina
         span.setAttributes(turn.spanAttributes);
         if (after === null && usage) {
           // The cost needs the session's model: say the read is why there is none, not the price table.
-          log("hermes.session_unsettled", { memo_id: memoId });
+          log("hermes.session_unsettled", {
+            memo_id: memoId,
+            // Which read left the counts unknown: the one before the turn failed, or the one after never showed the turn.
+            failed_read: before ? "after" : "before",
+          });
         } else if (turn.unpricedModel !== undefined) {
           log("hermes.cost_unpriced", { memo_id: memoId, model: turn.unpricedModel });
         }
