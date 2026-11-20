@@ -8,6 +8,7 @@ import { httpErrors } from "./http/errors.js";
 import { eventRoutes } from "./http/events.js";
 import { mediaRoutes } from "./http/media.js";
 import { memoRoutes } from "./http/memos.js";
+import { requestTelemetry } from "./http/request-telemetry.js";
 import { threadRoutes } from "./http/threads.js";
 import { HealthResponse, WhoamiResponse } from "./http/schemas.js";
 import { statsRoutes } from "./http/stats.js";
@@ -40,6 +41,7 @@ export function createApp(deps: AppDeps) {
   const auth = deviceAuth(deps.deviceTokens);
   const { memos, stats, devices, media, telemetry } = deps;
   return new Elysia()
+    .use(requestTelemetry)
     .use(httpErrors)
     .get(
       "/health",

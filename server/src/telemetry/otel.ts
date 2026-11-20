@@ -325,6 +325,33 @@ export function withRootSpan<T>(
   return runInSpan(data, fn);
 }
 
+/**
+ * Records a span that has already ended: its duration is known, nothing runs inside it (an HTTP request, a long-lived stream's
+ * close). It is a root span of its own trace unless called inside `withSpan`; `error` marks it errored.
+ */
+export function recordSpan(params: {
+  name: string;
+  kind?: SpanKind;
+  durationMs: number;
+  attrs?: SpanAttributes;
+  error?: string;
+}): void {
+  try {
+    const data = createSpanData(params.name, params.kind ?? "internal", params.attrs);
+    data.startTimeUnixNano = nowNanos() - BigInt(Math.round(Math.max(0, params.durationMs) * 1e6));
+    if (params.error !== undefined) {
+      data.statusCode = "error";
+      data.statusMessage = params.error;
+    } else {
+      data.statusCode = "ok";
+    }
+    data.ended = true;
+    exportSpan(data);
+  } catch (err) {
+    console.warn("[otel] failed to record span:", err);
+  }
+}
+
 // ── OTLP JSON record shapes + payload builders ───────────────────────────────
 // Pure — no ENABLED gate, so the records a test observes through `_test` are exactly the ones
 // production would put on the wire.
