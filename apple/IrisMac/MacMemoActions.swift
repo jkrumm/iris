@@ -16,10 +16,11 @@ struct MacMemoActions {
   func toggleFavorite(_ memo: Memo) { act(memo) { await $0.toggleFavorite($1) } }
   func toggleArchived(_ memo: Memo) { act(memo) { await $0.toggleArchived($1) } }
   /// Delete is queued at the tap: the selection goes at once (the deleted memo leaves the list, so the detail has nothing to show),
-  /// and a second tap for the same memo does nothing while the first is waiting or running.
-  func delete(_ memo: Memo) {
+  /// and a second tap for the same memo does nothing while the first is waiting or running. `opened` is the memo the detail pane shows
+  /// when it is not the row's own id (an older turn a banner opened): the selection goes too.
+  func delete(_ memo: Memo, opened: String? = nil) {
     guard memo.state.isDeletable, root.beginDelete(memo.id) else { return }
-    if root.selectedMemoID == memo.rowID { root.selectedMemoID = nil }
+    if let selected = root.selectedMemoID, selected == memo.rowID || selected == opened { root.selectedMemoID = nil }
     act(memo) { [root] model, current in
       defer { root.endDelete(memo.id) }
       await model.delete(current)
