@@ -63,6 +63,30 @@ public struct ActivityTokenRequest: Codable, Hashable, Sendable {
   }
 }
 
+/// How far `PATCH`, `DELETE` and `restore` of a memo reach (`?scope=thread`): `thread` covers every live memo of the memo's
+/// thread (restore: the memos deleted together with it), which is what a row of the collapsed list means. A memo with no thread is its own scope.
+public enum MemoScope: Hashable, Sendable {
+  case memo
+  case thread
+
+  var queryItems: [URLQueryItem] {
+    self == .thread ? [URLQueryItem(name: "scope", value: "thread")] : []
+  }
+}
+
+/// The wire form of `MemoScope.thread`: the query `?scope=thread`.
+public struct MemoScopeQuery: Codable, Hashable, Sendable {
+  public enum Scope: String, Codable, Hashable, Sendable {
+    case thread
+  }
+
+  public var scope: Scope?
+
+  public init(scope: Scope? = .thread) {
+    self.scope = scope
+  }
+}
+
 /// Body of `PATCH /v1/memos/:id`: the flags to change, at least one (the server answers 400 for none). A `nil` flag is
 /// omitted and left as it is.
 public struct SetFlagsRequest: Codable, Hashable, Sendable {
@@ -92,11 +116,13 @@ public struct ListMemosQuery: Hashable, Sendable {
   public var kind: String?
   /// Keeps the memos of a conversation (a continued thread, at least two memos); the wire's `thread`, only ever `true`.
   public var thread: Bool
+  /// Lists each conversation once, as its newest memo (with `Memo.conversation`); the wire's `collapse=thread`.
+  public var collapse: Bool
 
   public init(
     limit: Int? = nil, cursor: String? = nil, q: String? = nil,
     state: MemoState? = nil, favorite: Bool = false, archived: Bool = false, kind: String? = nil,
-    thread: Bool = false
+    thread: Bool = false, collapse: Bool = false
   ) {
     self.limit = limit
     self.cursor = cursor
@@ -106,6 +132,7 @@ public struct ListMemosQuery: Hashable, Sendable {
     self.archived = archived
     self.kind = kind
     self.thread = thread
+    self.collapse = collapse
   }
 
   public var queryItems: [URLQueryItem] {
@@ -118,6 +145,7 @@ public struct ListMemosQuery: Hashable, Sendable {
     if archived { items.append(URLQueryItem(name: "archived", value: "true")) }
     if let kind { items.append(URLQueryItem(name: "kind", value: kind)) }
     if thread { items.append(URLQueryItem(name: "thread", value: "true")) }
+    if collapse { items.append(URLQueryItem(name: "collapse", value: "thread")) }
     return items
   }
 }
@@ -125,7 +153,7 @@ public struct ListMemosQuery: Hashable, Sendable {
 /// The query as the contract fixtures spell it: the values of the query string, so a flag is the string `"true"`.
 extension ListMemosQuery: Codable {
   private enum CodingKeys: String, CodingKey {
-    case limit, cursor, q, state, favorite, archived, kind, thread
+    case limit, cursor, q, state, favorite, archived, kind, thread, collapse
   }
 
   public init(from decoder: any Decoder) throws {
@@ -138,7 +166,8 @@ extension ListMemosQuery: Codable {
       favorite: try Self.decodeFlag(container, .favorite),
       archived: try Self.decodeFlag(container, .archived),
       kind: try container.decodeIfPresent(String.self, forKey: .kind),
-      thread: try Self.decodeFlag(container, .thread))
+      thread: try Self.decodeFlag(container, .thread),
+      collapse: try Self.decodeFlag(container, .collapse, value: "thread"))
   }
 
   public func encode(to encoder: any Encoder) throws {
@@ -151,15 +180,16 @@ extension ListMemosQuery: Codable {
     if archived { try container.encode("true", forKey: .archived) }
     try container.encodeIfPresent(kind, forKey: .kind)
     if thread { try container.encode("true", forKey: .thread) }
+    if collapse { try container.encode("thread", forKey: .collapse) }
   }
 
   private static func decodeFlag(
-    _ container: KeyedDecodingContainer<CodingKeys>, _ key: CodingKeys
+    _ container: KeyedDecodingContainer<CodingKeys>, _ key: CodingKeys, value expected: String = "true"
   ) throws -> Bool {
     guard let value = try container.decodeIfPresent(String.self, forKey: key) else { return false }
-    guard value == "true" else {
+    guard value == expected else {
       throw DecodingError.dataCorruptedError(
-        forKey: key, in: container, debugDescription: "a flag filter is only ever \"true\"")
+        forKey: key, in: container, debugDescription: "a flag filter is only ever \"\(expected)\"")
     }
     return true
   }

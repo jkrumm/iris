@@ -745,13 +745,13 @@ final class MacCompositionRoot {
   /// page loads, and the memo is inserted into the list. Its actions resolve the memo in the list when they run, so it must be there.
   /// A load that finishes after the insert replaces the list, so the insert is repeated until it sticks (bounded).
   func ensureHeld(_ memo: Memo) async {
-    guard isConfigured, !windowHistory.memos.contains(where: { $0.id == memo.id }) else { return }
+    guard isConfigured, windowHistory.row(for: memo) == nil else { return }
     windowHistory.filters.searchText = ""
     windowHistory.filters.clearKindAndState()
     scope = memo.archived ? .archive : .all
     await windowHistory.load()
     for _ in 0..<5 {
-      guard !windowHistory.memos.contains(where: { $0.id == memo.id }) else { return }
+      guard windowHistory.row(for: memo) == nil else { return }
       windowHistory.insert(memo)
       try? await Task.sleep(for: .milliseconds(100))
       while windowHistory.isLoading, !Task.isCancelled { try? await Task.sleep(for: .milliseconds(50)) }

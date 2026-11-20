@@ -7,15 +7,15 @@ import Testing
 struct HistoryFiltersTests {
   @Test("no filter asks for the plain first page")
   func plainQuery() {
-    #expect(HistoryFilters().query() == ListMemosQuery(limit: 50))
+    #expect(HistoryFilters().query() == ListMemosQuery(limit: 50, collapse: true))
   }
 
   @Test(
     "each quick filter becomes its query parameter",
     arguments: [
-      (QuickFilter.favorites, ListMemosQuery(limit: 50, favorite: true)),
-      (.threads, ListMemosQuery(limit: 50, thread: true)),
-      (.archived, ListMemosQuery(limit: 50, archived: true)),
+      (QuickFilter.favorites, ListMemosQuery(limit: 50, favorite: true, collapse: true)),
+      (.threads, ListMemosQuery(limit: 50, thread: true, collapse: true)),
+      (.archived, ListMemosQuery(limit: 50, archived: true, collapse: true)),
     ])
   func quickQuery(filter: QuickFilter, expected: ListMemosQuery) {
     var filters = HistoryFilters()
@@ -31,27 +31,27 @@ struct HistoryFiltersTests {
     #expect(filters.quick == .threads)
     filters.toggle(.threads)
     #expect(filters.quick == nil)
-    #expect(filters.query() == ListMemosQuery(limit: 50))
+    #expect(filters.query() == ListMemosQuery(limit: 50, collapse: true))
   }
 
   @Test("a kind goes through ?kind= and a second tap, in any case, clears it")
   func kindQuery() {
     var filters = HistoryFilters()
     filters.toggleKind("github issue")
-    #expect(filters.query() == ListMemosQuery(limit: 50, kind: "github issue"))
+    #expect(filters.query() == ListMemosQuery(limit: 50, kind: "github issue", collapse: true))
     #expect(filters.isSelected(kind: "Github Issue"))
     filters.toggleKind("GITHUB ISSUE")
-    #expect(filters.query() == ListMemosQuery(limit: 50))
+    #expect(filters.query() == ListMemosQuery(limit: 50, collapse: true))
   }
 
   @Test("the thread narrowing sends thread=true without a chip")
   func threadNarrowing() {
     var filters = HistoryFilters()
     filters.setThread(true)
-    #expect(filters.query() == ListMemosQuery(limit: 50, thread: true))
+    #expect(filters.query() == ListMemosQuery(limit: 50, thread: true, collapse: true))
     #expect(filters.isFiltering && filters.needsServerMatching)
     filters.setThread(false)
-    #expect(filters.query() == ListMemosQuery(limit: 50))
+    #expect(filters.query() == ListMemosQuery(limit: 50, collapse: true))
   }
 
   @Test("a chip, the sheet and the search combine into one query")
@@ -63,7 +63,8 @@ struct HistoryFiltersTests {
     filters.searchText = "  release "
     #expect(
       filters.query(cursor: "50")
-        == ListMemosQuery(limit: 50, cursor: "50", q: "release", state: .failed, favorite: true, kind: "task"))
+        == ListMemosQuery(
+          limit: 50, cursor: "50", q: "release", state: .failed, favorite: true, kind: "task", collapse: true))
     #expect(filters.activeFilterCount == 3)
   }
 
@@ -85,7 +86,7 @@ struct HistoryFiltersTests {
     #expect(filters.activeFilterCount == 3)
     filters.resetFilters()
     #expect(filters.activeFilterCount == 0)
-    #expect(filters.query() == ListMemosQuery(limit: 50, q: "plan"))
+    #expect(filters.query() == ListMemosQuery(limit: 50, q: "plan", collapse: true))
   }
 
   @Test("matches judges flags, kind and state, and never shows an archived or deleted memo by default")

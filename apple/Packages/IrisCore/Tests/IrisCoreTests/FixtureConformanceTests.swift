@@ -44,6 +44,7 @@ let fixtureTypes: [String: RoundTrip] = [
   "memos.flags.response": roundTrip(Memo.self),
   "memos.list.query": roundTrip(ListMemosQuery.self),
   "memos.list.response": roundTrip(MemoPage.self),
+  "memos.scope.query": roundTrip(MemoScopeQuery.self),
   "memos.text.request": roundTrip(CreateTextMemoRequest.self),
   "memos.text.response": roundTrip(Memo.self),
   "memos.restore.response": roundTrip(Memo.self),
@@ -218,6 +219,20 @@ struct FixtureConformanceTests {
       ])
     let archived = try decoder.decode(ListMemosQuery.self, from: Contracts.fixtureData("memos.list.query.archived"))
     #expect(archived.archived && !archived.favorite)
+    let collapsed = try decoder.decode(ListMemosQuery.self, from: Contracts.fixtureData("memos.list.query.collapsed"))
+    #expect(collapsed.collapse && !collapsed.thread)
+    #expect(
+      collapsed.queryItems == [
+        URLQueryItem(name: "limit", value: "20"), URLQueryItem(name: "collapse", value: "thread"),
+      ])
+    #expect(throws: DecodingError.self) {
+      try decoder.decode(ListMemosQuery.self, from: Data(#"{"collapse":"all"}"#.utf8))
+    }
+    let row = try decoder.decode(MemoPage.self, from: Contracts.fixtureData("memos.list.response.collapsed")).items[0]
+    #expect(
+      row.conversation
+        == MemoConversation(id: "c4e8a2d6-7b19-4f35-a0c1-3d5e9f8b2a47", title: "Geschenkideen für Ines", turns: 3))
+    #expect(row.favorite && row.threadId != row.conversation?.id)
     #expect(ListMemosQuery(favorite: false, archived: false).queryItems.isEmpty)
     #expect(throws: DecodingError.self) {
       try decoder.decode(ListMemosQuery.self, from: Data(#"{"favorite":"false"}"#.utf8))

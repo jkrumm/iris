@@ -16,9 +16,9 @@ public actor FakeAPIClient: APIClient {
     case uploadSegment(memoID: String, index: Int, byteCount: Int)
     case completeMemo(id: String, request: CompleteMemoRequest)
     case retryMemo(id: String, request: RetryMemoRequest)
-    case setFlags(id: String, done: Bool?, favorite: Bool?, archived: Bool?)
-    case deleteMemo(id: String)
-    case restoreMemo(id: String)
+    case setFlags(id: String, done: Bool?, favorite: Bool?, archived: Bool?, scope: MemoScope = .memo)
+    case deleteMemo(id: String, scope: MemoScope = .memo)
+    case restoreMemo(id: String, scope: MemoScope = .memo)
     case listMemos(ListMemosQuery)
     case memo(id: String)
     case listThreads(ListThreadsQuery)
@@ -287,55 +287,78 @@ public actor FakeAPIClient: APIClient {
 
   /// Soft-deletes (`DELETE`), flags (`PATCH`) and restores like the server; a deleted memo past `purgeWindow` is gone
   /// the next time anything looks, which is the server's purge.
-  public func setFlags(id: String, done: Bool?, favorite: Bool?, archived: Bool?) async throws -> Memo {
-    calls.append(.setFlags(id: id, done: done, favorite: favorite, archived: archived))
+  public func setFlags(id: String, done: Bool?, favorite: Bool?, archived: Bool?, scope: MemoScope) async throws -> Memo
+  {
+    calls.append(.setFlags(id: id, done: done, favorite: favorite, archived: archived, scope: scope))
     return try await respond(.setFlags) {
       purgeExpired()
-      guard var detail = memos[id] else { throw notFound("memo not found") }
+      guard let asked = memos[id] else { throw notFound("memo not found") }
       guard done != nil || favorite != nil || archived != nil else {
         throw APIError.server(
           status: 400, body: ErrorBody(error: .badRequest, message: "set at least one of done, favorite, archived"))
       }
-      guard !detail.memo.isDeleted else { throw badState("memo \(id) is deleted") }
-      if let done { detail.memo.done = done }
-      if let favorite { detail.memo.favorite = favorite }
-      if let archived { detail.memo.archived = archived }
-      detail.memo.updatedAt = now()
-      store(detail)
-      return detail.memo
+      guard !asked.memo.isDeleted else { throw badState("memo \(id) is deleted") }
+      for targetID in liveIDs(of: asked.memo, scope: scope) {
+        guard var detail = memos[targetID] else { continue }
+        if let done { detail.memo.done = done }
+        if let favorite { detail.memo.favorite = favorite }
+        if let archived { detail.memo.archived = archived }
+        detail.memo.updatedAt = now()
+        store(detail)
+      }
+      return memos[id]?.memo ?? asked.memo
     }
   }
 
-  public func deleteMemo(id: String) async throws -> Memo {
-    calls.append(.deleteMemo(id: id))
+  public func deleteMemo(id: String, scope: MemoScope) async throws -> Memo {
+    calls.append(.deleteMemo(id: id, scope: scope))
     return try await respond(.deleteMemo) {
       purgeExpired()
-      guard var detail = memos[id] else { throw notFound("memo not found") }
-      if detail.memo.isDeleted { return detail.memo }
-      guard detail.memo.state.isDeletable else {
-        throw badState("memo \(id) is \(detail.memo.state.rawValue), only settled or receiving memos can be deleted")
+      guard let asked = memos[id] else { throw notFound("memo not found") }
+      if asked.memo.isDeleted { return asked.memo }
+      let targets = liveIDs(of: asked.memo, scope: scope).compactMap { memos[$0] }
+      // All or none: one unsettled turn refuses the whole delete.
+      if let busy = targets.first(where: { !$0.memo.state.isDeletable }) {
+        throw badState(
+          "memo \(busy.id) is \(busy.memo.state.rawValue), only settled or receiving memos can be deleted")
       }
       let timestamp = now()
-      detail.memo.deletedAt = timestamp
-      detail.memo.purgeAt = timestamp.addingTimeInterval(Self.purgeWindow)
-      detail.memo.updatedAt = timestamp
-      store(detail)
-      return detail.memo
+      for var detail in targets {
+        detail.memo.deletedAt = timestamp
+        detail.memo.purgeAt = timestamp.addingTimeInterval(Self.purgeWindow)
+        detail.memo.updatedAt = timestamp
+        store(detail)
+      }
+      return memos[id]?.memo ?? asked.memo
     }
   }
 
-  public func restoreMemo(id: String) async throws -> Memo {
-    calls.append(.restoreMemo(id: id))
+  public func restoreMemo(id: String, scope: MemoScope) async throws -> Memo {
+    calls.append(.restoreMemo(id: id, scope: scope))
     return try await respond(.restoreMemo) {
       purgeExpired()
-      guard var detail = memos[id] else { throw notFound("memo not found") }
-      guard detail.memo.isDeleted else { throw badState("memo \(id) is not deleted") }
-      detail.memo.deletedAt = nil
-      detail.memo.purgeAt = nil
-      detail.memo.updatedAt = now()
-      store(detail)
-      return detail.memo
+      guard let asked = memos[id] else { throw notFound("memo not found") }
+      guard asked.memo.isDeleted else { throw badState("memo \(id) is not deleted") }
+      // One delete of a conversation took every turn at one instant; its undo brings them all back.
+      let together = memos.values.filter { other in
+        other.id == id
+          || (scope == .thread && asked.memo.threadId != nil && other.memo.threadId == asked.memo.threadId
+            && other.memo.deletedAt == asked.memo.deletedAt)
+      }
+      for var detail in together where detail.memo.isDeleted {
+        detail.memo.deletedAt = nil
+        detail.memo.purgeAt = nil
+        detail.memo.updatedAt = now()
+        store(detail)
+      }
+      return memos[id]?.memo ?? asked.memo
     }
+  }
+
+  /// The live memos a change of `scope` reaches: the memo, or every live memo of its thread.
+  private func liveIDs(of memo: Memo, scope: MemoScope) -> [String] {
+    guard scope == .thread, let threadId = memo.threadId else { return [memo.id] }
+    return memos.values.map(\.memo).filter { $0.threadId == threadId && !$0.isDeleted }.map(\.id)
   }
 
   /// Mirrors the server's list rules: deleted memos never show, archived ones only with `archived`, `kind` matches the
@@ -347,17 +370,33 @@ public actor FakeAPIClient: APIClient {
 
   private func page(for query: ListMemosQuery) -> MemoPage {
     purgeExpired()
+    let live = memos.values.map(\.memo).filter { !$0.isDeleted }
     // A conversation is a thread with at least two live memos (a memo alone in its own session is none), like the server.
-    let liveInThread = Dictionary(
-      grouping: memos.values.map(\.memo).filter { !$0.isDeleted }.compactMap(\.threadId), by: { $0 }
-    ).mapValues(\.count)
-    let matching = memos.values.map(\.memo)
+    let byThread = Dictionary(grouping: live.filter { $0.threadId != nil }, by: { $0.threadId ?? "" })
+      .mapValues { $0.sorted { ($0.createdAt, $0.id) < ($1.createdAt, $1.id) } }
+    let matching =
+      live
       .filter { memo in
-        !memo.isDeleted && memo.archived == query.archived && (!query.favorite || memo.favorite)
+        let turns = memo.threadId.flatMap { byThread[$0] } ?? [memo]
+        // Collapsed, a conversation is its newest memo; a favorite or a hit in any turn counts for it.
+        if query.collapse, let newest = turns.last, newest.id != memo.id { return false }
+        let favorite = query.collapse ? turns.contains(where: \.favorite) : memo.favorite
+        let found =
+          query.collapse ? turns.contains { Self.matches($0, search: query.q) } : Self.matches(memo, search: query.q)
+        return memo.archived == query.archived && (!query.favorite || favorite)
           && (query.state.map { memo.state == $0 } ?? true)
           && (query.kind.map { Self.normalized($0) == memo.kind.map(Self.normalized) } ?? true)
-          && (!query.thread || memo.threadId.map { liveInThread[$0, default: 0] >= 2 } ?? false)
-          && Self.matches(memo, search: query.q)
+          && (!query.thread || turns.count >= 2) && found
+      }
+      .map { memo -> Memo in
+        guard query.collapse, let threadId = memo.threadId, let turns = byThread[threadId], turns.count >= 2,
+          let first = turns.first
+        else { return memo }
+        var row = memo
+        row.favorite = turns.contains(where: \.favorite)
+        row.conversation = MemoConversation(
+          id: first.id, title: first.summary?.headline ?? first.transcript ?? "", turns: turns.count)
+        return row
       }
       .sorted { ($0.createdAt, $0.id) > ($1.createdAt, $1.id) }
     let start = query.cursor.flatMap(Int.init) ?? 0

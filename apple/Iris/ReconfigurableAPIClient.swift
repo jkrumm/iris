@@ -59,11 +59,15 @@ nonisolated final class ReconfigurableAPIClient: APIClient {
   func retryMemo(id: String, request: RetryMemoRequest) async throws -> Memo {
     try await current().retryMemo(id: id, request: request)
   }
-  func setFlags(id: String, done: Bool?, favorite: Bool?, archived: Bool?) async throws -> Memo {
-    try await current().setFlags(id: id, done: done, favorite: favorite, archived: archived)
+  func setFlags(id: String, done: Bool?, favorite: Bool?, archived: Bool?, scope: MemoScope) async throws -> Memo {
+    try await current().setFlags(id: id, done: done, favorite: favorite, archived: archived, scope: scope)
   }
-  func deleteMemo(id: String) async throws -> Memo { try await current().deleteMemo(id: id) }
-  func restoreMemo(id: String) async throws -> Memo { try await current().restoreMemo(id: id) }
+  func deleteMemo(id: String, scope: MemoScope) async throws -> Memo {
+    try await current().deleteMemo(id: id, scope: scope)
+  }
+  func restoreMemo(id: String, scope: MemoScope) async throws -> Memo {
+    try await current().restoreMemo(id: id, scope: scope)
+  }
   func listMemos(_ query: ListMemosQuery) async throws -> MemoPage { try await current().listMemos(query) }
   func memo(id: String) async throws -> MemoDetail { try await current().memo(id: id) }
   func listThreads(_ query: ListThreadsQuery) async throws -> ThreadPage { try await current().listThreads(query) }

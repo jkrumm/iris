@@ -21,13 +21,17 @@ public protocol APIClient: Sendable {
   func retryMemo(id: String, request: RetryMemoRequest) async throws -> Memo
   /// `PATCH /v1/memos/:id`: sets the flags that are not `nil` (at least one, else a 400 `APIError.server`). A soft-deleted
   /// memo is a 409.
-  func setFlags(id: String, done: Bool?, favorite: Bool?, archived: Bool?) async throws -> Memo
+  /// `scope: .thread` (`?scope=thread`) sets them on every live memo of the memo's thread, which is what a collapsed row means; the
+  /// answer is the memo asked for.
+  func setFlags(id: String, done: Bool?, favorite: Bool?, archived: Bool?, scope: MemoScope) async throws -> Memo
   /// `DELETE /v1/memos/:id`: soft delete. The memo comes back with `deletedAt` and `purgeAt`; until then
   /// `restoreMemo(id:)` undoes it. Only a settled memo or a take still `receiving` (`MemoState.isDeletable`) can be deleted, else a 409; repeatable.
   /// After the delete of a `receiving` memo a late segment or `complete` is a 409 `bad_state`.
-  func deleteMemo(id: String) async throws -> Memo
+  /// `scope: .thread` deletes every live memo of the thread at one instant (all or none: a 409 while one is unsettled).
+  func deleteMemo(id: String, scope: MemoScope) async throws -> Memo
   /// `POST /v1/memos/:id/restore`: the undo of `deleteMemo`. A 409 when the memo is not deleted, a 404 once it is purged.
-  func restoreMemo(id: String) async throws -> Memo
+  /// `scope: .thread` brings back every memo of the thread that was deleted together with this one.
+  func restoreMemo(id: String, scope: MemoScope) async throws -> Memo
   /// `GET /v1/memos`: one page; pass the previous page's `nextCursor` to continue.
   func listMemos(_ query: ListMemosQuery) async throws -> MemoPage
   /// `GET /v1/memos/:id`.
@@ -48,4 +52,21 @@ public protocol APIClient: Sendable {
   /// `GET /v1/events`: opens the SSE stream. It ends when the consumer stops iterating or the connection
   /// drops (the stream then throws); there is no replay, so a consumer refetches the list on reconnect.
   func events() -> AsyncThrowingStream<ServerEvent, any Error>
+}
+
+extension APIClient {
+  /// `PATCH /v1/memos/:id` on the memo alone.
+  public func setFlags(id: String, done: Bool?, favorite: Bool?, archived: Bool?) async throws -> Memo {
+    try await setFlags(id: id, done: done, favorite: favorite, archived: archived, scope: .memo)
+  }
+
+  /// `DELETE /v1/memos/:id` on the memo alone.
+  public func deleteMemo(id: String) async throws -> Memo {
+    try await deleteMemo(id: id, scope: .memo)
+  }
+
+  /// `POST /v1/memos/:id/restore` on the memo alone.
+  public func restoreMemo(id: String) async throws -> Memo {
+    try await restoreMemo(id: id, scope: .memo)
+  }
 }

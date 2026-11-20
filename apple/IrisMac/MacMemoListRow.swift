@@ -13,7 +13,7 @@ struct MacMemoListRow: View {
   var body: some View {
     HStack(alignment: .top, spacing: Theme.Spacing.cozy) {
       VStack(alignment: .leading, spacing: Theme.Spacing.macRowLineGap) {
-        Text(verbatim: memo.rowHeadline)
+        Text(verbatim: memo.listHeadline)
           .macFont(.body, weight: .semibold)
           .macRowInk(Theme.Ink.primary)
           .lineLimit(2)
@@ -33,6 +33,9 @@ struct MacMemoListRow: View {
           if hovering, memo.macRowCopyText != nil {
             MacRowCopyButton(root: root, memo: memo).macRowInk(Theme.Ink.muted)
           } else {
+            if memo.conversation != nil {
+              Image(systemName: "bubble.left.and.bubble.right").accessibilityHidden(true)
+            }
             if memo.favorite {
               Image(systemName: "star.fill").foregroundStyle(Theme.Status.warn).accessibilityHidden(true)
             }

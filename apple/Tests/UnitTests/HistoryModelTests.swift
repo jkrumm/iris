@@ -24,29 +24,74 @@ struct HistoryModelTests {
     try await client.memo(id: id).memo
   }
 
-  @Test("a continued transcript is one row, its first part's; the parts that continue it have none")
-  func transcriptPartsHaveNoRow() async {
+  @Test("a continued conversation is one row: its newest memo, under the first turn's id, with its title")
+  func conversationIsOneRow() async {
     await seed(
-      MemoFactory.memo("a", age: 30, mode: .transcribe, threadId: "a"),
+      MemoFactory.memo("a", age: 30, mode: .transcribe, transcript: "Tomaten", threadId: "a"),
       MemoFactory.memo("b", age: 20, mode: .transcribe, threadId: "a"),
       MemoFactory.memo("c", age: 10, mode: .transcribe),
       MemoFactory.memo("d", age: 5, threadId: "d"))
     await model.load()
 
-    #expect(model.memoIDs == ["d", "c", "a"])
-    #expect(model.sections.flatMap(\.memos).map(\.id) == ["d", "c", "a"])
-    #expect(Set(ids) == ["a", "b", "c", "d"], "the parts stay loaded: the open transcript and its revision read them")
-    #expect(model.listedMemos.map(\.id) == ["d", "c", "a"], "the Mac panel's recent list reads the same rows")
+    #expect(model.memoIDs == ["d", "c", "b"])
+    #expect(model.listedMemos.map(\.id) == ["d", "c", "b"], "the Mac panel's recent list reads the same rows")
+    let row = model.memos[2]
+    #expect(row.rowID == "a" && row.listHeadline == "Tomaten" && row.conversation?.turns == 2)
+    #expect(
+      model.row(for: MemoFactory.memo("a", mode: .transcribe, threadId: "a"))?.id == "b",
+      "the open first memo finds its row")
   }
 
-  @Test("a search lists a part that holds the phrase, so a hit always has a row")
-  func searchListsTranscriptParts() async {
+  @Test("a search finds a conversation by a turn that is not its newest, as the one row")
+  func searchFindsConversation() async {
     await seed(
       MemoFactory.memo("a", age: 30, mode: .transcribe, transcript: "Tomaten", threadId: "a"),
-      MemoFactory.memo("b", age: 20, mode: .transcribe, transcript: "Hafermilch", threadId: "a"))
+      MemoFactory.memo("b", age: 20, mode: .transcribe, transcript: "Hafermilch", threadId: "a"),
+      MemoFactory.memo("c", age: 10, mode: .transcribe, transcript: "danke", threadId: "a"))
     model.filters.searchText = "Hafermilch"
     await model.load()
-    #expect(model.sections.flatMap(\.memos).map(\.id).contains("b"))
+    #expect(model.memoIDs == ["c"])
+  }
+
+  @Test("a reply into a listed conversation keeps the row count and lifts the row to the top")
+  func replyLiftsConversation() async {
+    await seed(
+      MemoFactory.memo("a", age: 30, threadId: "a"), MemoFactory.memo("x", age: 20, threadId: "x"),
+      MemoFactory.memo("b", age: 25, threadId: "a"))
+    await model.load()
+    #expect(model.memoIDs == ["x", "b"])
+
+    let reply = MemoFactory.memo("c", age: 0, state: .acted, threadId: "a")
+    await client.seed(MemoFactory.detail(reply))
+    await model.handle(.memoUpdated(MemoEvent(id: "c", state: .acted, at: MemoFactory.now)))
+
+    #expect(model.memoIDs == ["c", "x"], "one row per conversation, the one that got the reply first")
+    let row = model.memos[0]
+    #expect(
+      row.state == .acted && row.rowID == "a" && row.conversation?.turns == 3,
+      "the newest turn's state, the thread's id")
+    #expect(model.sections.flatMap(\.memos).count == 2)
+  }
+
+  @Test("a flag, delete and undo on a conversation row reach every turn")
+  func conversationRowActions() async throws {
+    await seed(MemoFactory.memo("a", age: 30, threadId: "a"), MemoFactory.memo("b", age: 10, threadId: "a"))
+    await model.load()
+    let row = try #require(model.memos.first)
+
+    await model.toggleFavorite(row)
+    #expect(try await serverFlags("a").favorite)
+    #expect(try await serverFlags("b").favorite)
+    #expect(model.memos.first?.favorite == true && model.memos.first?.conversation?.turns == 2)
+
+    await model.delete(model.memos[0])
+    #expect(model.memos.isEmpty)
+    #expect(try await serverFlags("a").isDeleted)
+    #expect(try await serverFlags("b").isDeleted)
+
+    await model.undoDelete()
+    #expect(model.memoIDs == ["b"] && model.memos[0].conversation?.turns == 2)
+    #expect(try await !serverFlags("a").isDeleted)
   }
 
   @Test("a transcript's revision moves with any of its parts and with a new one joining")

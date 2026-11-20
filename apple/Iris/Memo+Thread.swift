@@ -10,6 +10,16 @@ extension Memo {
     return threadId != id
   }
 
+  /// What a list row is keyed and opened by: the conversation's first memo for a row of the collapsed list (it stays the same when a
+  /// reply makes another memo the row's newest), else the memo itself. Opening it shows the whole conversation.
+  nonisolated var rowID: String { conversation?.id ?? id }
+
+  /// The headline of a list row: a conversation's title (the first turn's headline), else the memo's own.
+  var listHeadline: String { conversation?.title ?? rowHeadline }
+
+  /// The row stands for a conversation, or is a memo that continues one: the thread marker.
+  nonisolated var isConversationRow: Bool { conversation != nil || continuesThread }
+
   /// The memo's rendered Mermaid blocks keyed by fence index, as the PNGs of both appearances.
   nonisolated var mermaidAssets: [Int: MermaidAsset] {
     var assets: [Int: MermaidAsset] = [:]
