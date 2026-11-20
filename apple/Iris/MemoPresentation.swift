@@ -6,6 +6,9 @@ import SwiftUI
 /// How a memo reads in a list row: one place for the headline fallback, the state wording and the status color.
 extension Memo {
   var rowHeadline: String {
+    if state == .receiving {
+      return String(localized: "Recording…", comment: "Row headline while the take is still recording")
+    }
     if let headline = summary?.headline { return headline }
     if let transcript { return Self.clipped(transcript) }
     if state == .failed, let error { return error }
@@ -88,9 +91,14 @@ extension Memo {
   }
 
   /// Settled memos show the kind and the audio length, a failed memo the coloured state, memos the pipeline is still
-  /// driving show the kind and "Acting". An old memo parked at `needs_route` (done, never routed) reads "Not delivered". The list wire carries no cost.
+  /// driving show the kind and "Acting". A memo whose take has not ended (`receiving`) shows "Recording" with a red dot and no kind.
+  /// An old memo parked at `needs_route` (done, never routed) reads "Not delivered". The list wire carries no cost.
   var rowStatus: HistoryRowStatus {
     switch state {
+    case .receiving:
+      .recording(
+        label: String(localized: "Recording", comment: "History row status while the take is still recording"),
+        color: Theme.Status.bad)
     case .needsRoute:
       .alert(
         label: String(localized: "Not delivered", comment: "History row status of an old memo that was never routed"),

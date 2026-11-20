@@ -101,7 +101,7 @@ struct MacRowStatusMark: View {
 
 extension Memo {
   /// The memo is still in the pipeline: not finished and not failed.
-  var macIsRunning: Bool { !state.isResultReady && state != .failed }
+  var macIsRunning: Bool { !state.isResultReady && state != .failed && state != .receiving }
 
   /// The status dot and the line next to it on a row: the kind and the audio length, the state of a memo that needs the user.
   var macRowMeta: (dot: Color, text: String) {
@@ -110,7 +110,7 @@ extension Memo {
       (dot, [kind, duration].compactMap { $0 }.joined(separator: " · "))
     case .inFlight(let kind, let dot, let label, _):
       (dot, "\(kind) · \(label)")
-    case .alert(let label, let color):
+    case .alert(let label, let color), .recording(let label, let color):
       (color, label)
     }
   }

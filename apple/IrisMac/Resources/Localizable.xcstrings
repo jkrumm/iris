@@ -1526,6 +1526,16 @@
         }
       }
     },
+    "Recording…" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aufnahme läuft …"
+          }
+        }
+      }
+    },
     "Queued. It is sent as soon as the server answers." : {
       "localizations" : {
         "de" : {
