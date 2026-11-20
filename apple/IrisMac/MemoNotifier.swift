@@ -80,7 +80,7 @@ final class MemoNotifier {
   static let catchUpLimit = 5
   /// What a catch-up asks the server for when it has no list to read: the baseline reads a long page (it records what this
   /// connection starts from), a later one only as many as it can announce, twice that for the deleted and the already seen.
-  /// Older memos could not be announced anyway: at most `catchUpLimit` are.
+  /// A memo the connection saw running that the small page no longer reaches is asked for by id (see `runCatchUp`).
   static let baselinePageSize = 50
   static let catchUpPageSize = 2 * catchUpLimit
 
@@ -241,8 +241,19 @@ final class MemoNotifier {
       }
       return
     }
+    // A memo this connection saw running may have been pushed off a small page by newer ones: ask for it by id.
+    var candidates = page
+    let listed = Set(page.map(\.id))
+    let running = lastState.filter { id, state in
+      !listed.contains(id) && state != .needsRoute && Announcement(state: state) == nil
+    }
+    for id in running.keys.prefix(Self.catchUpLimit) {
+      let memo = await lookup(id)
+      guard mine == generation else { return }
+      if let memo { candidates.append(memo) }
+    }
     var due: [Memo] = []
-    for memo in page where !memo.isDeleted {
+    for memo in candidates where !memo.isDeleted {
       let wasSeen = seen.contains(memo.id)
       seen.insert(memo.id)
       observe(memo.id, memo.state)

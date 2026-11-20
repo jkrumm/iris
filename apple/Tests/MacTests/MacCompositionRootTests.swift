@@ -91,7 +91,7 @@ struct MacCompositionRootTests {
     #expect(await poster.posted.count == 1)
   }
 
-  @Test("a ready after the first is one list request: the catch-up reads the list's page instead of asking for its own")
+  @Test("with the window closed, a ready after the first is one list request: the catch-up reads the list's page")
   func oneListRequestPerReady() async throws {
     let root = fakeRoot()
     let fake = try #require(root.fakeAPI)
