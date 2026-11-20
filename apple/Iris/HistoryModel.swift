@@ -285,13 +285,19 @@ final class HistoryModel {
     revisions[id, default: 0]
   }
 
-  /// The revision of a transcript as one: the memo's own, its first part's, every loaded part's, and how many there are, so an open
-  /// transcript reloads when any recording of it changes or another one joins.
+  /// A number that moves when a turn of the thread changes or another one joins: the revision of the list's row of it (its newest
+  /// turn, whose events a new turn brings) and how many turns the row stands for. The list holds one row per conversation, so a count
+  /// of rows says nothing about turns.
+  func threadActivity(_ threadID: String) -> Int {
+    guard let row = items.first(where: { $0.threadId == threadID }) else { return 0 }
+    return revision(of: row.id) &+ (row.conversation?.turns ?? 1)
+  }
+
+  /// The revision of a transcript as one: the memo's own, its first part's and the thread's activity (any recording of it changing,
+  /// another one joining), so an open transcript reloads on either.
   func transcriptRevision(of memo: Memo) -> Int {
     guard let thread = memo.transcriptThreadID else { return revision(of: memo.id) }
-    return items.reduce(revision(of: memo.id) &+ revision(of: thread)) { total, other in
-      other.threadId == thread ? total &+ revision(of: other.id) &+ 1 : total
-    }
+    return revision(of: memo.id) &+ revision(of: thread) &+ threadActivity(thread)
   }
 
   /// The events a conversation screen follows live (`ready`, `memo.delta`, `memo.activity`), multicast to every open stream. The

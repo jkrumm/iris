@@ -116,6 +116,21 @@ struct HistoryModelTests {
     #expect(model.memoIDs == ["a"] && model.memos[0].conversation == nil, "the earlier turn is a row of its own again")
   }
 
+  @Test("a turn another device adds moves the thread's activity, which the open conversation reloads on")
+  func threadActivityMovesOnANewTurn() async {
+    await seed(MemoFactory.memo("a", age: 30, threadId: "t"), MemoFactory.memo("b", age: 20, threadId: "t"))
+    await model.load()
+    let before = model.threadActivity("t")
+    let anchor = MemoFactory.memo("a", threadId: "t")
+
+    await seed(MemoFactory.memo("c", age: 1, threadId: "t"))
+    await model.handle(.memoUpdated(MemoEvent(id: "c", state: .notified, at: MemoFactory.now)))
+    #expect(model.memoIDs == ["c"], "still one row")
+    #expect(model.threadActivity("t") != before)
+    #expect(model.threadActivity("other") == 0)
+    #expect(model.revision(of: anchor.id) == 0, "the open turn's own revision did not move")
+  }
+
   @Test("an event for the newest turn keeps the row's thread-wide star")
   func eventKeepsAggregateStar() async {
     await seed(
