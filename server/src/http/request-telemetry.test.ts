@@ -74,6 +74,18 @@ describe("request telemetry", () => {
     );
   });
 
+  it("measures from the request's arrival to the response", async () => {
+    const app = new Elysia().use(requestTelemetry).get("/slow", async () => {
+      await Bun.sleep(30);
+      return "ok";
+    });
+    const spans = await spansOf(() => app.handle(new Request("http://localhost/slow")));
+    const span = spans.find((s) => s.name === "GET /slow");
+    const ms =
+      Number(BigInt(span?.endTimeUnixNano ?? 0) - BigInt(span?.startTimeUnixNano ?? 0)) / 1e6;
+    expect(ms).toBeGreaterThanOrEqual(25);
+  });
+
   it("marks a 5xx as an errored span", async () => {
     const app = new Elysia().use(requestTelemetry).get("/boom", () => {
       throw new Error("kaboom");

@@ -197,6 +197,15 @@ describe("estimated costs", () => {
     expect(reportedAttrs).toEqual({ cost_usd: 0.02, cost_estimated: false });
   });
 
+  it("summarize's cost is the downstream's own: cost_estimated false", async () => {
+    const { store, handlers } = setup();
+    const memo = { ...seedMemo(store, "acted"), transcript: "t", replyText: "r" };
+    expect(await costAttributesOf(async () => handlers.summarize?.({ memo }))).toEqual({
+      cost_usd: 0.001,
+      cost_estimated: false,
+    });
+  });
+
   it("act merges the flag into the turn's usage and sets it on the span", async () => {
     const { store, handlers } = setup({
       destination: fakeDestination({

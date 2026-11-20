@@ -181,6 +181,7 @@ export function createStepHandlers(deps: {
       summary_chars: result.summary.headline.length + result.summary.detail.length,
       gist_chars: transcriptGist?.length ?? 0,
       cost_usd: result.costUsd,
+      ...costAttributes(result),
     });
     return {
       patch: { summary: result.summary, transcriptGist },
