@@ -164,7 +164,7 @@
         .padding(Theme.Spacing.inset)
         .background(Theme.Surface.background))
       host.frame = NSRect(origin: .zero, size: host.fittingSize)
-      let window = NSWindow(
+      let window = Self.standaloneWindow(
         contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: false)
       window.contentView = host
       window.orderFrontRegardless()
@@ -197,7 +197,8 @@
             .background(Theme.Surface.background))
           host.appearance = NSAppearance(named: appearance)
           host.frame = NSRect(origin: .zero, size: host.fittingSize)
-          let window = NSWindow(contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+          let window = Self.standaloneWindow(
+            contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: false)
           window.appearance = NSAppearance(named: appearance)
           window.contentView = host
           window.orderFrontRegardless()
@@ -221,7 +222,8 @@
           .frame(width: size.width, height: size.height))
         host.appearance = NSAppearance(named: appearance)
         host.frame = NSRect(origin: .zero, size: size)
-        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        let window = Self.standaloneWindow(
+          contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: false)
         window.appearance = NSAppearance(named: appearance)
         window.contentView = host
         window.orderFrontRegardless()
@@ -238,7 +240,7 @@
         rootView: MacSidebar(root: root).frame(width: 240, height: 420).background(Theme.Surface.background))
       host.frame = NSRect(x: 0, y: 0, width: 240, height: 420)
       host.appearance = NSAppearance(named: appearance)
-      let window = NSWindow(
+      let window = Self.standaloneWindow(
         contentRect: host.frame, styleMask: [.titled], backing: .buffered, defer: false)
       window.title = "Iris sidebar snapshot"
       window.appearance = NSAppearance(named: appearance)
@@ -270,7 +272,8 @@
           .frame(width: size.width, height: size.height))
         host.appearance = NSAppearance(named: appearance)
         host.frame = NSRect(origin: .zero, size: size)
-        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        let window = Self.standaloneWindow(
+          contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: false)
         window.appearance = NSAppearance(named: appearance)
         window.contentView = host
         window.orderFrontRegardless()
@@ -303,7 +306,7 @@
             .background(Theme.Surface.background))
           host.appearance = NSAppearance(named: appearance)
           host.frame = NSRect(origin: .zero, size: host.fittingSize)
-          let window = NSWindow(
+          let window = Self.standaloneWindow(
             contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: false)
           window.appearance = NSAppearance(named: appearance)
           window.contentView = host
@@ -334,7 +337,7 @@
           rootView: MacMemoDetailsPopover(root: root, model: model).background(Theme.Surface.background))
         host.appearance = NSAppearance(named: appearance)
         let size = host.fittingSize
-        let window = NSWindow(
+        let window = Self.standaloneWindow(
           contentRect: NSRect(origin: .zero, size: size), styleMask: [.borderless], backing: .buffered, defer: false)
         window.contentView = host
         window.appearance = NSAppearance(named: appearance)
@@ -449,7 +452,8 @@
       await model.settled()
       let hosting = NSHostingView(rootView: RecordingPanelView(model: model).padding(20))
       hosting.frame = NSRect(origin: .zero, size: hosting.fittingSize)
-      let window = NSWindow(contentRect: hosting.frame, styleMask: [.titled], backing: .buffered, defer: false)
+      let window = Self.standaloneWindow(
+        contentRect: hosting.frame, styleMask: [.titled], backing: .buffered, defer: false)
       window.title = "Iris refused snapshot"
       window.contentView = hosting
       window.orderFrontRegardless()
@@ -538,6 +542,16 @@
       } catch {
         Self.logger.error("\(name, privacy: .public) not written: \(String(describing: error), privacy: .public)")
       }
+    }
+
+    /// A window of ours for a picture. It is not released when closed: under ARC the default (released on close) frees it a second time
+    /// and the run dies with a segmentation fault in AppKit's window animation when the next one is made.
+    private static func standaloneWindow(
+      contentRect: NSRect, styleMask: NSWindow.StyleMask, backing: NSWindow.BackingStoreType, defer flag: Bool
+    ) -> NSWindow {
+      let window = NSWindow(contentRect: contentRect, styleMask: styleMask, backing: backing, defer: flag)
+      window.isReleasedWhenClosed = false
+      return window
     }
 
     private static func contentBitmap(of window: NSWindow) -> NSBitmapImageRep? {
