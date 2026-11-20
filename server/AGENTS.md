@@ -39,7 +39,7 @@ Elysia rules are dotfiles `rules/typescript.md` and `rules/elysia.md` (chain met
 
 ## Telemetry
 
-- Cost: a downstream's own cost is stored as reported; one it does not report (Hermes, STT) is estimated from `memo/pricing.ts`, the one price table, and marked `cost_estimated` / `usage.costEstimated`. A model with no rate is no cost plus a log line, never a guess. Span and log attributes carry no token, transcript, reply text, path or device name.
+- Cost: a downstream's own cost is stored as reported; one it does not report (Hermes, STT) is estimated from `memo/pricing.ts`, the one price table, and marked `cost_estimated` / `usage.costEstimated`. A model with no rate is no cost plus a log line, never a guess. Span and log attributes carry no credential, transcript, reply text, path or device name (LLM token counts are fine).
 - The trace id is the memo UUID without dashes; root span `memo`, a child per step; hand-rolled OTLP, no SDK. An export that fails is a log line, never an error to the client.
 
 ## Where the detail is
