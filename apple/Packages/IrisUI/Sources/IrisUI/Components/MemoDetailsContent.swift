@@ -30,6 +30,7 @@ public struct MemoDetailsContent: View {
   private let segmentCount: Int?
   private let onRetry: (String) -> Void
   @State private var isExpanded = true
+  @Environment(\.detailsDensity) private var density
 
   /// - Parameters:
   ///   - totalValue: The run's `duration · cost`, empty before the steps have loaded (the line stays).
@@ -79,10 +80,10 @@ public struct MemoDetailsContent: View {
         } icon: {
           Image(systemName: row.isCopied ? "checkmark" : "doc.on.doc")
         }
-        .themeFont(.subheadline)
+        .detailFont(.subheadline, mac: .body)
         .foregroundStyle(row.isCopied ? Theme.Status.good : Theme.Accent.tint)
-        .padding(.horizontal, Theme.Spacing.cardInsetHorizontal)
-        .padding(.vertical, Theme.Spacing.cardInsetVertical)
+        .padding(.horizontal, DetailsMetrics(density).insetHorizontal)
+        .padding(.vertical, DetailsMetrics(density).insetVertical)
         .frame(maxWidth: .infinity, alignment: .leading)
         .contentShape(.rect)
       }
@@ -100,10 +101,10 @@ public struct MemoDetailsContent: View {
       Text(
         "Hermes used: \(names)", bundle: #bundle, comment: "Details: the tools Hermes ran for the memo, names are data"
       )
-      .themeFont(.caption)
+      .detailFont(.caption, mac: .caption)
       .foregroundStyle(Theme.Ink.muted)
-      .padding(.horizontal, Theme.Spacing.cardInsetHorizontal)
-      .padding(.vertical, Theme.Spacing.cardInsetVertical)
+      .padding(.horizontal, DetailsMetrics(density).insetHorizontal)
+      .padding(.vertical, DetailsMetrics(density).insetVertical)
       .frame(maxWidth: .infinity, alignment: .leading)
       .accessibilityIdentifier("detail.actions")
     }
@@ -117,11 +118,11 @@ public struct MemoDetailsContent: View {
         idRow(Text("Thread ID", bundle: #bundle, comment: "Details: label of the thread's id"), threadID)
       }
       deviceLine
-        .themeFont(.caption)
+        .detailFont(.caption, mac: .caption)
         .foregroundStyle(Theme.Ink.faint)
     }
-    .padding(.horizontal, Theme.Spacing.cardInsetHorizontal)
-    .padding(.vertical, Theme.Spacing.cardInsetVertical)
+    .padding(.horizontal, DetailsMetrics(density).insetHorizontal)
+    .padding(.vertical, DetailsMetrics(density).insetVertical)
     .frame(maxWidth: .infinity, alignment: .leading)
     .accessibilityIdentifier("detail.ids")
   }
@@ -129,7 +130,7 @@ public struct MemoDetailsContent: View {
   private func idRow(_ title: Text, _ value: String) -> some View {
     VStack(alignment: .leading, spacing: Theme.Spacing.hair) {
       title
-        .themeFont(.caption)
+        .detailFont(.caption, mac: .caption)
         .foregroundStyle(Theme.Ink.muted)
       IDValueField(value)
     }
