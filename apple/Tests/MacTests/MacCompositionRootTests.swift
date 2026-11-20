@@ -65,6 +65,17 @@ struct MacCompositionRootTests {
     #expect(await root.wholeTranscript(of: row) == nil)
   }
 
+  @Test("a list copy with no thread yet still copies nothing when the fresh memo has one and the read fails")
+  func rowCopyFollowsTheFreshMemo() async throws {
+    let root = fakeRoot()
+    root.begin()
+    #expect(await eventually { !root.history.memos.isEmpty })
+    var stale = try #require(root.history.memos.first { $0.rowID == SampleData.transcriptThreadID })
+    stale.threadId = nil
+    await root.fakeAPI?.enqueueFailure(.transport(.notConnectedToInternet), for: .thread)
+    #expect(await root.wholeTranscript(of: stale) == nil)
+  }
+
   @Test("a memo.done event on the live stream posts a notification, with the panel closed")
   func notifiesOnDone() async {
     let poster = RecordingNotificationPoster()
