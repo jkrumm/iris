@@ -338,12 +338,15 @@ export function speechVariant(params: { reply: string | null; spoken: string | n
 }
 
 /**
- * Whether a reply is spoken whole (`speechVariant` does not need triage's `spoken` line for it): a non-empty reply whose
- * cleaned text fits `SPEECH_MAX_CHARS`.
+ * Whether a reply is spoken whole (`speechVariant` does not need triage's `spoken` line for it): a reply whose cleaned
+ * text is not empty and fits `SPEECH_MAX_CHARS`.
  */
 export function isSpokenWhole(reply: string | null): boolean {
   const text = reply?.trim() ?? "";
-  return text !== "" && markdownToSpeech(text, detectLanguage(text)).length <= SPEECH_MAX_CHARS;
+  if (text === "") return false;
+  // Nothing left of the reply once cleaned (a bare URL): `speechVariant` falls back to triage's line.
+  const cleaned = markdownToSpeech(text, detectLanguage(text));
+  return cleaned !== "" && cleaned.length <= SPEECH_MAX_CHARS;
 }
 
 /**
