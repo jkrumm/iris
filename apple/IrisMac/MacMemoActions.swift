@@ -50,9 +50,11 @@ struct MacMemoContextMenu: View {
   let memo: Memo
 
   var body: some View {
-    if let text = memo.macRowCopyText {
+    if memo.macRowCopyText != nil {
       Button(String(localized: "Copy transcript", comment: "Detail toolbar menu"), systemImage: "doc.on.doc") {
-        MacPasteboard().copy(text)
+        Task {
+          if let text = await actions.root.wholeTranscript(of: memo) { MacPasteboard().copy(text) }
+        }
       }
       .help(MacMemoControl.copyTranscriptRow.help)
       Divider()
@@ -106,16 +108,17 @@ struct MacRowStatusMark: View {
   }
 }
 
-/// The Copy of a transcript row, shown while the pointer is over the row: it puts the row's transcript on the pasteboard without
-/// opening the memo and says "Copied" for a moment. Not part of the row's selection or click.
+/// The Copy of a transcript row, shown while the pointer is over the row: it puts the memo's whole transcript (every part of a
+/// continued one) on the pasteboard without opening the memo and says "Copied" for a moment. Not part of the row's selection or click.
 struct MacRowCopyButton: View {
-  let text: String
+  let root: MacCompositionRoot
+  let memo: Memo
+  @State private var requests = 0
   @State private var copied = false
 
   var body: some View {
     Button {
-      MacPasteboard().copy(text)
-      copied = true
+      requests += 1
     } label: {
       Label(
         copied
@@ -130,9 +133,12 @@ struct MacRowCopyButton: View {
     }
     .buttonStyle(.plain)
     .help(MacMemoControl.copyTranscriptRow.help)
-    // The confirmation ends with the view's task, so a row that leaves the list takes it along.
-    .task(id: copied) {
-      guard copied, (try? await Task.sleep(for: .seconds(1.5))) != nil else { return }
+    // The copy and its confirmation run in the view's task, so a row that leaves the list takes them along.
+    .task(id: requests) {
+      guard requests > 0, let text = await root.wholeTranscript(of: memo) else { return }
+      MacPasteboard().copy(text)
+      copied = true
+      guard (try? await Task.sleep(for: .seconds(1.5))) != nil else { return }
       copied = false
     }
     .accessibilityIdentifier("mac.row.copy")
@@ -140,8 +146,9 @@ struct MacRowCopyButton: View {
 }
 
 extension Memo {
-  /// What a row's Copy puts on the pasteboard: the transcript of a Transcribe memo, nil for any other (a Hermes memo is read as a
-  /// conversation, and a memo without a transcript has nothing to copy).
+  /// Whether a row offers Copy, and the memo's own words: the transcript of a Transcribe memo, nil for any other (a Hermes memo is
+  /// read as a conversation, and a memo without a transcript has nothing to copy). What is copied is the whole transcript,
+  /// ``MacCompositionRoot/wholeTranscript(of:)``.
   var macRowCopyText: String? { mode == .transcribe ? plainTranscript : nil }
 
   /// The memo is still in the pipeline: not finished and not failed.
