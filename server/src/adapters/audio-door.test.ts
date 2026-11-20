@@ -42,7 +42,13 @@ describe("audio door transcriber", () => {
     const { calls, concatCalls, transcriber } = setup(() => Response.json({ text: "hello world" }));
     const result = await transcriber.transcribe(params);
 
-    expect(result).toEqual({ text: "hello world", audioSeconds: 12.5 });
+    // 12.5 s of audio at the per-minute rate, marked as an estimate: the door's answer carries no cost.
+    expect(result).toEqual({
+      text: "hello world",
+      audioSeconds: 12.5,
+      costUsd: 0.000729,
+      costEstimated: true,
+    });
     expect(concatCalls).toEqual([["/seg/0.m4a", "/seg/1.m4a"]]);
     expect(calls).toHaveLength(1);
     const call = calls[0] as Call;

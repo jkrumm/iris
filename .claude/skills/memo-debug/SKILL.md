@@ -27,6 +27,18 @@ HyperDX, `service.name = iris-server`, trace id = `<memo id without dashes>`: ro
 trace `<id without dashes>`". The shape was verified in Wave 4 (13 OK spans + 3 logs for a smoke memo); it was not re-queried this wave.
 Local server logs: `make logs` (bounded tail of `~/Library/Logs/iris*.log`).
 
+### Timing, tokens, cost and requests (since Issue 2518)
+
+On the same trace (`service.name = iris-server`):
+
+| Span | Attributes |
+|-|-|
+| `hermes.chat_stream` | `headers_ms`, `first_frame_ms`, `first_token_ms` (ms from the request sent; a stall before the first token shows here), `input_tokens`, `output_tokens`, `cache_read_tokens`, `cache_write_tokens`, `api_calls`, `model`, `cost_usd`, `cost_estimated` |
+| `act`, `transcribe`, `summarize` | `cost_usd` and `cost_estimated` (true = price table, false = the downstream's own); the step row's `usage.costEstimated` says the same |
+| `audio_door.transcribe` | `cost_usd`, `cost_estimated`, `agw.run_id` |
+
+Cache tokens and `api_calls` come from the session's counters (`GET /api/sessions/{id}` before and after the turn): absent when that read failed. A `hermes.cost_unpriced` log line (`model`) means the model has no rate in `memo/pricing.ts`. Request load is not on the memo trace: one root span per request, `<METHOD> <route template>` (`GET /v1/memos/:id`, `unmatched` for no route) with `http.route`, `http.response.status_code` (a 5xx is an error span), and for `GET /v1/events` the `sse.opened` log (`open_streams`, `reconnect`) and the `sse.stream` span (lifetime, `close_reason`). Via `/otel`, prod: "spans of `iris-server` named `hermes.chat_stream` or `transcribe` or `act` for trace `<id>` with their attributes"; "count of iris-server spans by `http.route` and `http.response.status_code` over the last hour"; "`sse.opened` logs, latest `open_streams`".
+
 ## The device side of the timeline (unverified until a device take)
 
 A memo recorded on the phone has a second half of the story under the same trace id: `service.name = iris-ios` records (`take.phase`, `capture.*`,

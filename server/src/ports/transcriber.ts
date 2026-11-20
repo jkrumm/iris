@@ -3,6 +3,8 @@ export interface TranscriptionResult {
   audioSeconds: number;
   /** Absent when the downstream does not report spend (audio-gateway records it itself). */
   costUsd?: number;
+  /** `costUsd` is a price-table estimate (`memo/pricing.ts`), not a cost the downstream reported. */
+  costEstimated?: boolean;
 }
 
 export interface Transcriber {

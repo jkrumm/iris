@@ -40,6 +40,14 @@ function transcriptSummary(transcript: string): Summary {
   };
 }
 
+/** What a step records of a cost it priced itself: `costEstimated` in its stored `usage`, so a reader tells it from a reported one. */
+const costNote = (r: { costEstimated?: boolean }) =>
+  r.costEstimated ? { costEstimated: true } : {};
+
+/** The span's `cost_estimated`: set whenever the step has a cost, false for one the downstream reported. */
+const costAttributes = (r: { costUsd?: number; costEstimated?: boolean }) =>
+  r.costUsd === undefined ? {} : { cost_estimated: r.costEstimated === true };
+
 function required<T>(value: T | null, what: string, step: HandlerStep): T {
   if (value === null) throw new Error(`${step}: memo has no ${what}`);
   return value;
@@ -81,10 +89,11 @@ export function createStepHandlers(deps: {
         audio_seconds: result.audioSeconds,
         transcript_chars: result.text.length,
         cost_usd: result.costUsd,
+        ...costAttributes(result),
       });
       return {
         patch: { transcript: result.text, audioSeconds: result.audioSeconds },
-        usage: { audioSeconds: result.audioSeconds },
+        usage: { audioSeconds: result.audioSeconds, ...costNote(result) },
         ...(result.costUsd !== undefined && { costUsd: result.costUsd }),
       };
     };
@@ -124,6 +133,7 @@ export function createStepHandlers(deps: {
           kind: delivery.meta?.kind ?? "",
           actions: delivery.meta?.actions.length ?? 0,
           cost_usd: delivery.costUsd,
+          ...costAttributes(delivery),
         });
         await replyAssets?.sync({ memoId: memo.id, replyText: delivery.replyText });
         return {
@@ -136,7 +146,9 @@ export function createStepHandlers(deps: {
             hermesHeadline: delivery.meta?.headline ?? null,
             actions: delivery.meta?.actions ?? [],
           },
-          usage: delivery.usage,
+          usage: delivery.costEstimated
+            ? { ...(delivery.usage as object | undefined), ...costNote(delivery) }
+            : delivery.usage,
           ...(delivery.costUsd !== undefined && { costUsd: delivery.costUsd }),
         };
       } finally {
