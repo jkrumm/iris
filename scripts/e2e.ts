@@ -475,6 +475,19 @@ async function probeTranscriptContinue(base: string, firstId: string) {
   );
   assert(detail.messages[2]?.content === "Und noch ein getippter Teil.", "the typed part is last");
 
+  const collapsed = (await (await call("/memos?collapse=thread&limit=100")).json()) as {
+    items: { id: string; threadId?: string; conversation?: { id: string; turns: number } }[];
+  };
+  const rows = collapsed.items.filter((m) => m.threadId === firstId);
+  assert(
+    rows.length === 1 && rows[0]?.id === typed.id,
+    `the collapsed list shows the transcript once, as its newest part (got ${JSON.stringify(rows)})`,
+  );
+  assert(
+    rows[0]?.conversation?.id === firstId && rows[0].conversation.turns === 3,
+    "the row names the first part and three turns",
+  );
+
   const threads = (await (await call("/threads")).json()) as { items: ThreadWire[] };
   const hermesThread = threads.items.find((t) => t.kind === "hermes");
   assert(hermesThread, "a hermes thread exists to refuse against");
@@ -599,6 +612,14 @@ async function probeThreads(base: string, threadId: string) {
     messages: { memoId: string; role: string; content: string; createdAt: string }[];
   };
   assert(detail.memos.length === 2, `two memos ran in the thread (got ${detail.memos.length})`);
+  const collapsed = (await (await call("/memos?collapse=thread&limit=100")).json()) as {
+    items: { id: string; threadId?: string; conversation?: { id: string; turns: number } }[];
+  };
+  const row = collapsed.items.filter((m) => m.threadId === threadId);
+  assert(
+    row.length === 1 && row[0]?.id === continued.id && row[0].conversation?.turns === 2,
+    `the collapsed list shows the conversation once, as its reply (got ${JSON.stringify(row)})`,
+  );
   assert(
     detail.memos.every((m) => m.threadId === threadId),
     "every memo carries the thread id",

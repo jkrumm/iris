@@ -23,6 +23,25 @@
               }
             ]
           },
+          "conversation": {
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "title": {
+                "type": "string"
+              },
+              "turns": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "id",
+              "title",
+              "turns"
+            ],
+            "type": "object"
+          },
           "createdAt": {
             "type": "string"
           },

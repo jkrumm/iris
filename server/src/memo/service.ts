@@ -12,6 +12,7 @@ import {
   MEMO_MODES,
   normalizeKind,
   runsAct,
+  type Conversation,
   type Memo,
   type MemoFlags,
   type MemoMode,
@@ -75,16 +76,17 @@ export interface MemoService {
    * Sets the given flags (at least one). `bad_state` on a soft-deleted memo. Publishes a flag-change `memo.updated`
    * (`flagChange`: the pipeline did not move, so no `memo.done`, alert or Live Activity push goes with it).
    */
-  setFlags(params: { id: string } & MemoFlags): Memo;
+  setFlags(params: { id: string; thread?: boolean | undefined } & MemoFlags): Memo;
   /**
    * Soft delete: the memo stays readable and restorable until `purgeAt`, then the purger removes it. Only settled
    * memos (`notified`, `failed`, and an old `needs_route`) and a memo still `receiving` (a cancelled take; its segments and
    * `complete` are refused with `bad_state` from then on) can be deleted, else `bad_state`. Repeatable: a second call returns
-   * the memo with its first `deletedAt` and publishes nothing.
+   * the memo with its first `deletedAt` and publishes nothing. `thread` deletes every live memo of the memo's thread at one instant (all
+   * or none: `bad_state` while one of them is not settled) and answers with the memo asked for.
    */
-  delete(id: string): Memo;
+  delete(id: string, options?: { thread?: boolean }): Memo;
   /** Undo of `delete`: `bad_state` when the memo is not deleted, `not_found` once its undo window is over (purged or about to be). */
-  restore(id: string): Memo;
+  restore(id: string, options?: { thread?: boolean }): Memo;
   get(id: string): MemoDetail;
   /** `kind` is the memo kind as the client typed it; it is normalised like the stored one (an empty result for text with nothing left). */
   list(params: {
@@ -96,9 +98,12 @@ export interface MemoService {
     favorite?: boolean | undefined;
     archived?: boolean | undefined;
     thread?: boolean | undefined;
+    /** One row per conversation (see `MemoStore.listMemos`); `conversations` then says which listed memos stand for one, by memo id. */
+    collapse?: boolean | undefined;
   }): {
     memos: Memo[];
     nextCursor: string | null;
+    conversations: Map<string, Conversation>;
   };
   /** Newest `updated_at` first; the same limit and cursor rules as `list`. */
   listThreads(params: { limit?: number; cursor?: string | null | undefined }): {
@@ -235,6 +240,10 @@ export function createMemoService(deps: {
       );
     }
   };
+
+  /** The ids of the live memos of the memo's thread, oldest first; the memo alone when it has no thread. */
+  const liveIdsOfThread = (memo: Memo): string[] =>
+    memo.threadId === null ? [memo.id] : store.listThreadMemos(memo.threadId).map((m) => m.id);
 
   const publishFlagChange = (memo: Memo) =>
     events.publish(memoEvent({ memo, step: null, clock, flagChange: true }));
@@ -385,35 +394,42 @@ export function createMemoService(deps: {
       return runner.retry(params);
     },
 
-    setFlags({ id, done, favorite, archived }) {
+    setFlags({ id, done, favorite, archived, thread }) {
       if (done === undefined && favorite === undefined && archived === undefined) {
         throw new MemoError("bad_request", "set at least one of done, favorite, archived");
       }
       assertLive(mustGet(id));
-      if (!store.setFlags({ id, done, favorite, archived })) {
-        throw new MemoError("bad_state", `memo ${id} is deleted`);
+      const ids = thread ? liveIdsOfThread(mustGet(id)) : [id];
+      for (const target of ids) {
+        if (!store.setFlags({ id: target, done, favorite, archived })) {
+          throw new MemoError("bad_state", `memo ${target} is deleted`);
+        }
+        publishFlagChange(mustGet(target));
       }
-      const memo = mustGet(id);
-      publishFlagChange(memo);
-      return memo;
+      return mustGet(id);
     },
 
-    delete(id) {
+    delete(id, options) {
       const memo = mustGet(id);
       if (memo.deletedAt !== null) return memo;
-      if (!isDeletable(memo.state)) {
-        throw new MemoError(
-          "bad_state",
-          `memo ${id} is ${memo.state}, only settled memos can be deleted`,
-        );
+      const targets = (options?.thread ? liveIdsOfThread(memo) : [id]).map(mustGet);
+      for (const target of targets) {
+        if (!isDeletable(target.state)) {
+          throw new MemoError(
+            "bad_state",
+            `memo ${target.id} is ${target.state}, only settled memos can be deleted`,
+          );
+        }
       }
-      store.markDeleted({ id, at: clock.now().toISOString() });
-      const deleted = mustGet(id);
-      publishFlagChange(deleted);
-      return deleted;
+      const at = clock.now().toISOString();
+      for (const target of targets) {
+        store.markDeleted({ id: target.id, at });
+        publishFlagChange(mustGet(target.id));
+      }
+      return mustGet(id);
     },
 
-    restore(id) {
+    restore(id, options) {
       const memo = mustGet(id);
       const until = purgeAt(memo);
       if (until === null) throw new MemoError("bad_state", `memo ${id} is not deleted`);
@@ -421,10 +437,15 @@ export function createMemoService(deps: {
       if (until <= clock.now().toISOString()) {
         throw new MemoError("not_found", `memo ${id} was purged`);
       }
-      if (!store.restore(id)) throw new MemoError("bad_state", `memo ${id} is not deleted`);
-      const restored = mustGet(id);
-      publishFlagChange(restored);
-      return restored;
+      // One delete of a conversation took every turn at one instant; its undo brings them all back.
+      for (const target of options?.thread ? store.listDeletedTogether(id) : [id]) {
+        if (!store.restore(target)) {
+          if (target === id) throw new MemoError("bad_state", `memo ${id} is not deleted`);
+          continue;
+        }
+        publishFlagChange(mustGet(target));
+      }
+      return mustGet(id);
     },
 
     get(id) {
@@ -436,10 +457,10 @@ export function createMemoService(deps: {
       };
     },
 
-    list({ limit = DEFAULT_LIMIT, cursor, q, kind, state, favorite, archived, thread }) {
+    list({ limit = DEFAULT_LIMIT, cursor, q, kind, state, favorite, archived, thread, collapse }) {
       // A kind with nothing left after normalising names no memo: the filter still applies, and matches none.
       const wanted = kind === undefined ? undefined : (normalizeKind(kind) ?? "");
-      return store.listMemos({
+      const page = store.listMemos({
         limit: Math.min(Math.max(Math.floor(limit), 1), MAX_LIMIT),
         cursor,
         q,
@@ -448,7 +469,19 @@ export function createMemoService(deps: {
         favorite,
         archived,
         thread,
+        collapse,
       });
+      const conversations = new Map<string, Conversation>();
+      if (collapse) {
+        const byThread = store.conversations(
+          page.memos.flatMap((memo) => (memo.threadId === null ? [] : [memo.threadId])),
+        );
+        for (const memo of page.memos) {
+          const conversation = memo.threadId === null ? undefined : byThread.get(memo.threadId);
+          if (conversation) conversations.set(memo.id, conversation);
+        }
+      }
+      return { ...page, conversations };
     },
 
     listThreads({ limit = DEFAULT_LIMIT, cursor }) {

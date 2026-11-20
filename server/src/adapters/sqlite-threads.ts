@@ -1,6 +1,12 @@
 import type { Database } from "bun:sqlite";
 import { MemoError } from "../memo/errors.js";
-import type { Memo, Thread, ThreadKind } from "../memo/memo.js";
+import {
+  threadTitle,
+  type Conversation,
+  type Memo,
+  type Thread,
+  type ThreadKind,
+} from "../memo/memo.js";
 import type { ThreadStore } from "../memo/store.js";
 
 interface ThreadRow {
@@ -25,6 +31,30 @@ const THREAD_SELECT = `threads.id, threads.kind, threads.title, threads.created_
 /** A thread whose memos are all soft-deleted is hidden from the list until one is restored. */
 const NOT_ALL_DELETED = `(EXISTS (SELECT 1 FROM memos m WHERE m.thread_id = threads.id AND m.deleted_at IS NULL)
   OR NOT EXISTS (SELECT 1 FROM memos m WHERE m.thread_id = threads.id))`;
+
+interface ConversationRow {
+  thread_id: string;
+  turns: number;
+  favorite: number;
+  first_id: string;
+  summary_json: string | null;
+  transcript: string | null;
+  title: string | null;
+}
+
+/** The first turn's headline, else the thread's title, else the start of the first transcript. */
+function conversationTitle(row: ConversationRow): string {
+  if (row.summary_json !== null) {
+    try {
+      const headline: unknown = (JSON.parse(row.summary_json) as { headline?: unknown }).headline;
+      if (typeof headline === "string" && headline.trim() !== "") return headline;
+    } catch {
+      // an unreadable summary is no title; the fallbacks below apply
+    }
+  }
+  if (row.title !== null && row.title.trim() !== "") return row.title;
+  return row.transcript === null ? "" : threadTitle(row.transcript);
+}
 
 const toThread = (row: ThreadRow): Thread => ({
   id: row.id,
@@ -98,6 +128,30 @@ export function createSqliteThreadStore(params: {
     },
 
     listThreadMemos: memosOfThread,
+
+    conversations(threadIds) {
+      const found = new Map<string, Conversation>();
+      if (threadIds.length === 0) return found;
+      const marks = threadIds.map(() => "?").join(", ");
+      const rows = db
+        .query<ConversationRow, string[]>(
+          `SELECT g.thread_id, g.turns, g.favorite, first.id AS first_id, first.summary_json, first.transcript, t.title
+           FROM (SELECT thread_id, count(*) AS turns, max(favorite) AS favorite, min(seq) AS first_seq FROM memos
+                 WHERE thread_id IN (${marks}) AND deleted_at IS NULL GROUP BY thread_id HAVING count(*) >= 2) g
+           JOIN memos first ON first.seq = g.first_seq
+           LEFT JOIN threads t ON t.id = g.thread_id`,
+        )
+        .all(...threadIds);
+      for (const row of rows) {
+        found.set(row.thread_id, {
+          id: row.first_id,
+          title: conversationTitle(row),
+          turns: row.turns,
+          favorite: row.favorite === 1,
+        });
+      }
+      return found;
+    },
 
     listThreadReplies(id) {
       const rows = db

@@ -210,6 +210,7 @@
       "method": "PATCH",
       "path": "/v1/memos/:id",
       "auth": "bearer",
+      "query": "memos.scope.query",
       "request": {
         "mediaType": "application/json",
         "schema": "memos.flags.request"
@@ -237,6 +238,7 @@
       "method": "DELETE",
       "path": "/v1/memos/:id",
       "auth": "bearer",
+      "query": "memos.scope.query",
       "responses": {
         "200": {
           "mediaType": "application/json",
@@ -256,6 +258,7 @@
       "method": "POST",
       "path": "/v1/memos/:id/restore",
       "auth": "bearer",
+      "query": "memos.scope.query",
       "responses": {
         "200": {
           "mediaType": "application/json",

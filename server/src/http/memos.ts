@@ -17,10 +17,11 @@ import {
   MissingSegmentsError,
   ResultQuery,
   RetryBody,
+  ScopeQuery,
   SegmentParams,
   TooLargeError,
 } from "./schemas.js";
-import { detailJson, memoJson } from "./serialize.js";
+import { collapsedMemoJson, detailJson, memoJson } from "./serialize.js";
 
 const DEFAULT_WAIT_SECONDS = 0;
 const MAX_WAIT_SECONDS = 600;
@@ -182,7 +183,11 @@ export function memoRoutes(deps: {
     .get(
       "/",
       ({ query }) => {
-        const { memos: items, nextCursor } = memos.list({
+        const {
+          memos: items,
+          nextCursor,
+          conversations,
+        } = memos.list({
           ...(query.limit !== undefined && { limit: query.limit }),
           cursor: query.cursor,
           q: query.q,
@@ -191,8 +196,12 @@ export function memoRoutes(deps: {
           archived: query.archived === "true" ? true : undefined,
           kind: query.kind,
           thread: query.thread === "true" ? true : undefined,
+          collapse: query.collapse === "thread" ? true : undefined,
         });
-        return { items: items.map(memoJson), nextCursor };
+        return {
+          items: items.map((memo) => collapsedMemoJson(memo, conversations.get(memo.id))),
+          nextCursor,
+        };
       },
       { query: ListQuery, response: { 200: MemoList, 400: ErrorBody } },
     )
@@ -200,20 +209,38 @@ export function memoRoutes(deps: {
       params: MemoIdParams,
       response: { 200: MemoDetail, 404: ErrorBody },
     })
-    .patch("/:id", ({ params, body }) => memoJson(memos.setFlags({ id: params.id, ...body })), {
-      parse: strictJson(["done", "favorite", "archived"]),
-      params: MemoIdParams,
-      body: FlagsBody,
-      response: { 200: Memo, 400: ErrorBody, 404: ErrorBody, 409: ErrorBody },
-    })
-    .delete("/:id", ({ params }) => memoJson(memos.delete(params.id)), {
-      params: MemoIdParams,
-      response: { 200: Memo, 404: ErrorBody, 409: ErrorBody },
-    })
-    .post("/:id/restore", ({ params }) => memoJson(memos.restore(params.id)), {
-      params: MemoIdParams,
-      response: { 200: Memo, 404: ErrorBody, 409: ErrorBody },
-    })
+    .patch(
+      "/:id",
+      ({ params, query, body }) =>
+        memoJson(memos.setFlags({ id: params.id, thread: query.scope === "thread", ...body })),
+      {
+        parse: strictJson(["done", "favorite", "archived"]),
+        params: MemoIdParams,
+        query: ScopeQuery,
+        body: FlagsBody,
+        response: { 200: Memo, 400: ErrorBody, 404: ErrorBody, 409: ErrorBody },
+      },
+    )
+    .delete(
+      "/:id",
+      ({ params, query }) =>
+        memoJson(memos.delete(params.id, { thread: query.scope === "thread" })),
+      {
+        params: MemoIdParams,
+        query: ScopeQuery,
+        response: { 200: Memo, 404: ErrorBody, 409: ErrorBody },
+      },
+    )
+    .post(
+      "/:id/restore",
+      ({ params, query }) =>
+        memoJson(memos.restore(params.id, { thread: query.scope === "thread" })),
+      {
+        params: MemoIdParams,
+        query: ScopeQuery,
+        response: { 200: Memo, 404: ErrorBody, 409: ErrorBody },
+      },
+    )
     .get(
       "/:id/result",
       async ({ params, query, request, server, set }) => {

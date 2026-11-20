@@ -5,6 +5,10 @@
       "const": "true",
       "type": "string"
     },
+    "collapse": {
+      "const": "thread",
+      "type": "string"
+    },
     "cursor": {
       "type": "string"
     },

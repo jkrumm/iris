@@ -33,6 +33,7 @@ const OPTIONAL_KEYS = [
   "actions",
   "typed",
   "threadId",
+  "conversation",
   "deletedAt",
   "purgeAt",
   "replyBlocks",
@@ -811,6 +812,29 @@ describe("request fixtures are accepted by the server", () => {
     for (const f of fixturesOf("memos.result.query")) {
       const res = await call(app, { path: `/v1/memos/${toComplete}/result?${query(f.stem)}` });
       expect([f.stem, res.status]).toEqual([f.stem, 200]);
+    }
+  });
+
+  it("the scope query is accepted by flags, delete and restore", async () => {
+    const { app } = testApp({ handlers: handlers() });
+    const id = await record(app);
+    for (const f of fixturesOf("memos.scope.query")) {
+      const flagged = await call(app, {
+        method: "PATCH",
+        path: `/v1/memos/${id}?${query(f.stem)}`,
+        json: { favorite: true },
+      });
+      expect([f.stem, flagged.status]).toEqual([f.stem, 200]);
+      const deleted = await call(app, {
+        method: "DELETE",
+        path: `/v1/memos/${id}?${query(f.stem)}`,
+      });
+      expect([f.stem, deleted.status]).toEqual([f.stem, 200]);
+      const restored = await call(app, {
+        method: "POST",
+        path: `/v1/memos/${id}/restore?${query(f.stem)}`,
+      });
+      expect([f.stem, restored.status]).toEqual([f.stem, 200]);
     }
   });
 
