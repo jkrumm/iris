@@ -426,6 +426,20 @@ struct MemoNotifierCatchUpTests {
     #expect(await poster.posted.isEmpty)
   }
 
+  @Test("a memo seen running that newer memos pushed off the small page is still announced when it finishes")
+  func runningMemoBeyondTheSmallPage() async {
+    let poster = RecordingNotificationPoster()
+    let server = Server()
+    server.memos =
+      [memo("old", .acted, minutesAgo: 100)] + (0..<12).map { memo("m\($0)", .notified, minutesAgo: Double(1 + $0)) }
+    let notifier = rig(poster, server)
+    await notifier.catchUp()
+    server.set("old", .notified)
+    await notifier.catchUp()
+    #expect(server.limits.last == MemoNotifier.catchUpPageSize)
+    #expect(await poster.posted.map(\.memoID) == ["old"])
+  }
+
   @Test(
     "a page the caller already holds is the catch-up's page: nothing is fetched; a missing one falls back to a fetch")
   func sharedPage() async {
