@@ -464,24 +464,69 @@ export function createSqliteMemoStore(params: { db: Database; clock: Clock }): M
         );
       }
       // A reported thread is also the memo's `thread_id`.
-      const columns: MemoColumnPatch | undefined = patch?.thread
-        ? { ...patch, threadId: patch.thread.id }
-        : patch;
-      const fields = (Object.keys(PATCH_COLUMNS) as (keyof MemoColumnPatch)[]).filter(
-        (field) => columns?.[field] !== undefined,
-      );
-      if (fields.length === 0) return true;
-      const values = fields.map((field) => {
-        const value = columns?.[field];
-        if (field !== "summary" && field !== "actions") return value as string | number | null;
-        return value === null ? null : JSON.stringify(value);
-      });
-      db.query(
-        `UPDATE memos SET ${fields.map((f) => `${PATCH_COLUMNS[f]} = ?`).join(", ")} WHERE id = ?`,
-      ).run(...values, id);
+      writeColumns(id, patch?.thread ? { ...patch, threadId: patch.thread.id } : patch);
       return true;
     },
   );
+
+  /** Writes the defined fields of a patch to the memo's columns. */
+  const writeColumns = (id: string, columns: MemoColumnPatch | undefined) => {
+    const fields = (Object.keys(PATCH_COLUMNS) as (keyof MemoColumnPatch)[]).filter(
+      (field) => columns?.[field] !== undefined,
+    );
+    if (fields.length === 0) return;
+    const values = fields.map((field) => {
+      const value = columns?.[field];
+      if (field !== "summary" && field !== "actions") return value as string | number | null;
+      return value === null ? null : JSON.stringify(value);
+    });
+    db.query(
+      `UPDATE memos SET ${fields.map((f) => `${PATCH_COLUMNS[f]} = ?`).join(", ")} WHERE id = ?`,
+    ).run(...values, id);
+  };
+
+  const LATE_ROW = "memo_id = ? AND step = ? AND status = 'done' AND started_at = ?";
+
+  const completeLate = db.transaction(
+    (input: Parameters<MemoStore["completeLate"]>[0]): boolean => {
+      const { id, step, startedAt, usage, costUsd, patch } = input;
+      const at = stamp();
+      const row = db
+        .query(
+          `UPDATE memo_steps SET usage_json = COALESCE(?, usage_json), cost_usd = COALESCE(?, cost_usd) WHERE ${LATE_ROW}`,
+        )
+        .run(
+          usage === undefined ? null : JSON.stringify(usage),
+          costUsd ?? null,
+          id,
+          step,
+          startedAt,
+        );
+      if (row.changes === 0) return false;
+      if (step === "summarize" && patch.summary) {
+        db.query("UPDATE threads SET title = ? WHERE id = ? AND kind = 'transcript'").run(
+          patch.summary.headline,
+          id,
+        );
+      }
+      writeColumns(id, patch);
+      db.query("UPDATE memos SET updated_at = ? WHERE id = ?").run(at, id);
+      return true;
+    },
+  );
+
+  const failLate = db.transaction((input: Parameters<MemoStore["failLate"]>[0]): boolean => {
+    const { id, step, startedAt, error } = input;
+    const at = stamp();
+    const row = db
+      .query(
+        `UPDATE memo_steps SET status = 'failed', finished_at = ?, error = ? WHERE ${LATE_ROW}`,
+      )
+      .run(at, error, id, step, startedAt);
+    if (row.changes === 0) return false;
+    db.query("UPDATE memos SET updated_at = ? WHERE id = ?").run(at, id);
+    return true;
+  });
 
   const attachReplyAssets = db.transaction(
     (params: { id: string; replyText: string; assets: readonly ReplyAsset[] }): boolean => {
@@ -698,6 +743,14 @@ export function createSqliteMemoStore(params: { db: Database; clock: Clock }): M
         staged.onSettled(won ? "committed" : "discarded");
       }
       return won;
+    },
+
+    completeLate(input) {
+      return completeLate(input);
+    },
+
+    failLate(input) {
+      return failLate(input);
     },
 
     markStepFailed({ id, step, from, error }) {

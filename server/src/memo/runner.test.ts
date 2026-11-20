@@ -820,6 +820,76 @@ describe("automatic retries", () => {
     });
   });
 
+  it("retries late work like the step, then writes it under the step's row", async () => {
+    let calls = 0;
+    const { store, runner, delays } = setupRetry("summarize", async () => ({
+      late: [
+        async () => {
+          calls += 1;
+          if (calls < 3) throw new TransientError("gateway 503", "after_send");
+          return { patch: { transcriptGist: "gist" }, costUsd: 0.5 };
+        },
+      ],
+    }));
+    const { id } = seedMemo(store, "acted");
+    await runner.drive(id);
+    await runner.idle();
+
+    expect(calls).toBe(3);
+    expect(delays).toEqual([...RETRY_DELAYS_MS]);
+    expect(store.getMemo(id)).toMatchObject({ state: "notified", transcriptGist: "gist" });
+    expect(stepRecord(store, id, "summarize")).toMatchObject({ status: "done", costUsd: 0.5 });
+  });
+
+  it("marks the step failed when late work fails for good, and retries it on the notified memo", async () => {
+    const { store, runner } = setupRetry("summarize", async () => ({
+      late: [
+        async () => {
+          throw new Error("400 bad request");
+        },
+      ],
+    }));
+    const { id } = seedMemo(store, "acted");
+    const { lines } = await captureLogs(async () => {
+      await runner.drive(id);
+      await runner.idle();
+    });
+
+    expect(store.getMemo(id)).toMatchObject({ state: "notified", failedStep: null });
+    expect(stepRecord(store, id, "summarize")).toMatchObject({
+      status: "failed",
+      error: "400 bad request",
+    });
+    expect(lines.some((l) => l["event"] === "step.late_failed")).toBe(true);
+    expect(runner.retry({ id, from: "summarize" }).state).toBe("acted");
+    await runner.idle();
+  });
+
+  it("drops late work whose step was re-run meanwhile", async () => {
+    const gate = deferred();
+    let first = true;
+    const { store, runner } = setupRetry("summarize", async () => {
+      const mine = first;
+      first = false;
+      return {
+        late: [
+          async () => {
+            if (mine) await gate.promise;
+            return { patch: { transcriptGist: mine ? "stale" : "fresh" } };
+          },
+        ],
+      };
+    });
+    const { id } = seedMemo(store, "acted");
+    await runner.drive(id);
+    // A re-run of summarize (the first one's row is replaced, even at the same clock tick) wins over the stale late write.
+    store.resetForRetry({ id, from: "summarize" });
+    store.markStepStarted({ id, step: "summarize" });
+    gate.resolve();
+    await runner.idle();
+    expect(store.getMemo(id)?.transcriptGist).toBeNull();
+  });
+
   it("does not retry a non-transient error", async () => {
     const { state, handler } = failingTimes(99, new Error("400 bad request"));
     const { store, runner, delays } = setupRetry("transcribe", handler);

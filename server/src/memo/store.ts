@@ -2,6 +2,7 @@ import type {
   Memo,
   MemoFlags,
   MemoMode,
+  MemoColumnPatch,
   MemoPatch,
   MemoState,
   ReplyArtifact,
@@ -112,6 +113,24 @@ export interface MemoStore extends ThreadStore {
     costUsd?: number | undefined;
     patch?: MemoPatch | undefined;
   }): boolean;
+  /**
+   * Writes what a step's late work produced (`StepResult.late`): the patch's columns, and the step row's usage and cost
+   * when given. Only while the step's row is still the `done` one that started at `startedAt`, so a re-run of the step
+   * (or a retry from an earlier one) is never overwritten by the run before it. False (nothing written) otherwise.
+   */
+  completeLate(params: {
+    id: string;
+    step: Step;
+    startedAt: string;
+    usage?: unknown;
+    costUsd?: number | undefined;
+    patch: MemoColumnPatch;
+  }): boolean;
+  /**
+   * Late work of a step failed for good: the step's row turns `failed` with `error` (the memo's state stays, a `notified`
+   * memo is then one `POST /retry` from the step can reset). Same guard as `completeLate`.
+   */
+  failLate(params: { id: string; step: Step; startedAt: string; error: string }): boolean;
   /** Also moves the memo to `failed` and records `failedStep` and `error`, compare-and-set from `from`; false (nothing written) when the memo left `from`. */
   markStepFailed(params: { id: string; step: Step; from: MemoState; error: string }): boolean;
   /**

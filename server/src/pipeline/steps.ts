@@ -12,7 +12,8 @@ import {
   type Summary,
 } from "../memo/memo.js";
 import type { ReplyProgress } from "../memo/progress.js";
-import type { StepHandler } from "../memo/runner.js";
+import type { LateResult, LateWork, StepHandler } from "../memo/runner.js";
+import { isSpokenWhole } from "../memo/speech-text.js";
 import type { ReplyAssets } from "../memo/reply-assets.js";
 import type { AudioStore } from "../ports/audio.js";
 import type { DeliveryProgress, Destination } from "../ports/destination.js";
@@ -159,35 +160,51 @@ export function createStepHandlers(deps: {
 
   // Always present: without a summarizer (or when triage fails) the step fails and the runner skips it, `summarize` being optional.
   // Triage sees the transcript and the final reply only, never tool traffic; a `transcribe` memo has no reply and no Hermes turn.
-  // The gist is an extra of the extra: a failed gist call leaves the headline and detail, it never fails the step.
+  // Nothing but the headline waits for the notification. The gist is an extra of the extra: it lands after the step
+  // (`late`), and a failed gist call leaves the headline and detail, it never fails the step. A Hermes memo that has its
+  // own headline and a reply spoken whole (`isSpokenWhole`: its speech needs no triage line) notifies with that headline
+  // and gets triage's summary late too; a longer reply is spoken from triage's `spoken` line the moment the memo is done,
+  // so that one still waits for it.
   handlers.summarize = async ({ memo }) => {
     if (!summarizer) throw new Error("summarize: no summarizer configured");
     const transcript = required(memo.transcript, "transcript", "summarize");
-    const [result, transcriptGist] = await Promise.all([
-      summarizer.summarize({
+    const triage = async (): Promise<LateResult> => {
+      const result = await summarizer.summarize({
         memoId: memo.id,
         route: runsAct(memo.mode) ? "hermes" : TRANSCRIBE_ROUTE,
         transcript,
         replyText: memo.replyText,
-      }),
-      needsGist(transcript)
-        ? summarizer.gist({ memoId: memo.id, transcript }).catch((err: unknown) => {
-            log("summarize.gist_failed", { memo_id: memo.id, error: String(err) });
-            return null;
-          })
-        : null,
-    ]);
-    getActiveSpan().setAttributes({
-      summary_chars: result.summary.headline.length + result.summary.detail.length,
-      gist_chars: transcriptGist?.length ?? 0,
-      cost_usd: result.costUsd,
-      ...costAttributes(result),
-    });
-    return {
-      patch: { summary: result.summary, transcriptGist },
-      usage: result.usage,
-      ...(result.costUsd !== undefined && { costUsd: result.costUsd }),
+      });
+      getActiveSpan().setAttributes({
+        summary_chars: result.summary.headline.length + result.summary.detail.length,
+        cost_usd: result.costUsd,
+        ...costAttributes(result),
+      });
+      return {
+        patch: { summary: result.summary },
+        usage: result.usage,
+        ...(result.costUsd !== undefined && { costUsd: result.costUsd }),
+      };
     };
+    const gist: LateWork[] = needsGist(transcript)
+      ? [
+          async () => {
+            try {
+              const transcriptGist = await summarizer.gist({ memoId: memo.id, transcript });
+              getActiveSpan().setAttributes({ gist_chars: transcriptGist.length });
+              return { patch: { transcriptGist } };
+            } catch (err) {
+              log("summarize.gist_failed", { memo_id: memo.id, error: String(err) });
+              return null;
+            }
+          },
+        ]
+      : [];
+    if (memo.hermesHeadline !== null && isSpokenWhole(memo.replyText)) {
+      return { late: [triage, ...gist] };
+    }
+    const { patch, usage, costUsd } = await triage();
+    return { patch, usage, ...(costUsd !== undefined && { costUsd }), late: gist };
   };
 
   handlers.notify = async ({ memo }: { memo: Memo }) => {

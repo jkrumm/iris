@@ -13,6 +13,7 @@ import {
   STEPS,
   type HandlerStep,
   type Memo,
+  type MemoColumnPatch,
   type MemoPatch,
   type MemoState,
   type Step,
@@ -32,7 +33,23 @@ export interface StepResult {
   costUsd?: number;
   /** Memo data columns to write atomically with the step completion. */
   patch?: MemoPatch;
+  /**
+   * Work that outlives the step: it starts once the step is complete, so the next step never waits for it. Each piece runs
+   * alone (with the step's transient retries) and lands as its own late patch; a piece that fails for good marks the
+   * step's row failed (the memo stays as it is, `POST /retry` from the step re-runs it), and one that has nothing to
+   * write returns null.
+   */
+  late?: readonly LateWork[];
 }
+
+/** What a late piece writes: memo columns and, when it has them, the step's usage and cost. */
+export interface LateResult {
+  patch: MemoColumnPatch;
+  usage?: unknown;
+  costUsd?: number;
+}
+
+export type LateWork = () => Promise<LateResult | null>;
 
 export interface StepContext {
   memo: Memo;
@@ -61,7 +78,7 @@ export interface Runner {
   stop(): void;
   /** Ids of the memos currently being driven. */
   inflightIds(): string[];
-  /** Resolves once no memo is in flight and no `driveAll` is running. Never throws. */
+  /** Resolves once no memo is in flight, no `driveAll` is running and no late work is pending. Never throws. */
   idle(): Promise<void>;
   /**
    * Resets a failed memo to before `from` and drives it in the background. Returns the reset memo. `from` is a step of the
@@ -83,6 +100,12 @@ export const RETRY_DELAYS_MS = [2_000, 8_000] as const;
 const retryable = (step: HandlerStep, kind: TransientKind | null) =>
   kind !== null && (step !== "act" || kind === "before_send");
 
+/** The backoff before the next try of a step that failed on try `tries`, undefined when it is not worth another. */
+const retryDelay = (step: HandlerStep, tries: number, err: unknown) => {
+  const delayMs = RETRY_DELAYS_MS[tries - 1];
+  return delayMs !== undefined && retryable(step, transientKind(err)) ? delayMs : undefined;
+};
+
 const errorMessage = (err: unknown) => (err instanceof Error ? err.message : String(err));
 
 const logDriveFailure = (id: string) => (err: unknown) =>
@@ -99,6 +122,8 @@ export function createRunner(deps: {
   const { store, handlers, events, clock, sleep = systemSleep } = deps;
   const inflight = new Map<string, Promise<void>>();
   const driveAlls = new Set<Promise<void>>();
+  /** Late work of completed steps; it holds `idle()`, so a shutdown lets it land before the database closes. */
+  const background = new Set<Promise<void>>();
   const rerun = new Set<string>();
   let stopping = false;
   // Cuts a retry's backoff short when `stop()` is called.
@@ -125,9 +150,9 @@ export function createRunner(deps: {
   }
   const slotsOf = new Map<string, Set<Slot>>();
 
-  const publish = (id: string, step: Step | null) => {
+  const publish = (id: string, step: Step | null, flagChange?: true) => {
     const memo = store.getMemo(id);
-    if (memo) events.publish(memoEvent({ memo, step, clock }));
+    if (memo) events.publish(memoEvent({ memo, step, clock, ...(flagChange && { flagChange }) }));
   };
 
   /** The memo plus the step and handler to run next, or null when the loop should stop. */
@@ -186,8 +211,8 @@ export function createRunner(deps: {
         );
       } catch (err) {
         if (err instanceof Stopped) return null;
-        const delayMs = RETRY_DELAYS_MS[tries - 1];
-        if (delayMs === undefined || !retryable(step, transientKind(err))) throw err;
+        const delayMs = retryDelay(step, tries, err);
+        if (delayMs === undefined) throw err;
         if (stopping) return null;
         const error = errorMessage(err);
         if (store.markStepRetrying({ id: memo.id, step, error }) === null) throw err;
@@ -199,6 +224,62 @@ export function createRunner(deps: {
         );
         if (isStopping()) return null;
       }
+    }
+  }
+
+  /**
+   * One piece of a step's late work: retried like the step on a transient failure, then written to the memo under the
+   * step's row (compare-and-set on its start, so a re-run of the step is never overwritten by the run before it) and
+   * published as a flag-change `memo.updated` (clients refetch; no alert, no `memo.done`).
+   */
+  async function runLate(params: {
+    memo: Memo;
+    step: HandlerStep;
+    startedAt: string;
+    work: LateWork;
+  }) {
+    const { memo, step, startedAt, work } = params;
+    for (let tries = 1; ; tries++) {
+      try {
+        const result = await withSpan(
+          `memo.${step}_late`,
+          { memo_id: memo.id, step, attempt: tries },
+          work,
+        );
+        if (result && store.completeLate({ id: memo.id, step, startedAt, ...result })) {
+          publish(memo.id, step, true);
+        }
+        return;
+      } catch (err) {
+        const error = errorMessage(err);
+        const delayMs = retryDelay(step, tries, err);
+        if (delayMs === undefined) {
+          log("step.late_failed", { memo_id: memo.id, step, error });
+          if (store.failLate({ id: memo.id, step, startedAt, error })) publish(memo.id, step, true);
+          return;
+        }
+        if (stopping) return;
+        log("step.retry", { memo_id: memo.id, step, attempt: tries + 1, delay_ms: delayMs, error });
+        await withSpan(
+          "memo.retry_wait",
+          { memo_id: memo.id, step, attempt: tries + 1, delay_ms: delayMs, error },
+          () => Promise.race([sleep(delayMs), stopped.promise]),
+        );
+        if (isStopping()) return;
+      }
+    }
+  }
+
+  function startLate(memo: Memo, step: HandlerStep, late: readonly LateWork[]) {
+    const startedAt = store.listStepRecords(memo.id).find((r) => r.step === step)?.startedAt;
+    if (startedAt === undefined) return;
+    for (const work of late) {
+      const task: Promise<void> = runLate({ memo, step, startedAt, work })
+        .catch((err: unknown) =>
+          log("runner.late_failed", { memo_id: memo.id, step, error: errorMessage(err) }),
+        )
+        .finally(() => background.delete(task));
+      background.add(task);
     }
   }
 
@@ -265,6 +346,7 @@ export function createRunner(deps: {
       return false;
     }
     publish(memo.id, step);
+    if (result.late?.length) startLate(memo, step, result.late);
     return true;
   }
 
@@ -349,8 +431,8 @@ export function createRunner(deps: {
     inflightIds: () => Array.from(inflight.keys()),
 
     async idle() {
-      while (inflight.size > 0 || driveAlls.size > 0) {
-        await Promise.allSettled([...inflight.values(), ...driveAlls]);
+      while (inflight.size > 0 || driveAlls.size > 0 || background.size > 0) {
+        await Promise.allSettled([...inflight.values(), ...driveAlls, ...background]);
       }
     },
 

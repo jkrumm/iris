@@ -332,6 +332,22 @@ async function awaitResult(options: Options, id: string): Promise<MemoWire | nul
   return null;
 }
 
+/** How long a notified memo may still be waiting for its summary (triage runs after the notification of a short Hermes reply). */
+const SUMMARY_SETTLE_MS = 8000;
+
+/** The memo once its late summary has landed (a `done` summarize step with no summary yet means it is on its way), else as it was. */
+async function withLateSummary(options: Options, memo: MemoWire): Promise<MemoWire> {
+  const pending = (m: MemoWire) =>
+    !m.summary && m.steps?.some((s) => s.step === "summarize" && s.status === "done");
+  const deadline = Date.now() + SUMMARY_SETTLE_MS;
+  let current = memo;
+  while (pending(current) && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    current = await fetchMemo(options, memo.id);
+  }
+  return current;
+}
+
 async function fetchMemo(options: Options, id: string): Promise<MemoWire> {
   const { json } = await request({ options, method: "GET", path: `/memos/${id}` });
   return json as unknown as MemoWire;
@@ -384,7 +400,7 @@ export async function sendMemo(options: Options): Promise<number> {
       err(formatSummary(await fetchMemo(options, id)));
       return 2;
     }
-    out(formatSummary(ready));
+    out(formatSummary(ready.state === "notified" ? await withLateSummary(options, ready) : ready));
     if (ready.state === "notified") return 0;
     return ready.state === "failed" ? 1 : 2;
   } finally {
