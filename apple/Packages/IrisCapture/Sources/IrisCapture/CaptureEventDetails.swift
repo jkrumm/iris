@@ -32,36 +32,57 @@ enum PortLabel {
   }
 }
 
-/// The tap's level at 2 Hz: the RMS and the peak of everything that arrived since the last report, in dBFS (floored at -120).
-/// Pure, so the cadence and the arithmetic are tested without audio.
+/// The tap's level, measured twice a second (RMS and peak of everything that arrived since the last measurement, in dBFS,
+/// floored at -120) and **reported** about every 5 s, or at once when the RMS moved clearly (10 dB) from the last report. A
+/// take is one record every 5 s of a steady room instead of two a second: at two a second the level was 81 % of the iPhone's
+/// log volume. The cadence counts audio frames, not wall time, so it is the same on a slow device. Pure, so the cadence and
+/// the arithmetic are tested without audio.
 struct LevelReporter {
   struct Level: Equatable {
     let rmsDecibels: Double
     let peakDecibels: Double
   }
 
-  private let framesPerReport: Int
+  /// The RMS change from the last report that is reported without waiting for the interval.
+  static let changeDecibels = 10.0
+  /// Seconds of audio between two reports of a steady level.
+  static let intervalSeconds = 5
+
+  private let framesPerMeasure: Int
+  private let framesPerInterval: Int
   private var sumOfSquares = 0.0
   private var peak: Float = 0
   private var frames = 0
+  private var framesSinceReport = 0
+  private var lastReported: Level?
 
-  /// `sampleRate / 2` frames make one report, which is two a second.
+  /// `sampleRate / 2` frames make one measurement.
   init(sampleRate: Int) {
-    framesPerReport = max(1, sampleRate / 2)
+    framesPerMeasure = max(1, sampleRate / 2)
+    framesPerInterval = max(1, sampleRate * Self.intervalSeconds)
   }
 
+  /// The level to report now, or nil: no measurement is complete yet, or it is the steady level reported not long ago.
   mutating func add(_ samples: [Float]) -> Level? {
     for sample in samples {
       sumOfSquares += Double(sample * sample)
       peak = max(peak, abs(sample))
     }
     frames += samples.count
-    guard frames >= framesPerReport else { return nil }
+    guard frames >= framesPerMeasure else { return nil }
     let level = Level(
       rmsDecibels: Self.decibels(sqrt(sumOfSquares / Double(frames))), peakDecibels: Self.decibels(Double(peak)))
+    framesSinceReport += frames
     sumOfSquares = 0
     peak = 0
     frames = 0
+    if let last = lastReported,
+      framesSinceReport < framesPerInterval, abs(level.rmsDecibels - last.rmsDecibels) < Self.changeDecibels
+    {
+      return nil
+    }
+    lastReported = level
+    framesSinceReport = 0
     return level
   }
 

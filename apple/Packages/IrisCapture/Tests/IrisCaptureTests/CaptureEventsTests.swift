@@ -199,13 +199,30 @@ struct FourCCTests {
 }
 
 struct LevelReporterTests {
-  @Test func reportsTwiceASecondAtTheCaptureRate() {
+  @Test func aSteadyLevelIsReportedAboutEveryFiveSeconds() {
     var reporter = LevelReporter(sampleRate: 16_000)
     var reports = 0
-    for _ in 0..<10 {  // ten 4096-frame buffers: 40 960 frames, 2.56 s
-      if reporter.add([Float](repeating: 0.1, count: 4096)) != nil { reports += 1 }
-    }
-    #expect(reports == 5)
+    // 4096-frame buffers for about 10 s of audio: 39 buffers.
+    for _ in 0..<39 where reporter.add([Float](repeating: 0.1, count: 4096)) != nil { reports += 1 }
+    #expect(reports >= 1 && reports <= 3, "ten seconds of a steady room are at most three records, not twenty")
+  }
+
+  @Test func theFirstMeasurementIsReportedAndTheNextSteadyOnesAreNot() {
+    var reporter = LevelReporter(sampleRate: 100)
+    let steady = [Float](repeating: 0.1, count: 50)
+    #expect(reporter.add(steady) != nil)
+    for _ in 0..<9 { #expect(reporter.add(steady) == nil) }
+    #expect(reporter.add(steady) != nil, "five seconds after the last report")
+  }
+
+  @Test func aClearChangeIsReportedAtOnce() throws {
+    var reporter = LevelReporter(sampleRate: 100)
+    #expect(reporter.add([Float](repeating: 0.01, count: 50)) != nil)
+    #expect(reporter.add([Float](repeating: 0.012, count: 50)) == nil, "1.6 dB is no change")
+    let reported = reporter.add([Float](repeating: 0.3, count: 50))
+    let loud = try #require(reported)
+    #expect(loud.rmsDecibels > -12)
+    #expect(reporter.add([Float](repeating: 0.3, count: 50)) == nil)
   }
 
   @Test func rmsAndPeakAreInDecibelsFullScale() throws {
