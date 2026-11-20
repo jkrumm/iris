@@ -6,6 +6,7 @@ import SwiftUI
 /// semibold, up to two lines), then a status dot with the kind and the audio length in 11 pt; the time and the flags sit right, and
 /// a transcript row shows a Copy button there while the pointer is over it.
 struct MacMemoListRow: View {
+  let root: MacCompositionRoot
   let memo: Memo
   @State private var hovering = false
 
@@ -29,8 +30,8 @@ struct MacMemoListRow: View {
         HStack(spacing: Theme.Spacing.xs) {
           // A transcript row copies from the list, in addition to the context menu: the button takes the flags' place while the
           // pointer is over the row, in a slot of its own height, so the row does not move.
-          if hovering, let text = memo.macRowCopyText {
-            MacRowCopyButton(text: text).macRowInk(Theme.Ink.muted)
+          if hovering, memo.macRowCopyText != nil {
+            MacRowCopyButton(root: root, memo: memo).macRowInk(Theme.Ink.muted)
           } else {
             if memo.favorite {
               Image(systemName: "star.fill").foregroundStyle(Theme.Status.warn).accessibilityHidden(true)

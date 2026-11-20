@@ -15,7 +15,7 @@ struct MacMemoList: View {
       ForEach(model.sections) { section in
         Section {
           ForEach(section.memos) { memo in
-            MacMemoListRow(memo: memo)
+            MacMemoListRow(root: root, memo: memo)
               .tag(memo.id)
               .contextMenu { MacMemoContextMenu(actions: actions, memo: memo) }
               .task { await model.loadMoreIfNeeded(current: memo) }

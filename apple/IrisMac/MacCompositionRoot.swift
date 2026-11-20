@@ -764,6 +764,16 @@ final class MacCompositionRoot {
     return model
   }
 
+  /// What a row's Copy puts on the pasteboard: the memo's whole transcript, every part of a continued one (its thread is read for
+  /// it), else the memo's own words when the thread cannot be read.
+  func wholeTranscript(of memo: Memo) async -> String? {
+    let model = detailsModel(for: memo)
+    await model.load()
+    // A cancelled read leaves no thread: nothing is better than the first part's words passed off as the whole.
+    guard !Task.isCancelled else { return nil }
+    return model.wholeTranscript ?? memo.plainTranscript
+  }
+
   /// A model of its own for one memo of the open conversation, for the Details popover's steps (the pane's cached model belongs
   /// to the memo it shows). Not cached: the popover builds it once per memo it shows.
   func detailsModel(for memo: Memo) -> MacMemoDetailModel {

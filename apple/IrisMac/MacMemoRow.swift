@@ -53,8 +53,8 @@ struct MacMemoRow: View {
     .buttonStyle(.plain)
     // A transcript row copies without opening the memo: the button takes the time's place while the pointer is over the row.
     .overlay(alignment: .topTrailing) {
-      if showsCopy, let text = memo.macRowCopyText {
-        MacRowCopyButton(text: text)
+      if showsCopy {
+        MacRowCopyButton(root: root, memo: memo)
           .foregroundStyle(Theme.Ink.muted)
           .padding(.horizontal, Theme.Spacing.menuRowHorizontal)
           .padding(.vertical, Theme.Spacing.menuRowVertical)

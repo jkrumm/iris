@@ -40,6 +40,20 @@ struct MacCompositionRootTests {
     #expect(root.history.memos.contains { $0.id == Self.finished })
   }
 
+  @Test("a row's Copy puts every part of a continued transcript on the pasteboard, not the first part's words alone")
+  func rowCopyIsTheWholeTranscript() async {
+    let root = fakeRoot()
+    root.begin()
+    #expect(await eventually { !root.history.memos.isEmpty })
+    guard let first = root.history.memos.first(where: { $0.id == SampleData.transcriptThreadID }) else {
+      Issue.record("the sample transcript is not in the list")
+      return
+    }
+    let text = await root.wholeTranscript(of: first)
+    #expect(text?.contains(SampleData.transcriptFirstText) == true)
+    #expect(text?.contains(SampleData.transcriptSecondText) == true)
+  }
+
   @Test("a memo.done event on the live stream posts a notification, with the panel closed")
   func notifiesOnDone() async {
     let poster = RecordingNotificationPoster()
