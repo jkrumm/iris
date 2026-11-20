@@ -45,7 +45,8 @@ struct MacCompositionRootTests {
     let root = fakeRoot()
     root.begin()
     #expect(await eventually { !root.history.memos.isEmpty })
-    guard let first = root.history.memos.first(where: { $0.id == SampleData.transcriptThreadID }) else {
+    // The list holds the transcript as one row, its newest part, under the first part's id.
+    guard let first = root.history.memos.first(where: { $0.rowID == SampleData.transcriptThreadID }) else {
       Issue.record("the sample transcript is not in the list")
       return
     }
