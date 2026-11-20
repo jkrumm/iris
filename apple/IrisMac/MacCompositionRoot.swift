@@ -794,7 +794,8 @@ final class MacCompositionRoot {
     await model.load()
     // A cancelled read leaves no thread: nothing is better than the first part's words passed off as the whole.
     guard !Task.isCancelled else { return nil }
-    return model.wholeTranscript ?? memo.plainTranscript
+    // A conversation's row is its newest part: its own words alone would be one part passed off as the whole.
+    return model.wholeTranscript ?? (memo.conversation == nil ? memo.plainTranscript : nil)
   }
 
   /// A model of its own for one memo of the open conversation, for the Details popover's steps (the pane's cached model belongs

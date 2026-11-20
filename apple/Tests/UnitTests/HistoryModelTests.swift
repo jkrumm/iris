@@ -73,6 +73,23 @@ struct HistoryModelTests {
     #expect(model.sections.flatMap(\.memos).count == 2)
   }
 
+  @Test("a conversation row's Copy that cannot read the thread copies nothing and says so, never one part")
+  func conversationCopyNeedsEveryPart() async {
+    let pasteboard = FakePasteboard()
+    let copying = HistoryModel(client: client, pasteboard: pasteboard)
+    await seed(
+      MemoFactory.memo("a", age: 30, mode: .transcribe, transcript: "One.", threadId: "a"),
+      MemoFactory.memo("b", age: 10, mode: .transcribe, transcript: "Two.", threadId: "a"))
+    await copying.load()
+    let row = copying.memos[0]
+    await client.enqueueFailure(.transport(.notConnectedToInternet), for: .thread)
+    await copying.copyTranscript(of: row)?.value
+    #expect(pasteboard.copied.isEmpty && copying.toast?.kind == .error)
+
+    await copying.copyTranscript(of: row)?.value
+    #expect(pasteboard.copied == ["One.\n\nTwo."])
+  }
+
   @Test("an event for the newest turn keeps the row's thread-wide star")
   func eventKeepsAggregateStar() async {
     await seed(
@@ -183,7 +200,7 @@ struct HistoryModelTests {
     model.filters.toggle(.favorites)
     await model.load()
     #expect(ids == ["star"])
-    #expect(await client.calls.last == .listMemos(ListMemosQuery(limit: 50, favorite: true)))
+    #expect(await client.calls.last == .listMemos(ListMemosQuery(limit: 50, favorite: true, collapse: true)))
 
     await client.enqueueFailure(.unexpectedStatus(500), for: .listMemos)
     await model.load()
@@ -216,7 +233,7 @@ struct HistoryModelTests {
     model.filters.toggle(.favorites)
     await model.loadMoreIfNeeded(current: last)
     #expect(model.items.count == HistoryFilters.pageSize)
-    #expect(await client.calls.last == .listMemos(ListMemosQuery(limit: 50)))
+    #expect(await client.calls.last == .listMemos(ListMemosQuery(limit: 50, collapse: true)))
   }
 
   @Test("a failed refresh with the same filters keeps the rows and says so")
