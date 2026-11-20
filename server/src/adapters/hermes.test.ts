@@ -68,7 +68,10 @@ function fakeHermes(opts: {
     if (init?.method === "GET") {
       reads.push({ url, init });
       const snapshot = snapshots.shift();
-      return snapshot ? Response.json(snapshot) : new Response("", { status: 404 });
+      // The answer's shape: the session is wrapped (read live from Hermes 2026-11-20).
+      return snapshot
+        ? Response.json({ object: "hermes.session", session: snapshot })
+        : new Response("", { status: 404 });
     }
     calls.push({ url, init: init ?? {} });
     if (url.endsWith("/api/sessions")) {
@@ -82,8 +85,6 @@ function fakeHermes(opts: {
     baseUrl: BASE_URL,
     token: "test-token",
     fetch: fakeFetch,
-    settlePollMs: 1,
-    settleWindowMs: 15,
     ...(opts.idleMs !== undefined ? { idleMs: opts.idleMs } : {}),
   });
   return { calls, reads, destination };
@@ -571,32 +572,32 @@ describe("hermes destination, timing and usage", () => {
     });
   });
 
-  it("reads again until the session's counters include the turn, as Hermes writes them just after done", async () => {
+  it("reports no counts, and no zeros, when the session shows no model call beyond the turn's start", async () => {
+    // What a session that did not count the turn looks like: zero calls, no model.
     const stale = { id: MEMO_ID, model: null, api_call_count: 0, cache_read_tokens: 0 };
-    const { destination, reads } = fakeHermes({
-      chat: () => stream(),
-      sessions: [
-        stale,
-        stale,
-        { ...turn, api_call_count: 2, cache_read_tokens: 8, cache_write_tokens: 1 },
-      ],
-    });
-    const delivery = await deliver(destination);
-    expect(delivery.usage).toMatchObject({ cacheReadTokens: 8, cacheWriteTokens: 1, apiCalls: 2 });
-    expect(reads).toHaveLength(3);
-  });
-
-  it("reports no counts, and no zeros, when the session never shows the turn", async () => {
-    const stale = { id: MEMO_ID, model: null, api_call_count: 0, cache_read_tokens: 0 };
-    const { destination } = fakeHermes({
-      chat: () => stream(),
-      sessions: Array.from({ length: 20 }, () => stale),
-    });
+    const { destination } = fakeHermes({ chat: () => stream(), sessions: [stale] });
     const { result: delivery, lines } = await captureLogs(() => deliver(destination));
     expect(delivery.usage).toEqual({ inputTokens: 10, outputTokens: 5, totalTokens: 15 });
     // The log names the read, not the price table.
-    expect(lines.map((l) => l["event"])).toContain("hermes.session_unsettled");
+    expect(lines.find((l) => l["event"] === "hermes.session_totals_unknown")).toMatchObject({
+      failed_read: "after",
+    });
     expect(lines.map((l) => l["event"])).not.toContain("hermes.cost_unpriced");
+  });
+
+  it("names the read before the turn when a continuation's totals cannot be read", async () => {
+    const { destination } = fakeHermes({ chat: () => stream(), sessions: [] });
+    const { lines } = await captureLogs(() =>
+      destination.deliver({
+        memoId: MEMO_ID,
+        transcript: "and then?",
+        mode: "auto",
+        threadId: "b6d2e8a4-3f91-4c07-9a52-7e1d0c4f8b63",
+      }),
+    );
+    expect(lines.find((l) => l["event"] === "hermes.session_totals_unknown")).toMatchObject({
+      failed_read: "before",
+    });
   });
 
   it("delivers when the session read answers garbage", async () => {

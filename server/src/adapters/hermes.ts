@@ -25,11 +25,6 @@ const SESSION_TIMEOUT_MS = 30_000;
 const ERROR_BODY_MAX = 300;
 // One read of the session's counters is bookkeeping: a hung one is cut after this.
 const SESSION_READ_TIMEOUT_MS = 5_000;
-// Hermes writes a turn's counters to its session just after the stream's `done` (measured 2026-11-20: a read right after it
-// answered zeros and no model), so the read after a turn repeats until the call count has grown.
-const SETTLE_POLL_MS = 250;
-// The window the repeats share: a delivery waits at most this long (plus one read in flight) for counters that do not settle.
-const SETTLE_WINDOW_MS = 3_000;
 
 /** The `source` of every Iris session. */
 const SOURCE = "iris";
@@ -124,13 +119,16 @@ const RunCompleted = z.object({
     })
     .nullish(),
 });
-// `GET /api/sessions/{id}` (hermes-agent `_session_response`): the session's running totals over all its turns, with the
-// cache counts and the number of model calls that `run.completed` lacks.
+// `GET /api/sessions/{id}` answers `{object: "hermes.session", session: {...}}` (hermes-agent `_session_response`, read live
+// 2026-11-20): the session's running totals over all its turns, with the cache counts and the number of model calls that
+// `run.completed` lacks.
 const SessionCounters = z.object({
-  model: z.string().nullish(),
-  cache_read_tokens: z.number().nullish(),
-  cache_write_tokens: z.number().nullish(),
-  api_call_count: z.number().nullish(),
+  session: z.object({
+    model: z.string().nullish(),
+    cache_read_tokens: z.number().nullish(),
+    cache_write_tokens: z.number().nullish(),
+    api_call_count: z.number().nullish(),
+  }),
 });
 // `tool.started` frames carry the tool's name and its arguments at the top level (hermes-agent `gateway/platforms/api_server.py`,
 // `_tool_progress`). The arguments are read for one tool only: `skill_view`, whose `name` is the skill Hermes loaded.
@@ -179,9 +177,6 @@ export interface HermesDestinationOptions {
   fetch?: typeof fetch;
   /** Aborts the chat turn when Hermes sends no bytes for this long (default 5 min). */
   idleMs?: number;
-  /** Pause between reads of the session's counters after a turn, and the window they share; tests shorten both. */
-  settlePollMs?: number;
-  settleWindowMs?: number;
 }
 
 /** Hermes names a pre-stream failure in an OpenAI error envelope; anything else is truncated. */
@@ -223,7 +218,7 @@ async function readSessionTotals(params: {
     if (res.status !== 200) return null;
     const parsed = SessionCounters.safeParse(await res.json());
     if (!parsed.success) return null;
-    const { model, cache_read_tokens, cache_write_tokens, api_call_count } = parsed.data;
+    const { model, cache_read_tokens, cache_write_tokens, api_call_count } = parsed.data.session;
     return {
       model: model ?? null,
       cacheReadTokens: cache_read_tokens ?? 0,
@@ -236,27 +231,20 @@ async function readSessionTotals(params: {
 }
 
 /**
- * The session's totals once they include the turn that just ended (more model calls than `before`), or null when they never
- * did within the attempts or cannot be read: unknown, never zero.
+ * The session's totals after the turn, or null when they cannot be read or show no model call beyond `before` (the turn's share
+ * would be zero): unknown, never zero.
  */
-async function readSettledTotals(params: {
+async function readTurnTotals(params: {
   doFetch: typeof fetch;
   baseUrl: string;
   sessionId: string;
   headers: Record<string, string>;
   before: SessionTotals | null;
-  pollMs: number;
-  windowMs: number;
 }): Promise<SessionTotals | null> {
-  const { before, pollMs, windowMs, ...read } = params;
+  const { before, ...read } = params;
   if (!before) return null;
-  const until = performance.now() + windowMs;
-  for (let first = true; first || performance.now() < until; first = false) {
-    if (!first) await new Promise((resolve) => setTimeout(resolve, pollMs));
-    const totals = await readSessionTotals(read);
-    if (totals && totals.apiCalls > before.apiCalls) return totals;
-  }
-  return null;
+  const totals = await readSessionTotals(read);
+  return totals && totals.apiCalls > before.apiCalls ? totals : null;
 }
 
 function parseData(frame: SseFrame): unknown {
@@ -515,22 +503,20 @@ export function createHermesDestination(opts: HermesDestinationOptions): Destina
         if (!sawDone) throw new Error("hermes stream ended without done");
         if (reply?.interrupted) throw new Error("hermes reply was interrupted");
 
-        const after = await readSettledTotals({
+        const after = await readTurnTotals({
           doFetch,
           baseUrl: opts.baseUrl,
           sessionId,
           headers,
           before,
-          pollMs: opts.settlePollMs ?? SETTLE_POLL_MS,
-          windowMs: opts.settleWindowMs ?? SETTLE_WINDOW_MS,
         });
         const turn = turnAccounting({ usage, runUsage, before, after });
         span.setAttributes(turn.spanAttributes);
         if (after === null && usage) {
           // The cost needs the session's model: say the read is why there is none, not the price table.
-          log("hermes.session_unsettled", {
+          log("hermes.session_totals_unknown", {
             memo_id: memoId,
-            // Which read left the counts unknown: the one before the turn failed, or the one after never showed the turn.
+            // Which read left the counts unknown: the one before the turn failed, or the one after showed no new model call.
             failed_read: before ? "after" : "before",
           });
         } else if (turn.unpricedModel !== undefined) {
