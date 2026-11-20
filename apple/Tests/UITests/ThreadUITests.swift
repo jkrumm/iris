@@ -58,7 +58,7 @@ final class ThreadUITests: IrisUITestCase {
   @MainActor
   func testAThreadRowOpensTheThreadAndATypedReplyJoinsIt() {
     let app = launch()
-    let row = revealRow(containing: "Hang guards are not retried", in: app)
+    let row = revealRow(containing: "How the step runner retries a failed step", in: app)
     row.tap()
 
     let thread = element(app, "thread.view")

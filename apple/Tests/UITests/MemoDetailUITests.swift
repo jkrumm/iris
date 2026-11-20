@@ -52,7 +52,7 @@ final class MemoDetailUITests: IrisUITestCase {
     let newestID = "c1a0b7d2-4e61-4f38-9a15-3d8e6b2f7c41"
     let earlierID = "c1a0b7d2-4e61-4f38-9a15-3d8e6b2f7c40"
     let app = launch()
-    revealRow(containing: "Hang guards are not retried", in: app).tap()
+    revealRow(containing: "How the step runner retries a failed step", in: app).tap()
     XCTAssertTrue(waitForPresence(app.descendants(matching: .any)["thread.view"], timeout: 10))
     let details = app.buttons["thread.details"]
     XCTAssertTrue(waitForPresence(details, timeout: 10))
