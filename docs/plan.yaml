@@ -417,7 +417,7 @@ rows:
         one-off script whose output is quoted in the ship note); one real memo asking for "a comparison of three
         options as a table" comes back with a replyArtifacts entry (memo id named).
 
-  # --- Owner usage feedback, 2026-11-16 (iPhone and Mac). Server rows run beside the Apple rows; Apple rows share lane `apple` (`lanes.apple` in project.yaml, equal to leads).
+  # --- Owner usage feedback, 2026-11-16 (iPhone and Mac). Server rows run beside the Apple rows; Apple rows share lane `apple` (`lanes.apple` in project.yaml).
   - key: memo-titles-gist
     title: Transcribe memos get a summarized title, and long transcripts a short gist of what was said
     facts:
