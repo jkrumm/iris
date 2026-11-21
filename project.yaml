@@ -9,9 +9,9 @@ deploy:
 ship:
   - { via: push }
 checks: { fast: make check-fast, full: make check, ci: true } # a lead runs fast; CI (check.yml on ubuntu, apple.yml on hosted xcode-27) runs the full gate on the PR head and `make merge-guard` demands its green runs
-leads: 4 # two Apple rows beside two server and web rows; Apple builds still serialise on scripts/apple-slot
+leads: 4 # Apple and server/web rows run side by side; Apple builds still serialise on scripts/apple-slot
 lanes:
-  apple: 2 # two Apple rows at a time: local Apple runs queue on scripts/apple-slot (one at a time, at most one targeted run per change) and CI proves the rest, so the second row edits and waits on CI beside the first; the cost is more rebase conflicts on String catalogs and snapshots; server and web rows run beside both
+  apple: 4 # equal to leads, so it never binds first: measured for memory (a lead outside test slots peaks at 0.8 GiB, p80 of 34 attempts; admission fits it against free memory) and merges wait a median 0 min; Apple builds still queue on scripts/apple-slot
 signals:
   github:
     author: jkrumm # the owner's new issues come in
