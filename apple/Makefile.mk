@@ -49,9 +49,10 @@ test-packages: ## swift test per package (macOS host; the iOS-only snapshot test
 build-apple: generate ## xcodebuild build of every app scheme (Iris incl. both extensions on the simulator, IrisMac)
 	@$(APPLE) $(MAKE) --no-print-directory _build-apple
 
+# build-apple compiles for any iOS Simulator: it needs no runtime, so a host without the pinned OS (SIM_OS) still checks.
 .PHONY: _build-apple
 _build-apple:
-	$(XCB) -scheme Iris -destination '$(SIM_DEST)' build
+	$(XCB) -scheme Iris -destination 'generic/platform=iOS Simulator' build
 	$(XCB) -scheme IrisMac -destination 'platform=macOS' build
 
 .PHONY: check-apple
