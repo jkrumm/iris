@@ -27,12 +27,14 @@ check: check-server check-contracts check-strings check-web guard $(CHECK_APPLE)
 
 # The lead's tier (project.yaml `checks.fast`): everything `check` runs except the simulator-free-but-heavy Apple parts, which CI proves on the exact head
 # (apple.yml: check-apple, snapshots, uitest on hosted xcode-27; `make merge-guard` demands its green run when the branch touches its paths).
+# Order is cheapest and likeliest to fail first: the Apple package tests (minutes) run last, so a lint, type or web error stops the run before they start.
 # Web: the Playwright e2e is CI's `web` job (WEB_E2E=0). Apple: theme drift and swift format lint always where swift exists; swift test of the packages only when the branch changed apple/.
 CHECK_FAST_APPLE := $(if $(shell command -v swift 2>/dev/null),check-fast-apple)
 
 .PHONY: check-fast
-check-fast: check-server check-contracts check-strings guard $(CHECK_FAST_APPLE) ## Lead tier: server, contracts, strings, web (no e2e), guard, Apple theme drift + lint (+ package tests if apple/ changed); CI runs the full gate
+check-fast: check-server check-contracts check-strings guard ## Lead tier: server, contracts, strings, web (no e2e), guard, Apple theme drift + lint (+ package tests if apple/ changed); CI runs the full gate
 	$(MAKE) --no-print-directory check-web WEB_E2E=0
+	$(if $(CHECK_FAST_APPLE),$(MAKE) --no-print-directory $(CHECK_FAST_APPLE))
 
 .PHONY: check-fast-apple
 check-fast-apple:

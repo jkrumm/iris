@@ -30,6 +30,11 @@
       var updates: Int { samples.count }
     }
 
+    /// The benchmark holds the main actor for about 90 s of a package run, and every real-`WebPage` test of the same process waits behind
+    /// it. It asserts structure only, so CI (which sets `CI`) runs it and a local run skips it unless `IRIS_BENCH=1`.
+    nonisolated private static let runs =
+      ProcessInfo.processInfo.environment["CI"] != nil || ProcessInfo.processInfo.environment["IRIS_BENCH"] == "1"
+
     private static let warmUp = 10
     private static let arrival = Duration.milliseconds(50)
     private static let unbufferedStride = 2
@@ -118,7 +123,9 @@
         + "| \(f(percentile(95))) | \(f(percentile(99))) | \(f(samples.last ?? 0)) | \(f(total)) |"
     }
 
-    @Test("benchmark: whole string vs buffered vs chunked, incremental and buffered, on the streamed fixture")
+    @Test(
+      "benchmark: whole string vs buffered vs chunked, incremental and buffered, on the streamed fixture",
+      .enabled(if: ProseBenchmarkTests.runs, "CI, or IRIS_BENCH=1: the benchmark is about 90 s of main-actor time"))
     func benchmark() throws {
       let snapshots = ProseFixture.snapshots(step: 20)
       #expect(snapshots.count > 100)
