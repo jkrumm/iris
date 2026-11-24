@@ -11,7 +11,7 @@ public struct DetailRetryOption: Identifiable, Equatable, Sendable {
   }
 }
 
-/// The detail screen's bottom actions: an icon-only retry (the reply's speech plays from its bubble, ``ReplyPlayButton``; a reply
+/// The detail screen's bottom actions: an icon-only retry (the reply's speech plays from its bubble, ``ReplyPlayer``; a reply
 /// is typed or spoken in the conversation's reply bar) on a glass group. Retry is
 /// a menu of steps whose plain tap restarts from `primaryRetryID`; it is absent while `retryOptions` is empty. The symbols are
 /// all outline glyphs at one weight; each glass circle sits on a solid disc so nothing reads through it.

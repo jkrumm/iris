@@ -125,6 +125,16 @@ final class SpeechPlayer {
   }
 }
 
+extension ReplyPlayChoice {
+  /// The form a held reply plays in.
+  init(_ variant: SpeechVariant) {
+    switch variant {
+    case .summary: self = .summary
+    case .full: self = .full
+    }
+  }
+}
+
 extension SpeechVariant {
   /// The form a play control's menu entry asks for.
   init(_ choice: ReplyPlayChoice) {

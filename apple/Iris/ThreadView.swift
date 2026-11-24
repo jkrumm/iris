@@ -68,7 +68,7 @@ struct ThreadView: View {
   var body: some View {
     ScrollViewReader { proxy in
       ScrollView {
-        LazyVStack(alignment: .leading, spacing: Theme.Spacing.inset) {
+        LazyVStack(alignment: .leading, spacing: Theme.Spacing.turnGap) {
           header
           ConversationTurnList(
             turns: model.turns, style: .phone, dayTitle: { HistoryDaySection.title(of: $0) },
@@ -164,18 +164,35 @@ struct ThreadView: View {
 
   private static let bottom = "thread.bottom"
 
-  /// The play control of each finished answer that can speak: the summary or the full reply, through the app's one player.
+  /// The inline player of each finished answer that can speak: the summary or the full reply, through the app's one player.
   private var replyControls: ReplyControls? {
     guard let voice else { return nil }
+    let speech = voice.speech
     return ReplyControls(
-      playingMemoID: voice.speech.playingMemoID,
+      playback: { id in
+        guard speech.memoID == id else { return .idle }
+        let player = speech.player
+        return ReplyPlayback(
+          isActive: player.isLoaded || player.isLoading, isPlaying: player.isPlaying, isLoading: player.isLoading,
+          position: player.position, duration: player.duration, choice: speech.variant.map(ReplyPlayChoice.init))
+      },
       canPlay: { id in model.memo(id: id).map { voice.media.speech(for: $0) != nil } ?? false },
+      onToggle: { id in
+        guard let memo = model.memo(id: id) else { return }
+        startedReply = true
+        // What the player holds for this memo pauses or resumes in its own form; nothing held starts the summary.
+        let variant: SpeechVariant? = speech.memoID == id ? speech.variant : SpeechVariant.summary
+        Task { await speech.toggle(memo, source: voice.media, variant: variant) }
+      },
       onPlay: { id, choice in
         guard let memo = model.memo(id: id) else { return }
         startedReply = true
-        Task { await voice.speech.toggle(memo, source: voice.media, variant: SpeechVariant(choice)) }
+        Task { await speech.toggle(memo, source: voice.media, variant: SpeechVariant(choice)) }
       },
-      onStop: { _ in voice.speech.pause() })
+      onSeek: { id, seconds in
+        guard speech.memoID == id else { return }
+        speech.player.seek(to: seconds)
+      })
   }
 
   // MARK: Sections

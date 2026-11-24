@@ -85,7 +85,7 @@ struct ChatBubble<Content: View, Footer: View>: View {
   }
 
   private var bubble: some View {
-    VStack(alignment: .leading, spacing: Theme.Spacing.cozy) {
+    VStack(alignment: .leading, spacing: Theme.Spacing.bubbleFooterGap) {
       content
       if hasFooter {
         Theme.divider.frame(height: 1)

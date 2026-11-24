@@ -76,6 +76,7 @@
       write(windowTitled: Self.mainTitle, as: "window-all")
       await writeDark(windowTitled: Self.mainTitle, as: "window-all-dark")
       await writeShell()
+      await writeConversationPlayer()
       await writeSpeakerMenu()
       await writeToolbarStrips()
       await writeShellStates()
@@ -279,6 +280,36 @@
         window.orderFrontRegardless()
         try? await Task.sleep(for: .seconds(2))
         write(window, as: "window-shell\(suffix)", chrome: false)
+        window.close()
+      }
+    }
+
+    /// The conversation pane alone, light and dark, with the whole reply of the first answer playing: every answer carries the inline
+    /// player (round pause or play button, scrubber, time left, the form menu), the playing one part way through.
+    private func writeConversationPlayer() async {
+      guard let memo = try? await root.fakeAPI?.memo(id: threadMemoID).memo else { return }
+      let size = NSSize(width: 560, height: 640)
+      for (suffix, appearance) in [("", NSAppearance.Name.aqua), ("-dark", .darkAqua)] {
+        let player = MacAudioPlayer()
+        let host = NSHostingView(
+          rootView: MacMemoDetailPane(root: root, model: root.detailModel(for: threadMemoID), player: player)
+            .tint(Theme.Accent.fill)
+            .environment(\.replyImageStore, root.replyImages)
+            .environment(\.artifactStore, root.artifacts)
+            .frame(width: size.width, height: size.height))
+        host.appearance = NSAppearance(named: appearance)
+        host.frame = NSRect(origin: .zero, size: size)
+        let window = Self.standaloneWindow(
+          contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        window.appearance = NSAppearance(named: appearance)
+        window.contentView = host
+        window.orderFrontRegardless()
+        try? await Task.sleep(for: .seconds(1))
+        // The whole reply is the longer silent clip, so it still plays when the picture is taken.
+        player.start(memo.id, .reply(.full), request: root.mediaSource.speech(for: memo, variant: .full))
+        try? await Task.sleep(for: .seconds(2))
+        write(window, as: "window-conversation\(suffix)", chrome: false)
+        player.stop()
         window.close()
       }
     }

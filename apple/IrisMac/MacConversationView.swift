@@ -13,12 +13,14 @@ struct MacConversationView: View {
   let onCopy: (String) -> Void
   /// A tap on a rendered diagram.
   let onOpenImage: (CGImage) -> Void
+  /// The inline player under each answer that can speak; nil (the popover's quick answer) leaves the answers without one.
+  var reply: ReplyControls?
 
   var body: some View {
     VStack(alignment: .leading, spacing: Theme.Spacing.macTurnGap) {
       ConversationTurnList(
         turns: turns, style: .mac, dayTitle: { HistoryDaySection.title(of: $0) },
-        plainText: { PlainMarkdown.text(from: $0) }, onCopy: onCopy, onOpenImage: onOpenImage)
+        plainText: { PlainMarkdown.text(from: $0) }, onCopy: onCopy, onOpenImage: onOpenImage, reply: reply)
     }
     .frame(maxWidth: .infinity, alignment: .leading)
     .accessibilityElement(children: .contain)

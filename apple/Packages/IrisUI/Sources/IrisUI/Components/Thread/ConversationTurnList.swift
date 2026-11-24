@@ -1,22 +1,40 @@
 import CoreGraphics
 import SwiftUI
 
-/// How a conversation plays its answers: which memo speaks now, which answers can speak, and what the play control does. With it,
-/// every finished answer carries ``ReplyPlayButton`` in its footer.
+/// How a conversation plays its answers: where a memo's reply stands, which answers can speak, and what the player's controls do.
+/// With it, every finished answer that can speak carries the inline ``ReplyPlayer`` in its footer. `playback` is read inside the
+/// footer's own body, so a position that moves four times a second redraws that footer and never the whole list.
 public struct ReplyControls {
-  public var playingMemoID: String?
+  public var playback: (String) -> ReplyPlayback
   public var canPlay: (String) -> Bool
+  /// The round button: starts the summary when nothing of this memo plays, else pauses or resumes what the player holds.
+  public var onToggle: (String) -> Void
+  /// A form picked from the player's menu: starts it from the top, or pauses it when it is the one that plays.
   public var onPlay: (String, ReplyPlayChoice) -> Void
-  public var onStop: (String) -> Void
+  public var onSeek: (String, Double) -> Void
 
   public init(
-    playingMemoID: String?, canPlay: @escaping (String) -> Bool,
-    onPlay: @escaping (String, ReplyPlayChoice) -> Void, onStop: @escaping (String) -> Void
+    playback: @escaping (String) -> ReplyPlayback, canPlay: @escaping (String) -> Bool,
+    onToggle: @escaping (String) -> Void, onPlay: @escaping (String, ReplyPlayChoice) -> Void,
+    onSeek: @escaping (String, Double) -> Void
   ) {
-    self.playingMemoID = playingMemoID
+    self.playback = playback
     self.canPlay = canPlay
+    self.onToggle = onToggle
     self.onPlay = onPlay
-    self.onStop = onStop
+    self.onSeek = onSeek
+  }
+}
+
+/// The footer of an answer: reads the memo's playback here, so only this view redraws while the reply plays.
+private struct ReplyFooter: View {
+  let controls: ReplyControls
+  let memoID: String
+
+  var body: some View {
+    ReplyPlayer(
+      playback: controls.playback(memoID), onToggle: { controls.onToggle(memoID) },
+      onPlay: { controls.onPlay(memoID, $0) }, onSeek: { controls.onSeek(memoID, $0) })
   }
 }
 
@@ -56,11 +74,11 @@ public struct ConversationTurnList: View {
     }
 
     public static let phone = Style(
-      textRole: nil, rowSpacing: Theme.Spacing.inset, failedText: .callout, userIdentifier: nil,
+      textRole: nil, rowSpacing: Theme.Spacing.turnGap, failedText: .callout, userIdentifier: nil,
       assistantIdentifier: nil, failedIdentifier: "thread.turn.failed")
 
     public static let mac = Style(
-      textRole: .footnote, rowSpacing: Theme.Spacing.macTurnGap, failedText: .macBody,
+      textRole: .footnote, rowSpacing: Theme.Spacing.turnGap, failedText: .macBody,
       userIdentifier: "mac.detail.turn.user", assistantIdentifier: "mac.detail.turn.assistant",
       failedIdentifier: "mac.detail.turn.failed")
   }
@@ -178,11 +196,7 @@ public struct ConversationTurnList: View {
       onOpenImage: onOpenImage, onCopy: copy(plainText(markdown)), onDetails: details(of: turn),
       isStreaming: isStreaming, activity: activity, hasFooter: speaking != nil
     ) {
-      if let reply, let speaking {
-        ReplyPlayButton(
-          isPlaying: reply.playingMemoID == speaking, onPlay: { reply.onPlay(speaking, $0) },
-          onStop: { reply.onStop(speaking) })
-      }
+      if let reply, let speaking { ReplyFooter(controls: reply, memoID: speaking) }
     }
   }
 

@@ -121,7 +121,7 @@ extension Theme.Spacing {
   /// clips the second line unless both the list (`defaultMinListRowHeight`) and the row (`frame(minHeight:)`) carry a minimum.
   public static let macRowMinHeight: CGFloat = 44
   /// The detail pane: margin around the content, gap between its sections, and the readable width of a text column.
-  public static let macDetailMargin: CGFloat = 24
+  public static let macDetailMargin = lg
   public static let macSectionGap: CGFloat = 20
   public static let macReadableWidth: CGFloat = 680
   /// Section label to its content, and the gap between a header's lines.
@@ -152,14 +152,19 @@ extension Theme.Spacing {
 /// Chat bubbles of the memo detail and the thread (iMessage-style: the user right, Iris left). No mockup page draws them; the
 /// insets reuse the card steps and the radius is the usual 18 pt message-bubble corner.
 extension Theme.Spacing {
-  /// Padding inside a bubble.
-  public static let bubbleInsetHorizontal = inset
-  public static let bubbleInsetVertical = cozy
+  /// Padding inside a bubble: tight, so a thread shows more of the conversation per screen.
+  public static let bubbleInsetHorizontal = md
+  public static let bubbleInsetVertical = sm
+  /// Bubble content to the footer's hairline, and the hairline to the footer (the inline reply player).
+  public static let bubbleFooterGap = snug
+  /// Between two turns of a conversation, and between an exchange's line and its first turn; the sides and the two surfaces
+  /// (tinted right, panel left) tell the speakers apart, not the gap.
+  public static let turnGap = sm
   /// The corner radius, and the small one at the corner that points at the speaker.
   public static let bubbleRadius: CGFloat = 18
   public static let bubbleTailRadius = xs
   /// The widest a bubble grows, as a fraction of the row: the user's leaves room on the left, Iris's a little on the right.
-  public static let bubbleUserWidthFraction: CGFloat = 0.85
+  public static let bubbleUserWidthFraction: CGFloat = 0.9
   public static let bubbleAssistantWidthFraction: CGFloat = 0.95
   /// Bubble to the time caption under it, and the caption's inset from the bubble's edge.
   public static let bubbleCaptionGap = hair
@@ -168,8 +173,8 @@ extension Theme.Spacing {
 
 /// The Mac chat (`mac.html`, variants `chat` and `chat-new`: `.chatwin .scroll`, `.col`, `.turn`, `.composer`, `.composer .field`, `.composer .send`, `.empty`).
 extension Theme.Spacing {
-  /// `.chatwin .col` gap: between two turns of the conversation.
-  public static let macTurnGap = inset
+  /// `.chatwin .col` gap: between two turns of the conversation (the shared `turnGap`).
+  public static let macTurnGap = turnGap
   /// `.chatwin .composer` padding 14 / 24 (the detail margin at the sides), gap 6 between field and buttons.
   public static let macComposerInsetVertical = inset
   public static let macComposerGap = snug

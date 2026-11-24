@@ -109,7 +109,8 @@ struct MacMemoDetailPane: View {
   /// The conversation as bubbles.
   @ViewBuilder private func chat(_ memo: Memo) -> some View {
     MacConversationView(
-      turns: model.turns, onCopy: { model.copyTurn($0) }, onOpenImage: { zoomed = MacZoomedDiagram(image: $0) }
+      turns: model.turns, onCopy: { model.copyTurn($0) }, onOpenImage: { zoomed = MacZoomedDiagram(image: $0) },
+      reply: MacReplyControls.make(player: player, source: { root.mediaSource }, memo: { model.memo(id: $0) })
     )
     .animation(reduceMotion ? nil : .smooth(duration: 0.4), value: model.turns)
     // Only a conversation of several memos is worth a warning; a memo alone in its session has its own turns to show.

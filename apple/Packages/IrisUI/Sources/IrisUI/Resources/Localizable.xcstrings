@@ -1,6 +1,26 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "Choose what to read" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vorlesen wählen"
+          }
+        }
+      }
+    },
+    "Pause reply" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Antwort pausieren"
+          }
+        }
+      }
+    },
     "Read the summary" : {
       "comment" : "Menu item: speaks the short summary of the reply",
       "localizations" : {

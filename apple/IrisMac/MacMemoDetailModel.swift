@@ -73,6 +73,12 @@ final class MacMemoDetailModel {
 
   var memo: Memo? { detail?.memo }
 
+  /// A memo of the open conversation (the loaded thread's, else the open memo itself): what an answer's player speaks.
+  func memo(id: String) -> Memo? {
+    if let found = thread?.memos.first(where: { $0.id == id }) { return found }
+    return memo?.id == id ? memo : nil
+  }
+
   /// The open memo continues a conversation another memo started (a reply, not a first question).
   var continuesThread: Bool { memo?.continuesThread ?? false }
 

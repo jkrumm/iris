@@ -161,12 +161,42 @@
         AssistantTurnView(
           markdown: Self.reply, time: "9:42 AM", mermaid: [0: Self.asset], identifier: "detail.reply"
         ) {
-          ReplyPlayButton(isPlaying: false, onPlay: { _ in }, onStop: {})
+          ReplyPlayer(playback: .idle, onToggle: {}, onPlay: { _ in }, onSeek: { _ in })
         }
       }
       .padding(Theme.Spacing.lg)
       .environment(\.replyImageStore, Self.store())
       Self.assert(ScrollView { view }, width: 390, height: 1100)
+    }
+
+    /// A thread of two exchanges as the iPhone lays it out: the tight turn gap, the compact bubbles, the inline reply player idle
+    /// under the first answer and playing under the second.
+    @Test("a multi-turn thread: tight spacing, an idle and a playing inline reply player", .tags(.snapshot))
+    func compactThread() {
+      let turns = [
+        ConversationTurn(
+          id: "a.user", memoID: "a", date: nil, content: .user("Explain how the step runner retries a failed step.")),
+        ConversationTurn(
+          id: "a.reply", memoID: "a", date: nil,
+          content: .assistant("It retries a **transient** failure twice, then fails the step.", mermaid: [:])),
+        ConversationTurn(
+          id: "b.user", memoID: "b", date: nil, content: .user("And a hang guard, is that retried too?")),
+        ConversationTurn(
+          id: "b.reply", memoID: "b", date: nil,
+          content: .assistant(
+            "No. A hang guard fails the step at once; only transient errors are retried.", mermaid: [:])),
+      ]
+      let playing = ReplyPlayback(
+        isActive: true, isPlaying: true, isLoading: false, position: 12, duration: 38, choice: .summary)
+      let controls = ReplyControls(
+        playback: { $0 == "b" ? playing : .idle }, canPlay: { _ in true }, onToggle: { _ in }, onPlay: { _, _ in },
+        onSeek: { _, _ in })
+      let view = VStack(alignment: .leading, spacing: Theme.Spacing.turnGap) {
+        ConversationTurnList(turns: turns, style: .phone, dayTitle: { _ in "Today" }, reply: controls)
+      }
+      .padding(.horizontal, Theme.Spacing.screenMargin)
+      .padding(.vertical, Theme.Spacing.inset)
+      Self.assert(view, width: 390, height: 520)
     }
 
     @Test("a long unbroken line and a wide table stay inside a user-width bubble", .tags(.snapshot))
