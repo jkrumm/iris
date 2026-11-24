@@ -162,10 +162,16 @@ struct RecordingPanelView: View {
           Button(String(localized: "Open Settings", comment: "Opens the Microphone privacy settings")) {
             Self.openMicrophoneSettings()
           }
+          .help(
+            String(
+              localized: "Open the Microphone privacy settings in System Settings",
+              comment: "Tooltip of Open Settings in the recording panel")
+          )
           .accessibilityIdentifier("mac.recording.open-settings")
         }
         Button(String(localized: "Close", comment: "Closes the recording panel's message")) { model.cancel() }
           .keyboardShortcut(.cancelAction)
+          .help(String(localized: "Close this message", comment: "Tooltip of Close on a recording panel message"))
           .accessibilityIdentifier("mac.recording.close")
       }
     }

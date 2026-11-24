@@ -17,6 +17,7 @@ struct MacDiagramSheet: View {
         .accessibilityAddTraits(.isImage)
       Button(String(localized: "Close", comment: "Closes the full diagram view"), action: onClose)
         .keyboardShortcut(.cancelAction)
+        .help(String(localized: "Close the diagram", comment: "Tooltip of the diagram sheet's Close"))
         .accessibilityIdentifier("mac.diagram.close")
     }
     .padding(Theme.Spacing.lg)

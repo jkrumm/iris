@@ -14,6 +14,8 @@ struct MacMemoDetailsPopover: View {
   /// Wide enough for a 36-character id in 11 pt monospace and a step's title beside its metric chip; no wider.
   private static let width: CGFloat = 320
   private static let maxHeight: CGFloat = 520
+  /// The width the page itself gets: what is left of the popover inside its padding. Every row wraps or truncates within it.
+  private static let contentWidth = width - 2 * Theme.Spacing.inset
 
   init(root: MacCompositionRoot, model: MacMemoDetailModel) {
     self.root = root
@@ -33,8 +35,8 @@ struct MacMemoDetailsPopover: View {
       if memos.count > 1, let index { stepper(at: index) }
       // Short content sits at its own height; long content scrolls under the cap.
       ViewThatFits(in: .vertical) {
-        page
-        ScrollView { page }
+        page.frame(width: Self.contentWidth, alignment: .leading)
+        ScrollView { page.frame(width: Self.contentWidth, alignment: .leading) }
       }
     }
     .padding(Theme.Spacing.inset)
@@ -72,12 +74,18 @@ struct MacMemoDetailsPopover: View {
         systemImage: "chevron.up"
       ) { selectedID = memos[index - 1].id }
       .disabled(index == 0)
+      .help(
+        String(localized: "Show the answer before this one", comment: "Tooltip of the Details popover's earlier answer")
+      )
       .accessibilityIdentifier("mac.detail.details.previous")
       Button(
         String(localized: "Later answer", comment: "Details popover: shows the next memo"),
         systemImage: "chevron.down"
       ) { selectedID = memos[index + 1].id }
       .disabled(index == memos.count - 1)
+      .help(
+        String(localized: "Show the answer after this one", comment: "Tooltip of the Details popover's later answer")
+      )
       .accessibilityIdentifier("mac.detail.details.next")
     }
     .labelStyle(.iconOnly)
@@ -105,6 +113,7 @@ private struct MacMemoDetailsPage: View {
         }
         if let failure = model.failure {
           Text(verbatim: failure).macFont(.body).foregroundStyle(Theme.Status.bad)
+            .fixedSize(horizontal: false, vertical: true)
         }
       }
       .frame(maxWidth: .infinity, alignment: .leading)
@@ -115,13 +124,14 @@ private struct MacMemoDetailsPage: View {
   private func header(_ memo: Memo) -> some View {
     VStack(alignment: .leading, spacing: Theme.Spacing.macHeaderGap) {
       HStack(spacing: Theme.Spacing.snug) {
-        KindChip(label: memo.kindLabel, systemImage: memo.kindIcon)
-        Text(verbatim: metadata(memo)).lineLimit(1)
+        KindChip(label: memo.kindLabel, systemImage: memo.kindIcon).layoutPriority(1)
+        Text(verbatim: metadata(memo)).lineLimit(1).truncationMode(.middle)
       }
       .macFont(.caption)
       .foregroundStyle(Theme.Ink.muted)
       if memo.state == .failed, let error = memo.error {
         Text(verbatim: error).macFont(.body).foregroundStyle(Theme.Status.bad).textSelection(.enabled)
+          .fixedSize(horizontal: false, vertical: true)
       }
     }
   }

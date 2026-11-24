@@ -15,6 +15,7 @@ public struct IDValueField: View {
       .font(density == .desktop ? .system(size: 11, design: .monospaced) : .system(.callout, design: .monospaced))
       .foregroundStyle(Theme.Ink.primary)
       .lineLimit(1)
+      .truncationMode(.middle)
       .minimumScaleFactor(0.5)
       .textSelection(.enabled)
       .frame(maxWidth: .infinity, alignment: .leading)

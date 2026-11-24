@@ -18,6 +18,7 @@ struct MacMenuPanel: View {
       .background(Theme.Surface.background)
       // A delete from a row's context menu has its undo here.
       .macToast(root: root, model: root.history)
+      .macDeleteConfirmation(root: root, inWindow: false)
       .accessibilityIdentifier("mac.panel")
   }
 }

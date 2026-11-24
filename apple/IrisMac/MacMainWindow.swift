@@ -50,9 +50,11 @@ struct MacMainWindow: View {
     }
     // The accent is for selection and focus rings; every toolbar control sets its own neutral ink (`macToolbarInk`).
     .tint(Theme.Accent.fill)
-    // The title bar and toolbar strip wear the panes' surface, so the window reads as one surface.
-    .toolbarBackground(Theme.Surface.background, for: .windowToolbar)
-    .toolbarBackgroundVisibility(.visible, for: .windowToolbar)
+    // The title bar and toolbar strip draw no surface of their own: each column's surface runs up under them, so the sidebar's panel
+    // colour reaches the top edge instead of being cut by a strip in another colour.
+    .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
+    .macDeleteConfirmation(root: root, inWindow: true)
+    .macClearsTextSelection()
     .environment(\.replyImageStore, root.replyImages)
     .environment(\.artifactStore, root.artifacts)
     .macToast(root: root, model: root.windowHistory)

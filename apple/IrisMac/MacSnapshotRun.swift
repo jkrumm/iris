@@ -28,6 +28,9 @@
     /// The sample memos the main window is shown on: one with a reply, a chat thread.
     let replyMemoID: String
     let threadMemoID = SampleData.chatFollowUpID
+    /// The sample memo with the most in its Details (six steps, an optional one failed for good), and one failed with a Retry.
+    static let longestDetailsMemoID = "4e8a2c7d-91b3-4f06-8d5a-3b7e1c9f2a60"
+    static let failedDetailsMemoID = "9e2c4b70-1a58-4d36-8f07-5b3a6d1c8e24"
 
     init?(
       arguments: [String], root: MacCompositionRoot, updateEngine: ScriptedUpdateEngine? = nil,
@@ -73,7 +76,7 @@
       try? await Task.sleep(for: .seconds(3))
       resize(windowTitled: Self.mainTitle, width: Theme.Spacing.windowWidth, height: Theme.Spacing.windowHeight)
       try? await Task.sleep(for: .seconds(1))
-      write(windowTitled: Self.mainTitle, as: "window-all")
+      await writeLight(windowTitled: Self.mainTitle, as: "window-all")
       await writeDark(windowTitled: Self.mainTitle, as: "window-all-dark")
       await writeShell()
       await writeConversationPlayer()
@@ -111,7 +114,13 @@
       await writeDetails(
         memoID: SampleData.transcriptThreadID,
         names: [("window-details-transcript", .aqua), ("window-details-transcript-dark", .darkAqua)])
+      // The longest Details the samples have (six steps, an optional step that failed for good, Hermes' tools), and a failed memo with Retry.
+      await writeDetails(
+        memoID: Self.longestDetailsMemoID,
+        names: [("window-details-longest", .aqua), ("window-details-longest-dark", .darkAqua)])
+      await writeDetails(memoID: Self.failedDetailsMemoID, names: [("window-details-failed", .aqua)])
       root.selectedMemoID = replyMemoID
+      await writeDeleteDialog()
       root.scope = .threads
       try? await Task.sleep(for: .seconds(2))
       write(windowTitled: Self.mainTitle, as: "window-filtered")
@@ -363,6 +372,11 @@
     /// ours and drawn from there.
     private func writeDetails(memoID: String, names: [(String, NSAppearance.Name)]) async {
       let model = root.detailModel(for: memoID)
+      // The steps are read from the server; a model nobody has shown yet has none to draw.
+      if root.selectedMemoID != memoID {
+        root.show(memoID, source: "snapshot")
+        try? await Task.sleep(for: .seconds(3))
+      }
       for (name, appearance) in names {
         let host = NSHostingView(
           rootView: MacMemoDetailsPopover(root: root, model: model).background(Theme.Surface.background))
@@ -377,6 +391,29 @@
         write(window, as: name, chrome: false)
         window.close()
       }
+    }
+
+    /// The Delete of the open memo: the main window with its confirmation sheet (Delete, Archive instead, Cancel). The sheet is a window
+    /// of its own, so the picture is the screen's rectangle of the main window with the windows above it.
+    private func writeDeleteDialog() async {
+      guard let row = root.windowHistory.memos.first(where: { $0.id == replyMemoID || $0.rowID == replyMemoID }) else {
+        return
+      }
+      MacMemoActions(root: root, model: root.windowHistory).requestDelete(row)
+      try? await Task.sleep(for: .seconds(2))
+      guard let window = NSApp.windows.first(where: { $0.title == Self.mainTitle && $0.isVisible }) else {
+        root.deleteRequest = nil
+        return
+      }
+      // The sheet is a window of its own: its picture, else the parent's rectangle.
+      Self.logger.notice("delete dialog sheet attached: \(window.attachedSheet != nil, privacy: .public)")
+      if let sheet = window.attachedSheet {
+        write(sheet, as: "window-delete-dialog")
+      } else {
+        write(window, as: "window-delete-dialog", sheet: true)
+      }
+      root.deleteRequest = nil
+      try? await Task.sleep(for: .seconds(1))
     }
 
     /// The New memo page, empty and with a draft; then the draft sent through the fake outbox: the new memo opens with its question
@@ -525,6 +562,17 @@
     }
 
     /// The same window in the dark appearance (the system's stays as it was), after a moment for the views to redraw.
+    /// The same window forced to the light appearance (a host in dark mode would draw its own, so the light picture is not left to it).
+    private func writeLight(windowTitled title: String, as name: String) async {
+      guard let window = NSApp.windows.first(where: { $0.title == title && $0.isVisible }) else { return }
+      let before = window.appearance
+      window.appearance = NSAppearance(named: .aqua)
+      try? await Task.sleep(for: .seconds(1))
+      write(window, as: name)
+      window.appearance = before
+      try? await Task.sleep(for: .milliseconds(500))
+    }
+
     private func writeDark(windowTitled title: String, as name: String, chrome: Bool = true) async {
       guard let window = NSApp.windows.first(where: { $0.title == title && $0.isVisible }) else { return }
       await writeDark(window, as: name, chrome: chrome)
@@ -533,7 +581,7 @@
     private func writeDark(_ window: NSWindow, as name: String, chrome: Bool = true) async {
       let before = window.appearance
       window.appearance = NSAppearance(named: .darkAqua)
-      try? await Task.sleep(for: .seconds(1))
+      try? await Task.sleep(for: .seconds(2))
       write(window, as: name, chrome: chrome)
       window.appearance = before
       try? await Task.sleep(for: .milliseconds(500))
@@ -555,10 +603,10 @@
     }
 
     /// `chrome`: the whole window as the window server draws it (title bar, toolbar, materials), else the content view alone.
-    func write(_ window: NSWindow, as name: String, chrome: Bool = true) {
+    func write(_ window: NSWindow, as name: String, chrome: Bool = true, sheet: Bool = false) {
       window.displayIfNeeded()
       let rep: NSBitmapImageRep?
-      if chrome, let image = Self.windowImage(window) {
+      if chrome, let image = Self.windowImage(window, includingSheet: sheet) {
         rep = NSBitmapImageRep(cgImage: image)
       } else {
         rep = Self.contentBitmap(of: window)
@@ -597,7 +645,7 @@
     /// The window server's picture of one of this app's own windows. `CGWindowListCreateImage` is marked unavailable in the macOS
     /// SDK (ScreenCaptureKit replaces it, and asks for a Screen Recording grant the mini does not have); the symbol is still in
     /// CoreGraphics and answers for an app's own windows without one, so it is looked up at run time. Verification tool only.
-    private static func windowImage(_ window: NSWindow) -> CGImage? {
+    private static func windowImage(_ window: NSWindow, includingSheet: Bool = false) -> CGImage? {
       typealias Create = @convention(c) (CGRect, UInt32, UInt32, UInt32) -> Unmanaged<CGImage>?
       guard let handle = dlopen(nil, RTLD_NOW), let symbol = dlsym(handle, "CGWindowListCreateImage") else {
         return nil
@@ -605,6 +653,13 @@
       let create = unsafeBitCast(symbol, to: Create.self)
       let includingWindow: UInt32 = 1 << 3
       let boundsIgnoreFraming: UInt32 = 1 << 0
+      // A sheet is a window above its parent: the screen's rectangle of the parent, with the windows above it.
+      if includingSheet, let screenHeight = NSScreen.screens.first?.frame.height {
+        let frame = window.frame
+        let rect = CGRect(x: frame.minX, y: screenHeight - frame.maxY, width: frame.width, height: frame.height)
+        let aboveWindow: UInt32 = 1 << 1
+        return create(rect, includingWindow | aboveWindow, UInt32(window.windowNumber), 0)?.takeRetainedValue()
+      }
       return create(.null, includingWindow, UInt32(window.windowNumber), boundsIgnoreFraming)?.takeRetainedValue()
     }
 

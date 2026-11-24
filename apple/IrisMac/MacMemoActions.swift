@@ -15,6 +15,25 @@ struct MacMemoActions {
   func toggleDone(_ memo: Memo) { act(memo) { await $0.toggleDone($1) } }
   func toggleFavorite(_ memo: Memo) { act(memo) { await $0.toggleFavorite($1) } }
   func toggleArchived(_ memo: Memo) { act(memo) { await $0.toggleArchived($1) } }
+
+  /// The Delete of the toolbar, the context menu and the Delete key: it asks first (a dialog with Delete, Archive instead and Cancel,
+  /// MacDeleteConfirmation) and does nothing while the memo's earlier delete is still queued. Nothing is deleted until
+  /// answer(_:_:) is called with .delete.
+  func requestDelete(_ memo: Memo) {
+    guard memo.state.isDeletable, !root.deletingIDs.contains(memo.id) else { return }
+    root.deleteRequest = MacDeleteRequest(memo: memo, inWindow: model === root.windowHistory)
+  }
+
+  /// The answer to the dialog: Delete runs the queued delete (its undo toast stays), Archive instead archives the memo and keeps it,
+  /// Cancel changes nothing.
+  func answer(_ request: MacDeleteRequest, _ choice: MacDeleteChoice) {
+    root.deleteRequest = nil
+    switch choice {
+    case .delete: delete(request.memo)
+    case .archive: if !request.memo.archived { toggleArchived(request.memo) }
+    case .cancel: break
+    }
+  }
   /// Delete is queued at the tap: the selection goes at once (the deleted memo leaves the list, so the detail has nothing to show),
   /// and a second tap for the same memo does nothing while the first is waiting or running. The selection goes when it is any turn of
   /// the row's conversation (a banner may have opened an older one): the whole thread is deleted.
@@ -82,9 +101,63 @@ struct MacMemoContextMenu: View {
     .help((memo.archived ? MacMemoControl.unarchive : .archive).help)
     if memo.state.isDeletable {
       Divider()
-      Button("Delete", systemImage: "trash", role: .destructive) { actions.delete(memo) }
+      Button("Delete", systemImage: "trash", role: .destructive) { actions.requestDelete(memo) }
         .help(MacMemoControl.delete.help)
     }
+  }
+}
+
+/// A Delete waiting for the user's answer: the memo (the list's row, so a conversation is deleted whole) and the surface that asked,
+/// the main window or the popover, each of which shows its own dialog.
+struct MacDeleteRequest: Identifiable {
+  let memo: Memo
+  let inWindow: Bool
+  var id: String { memo.id }
+}
+
+enum MacDeleteChoice { case delete, archive, cancel }
+
+/// The dialog of a Delete: Delete, Archive instead (not offered for a memo that is archived already) and Cancel. Return takes Cancel,
+/// the safe button, as the macOS guidelines have it for a destructive action; Escape too.
+private struct MacDeleteConfirmation: ViewModifier {
+  let root: MacCompositionRoot
+  let inWindow: Bool
+
+  func body(content: Content) -> some View {
+    let request = root.deleteRequest.flatMap { $0.inWindow == inWindow ? $0 : nil }
+    content.confirmationDialog(
+      String(localized: "Delete this memo?", comment: "Delete confirmation title"),
+      isPresented: Binding(get: { request != nil }, set: { if !$0 { root.deleteRequest = nil } }),
+      titleVisibility: .visible, presenting: request
+    ) { request in
+      let actions = MacMemoActions(root: root, model: inWindow ? root.windowHistory : root.history)
+      if !request.memo.archived {
+        Button(String(localized: "Archive instead", comment: "Delete confirmation: keeps the memo in the archive")) {
+          actions.answer(request, .archive)
+        }
+        .help(String(localized: "Move the memo to the archive and keep it", comment: "Tooltip of Archive instead"))
+      }
+      Button(String(localized: "Delete", comment: "Delete confirmation: deletes the memo"), role: .destructive) {
+        actions.answer(request, .delete)
+      }
+      .help(MacMemoControl.delete.help)
+      Button(String(localized: "Cancel", comment: "Delete confirmation: keeps everything as it is"), role: .cancel) {
+        actions.answer(request, .cancel)
+      }
+      .keyboardShortcut(.defaultAction)
+      .help(String(localized: "Keep the memo", comment: "Tooltip of Cancel in the delete confirmation"))
+    } message: { _ in
+      Text(
+        "It disappears on every device. Right after, Undo brings it back for a few seconds; archiving keeps it for good.",
+        comment: "Delete confirmation message")
+    }
+  }
+}
+
+extension View {
+  /// Asks before a Delete of the surface (inWindow: the main window, else the popover).
+  func macDeleteConfirmation(root: MacCompositionRoot, inWindow: Bool) -> some View {
+    modifier(MacDeleteConfirmation(root: root, inWindow: inWindow))
   }
 }
 

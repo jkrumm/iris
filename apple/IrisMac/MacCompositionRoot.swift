@@ -82,6 +82,8 @@ final class MacCompositionRoot {
   private(set) var onboardingRequest = 0
   /// Memos whose Delete is queued and has not run yet: the toolbar's Delete is off for them, and a second tap does nothing.
   private(set) var deletingIDs: Set<String> = []
+  /// A Delete the user has not answered yet: the dialog of the surface that asked is up (MacMemoActions.requestDelete).
+  var deleteRequest: MacDeleteRequest?
   /// Bumped to open the Settings scene.
   private(set) var settingsRequest = 0
   /// The Settings tab that shows (the snapshot run switches it).
@@ -826,6 +828,7 @@ final class MacCompositionRoot {
     notifier.reset(connectionID: Self.connectionID(for: credentials.load()))
     queues = [:]
     deletingIDs = []
+    deleteRequest = nil
     detailCache = nil
     dismissQuickAnswer()
     composers = [:]

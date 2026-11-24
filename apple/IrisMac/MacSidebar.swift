@@ -10,14 +10,23 @@ struct MacSidebar: View {
   var body: some View {
     List(selection: $root.scope) {
       Section(String(localized: "Library", comment: "Sidebar section")) {
-        row(.all, String(localized: "All memos", comment: "Sidebar item"), "tray.full")
+        row(
+          .all, String(localized: "All memos", comment: "Sidebar item"), "tray.full",
+          help: String(localized: "Show every memo", comment: "Tooltip of the sidebar's All memos"))
         row(
           .favorites, String(localized: "Favorites", comment: "Sidebar item"), "star",
+          help: String(
+            localized: "Show only the memos you marked as favorites", comment: "Tooltip of the sidebar's Favorites"),
           badge: MacFavoritesCount.text(memos: root.history.memos, hasMore: root.history.hasMorePages))
-        row(.archive, String(localized: "Archive", comment: "Sidebar item"), "archivebox")
+        row(
+          .archive, String(localized: "Archive", comment: "Sidebar item"), "archivebox",
+          help: String(localized: "Show the memos you archived", comment: "Tooltip of the sidebar's Archive"))
       }
       Section(String(localized: "Conversations", comment: "Sidebar section")) {
-        row(.threads, String(localized: "Threads", comment: "Sidebar item"), "bubble.left.and.bubble.right")
+        row(
+          .threads, String(localized: "Threads", comment: "Sidebar item"), "bubble.left.and.bubble.right",
+          help: String(
+            localized: "Show only the conversations with Hermes", comment: "Tooltip of the sidebar's Threads"))
       }
     }
     .listStyle(.sidebar)
@@ -26,8 +35,9 @@ struct MacSidebar: View {
     .accessibilityIdentifier("mac.sidebar")
   }
 
-  private func row(_ scope: MacLibraryScope, _ title: String, _ systemImage: String, badge: String? = nil) -> some View
-  {
+  private func row(
+    _ scope: MacLibraryScope, _ title: String, _ systemImage: String, help: String, badge: String? = nil
+  ) -> some View {
     Label {
       HStack {
         Text(verbatim: title).macFont(.body).macRowInk(Theme.Ink.primary)
@@ -44,6 +54,7 @@ struct MacSidebar: View {
       Image(systemName: systemImage).macRowInk(Theme.Ink.secondary)
     }
     .tag(scope)
+    .help(help)
     .accessibilityIdentifier("mac.sidebar.\(String(describing: scope))")
   }
 

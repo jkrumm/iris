@@ -51,6 +51,7 @@ struct MacMemoRow: View {
       .contentShape(.rect)
     }
     .buttonStyle(.plain)
+    .help(String(localized: "Open this memo in the main window", comment: "Tooltip of a memo row in the popover"))
     // A transcript row copies without opening the memo: the button takes the time's place while the pointer is over the row.
     .overlay(alignment: .topTrailing) {
       if showsCopy {

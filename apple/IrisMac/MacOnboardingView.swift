@@ -57,6 +57,7 @@ struct MacOnboardingView: View {
           dismissWindow(id: MacWindowID.onboarding)
         }
         .keyboardShortcut(.cancelAction)
+        .help(String(localized: "Close this window without connecting", comment: "Tooltip of Not now in onboarding"))
         .accessibilityIdentifier("mac.onboarding.skip")
         Spacer()
         Button(
@@ -64,6 +65,10 @@ struct MacOnboardingView: View {
           action: test
         )
         .disabled(!model.canSave || tester.outcome == .testing)
+        .help(
+          String(
+            localized: "Check the server URL and token without saving them", comment: "Tooltip of Test connection")
+        )
         .accessibilityIdentifier("mac.onboarding.test")
         Button(
           String(localized: "Continue", comment: "Onboarding: saves the connection and opens Iris"), action: finish
@@ -71,6 +76,7 @@ struct MacOnboardingView: View {
         .keyboardShortcut(.defaultAction)
         .buttonStyle(.borderedProminent)
         .disabled(!canContinue)
+        .help(String(localized: "Save the connection and open Iris", comment: "Tooltip of Continue in onboarding"))
         .accessibilityIdentifier("mac.onboarding.continue")
       }
     }

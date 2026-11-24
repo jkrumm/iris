@@ -75,6 +75,10 @@ struct MacConnectionForm: View {
             tester.test(urlText: model.urlText, tokenText: model.tokenText)
           }
           .disabled(!model.canSave || tester.outcome == .testing)
+          .help(
+            String(
+              localized: "Check the server URL and token without saving them", comment: "Tooltip of Test connection")
+          )
           .accessibilityIdentifier("mac.settings.test")
           Button(String(localized: "Save", comment: "Saves the server URL and device token")) {
             model.save()
@@ -83,6 +87,10 @@ struct MacConnectionForm: View {
           }
           .keyboardShortcut(.defaultAction)
           .disabled(!model.canSave)
+          .help(
+            String(
+              localized: "Save the server URL and token, then check the connection", comment: "Tooltip of Save")
+          )
           .accessibilityIdentifier("mac.settings.save")
         }
       }
@@ -240,6 +248,7 @@ struct MacGeneralForm: View {
           Button(String(localized: "Quit Iris", comment: "Quits the menu-bar app")) {
             NSApplication.shared.terminate(nil)
           }
+          .help(String(localized: "Quit the Iris menu-bar app", comment: "Tooltip of Quit Iris"))
           .accessibilityIdentifier("mac.settings.quit")
         }
       }

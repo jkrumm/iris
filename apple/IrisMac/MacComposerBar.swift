@@ -92,11 +92,20 @@ struct MacComposerBar: View {
           Button(String(localized: "Send to Hermes", comment: "Composer: sends the text to Hermes")) {
             submit(.hermes)
           }
+          .help(
+            String(
+              localized: "Send the text to Hermes as a new memo",
+              comment: "Tooltip of the composer menu's Send to Hermes"))
           Button(
             String(localized: "Transcribe only", comment: "Composer: sends the text as a memo that is only transcribed")
           ) {
             submit(.transcribe)
           }
+          .help(
+            String(
+              localized: "Send the text as a new memo that is only transcribed",
+              comment: "Tooltip of the composer menu's Transcribe only")
+          )
           .accessibilityIdentifier("mac.composer.transcribe")
         } label: {
           sendFace

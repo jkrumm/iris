@@ -36,7 +36,9 @@ struct MacSidebarFilter: View {
           ForEach(kinds, id: \.self) { kind in
             MacFilterChip(
               title: Memo.capitalizedKind(kind), dot: KindPalette.color(forKind: kind),
-              isOn: filters.isSelected(kind: kind)
+              isOn: filters.isSelected(kind: kind),
+              help: String(
+                localized: "Toggle the list filter for this kind", comment: "Tooltip of a kind chip in the sidebar")
             ) {
               root.toggleKindFilter(kind)
             }
@@ -46,7 +48,11 @@ struct MacSidebarFilter: View {
       }
       group(String(localized: "State", comment: "Sidebar filter group")) {
         ForEach(MacCompositionRoot.filterStates, id: \.self) { state in
-          MacFilterChip(title: state.label, dot: state.color, isOn: filters.state == state) {
+          MacFilterChip(
+            title: state.label, dot: state.color, isOn: filters.state == state,
+            help: String(
+              localized: "Toggle the list filter for this state", comment: "Tooltip of a state chip in the sidebar")
+          ) {
             root.toggleStateFilter(state)
           }
           .accessibilityIdentifier("mac.sidebar.filter.state.\(state.rawValue)")
@@ -72,6 +78,7 @@ struct MacFilterChip: View {
   let title: String
   let dot: Color
   let isOn: Bool
+  let help: String
   let action: () -> Void
 
   var body: some View {
@@ -92,6 +99,7 @@ struct MacFilterChip: View {
       .contentShape(.capsule)
     }
     .buttonStyle(.plain)
+    .help(help)
     .accessibilityAddTraits(isOn ? .isSelected : [])
   }
 }

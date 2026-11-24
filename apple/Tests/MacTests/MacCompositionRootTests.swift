@@ -313,6 +313,78 @@ struct MacCompositionRootTests {
     #expect(root.selectedMemoID == memo.id && root.deletingIDs.isEmpty)
   }
 
+  @Test("the Delete entry points ask first: nothing is deleted until the dialog's Delete, Cancel keeps the memo")
+  func deleteAsksFirst() async throws {
+    let root = fakeRoot()
+    let fake = try #require(root.fakeAPI)
+    root.begin()
+    #expect(await loadedWindow(root))
+    let memo = try await fake.memo(id: Self.finished).memo
+    root.show(memo.id)
+    let actions = MacMemoActions(root: root, model: root.windowHistory)
+
+    actions.requestDelete(memo)
+    let request = try #require(root.deleteRequest)
+    #expect(request.memo.id == memo.id && request.inWindow)
+    #expect(root.selectedMemoID == memo.id && root.deletingIDs.isEmpty, "asking changes nothing")
+
+    actions.answer(request, .cancel)
+    #expect(root.deleteRequest == nil && root.selectedMemoID == memo.id && root.deletingIDs.isEmpty)
+    try await Task.sleep(for: .milliseconds(200))
+    #expect(await fake.memos[Self.finished]?.memo.deletedAt == nil)
+    #expect(await fake.calls.filter { if case .deleteMemo = $0 { true } else { false } }.isEmpty)
+
+    actions.requestDelete(memo)
+    actions.answer(try #require(root.deleteRequest), .delete)
+    #expect(await eventually { await fake.memos[Self.finished]?.memo.deletedAt != nil })
+  }
+
+  @Test("Archive instead archives the memo and deletes nothing; an archived memo is not archived again")
+  func archiveInstead() async throws {
+    let root = fakeRoot()
+    let fake = try #require(root.fakeAPI)
+    root.begin()
+    #expect(await loadedWindow(root))
+    let memo = try await fake.memo(id: Self.finished).memo
+    #expect(!memo.archived)
+    let actions = MacMemoActions(root: root, model: root.windowHistory)
+
+    actions.requestDelete(memo)
+    actions.answer(try #require(root.deleteRequest), .archive)
+    #expect(root.deleteRequest == nil)
+    #expect(await eventually { await fake.memos[Self.finished]?.memo.archived == true })
+    #expect(await fake.memos[Self.finished]?.memo.deletedAt == nil)
+    #expect(await fake.calls.filter { if case .deleteMemo = $0 { true } else { false } }.isEmpty)
+
+    var archived = memo
+    archived.archived = true
+    actions.answer(MacDeleteRequest(memo: archived, inWindow: true), .archive)
+    try await Task.sleep(for: .milliseconds(200))
+    #expect(await fake.memos[Self.finished]?.memo.archived == true, "no second toggle un-archives it")
+  }
+
+  @Test("a Delete that cannot run asks nothing: a memo not deletable yet, and one whose delete is still queued")
+  func deleteRequestGuards() async throws {
+    let root = fakeRoot()
+    let fake = try #require(root.fakeAPI)
+    root.begin()
+    #expect(await loadedWindow(root))
+    var memo = try await fake.memo(id: Self.finished).memo
+    let actions = MacMemoActions(root: root, model: root.windowHistory)
+    memo.state = .received
+    actions.requestDelete(memo)
+    #expect(root.deleteRequest == nil)
+
+    memo.state = .notified
+    #expect(root.beginDelete(memo.id))
+    actions.requestDelete(memo)
+    #expect(root.deleteRequest == nil, "a delete already queued for the memo is not asked again")
+
+    root.endDelete(memo.id)
+    MacMemoActions(root: root, model: root.history).requestDelete(memo)
+    #expect(root.deleteRequest?.inWindow == false, "the popover's list asks in the popover")
+  }
+
   @Test("the detail model is one per memo until another is asked for or the connection changes")
   func modelsAreCached() throws {
     let root = fakeRoot()

@@ -53,6 +53,10 @@ struct MacMemoListRow: View {
     .frame(minHeight: Theme.Spacing.macRowMinHeight, alignment: .topLeading)
     .padding(.vertical, Theme.Spacing.macRowVertical)
     .onHover { hovering = $0 }
+    .help(
+      String(
+        localized: "Show this memo in the detail column", comment: "Tooltip of a memo row in the main window's list")
+    )
     .accessibilityElement(children: .combine)
     .accessibilityIdentifier("mac.list.row")
   }

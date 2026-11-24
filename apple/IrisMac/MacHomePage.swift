@@ -22,18 +22,22 @@ struct MacHomePage: View {
       MacMenuLine(
         title: String(localized: "New memo…", comment: "Menu line: opens the main window on the New memo page"),
         id: "mac.menu.new",
+        help: String(
+          localized: "Open the New memo page in the main window", comment: "Tooltip of the popover's New memo line"),
         hint: "⌘N"  // l10n:ignore key hint
       ) { root.newMemo() }
       .keyboardShortcut("n")
       MacMenuLine(
         title: String(localized: "Open Iris", comment: "Menu line: opens the main window"),
         id: "mac.menu.open",
+        help: String(localized: "Show the main window", comment: "Tooltip of the popover's Open Iris line"),
         hint: "⌘O"  // l10n:ignore key hint
       ) { root.showMainWindow() }
       .keyboardShortcut("o")
       MacMenuLine(
         title: String(localized: "Settings…", comment: "Menu line: opens the settings window"),
         id: "mac.menu.settings",
+        help: String(localized: "Open the Iris settings", comment: "Tooltip of the popover's Settings line"),
         hint: "⌘,"  // l10n:ignore key hint
       ) { root.showSettings() }
       .keyboardShortcut(",")
@@ -42,6 +46,7 @@ struct MacHomePage: View {
         MacMenuLine(
           title: String(localized: "Check for Updates…", comment: "Menu line: looks for a new version of Iris"),
           id: "mac.menu.update",
+          help: String(localized: "Look for a newer version of Iris", comment: "Tooltip of Check for Updates"),
           hint: updater.availableVersion.map {
             String(localized: "Version \($0) available", comment: "Update badge; the argument is the version number")
           } ?? "",
@@ -52,6 +57,7 @@ struct MacHomePage: View {
       MacMenuLine(
         title: String(localized: "Quit Iris", comment: "Quits the menu-bar app"),
         id: "mac.menu.quit",
+        help: String(localized: "Quit the Iris menu-bar app", comment: "Tooltip of Quit Iris"),
         hint: "⌘Q"  // l10n:ignore key hint
       ) { NSApplication.shared.terminate(nil) }
       .keyboardShortcut("q")
@@ -88,6 +94,10 @@ struct MacHomePage: View {
         .modifier(TakeButtonStyle(prominent: true))
       }
       .buttonStyle(.plain)
+      .help(
+        String(
+          localized: "Stop the running take and send it", comment: "Tooltip of the popover's Stop while a take runs")
+      )
       .accessibilityIdentifier("mac.record")
     } else {
       HStack(spacing: Theme.Spacing.xs) {
@@ -101,6 +111,10 @@ struct MacHomePage: View {
           .modifier(TakeButtonStyle(prominent: false))
         }
         .buttonStyle(.plain)
+        .help(
+          String(
+            localized: "Start a take and get its transcript only", comment: "Tooltip of the popover's Transcribe")
+        )
         .accessibilityIdentifier("mac.record.transcribe")
         Button {
           root.recording.toggle(mode: .hermes)
@@ -115,6 +129,10 @@ struct MacHomePage: View {
           .modifier(TakeButtonStyle(prominent: true))
         }
         .buttonStyle(.plain)
+        .help(
+          String(
+            localized: "Start a take that Hermes acts on", comment: "Tooltip of the popover's Hermes take button")
+        )
         .accessibilityIdentifier("mac.record")
       }
     }
@@ -129,6 +147,10 @@ struct MacHomePage: View {
           .multilineTextAlignment(.center)
         Button(String(localized: "Set Up Iris", comment: "Opens the onboarding window")) { root.showOnboarding() }
           .buttonStyle(.borderedProminent)
+          .help(
+            String(
+              localized: "Open the setup window to connect Iris to the server", comment: "Tooltip of Set Up Iris")
+          )
           .accessibilityIdentifier("mac.menu.connect")
       }
       .frame(maxWidth: .infinity)
@@ -157,6 +179,7 @@ struct MacHomePage: View {
 struct MacMenuLine: View {
   let title: String
   let id: String
+  let help: String
   let hint: String
   /// The hint is a notice (an update is waiting), not a key: it shows in the accent colour.
   var emphasized = false
@@ -176,6 +199,7 @@ struct MacMenuLine: View {
       .contentShape(.rect)
     }
     .buttonStyle(.plain)
+    .help(help)
     .onHover { hovering = $0 }
     .accessibilityIdentifier(id)
   }
@@ -227,6 +251,10 @@ private struct MacQuickAsk: View {
         }
         .buttonStyle(.plain)
         .disabled(!composer.canSend)
+        .help(
+          String(
+            localized: "Send the question to Hermes as a new memo", comment: "Tooltip of the popover's quick-ask send")
+        )
         .accessibilityLabel(Text("Send to Hermes", comment: "Composer: sends the text to Hermes"))
         .accessibilityIdentifier("mac.menu.ask.send")
       }
@@ -279,9 +307,17 @@ private struct MacQuickAnswer: View {
         Button(String(localized: "Open in window", comment: "Popover: continues the quick answer in the main window")) {
           root.openQuickAnswerInWindow()
         }
+        .help(
+          String(
+            localized: "Continue this answer in the main window", comment: "Tooltip of the popover's Open in window")
+        )
         .accessibilityIdentifier("mac.menu.ask.open")
         Spacer()
         Button(String(localized: "Done", comment: "Popover: dismisses the quick answer")) { root.dismissQuickAnswer() }
+          .help(
+            String(
+              localized: "Dismiss this quick answer", comment: "Tooltip of the popover's Done on a quick answer")
+          )
           .accessibilityIdentifier("mac.menu.ask.dismiss")
       }
       .buttonStyle(.plain)

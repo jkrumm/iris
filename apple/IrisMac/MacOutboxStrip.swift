@@ -78,6 +78,10 @@ struct MacOutboxStrip: View {
       .contentShape(.rect)
     }
     .buttonStyle(.plain)
+    .help(
+      String(
+        localized: "Show or hide the items waiting to be sent", comment: "Tooltip of the outbox strip's summary")
+    )
     .accessibilityIdentifier("mac.outbox.summary")
   }
 
@@ -93,10 +97,12 @@ struct MacOutboxStrip: View {
         HStack(spacing: Theme.Spacing.lg) {
           if canRetry {
             Button(String(localized: "Retry now", comment: "Outbox action")) { Task { await model.retry(item) } }
+              .help(String(localized: "Try to send this item again now", comment: "Tooltip of the outbox's Retry now"))
               .accessibilityIdentifier("mac.outbox.retry")
           }
           if item.offersDiscard {
             Button(item.discardTitle, role: .destructive) { Task { await model.discard(item) } }
+              .help(item.discardHelp)
               .accessibilityIdentifier("mac.outbox.discard")
           }
         }
@@ -151,6 +157,15 @@ extension QueuedItem {
   /// How long it has waited ("4 min ago"); the title already says what it is.
   fileprivate var detailLine: String {
     queuedAt.formatted(.relative(presentation: .named, unitsStyle: .abbreviated))
+  }
+
+  /// Discard drops a queued upload unsent; for a queued server delete it stops trying to send the delete.
+  fileprivate var discardHelp: String {
+    kind.discardStopsTrying
+      ? String(
+        localized: "Stop trying to remove this memo from the server", comment: "Tooltip of the outbox's Stop trying")
+      : String(
+        localized: "Drop this item from the queue without sending it", comment: "Tooltip of the outbox's Discard")
   }
 
   /// A queued server delete is not discarded, the app stops trying to send it.

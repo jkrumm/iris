@@ -3,7 +3,7 @@ import IrisUI
 import SwiftUI
 
 /// The main window's list column: the window's own ``HistoryModel`` in day sections on a native `List` (selection highlight,
-/// arrow keys), search in the toolbar, paging as the end comes into view. Delete removes the selected memo (with the undo toast),
+/// arrow keys), search in the toolbar, paging as the end comes into view. Delete asks, then removes the selected memo (with the undo toast),
 /// Space plays its recording.
 struct MacMemoList: View {
   @Bindable var root: MacCompositionRoot
@@ -36,7 +36,7 @@ struct MacMemoList: View {
       text: $model.filters.searchText, placement: .toolbar,
       prompt: String(localized: "Search transcripts", comment: "Search field prompt on the memo list")
     )
-    .onDeleteCommand { if let memo = selected ?? root.openRow(in: model) { actions.delete(memo) } }
+    .onDeleteCommand { if let memo = selected ?? root.openRow(in: model) { actions.requestDelete(memo) } }
     .onKeyPress(.space) {
       guard let memo = selected, let request = root.mediaSource.audio(for: memo) else { return .ignored }
       player.toggle(memo.id, .recording, request: request)
@@ -69,6 +69,9 @@ struct MacMemoList: View {
         Text("Add your server URL and device token to see your memos.", comment: "History prompt without a connection")
       } actions: {
         Button(String(localized: "Set Up Iris", comment: "Opens the onboarding window")) { root.showOnboarding() }
+          .help(
+            String(
+              localized: "Open the setup window to connect Iris to the server", comment: "Tooltip of Set Up Iris"))
       }
     } else if model.loadFailed && model.memos.isEmpty {
       ContentUnavailableView(

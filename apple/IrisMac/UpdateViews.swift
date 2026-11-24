@@ -14,6 +14,7 @@ struct CheckForUpdatesButton: View {
       updater.checkForUpdates()
     }
     .disabled(!updater.canCheckForUpdates)
+    .help(String(localized: "Look for a newer version of Iris", comment: "Tooltip of Check for Updates"))
     .accessibilityIdentifier("mac.update.check")
   }
 }
@@ -47,6 +48,7 @@ struct UpdateStateRow: View {
             updater.checkForUpdates()
           }
           .disabled(!updater.canCheckForUpdates)
+          .help(String(localized: "Show the update window to install the new version", comment: "Tooltip of Install"))
           .accessibilityIdentifier("mac.update.install")
         }
       }

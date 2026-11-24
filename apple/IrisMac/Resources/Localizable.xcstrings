@@ -2401,6 +2401,457 @@
           }
         }
       }
+    },
+    "Open this memo in the main window" : {
+      "comment" : "Tooltip of a memo row in the popover",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dieses Memo im Hauptfenster öffnen"
+          }
+        }
+      }
+    },
+    "Show this memo in the detail column" : {
+      "comment" : "Tooltip of a memo row in the main window's list",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dieses Memo in der Detailspalte zeigen"
+          }
+        }
+      }
+    },
+    "Open the New memo page in the main window" : {
+      "comment" : "Tooltip of the popover's New memo line",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Die Seite für ein neues Memo im Hauptfenster öffnen"
+          }
+        }
+      }
+    },
+    "Show the main window" : {
+      "comment" : "Tooltip of the popover's Open Iris line",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hauptfenster zeigen"
+          }
+        }
+      }
+    },
+    "Open the Iris settings" : {
+      "comment" : "Tooltip of the popover's Settings line",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Die Iris-Einstellungen öffnen"
+          }
+        }
+      }
+    },
+    "Look for a newer version of Iris" : {
+      "comment" : "Tooltip of Check for Updates",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nach einer neueren Version von Iris suchen"
+          }
+        }
+      }
+    },
+    "Quit the Iris menu-bar app" : {
+      "comment" : "Tooltip of Quit Iris",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Die Iris-Menüleisten-App beenden"
+          }
+        }
+      }
+    },
+    "Stop the running take and send it" : {
+      "comment" : "Tooltip of the popover's Stop while a take runs",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Die laufende Aufnahme beenden und senden"
+          }
+        }
+      }
+    },
+    "Start a take and get its transcript only" : {
+      "comment" : "Tooltip of the popover's Transcribe",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Eine Aufnahme starten und nur das Transkript erhalten"
+          }
+        }
+      }
+    },
+    "Start a take that Hermes acts on" : {
+      "comment" : "Tooltip of the popover's Hermes take button",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Eine Aufnahme starten, die Hermes umsetzt"
+          }
+        }
+      }
+    },
+    "Send the question to Hermes as a new memo" : {
+      "comment" : "Tooltip of the popover's quick-ask send",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Die Frage als neues Memo an Hermes senden"
+          }
+        }
+      }
+    },
+    "Continue this answer in the main window" : {
+      "comment" : "Tooltip of the popover's Open in window",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Diese Antwort im Hauptfenster weiterführen"
+          }
+        }
+      }
+    },
+    "Dismiss this quick answer" : {
+      "comment" : "Tooltip of the popover's Done on a quick answer",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Diese Schnellantwort ausblenden"
+          }
+        }
+      }
+    },
+    "Open the setup window to connect Iris to the server" : {
+      "comment" : "Tooltip of Set Up Iris",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Das Einrichtungsfenster öffnen, um Iris mit dem Server zu verbinden"
+          }
+        }
+      }
+    },
+    "Send the text to Hermes as a new memo" : {
+      "comment" : "Tooltip of the composer menu's Send to Hermes",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Den Text als neues Memo an Hermes senden"
+          }
+        }
+      }
+    },
+    "Send the text as a new memo that is only transcribed" : {
+      "comment" : "Tooltip of the composer menu's Transcribe only",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Den Text als neues Memo senden, das nur transkribiert wird"
+          }
+        }
+      }
+    },
+    "Show or hide the items waiting to be sent" : {
+      "comment" : "Tooltip of the outbox strip's summary",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Die wartenden Einträge ein- oder ausblenden"
+          }
+        }
+      }
+    },
+    "Try to send this item again now" : {
+      "comment" : "Tooltip of the outbox's Retry now",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Diesen Eintrag jetzt erneut senden"
+          }
+        }
+      }
+    },
+    "Stop trying to remove this memo from the server" : {
+      "comment" : "Tooltip of the outbox's Stop trying",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nicht mehr versuchen, dieses Memo vom Server zu entfernen"
+          }
+        }
+      }
+    },
+    "Drop this item from the queue without sending it" : {
+      "comment" : "Tooltip of the outbox's Discard",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Diesen Eintrag aus der Warteschlange entfernen, ohne ihn zu senden"
+          }
+        }
+      }
+    },
+    "Toggle the list filter for this kind" : {
+      "comment" : "Tooltip of a kind chip in the sidebar",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Den Listenfilter für diese Art umschalten"
+          }
+        }
+      }
+    },
+    "Toggle the list filter for this state" : {
+      "comment" : "Tooltip of a state chip in the sidebar",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Den Listenfilter für diesen Status umschalten"
+          }
+        }
+      }
+    },
+    "Close this window without connecting" : {
+      "comment" : "Tooltip of Not now in onboarding",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dieses Fenster ohne Verbindung schließen"
+          }
+        }
+      }
+    },
+    "Check the server URL and token without saving them" : {
+      "comment" : "Tooltip of Test connection",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Server-URL und Token prüfen, ohne sie zu speichern"
+          }
+        }
+      }
+    },
+    "Save the connection and open Iris" : {
+      "comment" : "Tooltip of Continue in onboarding",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Die Verbindung speichern und Iris öffnen"
+          }
+        }
+      }
+    },
+    "Save the server URL and token, then check the connection" : {
+      "comment" : "Tooltip of Save",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Server-URL und Token speichern und dann die Verbindung prüfen"
+          }
+        }
+      }
+    },
+    "Show the update window to install the new version" : {
+      "comment" : "Tooltip of Install",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Das Update-Fenster zum Installieren der neuen Version zeigen"
+          }
+        }
+      }
+    },
+    "Close the diagram" : {
+      "comment" : "Tooltip of the diagram sheet's Close",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Diagramm schließen"
+          }
+        }
+      }
+    },
+    "Open the Microphone privacy settings in System Settings" : {
+      "comment" : "Tooltip of Open Settings in the recording panel",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Die Datenschutzeinstellungen für das Mikrofon in den Systemeinstellungen öffnen"
+          }
+        }
+      }
+    },
+    "Close this message" : {
+      "comment" : "Tooltip of Close on a recording panel message",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Diese Meldung schließen"
+          }
+        }
+      }
+    },
+    "Show the answer before this one" : {
+      "comment" : "Tooltip of the Details popover's earlier answer",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Die vorherige Antwort zeigen"
+          }
+        }
+      }
+    },
+    "Show the answer after this one" : {
+      "comment" : "Tooltip of the Details popover's later answer",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Die nächste Antwort zeigen"
+          }
+        }
+      }
+    },
+    "Delete this memo?" : {
+      "comment" : "Delete confirmation title",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dieses Memo löschen?"
+          }
+        }
+      }
+    },
+    "Archive instead" : {
+      "comment" : "Delete confirmation: keeps the memo in the archive",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Stattdessen archivieren"
+          }
+        }
+      }
+    },
+    "Move the memo to the archive and keep it" : {
+      "comment" : "Tooltip of Archive instead",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Das Memo ins Archiv verschieben und behalten"
+          }
+        }
+      }
+    },
+    "Keep the memo" : {
+      "comment" : "Tooltip of Cancel in the delete confirmation",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Memo behalten"
+          }
+        }
+      }
+    },
+    "It disappears on every device. Right after, Undo brings it back for a few seconds; archiving keeps it for good." : {
+      "comment" : "Delete confirmation message",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Es verschwindet auf allen Geräten. Direkt danach bringt Rückgängig es für ein paar Sekunden zurück; Archivieren behält es dauerhaft."
+          }
+        }
+      }
+    },
+    "Show every memo" : {
+      "comment" : "Tooltip of the sidebar's All memos",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Alle Memos zeigen"
+          }
+        }
+      }
+    },
+    "Show only the memos you marked as favorites" : {
+      "comment" : "Tooltip of the sidebar's Favorites",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nur die als Favorit markierten Memos zeigen"
+          }
+        }
+      }
+    },
+    "Show the memos you archived" : {
+      "comment" : "Tooltip of the sidebar's Archive",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Die archivierten Memos zeigen"
+          }
+        }
+      }
+    },
+    "Show only the conversations with Hermes" : {
+      "comment" : "Tooltip of the sidebar's Threads",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nur die Unterhaltungen mit Hermes zeigen"
+          }
+        }
+      }
     }
   },
   "version" : "1.0"
