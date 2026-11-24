@@ -34,9 +34,9 @@ A nested `AGENTS.md` loads when you work in its directory. Read the pointer line
 
 ## Verify & Monitor
 
-- `make verify` exits 0 iff `GET /health` answers `status: ok` (`{status, degraded[], inflight, receiving}`) and the audio door (`http://127.0.0.1:7792/health`) and the agent-workflows host (`http://127.0.0.1:7791/health`) do too. `degraded` names `otel`, `device-tokens` and the steps without a downstream.
+- `make verify` exits 0 iff `GET /health` answers `status: ok` (`{status, degraded[], inflight}`) and the audio door (`http://127.0.0.1:7792/health`) and the agent-workflows host (`http://127.0.0.1:7791/health`) do too. `degraded` names `otel`, `device-tokens` and the steps without a downstream.
 - `make smoke` sends a real 96 s German recording through the pipeline to `notified`. It prints the memo's `kind` and `actions`: no `kind` means the reply had no valid ```iris block (`hermes.meta_invalid` in `make logs`).
-- `make logs` tails production logs, `make launchd-status` shows the agents, `make launchd-restart` refuses while `inflight > 0` or `receiving > 0` (`FORCE=1` overrides).
+- `make logs` tails production logs, `make launchd-status` shows the agents, `make launchd-restart` refuses while `inflight > 0` (a step running or a take in progress) (`FORCE=1` overrides).
 - Traces and logs are in HyperDX (query via `/otel`, prod): `service.name=iris-server` (`iris-ios` and `iris-macos` for the apps), trace id = the memo UUID without dashes, root span `memo`, a child per step. Skill `memo-debug` follows one memo end to end.
 
 ## Gotchas

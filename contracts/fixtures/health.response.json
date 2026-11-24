@@ -1,6 +1,5 @@
 {
   "status": "ok",
   "degraded": [],
-  "inflight": 0,
-  "receiving": 0
+  "inflight": 0
 }

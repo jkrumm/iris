@@ -349,7 +349,6 @@ export const HealthResponse = t.Object({
   status: t.UnionEnum(["ok", "degraded"]),
   degraded: t.Array(t.String()),
   inflight: Int,
-  receiving: Int,
 });
 
 export const WhoamiResponse = t.Object({ device: t.String() });

@@ -174,12 +174,10 @@ launchd-status: ## launchctl state for the LaunchAgents + curl /health
 	@echo ""
 
 .PHONY: launchd-restart
-launchd-restart: ## Kickstart (restart) the server; refuses while a memo is mid-step or a take is receiving unless FORCE=1
+launchd-restart: ## Kickstart (restart) the server; refuses while a memo is mid-step or a take is in progress unless FORCE=1
 	@if [ -z "$(FORCE)" ]; then \
-	  busy=$$(curl -sf --max-time 3 $(HEALTH_URL) 2>/dev/null | jq -r '"\(.inflight // 0) \(.receiving // 0)"' 2>/dev/null || echo "0 0"); \
-	  n=$${busy% *}; r=$${busy#* }; \
-	  if [ "$${n:-0}" != "0" ]; then echo "refusing to restart: $$n memo(s) in flight; FORCE=1 make launchd-restart to restart anyway"; exit 1; fi; \
-	  if [ "$${r:-0}" != "0" ]; then echo "refusing to restart: $$r take(s) in progress (a memo receiving segments); FORCE=1 make launchd-restart to restart anyway"; exit 1; fi; \
+	  n=$$(curl -sf --max-time 3 $(HEALTH_URL) 2>/dev/null | jq -r '.inflight // 0' 2>/dev/null || echo 0); \
+	  if [ "$${n:-0}" != "0" ]; then echo "refusing to restart: $$n memo(s) in flight or take(s) in progress; FORCE=1 make launchd-restart to restart anyway"; exit 1; fi; \
 	fi
 	@d="$$HOME/.local/state/devhost/deliberate-restart"; mkdir -p "$$d" && date +%s >> "$$d/$(LABEL)" || true
 	@launchctl kickstart -k "gui/$$(id -u)/$(LABEL)"

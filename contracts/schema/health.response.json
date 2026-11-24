@@ -10,9 +10,6 @@
     "inflight": {
       "type": "integer"
     },
-    "receiving": {
-      "type": "integer"
-    },
     "status": {
       "enum": [
         "ok",
@@ -24,8 +21,7 @@
   "required": [
     "status",
     "degraded",
-    "inflight",
-    "receiving"
+    "inflight"
   ],
   "title": "health.response",
   "type": "object"

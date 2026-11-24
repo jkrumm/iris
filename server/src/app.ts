@@ -27,10 +27,8 @@ export interface AppDeps {
   stats?: StatsStore | undefined;
   /** Names of optional subsystems that are not configured; surfaced on /health. */
   degraded?: string[];
-  /** Memos with a step running right now; surfaced on /health so the deploy poller can wait for idle. */
+  /** Memos with a step running or a take in progress (see `createBusyCount`); surfaced on /health so the restart gates can wait for idle. */
   inflight?: () => number;
-  /** Takes in progress (a `receiving` memo with a recent segment); a restart would cut them, so the gates wait on this too. */
-  receiving?: () => number;
   /** Text and tool progress of a running `act`: `memo.delta` / `memo.activity` events and `partialReply` on the detail. */
   progress?: ReplyProgress | undefined;
   /** SSE keepalive comment interval; tests shrink it. */
@@ -51,7 +49,6 @@ export function createApp(deps: AppDeps) {
         status: degraded.length > 0 ? ("degraded" as const) : ("ok" as const),
         degraded,
         inflight: deps.inflight?.() ?? 0,
-        receiving: deps.receiving?.() ?? 0,
       }),
       { response: HealthResponse },
     )

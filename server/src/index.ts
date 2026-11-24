@@ -9,7 +9,7 @@ import { env } from "./env.js";
 import { createMemoEvents } from "./memo/events.js";
 import { createReplyProgress } from "./memo/progress.js";
 import { createMemoMedia } from "./memo/media.js";
-import { TAKE_ACTIVE_MS } from "./memo/memo.js";
+import { createBusyCount } from "./memo/busy.js";
 import { createPurger } from "./memo/purge.js";
 import { createRunner } from "./memo/runner.js";
 import { createReplyAssets } from "./memo/reply-assets.js";
@@ -98,9 +98,7 @@ const app = createApp({
   media,
   telemetry,
   progress,
-  inflight: () => runner.inflightIds().length,
-  receiving: () =>
-    store.countActiveTakes(new Date(clock.now().getTime() - TAKE_ACTIVE_MS).toISOString()),
+  inflight: createBusyCount({ stepsRunning: () => runner.inflightIds().length, store, clock }),
 }).listen({
   port: env.PORT,
   hostname: env.HOST,

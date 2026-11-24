@@ -12,9 +12,9 @@ Push to master deploys. LaunchAgent `com.jkrumm.iris` (KeepAlive, `ExitTimeOut` 
 
 - `com.jkrumm.iris-deploy` polls `scripts/mini-deploy.sh` every 120 s through `jobrun`. It deploys
   `origin/master` only when the `check` job is green on that SHA and no memo is mid-step
-  or being recorded (`/health` `inflight` and `receiving` are 0; `receiving` is the number of memos still
-  `receiving` whose last segment, or creation when none yet, is under 120 s old, so a restart never cuts a take and an
-  abandoned one stops blocking after two minutes). It restarts only for runtime paths (docs, tests, Makefile and
+  and no take is being recorded (`/health` `inflight` is 0; it counts memos still `receiving` whose last segment, or
+  creation when none yet, is under 120 s old, so a restart never cuts a take and an abandoned one stops blocking after
+  two minutes). It restarts only for runtime paths (docs, tests, Makefile and
   `launchd/` do not; `launchd/` prints a warning), and writes `~/.iris/deployed-sha` once the new
   pid answers `/health`. `make deploy` runs one tick now.
 
