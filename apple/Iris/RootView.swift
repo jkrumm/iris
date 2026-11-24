@@ -41,7 +41,7 @@ struct RootView: View {
     history: HistoryModel, isConfigured: Bool = true, take: TakeModel, stats: StatsModel,
     settings: SettingsModel,
     diagnostics: DiagnosticsModel, micRules: MicRulesModel, spokenReplies: SpokenReplies,
-    connectionForm: ConnectionModel? = nil, startsOnSettings: Bool = false,
+    connectionForm: ConnectionModel? = nil, startsOnSettings: Bool = false, startsOn: Section? = nil,
     makeDetail: @escaping (Memo) -> MemoDetailModel, makeComposer: @escaping (ComposerRequest) -> ComposerModel,
     makeThread: @escaping (Memo) -> ThreadModel, router: ConversationRouter, presence: ConversationPresence,
     startReplyByVoice: @escaping (String) -> Void = { _ in }, fetchMemo: @escaping (String) async throws -> Memo
@@ -62,7 +62,7 @@ struct RootView: View {
     self.presence = presence
     self.startReplyByVoice = startReplyByVoice
     self.fetchMemo = fetchMemo
-    _selection = State(initialValue: startsOnSettings ? .settings : .history)
+    _selection = State(initialValue: startsOn ?? (startsOnSettings ? .settings : .history))
   }
 
   var body: some View {

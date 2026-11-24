@@ -41,6 +41,8 @@ final class CompositionRoot: CaptureIntentHandler, PlaybackIntentHandler {
   private let sampleNow: Date
   /// Production with nothing saved at launch: the app opens on Settings.
   let opensOnSettings: Bool
+  /// `-IrisStartTab stats|settings` (fakes only, the proof run's screen tour): the tab the app opens on instead of History.
+  let launchSection: RootView.Section?
   let fakeCapture: FakeCapture?
   let history: HistoryModel
   let stats: StatsModel
@@ -102,6 +104,9 @@ final class CompositionRoot: CaptureIntentHandler, PlaybackIntentHandler {
       let fake = FakeAPIClient(now: { pinnedNow.addingTimeInterval(Date().timeIntervalSince(launched)) })
       mode = .fake
       opensOnSettings = false
+      launchSection = arguments.firstIndex(of: "-IrisStartTab")
+        .flatMap { arguments.indices.contains($0 + 1) ? arguments[$0 + 1] : nil }
+        .flatMap { ["stats": RootView.Section.stats, "settings": .settings][$0] }
       launchLink = arguments.firstIndex(of: "-IrisOpenURL")
         .flatMap { arguments.indices.contains($0 + 1) ? URL(string: arguments[$0 + 1]) : nil }
         .flatMap { ConversationLink(url: $0) }
@@ -156,6 +161,7 @@ final class CompositionRoot: CaptureIntentHandler, PlaybackIntentHandler {
       let client = ReconfigurableAPIClient(credentials: saved)
       mode = .production
       opensOnSettings = saved == nil
+      launchSection = nil
       api = client
       fakeAPI = nil
       self.credentials = credentials
@@ -310,6 +316,8 @@ final class CompositionRoot: CaptureIntentHandler, PlaybackIntentHandler {
     }
     if let fakeAPI {
       await SampleData.seed(fakeAPI, now: sampleNow)
+      // The Stats tab asked for its report before the samples were seeded: ask again.
+      if launchSection == .stats { await stats.load() }
       if let link = launchLink {
         launchLink = nil
         router.open(link)

@@ -36,7 +36,7 @@ struct IrisApp: App {
       history: root.history, isConfigured: root.isConfigured, take: root.take, stats: root.stats,
       settings: root.settings,
       diagnostics: root.diagnostics, micRules: root.micRules, spokenReplies: root.spokenReplies,
-      connectionForm: root.connectionForm, startsOnSettings: root.opensOnSettings,
+      connectionForm: root.connectionForm, startsOnSettings: root.opensOnSettings, startsOn: root.launchSection,
       makeDetail: root.detailModel(for:), makeComposer: root.composerModel(for:),
       makeThread: root.threadModel(for:), router: root.router, presence: root.presence,
       startReplyByVoice: { threadID in Task { await root.startReplyByVoice(threadID: threadID) } },

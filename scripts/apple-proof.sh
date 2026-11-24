@@ -140,6 +140,37 @@ artifact_spike() {
   xcrun simctl terminate "$udid" "$APP_BUNDLE" >/dev/null 2>&1 || true
 }
 
+# The screen tour: every tab and the pushed screens of the sample data, light and dark, one launch each. `-IrisStartTab` picks the
+# tab, `-IrisOpenURL iris://memo/<id>` pushes a conversation or a memo's detail (fakes only).
+IOS_TOUR=(
+  "history:"
+  "stats:-IrisStartTab stats"
+  "settings:-IrisStartTab settings"
+  "chat:-IrisOpenURL iris://memo/c1a0b7d2-4e61-4f38-9a15-3d8e6b2f7c40"
+  "hermes:-IrisOpenURL iris://memo/d2b1c8e3-5f72-4a49-8b26-4e9f7c3a8d51"
+  "transcript:-IrisOpenURL iris://memo/e8b3d2f0-4a17-4c59-8d60-1b7f3a9e5c24"
+  "note:-IrisOpenURL iris://memo/a9d2e6c4-1f38-4b70-9c85-2e4a7d0b3f61"
+)
+ios_tour() {
+  local entry name args appearance
+  mkdir -p "$out/ios/tour"
+  for appearance in light dark; do
+    xcrun simctl ui "$udid" appearance "$appearance" >/dev/null 2>&1 || true
+    for entry in "${IOS_TOUR[@]}"; do
+      name=${entry%%:*}
+      args=${entry#*:}
+      xcrun simctl terminate "$udid" "$APP_BUNDLE" >/dev/null 2>&1 || true
+      # shellcheck disable=SC2086
+      xcrun simctl launch "$udid" "$APP_BUNDLE" -IrisFakeCapture -AppleLanguages "(en)" -AppleLocale en_US $args >>"$out/ios/tour/launch.txt" 2>&1 || true
+      sleep 7
+      xcrun simctl io "$udid" screenshot "$out/ios/tour/$name-$appearance.png" >/dev/null 2>&1
+      [[ -s "$out/ios/tour/$name-$appearance.png" ]] || fail "ios: tour $name-$appearance.png missing"
+    done
+  done
+  xcrun simctl ui "$udid" appearance light >/dev/null 2>&1 || true
+  xcrun simctl terminate "$udid" "$APP_BUNDLE" >/dev/null 2>&1 || true
+}
+
 # --- 2. iOS
 if [[ "${PROOF_IOS:-1}" != 0 ]]; then
   if [[ -z "$udid" ]]; then
@@ -165,6 +196,8 @@ if [[ "${PROOF_IOS:-1}" != 0 ]]; then
       phase ios-artifact
       artifact_spike || say "ios: artifact spike measurement failed (see ios/artifact-memory.txt)"
       artifact_screens
+      phase ios-tour
+      ios_tour
       for name in artifact-light artifact-dark artifact-cards-light artifact-cards-dark artifact-viewer-light artifact-viewer-dark; do
         [[ -s "$out/ios/$name.png" ]] || fail "ios: $name.png missing"
       done
