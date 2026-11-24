@@ -764,3 +764,135 @@ rows:
         Fixture decode tests; a UI test continues a transcript on the fake composition and copies both parts; proof
         PNGs of a two-part transcript on iPhone and Mac; CI apple.yml green.
       limits: At most one targeted local Apple run; CI validates.
+
+  - key: ios-surface-polish
+    lane: apple
+    title: "iPhone: the record row reads as three actions, cards fit their content, and the note header is compact"
+    facts:
+      why: >-
+        Owner feedback 2026-11-24 on 0.16.14, quoted: "The buttons at the bottom look horrible ... they look still like
+        tabs and not like actual different buttons ... To really make them look like actions and not like tabs" and
+        "the round boxes around the sections are really weirdly and badly sized" and "in a note, actually, the title
+        is unnecessarily big and therefore has a bad overview ... More tightly". He rated the rest of the iPhone app
+        good; this is polish, not a redesign.
+      what: >-
+        apple/Iris/RecordRow.swift (mounted as the tab-bar bottom accessory, apple/Iris/RootView.swift:156-160),
+        apple/Packages/IrisUI/Sources/IrisUI/Components/DetailCard.swift and its callers (apple/Iris/SettingsView.swift,
+        StatsView.swift, ComposerView.swift, IrisUI StatTile.swift, StepWaterfall.swift), apple/Iris/MemoDetailView.swift
+        header, Theme spacing tokens (apple/Packages/IrisUI/Sources/IrisUI/Theme/Spacing.swift), snapshots,
+        docs/apple-app.md.
+      change: >-
+        (1) Record row: today three capsules in the tab-bar accessory (Hermes filled, Transcribe and Text tinted at
+        14 %) that read as a segmented tab strip. Make them read as distinct actions: separation and shape that do not
+        touch edge to edge like segments, an icon plus label on each in the expanded placement, the primary action
+        clearly dominant; keep the 44 pt tap target and the inline (minimized) placement's icon-only secondaries.
+        Decided: stay inside the bottom accessory, no new floating button, because the placement works and only the
+        rendering was criticised. (2) detailCard adds no padding of its own, so every caller pads differently: give
+        it the card insets (Spacing.swift card tokens, 14 horizontal / 12 vertical) as the one default, remove ad-hoc
+        padding at the callers, and make cards span the readable width consistently with even outer margins.
+        (3) MemoDetailView's headline uses .themeFont(.title, weight: .bold) (26 pt): drop it to the headline/title3
+        scale, limit it to two lines with the full text on tap or in Details, and tighten the space above the first
+        section so the transcript starts higher.
+      acceptance: >-
+        Proof PNGs (light and dark) of Home with the record row expanded and minimized, Settings, Stats and a note
+        detail, before and after, attached to the PR; detailCard callers no longer set their own inner padding (rg);
+        CI apple.yml green.
+      limits: At most one targeted local Apple run (make proof-apple or the snapshot run for the touched views); CI validates.
+
+  - key: conversation-compact
+    lane: apple
+    title: "iPhone and Mac: a tighter conversation with an inline voice-message player on every reply"
+    facts:
+      why: >-
+        Owner feedback 2026-11-24, quoted: the reply shows "really big, in German, Antwort abspielen, and there's way
+        too much space around it" ; "all of the chat can be way more concise, so it really looks with better overview
+        and more tight" ; playing a reply "is not having a nice, beautiful, richer play thingy like a speech memo on
+        WhatsApp would have" ; "we have anyways a good player ... for the memos that I create ... you can actually
+        reuse that UI". On the Mac: "I can't play individual messages playback, so there's a weird discrepancy between
+        features from the iPhone to the Mac app" and "the spacing, especially to the left side, is a bit big on the
+        chat view on the Mac".
+      what: >-
+        apple/Packages/IrisUI Components/Thread (ConversationTurnList.swift, ChatBubble.swift, UserTurnView.swift),
+        Components/ReplyPlayButton.swift, Components/MemoPlayerBar.swift, Theme/Spacing.swift thread tokens,
+        apple/Iris/ThreadView.swift, apple/Iris/MemoPlayer.swift, apple/IrisMac/MacConversationView.swift,
+        MacMemoDetailPane.swift (readable width and margin), MacAudioPlayer.swift, MacMemoAudioControls.swift,
+        String catalogs, IrisUI snapshot tests (ThreadSnapshotTests.swift), docs/apple-app.md, docs/mac-app.md.
+      change: >-
+        (1) Replace ReplyPlayButton's labelled "Play reply" button in the bubble footer with a compact inline player in
+        the voice-message style: a round play/pause, a thin scrubber (reuse MemoPlayerBar's ThinScrubber and visuals,
+        extracted so both use one view) and elapsed/total time, sitting tight under the reply text. The summary/full
+        choice stays reachable from that player (a small menu or a toggle), not as a large label. Decided: no playback
+        waveform rendering; a scrubber is enough and a waveform needs audio analysis this row does not own.
+        (2) Tighten the thread: smaller gap between turns (today 14 pt both platforms), smaller gap between a bubble
+        and its footer, and less vertical padding inside bubbles; consecutive turns stay visually distinguishable
+        (user vs Iris) without the extra separation. Change the tokens in Spacing.swift, not per view.
+        (3) Mac: MacConversationView passes no reply: to ConversationTurnList, so per-message playback is missing;
+        wire it to MacAudioPlayer so every reply plays inline like on the iPhone. The toolbar speaker menu may stay.
+        (4) Mac: reduce the leading inset of the conversation (readable-width margin, 24 pt today) so the thread uses
+        the pane instead of floating right of a large gap.
+      acceptance: >-
+        Snapshot tests of a multi-turn thread re-recorded once (light and dark) show the compact player and tighter
+        spacing; a Mac proof PNG of a conversation shows the inline player on each reply; a unit test or UI test plays
+        one reply on the Mac fake composition; make check-strings passes (German entries); CI apple.yml green.
+      limits: At most one targeted local Apple run (make snapshots RECORD=1 for ThreadSnapshotTests, or make proof-apple); CI validates.
+
+  - key: mac-shell-polish
+    lane: apple
+    title: "Mac: the sidebar clears the title bar, every control has a tooltip, selection clears, Details fits, and delete asks"
+    facts:
+      why: >-
+        Owner feedback 2026-11-24 on the Mac app (after updating), quoted: "The sidebar looks weirdly cut off by the top
+        bar now" (still after the update) ; "I would really love to have tooltips on the buttons if I'm hovering them" ;
+        "if I select a text and I click somewhere else, it doesn't deselect it" ; the Details view "is then too wide for
+        the box it is in" ; "The deletion button maybe wants a confirmation or asks for if you maybe want to just
+        archive it".
+      what: >-
+        apple/IrisMac: MacSidebar.swift, MacShellStyle.swift, MacMainWindow.swift (toolbar, title-bar surface),
+        MacMemoDetailPane.swift, MacMemoDetailsPopover.swift, MacDetailToolbar.swift, MacMemoActions.swift,
+        MacMemoList.swift, MacMemoControl.swift, String catalog; shared MemoDetailsContent in IrisUI only as far as the
+        popover needs it to wrap; Mac tests; docs/mac-app.md.
+      change: >-
+        (1) Sidebar cut off: the title bar and toolbar are painted Theme.Surface.background (MacMainWindow.swift:53-55)
+        while the sidebar is Surface.panel with no top inset; render it first (MacSnapshotRun, -IrisMacSnapshot) and
+        find the real cause, then make the sidebar run cleanly under the title bar (one surface, or the sidebar's own
+        top inset), with nothing clipped. (2) Tooltips: every button and icon-only control in the window gets .help,
+        including sidebar rows (scopes, filters) and anything else rg shows without one; reuse the MacMemoControl table
+        for wording. (3) Text selection: clicking outside a selected text (empty pane area, another bubble, the list)
+        clears the selection, e.g. by resigning the first responder on a background click; keep selection itself.
+        (4) Details popover (fixed 320 pt): long content (ids, step waterfall, URLs) overflows the box; make every row
+        wrap or truncate with middle ellipsis inside the width, verified with the longest fixture memo. (5) Delete:
+        the toolbar button, the context menu and the Delete key ask first with a dialog offering Delete, Archive
+        instead and Cancel (Return = Cancel-safe default per macOS HIG; the lead picks). The undo toast stays.
+        Decided: the iPhone swipe-delete keeps its undo toast without a dialog, because the feedback named the Mac.
+      acceptance: >-
+        Proof PNGs of the main window (sidebar top in light and dark), the Details popover on the longest fixture memo
+        and the delete dialog; rg shows no Button or icon-only control in apple/IrisMac without .help (or a listed
+        reason); a Mac test covers that Archive instead archives and Cancel keeps the memo; CI apple.yml green.
+      limits: At most one targeted local Apple run (make proof-apple); CI validates.
+
+  - key: visual-sweep
+    lane: apple
+    after: [ios-surface-polish, conversation-compact, mac-shell-polish]
+    title: "iPhone and Mac: a visual pass over every screen, fixing spacing, sizing and flow defects found in the renders"
+    facts:
+      why: >-
+        Owner feedback 2026-11-24, quoted: "please try visually, like going over the tabs, visualizing them, trying to
+        improve on the visual user experience, overview, great flows, great renderings throughout". The three polish
+        rows fix what he named; this row looks at everything they did not.
+      what: >-
+        apple/Iris, apple/IrisMac and apple/Packages/IrisUI views and Theme tokens; snapshots; docs/apple-app.md and
+        docs/mac-app.md. No behaviour or server change.
+      change: >-
+        Render every iPhone tab and pushed screen (Home with the record row, History and its filters, a transcript, a
+        note, a conversation, Stats, Settings, the take sheet) and every Mac screen (main window per scope, conversation,
+        Details, Settings, menu bar panel) in light and dark, from one proof run. Write a short list of defects
+        (misaligned margins, inconsistent card or row heights, oversized headers, wasted vertical space, controls that
+        do not look tappable, truncated text, mismatched surfaces between iPhone and Mac) and fix them through Theme
+        tokens and shared IrisUI components first. Do not redo what the three earlier rows shipped unless a render
+        shows a regression.
+      acceptance: >-
+        The PR carries the defect list with before/after PNGs per fixed item; snapshots re-recorded once; CI apple.yml
+        green.
+      limits: >-
+        One proof run before and one after (make proof-apple), nothing more locally; CI validates. Never a full local
+        uitest.
