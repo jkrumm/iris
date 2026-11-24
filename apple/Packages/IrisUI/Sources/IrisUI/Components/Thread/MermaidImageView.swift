@@ -18,7 +18,6 @@ public struct MermaidImageView: View {
     let ref = asset.ref(for: colorScheme)
     content(for: ref)
       .frame(maxWidth: .infinity)
-      .padding(Theme.Spacing.md)
       .detailCard()
       .task(id: ref) { await store?.load(ref) }
   }

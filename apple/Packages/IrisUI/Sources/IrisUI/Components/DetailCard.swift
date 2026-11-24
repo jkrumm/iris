@@ -1,10 +1,22 @@
 import SwiftUI
 
+/// How a `detailCard` pads its content.
+public enum DetailCardInset: Sendable {
+  /// The card insets (`Theme.Spacing.cardInset*`): the default, so no caller pads a card itself.
+  case card
+  /// No padding: for a card of rows that pad themselves and run edge to edge (dividers, a bar along the bottom edge, a
+  /// horizontally scrolling table).
+  case flush
+}
+
 extension View {
-  /// The flat panel the detail screen's sections sit on: panel fill, hairline border, card radius. Content is
-  /// clipped to it, so a full-width bar reaches the border.
-  public func detailCard() -> some View {
-    clipShape(.rect(cornerRadius: Theme.Radius.card))
+  /// The flat panel the detail screen's sections sit on: panel fill, hairline border, card radius, the card insets inside,
+  /// and the width the container offers. Content is clipped to it, so a full-width bar reaches the border.
+  public func detailCard(_ inset: DetailCardInset = .card) -> some View {
+    padding(.horizontal, inset == .card ? Theme.Spacing.cardInsetHorizontal : 0)
+      .padding(.vertical, inset == .card ? Theme.Spacing.cardInsetVertical : 0)
+      .frame(maxWidth: .infinity, alignment: .leading)
+      .clipShape(.rect(cornerRadius: Theme.Radius.card))
       .background(Theme.Surface.panel, in: .rect(cornerRadius: Theme.Radius.card))
       .overlay {
         RoundedRectangle(cornerRadius: Theme.Radius.card)

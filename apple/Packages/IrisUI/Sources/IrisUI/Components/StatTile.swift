@@ -30,9 +30,6 @@ public struct StatTile: View {
         .lineLimit(1)
         .minimumScaleFactor(0.8)
     }
-    .frame(maxWidth: .infinity, alignment: .leading)
-    .padding(.horizontal, Theme.Spacing.md)
-    .padding(.vertical, Theme.Spacing.md)
     .detailCard()
     .accessibilityElement(children: .ignore)
     .accessibilityLabel(Text(verbatim: "\(title), \(value)"))

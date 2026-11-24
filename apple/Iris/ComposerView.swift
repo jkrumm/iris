@@ -107,9 +107,6 @@ struct ComposerView: View {
     }
     .themeFont(.footnote)
     .foregroundStyle(Theme.Ink.secondary)
-    .padding(.horizontal, Theme.Spacing.cardInsetHorizontal)
-    .padding(.vertical, Theme.Spacing.cozy)
-    .frame(maxWidth: .infinity, alignment: .leading)
     .detailCard()
   }
 

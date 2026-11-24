@@ -430,7 +430,7 @@ struct SettingsGroup<Rows: View, Footer: View>: View {
           }
         }
       }
-      .detailCard()
+      .detailCard(.flush)
       footer
         .themeFont(.caption)
         .foregroundStyle(Theme.Ink.faint)

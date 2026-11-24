@@ -650,7 +650,7 @@ The optional `summarize` step stays (Wave 21 S1b, owner 2026-11-04): the paragra
 Iris no longer routes (§3 "Hermes decides"); the app has two modes and shows what Hermes decided.
 
 - **Two modes, three buttons.** `MemoMode` is `hermes` (the default) and `transcribe`; any other wire value (old memos: `auto`, `chat`, `journal`, `tab`) reads as `hermes`. The record control is the
-  tab bar's bottom accessory and shows `RecordRow`: a large Hermes button (starts a Hermes take), and Transcribe (a take that only becomes a transcript) and Text (opens the composer, the one entry to it) as capsules of the same height in a tinted secondary fill.
+  tab bar's bottom accessory and shows `RecordRow`: a large Hermes button (starts a Hermes take), and Transcribe (a take that only becomes a transcript) and Text (opens the composer, the one entry to it) as accent-outlined buttons of the same height (rounded rectangles with a gap, not edge-to-edge capsules).
   No long press, no menu, no mode sheet: the owner asked for no hidden gestures. The Hermes glyph is `sparkles`: the SF Symbols have no robot glyph. In the `inline` placement (minimized tab bar) the two small buttons drop their titles.
   The composer has two send targets instead of mode chips: "Send to Hermes" (primary) and "Transcribe"; a reply bound to a Hermes thread offers Hermes only (the server answers 409 `conflict` for `threadId` of a Hermes thread with Transcribe).
   The Lock Screen Record control and `StartMemoIntent` start a Hermes take; a second control, "Transcribe" (`OpenTranscribeRecorderIntent`, the same unlock-then-open flow), starts a Transcribe take.

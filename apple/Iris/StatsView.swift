@@ -85,9 +85,6 @@ struct StatsView: View {
         }
         VolumeChart(bars: report.bars, series: report.series, names: report.names, summary: summary(report))
       }
-      .padding(.horizontal, Theme.Spacing.cardInsetHorizontal)
-      .padding(.top, Theme.Spacing.inset)
-      .padding(.bottom, Theme.Spacing.cozy)
       .detailCard()
 
       VStack(alignment: .leading, spacing: Theme.Spacing.xs) {
@@ -99,7 +96,7 @@ struct StatsView: View {
               total: trend.total, changeText: trend.change, direction: trend.direction)
           }
         }
-        .detailCard()
+        .detailCard(.flush)
         Text(verbatim: trendsFootnote(report))
           .themeFont(.caption)
           .foregroundStyle(Theme.Ink.faint)

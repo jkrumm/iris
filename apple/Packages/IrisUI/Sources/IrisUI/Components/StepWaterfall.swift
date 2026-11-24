@@ -48,7 +48,7 @@ public struct StepWaterfall<Footer: View>: View {
     }
     .animation(reduceMotion ? nil : .smooth(duration: 0.4), value: rows)
     .animation(reduceMotion ? nil : .smooth(duration: 0.25), value: showsRows)
-    .detailCard()
+    .detailCard(.flush)
   }
 
   private var hasSummary: Bool { totalTitle != nil && totalValue != nil }

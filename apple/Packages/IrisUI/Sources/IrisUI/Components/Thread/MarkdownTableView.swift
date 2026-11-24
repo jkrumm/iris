@@ -19,7 +19,8 @@ public struct MarkdownTableView: View {
   public var body: some View {
     ScrollView(.horizontal) {
       grid
-        .padding(Theme.Spacing.md)
+        .padding(.horizontal, Theme.Spacing.cardInsetHorizontal)
+        .padding(.vertical, Theme.Spacing.cardInsetVertical)
     }
     .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
     .onScrollGeometryChange(for: CGFloat.self) { geometry in
@@ -37,7 +38,7 @@ public struct MarkdownTableView: View {
         .accessibilityHidden(true)
       }
     }
-    .detailCard()
+    .detailCard(.flush)
     .accessibilityIdentifier("thread.table")
   }
 

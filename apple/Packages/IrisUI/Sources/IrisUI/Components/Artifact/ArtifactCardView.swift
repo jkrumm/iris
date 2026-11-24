@@ -142,9 +142,6 @@ private struct DocumentArtifactCard: View {
           .foregroundStyle(Theme.Ink.faint)
           .accessibilityHidden(true)
       }
-      .padding(.horizontal, Theme.Spacing.cardInsetHorizontal)
-      .padding(.vertical, Theme.Spacing.cardInsetVertical)
-      .frame(maxWidth: .infinity, alignment: .leading)
       .detailCard()
       .contentShape(.rect)
     }

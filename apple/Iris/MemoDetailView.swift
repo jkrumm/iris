@@ -12,6 +12,8 @@ struct MemoDetailView: View {
   @State private var playback: MemoPlayback
   @State private var isRecordingExpanded = false
   @State private var showsDetails = false
+  /// The headline shows two lines; a tap on it opens the whole text.
+  @State private var isHeadlineExpanded = false
   @Environment(TakeModel.self) private var take: TakeModel?
   private let refreshToken: () -> Int
   /// The transcript is copied, not reread: the bubble shows this many lines, then Show full message.
@@ -27,12 +29,12 @@ struct MemoDetailView: View {
 
   var body: some View {
     ScrollView {
-      VStack(alignment: .leading, spacing: Theme.Spacing.sectionTop) {
+      VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
         header
         conversation
       }
       .padding(.horizontal, Theme.Spacing.screenMargin)
-      .padding(.top, Theme.Spacing.sm)
+      .padding(.top, Theme.Spacing.xs)
       .padding(.bottom, Theme.Spacing.xl)
     }
     .accessibilityIdentifier("memo.detail")
@@ -76,11 +78,16 @@ struct MemoDetailView: View {
 
   private var header: some View {
     let memo = model.memo
-    return VStack(alignment: .leading, spacing: Theme.Spacing.cozy) {
+    return VStack(alignment: .leading, spacing: Theme.Spacing.snug) {
       Text(verbatim: memo.rowHeadline)
-        .themeFont(.title, weight: .bold)
+        .themeFont(.title3, weight: .semibold)
         .foregroundStyle(Theme.Ink.primary)
+        .lineLimit(isHeadlineExpanded ? nil : 2)
         .fixedSize(horizontal: false, vertical: true)
+        .contentShape(.rect)
+        .onTapGesture { isHeadlineExpanded.toggle() }
+        .accessibilityAddTraits(.isButton)
+        .accessibilityIdentifier("memo.headline")
       HStack(spacing: Theme.Spacing.sm) {
         KindChip(label: memo.kindLabel, systemImage: memo.kindIcon)
         Text(verbatim: model.metaLine)
@@ -94,7 +101,7 @@ struct MemoDetailView: View {
       }
       if model.wholeTranscript != nil {
         copyTranscriptButton
-          .padding(.top, Theme.Spacing.sm)
+          .padding(.top, Theme.Spacing.xs)
       }
       if let target = model.continuationTarget {
         continueRecordingButton(thread: target)

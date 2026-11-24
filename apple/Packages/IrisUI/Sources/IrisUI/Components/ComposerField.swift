@@ -37,8 +37,7 @@ public struct ComposerField: View {
               .accessibilityHidden(true)
           }
         }
-        .padding(Theme.Spacing.md)
-        .frame(height: Self.height)
+        .frame(height: Self.height - 2 * Theme.Spacing.cardInsetVertical)
         .detailCard()
         .accessibilityLabel(Text(verbatim: placeholder))
         .accessibilityIdentifier("composer.field")

@@ -2,18 +2,20 @@ import IrisCore
 import IrisUI
 import SwiftUI
 
-/// The record control in the tab bar's bottom accessory: three visible buttons, no hidden gesture, all the same capsule
-/// height. Hermes is the one primary (the default: a take whose memo goes to Hermes, `Accent.fill`); Transcribe (a take that
-/// only becomes a transcript) and Text (opens the composer) are the same capsule in a tinted secondary fill, so no button reads
-/// as a tab. The accessory is a capsule in two placements: `expanded` has room for icon and title on every button, `inline`
-/// (the tab bar is minimized) keeps the title on Hermes only and the other two are icon-only capsules.
+/// The record control in the tab bar's bottom accessory: three visible buttons, no hidden gesture, all the same height. They are
+/// rounded rectangles with a gap between them, not capsules that fill the accessory edge to edge, so none reads as a tab segment.
+/// Hermes is the one primary (the default: a take whose memo goes to Hermes, `Accent.fill`, takes the room the others leave);
+/// Transcribe (a take that only becomes a transcript) and Text (opens the composer) are outlined in the accent on a faint tint:
+/// actions, not a second primary. The accessory is in two placements: `expanded` has room for icon and title on every button,
+/// `inline` (the tab bar is minimized) keeps the title on Hermes only and the other two are icon-only squares.
 struct RecordRow: View {
   let model: TakeModel
   let onCompose: () -> Void
   @Environment(\.tabViewBottomAccessoryPlacement) private var placement
 
-  /// The secondary buttons' fill: the accent at the strength of the user's chat bubble (`ChatBubble`), a shape without a second primary.
-  private static let secondaryFillOpacity = 0.14
+  /// The secondary buttons' faint fill and their outline: the accent, so they are buttons without being a second primary.
+  private static let secondaryFillOpacity = 0.08
+  private static let secondaryOutlineOpacity = 0.5
 
   private var showsSecondaryTitles: Bool { placement != .inline }
 
@@ -24,7 +26,7 @@ struct RecordRow: View {
       } label: {
         Label("Hermes", systemImage: MemoMode.hermes.recordIcon)
           .labelStyle(RecordLabelStyle(showsTitle: true))
-          .recordCapsule(foreground: Theme.Accent.onFill, fill: Theme.Accent.fill, fillsWidth: true)
+          .recordButton(foreground: Theme.Accent.onFill, fill: Theme.Accent.fill, outline: nil, fillsWidth: true)
       }
       .buttonStyle(.plain)
       .accessibilityLabel("Hermes")
@@ -36,7 +38,9 @@ struct RecordRow: View {
       } label: {
         Label("Transcribe", systemImage: MemoMode.transcribe.recordIcon)
           .labelStyle(RecordLabelStyle(showsTitle: showsSecondaryTitles))
-          .recordCapsule(foreground: Theme.Accent.tint, fill: Theme.Accent.tint.opacity(Self.secondaryFillOpacity))
+          .recordButton(
+            foreground: Theme.Accent.tint, fill: Theme.Accent.tint.opacity(Self.secondaryFillOpacity),
+            outline: Theme.Accent.tint.opacity(Self.secondaryOutlineOpacity))
       }
       .buttonStyle(.plain)
       .accessibilityLabel("Transcribe")
@@ -46,7 +50,9 @@ struct RecordRow: View {
       Button(action: onCompose) {
         Label("Text", systemImage: "keyboard")
           .labelStyle(RecordLabelStyle(showsTitle: showsSecondaryTitles))
-          .recordCapsule(foreground: Theme.Accent.tint, fill: Theme.Accent.tint.opacity(Self.secondaryFillOpacity))
+          .recordButton(
+            foreground: Theme.Accent.tint, fill: Theme.Accent.tint.opacity(Self.secondaryFillOpacity),
+            outline: Theme.Accent.tint.opacity(Self.secondaryOutlineOpacity))
       }
       .buttonStyle(.plain)
       .accessibilityLabel("Text")
@@ -60,16 +66,20 @@ struct RecordRow: View {
 }
 
 extension View {
-  /// One record button: a capsule at the tap-target height (a circle when icon-only), so the three buttons differ in fill only.
-  fileprivate func recordCapsule<Fill: ShapeStyle>(foreground: Color, fill: Fill, fillsWidth: Bool = false) -> some View
+  /// One record button: a rounded rectangle at the tap-target height (a square when icon-only); the secondaries add an outline.
+  fileprivate func recordButton(foreground: Color, fill: some ShapeStyle, outline: Color?, fillsWidth: Bool = false)
+    -> some View
   {
-    self
+    let shape = RoundedRectangle(cornerRadius: Theme.Radius.control)
+    return
+      self
       .foregroundStyle(foreground)
       .frame(
         minWidth: Theme.Spacing.tapTarget, maxWidth: fillsWidth ? .infinity : nil, minHeight: Theme.Spacing.tapTarget
       )
-      .background(fill, in: .capsule)
-      .contentShape(.capsule)
+      .background(fill, in: shape)
+      .overlay { if let outline { shape.strokeBorder(outline, lineWidth: 1) } }
+      .contentShape(shape)
   }
 }
 

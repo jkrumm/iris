@@ -63,7 +63,7 @@
         TrendRow(
           series: Self.note, name: "Note", points: [1, 2, 0, 0, 0, 1, 1], total: 5, changeText: "▬ 0", direction: .flat)
       }
-      .detailCard()
+      .detailCard(.flush)
       .padding(Theme.Spacing.lg)
       SnapshotSupport.assertLightAndDark(rows, width: 390, height: 190)
     }
