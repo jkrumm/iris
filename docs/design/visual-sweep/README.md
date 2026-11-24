@@ -1,0 +1,13 @@
+# Visual sweep
+
+A pass over every iPhone tab and pushed screen and every Mac screen, light and dark, from `make proof-apple` (the iPhone half now includes a screen tour, `ios/tour/`). The mini has no pinned iPhone 17 / iOS 27.0 simulator, only an iOS 27.1 "iPhone Duo", so the iPhone renders were taken there: fine for headline sizes, truncation and flow, not for the exact tab-bar layout. The pinned recorded snapshots under `apple/Packages/IrisUI/Tests/IrisUITests/__Snapshots__` were read for the iPhone component layout. No snapshot PNG changed: every fix sits outside a snapshot-tested view, or leaves a short name's layout as it was.
+
+| # | Defect | Fix | Before | After |
+|-|-|-|-|-|
+| 1 | iPhone: a conversation's headline is title / bold while a memo detail's is title3 / semibold; the header takes about twice the height for the same text | `ThreadView.header` uses the detail's role and gap | [before](thread-headline-before.png) | [after](thread-headline-after.png) |
+| 2 | Mac recording panel: the microphone name is cut to "MacBoo…rophone" on the built-in microphone | panel 380 → 430 pt, name cap 120 → 170 pt (`Theme.Spacing.panelWidth`, `panelMicNameMax`) | [before](panel-mic-before.png), [long name](panel-longmic-before.png) | [after](panel-mic-after.png), [long name](panel-longmic-after.png) |
+| 3 | Mac onboarding: about 110 pt of empty space between the connection line and the buttons | window 480x420 → 480x350 (`macOnboardingHeight`) | [before](onboarding-before.png) | [after](onboarding-after.png) |
+| 4 | iPhone Stats: the kind name in a trend row is fixed at 78 pt and cuts "GitHub issue" to "GitHu…" | 78 pt is a minimum (`TrendRow`); short names lay out as before, so the recorded snapshot holds | [before](stats-trend-before.png) | not re-rendered (one proof run after); CI's `StatsSnapshotTests/trends` guards the short-name layout |
+| 5 | Proof run: a screen opened straight on Stats showed "No memos yet" because it loaded before the samples were seeded | `-IrisStartTab stats` reloads after the seed (fakes only) | tour `stats-light` of the first run | `ios/tour/stats-light.png` of the second run, in the Stats before image above |
+
+Seen and left alone: the Mac light-mode toolbar drawn as dark pills and the empty title in the window snapshots are an artifact of the `CGWindowListCreateImage` capture; the record row's "Transcribe" label touching its button edge was seen only on the Duo's narrow viewport; the two near-identical microphone buttons in a conversation's reply bar (hold to talk, and lock) differ only by a badge and would need a product call on a label.

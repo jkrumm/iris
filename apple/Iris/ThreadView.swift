@@ -198,9 +198,9 @@ struct ThreadView: View {
   // MARK: Sections
 
   private var header: some View {
-    VStack(alignment: .leading, spacing: Theme.Spacing.cozy) {
+    VStack(alignment: .leading, spacing: Theme.Spacing.snug) {
       Text(verbatim: model.title)
-        .themeFont(.title, weight: .bold)
+        .themeFont(.title3, weight: .semibold)
         .foregroundStyle(Theme.Ink.primary)
         .fixedSize(horizontal: false, vertical: true)
         .accessibilityAddTraits(.isHeader)

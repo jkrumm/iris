@@ -82,10 +82,10 @@ extension Theme.Spacing {
 
 /// The Mac recording panel (`mac.html`, variant `panel`: `.panel`, `.panel .btn.stop`, `.panel .tm`, `.panel .wave`, `.panel .chip`, `.panel .btn.x`).
 extension Theme.Spacing {
-  /// `.panel` is 340 wide in the mockup; 380 here, so the microphone chip can name the device (cut in the middle at
-  /// `panelMicNameMax`) and a German string or a long device name still cannot clip.
-  public static let panelWidth: CGFloat = 380
-  public static let panelMicNameMax: CGFloat = 120
+  /// `.panel` is 340 wide in the mockup; 430 here, so the microphone chip names the built-in device in full ("MacBook Pro
+  /// Microphone") and cuts a longer one in the middle at `panelMicNameMax`; the level bars take the slack.
+  public static let panelWidth: CGFloat = 430
+  public static let panelMicNameMax: CGFloat = 170
   /// `.panel` radius 28: half the one-row height (a capsule); a failure message keeps the same corner.
   public static let panelRadius: CGFloat = 28
   /// `.panel` padding 10 / 10, gap 8 between its children.
@@ -139,7 +139,7 @@ extension Theme.Spacing {
   public static let macSettingsWidth: CGFloat = 460
   public static let macSettingsHeight: CGFloat = 330
   public static let macOnboardingWidth: CGFloat = 480
-  public static let macOnboardingHeight: CGFloat = 420
+  public static let macOnboardingHeight: CGFloat = 350
   /// The onboarding window's margin and gap between its blocks.
   public static let macOnboardingInset: CGFloat = 32
   public static let macOnboardingGap: CGFloat = 16

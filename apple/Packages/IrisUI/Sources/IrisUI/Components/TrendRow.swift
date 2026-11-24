@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// One kind's trend: its name, a sparkline over the periods, the total and the change against the period before. Laid out as
-/// the `.trow` grid of `docs/design/mockups/stats.html`: name 78 pt, the sparkline takes the rest, total and change right-aligned.
+/// the `.trow` grid of `docs/design/mockups/stats.html`: name at least 78 pt, the sparkline takes the rest, total and change right-aligned.
 public struct TrendRow: View {
   public enum Direction: Sendable { case up, down, flat }
 
@@ -32,7 +32,9 @@ public struct TrendRow: View {
           .foregroundStyle(Theme.Ink.primary)
           .lineLimit(1)
       }
-      .frame(width: 78, alignment: .leading)
+      // 78 pt is the floor, not a cap: "GitHub issue" and a German kind name show whole and the sparkline gives way.
+      .fixedSize(horizontal: true, vertical: false)
+      .frame(minWidth: 78, alignment: .leading)
       sparkline
       Text(verbatim: String(total))
         .themeFont(.subheadline, weight: .bold)
