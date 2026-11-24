@@ -156,6 +156,9 @@ export interface Memo {
 /** How long a soft-deleted memo stays restorable before the sweeper purges it. The one definition. */
 export const PURGE_AFTER_MS = 10 * 60 * 1000;
 
+/** A `receiving` memo whose last segment (or creation) is younger than this is a take in progress; /health counts it busy. */
+export const TAKE_ACTIVE_MS = 120_000;
+
 /** When a soft-deleted memo is purged (ISO), or null for a memo that is not deleted. */
 export function purgeAt(memo: Pick<Memo, "deletedAt">): string | null {
   return memo.deletedAt === null

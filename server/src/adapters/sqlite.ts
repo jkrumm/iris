@@ -727,6 +727,17 @@ export function createSqliteMemoStore(params: { db: Database; clock: Clock }): M
         .map((row) => row.idx);
     },
 
+    countActiveTakes(since) {
+      const row = db
+        .query<{ n: number }, [string]>(
+          `SELECT COUNT(*) AS n FROM memos m
+           WHERE m.state = 'receiving' AND m.deleted_at IS NULL
+             AND COALESCE((SELECT MAX(s.received_at) FROM segments s WHERE s.memo_id = m.id), m.created_at) >= ?`,
+        )
+        .get(since);
+      return row?.n ?? 0;
+    },
+
     markReceived({ id, segmentCount }) {
       const result = db
         .query(

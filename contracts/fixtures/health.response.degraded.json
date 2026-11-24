@@ -4,5 +4,6 @@
     "otel",
     "summarize"
   ],
-  "inflight": 1
+  "inflight": 1,
+  "receiving": 1
 }

@@ -59,18 +59,29 @@ describe("/v1 guard", () => {
   it("leaves /health public", async () => {
     const res = await get("/health");
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ status: "ok", degraded: [], inflight: 0 });
+    expect(await res.json()).toEqual({ status: "ok", degraded: [], inflight: 0, receiving: 0 });
   });
 
   it("reports degraded subsystems on /health", async () => {
     const degraded = createApp({ deviceTokens: tokens, memos, degraded: ["otel"] });
     const res = await degraded.handle(new Request("http://iris.test/health"));
-    expect(await res.json()).toEqual({ status: "degraded", degraded: ["otel"], inflight: 0 });
+    expect(await res.json()).toEqual({
+      status: "degraded",
+      degraded: ["otel"],
+      inflight: 0,
+      receiving: 0,
+    });
   });
 
   it("reports the in-flight memo count on /health", async () => {
     const busy = createApp({ deviceTokens: tokens, memos, inflight: () => 2 });
     const res = await busy.handle(new Request("http://iris.test/health"));
-    expect(await res.json()).toEqual({ status: "ok", degraded: [], inflight: 2 });
+    expect(await res.json()).toEqual({ status: "ok", degraded: [], inflight: 2, receiving: 0 });
+  });
+
+  it("reports the takes in progress on /health", async () => {
+    const taking = createApp({ deviceTokens: tokens, memos, receiving: () => 1 });
+    const res = await taking.handle(new Request("http://iris.test/health"));
+    expect(await res.json()).toEqual({ status: "ok", degraded: [], inflight: 0, receiving: 1 });
   });
 });

@@ -359,6 +359,34 @@ describe("state changes", () => {
     expect(store.getMemo(id)?.state).toBe("transcribed");
   });
 
+  it("countActiveTakes counts a receiving memo with a fresh segment or a fresh creation, not a stale or finished one", () => {
+    const { store, clock } = testStore();
+    const since = () => new Date(clock.now().getTime() - 120_000).toISOString();
+    expect(store.countActiveTakes(since())).toBe(0);
+
+    const noSegment = seedMemo(store, "receiving");
+    expect(store.countActiveTakes(since())).toBe(1);
+
+    // The take recorded a segment, then went quiet past the window: abandoned, not busy.
+    store.recordSegment({ id: noSegment.id, index: 0, bytes: 10, sha256: "a" });
+    clock.advance(121_000);
+    expect(store.countActiveTakes(since())).toBe(0);
+
+    // A new segment makes it busy again.
+    store.recordSegment({ id: noSegment.id, index: 1, bytes: 10, sha256: "b" });
+    expect(store.countActiveTakes(since())).toBe(1);
+
+    // A completed take is no longer receiving.
+    store.markReceived({ id: noSegment.id, segmentCount: 2 });
+    expect(store.countActiveTakes(since())).toBe(0);
+
+    // A memo created within the window with no segment yet is busy; once older it is not.
+    seedMemo(store, "receiving");
+    expect(store.countActiveTakes(since())).toBe(1);
+    clock.advance(121_000);
+    expect(store.countActiveTakes(since())).toBe(0);
+  });
+
   it("listNonTerminal skips receiving, notified, failed and needs_route", () => {
     const { store } = testStore();
     seedMemo(store, "receiving");

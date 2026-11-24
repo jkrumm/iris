@@ -97,6 +97,11 @@ export interface MemoStore extends ThreadStore {
   recordSegment(params: { id: string; index: number; bytes: number; sha256: string }): boolean;
   getSegment(params: { id: string; index: number }): { bytes: number; sha256: string } | null;
   listSegmentIndices(id: string): number[];
+  /**
+   * Takes in progress: memos still `receiving` (not deleted) whose last segment arrived at or after `since`, or that
+   * were created at or after `since` and have no segment yet. An abandoned take falls out once it is older than that.
+   */
+  countActiveTakes(since: string): number;
 
   /** receiving → received compare-and-set; false when the memo is not `receiving` or is soft-deleted. */
   markReceived(params: { id: string; segmentCount: number }): boolean;

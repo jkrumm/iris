@@ -146,13 +146,21 @@ main() {
   esac
 
   # Idle gate: a restart abandons the running step's HTTP calls (the memo resumes at the same step
-  # on boot, but `act` is at-least-once), so defer while any memo is mid-step. A down service
-  # deploys anyway.
-  local health inflight=0
+  # on boot, but `act` is at-least-once), so defer while any memo is mid-step. It also cuts a take in
+  # progress (a `receiving` memo with a segment in the last 120 s; its client gives up on a failed PUT),
+  # so defer while `receiving` is above 0 too. A stale take (no segment for 120 s) is not counted. A
+  # down service deploys anyway.
+  local health busy inflight=0 receiving=0
   if health=$(curl -fsS --max-time 5 "$HEALTH_URL" 2>/dev/null); then
-    inflight=$(print -r -- "$health" | jq -r '.inflight // 0' 2>/dev/null || print 0)
+    busy=$(print -r -- "$health" | jq -r '"\(.inflight // 0) \(.receiving // 0)"' 2>/dev/null || print "0 0")
+    inflight=${busy% *}
+    receiving=${busy#* }
     if (( inflight > 0 )); then
       log "deferred: $inflight memo(s) in flight — will retry next tick"
+      return 0
+    fi
+    if (( receiving > 0 )); then
+      log "deferred: $receiving take(s) in progress (a memo receiving segments) — will retry next tick"
       return 0
     fi
   else
