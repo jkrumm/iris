@@ -79,6 +79,7 @@ public struct ArtifactViewer: View {
         }
       }
       .disabled(loadedData == nil)
+      .help(Text("Copy", bundle: #bundle, comment: "Copies an artifact's text in the artifact viewer"))
       .accessibilityIdentifier("artifact.viewer.copy")
       if let shareFile {
         ShareLink(item: shareFile) {
@@ -88,6 +89,7 @@ public struct ArtifactViewer: View {
             Image(systemName: "square.and.arrow.up")
           }
         }
+        .help(Text("Share", bundle: #bundle, comment: "Shares an artifact's file from the artifact viewer"))
         .accessibilityIdentifier("artifact.viewer.share")
       }
       #if os(iOS)

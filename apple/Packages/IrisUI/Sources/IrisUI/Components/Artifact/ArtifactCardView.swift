@@ -186,6 +186,7 @@ private struct ArtifactOpenButton: View {
     .accessibilityLabel(
       Text("Show full screen", bundle: #bundle, comment: "Button on an inline artifact: opens it full screen")
     )
+    .help(Text("Show full screen", bundle: #bundle, comment: "Button on an inline artifact: opens it full screen"))
     .accessibilityIdentifier("artifact.open")
     .modifier(ArtifactViewerPresentation(presented: $presented))
   }
