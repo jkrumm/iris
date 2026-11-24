@@ -85,12 +85,15 @@ public struct ReplyPlayer: View {
     }
     .buttonStyle(.plain)
     .disabled(playback.isLoading)
-    .accessibilityLabel(
-      playback.isPlaying
-        ? Text("Pause reply", bundle: #bundle, comment: "VoiceOver label of the reply player's pause button")
-        : Text("Play reply", bundle: #bundle, comment: "VoiceOver label of the reply player's play button")
-    )
+    .accessibilityLabel(playLabel)
+    .help(playLabel)
     .accessibilityIdentifier("thread.reply.toggle")
+  }
+
+  private var playLabel: Text {
+    playback.isPlaying
+      ? Text("Pause reply", bundle: #bundle, comment: "VoiceOver label of the reply player's pause button")
+      : Text("Play reply", bundle: #bundle, comment: "VoiceOver label of the reply player's play button")
   }
 
   private var scrubber: some View {
@@ -163,11 +166,14 @@ public struct ReplyPlayer: View {
     .menuStyle(.button)
     .buttonStyle(.plain)
     .menuIndicator(.hidden)
-    .accessibilityLabel(
-      Text(
-        "Choose what to read", bundle: #bundle,
-        comment: "VoiceOver label of the menu that picks the summary or the full reply")
-    )
+    .accessibilityLabel(formLabel)
+    .help(formLabel)
     .accessibilityIdentifier("thread.reply.form")
+  }
+
+  private var formLabel: Text {
+    Text(
+      "Choose what to read", bundle: #bundle,
+      comment: "VoiceOver label of the menu that picks the summary or the full reply")
   }
 }

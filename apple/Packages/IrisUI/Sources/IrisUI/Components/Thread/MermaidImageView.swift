@@ -36,6 +36,7 @@ public struct MermaidImageView: View {
       .buttonStyle(.plain)
       .accessibilityLabel(Text("Diagram", bundle: #bundle, comment: "VoiceOver label of a rendered Mermaid diagram"))
       .accessibilityHint(Text("Opens the diagram full screen", bundle: #bundle, comment: "VoiceOver hint"))
+      .help(Text("Opens the diagram full screen", bundle: #bundle, comment: "VoiceOver hint"))
       .accessibilityIdentifier("thread.diagram")
     case .loading:
       placeholder { ProgressView() }

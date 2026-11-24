@@ -163,6 +163,14 @@ private struct CopyCodeButton: View {
   private static let iconSize: CGFloat = 16
   private static let confirmation = Duration.milliseconds(1500)
 
+  private var label: String {
+    copied
+      ? String(
+        localized: "Copied", bundle: #bundle,
+        comment: "VoiceOver label of a code block's copy button right after it copied")
+      : String(localized: "Copy code", bundle: #bundle, comment: "VoiceOver label of the copy button on a code block")
+  }
+
   var body: some View {
     Button {
       copy()
@@ -176,13 +184,8 @@ private struct CopyCodeButton: View {
         .contentShape(Rectangle().inset(by: -(Theme.Spacing.tapTarget - Self.iconSize) / 2))
     }
     .buttonStyle(.plain)
-    .accessibilityLabel(
-      copied
-        ? String(
-          localized: "Copied", bundle: #bundle,
-          comment: "VoiceOver label of a code block's copy button right after it copied")
-        : String(localized: "Copy code", bundle: #bundle, comment: "VoiceOver label of the copy button on a code block")
-    )
+    .accessibilityLabel(label)
+    .help(label)
     .accessibilityIdentifier("thread.codeCopy")
     .task(id: copied) {
       guard copied else { return }
