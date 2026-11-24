@@ -1,5 +1,6 @@
 import Foundation
 import IrisCapture
+import IrisCore
 import IrisTelemetry
 import Testing
 
@@ -80,6 +81,22 @@ struct CaptureDeviceEventsTests {
     #expect(upload["ms"] is Int)
     #expect(attributes(records[1])["segment_count"] as? Int == 3)
     #expect(records[0]["traceId"] as? String == segment.memoID.wireID.replacing("-", with: ""))
+  }
+
+  @Test("a refused upload names what answered: the HTTP status and the server's error code, never its message")
+  func uploadFailureCarriesTheAnswer() async throws {
+    let dump = Dump()
+    let refusal = APIOutboxUploader.classified(
+      APIError.server(status: 400, body: ErrorBody(error: .badRequest, message: "empty segment")))
+    let uploader = ObservedSegmentUploader(ScriptedUploader(failure: refusal), log: dump.log)
+    await #expect(throws: PermanentTransferError.self) { try await uploader.upload(segment) }
+
+    let records = try await dump.records()
+    let upload = attributes(records[0])
+    #expect(upload["status"] as? String == "permanent")
+    #expect(upload["http_status"] as? Int == 400)
+    #expect(upload["error.code"] as? String == "bad_request")
+    #expect(!String(describing: records).contains("empty segment"))
   }
 
   @Test("a failed upload is a warning with the error and the attempt count, and still throws")

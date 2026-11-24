@@ -104,11 +104,19 @@ nonisolated struct APIOutboxUploader: SegmentUploader {
     case .unauthorized, .decoding: return api
     case .transport: return TransientTransferError(String(describing: api))
     case .server(let status, let body):
-      return isTransient(status) ? TransientTransferError(body.message) : PermanentTransferError(body.message)
+      let code = body.error.rawValue
+      return isTransient(status)
+        ? TransientTransferError(body.message, httpStatus: status, code: code)
+        : PermanentTransferError(body.message, httpStatus: status, code: code)
     case .unexpectedStatus(let status):
-      return isTransient(status) ? TransientTransferError("HTTP \(status)") : PermanentTransferError("HTTP \(status)")
+      return isTransient(status)
+        ? TransientTransferError("HTTP \(status)", httpStatus: status)
+        : PermanentTransferError("HTTP \(status)", httpStatus: status)
     // `complete` turns `missingSegments` into a retry itself; anywhere else it is a refusal.
-    case .missingSegments(let message, _), .tooLarge(let message, _): return PermanentTransferError(message)
+    case .missingSegments(let message, _):
+      return PermanentTransferError(message, httpStatus: 422, code: APIErrorCode.missingSegments.rawValue)
+    case .tooLarge(let message, _):
+      return PermanentTransferError(message, httpStatus: 413, code: APIErrorCode.tooLarge.rawValue)
     case .notScripted(let call): return PermanentTransferError("not scripted: \(call)")
     }
   }

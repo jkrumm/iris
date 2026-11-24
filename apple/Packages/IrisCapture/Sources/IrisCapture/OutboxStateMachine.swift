@@ -5,7 +5,8 @@ import Foundation
 /// A queued item (a whole memo or chat message) goes through `create` (for a take: once it has a segment or has ended), then, for a take, its segments and `complete`:
 /// - item create: pending -> uploading -> uploaded (voice) or gone (text), or uploading -> failed(retryAt) -> uploading;
 /// - segments: pending -> uploading -> uploaded, or uploading -> failed(retryAt) -> uploading;
-/// - `complete` for a memo is handed out only once the memo is finished and every segment `0..<segmentCount` is uploaded.
+/// - `complete` for a memo is handed out only once the memo is finished and every segment `0..<segmentCount` is uploaded or
+///   stalled (the server then names a stalled one in its 422 `missing_segments`, and it is sent again).
 ///
 /// A transfer that fails `policy.maxAttempts` times, or is refused for good, **stalls**: nothing is scheduled until
 /// `retryNow` or `discard`. A transient failure (no network, a 5xx) backs off but never stalls, however long it lasts:
@@ -452,7 +453,7 @@ public struct OutboxStateMachine: Sendable {
 
     for memo in memos.values.sorted(by: { $0.memoID.uuidString < $1.memoID.uuidString }) {
       guard capacity > 0 else { break }
-      guard isCreated(memo.memoID), isDue(memo.completion, now: now), allUploaded(memo),
+      guard isCreated(memo.memoID), isDue(memo.completion, now: now), allSettled(memo),
         Self.isSendable(boundTo: items[memo.memoID]?.serverKey, to: serverKey)
       else { continue }
       memos[memo.memoID]?.completion = .uploading
@@ -632,9 +633,16 @@ public struct OutboxStateMachine: Sendable {
     }
   }
 
-  private func allUploaded(_ memo: OutboxMemo) -> Bool {
+  /// Every segment is uploaded, or stalled: a stalled one is held back for good, so `complete` goes out without it and the
+  /// server's 422 `missing_segments` names it (`completeMissingSegments` then sends it again with a fresh attempt count).
+  /// That is the self-heal for a segment refused while the server was restarting; a take whose stalled segment keeps being
+  /// refused ends in a stalled `complete`, not in a loop. Anything still pending, backing off or on the wire is waited for.
+  private func allSettled(_ memo: OutboxMemo) -> Bool {
     (0..<memo.segmentCount).allSatisfy {
-      entries[SegmentKey(memoID: memo.memoID, index: $0)]?.state == .uploaded
+      switch entries[SegmentKey(memoID: memo.memoID, index: $0)]?.state {
+      case .uploaded, .stalled: true
+      default: false
+      }
     }
   }
 }

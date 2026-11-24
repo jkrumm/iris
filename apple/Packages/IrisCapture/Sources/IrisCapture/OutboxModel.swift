@@ -200,11 +200,17 @@ public struct OutboxItem: Sendable, Equatable, Codable {
 }
 
 /// A transfer the server refused for good (a 4xx that a retry cannot change): the item stalls at once instead of backing off.
+/// `httpStatus` and `code` (the server's `error` code, a closed vocabulary) say what answered, for the device log; they are
+/// `nil` when the refusal did not come from an HTTP answer.
 public struct PermanentTransferError: Error, Sendable, Equatable {
   public let message: String
+  public let httpStatus: Int?
+  public let code: String?
 
-  public init(_ message: String) {
+  public init(_ message: String, httpStatus: Int? = nil, code: String? = nil) {
     self.message = message
+    self.httpStatus = httpStatus
+    self.code = code
   }
 }
 
@@ -236,11 +242,16 @@ public struct MissingSegmentsError: Error, Sendable, Equatable {
 
 /// A transfer that failed for a reason that says nothing about the transfer itself (no network, a 5xx, a 408 or 429): it
 /// backs off and is tried again for as long as it takes, and does not count toward `OutboxPolicy.maxAttempts`.
+/// `httpStatus` and `code` are as on `PermanentTransferError`.
 public struct TransientTransferError: Error, Sendable, Equatable {
   public let message: String
+  public let httpStatus: Int?
+  public let code: String?
 
-  public init(_ message: String) {
+  public init(_ message: String, httpStatus: Int? = nil, code: String? = nil) {
     self.message = message
+    self.httpStatus = httpStatus
+    self.code = code
   }
 }
 

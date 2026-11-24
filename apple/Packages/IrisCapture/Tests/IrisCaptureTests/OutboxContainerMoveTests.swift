@@ -14,6 +14,9 @@ struct OutboxContainerMoveTests {
   private actor FileReadingUploader: SegmentUploader {
     private(set) var uploaded: [String] = []
     private(set) var completed: [Int] = []
+    private let refusesComplete: Bool
+
+    init(refusesComplete: Bool = false) { self.refusesComplete = refusesComplete }
 
     func create(_ item: OutboxItem) async throws {}
 
@@ -24,7 +27,14 @@ struct OutboxContainerMoveTests {
       uploaded.append(segment.fileURL.lastPathComponent)
     }
 
-    func complete(memoID: MemoID, segmentCount: Int) async throws { completed.append(segmentCount) }
+    /// Like the server: a segment it never received is named in a 422 `missing_segments`.
+    func complete(memoID: MemoID, segmentCount: Int) async throws {
+      if refusesComplete { throw PermanentTransferError("refused") }
+      guard uploaded.count >= segmentCount else {
+        throw MissingSegmentsError(indices: Array(uploaded.count..<segmentCount), message: "segments missing")
+      }
+      completed.append(segmentCount)
+    }
     func delete(memoID: MemoID) async throws {}
   }
 
@@ -138,7 +148,8 @@ struct OutboxContainerMoveTests {
     try await rig.store.save(record)
     await first.shutdown()
 
-    let uploader = FileReadingUploader()
+    // `complete` refused for good, so the 422 heal for a stalled segment does not send them again either.
+    let uploader = FileReadingUploader(refusesComplete: true)
     let outbox = try await Outbox(
       store: rig.store, uploader: uploader, clock: ManualClock(), policy: OutboxPolicy(jitter: { 0 }),
       deletesFilesWhenDone: false)

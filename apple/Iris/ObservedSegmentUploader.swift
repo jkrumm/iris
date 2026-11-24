@@ -66,7 +66,21 @@ nonisolated final class ObservedSegmentUploader: SegmentUploader {
     let (status, message) = Self.describe(error)
     all["status"] = .string(status)
     all["error"] = .string(message)
+    // What answered: the HTTP status and the server's error code (never its message).
+    if let http = Self.answer(of: error) {
+      if let httpStatus = http.status { all["http_status"] = .int(httpStatus) }
+      if let code = http.code { all["error.code"] = .string(code) }
+    }
     log.event(name, memoID: memoID, severity: .warn, all)
+  }
+
+  /// The HTTP status and the server's error code the failure carries, when it came from an answer.
+  static func answer(of error: any Error) -> (status: Int?, code: String?)? {
+    switch error {
+    case let permanent as PermanentTransferError: (permanent.httpStatus, permanent.code)
+    case let transient as TransientTransferError: (transient.httpStatus, transient.code)
+    default: nil
+    }
   }
 
   /// `permanent` (stalls), `transient` (retried without counting) or `error` (retried, counts), and the error's type: never its

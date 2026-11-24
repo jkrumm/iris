@@ -12,7 +12,7 @@ Design is `docs/TDD.md` §4 (Capture engine, Outbox). Load skill `apple-capture-
 
 ## Outbox
 
-- One persistent entry per (memo, segment). Uploads are idempotent by index and sha256 (same bytes no-op, different bytes 409), retries survive relaunch, and `complete {segmentCount}` goes only after every index is uploaded. Never delete a segment file before the server has acknowledged it.
+- One persistent entry per (memo, segment). Uploads are idempotent by index and sha256 (same bytes no-op, different bytes 409), retries survive relaunch, and `complete {segmentCount}` goes only once every index is uploaded or stalled: a stalled segment does not hold the take, the server's 422 `missing_segments` names it and the outbox sends it again. Never delete a segment file before the server has acknowledged it.
 - A take is created on the server at its first segment, so a cancelled take leaves nothing behind. A take cancelled after the server may have created its memo queues a persisted `DELETE` (`OutboxDeletion`).
 - An outbox file that cannot be decoded is never emptied: Settings "Reset outbox" quarantines it (`outbox.quarantined-<UTC timestamp>.json`). `CaptureStack` never falls back to an in-memory queue.
 - Work is bound to the server it was queued for (`serverKey`): the state machine hands out nothing bound to another server, and `ReconfigurableAPIClient` checks it when it picks its target.

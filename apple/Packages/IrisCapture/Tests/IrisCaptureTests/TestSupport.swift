@@ -42,6 +42,9 @@ actor TestUploader: SegmentUploader {
   private var failuresLeft: [SegmentKey: Int] = [:]
   private var completeFailuresLeft = 0
   private var missingScripts: [[Int]] = []
+  private var permanentFailuresLeft: [SegmentKey: Int] = [:]
+  private var checksCompletes = false
+  private(set) var completeAttempts = 0
   private var createFailuresLeft = 0
   private var deleteFailuresLeft = 0
   private var deletesArePermanent = false
@@ -55,6 +58,12 @@ actor TestUploader: SegmentUploader {
   private var attemptWaiters: [(key: SegmentKey, count: Int, continuation: CheckedContinuation<Void, Never>)] = []
 
   func failNext(_ times: Int, for key: SegmentKey) { failuresLeft[key] = times }
+
+  /// The next `times` uploads of the segment are refused for good (a 4xx a retry cannot change): the segment stalls.
+  func refuseNext(_ times: Int, for key: SegmentKey) { permanentFailuresLeft[key] = times }
+
+  /// `complete` answers 422 `missing_segments` with every index below its count that was never uploaded, as the server does.
+  func checkCompletesAgainstUploads() { checksCompletes = true }
   func failNextCompletes(_ times: Int) { completeFailuresLeft = times }
 
   /// The next `complete` answers that the server lacks these segments (422 `missing_segments`), one script per call.
@@ -122,6 +131,10 @@ actor TestUploader: SegmentUploader {
     resolveWaiters()
     if isHolding { await withCheckedContinuation { held.append($0) } }
     inFlight -= 1
+    if permanentFailuresLeft[key, default: 0] > 0 {
+      permanentFailuresLeft[key, default: 0] -= 1
+      throw PermanentTransferError("refused", httpStatus: 400, code: "bad_request")
+    }
     if failuresLeft[key, default: 0] > 0 {
       failuresLeft[key, default: 0] -= 1
       throw UploadFailure()
@@ -131,6 +144,12 @@ actor TestUploader: SegmentUploader {
   }
 
   func complete(memoID: MemoID, segmentCount: Int) async throws {
+    completeAttempts += 1
+    if checksCompletes {
+      let held = Set(uploaded.filter { $0.memoID == memoID }.map(\.index))
+      let lacking = (0..<segmentCount).filter { !held.contains($0) }
+      if !lacking.isEmpty { throw MissingSegmentsError(indices: lacking, message: "segments missing") }
+    }
     if !missingScripts.isEmpty {
       throw MissingSegmentsError(indices: missingScripts.removeFirst(), message: "segments missing")
     }

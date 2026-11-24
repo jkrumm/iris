@@ -219,6 +219,17 @@ struct APIOutboxUploaderTests {
     #expect(isPermanent(.unexpectedStatus(404)))
   }
 
+  @Test("a classified failure keeps the HTTP status and the server's code")
+  func classifiedKeepsTheAnswer() {
+    let refused = APIOutboxUploader.classified(
+      APIError.server(status: 404, body: ErrorBody(error: .notFound, message: "gone")))
+    #expect((refused as? PermanentTransferError)?.httpStatus == 404)
+    #expect((refused as? PermanentTransferError)?.code == "not_found")
+    let busy = APIOutboxUploader.classified(APIError.unexpectedStatus(502))
+    #expect((busy as? TransientTransferError)?.httpStatus == 502)
+    #expect((busy as? TransientTransferError)?.code == nil)
+  }
+
   @Test("a voice item is created with createMemo, carrying its thread")
   func voiceCreate() async throws {
     let client = FakeAPIClient()
