@@ -561,7 +561,6 @@
       write(window, as: name)
     }
 
-    /// The same window in the dark appearance (the system's stays as it was), after a moment for the views to redraw.
     /// The same window forced to the light appearance (a host in dark mode would draw its own, so the light picture is not left to it).
     private func writeLight(windowTitled title: String, as name: String) async {
       guard let window = NSApp.windows.first(where: { $0.title == title && $0.isVisible }) else { return }
@@ -573,6 +572,7 @@
       try? await Task.sleep(for: .milliseconds(500))
     }
 
+    /// The same window in the dark appearance (the system's stays as it was), after a moment for the views to redraw.
     private func writeDark(windowTitled title: String, as name: String, chrome: Bool = true) async {
       guard let window = NSApp.windows.first(where: { $0.title == title && $0.isVisible }) else { return }
       await writeDark(window, as: name, chrome: chrome)
