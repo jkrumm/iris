@@ -11,7 +11,7 @@ Input: a memo id (UUID; the trace id is the same UUID with the dashes stripped).
 ```bash
 T=$(secrets-run read op://mini/iris/device-tokens | tr ',' '\n' | awk -F= '$2=="smoke"{print $1}')   # ran; never print $T
 H="Authorization: Bearer $T"; B=http://127.0.0.1:7730
-curl -s $B/health                                                   # {"status","degraded":[],"inflight"}  (ran)
+curl -s $B/health                                                   # {"status","degraded":[],"inflight","receiving"}  (ran)
 curl -s -H "$H" "$B/v1/memos?limit=5" | jq '.items[]|{id,state,kind}'        # ran: newest first
 curl -s -H "$H" $B/v1/memos/$ID | jq '{state,failedStep,error,kind,actions,steps:[.steps[]|{step,status,error,costUsd}]}'   # ran
 curl -s -H "$H" "$B/v1/memos/$ID/result?wait=0"                     # 200 once result-ready, 202 otherwise
